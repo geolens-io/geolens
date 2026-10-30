@@ -134,6 +134,8 @@ export function toViewerSyncInput(
     // `_v=` cache-buster as the builder.
     tile_version: layer.tile_version,
     bounds: layer.dataset_extent_bbox ?? null,
+    // The cluster tile route refuses a filter on a column outside the allowlist, so such a filter stays off its URL.
+    dataset_tile_columns: layer.dataset_tile_columns,
   };
 }
 

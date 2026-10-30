@@ -69,7 +69,9 @@
     "filterApplied": "Filtered {{layer}} to {{filter}}.",
     "filterCleared": "Removed filter {{filter}} on {{layer}}.",
     "cantFilter": "“{{value}}” can't be used as a filter.",
-    "tooManyForClusters": "Too many values to filter this layer's clusters. Pick fewer."
+    "tooManyForClusters": "Too many values to filter this layer's clusters. Pick fewer.",
+    "clustersCantFilter": "This filter can't be applied to this layer's clusters on the map.",
+    "tooManyValues": "Too many values to filter by. Pick fewer."
   },
   "editor": {
     "panelPosition": "Panel position",

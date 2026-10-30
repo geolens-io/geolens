@@ -3,9 +3,12 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import type { WidgetSelection } from '@/components/widgets/contract';
 import type { SharedLayerResponse } from '@/types/api';
-import { fitsClusterFilterLimits, getClusterSourceStrategy } from '@/components/builder/cluster-source';
-import { maplibreFilterToCql2 } from '@/lib/maplibre-filter-utils';
-import { linkMapLayers, selectionCql2, type LinkedPick } from '../linked-filters';
+import {
+  fitsAggregateFilterLimits,
+  getClusterSourceStrategy,
+  serverClusterFilter,
+} from '@/components/builder/cluster-source';
+import { linkMapLayers, selectionCql2, widgetFilter, type LinkedPick } from '../linked-filters';
 import { layerDisplayName } from '../shared-layer';
 
 /** A pick as its filter chip reads, e.g. "land_use: Residential". */
@@ -13,23 +16,39 @@ export function pickText(pick: LinkedPick, t: TFunction<'widgets'>): string {
   return t('dashboard.filterChip', { column: pick.selection.column, value: pick.selection.label });
 }
 
+type PickFilterProblem = 'too-many-values' | 'clusters-cant-filter' | 'too-many-for-clusters';
+
+const PROBLEM_KEYS = {
+  'too-many-values': 'dashboard.tooManyValues',
+  'clusters-cant-filter': 'dashboard.clustersCantFilter',
+  'too-many-for-clusters': 'dashboard.tooManyForClusters',
+} as const satisfies Record<PickFilterProblem, string>;
+
 /**
- * Whether `layer`'s cluster tiles can take its saved filter with `picks` on it.
- * Past the route's limits the map would count every point in its bubbles while
- * the widgets apply the picks.
+ * Why `picks` can't all filter `layer`, or null when every transport they feed
+ * takes them: the aggregate requests of the layer's widgets, which a widget
+ * with no pick of its own sends with the saved filter and every pick, and, on
+ * a server-clustered layer, its cluster tile requests. MapLibre and a bounded
+ * cluster's GeoJSON filter on the client, without limits.
  */
-function clusterTilesCanFilter(layer: SharedLayerResponse, picks: readonly LinkedPick[]): boolean {
-  if (getClusterSourceStrategy(layer).kind !== 'server-tile') return true;
-  const [linked] = linkMapLayers([layer], picks);
-  const cql2 = maplibreFilterToCql2(linked.filter, layer.column_info);
-  return !cql2 || cql2 === 'unsupported' || fitsClusterFilterLimits(cql2);
+function pickFilterProblem(layer: SharedLayerResponse, picks: readonly LinkedPick[]): PickFilterProblem | null {
+  const onLayer = picks.filter((pick) => pick.layerId === layer.id);
+  const { filter } = widgetFilter(layer, onLayer.map((pick) => pick.cql2));
+  if (filter && !fitsAggregateFilterLimits(filter)) return 'too-many-values';
+  if (getClusterSourceStrategy(layer).kind === 'server-tile') {
+    const [linked] = linkMapLayers([layer], onLayer);
+    const routed = serverClusterFilter(linked.filter, layer.column_info, layer.dataset_tile_columns);
+    if ('omitted' in routed && routed.omitted === 'unsupported') return 'clusters-cant-filter';
+    if ('omitted' in routed && routed.omitted === 'too-large') return 'too-many-for-clusters';
+  }
+  return null;
 }
 
 /**
  * The reader's picks as the panel changes them: `choose` sets, replaces or
  * clears a widget's pick, refusing one the server can't filter on, and
- * `remove` clears one from its chip. A pick that would push a server-clustered
- * layer's filter past the cluster route's limits is refused too. Each change
+ * `remove` clears one from its chip. A pick that any request carrying the
+ * layer's filters couldn't take is refused too (`pickFilterProblem`). Each change
  * sets `announcement`, whose `count` changes even when its text repeats.
  */
 export function usePicks(
@@ -63,8 +82,9 @@ export function usePicks(
     }
     const next: LinkedPick = { widgetId, layerId: layer.id, selection, cql2 };
     const nextPicks = current ? picks.map((pick) => (pick === current ? next : pick)) : [...picks, next];
-    if (!clusterTilesCanFilter(layer, nextPicks)) {
-      announce(t('dashboard.tooManyForClusters'));
+    const problem = pickFilterProblem(layer, nextPicks);
+    if (problem) {
+      announce(t(PROBLEM_KEYS[problem]));
       return;
     }
     onPicksChange?.(nextPicks);

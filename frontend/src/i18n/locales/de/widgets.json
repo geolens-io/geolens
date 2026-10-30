@@ -69,7 +69,9 @@
     "filterApplied": "{{layer}} nach {{filter}} gefiltert.",
     "filterCleared": "Filter {{filter}} auf {{layer}} entfernt.",
     "cantFilter": "„{{value}}“ kann nicht als Filter verwendet werden.",
-    "tooManyForClusters": "Zu viele Werte, um die Cluster dieser Ebene zu filtern. Wählen Sie weniger aus."
+    "tooManyForClusters": "Zu viele Werte, um die Cluster dieser Ebene zu filtern. Wählen Sie weniger aus.",
+    "clustersCantFilter": "Dieser Filter lässt sich auf die Cluster dieser Ebene in der Karte nicht anwenden.",
+    "tooManyValues": "Zu viele Werte zum Filtern. Wählen Sie weniger aus."
   },
   "editor": {
     "panelPosition": "Position des Bereichs",

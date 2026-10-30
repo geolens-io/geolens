@@ -9,11 +9,11 @@ import type {
 import type { TileToken, UnsignedRasterTileTemplate } from '@/api/tiles';
 import { effectiveDemRenderMode } from '@/lib/dem-render-mode';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
-import { filterConditions, isCql2LiteralCompatible, maplibreFilterToCql2, sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
+import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 import { extractPlaceholders } from '@/lib/popup-template';
 import { buildClusterTileUrl, buildSignedTileUrl, getMvtSourceLayerName } from '@/lib/tile-utils';
 import type { LabelConfig, PopupConfig, StyleConfig } from '@/types/api';
-import { fitsClusterFilterLimits, getClusterSourceStrategy } from './cluster-source';
+import { getClusterSourceStrategy, serverClusterFilter } from './cluster-source';
 import { getCompanionLayerIds } from './companion-ids';
 import { getClusterSourceOptions } from './layer-adapters/cluster-adapter';
 import { resolveHeightColumn } from './layer-adapters/fill-adapter';
@@ -244,28 +244,13 @@ const VECTOR_SOURCE_MAXZOOM = 14;
 /** The server clusters only up to a layer's cluster max zoom, so single points need tiles past z14. */
 const CLUSTER_SOURCE_MAXZOOM = 22;
 
-function clusterOptions(layer: SyncLayerInput) {
-  return getClusterSourceOptions({ style_config: layer.style_config } as AdapterLayerInput);
+function clusterRouteFilter(layer: SyncLayerInput): string | undefined {
+  const routed = serverClusterFilter(layer.filter, layer.dataset_column_info, layer.dataset_tile_columns);
+  return 'json' in routed ? routed.json : undefined;
 }
 
-/**
- * The layer filter as the cluster tile route's CQL2-JSON `filter`, or undefined when there is
- * none, it has no CQL2 form, a literal mismatches a known column type, a property is outside
- * an explicit tile allowlist, or it exceeds the route's limits. Unlisted column types are
- * left to the server. Omission counts all points in bubbles; loose points keep the filter.
- */
-function serverClusterFilter(layer: SyncLayerInput): string | undefined {
-  const cql2 = maplibreFilterToCql2(layer.filter, layer.dataset_column_info);
-  if (!cql2 || cql2 === 'unsupported') return undefined;
-  const types = new Map(
-    (layer.dataset_column_info ?? []).filter((col) => col.type).map((col) => [col.name, String(col.type).toLowerCase()]),
-  );
-  if ((filterConditions(layer.filter) ?? []).some((condition) => {
-    if (layer.dataset_tile_columns != null && !layer.dataset_tile_columns.includes(condition.field)) return true;
-    const values = condition.listValues ?? (condition.rawValue == null ? [] : [condition.rawValue]);
-    return values.some((value) => !isCql2LiteralCompatible(value, types.get(condition.field)));
-  })) return undefined;
-  return fitsClusterFilterLimits(cql2) ? JSON.stringify(cql2) : undefined;
+function clusterOptions(layer: SyncLayerInput) {
+  return getClusterSourceOptions({ style_config: layer.style_config } as AdapterLayerInput);
 }
 
 // A source filter runs once, at load, on the raw GeoJSON feature: no camera state and no tile geometry.
@@ -383,7 +368,7 @@ function vectorSource(
   return {
     type: 'vector',
     tiles: [serverCluster
-      ? buildClusterTileUrl(layer.dataset_table_name, vectorToken, tileBaseUrl, tileVersion, { ...clusterOptions(layer), filter: serverClusterFilter(layer) }, cols)
+      ? buildClusterTileUrl(layer.dataset_table_name, vectorToken, tileBaseUrl, tileVersion, { ...clusterOptions(layer), filter: clusterRouteFilter(layer) }, cols)
       : buildSignedTileUrl(layer.dataset_table_name, vectorToken, tileBaseUrl, tileVersion, cols)],
     minzoom: VECTOR_SOURCE_MINZOOM,
     maxzoom: serverCluster ? CLUSTER_SOURCE_MAXZOOM : VECTOR_SOURCE_MAXZOOM,

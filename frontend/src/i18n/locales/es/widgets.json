@@ -69,7 +69,9 @@
     "filterApplied": "{{layer}} filtrada por {{filter}}.",
     "filterCleared": "Filtro {{filter}} quitado de {{layer}}.",
     "cantFilter": "«{{value}}» no se puede usar como filtro.",
-    "tooManyForClusters": "Hay demasiados valores para filtrar los grupos de esta capa. Elige menos."
+    "tooManyForClusters": "Hay demasiados valores para filtrar los grupos de esta capa. Elige menos.",
+    "clustersCantFilter": "Este filtro no se puede aplicar a los grupos de esta capa en el mapa.",
+    "tooManyValues": "Hay demasiados valores para filtrar. Elige menos."
   },
   "editor": {
     "panelPosition": "Posición del panel",

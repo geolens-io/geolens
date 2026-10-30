@@ -224,6 +224,59 @@ describe('dashboard linking', () => {
     expect(boxes[2]).not.toBeChecked();
   });
 
+  it('refuses a pick on a server-clustered layer whose saved filter its cluster tiles can\'t take', async () => {
+    const opaque: FilterSpecification = ['>', ['length', ['get', 'zone']], 3];
+    const clustered = {
+      ...layer(parcelsId, 'Parcels', opaque),
+      geometry_type: 'POINT',
+      feature_count: 20_000,
+      style_config: { render_mode: 'cluster' },
+    } as SharedLayerResponse;
+    const { latestMapLayers } = renderViewer([clustered, layer(roadsId, 'Roads')]);
+    await clickBar('Residential');
+
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent("This filter can't be applied to this layer's clusters on the map."),
+    );
+    expect(latestMapLayers()[0]).toBe(clustered);
+    expect(screen.queryByRole('group', { name: 'Filters' })).not.toBeInTheDocument();
+  });
+
+  it('refuses a pick that would make the widgets\' requests longer than the server takes', async () => {
+    const user = userEvent.setup();
+    const long = (letter: string) => letter.repeat(2600);
+    fetchMock.mockImplementation(async (_dataset, body) =>
+      (body.op === 'value_counts'
+        ? {
+            op: 'value_counts',
+            approximate: false,
+            cached: false,
+            result: { values: ['a', 'b', 'c', 'd'].map((letter) => ({ value: long(letter), count: 1 })), other_count: 0 },
+          }
+        : respond(body)) as never,
+    );
+    const selector = {
+      version: 1,
+      widgets: [
+        { id: chartId, type: 'category_selector', v: 1, title: 'Land use', layer_id: parcelsId, config: { column: 'land_use', multiple: true } },
+        { id: countId, type: 'indicator', v: 1, title: 'Parcels', layer_id: parcelsId, config: { stat: 'count' } },
+      ],
+    } as DashboardConfig;
+    const { latestMapLayers } = renderViewer([layer(parcelsId, 'Parcels'), layer(roadsId, 'Roads')], selector);
+    const boxes = await screen.findAllByRole('checkbox');
+
+    for (const box of boxes.slice(0, 3)) await user.click(box);
+    const filtered = latestMapLayers()[0].filter;
+    expect(filtered).toEqual(['in', ['get', 'land_use'], ['literal', [long('a'), long('b'), long('c')]]]);
+
+    // A fourth value takes the indicator's filter past the 10,000 characters the server reads.
+    await user.click(boxes[3]);
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Too many values to filter by. Pick fewer.'));
+    expect(latestMapLayers()[0].filter).toEqual(filtered);
+    expect(boxes[3]).not.toBeChecked();
+    expect(bodiesFor('count').every((body) => JSON.stringify(body.filter ?? null).length <= 10_000)).toBe(true);
+  });
+
   it('applies a pick with Enter on the focused bar', async () => {
     renderViewer([layer(parcelsId, 'Parcels'), layer(roadsId, 'Roads')]);
     const chart = await screen.findByRole('group', { name: 'Count by land_use' });

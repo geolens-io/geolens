@@ -235,6 +235,21 @@ describe('syncLayersToMap cluster rendering', () => {
     });
   });
 
+  it('leaves a filter off the server-cluster URL when its encoding would overflow the request line', () => {
+    const map = makeMockMap();
+    // 500 short values: about 3,500 characters of JSON, within the route's 4,096,
+    // but percent-encoded past what nginx accepts in a request line.
+    const values = Array.from({ length: 500 }, (_, index) => `v${index}`);
+    const layer = makeLayer({
+      feature_count: 20_000,
+      filter: ['in', ['get', 'kind'], ['literal', values]] as unknown as SyncLayerInput['filter'],
+    });
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+    expect(vi.mocked(buildClusterTileUrl).mock.calls[0][4]?.filter).toBeUndefined();
+  });
+
   it('leaves a nested filter off the server-cluster URL when a nested property is outside the tile allowlist', () => {
     const map = makeMockMap();
     const layer = makeLayer({
