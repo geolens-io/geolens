@@ -973,7 +973,14 @@ class MapLayerResponse(BaseModel):
     dataset_geometry_type: str | None
     dataset_table_name: str
     dataset_extent_bbox: list[float] | None
-    dataset_column_info: list[dict] | None = None
+    dataset_column_info: list[dict] | None = Field(
+        default=None,
+        description=(
+            "The dataset's columns, each with its name and type. In a map "
+            "response each also carries its current attribute title, semantic "
+            "role and value labels when set."
+        ),
+    )
     dataset_tile_columns: list[str] | None = Field(
         default=None,
         description=(

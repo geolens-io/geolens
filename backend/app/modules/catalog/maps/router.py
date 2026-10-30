@@ -109,6 +109,7 @@ from app.modules.catalog.maps._router_helpers import (
     _layer_rows_by_id,
     _layers_from_tuples,
     _meta_to_kwargs,
+    _readable_layers,
     _reject_non_public_datasets,
     _stored_image_cache_control,
     _stored_image_response,
@@ -924,7 +925,7 @@ async def duplicate_map_endpoint(
     )
     await db.commit()
 
-    layers = _layers_from_tuples(await with_visible_vrt_extents(db, layer_tuples, user))
+    layers = await _readable_layers(db, layer_tuples, user)
     base_resp = _build_map_response(
         new_map,
         layers,

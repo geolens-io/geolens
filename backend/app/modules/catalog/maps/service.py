@@ -55,6 +55,7 @@ from app.modules.catalog.maps.service_public import (
     revoke_share_token_by_map,
     update_share_token,
     validate_public_visibility,
+    with_attribute_display,
 )
 from app.modules.catalog.maps.service_shared import (
     DatasetMeta,
@@ -121,4 +122,5 @@ __all__ = [
     "_infer_layer_type",
     "_validate_share_token",
     "with_visible_vrt_extents",
+    "with_attribute_display",
 ]

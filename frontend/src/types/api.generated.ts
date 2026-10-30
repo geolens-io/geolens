@@ -12311,7 +12311,10 @@ export interface components {
             dataset_table_name: string;
             /** Dataset Extent Bbox */
             dataset_extent_bbox: number[] | null;
-            /** Dataset Column Info */
+            /**
+             * Dataset Column Info
+             * @description The dataset's columns, each with its name and type. In a map response each also carries its current attribute title, semantic role and value labels when set.
+             */
             dataset_column_info?: {
                 [key: string]: unknown;
             }[] | null;

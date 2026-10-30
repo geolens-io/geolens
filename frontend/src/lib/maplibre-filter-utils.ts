@@ -1,4 +1,5 @@
 import type { FilterSpecification } from 'maplibre-gl';
+import { expression as styleExpression } from '@maplibre/maplibre-gl-style-spec';
 import { isTextColumn, TEXT_COLUMN_TYPES } from './column-utils';
 
 /**
@@ -608,6 +609,46 @@ const cql2OrNull = (field: string, expr: Cql2Expression): Cql2Expression => ({
   args: [cql2IsNull(field), expr],
 });
 
+const LEGACY_ORDER_OPERATORS = new Set(['<', '>', '<=', '>=']);
+const LEGACY_NEGATIONS: Record<string, string> = { '!in': 'in', '!=': '==', '!has': 'has' };
+
+function legacyNode(node: unknown): unknown {
+  if (!Array.isArray(node)) return 'unsupported';
+  const [op, key, ...values] = node;
+  if (op === 'all' || op === 'any') {
+    const children = node.slice(1).map(legacyNode);
+    return children.includes('unsupported') ? 'unsupported' : [op, ...children];
+  }
+  if (typeof op === 'string' && Object.hasOwn(LEGACY_NEGATIONS, op)) {
+    const positive = legacyNode([LEGACY_NEGATIONS[op], key, ...values]);
+    return positive === 'unsupported' ? positive : ['!', positive];
+  }
+  if (typeof key !== 'string' || key === '$type' || key === '$id') return 'unsupported';
+  if (op === 'in') return ['in', ['get', key], ['literal', values]];
+  if (op === 'has') return values.length === 0 ? ['has', key] : 'unsupported';
+  // A legacy null comparison tests for a present null, which expressions can't tell from a missing value.
+  if (values.length !== 1 || !isCql2Scalar(values[0])) return 'unsupported';
+  const [value] = values;
+  if (op === '==') return ['in', ['get', key], ['literal', [value]]];
+  return LEGACY_ORDER_OPERATORS.has(op) && typeof value === 'number'
+    ? buildNullSafeNumericComparison(key, op, value)
+    : 'unsupported';
+}
+
+/**
+ * A filter in MapLibre's legacy syntax (`["in", key, ...values]`, `!in`,
+ * `!has`, `["==", key, value]`, ...) rewritten in the editor's expression
+ * forms, which keep the same features, or 'unsupported' when part of it has
+ * no such form, such as `none`, `$type`, a null or a text order comparison.
+ * Any other filter comes back unchanged.
+ */
+export function legacyFilterToExpression(
+  filter: FilterSpecification | null | undefined,
+): FilterSpecification | null | undefined | 'unsupported' {
+  if (!Array.isArray(filter) || filter.length === 0 || styleExpression.isExpressionFilter(filter)) return filter;
+  return legacyNode(filter) as FilterSpecification | 'unsupported';
+}
+
 function compareNumbers(a: number, operator: string, b: number): boolean {
   switch (operator) {
     case '==':
@@ -700,12 +741,14 @@ function treeConditions(tree: FilterTree): CanonicalFilterCondition[] {
 
 /**
  * Every condition of `filter` at any depth of `all`/`any`, or null when part
- * of it is outside the editor's subset.
+ * of it is outside the editor's subset. A legacy filter is read in the forms
+ * `legacyFilterToExpression` gives it.
  */
 export function filterConditions(
   filter: FilterSpecification | null | undefined,
 ): CanonicalFilterCondition[] | null {
-  const tree = parseFilterTree(filter ?? null);
+  const expression = legacyFilterToExpression(filter ?? null);
+  const tree = expression === 'unsupported' ? null : parseFilterTree(expression);
   return tree ? treeConditions(tree) : null;
 }
 
@@ -739,7 +782,8 @@ function treeToCql2(tree: FilterTree, types: ReadonlyMap<string, string>): Cql2E
  * Translate a layer's MapLibre filter into CQL2-JSON that keeps the same
  * features. Returns null when the layer has no filter, and 'unsupported' when
  * the filter uses a form outside the structured editor's subset, nested
- * `all`/`any` groups of it included, or reads a column CQL2 cannot filter.
+ * `all`/`any` groups of it included, or reads a column CQL2 cannot filter. A
+ * legacy filter is read in the forms `legacyFilterToExpression` gives it.
  * `columns` types the literals; a filter on a column it does not list is sent
  * untyped.
  */
@@ -748,8 +792,10 @@ export function maplibreFilterToCql2(
   columns?: readonly FilterColumn[] | null,
   opts?: { requireKnownFields?: boolean },
 ): Cql2Expression | null | 'unsupported' {
+  const expression = legacyFilterToExpression(filter);
+  if (expression === 'unsupported') return 'unsupported';
   // The map draws the sanitized filter, so the table and analysis must read the same one.
-  const tree = parseFilterTree(sanitizeNullableNumericFilter(filter));
+  const tree = parseFilterTree(sanitizeNullableNumericFilter(expression));
   if (!tree) return 'unsupported';
   const types = new Map(
     (columns ?? []).filter((col) => col.type).map((col) => [col.name, String(col.type).toLowerCase()]),

@@ -14,7 +14,7 @@ from app.modules.auth.dependencies import require_permission
 from app.modules.catalog.authorization import get_user_roles
 from app.modules.catalog.maps._router_helpers import (
     _build_map_response,
-    _layers_from_tuples,
+    _readable_layers,
     _stored_images_readable,
 )
 from app.modules.catalog.maps.schemas import MapResponse
@@ -23,7 +23,6 @@ from app.modules.catalog.maps.service import (
     get_map,
     get_map_with_layers,
     lock_map_layers,
-    with_visible_vrt_extents,
 )
 from app.modules.catalog.ownership import require_transfer_admin, transfer_map_owner
 from app.modules.catalog.write_recheck import refuse_stale_write
@@ -93,7 +92,7 @@ async def patch_map_endpoint(
     )
     return _build_map_response(
         map_obj,
-        _layers_from_tuples(await with_visible_vrt_extents(db, layer_tuples, user)),
+        await _readable_layers(db, layer_tuples, user),
         forked_from_name=forked_name,
         created_by_username=owner_username,
         include_notes=True,

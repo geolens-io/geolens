@@ -13322,6 +13322,7 @@
                 "type": "null"
               }
             ],
+            "description": "The dataset's columns, each with its name and type. In a map response each also carries its current attribute title, semantic role and value labels when set.",
             "title": "Dataset Column Info"
           },
           "dataset_tile_columns": {

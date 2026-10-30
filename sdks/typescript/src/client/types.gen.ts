@@ -7825,6 +7825,8 @@ export type MapLayerResponse = {
     dataset_extent_bbox: Array<number> | null;
     /**
      * Dataset Column Info
+     *
+     * The dataset's columns, each with its name and type. In a map response each also carries its current attribute title, semantic role and value labels when set.
      */
     dataset_column_info?: Array<{
         [key: string]: unknown;

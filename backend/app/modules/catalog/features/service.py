@@ -26,6 +26,7 @@ from app.modules.catalog.features.idempotency import (  # noqa: F401 - façade f
     current_table_oid,
 )
 from app.platform.extensions import get_catalog_port
+from app.platform.timestamptz_text import utc_timestamptz_text
 
 if TYPE_CHECKING:
     from app.modules.catalog.datasets.domain.models import Dataset
@@ -273,7 +274,11 @@ def parse_bbox(bbox: str | Sequence[float]) -> list[float]:
 
 
 async def live_property_columns(
-    db: AsyncSession, table_name: str, *, only: list[str] | None = None
+    db: AsyncSession,
+    table_name: str,
+    *,
+    only: list[str] | None = None,
+    utc_timestamptz: bool = False,
 ) -> str:
     """Quoted select-list of the table's live columns minus gid/geom/geom_4326.
 
@@ -283,7 +288,9 @@ async def live_property_columns(
     `Dataset.column_info`, which can drift on re-upload. Colons
     are backslash-escaped too (`text()` parses `:name` as a bind param even
     quoted; Socrata ships columns named `:id`). Valid only inside `text()`.
-    ``only`` keeps just the named columns; an empty list keeps none.
+    ``only`` keeps just the named columns; an empty list keeps none. With
+    ``utc_timestamptz``, a timestamptz column is projected as the UTC text
+    vector tiles carry, under its own name.
     """
     from app.core.db.tenant_schema import tenant_data_schema
     from app.core.db.tenant_session import current_tenant_var
@@ -291,7 +298,8 @@ async def live_property_columns(
     schema = tenant_data_schema(current_tenant_var.get())
     result = await db.execute(
         text(
-            "SELECT a.attname FROM pg_attribute a "
+            "SELECT a.attname, a.atttypid = 'timestamptz'::regtype "
+            "FROM pg_attribute a "
             "JOIN pg_class c ON c.oid = a.attrelid "
             "JOIN pg_namespace n ON n.oid = c.relnamespace "
             "WHERE n.nspname = :schema AND c.relname = :tn "
@@ -300,13 +308,18 @@ async def live_property_columns(
             "AND a.attname NOT IN ('gid', 'geom', 'geom_4326') ORDER BY a.attnum"
         ).bindparams(schema=schema, tn=table_name)
     )
-    names = [name for (name,) in result.all()]
-    if only is not None:
-        allowed = set(only)
-        names = [name for name in names if name in allowed]
-    return ", ".join(
-        '"' + name.replace('"', '""').replace(":", "\\:") + '"' for name in names
-    )
+    allowed = None if only is None else set(only)
+    columns = []
+    for name, is_timestamptz in result.all():
+        if allowed is not None and name not in allowed:
+            continue
+        quoted = '"' + name.replace('"', '""').replace(":", "\\:") + '"'
+        columns.append(
+            f"{utc_timestamptz_text(quoted)} AS {quoted}"
+            if utc_timestamptz and is_timestamptz
+            else quoted
+        )
+    return ", ".join(columns)
 
 
 async def feature_table_exists(db: AsyncSession, table_name: str) -> bool:
@@ -348,6 +361,7 @@ async def _projected_row_source(
     *,
     with_geometry: bool,
     only: list[str] | None = None,
+    utc_timestamptz: bool = False,
 ) -> str:
     """Render the projected FROM source feature readers serialize from.
 
@@ -356,7 +370,9 @@ async def _projected_row_source(
     is spatial so bbox predicates and the geometry select keep working; the
     planner flattens the subquery, so index use is unchanged.
     """
-    prop_cols = await live_property_columns(db, table_name, only=only)
+    prop_cols = await live_property_columns(
+        db, table_name, only=only, utc_timestamptz=utc_timestamptz
+    )
     prop_sel = f", {prop_cols}" if prop_cols else ""
     geom_sel = ", geom_4326" if with_geometry else ""
     return (
@@ -663,7 +679,8 @@ async def get_features_geojson_z(
     Returns (rows, truncated, total_count).
 
     Uses LIMIT cap+1 to detect truncation without a separate COUNT query.
-    ST_AsGeoJSON natively preserves Z when the geometry has Z.
+    ST_AsGeoJSON natively preserves Z when the geometry has Z. A timestamptz
+    is the UTC text its tiles carry, whatever the session's TimeZone.
     total_count: actual row count when not truncated, COUNT(*) when truncated.
     cached_feature_count is ignored — always uses authoritative count.
     ``property_columns``, when given, limits ``properties`` to those columns.
@@ -673,7 +690,11 @@ async def get_features_geojson_z(
         "to_jsonb(t.*) - 'gid' - 'geom_4326' AS properties"
     )
     row_source = await _projected_row_source(
-        db, table_name, with_geometry=True, only=property_columns
+        db,
+        table_name,
+        with_geometry=True,
+        only=property_columns,
+        utc_timestamptz=True,
     )
     data_sql = f"SELECT {select_cols} FROM {row_source} t ORDER BY gid LIMIT :limit"
     result = await db.execute(text(data_sql).bindparams(limit=cap + 1))

@@ -7,6 +7,8 @@ import {
   validateRawFilter,
   FilterValidationError,
   maplibreFilterToCql2,
+  layerFilterToServerCql2,
+  legacyFilterToExpression,
   isCql2LiteralCompatible,
   utcTimestampText,
 } from '../maplibre-filter-utils';
@@ -419,6 +421,86 @@ describe('maplibreFilterToCql2', () => {
     ])('refuses %s', (_label, filter) => {
       expect(convert(filter)).toBe('unsupported');
     });
+  });
+});
+
+describe('legacy saved filters', () => {
+  const p = (field: string) => ({ property: field });
+  const isNull = (field: string) => ({ op: 'isNull', args: [p(field)] });
+  const columns = [
+    { name: 'kind', type: 'text' },
+    { name: 'pop', type: 'integer' },
+    { name: 'seen', type: 'date' },
+  ];
+  const features = [
+    { kind: 'a', pop: 5, seen: '2024-01-01' },
+    { kind: 'b', pop: 12, seen: '2024-06-01' },
+    { kind: 'c', pop: 7 },
+    { pop: 0 },
+    {},
+  ];
+
+  it.each([
+    [['in', 'kind', 'a', 'b'], { op: 'in', args: [p('kind'), ['a', 'b']] }],
+    [['in', 'pop', 5, 12], { op: 'in', args: [p('pop'), [5, 12]] }],
+    [
+      ['!in', 'kind', 'a'],
+      { op: 'or', args: [isNull('kind'), { op: 'not', args: [{ op: 'in', args: [p('kind'), ['a']] }] }] },
+    ],
+    [['==', 'kind', 'a'], { op: 'in', args: [p('kind'), ['a']] }],
+    [
+      ['!=', 'pop', 5],
+      { op: 'or', args: [isNull('pop'), { op: 'not', args: [{ op: 'in', args: [p('pop'), [5]] }] }] },
+    ],
+    [['>', 'pop', 6], { op: '>', args: [p('pop'), 6] }],
+    [['!has', 'kind'], isNull('kind')],
+    [
+      ['all', ['in', 'kind', 'a', 'c'], ['>=', 'pop', 5]],
+      { op: 'and', args: [{ op: 'in', args: [p('kind'), ['a', 'c']] }, { op: '>=', args: [p('pop'), 5] }] },
+    ],
+    [
+      ['any', ['==', 'kind', 'a'], ['<', 'pop', 6]],
+      { op: 'or', args: [{ op: 'in', args: [p('kind'), ['a']] }, { op: '<', args: [p('pop'), 6] }] },
+    ],
+  ])('translates %j to the CQL2 that keeps the features the map draws', (legacy, expected) => {
+    const filter = legacy as unknown as FilterSpecification;
+    expect(maplibreFilterToCql2(filter, columns)).toEqual(expected);
+    const translated = legacyFilterToExpression(filter);
+    expect(translated).not.toBe('unsupported');
+    for (const feature of features) {
+      expect(drawn(translated as FilterSpecification, feature)).toBe(drawn(filter, feature));
+    }
+  });
+
+  it('types the values as the expression forms do', () => {
+    // Text values can't be compared with an integer column, so the server would refuse them.
+    const textOnInteger = ['in', 'pop', '5', '12'] as unknown as FilterSpecification;
+    expect(layerFilterToServerCql2(textOnInteger, columns)).toBe(
+      layerFilterToServerCql2(['in', ['get', 'pop'], ['literal', ['5', '12']]] as FilterSpecification, columns),
+    );
+    expect(layerFilterToServerCql2(textOnInteger, columns)).toBe('unsupported');
+    expect(layerFilterToServerCql2(['in', 'kind', 'a'] as unknown as FilterSpecification, columns)).toEqual({
+      op: 'in',
+      args: [p('kind'), ['a']],
+    });
+  });
+
+  it.each([
+    ['none', ['none', ['==', 'kind', 'a']]],
+    ['a $type test', ['==', '$type', 'Point']],
+    ['an $id list', ['in', '$id', 1, 2]],
+    ['a null comparison', ['==', 'kind', null]],
+    ['a text order comparison', ['<', 'seen', '2024-03-01']],
+  ])('refuses %s', (_label, legacy) => {
+    const filter = legacy as unknown as FilterSpecification;
+    expect(legacyFilterToExpression(filter)).toBe('unsupported');
+    expect(maplibreFilterToCql2(filter, columns)).toBe('unsupported');
+  });
+
+  it('leaves an expression filter alone', () => {
+    const filter = ['in', ['get', 'kind'], ['literal', ['a']]] as FilterSpecification;
+    expect(legacyFilterToExpression(filter)).toBe(filter);
+    expect(legacyFilterToExpression(null)).toBeNull();
   });
 });
 
