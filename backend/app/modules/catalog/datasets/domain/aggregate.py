@@ -653,6 +653,11 @@ def _check_filter_depth(cql2: Any) -> None:
             pending.extend((child, depth + 1) for child in children)
 
 
+# Part of each result's cache key, so a server never reads an answer cached in
+# another result format; at 2, integer histogram edges are whole-number bins.
+_RESULT_FORMAT = 2
+
+
 def _cache_key(prefix: str, dataset: Dataset, body: dict) -> str | None:
     if not tenant_cache_context_available():
         return None
@@ -789,7 +794,8 @@ async def run_aggregate(
     cache_key = _cache_key(
         "aggregate",
         dataset,
-        request.model_dump(mode="json") | {"bbox": bbox, "covered": covered},
+        request.model_dump(mode="json")
+        | {"bbox": bbox, "covered": covered, "format": _RESULT_FORMAT},
     )
     cached = await get_cache().get(cache_key) if cache_key is not None else None
     if cached is not None:

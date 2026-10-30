@@ -630,6 +630,23 @@ class TestCache:
         assert after.json()["cached"] is False
         assert after.json()["result"]["count"] == 9
 
+    async def test_a_result_cached_in_an_older_format_is_not_read(
+        self, client: AsyncClient, points
+    ):
+        body = {"op": "stats", "column": "pop", "stats": ["count"]}
+        request = aggregate.StatsRequest.model_validate(body)
+        old_key = aggregate._cache_key(
+            "aggregate",
+            points,
+            request.model_dump(mode="json") | {"bbox": None, "covered": False},
+        )
+        await aggregate.get_cache().set(old_key, {"count": 999}, ttl=300)
+
+        resp = await _aggregate(client, points.id, body)
+
+        assert resp.json()["cached"] is False
+        assert resp.json()["result"]["count"] == 8
+
 
 @pytest.fixture
 def stored_ttls(monkeypatch) -> list[int]:
