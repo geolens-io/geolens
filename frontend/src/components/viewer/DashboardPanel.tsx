@@ -10,7 +10,10 @@ import type { WidgetSelection } from '@/components/widgets/contract';
 import { WidgetView } from '@/components/widgets/WidgetView';
 import { parseStoredWidget, type ParsedWidget } from '@/components/widgets/registry';
 import type { Bbox } from '@/lib/bbox';
+import { getClusterSourceStrategy } from '@/components/builder/cluster-source';
+import { useTileConfig } from '@/hooks/use-settings';
 import { isCql2QueryableColumn, type Cql2Expression } from '@/lib/maplibre-filter-utils';
+import { isMvtSourceLayerConfigReady } from '@/lib/tile-utils';
 import { readStorage, removeStorage, storageKeys, writeStorage } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 import type { DashboardConfig, SharedLayerResponse } from '@/types/api';
@@ -162,6 +165,7 @@ function DashboardWidgetList({
   onFailedChange: (id: string, failed: boolean) => void;
 }) {
   const { t } = useTranslation('widgets');
+  const { data: tileConfig } = useTileConfig();
   const layersById = useMemo(() => new Map(layers.map((layer) => [layer.id, layer])), [layers]);
   // A widget leaves the panel only when the reader turns its layer off; a
   // layer saved hidden can still drive numbers, as a reference layer does.
@@ -206,11 +210,13 @@ function DashboardWidgetList({
           // A pick must filter both the numbers and the map, so the server has to
           // filter on its column and the map's features have to carry it.
           const column = parsed.definition.picksColumn?.(config);
+          // A server-clustered pick is measured against the map's tile URL, which needs the tile config.
           const pickable =
             !!onChoose &&
             column !== undefined &&
             isCql2QueryableColumn(column, layer.column_info) &&
-            mapCarriesColumn(layer, column);
+            mapCarriesColumn(layer, column) &&
+            (getClusterSourceStrategy(layer).kind !== 'server-tile' || isMvtSourceLayerConfigReady(tileConfig));
           return (
             <li key={key}>
               <DashboardWidget

@@ -3,10 +3,23 @@ import userEvent from '@testing-library/user-event';
 import type { FilterSpecification } from 'maplibre-gl';
 import { render } from '@/test/test-utils';
 import { fetchAggregate, type AggregateRequest } from '@/api/aggregate';
+import { getTileConfig, type TileConfig } from '@/api/settings';
 import type { DashboardConfig, SharedLayerResponse } from '@/types/api';
 import { ViewerWithDashboard } from '../ViewerWithDashboard';
 
 vi.mock('@/api/aggregate', () => ({ fetchAggregate: vi.fn() }));
+vi.mock('@/api/settings', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/settings')>()),
+  getTileConfig: vi.fn(),
+}));
+
+const TILE_CONFIG: TileConfig = {
+  cdn_base_url: null,
+  public_app_url: null,
+  public_api_url: null,
+  public_base_url: null,
+  mvt_source_layer_prefix: 'data',
+};
 
 const fetchMock = vi.mocked(fetchAggregate);
 
@@ -99,6 +112,8 @@ const bodiesFor = (op: string) => fetchMock.mock.calls.map(([, body]) => body).f
 beforeEach(() => {
   fetchMock.mockReset();
   fetchMock.mockImplementation(async (_dataset, body) => respond(body) as never);
+  vi.mocked(getTileConfig).mockReset();
+  vi.mocked(getTileConfig).mockResolvedValue(TILE_CONFIG);
 });
 
 async function clickBar(name: string) {
@@ -317,6 +332,23 @@ describe('dashboard linking', () => {
     );
     expect(latestMapLayers()[0].filter).toEqual(filtered);
     expect(boxes[2]).not.toBeChecked();
+  });
+
+  it('offers picks on a server-clustered layer only once the map\'s tile config has loaded', async () => {
+    let loadTileConfig: (config: TileConfig) => void = () => {};
+    vi.mocked(getTileConfig).mockReturnValue(new Promise((resolve) => (loadTileConfig = resolve)));
+    const clustered = {
+      ...layer(parcelsId, 'Parcels'),
+      geometry_type: 'POINT',
+      feature_count: 20_000,
+      style_config: { render_mode: 'cluster' },
+    } as SharedLayerResponse;
+    renderViewer([clustered, layer(roadsId, 'Roads')]);
+    const chart = await screen.findByRole('group', { name: 'Count by land_use' });
+    expect(chart).toHaveAccessibleDescription('Use the arrow keys to move between bars.');
+
+    loadTileConfig(TILE_CONFIG);
+    await waitFor(() => expect(chart).toHaveAccessibleDescription(/Press Enter to filter the map by a bar/));
   });
 
   it('applies a pick with Enter on the focused bar', async () => {

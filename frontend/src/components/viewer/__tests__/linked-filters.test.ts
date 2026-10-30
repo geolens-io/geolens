@@ -235,6 +235,20 @@ describe('linkMapLayers on a bounded cluster', () => {
     expect(matches(filter, { r: 0.2 })).toBe(false);
   });
 
+  it('keeps a real column\'s GeoJSON points in the histogram bin they belong to', () => {
+    const target = pointLayer(true, 'r', 'real');
+    const f = Math.fround;
+    // Every value is 0.1: one bin with no width, whose edges are the float4 at double precision.
+    const single = linkedFilter(target, range('r', f(0.1), f(0.1), true));
+    expect(matches(single, { r: 0.1 })).toBe(true);
+    // A point at a bin's open upper edge belongs to the next bin, in either spelling.
+    const lowerBin = linkedFilter(target, range('r', f(0.1), f(0.2)));
+    expect(matches(lowerBin, { r: 0.1 })).toBe(true);
+    expect(matches(lowerBin, { r: 0.15 })).toBe(true);
+    expect(matches(lowerBin, { r: 0.2 })).toBe(false);
+    expect(matches(lowerBin, { r: f(0.2) })).toBe(false);
+  });
+
   it('sends a server-clustered layer only the spelling the server compares', () => {
     const target = pointLayer(false, 'seen', 'timestamp without time zone');
     expect(linkedFilter(target, pick(['2024-03-01 17:00:00'], 'seen'))).toEqual([

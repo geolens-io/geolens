@@ -31,8 +31,8 @@ function columnType(layer: SharedLayerResponse, column: string): string | undefi
  * it reads a saved filter. Numbers compare null-safely, as the editor's numeric
  * conditions do. On an integer column a range's edges move inward to the whole
  * numbers it holds, because the server takes only whole-number literals there.
- * With `geoJson`, each value also matches the spelling a bounded cluster's
- * GeoJSON gives it (`geoJsonSpellings`).
+ * With `geoJson`, each value or range edge also matches the spelling a
+ * bounded cluster's GeoJSON gives it (`geoJsonSpellings`).
  */
 export function selectionFilter(selection: WidgetSelection, type?: string, geoJson = false): FilterSpecification {
   const { column } = selection;
@@ -42,6 +42,11 @@ export function selectionFilter(selection: WidgetSelection, type?: string, geoJs
     if (type && isIntegerColumn(type)) {
       lower = Math.ceil(lower);
       upper = includeUpper ? Math.floor(upper) : Math.ceil(upper);
+    } else if (geoJson && type === 'real') {
+      // GeoJSON writes an edge's value as its shortest decimal, which can sit on
+      // either side of the edge; each bound moves to whichever keeps the same points.
+      lower = Math.min(lower, float4Text(lower));
+      upper = includeUpper ? Math.max(upper, float4Text(upper)) : Math.min(upper, float4Text(upper));
     }
     return [
       'all',

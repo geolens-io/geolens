@@ -3,11 +3,9 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import type { WidgetSelection } from '@/components/widgets/contract';
 import type { SharedLayerResponse } from '@/types/api';
-import { useQueryClient } from '@tanstack/react-query';
-import type { TileConfig } from '@/api/settings';
 import { fitsAggregateFilterLimits, getClusterSourceStrategy } from '@/components/builder/cluster-source';
 import { clusterTileFilter, getDataDrivenColumnsForLayer, tileBaseUrlFor } from '@/components/builder/layer-description';
-import { queryKeys } from '@/lib/query-keys';
+import { useTileConfig } from '@/hooks/use-settings';
 import { resolveTileBaseUrl } from '@/lib/tile-utils';
 import { linkMapLayers, selectionCql2, widgetFilter, type LinkedPick } from '../linked-filters';
 import { layerDisplayName } from '../shared-layer';
@@ -73,7 +71,7 @@ export function usePicks(
   layers: readonly SharedLayerResponse[],
 ) {
   const { t } = useTranslation('widgets');
-  const queryClient = useQueryClient();
+  const { data: tileConfig } = useTileConfig();
   const [announcement, setAnnouncement] = useState({ text: '', count: 0 });
   const announce = (text: string) => setAnnouncement((previous) => ({ text, count: previous.count + 1 }));
   const layerName = (layerId: string) => {
@@ -99,8 +97,7 @@ export function usePicks(
     }
     const next: LinkedPick = { widgetId, layerId: layer.id, selection, cql2 };
     const nextPicks = current ? picks.map((pick) => (pick === current ? next : pick)) : [...picks, next];
-    // The map has loaded the tile config before any widget can be picked.
-    const tileConfig = queryClient.getQueryData<TileConfig>(queryKeys.settings.tileConfig);
+    // Picks on a server-clustered layer wait for the tile config (DashboardWidgetList), so this is the map's base.
     const tileBaseUrl = tileBaseUrlFor(resolveTileBaseUrl(tileConfig), window.location.origin);
     const problem = pickFilterProblem(layer, nextPicks, tileBaseUrl);
     if (problem) {
