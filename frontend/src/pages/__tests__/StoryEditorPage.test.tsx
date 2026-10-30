@@ -1011,6 +1011,30 @@ describe('image blocks', () => {
     });
   });
 
+  it('cancels an upload still running when the draft is discarded, so its image never lands', async () => {
+    vi.mocked(getStory).mockResolvedValue(published([CHAPTERS[0]]));
+    vi.mocked(discardStoryDraft).mockResolvedValue(
+      draft({ revision: 5, document: { version: 1, chapters: [CHAPTERS[0]] } }),
+    );
+    const gate = deferred<{ id: string; width: number; height: number; byte_size: number; created_at: string }>();
+    vi.mocked(uploadStoryImage).mockReturnValueOnce(gate.promise);
+    const user = userEvent.setup();
+    renderEditor();
+    await screen.findByText('Draft saved. Readers still see the last published version.');
+    await user.upload(within(chapterSection()).getByTestId('story-image-input'), png());
+    await screen.findByRole('progressbar');
+
+    await user.click(screen.getByRole('button', { name: 'Discard draft' }));
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard draft' }));
+    expect(await screen.findByText('Published. Readers see this version.')).toBeInTheDocument();
+    expect(vi.mocked(uploadStoryImage).mock.lastCall?.[3]?.aborted).toBe(true);
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+
+    await act(async () => gate.resolve({ id: ASSET, width: 8, height: 4, byte_size: 10, created_at: '2026-10-29T00:00:00Z' }));
+    expect(screen.queryByRole('textbox', { name: 'Alt text' })).not.toBeInTheDocument();
+    expect(screen.getByText('Published. Readers see this version.')).toBeInTheDocument();
+  });
+
   it('refuses a file the server would refuse without sending it, and shows a server refusal', async () => {
     const user = userEvent.setup({ applyAccept: false });
     renderEditor();
@@ -1151,6 +1175,22 @@ describe('autosave', () => {
     expect(screen.getByText('reader page')).toBeInTheDocument();
     expect(saveStoryDraft).toHaveBeenCalledWith('s1', 4, expect.any(Array));
     expect(lastSavedChapters()[0].title).toBe('Landfall');
+  });
+
+  it('keeps the author and the pending edits when the save on leaving loses to another tab', async () => {
+    vi.mocked(saveStoryDraft).mockRejectedValueOnce(
+      new ApiError('Conflict', 409, { code: 'stale_revision', revision: 9 }),
+    );
+    const router = await readyWithFakeTimers();
+    await editTitle('Landfall');
+    await act(() => router.navigate('/stories/s1'));
+    await advance(0);
+
+    expect(saveStoryDraft).toHaveBeenCalledTimes(1);
+    expect(router.state.location.pathname).toBe('/stories/s1/edit');
+    expect(screen.getByText(/changed somewhere else/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Chapter title')).toHaveValue('Landfall');
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
   it('still warns on a tab close while edits wait to save', async () => {

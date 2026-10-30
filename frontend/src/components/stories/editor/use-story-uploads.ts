@@ -16,13 +16,15 @@ const IDLE: ImageUpload = { progress: null, error: null };
 export interface StoryUploads {
   get: (key: string) => ImageUpload;
   start: (key: string, file: File, onUploaded: (asset: StoryAssetResponse) => void) => void;
+  /** Aborts every upload and forgets its progress and errors; none of them lands. */
+  cancelAll: () => void;
   uploading: boolean;
 }
 
 /**
  * Image uploads for one story, keyed by where the image will land. They live
  * above the chapter editor, so an upload keeps going when another chapter is
- * shown; each is cancelled only when its owner unmounts.
+ * shown; they're cancelled by `cancelAll` or when their owner unmounts.
  */
 export function useStoryUploads(storyId: string): StoryUploads {
   const { t } = useTranslation('stories');
@@ -61,6 +63,7 @@ export function useStoryUploads(storyId: string): StoryUploads {
           (progress) => patch(key, { progress: Math.round(progress * 100) / 100, error: null }),
           controller.signal,
         );
+        if (controller.signal.aborted) return;
         if (same()) onUploaded(asset);
         patch(key, IDLE);
       } catch (err) {
@@ -70,13 +73,19 @@ export function useStoryUploads(storyId: string): StoryUploads {
           error: err instanceof Error && err.message ? err.message : t('common:errors.storyImageUnreadable'),
         });
       } finally {
-        aborts.current.delete(key);
+        if (aborts.current.get(key) === controller) aborts.current.delete(key);
       }
     },
     [patch, storyId, t],
   );
 
+  const cancelAll = useCallback(() => {
+    aborts.current.forEach((controller) => controller.abort());
+    aborts.current.clear();
+    setState({});
+  }, []);
+
   const get = useCallback((key: string) => state[key] ?? IDLE, [state]);
   const uploading = Object.values(state).some((upload) => upload.progress !== null);
-  return { get, start, uploading };
+  return { get, start, cancelAll, uploading };
 }

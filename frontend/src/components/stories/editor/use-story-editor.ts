@@ -29,8 +29,8 @@ export type EditorBusy = 'save' | 'publish' | 'discard' | 'reload' | null;
 
 /**
  * The editor's working copy of a story draft. Edits are saved a moment after
- * the author stops, and when the tab is hidden or the editor closes. A save
- * replaces the whole draft against the revision it was loaded at; a write that
+ * the author stops, and when the tab is hidden. A save replaces the whole
+ * draft against the revision it was loaded at; a write that
  * loses to another tab comes back as a `stale_revision` conflict, which pauses
  * saving until it's resolved, rather than overwriting it. One operation runs
  * at a time, and each drops its response if another account has signed in
@@ -46,8 +46,6 @@ export function useStoryEditor(initial: StoryDraftResponse) {
   // Set when a save fails; the next edit clears it and so lets autosave try again.
   const [failed, setFailed] = useState(false);
   const running = useRef(false);
-  // The editor is remounted for another account, so the one it opened for is fixed.
-  const [sameAccount] = useState(captureAccount);
   const uploads = useStoryUploads(initial.id);
   // Bumped when the working copy is replaced from the server; the page keys
   // the chapter editor on it, which drops a map choice still loading.
@@ -90,6 +88,8 @@ export function useStoryEditor(initial: StoryDraftResponse) {
     if (sent) {
       setChapters((current) => (current === sent ? draft.document.chapters : current));
     } else {
+      // An upload still running would land its image in the replacement.
+      uploads.cancelAll();
       setChapters(draft.document.chapters);
       setGeneration((g) => g + 1);
     }
@@ -116,7 +116,14 @@ export function useStoryEditor(initial: StoryDraftResponse) {
     }
   }
 
-  const save = () => run('save', async (same) => void (await persist(saved.revision, same)));
+  /** Saves the working copy; resolves true when the save went through. */
+  const save = async () => {
+    let ok = false;
+    await run('save', async (same) => {
+      ok = (await persist(saved.revision, same)) !== null;
+    });
+    return ok;
+  };
 
   const autosave = useEffectEvent(() => void save());
   const canAutosave = dirty && busy === null && !unsaveable && !uploads.uploading && !stale && !failed;
@@ -140,18 +147,6 @@ export function useStoryEditor(initial: StoryDraftResponse) {
       window.removeEventListener('pagehide', autosave);
     };
   }, [canAutosave]);
-
-  // Leaving the page unmounts the editor with edits still waiting out the delay;
-  // a failure still reaches the author as a toast.
-  const flushOnUnmount = useRef<(() => void) | null>(null);
-  useEffect(() => {
-    flushOnUnmount.current = canAutosave
-      ? () => {
-          if (sameAccount()) void persist(saved.revision, sameAccount);
-        }
-      : null;
-  });
-  useEffect(() => () => flushOnUnmount.current?.(), []);
 
   /** Saves the working copy over a draft changed elsewhere, at the revision the conflict reported. */
   const overwrite = () =>

@@ -144,8 +144,8 @@
       "addImage": "添加图片",
       "imageBlock": "图片 {{index}}",
       "removeImage": "移除图片 {{index}}",
-      "moveTextBlockUp": "将文本块 {{index}} 上移",
-      "moveTextBlockDown": "将文本块 {{index}} 下移",
+      "moveTextBlockUp": "将文字块 {{index}} 上移",
+      "moveTextBlockDown": "将文字块 {{index}} 下移",
       "moveImageUp": "将图片 {{index}} 上移",
       "moveImageDown": "将图片 {{index}} 下移"
     },

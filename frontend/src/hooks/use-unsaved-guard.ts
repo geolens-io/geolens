@@ -5,11 +5,9 @@ import { useBlocker } from 'react-router';
  * Warns the user when navigating away with unsaved changes.
  * Handles both in-app navigation (useBlocker) and browser close (beforeunload).
  *
- * `blocksNavigation` lets an editor that saves on unmount leave in-app freely
- * while a tab close still warns. Returns the blocker so the caller can render
- * a confirmation dialog.
+ * Returns the blocker so the caller can render a confirmation dialog.
  */
-export function useUnsavedGuard(hasUnsavedChanges: boolean, blocksNavigation = hasUnsavedChanges) {
+export function useUnsavedGuard(hasUnsavedChanges: boolean) {
   // Warn on browser close / tab close / refresh
   useEffect(() => {
     if (!hasUnsavedChanges) return;
@@ -27,8 +25,8 @@ export function useUnsavedGuard(hasUnsavedChanges: boolean, blocksNavigation = h
   const blocker = useBlocker(
     useCallback(
       ({ currentLocation, nextLocation }) =>
-        blocksNavigation && currentLocation.pathname !== nextLocation.pathname,
-      [blocksNavigation],
+        hasUnsavedChanges && currentLocation.pathname !== nextLocation.pathname,
+      [hasUnsavedChanges],
     ),
   );
 

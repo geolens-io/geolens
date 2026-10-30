@@ -40,7 +40,7 @@ it('numbers text blocks and images separately, Remove buttons included', async (
   render(
     <ChapterEditor
       storyId="s1"
-      uploads={{ get: () => ({ progress: null, error: null }), start: vi.fn(), uploading: false }}
+      uploads={{ get: () => ({ progress: null, error: null }), start: vi.fn(), cancelAll: vi.fn(), uploading: false }}
       chapter={CHAPTER}
       index={0}
       edit={edit}
@@ -70,7 +70,7 @@ it('moves blocks with per-kind names and disables the arrows at the ends', async
   render(
     <ChapterEditor
       storyId="s1"
-      uploads={{ get: () => ({ progress: null, error: null }), start: vi.fn(), uploading: false }}
+      uploads={{ get: () => ({ progress: null, error: null }), start: vi.fn(), cancelAll: vi.fn(), uploading: false }}
       chapter={CHAPTER}
       index={0}
       edit={edit}

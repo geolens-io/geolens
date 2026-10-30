@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { ArrowLeft, BookOpen, Settings2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -114,8 +114,20 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
   // Set on a confirmed delete: the row to focus next, or null for Add chapter.
   const focusAfterRemove = useRef<{ id: string | null } | null>(null);
   const paneRef = useRef<StoryMapPaneHandle>(null);
-  // In-app navigation saves pending edits on unmount, so it's blocked only when that save can't run.
-  const blocker = useUnsavedGuard(dirty, dirty && !editor.canAutosave);
+  const blocker = useUnsavedGuard(dirty);
+  // Leaving saves pending edits first and asks only when they can't be saved.
+  // A failed save keeps the author here, where its error or conflict shows.
+  const [askToLeave, setAskToLeave] = useState(false);
+  const onLeave = useEffectEvent(() => {
+    if (!editor.canAutosave) {
+      setAskToLeave(true);
+      return;
+    }
+    void editor.save().then((saved) => (saved ? blocker.proceed?.() : blocker.reset?.()));
+  });
+  useEffect(() => {
+    if (blocker.state === 'blocked') onLeave();
+  }, [blocker.state]);
   useDocumentTitle(t('editor.pageTitle', { title: story.title }));
 
   // A selection that's gone (a discard or reload replaced the chapters) falls back to the first chapter.
@@ -368,8 +380,12 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
         )}
       </ConfirmDialog>
       <ConfirmDialog
-        open={blocker.state === 'blocked'}
-        onOpenChange={(open) => !open && blocker.reset?.()}
+        open={askToLeave && blocker.state === 'blocked'}
+        onOpenChange={(open) => {
+          if (open) return;
+          setAskToLeave(false);
+          blocker.reset?.();
+        }}
         title={t('editor.leaveTitle')}
         description={t('editor.leaveDescription')}
         cancelLabel={t('editor.stay')}
