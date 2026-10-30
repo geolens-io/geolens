@@ -26,6 +26,8 @@ interface AccessibleMapDataPanelProps {
   disabled?: boolean;
   /** True only when every layer's dataset is public, so linking to dataset pages cannot expose a private id. */
   datasetLinksAllowed?: boolean;
+  /** The map area the sheet opens over on wider screens; the whole page when absent. */
+  container?: HTMLElement | null;
 }
 
 const SUMMARY_ANNOUNCE_DELAY_MS = 1000;
@@ -58,6 +60,7 @@ export function AccessibleMapDataPanel({
   onRefresh,
   disabled = false,
   datasetLinksAllowed = false,
+  container,
 }: AccessibleMapDataPanelProps) {
   const { t, i18n } = useTranslation('common');
   const layerEntries = createViewerLayerEntries(layers);
@@ -93,7 +96,10 @@ export function AccessibleMapDataPanel({
       </SheetTrigger>
       <SheetContent
         side="bottom"
-        className="max-h-[min(72vh,44rem)] gap-0 overflow-hidden p-0"
+        container={container}
+        // A phone stacks the map over the dashboard or story text, so there the sheet takes the screen.
+        overlayClassName="max-md:fixed"
+        className="max-h-[min(72vh,44rem,90%)] gap-0 overflow-hidden p-0 max-md:fixed"
       >
         <SheetHeader className="border-b pe-12">
           <div className="flex items-start justify-between gap-4">

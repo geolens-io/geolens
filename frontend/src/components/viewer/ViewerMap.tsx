@@ -164,8 +164,8 @@ export const ViewerMap = memo(function ViewerMap({
   const mapRef = useRef<MaplibreMap | null>(null);
   // Watched from mount: the attribution control is keyed on its credits, and
   // each remount opens it again.
-  const shellRef = useRef<HTMLDivElement>(null);
-  useEffect(() => (shellRef.current ? keepCompactAttributionFolded(shellRef.current) : undefined), []);
+  const [shell, setShell] = useState<HTMLDivElement | null>(null);
+  useEffect(() => (shell ? keepCompactAttributionFolded(shell) : undefined), [shell]);
   const managedSourcesRef = useRef<Set<string>>(new Set());
   const prevOrderKeyRef = useRef('');
   const [mapReady, setMapReady] = useState(false);
@@ -1070,8 +1070,8 @@ export const ViewerMap = memo(function ViewerMap({
 
   return (
     <div
-      ref={shellRef}
-      className={`relative h-full w-full [&_.maplibregl-ctrl-bottom-right]:max-w-[calc(50%-4.5rem)] max-[399px]:[&_.maplibregl-ctrl-bottom-right]:max-w-[calc(50%-1.75rem)] [&_.maplibregl-ctrl-attrib-inner]:[overflow-wrap:break-word] ${!mapReady ? 'bg-muted animate-pulse' : ''}`}
+      ref={setShell}
+      className={`relative h-full w-full overflow-hidden [&_.maplibregl-ctrl-bottom-right]:max-w-[calc(50%-4.5rem)] max-[399px]:[&_.maplibregl-ctrl-bottom-right]:max-w-[calc(50%-1.75rem)] [&_.maplibregl-ctrl-attrib-inner]:[overflow-wrap:break-word] ${!mapReady ? 'bg-muted animate-pulse' : ''}`}
       // aria-label on <MapGL> is silently dropped (react-maplibre v8 forwards
       // only id/ref/style; MapLibre labels its canvas "Map"), so the wrapper
       // region is labelled instead, as in DatasetMap's shell.
@@ -1142,6 +1142,7 @@ export const ViewerMap = memo(function ViewerMap({
         onRefresh={refreshAccessibleFeatures}
         disabled={!mapReady}
         datasetLinksAllowed={datasetLinksAllowed}
+        container={shell}
       />
       {/* Loading veil over the pre-terrain flat-DEM frame — fades
           out once the saved-camera 3D view is ready to show (or immediately

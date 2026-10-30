@@ -45,7 +45,8 @@ const RESULT: AccessibleMapFeatureResult = {
 function Harness({
   onRefresh = vi.fn(),
   featureResult = RESULT,
-}: { onRefresh?: () => void; featureResult?: AccessibleMapFeatureResult }) {
+  container,
+}: { onRefresh?: () => void; featureResult?: AccessibleMapFeatureResult; container?: HTMLElement | null }) {
   const [open, setOpen] = useState(false);
   return (
     <AccessibleMapDataPanel
@@ -55,6 +56,7 @@ function Harness({
       open={open}
       onOpenChange={setOpen}
       onRefresh={onRefresh}
+      container={container}
     />
   );
 }
@@ -106,6 +108,24 @@ describe('AccessibleMapDataPanel', () => {
     const dialog = screen.getByRole('dialog', { name: 'Map data' });
     expect(within(dialog).getByText('1952')).toBeInTheDocument();
     expect(within(dialog).getByText('1,952')).toBeInTheDocument();
+  });
+
+  it('opens inside the map area it is given, not over the whole page', () => {
+    const mapArea = document.createElement('div');
+    document.body.append(mapArea);
+    render(<Harness container={mapArea} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Map data' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Map data' });
+    expect(mapArea).toContainElement(dialog);
+    // Over the map area from md up; a phone keeps the whole screen.
+    expect(dialog).toHaveClass('absolute', 'max-md:fixed');
+    expect(dialog).not.toHaveClass('fixed');
+    const overlay = mapArea.querySelector('[data-slot="sheet-overlay"]');
+    expect(overlay).toHaveClass('absolute', 'max-md:fixed');
+    expect(overlay).not.toHaveClass('fixed');
+    mapArea.remove();
   });
 
   it('refreshes the viewport-derived feature list on demand', () => {
