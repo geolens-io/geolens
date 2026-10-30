@@ -16,7 +16,18 @@ from typing import Any
 import structlog
 from fastapi import HTTPException, status
 from pydantic import ValidationError
-from sqlalchemy import Select, and_, delete, func, insert, literal, or_, select, text
+from sqlalchemy import (
+    Row,
+    Select,
+    and_,
+    delete,
+    func,
+    insert,
+    literal,
+    or_,
+    select,
+    text,
+)
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
@@ -227,6 +238,26 @@ async def list_stories(
         stmt.order_by(Story.updated_at.desc(), Story.id).offset(skip).limit(limit)
     )
     return list(page), total
+
+
+async def stories_using_map(
+    db: AsyncSession, map_id: uuid.UUID, user_id: uuid.UUID | None, is_admin: bool
+) -> tuple[list[Row[tuple[uuid.UUID, str]]], int]:
+    """The id and title of each story whose draft or published scenes use
+    ``map_id`` that the caller may read, and how many other stories use it."""
+    using = select(StoryMap.story_id).where(StoryMap.map_id == map_id)
+    readable = await db.execute(
+        apply_story_visibility_filter(
+            select(Story.id, Story.title).where(Story.id.in_(using)),
+            user_id,
+            is_admin,
+        ).order_by(Story.title, Story.id)
+    )
+    stories = list(readable.all())
+    if is_admin:
+        return stories, 0
+    total = await db.scalar(select(func.count()).select_from(using.subquery())) or 0
+    return stories, max(total - len(stories), 0)
 
 
 # Documents -----------------------------------------------------------------

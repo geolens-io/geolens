@@ -1008,7 +1008,13 @@
   "mapDelete": {
     "title": "删除地图",
     "description": "确定要删除 <1>{{mapName}}</1> 吗？此操作无法撤销。",
-    "deleting": "删除中..."
+    "deleting": "删除中...",
+    "storiesUsing_one": "此地图被 {{count}} 个故事使用。这些故事的章节会保留文字，但会失去此地图上的场景。",
+    "storiesUsing_other": "此地图被 {{count}} 个故事使用。这些故事的章节会保留文字，但会失去此地图上的场景。",
+    "hiddenStories_one": "{{count}} 个您无法查看的故事",
+    "hiddenStories_other": "{{count}} 个您无法查看的故事",
+    "checkingStories": "正在检查哪些故事使用此地图…",
+    "storiesCheckFailed": "无法检查哪些故事使用此地图。如果有故事使用它，这些故事的章节会失去此地图上的场景。"
   },
   "analysisTools": {
     "title": "分析",

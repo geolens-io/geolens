@@ -7999,6 +7999,38 @@ export type MapSpriteEntry = {
 };
 
 /**
+ * MapStoriesResponse
+ */
+export type MapStoriesResponse = {
+    /**
+     * Stories
+     *
+     * Stories using the map that you can read, by title.
+     */
+    stories: Array<MapStoryReference>;
+    /**
+     * Hidden Count
+     *
+     * Stories using the map that you can't read; not named.
+     */
+    hidden_count: number;
+};
+
+/**
+ * MapStoryReference
+ */
+export type MapStoryReference = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title: string;
+};
+
+/**
  * MapStyleImportRequest
  *
  * Typed request body for POST /maps/import.
@@ -29288,6 +29320,68 @@ export type ShareMapEndpointMapsMapIdSharePostResponses = {
 };
 
 export type ShareMapEndpointMapsMapIdSharePostResponse = ShareMapEndpointMapsMapIdSharePostResponses[keyof ShareMapEndpointMapsMapIdSharePostResponses];
+
+export type ListMapStoriesEndpointMapsMapIdStoriesGetData = {
+    body?: never;
+    path: {
+        /**
+         * Map Id
+         */
+        map_id: string;
+    };
+    query?: never;
+    url: '/maps/{map_id}/stories/';
+};
+
+export type ListMapStoriesEndpointMapsMapIdStoriesGetErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type ListMapStoriesEndpointMapsMapIdStoriesGetError = ListMapStoriesEndpointMapsMapIdStoriesGetErrors[keyof ListMapStoriesEndpointMapsMapIdStoriesGetErrors];
+
+export type ListMapStoriesEndpointMapsMapIdStoriesGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: MapStoriesResponse;
+};
+
+export type ListMapStoriesEndpointMapsMapIdStoriesGetResponse = ListMapStoriesEndpointMapsMapIdStoriesGetResponses[keyof ListMapStoriesEndpointMapsMapIdStoriesGetResponses];
 
 export type ExportMapStyleEndpointMapsMapIdStyleJsonGetData = {
     body?: never;

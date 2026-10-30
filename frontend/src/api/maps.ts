@@ -28,6 +28,7 @@ import type {
   MapIconListResponse,
   MapIconResponse,
   MapAccessResponse,
+  MapStoriesResponse,
   MapLayerBulkDeleteResponse,
 } from '@/types/api';
 import { API_BASE } from '@/lib/constants';
@@ -98,6 +99,10 @@ export async function getMap(id: string): Promise<MapResponse> {
 
 export async function getMapAccess(id: string): Promise<MapAccessResponse> {
   return apiFetch<MapAccessResponse>(`/maps/${encodeURIComponent(id)}/access/`);
+}
+
+export async function getMapStories(id: string): Promise<MapStoriesResponse> {
+  return apiFetch<MapStoriesResponse>(`/maps/${encodeURIComponent(id)}/stories/`);
 }
 
 export async function getMapHistory(

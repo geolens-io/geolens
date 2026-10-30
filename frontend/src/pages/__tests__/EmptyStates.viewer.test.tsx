@@ -28,6 +28,7 @@ vi.mock('@/components/search/FilterPanel', () => ({ FilterPanel: () => <div /> }
 vi.mock('@/hooks/use-maps', () => ({
   useMaps: () => ({ data: { total: 0, maps: [] }, isLoading: false }),
   useDeleteMap: () => ({ mutate: vi.fn(), isPending: false }),
+  useMapStories: () => ({ data: undefined }),
 }));
 vi.mock('@/components/maps/MapCreateDialog', () => ({ MapCreateDialog: () => null }));
 

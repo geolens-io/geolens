@@ -1011,3 +1011,70 @@ async def test_a_demoted_publisher_is_not_told_the_map_name(
     assert refused.status_code == 409, refused.text
     assert _detail(refused)["maps"] == []
     assert _detail(refused)["unreadable_maps"] == 1
+
+
+async def test_map_stories_names_only_the_stories_the_caller_can_read(
+    client: AsyncClient, people
+):
+    owner, other = people["owner"], people["other"]
+    map_id = await _map(client, owner, "public")
+    unrelated = await _map(client, owner, "public")
+    for headers, title, visibility, published, scene_map in (
+        (owner, "Owner draft", "private", False, map_id),
+        (other, "Other public", "public", True, map_id),
+        (other, "Other internal", "internal", True, map_id),
+        (other, "Other private", "private", True, map_id),
+        (other, "Other internal draft", "internal", False, map_id),
+        (other, "Elsewhere", "public", True, unrelated),
+    ):
+        story = await _story(client, headers, title=title)
+        await _saved(client, headers, story, [_chapter(scene_map)])
+        if visibility != "private":
+            patched = await client.patch(
+                f"/stories/{story['id']}",
+                json={"visibility": visibility},
+                headers=headers,
+            )
+            assert patched.status_code == 200, patched.text
+        if published:
+            assert (await _publish(client, headers, story["id"])).status_code == 200
+
+    def titles(resp) -> set[str]:
+        assert resp.status_code == 200, resp.text
+        return {s["title"] for s in resp.json()["stories"]}
+
+    url = f"/maps/{map_id}/stories/"
+    mine = await client.get(url, headers=owner)
+    assert titles(mine) == {"Other internal", "Other public", "Owner draft"}
+    assert mine.json()["hidden_count"] == 2
+
+    everything = await client.get(url, headers=people["admin"])
+    assert titles(everything) == {
+        "Owner draft",
+        "Other public",
+        "Other internal",
+        "Other private",
+        "Other internal draft",
+    }
+    assert everything.json()["hidden_count"] == 0
+
+
+async def test_map_stories_is_for_whoever_can_delete_the_map(
+    client: AsyncClient, people, admin_auth_header
+):
+    owner, other = people["owner"], people["other"]
+    public_map = await _map(client, owner, "public")
+    private_map = await _map(client, owner)
+    story = await _story(client, owner)
+    await _saved(client, owner, story, [_chapter(public_map)])
+    viewer, _ = await create_user(client, admin_auth_header, "viewer")
+
+    assert (await client.get(f"/maps/{public_map}/stories/")).status_code == 401
+    readable = await client.get(f"/maps/{public_map}/stories/", headers=other)
+    assert readable.status_code == 403, readable.text
+    unreadable = await client.get(f"/maps/{private_map}/stories/", headers=other)
+    assert unreadable.status_code == 404, unreadable.text
+    no_edit = await client.get(f"/maps/{public_map}/stories/", headers=viewer)
+    assert no_edit.status_code == 403, no_edit.text
+    missing = await client.get(f"/maps/{uuid.uuid4()}/stories/", headers=owner)
+    assert missing.status_code == 404

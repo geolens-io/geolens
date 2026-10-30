@@ -5,6 +5,7 @@ import {
   listMaps,
   getMap,
   getMapAccess,
+  getMapStories,
   getMapHistory,
   createMap,
   updateMap,
@@ -140,6 +141,19 @@ export function useMapAccess(id: string | undefined, opts?: { enabled?: boolean 
     queryFn: () => getMapAccess(id!),
     enabled: !!id && (opts?.enabled ?? true),
     staleTime: 30_000,
+    retry: false,
+  });
+}
+
+/** The stories that use a map, for its delete confirmation. */
+export function useMapStories(id: string | undefined, opts?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: queryKeys.maps.stories(id),
+    queryFn: () => getMapStories(id!),
+    enabled: !!id && (opts?.enabled ?? true),
+    // Each time the delete dialog opens it asks again; a story may have
+    // started using the map since.
+    staleTime: 0,
     retry: false,
   });
 }
