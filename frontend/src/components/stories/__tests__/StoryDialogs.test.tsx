@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ComponentProps } from 'react';
 import userEvent from '@testing-library/user-event';
 import { Route, Routes, useLocation } from 'react-router';
 import { render, screen, waitFor, within } from '@/test/test-utils';
@@ -20,6 +20,7 @@ vi.mock('@/api/client', async (importOriginal) => ({
   apiFetchBlob: vi.fn(async () => new Blob(['x'], { type: 'image/webp' })),
 }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock('@/api/groups', () => ({ listMyGroups: vi.fn(async () => []) }));
 
 // Radix Select needs these in jsdom.
 beforeAll(() => {
@@ -42,6 +43,12 @@ const DRAFT: StoryDraftResponse = {
   revision: 1,
   document: { version: 1, chapters: [] },
 };
+
+function renderDetails(props: Partial<ComponentProps<typeof StoryDetailsDialog>> = {}) {
+  return render(
+    <StoryDetailsDialog story={DRAFT} open onOpenChange={() => {}} onSaved={vi.fn()} onGroupsSaved={vi.fn()} {...props} />,
+  );
+}
 
 function Where() {
   return <span data-testid="where">{useLocation().pathname}</span>;
@@ -71,7 +78,7 @@ describe('StoryDetailsDialog', () => {
     vi.mocked(updateStory).mockResolvedValue({ ...DRAFT, title: 'Storms', document: null } as StoryResponse);
     const onSaved = vi.fn();
     const user = userEvent.setup();
-    render(<StoryDetailsDialog story={DRAFT} open onOpenChange={() => {}} onSaved={onSaved} />);
+    renderDetails({ onSaved });
     const title = screen.getByLabelText('Title');
     await user.clear(title);
     await user.type(title, 'Storms');
@@ -82,7 +89,7 @@ describe('StoryDetailsDialog', () => {
 
   it('starts from the story again each time it opens', async () => {
     const user = userEvent.setup();
-    const props = { story: DRAFT, onOpenChange: () => {}, onSaved: vi.fn() };
+    const props = { story: DRAFT, onOpenChange: () => {}, onSaved: vi.fn(), onGroupsSaved: vi.fn() };
     const { rerender } = render(<StoryDetailsDialog {...props} open />);
     await user.type(screen.getByLabelText('Title'), ' typed');
     rerender(<StoryDetailsDialog {...props} open={false} />);
@@ -100,7 +107,7 @@ describe('StoryDetailsDialog', () => {
     );
     const onOpenChange = vi.fn();
     const user = userEvent.setup();
-    render(<StoryDetailsDialog story={DRAFT} open onOpenChange={onOpenChange} onSaved={vi.fn()} />);
+    renderDetails({ onOpenChange });
     await user.click(screen.getByRole('combobox', { name: 'Who can read it' }));
     await user.click(await screen.findByRole('option', { name: 'Public' }));
     await user.click(screen.getByRole('button', { name: 'Save details' }));
@@ -126,7 +133,7 @@ describe('StoryDetailsDialog cover', () => {
     vi.mocked(updateStory).mockResolvedValue({ ...DRAFT, cover_asset_id: COVER, document: null } as StoryResponse);
     const onSaved = vi.fn();
     const user = userEvent.setup();
-    render(<StoryDetailsDialog story={DRAFT} open onOpenChange={() => {}} onSaved={onSaved} />);
+    renderDetails({ onSaved });
     expect(screen.getByText('No cover image.')).toBeInTheDocument();
     await user.upload(screen.getByTestId('story-image-input'), new File(['png'], 'cover.png', { type: 'image/png' }));
     expect(await screen.findByRole('img', { name: 'Cover image preview' })).toBeInTheDocument();
@@ -146,7 +153,7 @@ describe('StoryDetailsDialog cover', () => {
     );
     vi.mocked(updateStory).mockResolvedValue({ ...DRAFT, cover_asset_id: COVER, document: null } as StoryResponse);
     const user = userEvent.setup();
-    render(<StoryDetailsDialog story={DRAFT} open onOpenChange={() => {}} onSaved={vi.fn()} />);
+    renderDetails();
     const save = screen.getByRole('button', { name: 'Save details' });
     expect(save).toBeEnabled();
 
@@ -161,9 +168,7 @@ describe('StoryDetailsDialog cover', () => {
   it('clears the cover', async () => {
     vi.mocked(updateStory).mockResolvedValue({ ...DRAFT, document: null } as StoryResponse);
     const user = userEvent.setup();
-    render(
-      <StoryDetailsDialog story={{ ...DRAFT, cover_asset_id: COVER }} open onOpenChange={() => {}} onSaved={vi.fn()} />,
-    );
+    renderDetails({ story: { ...DRAFT, cover_asset_id: COVER } });
     await user.click(screen.getByRole('button', { name: 'Remove cover image' }));
     expect(screen.getByText('No cover image.')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Save details' }));

@@ -75,7 +75,8 @@
     "unreadableMaps_other": "{{count}} autres cartes que vous ne pouvez pas ouvrir",
     "blockedTitle": "La publication a été refusée",
     "blockedDescription": "Certaines cartes de ce récit ne sont pas lisibles par tout le public que sa visibilité atteint. Rendez-les visibles pour ce public, ou restreignez la visibilité du récit dans Détails.",
-    "close": "Fermer"
+    "close": "Fermer",
+    "shareMapsAndPublish": "Partager mes cartes et publier"
   },
   "unavailable": {
     "title": "Récit indisponible",
@@ -211,6 +212,31 @@
       "processing": "Traitement de l’image…",
       "progress": "Progression de l’envoi",
       "notShown": "Cette image ne peut pas être affichée. Remplacez-la ou retirez-la."
-    }
+    },
+    "publishedSharingMaps": "Récit publié, et vos cartes qui le bloquaient sont désormais partagées avec ses groupes."
+  },
+  "groups": {
+    "heading": "Groupes",
+    "help": "Choisissez les groupes dont les membres pourront lire ce récit une fois publié. La carte de chaque scène garde ses propres accès.",
+    "effectPrivateEmpty": "Choisissez un groupe et enregistrez pour partager ce récit avec des groupes précis.",
+    "effectToRestricted": "L'enregistrement partage ce récit avec des groupes précis : seuls vous, les administrateurs et les membres de ces groupes peuvent le lire.",
+    "effectRestricted": "L'enregistrement modifie les groupes qui peuvent lire ce récit.",
+    "effectToPrivate": "L'enregistrement retire le dernier groupe. Seuls vous et les administrateurs pouvez lire ce récit.",
+    "effectKept": "Les groupes ne changent pas pour l'instant qui peut lire ce récit. Ils s'appliquent si vous le rendez privé.",
+    "save": "Enregistrer les groupes",
+    "saving": "Enregistrement des groupes…",
+    "saved": "Groupes enregistrés.",
+    "savedRestricted": "Groupes enregistrés. Ce récit est désormais partagé uniquement avec des groupes précis.",
+    "savedPrivate": "Groupes retirés. Seuls vous et les administrateurs pouvez lire ce récit.",
+    "sharedMaps_one": "Groupes enregistrés, et {{count}} de vos cartes est désormais partagée avec eux.",
+    "sharedMaps_many": "Groupes enregistrés, et {{count}} de vos cartes sont désormais partagées avec eux.",
+    "sharedMaps_other": "Groupes enregistrés, et {{count}} de vos cartes sont désormais partagées avec eux.",
+    "failed": "Impossible d'enregistrer les groupes",
+    "blockedTitle": "Ces groupes ne peuvent pas lire certaines cartes",
+    "blockedCanShare": "Certaines personnes de ces groupes ne peuvent pas ouvrir les cartes ci-dessous. Partagez aussi vos cartes avec les groupes, ou retirez les scènes qui les utilisent.",
+    "blockedCannotShare": "Certaines personnes de ces groupes ne peuvent pas ouvrir les cartes ci-dessous, et vous ne pouvez pas toutes les partager. Demandez au propriétaire de chaque carte de la partager avec les groupes, ou retirez les scènes qui les utilisent.",
+    "cannotShareMap": "(vous ne pouvez pas partager cette carte)",
+    "shareMaps": "Partager mes cartes et enregistrer",
+    "sharingRevokesLinks": "Une carte privée partagée ainsi ne fonctionne plus via son lien de partage ni ses codes d'intégration, et les couches que les groupes ne peuvent pas lire leur restent masquées."
   }
 }

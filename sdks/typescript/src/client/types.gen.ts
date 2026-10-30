@@ -13036,8 +13036,8 @@ export type StatusUpdateResponse = {
 /**
  * StoredStoryVisibility
  *
- * A story's visibility as stored. ``restricted`` is reserved for story
- * group sharing, which no route sets yet.
+ * A story's visibility as stored. A private story shared with groups is
+ * ``restricted``: its groups' members read it too.
  */
 export type StoredStoryVisibility = 'private' | 'internal' | 'public' | 'restricted';
 
@@ -13242,6 +13242,12 @@ export type StoryDraftResponse = {
      */
     revision: number;
     document: StoryDocument;
+    /**
+     * Groups
+     *
+     * The sharing groups the story is shared with, by name.
+     */
+    groups?: Array<GroupRef>;
 };
 
 /**
@@ -13258,6 +13264,46 @@ export type StoryDraftUpdate = {
 };
 
 /**
+ * StoryGroupsResponse
+ */
+export type StoryGroupsResponse = {
+    /**
+     * The story's visibility after the change: a private story shared with a group becomes restricted, and a restricted one left with no group becomes private.
+     */
+    visibility: StoredStoryVisibility;
+    /**
+     * Groups
+     *
+     * The sharing groups the story is shared with, by name.
+     */
+    groups: Array<GroupRef>;
+    /**
+     * Shared Map Ids
+     *
+     * Maps this request shared with the story's new groups.
+     */
+    shared_map_ids?: Array<string>;
+};
+
+/**
+ * StoryGroupsUpdate
+ */
+export type StoryGroupsUpdate = {
+    /**
+     * Group Ids
+     *
+     * Every group the story is shared with afterwards; an empty list unshares it. An owner may add only groups they belong to, and an admin any group.
+     */
+    group_ids: Array<string>;
+    /**
+     * Confirm
+     *
+     * Required to go ahead when maps the story uses block some of its groups; without it the request answers 409 and lists them. `share_maps` first shares each map marked `can_share` with the groups that lack it, which makes a private one restricted. The request is still refused while any other map blocks it.
+     */
+    confirm?: 'share_maps' | null;
+};
+
+/**
  * StoryListResponse
  */
 export type StoryListResponse = {
@@ -13269,6 +13315,24 @@ export type StoryListResponse = {
      * Total
      */
     total: number;
+};
+
+/**
+ * StoryPublish
+ */
+export type StoryPublish = {
+    /**
+     * Revision
+     *
+     * The draft revision this publish or discard acts on.
+     */
+    revision: number;
+    /**
+     * Confirm
+     *
+     * Required to go ahead when maps the story uses block some of its groups; without it the request answers 409 and lists them. `share_maps` first shares each map marked `can_share` with the groups that lack it, which makes a private one restricted. The request is still refused while any other map blocks it.
+     */
+    confirm?: 'share_maps' | null;
 };
 
 /**
@@ -34069,8 +34133,70 @@ export type DuplicateStoryEndpointStoriesStoryIdDuplicatePostResponses = {
 
 export type DuplicateStoryEndpointStoriesStoryIdDuplicatePostResponse = DuplicateStoryEndpointStoriesStoryIdDuplicatePostResponses[keyof DuplicateStoryEndpointStoriesStoryIdDuplicatePostResponses];
 
+export type SetStoryGroupsEndpointStoriesStoryIdGroupsPutData = {
+    body: StoryGroupsUpdate;
+    path: {
+        /**
+         * Story Id
+         */
+        story_id: string;
+    };
+    query?: never;
+    url: '/stories/{story_id}/groups/';
+};
+
+export type SetStoryGroupsEndpointStoriesStoryIdGroupsPutErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Maps the published story uses that some new groups can't read (`detail.code` `maps_narrower_than_story`, the maps under `detail.maps`), or another change holding the story's lock (no `detail.code`).
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type SetStoryGroupsEndpointStoriesStoryIdGroupsPutError = SetStoryGroupsEndpointStoriesStoryIdGroupsPutErrors[keyof SetStoryGroupsEndpointStoriesStoryIdGroupsPutErrors];
+
+export type SetStoryGroupsEndpointStoriesStoryIdGroupsPutResponses = {
+    /**
+     * Successful Response
+     */
+    200: StoryGroupsResponse;
+};
+
+export type SetStoryGroupsEndpointStoriesStoryIdGroupsPutResponse = SetStoryGroupsEndpointStoriesStoryIdGroupsPutResponses[keyof SetStoryGroupsEndpointStoriesStoryIdGroupsPutResponses];
+
 export type PublishStoryEndpointStoriesStoryIdPublishPostData = {
-    body: StoryRevision;
+    body: StoryPublish;
     path: {
         /**
          * Story Id

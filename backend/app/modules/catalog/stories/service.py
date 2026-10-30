@@ -17,6 +17,7 @@ import structlog
 from fastapi import HTTPException, status
 from pydantic import ValidationError
 from sqlalchemy import (
+    ColumnElement,
     Row,
     Select,
     and_,
@@ -39,7 +40,9 @@ from app.modules.auth.service import get_user_identity
 from app.modules.catalog.authorization import (
     apply_map_visibility_filter,
     get_user_roles,
+    groups_lacking_maps,
 )
+from app.modules.catalog.group_sharing import granted_group_member, joined_groups
 from app.modules.catalog.maps.models import Map
 from app.modules.catalog.stories.assets import (
     chapters_of,
@@ -48,7 +51,7 @@ from app.modules.catalog.stories.assets import (
     mentioned_ids,
     require_story_assets,
 )
-from app.modules.catalog.stories.models import Story, StoryMap
+from app.modules.catalog.stories.models import Story, StoryGroupGrant, StoryMap
 from app.modules.catalog.stories.schemas import (
     STORY_DOCUMENT_VERSION,
     BlockingMap,
@@ -69,8 +72,11 @@ STORY_WRITE_DENIED = "Only the story's owner or an admin can change it"
 # Who may read a published story besides its owner and admins.
 ANONYMOUS_STORY_VISIBILITIES = ("public",)
 SIGNED_IN_STORY_VISIBILITIES = ("internal", "public")
+# Open, beyond the owner and admins, to members of the story's groups.
+RESTRICTED_STORY_VISIBILITY = "restricted"
 # The map visibilities that reach everyone a story of each visibility reaches.
-# A private story reaches only its owner and admins; see ``check_reach``.
+# A private or restricted story reaches its owner and admins, and a restricted
+# one its groups' members too; see ``check_reach``.
 _MAP_VISIBILITIES_FOR_STORY = {
     "public": ("public",),
     "internal": ("internal", "public"),
@@ -94,14 +100,34 @@ def _not_found() -> HTTPException:
     return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=STORY_NOT_FOUND)
 
 
+def story_group_member(story_id: Any, user_id: Any) -> ColumnElement[bool]:
+    """Whether ``user_id`` belongs to a group granted on ``story_id``."""
+    return granted_group_member(StoryGroupGrant, "story_id", story_id, user_id)
+
+
+def story_grants(story_id: uuid.UUID) -> Select[tuple[uuid.UUID]]:
+    """The ids of the groups a story is shared with, as a statement."""
+    return select(StoryGroupGrant.group_id).where(StoryGroupGrant.story_id == story_id)
+
+
+def grouped_visibility(visibility: str, has_groups: bool) -> str:
+    """A private story with groups is restricted, and a restricted one with
+    none is private; other visibilities ignore groups."""
+    if visibility == "private" and has_groups:
+        return RESTRICTED_STORY_VISIBILITY
+    if visibility == RESTRICTED_STORY_VISIBILITY and not has_groups:
+        return "private"
+    return visibility
+
+
 async def check_story_access(
     db: AsyncSession, story: Story, user: Identity | None
 ) -> set[str]:
     """Raise 404 unless ``user`` (None for anonymous) may read ``story``.
 
     Owners and admins may always read it. Anyone else needs a published story
-    whose visibility admits them. Returns the caller's roles (empty for
-    anonymous).
+    whose visibility admits them: a restricted one admits the members of its
+    groups. Returns the caller's roles (empty for anonymous).
     """
     published = story.published_at is not None
     if user is None:
@@ -113,6 +139,11 @@ async def check_story_access(
             "admin" in roles
             or story.created_by == user.id
             or (published and story.visibility in SIGNED_IN_STORY_VISIBILITIES)
+            or (
+                published
+                and story.visibility == RESTRICTED_STORY_VISIBILITY
+                and bool(await db.scalar(select(story_group_member(story.id, user.id))))
+            )
         )
     if not allowed:
         logger.warning(
@@ -157,7 +188,16 @@ def apply_story_visibility_filter(
     return stmt.where(
         or_(
             Story.created_by == user_id,
-            and_(published, Story.visibility.in_(SIGNED_IN_STORY_VISIBILITIES)),
+            and_(
+                published,
+                or_(
+                    Story.visibility.in_(SIGNED_IN_STORY_VISIBILITIES),
+                    and_(
+                        Story.visibility == RESTRICTED_STORY_VISIBILITY,
+                        story_group_member(Story.id, user_id),
+                    ),
+                ),
+            ),
         )
     )
 
@@ -514,12 +554,48 @@ async def sync_story_maps(db: AsyncSession, story: Story) -> None:
 
 
 class StoryReachError(Exception):
-    """Maps the story uses are narrower than its visibility."""
+    """Maps the story uses are narrower than its visibility.
 
-    def __init__(self, maps: list[BlockingMap], unreadable: int) -> None:
+    ``lacking`` holds, for each map some of the story's groups can't read,
+    those groups.
+    """
+
+    def __init__(
+        self,
+        maps: list[BlockingMap],
+        unreadable: int,
+        lacking: dict[uuid.UUID, set[uuid.UUID]],
+    ) -> None:
         super().__init__("maps are narrower than the story's visibility")
         self.maps = maps
         self.unreadable = unreadable
+        self.lacking = lacking
+
+
+def reach_conflict(exc: StoryReachError) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": "maps_narrower_than_story",
+            "message": "Some maps this story uses can't be read by everyone the story reaches.",
+            "maps": [m.model_dump(mode="json") for m in exc.maps],
+            "unreadable_maps": exc.unreadable,
+        },
+    )
+
+
+async def story_group_ids(db: AsyncSession, story_id: uuid.UUID) -> set[uuid.UUID]:
+    """The groups a story is shared with."""
+    return set(await db.scalars(story_grants(story_id)))
+
+
+async def _restricted_groups(
+    db: AsyncSession, story_id: uuid.UUID, visibility: str
+) -> set[uuid.UUID]:
+    """The story's groups when ``visibility`` lets them read it; none otherwise."""
+    if visibility != RESTRICTED_STORY_VISIBILITY:
+        return set()
+    return await story_group_ids(db, story_id)
 
 
 async def _owner_reads(
@@ -541,16 +617,17 @@ async def check_reach(
     owner_id: uuid.UUID | None,
     publisher: Identity,
     publisher_roles: set[str],
+    group_ids: Iterable[uuid.UUID] = (),
 ) -> None:
     """Raise ``StoryReachError`` for maps narrower than the audience a story
     with ``visibility`` reaches.
 
     A private story reaches its owner and admins, so its maps must be ones the
-    owner can read. The error names only maps the publisher can read and
-    counts the rest. A visibility this server has no rule for is refused.
+    owner can read; a restricted one reaches every active member of
+    ``group_ids`` too. A visibility this server has no rule for is refused.
     """
     allowed = _MAP_VISIBILITIES_FOR_STORY.get(visibility)
-    if allowed is None and visibility != "private":
+    if allowed is None and visibility not in ("private", RESTRICTED_STORY_VISIBILITY):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
@@ -561,10 +638,9 @@ async def check_reach(
     if not map_ids:
         return
     rows = (
-        await db.execute(
-            select(Map.id, Map.name, Map.visibility).where(Map.id.in_(map_ids))
-        )
+        await db.execute(select(Map.id, Map.visibility).where(Map.id.in_(map_ids)))
     ).all()
+    lacking: dict[uuid.UUID, set[uuid.UUID]] = {}
     if allowed is not None:
         blocking = {row.id for row in rows if row.visibility not in allowed}
     else:
@@ -572,17 +648,52 @@ async def check_reach(
             await _owner_reads(db, map_ids, owner_id) if owner_id is not None else None
         )
         blocking = set() if owner_reads is None else {r.id for r in rows} - owner_reads
+        if visibility == RESTRICTED_STORY_VISIBILITY:
+            lacking = await groups_lacking_maps(db, map_ids, group_ids)
+    await refuse_blocking_maps(db, blocking, lacking, publisher, publisher_roles)
+
+
+async def refuse_blocking_maps(
+    db: AsyncSession,
+    unfixable: set[uuid.UUID],
+    lacking: dict[uuid.UUID, set[uuid.UUID]],
+    publisher: Identity,
+    publisher_roles: set[str],
+) -> None:
+    """Raise ``StoryReachError`` when any map blocks the story: ``unfixable``
+    ones, and those some of the story's groups lack (``lacking``).
+
+    The error names only maps the publisher can read and counts the rest. A
+    named map is ``can_share`` when only groups block it, the publisher owns
+    it, and they may share it with those groups.
+    """
+    blocking = unfixable | set(lacking)
     if not blocking:
         return
-    visible = await readable_map_ids(
-        db, blocking, publisher.id, "admin" in publisher_roles
-    )
+    is_admin = "admin" in publisher_roles
+    rows = (
+        await db.execute(
+            select(Map.id, Map.name, Map.created_by).where(Map.id.in_(blocking))
+        )
+    ).all()
+    visible = await readable_map_ids(db, blocking, publisher.id, is_admin)
+    groups = set().union(*lacking.values())
+    joined = groups if is_admin else await joined_groups(db, publisher, groups)
+
+    def can_share(row: Any) -> bool:
+        return (
+            row.id in lacking
+            and row.id not in unfixable
+            and row.created_by == publisher.id
+            and lacking[row.id] <= joined
+        )
+
     named = [
-        BlockingMap(id=row.id, name=row.name)
+        BlockingMap(id=row.id, name=row.name, can_share=can_share(row))
         for row in sorted(rows, key=lambda r: str(r.id))
         if row.id in visible
     ]
-    raise StoryReachError(named, len(blocking - visible))
+    raise StoryReachError(named, len(blocking - visible), lacking)
 
 
 def _refuse_unplaced_scenes(document: Any) -> None:
@@ -619,6 +730,7 @@ async def publish(
         story.created_by,
         publisher,
         roles,
+        await _restricted_groups(db, story.id, story.visibility),
     )
     released = image_ids(story.published)
     story.draft = document
@@ -651,6 +763,7 @@ async def check_visibility_change(
         story.created_by,
         editor,
         roles,
+        await _restricted_groups(db, story.id, visibility),
     )
 
 

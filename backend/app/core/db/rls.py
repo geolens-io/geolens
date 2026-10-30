@@ -58,6 +58,7 @@ RLS_TABLES: tuple[str, ...] = (
     "stories",
     "story_maps",
     "story_assets",
+    "story_group_grants",
 )
 
 #: Policy names for the complete current tenant boundary.

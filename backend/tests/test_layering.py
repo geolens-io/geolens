@@ -1439,8 +1439,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/features/service.py": 1678,
     # Dataset visibility, and the VRT member counts and extents each requester
     # may see, and which groups can't read a dataset, share the permission
-    # extension's one audience; map reads share the one map guard beside it.
-    "backend/app/modules/catalog/authorization.py": 1358,
+    # extension's one audience; map reads, and which groups can't read a map,
+    # share the one map guard beside it.
+    "backend/app/modules/catalog/authorization.py": 1396,
 }
 
 

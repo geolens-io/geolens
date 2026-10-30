@@ -6,6 +6,7 @@ from typing import Any, TypeVar, TYPE_CHECKING
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..types import UNSET, Unset
 
 from ..models.stored_story_visibility import check_stored_story_visibility
 from ..models.stored_story_visibility import StoredStoryVisibility
@@ -15,6 +16,7 @@ from uuid import UUID
 import datetime
 
 if TYPE_CHECKING:
+    from ..models.group_ref import GroupRef
     from ..models.story_document import StoryDocument
 
 
@@ -28,8 +30,8 @@ class StoryDraftResponse:
         id (UUID):
         title (str):
         summary (None | str):
-        visibility (StoredStoryVisibility): A story's visibility as stored. ``restricted`` is reserved for story
-            group sharing, which no route sets yet.
+        visibility (StoredStoryVisibility): A story's visibility as stored. A private story shared with groups is
+            ``restricted``: its groups' members read it too.
         created_by (None | UUID):
         published_at (datetime.datetime | None): When the story was last published; null if never.
         cover_asset_id (None | UUID): The cover image, served at `/stories/{id}/assets/{cover_asset_id}`; null without
@@ -39,6 +41,7 @@ class StoryDraftResponse:
         can_edit (bool):
         revision (int):
         document (StoryDocument):
+        groups (list[GroupRef] | Unset): The sharing groups the story is shared with, by name.
     """
 
     id: UUID
@@ -53,6 +56,7 @@ class StoryDraftResponse:
     can_edit: bool
     revision: int
     document: StoryDocument
+    groups: list[GroupRef] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -93,6 +97,13 @@ class StoryDraftResponse:
 
         document = self.document.to_dict()
 
+        groups: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.groups, Unset):
+            groups = []
+            for groups_item_data in self.groups:
+                groups_item = groups_item_data.to_dict()
+                groups.append(groups_item)
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -111,11 +122,14 @@ class StoryDraftResponse:
                 "document": document,
             }
         )
+        if groups is not UNSET:
+            field_dict["groups"] = groups
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.group_ref import GroupRef
         from ..models.story_document import StoryDocument
 
         d = dict(src_dict)
@@ -187,6 +201,15 @@ class StoryDraftResponse:
 
         document = StoryDocument.from_dict(d.pop("document"))
 
+        _groups = d.pop("groups", UNSET)
+        groups: list[GroupRef] | Unset = UNSET
+        if _groups is not UNSET:
+            groups = []
+            for groups_item_data in _groups:
+                groups_item = GroupRef.from_dict(groups_item_data)
+
+                groups.append(groups_item)
+
         story_draft_response = cls(
             id=id,
             title=title,
@@ -200,6 +223,7 @@ class StoryDraftResponse:
             can_edit=can_edit,
             revision=revision,
             document=document,
+            groups=groups,
         )
 
         story_draft_response.additional_properties = d

@@ -1,4 +1,5 @@
-"""Who may share a dataset or a map with which sharing groups.
+"""Who may share a dataset, map or story with which sharing groups, and
+what a group grant admits.
 
 An owner may add only groups they belong to, and an admin any group of the
 item's tenant. An owner may keep or drop a group they have since left.
@@ -10,8 +11,18 @@ import uuid
 from collections.abc import Iterable
 from typing import Any
 
-from sqlalchemy import Select, delete, insert, or_, select
+from sqlalchemy import (
+    ColumnElement,
+    Select,
+    delete,
+    exists,
+    insert,
+    or_,
+    select,
+    update,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.identity import Identity
 from app.modules.auth.models import Group, GroupMember
@@ -113,3 +124,49 @@ async def group_refs(session: AsyncSession, granted: Select[Any]) -> list[GroupR
         .order_by(Group.name, Group.id)
     )
     return [GroupRef(id=row.id, name=row.name) for row in rows.all()]
+
+
+def granted_group_member(
+    grant: Any, item_key: str, item_id: Any, user_id: Any
+) -> ColumnElement[bool]:
+    """Whether ``user_id`` belongs to a group ``grant`` grants on the item its
+    ``item_key`` column names."""
+    member = exists().where(
+        getattr(grant, item_key) == item_id,
+        GroupMember.group_id == grant.group_id,
+        GroupMember.user_id == user_id,
+    )
+    # Explicit: auto-correlation reaches only the immediately enclosing select.
+    return member.correlate_except(grant, GroupMember)
+
+
+async def unshare_sole_group_items(
+    session: AsyncSession, item: Any, grant: Any, item_key: str, group_id: uuid.UUID
+) -> None:
+    """Make private the restricted ``item`` rows ``group_id`` is the last
+    group of.
+
+    Call holding the group's row lock, before its deletion cascades its grants
+    away. Locks each item shared with the group, in id order, so concurrent
+    deletions of an item's last two groups can't each count the other's grant
+    as still there.
+    """
+    item_id = getattr(grant, item_key)
+    shared = select(item_id).where(grant.group_id == group_id)
+    await session.execute(
+        select(item.id)
+        .where(item.id.in_(shared))
+        .order_by(item.id)
+        .with_for_update(key_share=True)
+    )
+    other = aliased(grant)
+    sole = shared.where(
+        ~exists().where(getattr(other, item_key) == item_id, other.group_id != group_id)
+    )
+    await session.execute(
+        update(item)
+        .where(item.id.in_(sole))
+        .where(item.visibility == "restricted")
+        .values(visibility="private")
+        .execution_options(synchronize_session=False)
+    )

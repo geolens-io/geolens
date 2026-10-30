@@ -50,10 +50,10 @@ _Avoid_: Migration on its own (that is a database schema migration), AGOL import
 **Role**: A user's permission tier (admin, editor or viewer). It decides what a user may do; it is not an audience that content is shared with.
 _Avoid_: Group, when meaning an audience.
 
-**Group**: A named set of users that datasets and maps can be shared with. Admins manage groups and their members.
+**Group**: A named set of users that datasets, maps and stories can be shared with. Admins manage groups and their members.
 _Avoid_: Team, role, layer group (layers grouped inside a map).
 
-**Restricted**: The visibility of a dataset or map that only its owner, admins and members of the groups it is shared with can see. An item can be restricted with no group left, which leaves only its owner and admins.
+**Restricted**: The visibility of a dataset, map or story that only its owner, admins and members of the groups it is shared with can see. A dataset can be restricted with no group left, which leaves only its owner and admins; a map or story left with no group becomes private.
 
 **Story**: An ordered list of chapters told over saved maps. It has its own owner and visibility, and it can't be published more widely than any map it uses can be read.
 

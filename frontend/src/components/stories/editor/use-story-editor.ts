@@ -8,10 +8,11 @@ import {
   publishStory,
   reportStoryWriteError,
   saveStoryDraft,
+  type ShareBlockingMaps,
   type StoryConflict,
 } from '@/api/stories';
 import { queryKeys } from '@/lib/query-keys';
-import type { StoryChapter, StoryDraftResponse, StoryResponse } from '@/types/api';
+import type { StoryChapter, StoryDraftResponse, StoryGroupsResponse, StoryResponse } from '@/types/api';
 import { captureAccount } from './same-account';
 import {
   applyDraftEdit,
@@ -170,7 +171,8 @@ export function useStoryEditor(initial: StoryDraftResponse) {
       await persist(conflict.revision, same);
     });
 
-  const publish = () =>
+  /** Publishes the draft; with `share_maps`, first shares the author's maps that block the story's groups. */
+  const publish = (confirm?: ShareBlockingMaps) =>
     run('publish', async (same) => {
       let revision = saved.revision;
       // The working copy as it stands when the publish goes out; anything typed
@@ -183,15 +185,19 @@ export function useStoryEditor(initial: StoryDraftResponse) {
         expected = draft.document.chapters;
       }
       try {
-        const story = await publishStory(id, revision);
+        const story = await publishStory(id, revision, confirm);
         if (!same()) return;
         applyStory(story);
+        if (confirm) {
+          qc.invalidateQueries({ queryKey: queryKeys.maps.all });
+          qc.invalidateQueries({ queryKey: queryKeys.maps.detailRoot });
+        }
         // Publishing drops scenes on deleted maps from the draft without a new
         // revision, so read the draft back.
         const draft = await getStoryDraft(id);
         if (!same()) return;
         adopt(draft, expected);
-        toast.success(i18n.t('stories:editor.published'));
+        toast.success(i18n.t(confirm ? 'stories:editor.publishedSharingMaps' : 'stories:editor.published'));
       } catch (err) {
         fail(err, 'stories:editor.publishFailed', same);
       }
@@ -238,6 +244,19 @@ export function useStoryEditor(initial: StoryDraftResponse) {
     [qc, id],
   );
 
+  /** Takes in the groups and visibility the server returned after a groups change. */
+  const applyGroups = useCallback(
+    (result: StoryGroupsResponse) => {
+      setSaved((current) => ({ ...current, visibility: result.visibility, groups: result.groups }));
+      qc.invalidateQueries({ queryKey: queryKeys.stories.all });
+      for (const mapId of result.shared_map_ids ?? []) {
+        qc.invalidateQueries({ queryKey: queryKeys.maps.detail(mapId) });
+      }
+      if (result.shared_map_ids?.length) qc.invalidateQueries({ queryKey: queryKeys.maps.all });
+    },
+    [qc],
+  );
+
   return {
     story: saved,
     chapters,
@@ -258,6 +277,7 @@ export function useStoryEditor(initial: StoryDraftResponse) {
     discard,
     reload,
     applyStory,
+    applyGroups,
     busy,
     generation,
     blocked: conflict?.code === 'maps_narrower_than_story' ? conflict : null,

@@ -7,6 +7,7 @@ import type {
   StoryChapter,
   StoryCreate,
   StoryDraftResponse,
+  StoryGroupsResponse,
   StoryListResponse,
   StoryResponse,
   StoryUpdate,
@@ -84,10 +85,29 @@ export async function saveStoryDraft(
   });
 }
 
-export async function publishStory(id: string, revision: number): Promise<StoryResponse> {
+/** What a story write may do about maps that block it: share the ones you may share with the groups lacking them. */
+export type ShareBlockingMaps = 'share_maps';
+
+export async function publishStory(id: string, revision: number, confirm?: ShareBlockingMaps): Promise<StoryResponse> {
   return apiFetch<StoryResponse>(`/stories/${encodeURIComponent(id)}/publish`, {
     method: 'POST',
-    body: JSON.stringify({ revision }),
+    body: JSON.stringify({ revision, ...(confirm ? { confirm } : {}) }),
+  });
+}
+
+/**
+ * Share a story with exactly these groups; an empty list unshares it. Without
+ * `confirm`, maps of the published story that some new group can't read come
+ * back as a `maps_narrower_than_story` conflict.
+ */
+export async function setStoryGroups(
+  id: string,
+  groupIds: string[],
+  confirm?: ShareBlockingMaps,
+): Promise<StoryGroupsResponse> {
+  return apiFetch<StoryGroupsResponse>(`/stories/${encodeURIComponent(id)}/groups/`, {
+    method: 'PUT',
+    body: JSON.stringify({ group_ids: groupIds, ...(confirm ? { confirm } : {}) }),
   });
 }
 
@@ -98,11 +118,17 @@ export async function discardStoryDraft(id: string, revision: number): Promise<S
   });
 }
 
+export type BlockingMap = { id: string; name: string; canShare: boolean };
 export type MapsBlockingStory = {
   code: 'maps_narrower_than_story';
-  maps: { id: string; name: string }[];
+  maps: BlockingMap[];
   unreadableMaps: number;
 };
+
+/** Whether sharing the author's own maps would clear every map in `blocked`. */
+export function sharingMapsClears(blocked: MapsBlockingStory): boolean {
+  return blocked.unreadableMaps === 0 && blocked.maps.length > 0 && blocked.maps.every((m) => m.canShare);
+}
 export type StoryConflict =
   | { code: 'stale_revision'; revision: number }
   | MapsBlockingStory
@@ -126,10 +152,12 @@ function storyConflictFromError(err: unknown): StoryConflict | null {
   }
   if (detail?.code === 'maps_narrower_than_story') {
     const maps = Array.isArray(detail.maps)
-      ? detail.maps.filter(
-          (m): m is { id: string; name: string } =>
-            typeof m?.id === 'string' && typeof m?.name === 'string',
-        )
+      ? detail.maps
+          .filter(
+            (m): m is { id: string; name: string; can_share?: unknown } =>
+              typeof m?.id === 'string' && typeof m?.name === 'string',
+          )
+          .map((m) => ({ id: m.id, name: m.name, canShare: m.can_share === true }))
       : [];
     const unreadableMaps = typeof detail.unreadable_maps === 'number' ? detail.unreadable_maps : 0;
     return { code: 'maps_narrower_than_story', maps, unreadableMaps };

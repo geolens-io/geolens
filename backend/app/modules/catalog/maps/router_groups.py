@@ -19,7 +19,7 @@ from app.modules.catalog.maps.service import (
     check_map_ownership,
     get_map,
     map_groups,
-    record_map_history_event,
+    record_map_groups_change,
     set_map_groups,
 )
 from app.platform.cache.tiles import invalidate_catalog_cache
@@ -110,7 +110,6 @@ async def set_map_groups_endpoint(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         )
-    previous = result.previous
     visibility = map_obj.visibility
     for dataset_id, (group_ids, dataset_visibility) in result.shared_datasets.items():
         await audit_emit(
@@ -128,38 +127,17 @@ async def set_map_groups_endpoint(
                 ip_address=get_client_ip(request),
             ),
         )
-    if previous is not None:
-        await audit_emit(
+    if result.previous is not None:
+        await record_map_groups_change(
             db,
-            AuditEvent(
-                user_id=user.id,
-                action="map.update",
-                resource_type="map",
-                resource_id=map_id,
-                details={
-                    "changed_fields": ["groups"],
-                    "group_ids": sorted(str(group_id) for group_id in body.group_ids),
-                    "visibility": visibility,
-                },
-                ip_address=get_client_ip(request),
-            ),
+            map_id,
+            map_obj.name,
+            previous=result.previous,
+            group_ids=result.group_ids,
+            actor=user,
+            visibility=visibility,
+            ip_address=get_client_ip(request),
         )
-        if visibility != previous:
-            await record_map_history_event(
-                db,
-                map_id=map_id,
-                actor=user,
-                target_type="map",
-                target_id=map_id,
-                target_name=map_obj.name,
-                action="map.visibility_update",
-                summary=f"Changed visibility to {visibility}",
-                details={
-                    "field": "visibility",
-                    "previous": previous,
-                    "current": visibility,
-                },
-            )
     groups = await map_groups(db, map_id)
     await db.commit()
     if result.shared_datasets:

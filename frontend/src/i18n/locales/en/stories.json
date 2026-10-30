@@ -75,7 +75,8 @@
     "unreadableMaps_other": "{{count}} more maps you can't open",
     "blockedTitle": "Publishing was refused",
     "blockedDescription": "Some maps in this story can't be read by everyone the story's visibility reaches. Make them visible to that audience, or narrow the story's visibility in Details.",
-    "close": "Close"
+    "close": "Close",
+    "shareMapsAndPublish": "Share my maps and publish"
   },
   "unavailable": {
     "title": "Story not available",
@@ -211,6 +212,31 @@
       "processing": "Processing the image…",
       "progress": "Upload progress",
       "notShown": "This image can't be shown. Replace or remove it."
-    }
+    },
+    "publishedSharingMaps": "Story published, and your maps that blocked it are now shared with its groups."
+  },
+  "groups": {
+    "heading": "Groups",
+    "help": "Choose the groups whose members can read this story once it's published. Each scene's map still follows its own access.",
+    "effectPrivateEmpty": "Pick a group and save to share this story with specific groups.",
+    "effectToRestricted": "Saving shares this story with specific groups: only you, admins and members of these groups can read it.",
+    "effectRestricted": "Saving changes which groups can read this story.",
+    "effectToPrivate": "Saving removes the last group. Only you and admins can read this story.",
+    "effectKept": "The groups don't change who can read this story now. They apply if you make it private.",
+    "save": "Save groups",
+    "saving": "Saving groups…",
+    "saved": "Groups saved.",
+    "savedRestricted": "Groups saved. This story is now shared with specific groups only.",
+    "savedPrivate": "Groups removed. Only you and admins can read this story.",
+    "sharedMaps_one": "Groups saved, and {{count}} of your maps is now shared with them.",
+    "sharedMaps_many": "Groups saved, and {{count}} of your maps are now shared with them.",
+    "sharedMaps_other": "Groups saved, and {{count}} of your maps are now shared with them.",
+    "failed": "Couldn't save the groups",
+    "blockedTitle": "Some maps can't be read by these groups",
+    "blockedCanShare": "Some people in these groups can't open the maps below. Share your maps with the groups too, or remove the scenes that use them.",
+    "blockedCannotShare": "Some people in these groups can't open the maps below, and you can't share all of them. Ask each map's owner to share it with the groups, or remove the scenes that use them.",
+    "cannotShareMap": "(you can't share this map)",
+    "shareMaps": "Share my maps and save",
+    "sharingRevokesLinks": "A private map you share this way stops working through its share link and embed codes, and layers the groups can't read stay hidden from them."
   }
 }

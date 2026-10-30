@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router';
 import { ArrowLeft, BookOpen, Settings2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ApiError } from '@/api/client';
+import { sharingMapsClears } from '@/api/stories';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { EmptyState } from '@/components/layout/EmptyState';
@@ -11,7 +12,7 @@ import { LoadingState } from '@/components/layout/LoadingState';
 import { StoryMapPane, type StoryMapPaneHandle } from '@/components/stories/StoryMapPane';
 import { StoryUnavailableState } from '@/components/stories/StoryUnavailableState';
 import { canEditStory } from '@/components/stories/can-edit-story';
-import { BlockingMapsList } from '@/components/stories/editor/BlockingMapsList';
+import { BlockingMapsList, blockedDescriptionKey } from '@/components/stories/editor/BlockingMapsList';
 import { ChapterEditor } from '@/components/stories/editor/ChapterEditor';
 import { ChapterList } from '@/components/stories/editor/ChapterList';
 import { StoryDetailsDialog } from '@/components/stories/editor/StoryDetailsDialog';
@@ -102,6 +103,8 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
   const { t } = useTranslation('stories');
   const editor = useStoryEditor(initial);
   const { story, chapters, dirty, edit, busy, blocked, failed, stale, uploads, missingAlt, tooLarge, unsaveable } = editor;
+  const toGroups = story.visibility === 'restricted';
+  const sharingOffer = blocked !== null && sharingMapsClears(blocked);
   const everPublished = story.published_at !== null;
   const { data: published } = useStory(story.id, { enabled: everPublished });
   const [selectedId, setSelectedId] = useState(initial.document.chapters[0]?.id ?? null);
@@ -342,6 +345,7 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
         open={detailsOpen}
         onOpenChange={setDetailsOpen}
         onSaved={editor.applyStory}
+        onGroupsSaved={editor.applyGroups}
       />
       <ConfirmDialog
         open={removing !== null}
@@ -388,12 +392,18 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
         open={blocked !== null}
         onOpenChange={(open) => !open && editor.clearConflict()}
         title={t('publish.blockedTitle')}
-        description={t('publish.blockedDescription')}
+        description={t(blockedDescriptionKey(toGroups, sharingOffer))}
         cancelLabel={t('publish.close')}
+        confirm={
+          sharingOffer
+            ? { label: t('publish.shareMapsAndPublish'), onClick: () => void editor.publish('share_maps') }
+            : undefined
+        }
       >
         {blocked && (
-          <div className="text-sm">
-            <BlockingMapsList maps={blocked.maps} unreadableMaps={blocked.unreadableMaps} />
+          <div className="space-y-2 text-sm">
+            <BlockingMapsList maps={blocked.maps} unreadableMaps={blocked.unreadableMaps} sharing={toGroups} />
+            {sharingOffer && <p className="text-muted-foreground">{t('groups.sharingRevokesLinks')}</p>}
           </div>
         )}
       </ConfirmDialog>

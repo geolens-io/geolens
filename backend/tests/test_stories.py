@@ -737,7 +737,7 @@ async def test_a_save_over_chapters_this_server_cannot_identify_is_refused(
         assert await _stored_draft(test_db_session, story["id"]) == draft
 
 
-async def test_a_stored_restricted_story_reads_and_refuses_publishing(
+async def test_a_restricted_story_without_groups_reaches_only_its_editors(
     client: AsyncClient, people, test_db_session
 ):
     owner = people["owner"]
@@ -746,12 +746,11 @@ async def test_a_stored_restricted_story_reads_and_refuses_publishing(
 
     read = await client.get(f"/stories/{story['id']}", headers=owner)
     assert read.status_code == 200 and read.json()["visibility"] == "restricted"
+    published = await _publish(client, owner, story["id"])
+    assert published.status_code == 200, published.text
     assert (
         await client.get(f"/stories/{story['id']}", headers=people["other"])
     ).status_code == 404
-    refused = await _publish(client, owner, story["id"])
-    assert refused.status_code == 409
-    assert _detail(refused)["code"] == "visibility_unsupported"
     bad = await client.patch(
         f"/stories/{story['id']}", json={"visibility": "restricted"}, headers=owner
     )

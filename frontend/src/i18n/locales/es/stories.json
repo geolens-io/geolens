@@ -75,7 +75,8 @@
     "unreadableMaps_other": "{{count}} mapas más que no puedes abrir",
     "blockedTitle": "Se rechazó la publicación",
     "blockedDescription": "Algunos mapas de esta historia no los puede leer todo el público que alcanza su visibilidad. Hazlos visibles para ese público o restringe la visibilidad de la historia en Detalles.",
-    "close": "Cerrar"
+    "close": "Cerrar",
+    "shareMapsAndPublish": "Compartir mis mapas y publicar"
   },
   "unavailable": {
     "title": "Historia no disponible",
@@ -211,6 +212,31 @@
       "processing": "Procesando la imagen…",
       "progress": "Progreso de la subida",
       "notShown": "Esta imagen no se puede mostrar. Reemplázala o quítala."
-    }
+    },
+    "publishedSharingMaps": "Historia publicada, y tus mapas que la bloqueaban ahora se comparten con sus grupos."
+  },
+  "groups": {
+    "heading": "Grupos",
+    "help": "Elige los grupos cuyos miembros pueden leer esta historia cuando se publique. El mapa de cada escena mantiene su propio acceso.",
+    "effectPrivateEmpty": "Elige un grupo y guarda para compartir esta historia con grupos concretos.",
+    "effectToRestricted": "Al guardar, esta historia se comparte con grupos concretos: solo tú, los administradores y los miembros de estos grupos pueden leerla.",
+    "effectRestricted": "Al guardar cambian los grupos que pueden leer esta historia.",
+    "effectToPrivate": "Al guardar se quita el último grupo. Solo tú y los administradores pueden leer esta historia.",
+    "effectKept": "Los grupos no cambian ahora quién puede leer esta historia. Se aplican si la haces privada.",
+    "save": "Guardar grupos",
+    "saving": "Guardando grupos…",
+    "saved": "Grupos guardados.",
+    "savedRestricted": "Grupos guardados. Esta historia ahora solo se comparte con grupos concretos.",
+    "savedPrivate": "Grupos quitados. Solo tú y los administradores pueden leer esta historia.",
+    "sharedMaps_one": "Grupos guardados, y {{count}} de tus mapas ahora se comparte con ellos.",
+    "sharedMaps_many": "Grupos guardados, y {{count}} de tus mapas ahora se comparten con ellos.",
+    "sharedMaps_other": "Grupos guardados, y {{count}} de tus mapas ahora se comparten con ellos.",
+    "failed": "No se pudieron guardar los grupos",
+    "blockedTitle": "Estos grupos no pueden leer algunos mapas",
+    "blockedCanShare": "Algunas personas de estos grupos no pueden abrir los mapas siguientes. Comparte también tus mapas con los grupos o quita las escenas que los usan.",
+    "blockedCannotShare": "Algunas personas de estos grupos no pueden abrir los mapas siguientes y no puedes compartirlos todos. Pide al propietario de cada mapa que lo comparta con los grupos o quita las escenas que los usan.",
+    "cannotShareMap": "(no puedes compartir este mapa)",
+    "shareMaps": "Compartir mis mapas y guardar",
+    "sharingRevokesLinks": "Un mapa privado que compartas así deja de funcionar con su enlace para compartir y sus códigos de inserción, y las capas que los grupos no pueden leer siguen ocultas para ellos."
   }
 }

@@ -118,7 +118,8 @@ def sync_detailed(
 
     These apply at once, without Publish. A visibility wider than a map the
     published story uses answers 409 `maps_narrower_than_story`; a narrower
-    one is always allowed.
+    one is always allowed. A story shared with groups stays restricted when
+    made private.
 
     Args:
         story_id (UUID):
@@ -156,7 +157,8 @@ def sync(
 
     These apply at once, without Publish. A visibility wider than a map the
     published story uses answers 409 `maps_narrower_than_story`; a narrower
-    one is always allowed.
+    one is always allowed. A story shared with groups stays restricted when
+    made private.
 
     Args:
         story_id (UUID):
@@ -189,7 +191,8 @@ async def asyncio_detailed(
 
     These apply at once, without Publish. A visibility wider than a map the
     published story uses answers 409 `maps_narrower_than_story`; a narrower
-    one is always allowed.
+    one is always allowed. A story shared with groups stays restricted when
+    made private.
 
     Args:
         story_id (UUID):
@@ -225,7 +228,8 @@ async def asyncio(
 
     These apply at once, without Publish. A visibility wider than a map the
     published story uses answers 409 `maps_narrower_than_story`; a narrower
-    one is always allowed.
+    one is always allowed. A story shared with groups stays restricted when
+    made private.
 
     Args:
         story_id (UUID):

@@ -69,6 +69,17 @@ and releases use semantic versioning.
   filter by don't offer picks, and linking works on share links and in embeds.
 - The Maps page marks a map with a dashboard you can see with a Dashboard
   badge, in the list and grid views.
+- Stories can be shared with groups, as maps can. In a story's Details, the
+  owner picks groups they belong to (an admin can pick any group). A private
+  story shared with groups becomes restricted: once published, members of
+  those groups can read it, its images included. Only the owner and admins see
+  which groups a story is shared with, and a story with groups stays
+  restricted when set to private. Publishing, or sharing a published story, is
+  refused while a member of those groups can't open one of its maps. The
+  refusal names the maps, and when they're all yours it offers "Share my maps",
+  which shares them with the same groups first. Deleting a story's last group
+  makes it private. The API adds `PUT /stories/{id}/groups/`, `confirm` on
+  publish and `groups` on story drafts.
 
 ### Changed
 

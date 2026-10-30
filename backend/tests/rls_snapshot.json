@@ -129,6 +129,15 @@
       "with_check": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)"
     },
     {
+      "policyname": "tenant_isolation_story_group_grants",
+      "tablename": "story_group_grants",
+      "qual_contains": "current_setting",
+      "with_check_contains": "current_setting",
+      "no_is_null": true,
+      "qual": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)",
+      "with_check": "(tenant_id = (current_setting('app.current_tenant'::text))::uuid)"
+    },
+    {
       "policyname": "tenant_isolation_story_maps",
       "tablename": "story_maps",
       "qual_contains": "current_setting",
@@ -205,6 +214,10 @@
         "relrowsecurity": false,
         "relforcerowsecurity": false
       },
+      "story_group_grants": {
+        "relrowsecurity": false,
+        "relforcerowsecurity": false
+      },
       "story_maps": {
         "relrowsecurity": false,
         "relforcerowsecurity": false
@@ -268,6 +281,10 @@
         "relforcerowsecurity": true
       },
       "story_assets": {
+        "relrowsecurity": true,
+        "relforcerowsecurity": true
+      },
+      "story_group_grants": {
         "relrowsecurity": true,
         "relforcerowsecurity": true
       },
