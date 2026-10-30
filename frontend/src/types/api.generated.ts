@@ -2062,7 +2062,10 @@ export interface paths {
          * @description Compute one exact aggregate over a dataset's rows, for a widget.
          *
          *     Anonymous callers can read public, published datasets; ``X-Embed-Token``
-         *     authorizes datasets in the token's scope. Other datasets return 404.
+         *     authorizes datasets in the token's scope. Other datasets return 404. A
+         *     request only the embed token authorizes may read only the columns in the
+         *     dataset's tile column allowlist, when it has one; any other column is
+         *     refused as an unknown one.
          *
          *     With ``bbox``, a view the planner expects to hold more than 500,000 rows
          *     is refused with 422 and the code ``too_wide`` rather than approximated. A
@@ -2493,7 +2496,9 @@ export interface paths {
          * @description Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
          *
          *     ``X-Embed-Token`` authorizes private datasets in the token's scope through
-         *     the same capability check used for tile requests.
+         *     the same capability check used for tile requests. A request only the embed
+         *     token authorizes gets only the properties in the dataset's tile column
+         *     allowlist, when it has one.
          *
          *     Anonymous callers can read public, published datasets. Private or
          *     restricted datasets return 404 unless user or embed credentials authorize
@@ -9436,7 +9441,7 @@ export interface components {
             is_dem?: boolean | null;
             /**
              * Tile Columns
-             * @description Ordered vector-tile property allowlist; null restores zoom defaults, [] emits geometry-only tiles, list emits those properties at any zoom.
+             * @description Ordered vector-tile property allowlist; null restores zoom defaults, [] emits geometry-only tiles, list emits those properties at any zoom. Reads authorized only by an embed token are limited to these columns too.
              */
             tile_columns?: string[] | null;
             /**

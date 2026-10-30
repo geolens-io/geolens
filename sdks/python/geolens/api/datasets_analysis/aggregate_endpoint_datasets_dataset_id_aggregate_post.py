@@ -212,7 +212,10 @@ def sync_detailed(
      Compute one exact aggregate over a dataset's rows, for a widget.
 
     Anonymous callers can read public, published datasets; ``X-Embed-Token``
-    authorizes datasets in the token's scope. Other datasets return 404.
+    authorizes datasets in the token's scope. Other datasets return 404. A
+    request only the embed token authorizes may read only the columns in the
+    dataset's tile column allowlist, when it has one; any other column is
+    refused as an unknown one.
 
     With ``bbox``, a view the planner expects to hold more than 500,000 rows
     is refused with 422 and the code ``too_wide`` rather than approximated. A
@@ -277,7 +280,10 @@ def sync(
      Compute one exact aggregate over a dataset's rows, for a widget.
 
     Anonymous callers can read public, published datasets; ``X-Embed-Token``
-    authorizes datasets in the token's scope. Other datasets return 404.
+    authorizes datasets in the token's scope. Other datasets return 404. A
+    request only the embed token authorizes may read only the columns in the
+    dataset's tile column allowlist, when it has one; any other column is
+    refused as an unknown one.
 
     With ``bbox``, a view the planner expects to hold more than 500,000 rows
     is refused with 422 and the code ``too_wide`` rather than approximated. A
@@ -336,7 +342,10 @@ async def asyncio_detailed(
      Compute one exact aggregate over a dataset's rows, for a widget.
 
     Anonymous callers can read public, published datasets; ``X-Embed-Token``
-    authorizes datasets in the token's scope. Other datasets return 404.
+    authorizes datasets in the token's scope. Other datasets return 404. A
+    request only the embed token authorizes may read only the columns in the
+    dataset's tile column allowlist, when it has one; any other column is
+    refused as an unknown one.
 
     With ``bbox``, a view the planner expects to hold more than 500,000 rows
     is refused with 422 and the code ``too_wide`` rather than approximated. A
@@ -399,7 +408,10 @@ async def asyncio(
      Compute one exact aggregate over a dataset's rows, for a widget.
 
     Anonymous callers can read public, published datasets; ``X-Embed-Token``
-    authorizes datasets in the token's scope. Other datasets return 404.
+    authorizes datasets in the token's scope. Other datasets return 404. A
+    request only the embed token authorizes may read only the columns in the
+    dataset's tile column allowlist, when it has one; any other column is
+    refused as an unknown one.
 
     With ``bbox``, a view the planner expects to hold more than 500,000 rows
     is refused with 422 and the code ``too_wide`` rather than approximated. A

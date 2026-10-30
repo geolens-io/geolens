@@ -644,6 +644,26 @@ def can_view_dataset_provenance(
     return bool(user and (record.created_by == user.id or "admin" in user_roles))
 
 
+async def may_read_dataset(
+    db: AsyncSession, dataset: Any, dataset_id: uuid.UUID, user: Identity | None
+) -> bool:
+    """Non-raising form of ``check_dataset_access_or_anonymous``."""
+    user_roles = await get_user_roles(db, user) if user is not None else set()
+    return await get_permission_extension().can_access_dataset(
+        db, dataset, dataset_id, user, user_roles=user_roles
+    )
+
+
+def readable_columns(dataset: Any, *, embed_authorized: bool) -> list[str] | None:
+    """The columns a REST read of ``dataset`` may return or read; None means all.
+
+    Narrowed only when the embed token alone authorizes the read. A column
+    outside the list is treated as missing, and callers apply it before any
+    cache read. The tile routes apply ``tile_columns`` to every caller.
+    """
+    return dataset.tile_columns if embed_authorized else None
+
+
 async def check_dataset_write_access(
     db: AsyncSession,
     dataset: Any,

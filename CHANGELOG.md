@@ -99,6 +99,10 @@ and releases use semantic versioning.
   during a save no longer makes the next save warn about changes from another
   session. (#3474)
 
+### Security
+
+- Reads authorized by an embed token now stay inside the dataset's tile column allowlist, as its tiles already do. Datasets without an allowlist are unchanged.
+
 ## [1.28.0] - 2026-10-29
 
 ### Added

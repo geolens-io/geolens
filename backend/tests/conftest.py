@@ -21,10 +21,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.modules.auth.models import Role, User, UserRole
 from app.modules.auth.providers.local import hash_password
+from app.modules.catalog.maps.models import Map, MapLayer
+from app.modules.embed_tokens.service import create_embed_token
 from app.platform.cache import init_cache
 from app.core.config import Settings, settings
 
-from tests.factories import create_user
+from tests.factories import create_user, get_user_id
 
 # Register the multi_tenant_rls fixture so multi-tenant tests can request it
 # from any test file without an explicit import. The fixture lives in
@@ -2035,6 +2037,31 @@ async def admin_auth_header(client: AsyncClient) -> dict[str, str]:
         settings.geolens_admin_username,
         settings.geolens_admin_password.get_secret_value(),
     )
+
+
+@pytest.fixture
+def embed_headers(test_db_session):
+    """Build X-Embed-Token headers for an admin's public map of the datasets."""
+
+    async def _headers(*dataset_ids: uuid.UUID) -> dict[str, str]:
+        admin_id = await get_user_id(test_db_session, "admin")
+        map_obj = Map(
+            name=f"Embed {uuid.uuid4().hex[:6]}",
+            visibility="public",
+            created_by=admin_id,
+        )
+        test_db_session.add(map_obj)
+        await test_db_session.flush()
+        test_db_session.add_all(
+            MapLayer(map_id=map_obj.id, dataset_id=dataset_id, sort_order=order)
+            for order, dataset_id in enumerate(dataset_ids)
+        )
+        await test_db_session.commit()
+        _token, raw = await create_embed_token(test_db_session, map_obj.id, admin_id)
+        await test_db_session.commit()
+        return {"X-Embed-Token": raw}
+
+    return _headers
 
 
 @pytest.fixture

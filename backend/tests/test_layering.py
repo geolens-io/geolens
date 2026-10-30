@@ -1192,7 +1192,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/search/service_datasets.py": 316,
         # Shared-map audience decisions stay behind the permission extension seam,
         # restricted maps' group members included.
-        "backend/app/modules/catalog/maps/service_public.py": 1076,
+        "backend/app/modules/catalog/maps/service_public.py": 1093,
         # Record assembly keeps one format and asset branch per record type.
         "backend/app/modules/catalog/search/service_records.py": 636,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
@@ -1395,7 +1395,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 696,
     # Dataset request and verification response families share this public contract.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 2016,
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 2017,
     # Records, datasets and their grant, translation and attribute children map
     # one catalog schema.
     "backend/app/modules/catalog/datasets/domain/models.py": 1003,
@@ -1407,7 +1407,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Feature writes, single and batch, share the dataset guards, the database
     # error mapping and the catalog refresh; create also carries idempotent
     # repeats and the dry run.
-    "backend/app/modules/catalog/features/router.py": 1725,
+    "backend/app/modules/catalog/features/router.py": 1734,
     # Native search and OGC Records share visibility, query parsing and pagination.
     "backend/app/modules/catalog/search/router.py": 1419,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
@@ -1436,11 +1436,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # capture, and the create dry run checks the table's kind, insert triggers
     # and rules, and the shapes that run user code on insert, with the same
     # catalog probes.
-    "backend/app/modules/catalog/features/service.py": 1643,
+    "backend/app/modules/catalog/features/service.py": 1657,
     # Dataset visibility, and the VRT member counts and extents each requester
     # may see, and which groups can't read a dataset, share the permission
     # extension's one audience; map reads share the one map guard beside it.
-    "backend/app/modules/catalog/authorization.py": 1338,
+    "backend/app/modules/catalog/authorization.py": 1358,
 }
 
 

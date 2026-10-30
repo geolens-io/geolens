@@ -16,7 +16,7 @@ import json
 import math
 from decimal import Decimal
 from collections.abc import Sequence
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import text
@@ -629,6 +629,76 @@ def _cache_key(prefix: str, dataset: Dataset, body: dict) -> str | None:
     )
 
 
+class _Compiled(NamedTuple):
+    sql: str
+    binds: list[Any]
+    source: str
+    planned_source: str
+    predicates: list[str]
+
+
+async def _compile(
+    db: AsyncSession,
+    dataset: Dataset,
+    request: AggregateRequest,
+    bbox: Sequence[float] | None,
+    *,
+    covered: bool,
+    allowed_columns: list[str] | None,
+) -> _Compiled:
+    """Build the request's SQL over the live columns the caller may read.
+
+    A column outside ``allowed_columns`` is refused exactly as a missing one.
+    """
+    live = await get_catalog_port().get_column_info(db, dataset.table_name)
+    if allowed_columns is not None:
+        allowed = set(allowed_columns)
+        live = [col for col in live if col["name"] in allowed]
+    try:
+        layer_filter = await compile_layer_filter(
+            db, dataset, request.filter, bind_prefix="agg_filter", live_columns=live
+        )
+    except ValueError as exc:
+        raise AggregateError("invalid_filter", str(exc)) from exc
+    where_sql, binds = layer_filter if layer_filter else (None, [])
+    columns = {col["name"]: str(col["type"]).lower() for col in live}
+    source = render_filtered_table_ref(_safe_table_ref(dataset.table_name), where_sql)
+    predicates = _view_predicates(bbox, covered=covered)
+    # The request session has no tenant schema rewrite, so EXPLAIN reads the
+    # resolved table rather than the sandbox's logical reference.
+    planned_source = render_filtered_table_ref(
+        get_catalog_port().quote_table(dataset.table_name), where_sql
+    )
+    return _Compiled(
+        build_aggregate_sql(request, source, predicates, columns),
+        binds,
+        source,
+        planned_source,
+        predicates,
+    )
+
+
+async def _compile_narrowed(
+    db: AsyncSession,
+    dataset: Dataset,
+    request: AggregateRequest,
+    bbox: Sequence[float] | None,
+    *,
+    covered: bool,
+    allowed_columns: list[str] | None,
+) -> _Compiled | None:
+    """Compile a narrowed caller's request before the caches are read.
+
+    The caches hold answers computed for callers who may read every column.
+    Returns None for a caller who may read every column.
+    """
+    if allowed_columns is None:
+        return None
+    return await _compile(
+        db, dataset, request, bbox, covered=covered, allowed_columns=allowed_columns
+    )
+
+
 def _too_wide() -> AggregateError:
     return AggregateError(
         "too_wide", "This view holds too many features to summarize exactly. Zoom in."
@@ -636,12 +706,18 @@ def _too_wide() -> AggregateError:
 
 
 async def run_aggregate(
-    db: AsyncSession, dataset: Dataset, request: AggregateRequest, *, caller_key: str
+    db: AsyncSession,
+    dataset: Dataset,
+    request: AggregateRequest,
+    *,
+    caller_key: str,
+    allowed_columns: list[str] | None = None,
 ) -> AggregateResponse:
     """Compute one aggregate exactly, from the cache when it holds the answer.
 
     The caller has already authorized ``dataset`` and checked it has a feature
     table. ``caller_key`` names the caller for its concurrency lock.
+    ``allowed_columns``, when given, are the only columns the request may read.
     Raises ``AggregateError`` for a request it refuses and ``SandboxError``
     when the query cannot run. Releases ``db``'s connection before the query,
     so the caller must not read ORM state from it afterwards.
@@ -672,6 +748,9 @@ async def run_aggregate(
     ):
         return _respond("count", {"count": dataset.feature_count}, cached=False)
 
+    compiled = await _compile_narrowed(
+        db, dataset, request, bbox, covered=covered, allowed_columns=allowed_columns
+    )
     cache_key = _cache_key(
         "aggregate",
         dataset,
@@ -693,23 +772,11 @@ async def run_aggregate(
         raise _too_wide()
     judge_view = bbox is not None and verdict is None
 
-    live = await get_catalog_port().get_column_info(db, dataset.table_name)
-    try:
-        layer_filter = await compile_layer_filter(
-            db, dataset, request.filter, bind_prefix="agg_filter", live_columns=live
+    if compiled is None:
+        compiled = await _compile(
+            db, dataset, request, bbox, covered=covered, allowed_columns=allowed_columns
         )
-    except ValueError as exc:
-        raise AggregateError("invalid_filter", str(exc)) from exc
-    where_sql, binds = layer_filter if layer_filter else (None, [])
-    columns = {col["name"]: str(col["type"]).lower() for col in live}
-    source = render_filtered_table_ref(_safe_table_ref(dataset.table_name), where_sql)
-    predicates = _view_predicates(bbox, covered=covered)
-    sql = build_aggregate_sql(request, source, predicates, columns)
-    # The request session has no tenant schema rewrite, so EXPLAIN reads the
-    # resolved table rather than the sandbox's logical reference.
-    planned_source = render_filtered_table_ref(
-        get_catalog_port().quote_table(dataset.table_name), where_sql
-    )
+    sql, binds, source, planned_source, predicates = compiled
 
     if _aggregate_slots.locked():
         raise SandboxError(

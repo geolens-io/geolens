@@ -20,6 +20,7 @@ from tests.factories import (
     create_raster_dataset,
     create_user,
     get_user_id,
+    set_tile_columns,
 )
 from tests.test_api_key_publish_scope import _mint
 from tests.test_api_key_scope_875 import _remove_keys_minted_by_the_test  # noqa: F401
@@ -822,6 +823,232 @@ class TestAccess:
         resp = await _aggregate(client, raster.id, {"op": "count"}, admin_auth_header)
 
         assert resp.status_code == 404, resp.text
+
+
+def _filtered_on(column: str) -> dict:
+    return {"op": "count", "filter": {"op": "=", "args": [{"property": column}, 1]}}
+
+
+class TestEmbedColumnAllowlist:
+    """An embed token reads only the columns in the dataset's tile allowlist."""
+
+    async def test_an_allowlisted_column_is_read(
+        self, client: AsyncClient, test_db_session, private_points, embed_headers
+    ):
+        await set_tile_columns(test_db_session, private_points.id, ["kind"])
+        headers = await embed_headers(private_points.id)
+
+        resp = await _aggregate(
+            client,
+            private_points.id,
+            {"op": "value_counts", "column": "kind", "filter": KEEP},
+            headers,
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["result"]["values"] == [{"value": "keep", "count": 6}]
+
+    @pytest.mark.parametrize(
+        ("body", "hidden"),
+        [
+            ({"op": "stats", "column": "pop", "stats": ["sum"]}, "column"),
+            ({"op": "histogram", "column": "pop"}, "column"),
+            ({"op": "value_counts", "column": "note"}, "column"),
+            (
+                {"op": "group_by", "group_column": "note", "stat": "count"},
+                "group_column",
+            ),
+            (
+                {
+                    "op": "group_by",
+                    "group_column": "kind",
+                    "stat": "sum",
+                    "column": "pop",
+                },
+                "column",
+            ),
+        ],
+        ids=["stats", "histogram", "value_counts", "group_column", "stat_column"],
+    )
+    async def test_a_column_outside_the_allowlist_is_refused_as_unknown(
+        self,
+        client: AsyncClient,
+        test_db_session,
+        private_points,
+        embed_headers,
+        body,
+        hidden,
+    ):
+        await set_tile_columns(test_db_session, private_points.id, ["kind"])
+        headers = await embed_headers(private_points.id)
+        missing = body | {hidden: "nope"}
+
+        resp = await _aggregate(client, private_points.id, body, headers)
+        unknown = await _aggregate(client, private_points.id, missing, headers)
+
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"] == {
+            "code": "invalid_column",
+            "message": f"Unknown column: {body[hidden]!r}",
+        }
+        assert unknown.json()["detail"]["message"] == "Unknown column: 'nope'"
+
+    async def test_a_filter_on_a_column_outside_the_allowlist_is_refused_as_unknown(
+        self, client: AsyncClient, test_db_session, private_points, embed_headers
+    ):
+        await set_tile_columns(test_db_session, private_points.id, ["kind"])
+        headers = await embed_headers(private_points.id)
+
+        resp = await _aggregate(client, private_points.id, _filtered_on("pop"), headers)
+        unknown = await _aggregate(
+            client, private_points.id, _filtered_on("nope"), headers
+        )
+
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"] == {
+            "code": "invalid_filter",
+            "message": (
+                "Unsupported CQL2 filter: unknown or non-filterable property 'pop'"
+            ),
+        }
+        assert unknown.json()["detail"]["message"] == (
+            "Unsupported CQL2 filter: unknown or non-filterable property 'nope'"
+        )
+
+    async def test_a_signed_in_non_reader_with_a_token_is_narrowed(
+        self,
+        client: AsyncClient,
+        viewer_auth_header: dict,
+        test_db_session,
+        private_points,
+        embed_headers,
+    ):
+        await set_tile_columns(test_db_session, private_points.id, ["kind"])
+        headers = await embed_headers(private_points.id) | viewer_auth_header
+        body = {"op": "stats", "column": "pop", "stats": ["sum"]}
+
+        resp = await _aggregate(client, private_points.id, body, headers)
+        unknown = await _aggregate(
+            client, private_points.id, body | {"column": "nope"}, headers
+        )
+
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"] == {
+            "code": "invalid_column",
+            "message": "Unknown column: 'pop'",
+        }
+        assert unknown.json()["detail"]["message"] == "Unknown column: 'nope'"
+
+    async def test_an_answer_cached_for_a_full_reader_is_not_served(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        private_points,
+        embed_headers,
+    ):
+        body = {"op": "stats", "column": "pop", "stats": ["sum"]}
+        await set_tile_columns(test_db_session, private_points.id, ["kind"])
+        headers = await embed_headers(private_points.id)
+
+        admin = await _aggregate(client, private_points.id, body, admin_auth_header)
+        cached = await _aggregate(client, private_points.id, body, admin_auth_header)
+        resp = await _aggregate(client, private_points.id, body, headers)
+
+        assert admin.status_code == 200, admin.text
+        assert cached.json()["cached"] is True, cached.text
+        assert resp.status_code == 422, resp.text
+
+    async def test_an_empty_allowlist_refuses_every_column(
+        self, client: AsyncClient, test_db_session, private_points, embed_headers
+    ):
+        await set_tile_columns(test_db_session, private_points.id, [])
+        headers = await embed_headers(private_points.id)
+
+        column = await _aggregate(
+            client, private_points.id, {"op": "value_counts", "column": "kind"}, headers
+        )
+        count = await _aggregate(client, private_points.id, {"op": "count"}, headers)
+
+        assert column.status_code == 422, column.text
+        assert count.status_code == 200, count.text
+
+    async def test_an_embed_caller_who_could_read_anyway_reads_every_column(
+        self, client: AsyncClient, test_db_session, points, embed_headers
+    ):
+        await set_tile_columns(test_db_session, points.id, ["kind"])
+        headers = await embed_headers(points.id)
+
+        resp = await _aggregate(
+            client,
+            points.id,
+            {"op": "stats", "column": "pop", "stats": ["sum"], "filter": KEEP},
+            headers,
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["result"]["sum"] == 210
+
+    async def test_a_cached_too_wide_verdict_is_not_served_for_a_hidden_column(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        private_points,
+        embed_headers,
+        monkeypatch,
+    ):
+        async def _overstated(*_args, **_kwargs):
+            return 10**9
+
+        monkeypatch.setattr(aggregate, "MAX_VIEW_ROWS", 2)
+        monkeypatch.setattr(aggregate, "planner_row_estimate", _overstated)
+        await set_tile_columns(test_db_session, private_points.id, ["kind"])
+        headers = await embed_headers(private_points.id)
+        body = {
+            "op": "count",
+            "filter": {"op": ">", "args": [{"property": "pop"}, 0]},
+            "bbox": FIRST_THREE,
+        }
+
+        admin = await _aggregate(client, private_points.id, body, admin_auth_header)
+        resp = await _aggregate(client, private_points.id, body, headers)
+
+        assert admin.json()["detail"]["code"] == "too_wide", admin.text
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"]["code"] == "invalid_filter"
+
+    @pytest.mark.parametrize(
+        ("allowlist", "caller"),
+        [(["kind"], "signed_in"), (None, "embed")],
+        ids=["signed_in_with_allowlist", "embed_without_allowlist"],
+    )
+    async def test_these_callers_read_every_column(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        private_points,
+        embed_headers,
+        allowlist,
+        caller,
+    ):
+        await set_tile_columns(test_db_session, private_points.id, allowlist)
+        headers = (
+            admin_auth_header
+            if caller == "signed_in"
+            else await embed_headers(private_points.id)
+        )
+
+        resp = await _aggregate(
+            client,
+            private_points.id,
+            {"op": "stats", "column": "pop", "stats": ["sum"], "filter": KEEP},
+            headers,
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["result"]["sum"] == 210
 
 
 class TestApiKeys:

@@ -4008,7 +4008,7 @@ export type DatasetMeta = {
     /**
      * Tile Columns
      *
-     * Ordered vector-tile property allowlist; null restores zoom defaults, [] emits geometry-only tiles, list emits those properties at any zoom.
+     * Ordered vector-tile property allowlist; null restores zoom defaults, [] emits geometry-only tiles, list emits those properties at any zoom. Reads authorized only by an embed token are limited to these columns too.
      */
     tile_columns?: Array<string> | null;
     /**

@@ -12,7 +12,7 @@ from sqlalchemy import text
 
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 
-from tests.factories import get_user_id
+from tests.factories import create_dataset, get_user_id, set_tile_columns
 from tests.conftest import _create_test_user
 
 
@@ -467,3 +467,120 @@ class TestGetFeaturesGeoJSONZEndpoint:
         assert len(body["features"]) == 5000
         assert body["truncated"] is True
         assert body["total_count"] > 5000
+
+
+class TestEmbedColumnAllowlist:
+    """An embed token reads only the properties in the dataset's tile allowlist."""
+
+    ALL_PROPERTIES = {"kind", "pop", "note"}
+
+    @pytest.fixture
+    async def points(self, client, test_db_session):
+        table = f"test_allow_{uuid.uuid4().hex[:8]}"
+        await test_db_session.execute(
+            text(
+                f"CREATE TABLE data.{table} (gid SERIAL PRIMARY KEY, kind TEXT,"
+                " pop INTEGER, note TEXT, geom geometry(Point, 4326),"
+                " geom_4326 geometry(Point, 4326))"
+            )
+        )
+        await test_db_session.execute(
+            text(f"GRANT SELECT ON data.{table} TO geolens_reader")
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table} (kind, pop, note, geom, geom_4326)"  # noqa: S608
+                " SELECT 'k' || i, i, 'n' || i, ST_SetSRID(ST_MakePoint(i, 0), 4326),"
+                " ST_SetSRID(ST_MakePoint(i, 0), 4326) FROM generate_series(1, 3) AS i"
+            )
+        )
+        await test_db_session.commit()
+        admin_id = await get_user_id(test_db_session, "admin")
+
+        async def _dataset(visibility: str = "private"):
+            return await create_dataset(
+                test_db_session,
+                created_by=admin_id,
+                table_name=table,
+                visibility=visibility,
+                geometry_type="POINT",
+                feature_count=3,
+            )
+
+        yield _dataset
+        await _cleanup_table(test_db_session, table)
+
+    async def _features(self, client, dataset, headers) -> list[dict]:
+        resp = await client.get(
+            f"/datasets/{dataset.id}/features.geojson", headers=headers
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()["features"]
+
+    @pytest.mark.parametrize(
+        ("allowlist", "expected"),
+        [(["kind", "pop"], {"kind", "pop"}), ([], set())],
+        ids=["listed", "empty"],
+    )
+    async def test_an_embed_read_keeps_to_the_allowlist(
+        self, client, test_db_session, embed_headers, points, allowlist, expected
+    ):
+        dataset = await points()
+        await set_tile_columns(test_db_session, dataset.id, allowlist)
+        headers = await embed_headers(dataset.id)
+
+        features = await self._features(client, dataset, headers)
+
+        assert len(features) == 3
+        assert {key for f in features for key in f["properties"]} == expected
+
+    async def test_a_signed_in_non_reader_with_a_token_is_narrowed(
+        self, client, test_db_session, viewer_auth_header, embed_headers, points
+    ):
+        dataset = await points()
+        await set_tile_columns(test_db_session, dataset.id, ["kind"])
+        headers = await embed_headers(dataset.id) | viewer_auth_header
+
+        features = await self._features(client, dataset, headers)
+
+        assert len(features) == 3
+        assert {key for f in features for key in f["properties"]} == {"kind"}
+
+    @pytest.mark.parametrize(
+        ("allowlist", "caller", "visibility"),
+        [
+            (["kind"], "signed_in", "private"),
+            (None, "embed", "private"),
+            (["kind"], "embed", "public"),
+        ],
+        ids=[
+            "signed_in_with_allowlist",
+            "embed_without_allowlist",
+            "embed_on_a_public_dataset",
+        ],
+    )
+    async def test_these_callers_read_every_column(
+        self,
+        client,
+        test_db_session,
+        admin_auth_header,
+        embed_headers,
+        points,
+        allowlist,
+        caller,
+        visibility,
+    ):
+        dataset = await points(visibility)
+        await set_tile_columns(test_db_session, dataset.id, allowlist)
+        headers = (
+            admin_auth_header
+            if caller == "signed_in"
+            else await embed_headers(dataset.id)
+        )
+
+        features = await self._features(client, dataset, headers)
+
+        assert len(features) == 3
+        assert {key for f in features for key in f["properties"]} == (
+            self.ALL_PROPERTIES
+        )

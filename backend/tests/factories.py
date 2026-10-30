@@ -17,7 +17,7 @@ from datetime import date, datetime
 
 from geoalchemy2 import WKTElement
 from httpx import AsyncClient
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models import User, UserRole
@@ -264,6 +264,16 @@ async def create_raster_dataset(
     await session.commit()
     await session.refresh(dataset)
     return dataset
+
+
+async def set_tile_columns(
+    session: AsyncSession, dataset_id: uuid.UUID, columns: list[str] | None
+) -> None:
+    """Set a dataset's tile column allowlist."""
+    await session.execute(
+        update(Dataset).where(Dataset.id == dataset_id).values(tile_columns=columns)
+    )
+    await session.commit()
 
 
 async def create_map_via_api(
