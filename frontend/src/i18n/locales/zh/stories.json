@@ -94,7 +94,6 @@
     "viewStory": "查看故事",
     "details": "详情",
     "discard": "放弃草稿",
-    "save": "保存草稿",
     "publish": "发布",
     "publishing": "正在发布…",
     "stale": "此草稿在你打开后已在其他地方被更改。请加载最新版本，或用你的版本覆盖它。",
@@ -120,7 +119,11 @@
       "unsaved": "有未保存的更改",
       "neverPublished": "草稿已保存，尚未发布。",
       "unpublishedChanges": "草稿已保存。读者仍看到上次发布的版本。",
-      "published": "已发布。读者看到的是此版本。"
+      "published": "已发布。读者看到的是此版本。",
+      "saveFailed": "无法保存",
+      "retry": "重试",
+      "waitingForUpload": "正在等待图片上传完成",
+      "waitingForAlt": "添加替代文本后才能保存"
     },
     "chapters": {
       "label": "章节",
@@ -140,7 +143,11 @@
       "addTextBlock": "添加文字块",
       "addImage": "添加图片",
       "imageBlock": "图片 {{index}}",
-      "removeImage": "移除图片 {{index}}"
+      "removeImage": "移除图片 {{index}}",
+      "moveTextBlockUp": "将文本块 {{index}} 上移",
+      "moveTextBlockDown": "将文本块 {{index}} 下移",
+      "moveImageUp": "将图片 {{index}} 上移",
+      "moveImageDown": "将图片 {{index}} 下移"
     },
     "scene": {
       "heading": "地图场景",

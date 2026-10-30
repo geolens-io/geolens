@@ -94,7 +94,6 @@
     "viewStory": "View story",
     "details": "Details",
     "discard": "Discard draft",
-    "save": "Save draft",
     "publish": "Publish",
     "publishing": "Publishing…",
     "stale": "This draft was changed somewhere else after you opened it. Load the latest version, or save yours over it.",
@@ -120,7 +119,11 @@
       "unsaved": "Unsaved changes",
       "neverPublished": "Draft saved. Not published yet.",
       "unpublishedChanges": "Draft saved. Readers still see the last published version.",
-      "published": "Published. Readers see this version."
+      "published": "Published. Readers see this version.",
+      "saveFailed": "Couldn't save",
+      "retry": "Retry",
+      "waitingForUpload": "Waiting for the image upload",
+      "waitingForAlt": "Add alt text to save"
     },
     "chapters": {
       "label": "Chapters",
@@ -140,7 +143,11 @@
       "addTextBlock": "Add text block",
       "addImage": "Add image",
       "imageBlock": "Image {{index}}",
-      "removeImage": "Remove image {{index}}"
+      "removeImage": "Remove image {{index}}",
+      "moveTextBlockUp": "Move text block {{index}} up",
+      "moveTextBlockDown": "Move text block {{index}} down",
+      "moveImageUp": "Move image {{index}} up",
+      "moveImageDown": "Move image {{index}} down"
     },
     "scene": {
       "heading": "Map scene",

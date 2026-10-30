@@ -94,7 +94,6 @@
     "viewStory": "Voir le récit",
     "details": "Détails",
     "discard": "Abandonner le brouillon",
-    "save": "Enregistrer le brouillon",
     "publish": "Publier",
     "publishing": "Publication…",
     "stale": "Ce brouillon a été modifié ailleurs après son ouverture. Chargez la dernière version ou enregistrez la vôtre par-dessus.",
@@ -120,7 +119,11 @@
       "unsaved": "Changements non enregistrés",
       "neverPublished": "Brouillon enregistré. Pas encore publié.",
       "unpublishedChanges": "Brouillon enregistré. Les lecteurs voient encore la dernière version publiée.",
-      "published": "Publié. Les lecteurs voient cette version."
+      "published": "Publié. Les lecteurs voient cette version.",
+      "saveFailed": "Échec de l'enregistrement",
+      "retry": "Réessayer",
+      "waitingForUpload": "En attente de la fin du téléversement de l'image",
+      "waitingForAlt": "Ajoutez un texte alternatif pour enregistrer"
     },
     "chapters": {
       "label": "Chapitres",
@@ -140,7 +143,11 @@
       "addTextBlock": "Ajouter un bloc de texte",
       "addImage": "Ajouter une image",
       "imageBlock": "Image {{index}}",
-      "removeImage": "Retirer l’image {{index}}"
+      "removeImage": "Retirer l’image {{index}}",
+      "moveTextBlockUp": "Monter le bloc de texte {{index}}",
+      "moveTextBlockDown": "Descendre le bloc de texte {{index}}",
+      "moveImageUp": "Monter l'image {{index}}",
+      "moveImageDown": "Descendre l'image {{index}}"
     },
     "scene": {
       "heading": "Scène de carte",

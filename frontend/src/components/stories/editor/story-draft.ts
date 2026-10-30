@@ -31,6 +31,7 @@ export type DraftEdit =
   | { type: 'setBlockText'; chapterId: string; blockId: string; text: string }
   | { type: 'addImageBlock'; chapterId: string; blockId: string; assetId: string }
   | { type: 'setImage'; chapterId: string; blockId: string; assetId?: string; alt?: string; caption?: string }
+  | { type: 'moveBlock'; chapterId: string; blockId: string; by: -1 | 1 }
   | { type: 'removeBlock'; chapterId: string; blockId: string };
 
 function textBlock(id: string): Block {
@@ -129,6 +130,13 @@ export function applyDraftEdit(chapters: StoryChapter[], edit: DraftEdit): Story
           }),
         ),
       );
+    case 'moveBlock': {
+      const blocks = chapters.find((c) => c.id === edit.chapterId)?.blocks ?? [];
+      const from = blocks.findIndex((block) => block.id === edit.blockId);
+      const to = from + edit.by;
+      if (from < 0 || to < 0 || to >= blocks.length) return chapters;
+      return update(chapters, edit.chapterId, (c) => updateBlocks(c, (list) => arrayMove(list, from, to)));
+    }
     case 'removeBlock':
       return update(chapters, edit.chapterId, (c) =>
         updateBlocks(c, (blocks) => blocks.filter((block) => block.id !== edit.blockId)),

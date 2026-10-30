@@ -2,7 +2,7 @@ import { useImperativeHandle, type Ref } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import userEvent from '@testing-library/user-event';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { StoryEditorPage } from '../StoryEditorPage';
 import {
@@ -211,20 +211,27 @@ async function ready() {
   await screen.findByText('Published. Readers see this version.');
 }
 
+/** Hides the tab, which saves whatever is pending without waiting out the autosave delay. */
+function saveNow() {
+  const hidden = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+  act(() => void document.dispatchEvent(new Event('visibilitychange')));
+  hidden.mockRestore();
+}
+
 const lastSavedChapters = () => vi.mocked(saveStoryDraft).mock.lastCall![2];
 
 it('saves edits to the draft against the revision it loaded', async () => {
   const user = userEvent.setup();
   renderEditor();
   await ready();
-  expect(screen.getByRole('button', { name: 'Save draft' })).toBeDisabled();
+  expect(screen.queryByRole('button', { name: 'Save draft' })).not.toBeInTheDocument();
 
   const title = screen.getByLabelText('Chapter title');
   await user.clear(title);
   await user.type(title, 'Landfall');
   expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
 
-  await user.click(screen.getByRole('button', { name: 'Save draft' }));
+  saveNow();
   await waitFor(() => expect(saveStoryDraft).toHaveBeenCalledWith('s1', 4, expect.any(Array)));
   expect(lastSavedChapters()[0].title).toBe('Landfall');
   expect(await screen.findByText('Draft saved. Readers still see the last published version.')).toBeInTheDocument();
@@ -242,7 +249,7 @@ it('adds, reorders and deletes chapters from the chapter list', async () => {
   await user.click(within(list).getByRole('button', { name: 'Delete Opening' }));
   await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete chapter' }));
 
-  await user.click(screen.getByRole('button', { name: 'Save draft' }));
+  saveNow();
   await waitFor(() => expect(saveStoryDraft).toHaveBeenCalled());
   const saved = lastSavedChapters();
   expect(saved.map((c) => c.title)).toEqual(['Second', null]);
@@ -264,7 +271,7 @@ it('picks a map, keeps the current view and sets the scene layers', async () => 
   expect(screen.queryByRole('checkbox', { name: 'Basins' })).not.toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Use current view' }));
   await user.click(screen.getByRole('checkbox', { name: 'Storm tracks' }));
-  await user.click(screen.getByRole('button', { name: 'Save draft' }));
+  saveNow();
   await waitFor(() => expect(saveStoryDraft).toHaveBeenCalled());
 
   expect(lastSavedChapters()[0].scene).toEqual({
@@ -313,7 +320,7 @@ it('stops on a stale revision and reloads the latest draft on request', async ()
   renderEditor();
   await ready();
   await user.type(screen.getByLabelText('Chapter title'), '!');
-  await user.click(screen.getByRole('button', { name: 'Save draft' }));
+  saveNow();
 
   const alert = await screen.findByRole('alert');
   expect(alert).toHaveTextContent('changed somewhere else');
@@ -337,7 +344,7 @@ it('saves over a draft changed elsewhere at the revision the conflict reported, 
   renderEditor();
   await ready();
   await user.type(screen.getByLabelText('Chapter title'), '!');
-  await user.click(screen.getByRole('button', { name: 'Save draft' }));
+  saveNow();
   const alert = await screen.findByRole('alert');
 
   await user.click(within(alert).getByRole('button', { name: 'Overwrite with my version' }));
@@ -365,7 +372,7 @@ it('tells the map to return to the scene camera after a discard or a reload, not
   await waitFor(() => expect(pane.resetKey).toBe(start! + 1));
 
   await user.type(screen.getByLabelText('Chapter title'), '!');
-  await user.click(screen.getByRole('button', { name: 'Save draft' }));
+  saveNow();
   const alert = await screen.findByRole('alert');
   expect(pane.resetKey).toBe(start! + 1);
   await user.click(within(alert).getByRole('button', { name: 'Load latest' }));
@@ -389,11 +396,19 @@ it('discards the draft back to the published story after the confirm', async () 
   expect(await screen.findByText('Published. Readers see this version.')).toBeInTheDocument();
 });
 
+/** Edits the title, then fails the save it triggers, so the edit stays unsaved. */
+async function typeUnsavedEdit(user: ReturnType<typeof userEvent.setup>) {
+  vi.mocked(saveStoryDraft).mockRejectedValue(new ApiError('Boom', 500));
+  await user.type(screen.getByLabelText('Chapter title'), '!');
+  saveNow();
+  await screen.findByText("Couldn't save");
+}
+
 it('asks before leaving with unsaved changes', async () => {
   const user = userEvent.setup();
   const router = renderEditor();
   await ready();
-  await user.type(screen.getByLabelText('Chapter title'), '!');
+  await typeUnsavedEdit(user);
 
   await user.click(screen.getByRole('link', { name: 'View story' }));
   const dialog = await screen.findByRole('alertdialog', { name: 'Leave without saving?' });
@@ -417,7 +432,7 @@ it("keeps a scene on a map the editor can't open until it's removed", async () =
   expect(screen.getByText(/map is unavailable or has been deleted/)).toBeInTheDocument();
 
   await user.click(screen.getByRole('button', { name: 'Remove scene' }));
-  await user.click(screen.getByRole('button', { name: 'Save draft' }));
+  saveNow();
   await waitFor(() => expect(saveStoryDraft).toHaveBeenCalled());
   expect(lastSavedChapters()[0]).toMatchObject({ scene: null, scene_hidden: false });
 });
@@ -452,7 +467,7 @@ it('leaves when the author confirms', async () => {
   const user = userEvent.setup();
   const router = renderEditor();
   await ready();
-  await user.type(screen.getByLabelText('Chapter title'), '!');
+  await typeUnsavedEdit(user);
   await user.click(screen.getByRole('link', { name: 'View story' }));
   const dialog = await screen.findByRole('alertdialog', { name: 'Leave without saving?' });
   await user.click(within(dialog).getByRole('button', { name: 'Leave' }));
@@ -479,7 +494,7 @@ it('keeps text typed while a save is in flight', async () => {
   await ready();
   const title = screen.getByLabelText('Chapter title');
   await user.type(title, ' A');
-  await user.click(screen.getByRole('button', { name: 'Save draft' }));
+  saveNow();
   await user.type(title, 'B');
   finish(draft());
   await screen.findByText('Unsaved changes');
@@ -524,7 +539,7 @@ describe('another account signing in mid-request', () => {
     vi.mocked(saveStoryDraft).mockReturnValueOnce(gate.promise);
     const { client } = await startThenSwitch(async (user) => {
       await user.type(screen.getByLabelText('Chapter title'), '!');
-      await user.click(screen.getByRole('button', { name: 'Save draft' }));
+      saveNow();
     });
     gate.resolve(draft({ title: 'A late', revision: 5 }));
     await expectOnlyB(client);
@@ -537,7 +552,7 @@ describe('another account signing in mid-request', () => {
     const { client } = renderEditor();
     await ready();
     await user.type(screen.getByLabelText('Chapter title'), '!');
-    await user.click(screen.getByRole('button', { name: 'Save draft' }));
+    saveNow();
     vi.mocked(getStoryDraft).mockResolvedValue(B_DRAFT());
     vi.mocked(getStory).mockResolvedValue({ ...published(), title: 'B view' });
     await act(async () => {
@@ -676,7 +691,7 @@ describe('a map choice that lands late', () => {
     await user.click(within(screen.getByRole('navigation', { name: 'Chapters' })).getByRole('button', { name: 'Move Opening down' }));
     gate.resolve(MAP);
     await screen.findByRole('button', { name: 'Use current view' });
-    await user.click(screen.getByRole('button', { name: 'Save draft' }));
+    saveNow();
     await waitFor(() => expect(saveStoryDraft).toHaveBeenCalled());
     expect(lastSavedChapters().map((c) => c.id)).toEqual(['c2', 'c1']);
     expect(scenes()).toEqual([null, 'map-a']);
@@ -690,7 +705,7 @@ describe('a map choice that lands late', () => {
     await user.click(within(screen.getByRole('navigation', { name: 'Chapters' })).getByRole('button', { name: 'Delete Opening' }));
     await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete chapter' }));
     gate.resolve(MAP);
-    await user.click(screen.getByRole('button', { name: 'Save draft' }));
+    saveNow();
     await waitFor(() => expect(saveStoryDraft).toHaveBeenCalled());
     expect(scenes()).toEqual([null]);
   });
@@ -703,7 +718,7 @@ describe('a map choice that lands late', () => {
     await user.click(within(screen.getByRole('navigation', { name: 'Chapters' })).getByRole('button', { name: /^2\s*Second/ }));
     gate.resolve(MAP);
     await user.type(screen.getByLabelText('Chapter title'), '!');
-    await user.click(screen.getByRole('button', { name: 'Save draft' }));
+    saveNow();
     await waitFor(() => expect(saveStoryDraft).toHaveBeenCalled());
     expect(scenes()).toEqual([null, null]);
   });
@@ -716,7 +731,7 @@ describe('a map choice that lands late', () => {
     renderEditor();
     await ready();
     await user.click(screen.getByRole('button', { name: 'Add chapter' }));
-    await user.click(screen.getByRole('button', { name: 'Save draft' }));
+    saveNow();
     const alert = await screen.findByRole('alert');
     await user.click(within(screen.getByRole('navigation', { name: 'Chapters' })).getByRole('button', { name: /^1\s*Opening/ }));
     const gate = await startChoice(user);
@@ -726,7 +741,7 @@ describe('a map choice that lands late', () => {
     gate.resolve(MAP);
     await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
     await user.type(screen.getByLabelText('Chapter title'), '!');
-    await user.click(screen.getByRole('button', { name: 'Save draft' }));
+    saveNow();
     await waitFor(() => expect(saveStoryDraft).toHaveBeenCalledTimes(2));
     expect(scenes()).toEqual([null, null]);
   });
@@ -742,7 +757,7 @@ it('makes the chapter panel inert while a discard is replacing the draft', async
   await user.click(screen.getByRole('button', { name: 'Discard draft' }));
   await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard draft' }));
   expect(screen.getByLabelText('Chapter title').closest('[inert]')).not.toBeNull();
-  expect(screen.getByRole('button', { name: 'Save draft' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled();
 
   gate.resolve(draft({ revision: 5, document: { version: 1, chapters: [CHAPTERS[0]] } }));
   expect(await screen.findByText('Published. Readers see this version.')).toBeInTheDocument();
@@ -767,12 +782,12 @@ it('flags chapters whose map the server could not find and offers to remove the 
   renderEditor();
   await ready();
   await user.type(screen.getByLabelText('Chapter title'), '!');
-  await user.click(screen.getByRole('button', { name: 'Save draft' }));
+  saveNow();
 
   expect(await screen.findByText(/1 chapter's scene uses a map that wasn't found/)).toBeInTheDocument();
   expect(within(screen.getByRole('navigation', { name: 'Chapters' })).getByText("Its map wasn't found")).toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: 'Remove scene' }));
-  await user.click(screen.getByRole('button', { name: 'Save draft' }));
+  saveNow();
   await waitFor(() => expect(saveStoryDraft).toHaveBeenCalledTimes(2));
   expect(lastSavedChapters()[0].scene).toBeNull();
 });
@@ -880,7 +895,9 @@ describe('document caps', () => {
     await ready();
     await user.type(screen.getAllByLabelText('Chapter title')[0], '!');
     expect(await screen.findByText(/larger than the 2 MB/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Save draft' })).toBeDisabled();
+    saveNow();
+    expect(saveStoryDraft).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled();
   });
 });
 
@@ -944,7 +961,7 @@ it('refreshes the stories list after a save', async () => {
   const invalidate = vi.spyOn(client, 'invalidateQueries');
   await ready();
   await user.type(screen.getByLabelText('Chapter title'), '!');
-  await user.click(screen.getByRole('button', { name: 'Save draft' }));
+  saveNow();
   await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['stories'] }));
 });
 
@@ -975,11 +992,13 @@ describe('image blocks', () => {
     expect(
       screen.getAllByRole('status').some((el) => el.textContent === '1 image needs alt text before you can save.'),
     ).toBe(true);
-    expect(screen.getByRole('button', { name: 'Save draft' })).toBeDisabled();
+    expect(screen.getByText('Add alt text to save')).toBeInTheDocument();
+    saveNow();
+    expect(saveStoryDraft).not.toHaveBeenCalled();
 
     await user.type(alt, 'A river at dusk');
     await user.type(within(section).getByRole('textbox', { name: 'Caption (optional)' }), 'North');
-    await user.click(screen.getByRole('button', { name: 'Save draft' }));
+    saveNow();
 
     await waitFor(() => expect(saveStoryDraft).toHaveBeenCalled());
     expect(lastSavedChapters()[0].blocks?.at(-1)).toEqual({
@@ -1012,5 +1031,219 @@ describe('image blocks', () => {
     await user.upload(input, png());
     expect(await screen.findByRole('alert')).toHaveTextContent('Other images are being processed.');
     expect(within(chapterSection()).queryByRole('textbox', { name: 'Alt text' })).not.toBeInTheDocument();
+  });
+});
+
+describe('autosave', () => {
+  async function editTitle(text: string) {
+    fireEvent.change(screen.getByLabelText('Chapter title'), { target: { value: text } });
+    await act(async () => {});
+  }
+  const advance = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
+
+  async function readyWithFakeTimers() {
+    const router = renderEditor();
+    await ready();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    return router;
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('saves two seconds after the author stops editing, and not before', async () => {
+    await readyWithFakeTimers();
+    await editTitle('Landfall');
+    await advance(1500);
+    await editTitle('Landfall 2');
+    await advance(1999);
+    expect(saveStoryDraft).not.toHaveBeenCalled();
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
+
+    await advance(1);
+    expect(saveStoryDraft).toHaveBeenCalledTimes(1);
+    expect(saveStoryDraft).toHaveBeenCalledWith('s1', 4, expect.any(Array));
+    expect(lastSavedChapters()[0].title).toBe('Landfall 2');
+    expect(screen.getByText('Draft saved. Readers still see the last published version.')).toBeInTheDocument();
+  });
+
+  it("doesn't save a draft nobody has changed", async () => {
+    await readyWithFakeTimers();
+    await advance(10_000);
+    saveNow();
+    expect(saveStoryDraft).not.toHaveBeenCalled();
+  });
+
+  it('saves at once when the tab is hidden', async () => {
+    await readyWithFakeTimers();
+    await editTitle('Landfall');
+    const hidden = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new Event('pagehide'));
+    });
+    hidden.mockRestore();
+    expect(saveStoryDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it('never runs two saves at once, and sends what was typed meanwhile afterwards', async () => {
+    const gate = deferred<StoryDraftResponse>();
+    vi.mocked(saveStoryDraft).mockReturnValueOnce(gate.promise);
+    await readyWithFakeTimers();
+    await editTitle('One');
+    await advance(2000);
+    await editTitle('Two');
+    await advance(5000);
+    saveNow();
+    expect(saveStoryDraft).toHaveBeenCalledTimes(1);
+
+    gate.resolve(draft({ revision: 5, document: { version: 1, chapters: lastSavedChapters() } }));
+    await advance(0);
+    await advance(2000);
+    expect(saveStoryDraft).toHaveBeenCalledTimes(2);
+    expect(saveStoryDraft).toHaveBeenLastCalledWith('s1', 5, expect.any(Array));
+    expect(lastSavedChapters()[0].title).toBe('Two');
+  });
+
+  it('shows a failed save with a Retry that saves again, and does not retry on its own', async () => {
+    vi.mocked(saveStoryDraft).mockRejectedValueOnce(new ApiError('Boom', 500));
+    await readyWithFakeTimers();
+    await editTitle('Landfall');
+    await advance(2000);
+    expect(screen.getByText("Couldn't save")).toBeInTheDocument();
+    await advance(20_000);
+    expect(saveStoryDraft).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await advance(0);
+    expect(saveStoryDraft).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    expect(screen.getByText('Draft saved. Readers still see the last published version.')).toBeInTheDocument();
+  });
+
+  it('pauses on a conflict until the author resolves it', async () => {
+    vi.mocked(saveStoryDraft).mockRejectedValueOnce(
+      new ApiError('Conflict', 409, { code: 'stale_revision', revision: 9 }),
+    );
+    await readyWithFakeTimers();
+    await editTitle('Landfall');
+    await advance(2000);
+    expect(screen.getByText(/changed somewhere else/)).toBeInTheDocument();
+
+    await editTitle('Landfall again');
+    await advance(10_000);
+    saveNow();
+    expect(saveStoryDraft).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Overwrite with my version' }));
+    fireEvent.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Overwrite with my version' }),
+    );
+    await advance(0);
+    expect(saveStoryDraft).toHaveBeenLastCalledWith('s1', 9, expect.any(Array));
+  });
+
+  it('saves pending edits when the author navigates away, without asking', async () => {
+    const router = await readyWithFakeTimers();
+    await editTitle('Landfall');
+    await act(() => router.navigate('/stories/s1'));
+    expect(screen.getByText('reader page')).toBeInTheDocument();
+    expect(saveStoryDraft).toHaveBeenCalledWith('s1', 4, expect.any(Array));
+    expect(lastSavedChapters()[0].title).toBe('Landfall');
+  });
+
+  it('still warns on a tab close while edits wait to save', async () => {
+    await readyWithFakeTimers();
+    await editTitle('Landfall');
+    const close = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(close);
+    expect(close.defaultPrevented).toBe(true);
+  });
+
+  it("doesn't save the pending edits under another account that signs in", async () => {
+    const router = await readyWithFakeTimers();
+    await editTitle('Landfall');
+    vi.mocked(getStoryDraft).mockResolvedValue(draft({ title: 'B view' }));
+    switchAccount(router.client);
+    await advance(0);
+    expect(saveStoryDraft).not.toHaveBeenCalled();
+  });
+
+  it('holds the save while an image uploads, and says why', async () => {
+    const gate = deferred<{ id: string; width: number; height: number; byte_size: number; created_at: string }>();
+    vi.mocked(uploadStoryImage).mockReturnValueOnce(gate.promise);
+    renderEditor();
+    await ready();
+    const section = screen.getByRole('region', { name: 'Chapter 1 of 2' });
+    fireEvent.change(within(section).getByTestId('story-image-input'), {
+      target: { files: [new File(['png'], 'river.png', { type: 'image/png' })] },
+    });
+    await screen.findByRole('progressbar');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    await editTitle('Landfall');
+    await advance(10_000);
+    saveNow();
+    expect(saveStoryDraft).not.toHaveBeenCalled();
+    expect(screen.getByText('Waiting for the image upload')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled();
+  });
+
+  it('keeps the leave warning for edits that cannot be saved', async () => {
+    const user = userEvent.setup();
+    renderEditor();
+    await ready();
+    await typeUnsavedEdit(user);
+    await user.click(screen.getByRole('link', { name: 'View story' }));
+    expect(await screen.findByRole('alertdialog', { name: 'Leave without saving?' })).toBeInTheDocument();
+  });
+});
+
+describe('moving blocks', () => {
+  it('reorders a chapter\'s blocks, keeps focus on the arrow, and saves the order', async () => {
+    const two: StoryChapter = {
+      ...CHAPTERS[0],
+      blocks: [markdown('b1', 'First'), markdown('b2', 'Second')],
+    };
+    vi.mocked(getStoryDraft).mockResolvedValue(draft({ document: { version: 1, chapters: [two, CHAPTERS[1]] } }));
+    vi.mocked(getStory).mockResolvedValue(published([two, CHAPTERS[1]]));
+    const user = userEvent.setup();
+    renderEditor();
+    await ready();
+
+    await user.click(screen.getByRole('button', { name: 'Move text block 1 down' }));
+    expect(screen.getAllByRole('textbox', { name: /^Text block/ }).map((el) => (el as HTMLTextAreaElement).value)).toEqual([
+      'Second',
+      'First',
+    ]);
+    expect(screen.getByRole('button', { name: 'Move text block 2 up' })).toHaveFocus();
+
+    saveNow();
+    await waitFor(() => expect(saveStoryDraft).toHaveBeenCalled());
+    expect(lastSavedChapters()[0].blocks?.map((b) => b.id)).toEqual(['b2', 'b1']);
+  });
+});
+
+describe('an upload while another chapter is shown', () => {
+  it('lands in the chapter it started in', async () => {
+    const gate = deferred<{ id: string; width: number; height: number; byte_size: number; created_at: string }>();
+    vi.mocked(uploadStoryImage).mockReturnValueOnce(gate.promise);
+    const user = userEvent.setup();
+    renderEditor();
+    await ready();
+    const first = screen.getByRole('region', { name: 'Chapter 1 of 2' });
+    await user.upload(
+      within(first).getByTestId('story-image-input'),
+      new File(['png'], 'river.png', { type: 'image/png' }),
+    );
+    await user.click(document.querySelector<HTMLElement>('[data-chapter-id="c2"] [data-chapter-select]')!);
+    expect(screen.getByLabelText('Chapter title')).toHaveValue('Second');
+
+    gate.resolve({ id: '9a3e5c71-2b4d-4f86-8e1a-7c5d3b2f4e60', width: 8, height: 4, byte_size: 10, created_at: '2026-10-29T00:00:00Z' });
+    await waitFor(() => expect(screen.getByText('Add alt text to save')).toBeInTheDocument());
+    expect(screen.queryByRole('textbox', { name: 'Alt text' })).not.toBeInTheDocument();
+
+    await user.click(document.querySelector<HTMLElement>('[data-chapter-id="c1"] [data-chapter-select]')!);
+    expect(await screen.findByRole('textbox', { name: 'Alt text' })).toBeInTheDocument();
   });
 });

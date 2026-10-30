@@ -83,6 +83,10 @@ and releases use semantic versioning.
 - `SharedLayerResponse` gains `dataset_tile_columns`, the dataset's tile
   attribute allowlist as `MapLayerResponse` already reports it, so share links
   and embeds can tell which columns their tiles carry. Additive.
+- The story editor saves the draft on its own, two seconds after the last
+  edit and when the tab is hidden, and the Save draft button is gone. Blocks
+  can move up and down within a chapter, and an image upload keeps going when
+  the author switches chapters.
 
 ### Fixed
 

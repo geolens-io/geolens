@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,9 +11,17 @@ import { MarkdownField } from './MarkdownField';
 import { SceneEditor } from './SceneEditor';
 import { CHAPTER_TITLE_MAX_LENGTH, MAX_BLOCKS_PER_CHAPTER, type DraftEdit } from './story-draft';
 import { StoryImagePicker } from './StoryImagePicker';
+import { useMoveFocus } from './use-move-focus';
+import type { StoryUploads } from './use-story-uploads';
+
+const MOVES = [
+  { by: -1, Icon: ArrowUp, label: { image: 'editor.chapter.moveImageUp', markdown: 'editor.chapter.moveTextBlockUp' } },
+  { by: 1, Icon: ArrowDown, label: { image: 'editor.chapter.moveImageDown', markdown: 'editor.chapter.moveTextBlockDown' } },
+] as const;
 
 interface ChapterEditorProps {
   storyId: string;
+  uploads: StoryUploads;
   chapter: StoryChapter;
   index: number;
   edit: (change: DraftEdit) => void;
@@ -26,6 +34,7 @@ interface ChapterEditorProps {
 /** One chapter's title, scene, and text and image blocks. */
 export function ChapterEditor({
   storyId,
+  uploads,
   chapter,
   index,
   edit,
@@ -36,6 +45,7 @@ export function ChapterEditor({
   const { t } = useTranslation('stories');
   const titleId = useId();
   const titleRef = useRef<HTMLInputElement>(null);
+  const textRef = useRef<HTMLElement>(null);
   const blocks = chapter.blocks ?? [];
   const blocksFull = blocks.length >= MAX_BLOCKS_PER_CHAPTER;
   const kindCounts = new Map<string, number>();
@@ -49,6 +59,13 @@ export function ChapterEditor({
     if (focusTitle) titleRef.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a newly mounted chapter takes focus
   }, []);
+
+  const markMoved = useMoveFocus(textRef, 'data-block-id', chapter.blocks);
+
+  function moveBlock(blockId: string, by: -1 | 1) {
+    markMoved(blockId, by);
+    edit({ type: 'moveBlock', chapterId: chapter.id, blockId, by });
+  }
 
   return (
     <div className="space-y-6">
@@ -78,12 +95,12 @@ export function ChapterEditor({
         />
       </section>
 
-      <section aria-labelledby={`${titleId}-text`} className="space-y-3">
+      <section ref={textRef} aria-labelledby={`${titleId}-text`} className="space-y-3">
         <h3 id={`${titleId}-text`} className="text-sm font-semibold">
           {t('editor.chapter.text')}
         </h3>
         {blocks.map((block, i) => (
-          <div key={block.id} className="space-y-1">
+          <div key={block.id} data-block-id={block.id} className="space-y-1">
             {block.type === 'markdown' ? (
               <MarkdownField
                 blockId={block.id}
@@ -94,6 +111,7 @@ export function ChapterEditor({
             ) : block.type === 'image' ? (
               <ImageBlockField
                 storyId={storyId}
+                uploads={uploads}
                 chapterId={chapter.id}
                 block={block}
                 label={t('editor.chapter.imageBlock', { index: kindNumbers[i] })}
@@ -104,18 +122,36 @@ export function ChapterEditor({
                 {t('editor.chapter.blockNotEditable')}
               </p>
             )}
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-destructive"
-              onClick={() => edit({ type: 'removeBlock', chapterId: chapter.id, blockId: block.id })}
-            >
-              <Trash2 className="h-4 w-4" aria-hidden="true" />
-              {block.type === 'image'
-                ? t('editor.chapter.removeImage', { index: kindNumbers[i] })
-                : t('editor.chapter.removeBlock', { index: kindNumbers[i] })}
-            </Button>
+            <div className="flex flex-wrap items-center gap-1">
+              {(block.type === 'image' || block.type === 'markdown') &&
+                MOVES.map(({ by, Icon, label }) => (
+                  <Button
+                    key={by}
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-7"
+                    data-move={by}
+                    disabled={by < 0 ? i === 0 : i === blocks.length - 1}
+                    aria-label={t(label[block.type], { index: kindNumbers[i] })}
+                    onClick={() => moveBlock(block.id, by)}
+                  >
+                    <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                  </Button>
+                ))}
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground hover:text-destructive"
+                onClick={() => edit({ type: 'removeBlock', chapterId: chapter.id, blockId: block.id })}
+              >
+                <Trash2 className="h-4 w-4" aria-hidden="true" />
+                {block.type === 'image'
+                  ? t('editor.chapter.removeImage', { index: kindNumbers[i] })
+                  : t('editor.chapter.removeBlock', { index: kindNumbers[i] })}
+              </Button>
+            </div>
           </div>
         ))}
         <div className="flex flex-wrap items-start gap-2">
@@ -131,11 +167,13 @@ export function ChapterEditor({
             {t('editor.chapter.addTextBlock')}
           </Button>
           <StoryImagePicker
-            storyId={storyId}
             label={t('editor.chapter.addImage')}
             disabled={blocksFull}
-            onUploaded={(asset) =>
-              edit({ type: 'addImageBlock', chapterId: chapter.id, blockId: randomId(), assetId: asset.id })
+            upload={uploads.get(`add:${chapter.id}`)}
+            onPick={(file) =>
+              uploads.start(`add:${chapter.id}`, file, (asset) =>
+                edit({ type: 'addImageBlock', chapterId: chapter.id, blockId: randomId(), assetId: asset.id }),
+              )
             }
           />
         </div>
