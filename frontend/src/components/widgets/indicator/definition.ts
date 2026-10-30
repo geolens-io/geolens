@@ -1,4 +1,4 @@
-import { aggregateStat, configKeys, isColumnName, isStatistic, type Statistic } from '../aggregate';
+import { aggregateStat, configKeys, isColumnName, isStatistic, STAT_LABEL_KEYS, type Statistic } from '../aggregate';
 import { defineWidget } from '../contract';
 import { IndicatorFallback } from './IndicatorFallback';
 
@@ -32,6 +32,8 @@ export const indicatorWidget = defineWidget<IndicatorConfig>({
   ],
   defaultConfig: { stat: 'count', column: null },
   parseConfig: parseIndicatorConfig,
+  heading: (config, t, columnLabel) =>
+    t(STAT_LABEL_KEYS[config.stat], { column: config.column && columnLabel(config.column) }),
   dataRequest: (config) =>
     config.stat === 'count' || config.column === null
       ? { op: 'count' }

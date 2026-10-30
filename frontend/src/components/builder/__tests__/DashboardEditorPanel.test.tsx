@@ -237,10 +237,10 @@ describe('DashboardEditorPanel', () => {
     const [first, second] = lastDraft(onChange).widgets.map((widget) => widget.type);
     expect([first, second]).toEqual(['indicator', 'bar_chart']);
 
-    await user.click(screen.getByRole('button', { name: 'Move Bar chart up' }));
+    await user.click(screen.getByRole('button', { name: /^Move Count by .+ up$/ }));
     expect(lastDraft(onChange).widgets.map((widget) => widget.type)).toEqual(['bar_chart', 'indicator']);
 
-    await user.click(screen.getByRole('button', { name: 'Remove Bar chart' }));
+    await user.click(screen.getByRole('button', { name: /^Remove Count by / }));
     expect(lastDraft(onChange).widgets.map((widget) => widget.type)).toEqual(['indicator']);
   });
 

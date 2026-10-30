@@ -61,6 +61,9 @@ A type is a `WidgetDefinition` (`contract.ts`) with:
 - `loadRenderer`: `() => import('./my-widget/MyWidgetRenderer')`. Anything
   heavy, including a new dependency, is imported only from the renderer so it
   stays out of the main bundle.
+- `heading(config, t, columnLabel)` (optional): what a dashboard shows for an
+  instance with no title; the layer name moves to the line under it. Display
+  only, never stored.
 - `picksColumn(config)` (optional): the column a reader's pick on the widget
   filters. A type without it takes no picks.
 - `readsColumns(config)` (dashboard types): the columns the config reads, each

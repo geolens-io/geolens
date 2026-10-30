@@ -1,4 +1,4 @@
-import { aggregateStat, configKeys, isColumnName, isStatistic, type Statistic } from '../aggregate';
+import { aggregateStat, configKeys, isColumnName, isStatistic, STAT_LABEL_KEYS, type Statistic } from '../aggregate';
 import { defineWidget } from '../contract';
 import { categoryColumn } from '../initial-columns';
 import { BarChartFallback } from './BarChartFallback';
@@ -55,6 +55,13 @@ export const barChartWidget = defineWidget<BarChartConfig>({
   defaultConfig: { column: 'name', stat: 'count', stat_column: null, limit: 10 },
   initialConfig: categoryColumn,
   parseConfig: parseBarChartConfig,
+  heading: (config, t, columnLabel) =>
+    t('types.bar_chart.summary', {
+      stat: t(STAT_LABEL_KEYS[config.stat], {
+        column: config.stat_column && columnLabel(config.stat_column),
+      }),
+      column: columnLabel(config.column),
+    }),
   dataRequest: (config) =>
     config.stat === 'count' || config.stat_column === null
       ? { op: 'value_counts', column: config.column, limit: config.limit }

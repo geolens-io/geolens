@@ -45,6 +45,8 @@ export const histogramWidget = defineWidget<HistogramConfig>({
   defaultConfig: { column: 'value', bins: 20 },
   initialConfig: numericColumn,
   parseConfig: parseHistogramConfig,
+  heading: (config, t, columnLabel) =>
+    t('types.histogram.summary', { column: columnLabel(config.column) }),
   dataRequest: (config) => ({ op: 'histogram', column: config.column, bins: config.bins }),
   picksColumn: (config) => config.column,
   readsColumns: (config) => [{ name: config.column, numeric: true }],

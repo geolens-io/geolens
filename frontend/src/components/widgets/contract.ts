@@ -1,4 +1,5 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react';
+import type { TFunction } from 'i18next';
 import type { AggregateRequest } from '@/api/aggregate';
 
 /** Where a widget type may be placed. Story blocks and dashboard widgets share one registry. */
@@ -111,6 +112,11 @@ export interface WidgetDefinition<C> {
    */
   parseConfig: (config: unknown, v: number) => C | null;
   dataRequest?: (config: C) => WidgetDataRequest | null;
+  /**
+   * What an untitled instance is called, from its config. `columnLabel` gives a
+   * column's display label. Display only; a type without it has no derived heading.
+   */
+  heading?: (config: C, t: TFunction<'widgets'>, columnLabel: (column: string) => string) => string;
   /** The column a reader's pick on this widget filters; a type without it takes no picks. */
   picksColumn?: (config: C) => string;
   /** The columns `config` reads, so an editor can check them against the layer before saving. */

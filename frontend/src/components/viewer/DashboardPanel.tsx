@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { LayoutDashboard, Loader2, PanelBottomClose, PanelRightClose } from 'lucide-react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { ApiError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { LiveAnnouncement } from '@/components/ui/live-announcement';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { WidgetSelection } from '@/components/widgets/contract';
+import type { AnyWidgetDefinition, WidgetInstance, WidgetSelection } from '@/components/widgets/contract';
 import { WidgetView } from '@/components/widgets/WidgetView';
 import { parseStoredWidget, type ParsedWidget } from '@/components/widgets/registry';
 import type { Bbox } from '@/lib/bbox';
@@ -24,6 +25,19 @@ import { mapCarriesColumn, NO_PICKS, type LinkedPick } from './linked-filters';
 import { layerDisplayName } from './shared-layer';
 
 type ReadyWidget = Extract<ParsedWidget, { ok: true }>;
+
+/** A widget's title, else the heading its type derives from its config. */
+export function widgetName(
+  definition: AnyWidgetDefinition,
+  instance: WidgetInstance,
+  columns: SharedLayerResponse['column_info'],
+  t: TFunction<'widgets'>,
+): string | undefined {
+  return (
+    instance.title?.trim() ||
+    definition.heading?.(instance.config, t, (column) => columns?.find((info) => info.name === column)?.title || column)
+  );
+}
 
 function errorKey(error: unknown): 'dashboard.tooWide' | 'dashboard.loadFailed' {
   const code =
@@ -73,7 +87,9 @@ export function DashboardWidget({
     linked,
   });
   const layerName = layerDisplayName(layer);
-  const heading = instance.title || layerName;
+  const named = widgetName(definition, instance, layer.column_info, t);
+  const heading = named || layerName;
+  const layerBelow = !!named;
   const followsView = instance.scope === 'view' && !!layer.geometry_type;
   // Numbers kept on screen while a pan's new ones load.
   const stale = query.isPlaceholderData;
@@ -98,10 +114,10 @@ export function DashboardWidget({
             <Loader2 aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 animate-spin text-muted-foreground" />
           )}
         </div>
-        {(instance.title || followsView) && (
+        {(layerBelow || followsView) && (
           <p className="text-xs text-muted-foreground break-words">
-            {instance.title && layerName}
-            {instance.title && followsView && ' · '}
+            {layerBelow && layerName}
+            {layerBelow && followsView && ' · '}
             {followsView && t('dashboard.followsView')}
           </p>
         )}
