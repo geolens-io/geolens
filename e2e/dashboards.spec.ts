@@ -165,7 +165,7 @@ test.describe('Map dashboard linking', () => {
           await histogram.getByText('Show data table').click();
           await expect(histogram.getByRole('rowheader')).toHaveText(['1', '2', '3']);
           // The chart keeps every bar and marks the pick.
-          await expect(chart.locator('svg g[data-picked]')).toHaveText('✓park3');
+          await expect(chart.locator('svg g[data-picked] text')).toHaveText(['✓', 'park', '3']);
           await expect(chart.locator('svg rect.fill-primary')).toHaveCount(3);
 
           const chip = panel.getByRole('button', { name: /^Remove filter kind: park/ });
