@@ -260,6 +260,35 @@ class TestOperations:
             {"lower": float(i), "upper": float(i + 1), "count": 1} for i in range(1, 9)
         ]
 
+    async def test_a_bigint_histogram_bins_each_value_where_its_edges_say(
+        self, client: AsyncClient, test_db_session, points
+    ):
+        table = f"data.{points.table_name}"
+        await test_db_session.execute(
+            text(f"ALTER TABLE {table} ALTER COLUMN pop TYPE bigint")  # noqa: S608
+        )
+        await test_db_session.execute(
+            text(
+                f"UPDATE {table} SET pop = CASE gid"  # noqa: S608
+                " WHEN 1 THEN -9007199254740991 WHEN 2 THEN 4503599627370496"
+                " WHEN 3 THEN 9007199254740991 END"
+            )
+        )
+        await test_db_session.commit()
+
+        resp = await _aggregate(
+            client, points.id, {"op": "histogram", "column": "pop", "bins": 4}
+        )
+
+        # The middle value sits just below the last bin's lower edge.
+        assert resp.status_code == 200, resp.text
+        assert [b["count"] for b in resp.json()["result"]["bins"]] == [1, 0, 1, 1]
+        assert resp.json()["result"]["bins"][2] == {
+            "lower": 1.0,
+            "upper": 4503599627370497.0,
+            "count": 1,
+        }
+
     def test_histogram_edges_never_decrease_over_adjacent_doubles(self):
         low, high = 0.3, 0.30000000000000004
 

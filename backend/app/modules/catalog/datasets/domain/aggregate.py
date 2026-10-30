@@ -427,21 +427,25 @@ def build_aggregate_sql(
         number = _number_sql(request.column, data_type)
         quoted = _sql_quote_ident(request.column)
         bins = request.bins
+        if data_type in _INTEGER_TYPES:
+            # Bins of whole numbers: [a, a + w) holds exactly a .. a + w - 1.
+            # Integer division on numeric keeps a bigint's bin exact, where
+            # float8 would round it.
+            return (
+                f"WITH _f AS (SELECT {number} AS x"
+                f"{from_where(f'{quoted} IS NOT NULL')}),"
+                " _r AS (SELECT min(x) AS lo, max(x) AS hi,"
+                f" greatest(1, div(max(x) - min(x) + {bins}, {bins})) AS w FROM _f)"
+                " SELECT _r.lo AS _lo, _r.hi AS _hi,"
+                " div(_f.x - _r.lo, _r.w)::int AS _b, count(*) AS _n,"
+                " _r.w AS _w FROM _f CROSS JOIN _r GROUP BY 1, 2, 3, 5 ORDER BY 3"
+            )
         head = (
             f"WITH _v AS (SELECT {number}::float8 AS x"
             f"{from_where(f'{quoted} IS NOT NULL')}),"
             " _f AS (SELECT x FROM _v"
             " WHERE x > '-Infinity'::float8 AND x < 'Infinity'::float8),"
         )
-        if data_type in _INTEGER_TYPES:
-            # Bins of whole numbers: [a, a + w) holds exactly a .. a + w - 1.
-            return (
-                f"{head} _r AS (SELECT min(x) AS lo, max(x) AS hi,"
-                f" greatest(1, ceil((max(x) - min(x) + 1) / {bins})) AS w FROM _f)"
-                " SELECT _r.lo AS _lo, _r.hi AS _hi,"
-                " floor((_f.x - _r.lo) / _r.w)::int AS _b, count(*) AS _n,"
-                " _r.w AS _w FROM _f CROSS JOIN _r GROUP BY 1, 2, 3, 5 ORDER BY 3"
-            )
         return (
             f"{head} _r AS (SELECT min(x) AS lo, max(x) AS hi FROM _f)"
             " SELECT _r.lo AS _lo, _r.hi AS _hi, CASE WHEN _r.hi = _r.lo THEN 1"
