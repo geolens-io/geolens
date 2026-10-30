@@ -33,7 +33,7 @@ flowchart TD
 |---|---|
 | **db** | PostgreSQL with **PostGIS** (spatial), **pgvector** (semantic search), **pg_trgm** (full-text). Also the task queue backend. |
 | **api** | FastAPI app (`backend/app`). Synchronous request/response. |
-| **worker** | `backend/app/worker.py` — a [procrastinate](https://procrastinate.readthedocs.io) worker. There is **no separate broker**: jobs live in Postgres. Handles ingest, embeddings, exports. |
+| **worker** | `backend/app/worker.py` — a [procrastinate](https://procrastinate.readthedocs.io) worker. There is **no separate broker**: jobs live in Postgres. Handles ingest, embeddings, exports and periodic sweeps. |
 | **titiler** | Renders raster (COG) tiles; proxied to the browser under `/api`. |
 | **frontend** | Serves the React SPA and proxies `/api` to **api** (Vite in dev, static build behind a proxy in prod). |
 | **migrate** | Runs Alembic migrations on boot, then exits. |
@@ -54,7 +54,7 @@ app factory, root router, middleware, and lifespan are in `backend/app/api/`.
 |---|---|
 | `api/` | App factory (`main.py`), root router (`router.py`), middleware, lifespan startup/shutdown. |
 | `core/` | Runtime flags (`edition.py`, availability guards), persistent config, permissions, DB engine/session (`core/db/`), runtime helpers. |
-| `modules/` | Domain areas: **`catalog`** (datasets, records, maps, layers, search, collections, sources, validation, features — the big one), `auth`, `admin`, `audit`, `settings`, `embed_tokens`, `quota`, `tenancy`. |
+| `modules/` | Domain areas: **`catalog`** (datasets, records, maps, layers, stories, widgets (dashboards), search, collections, sources, validation, features — the big one), `auth`, `admin`, `audit`, `settings`, `embed_tokens`, `quota`, `tenancy`. |
 | `standards/` | **OGC API** Features/Records (`ogc/`), `stac/`, `dcat/` + `dcat_us/` + `geodcat_ap/`. **Hard-free — never gate these.** |
 | `processing/` | Pipelines: `ingest/` (ogr2ogr), `raster/` (COG/VRT), `tiles/` (vector tiles + token signing), `vector/` (quicklooks), `export/`, `embeddings/` (pgvector), `ai/` (chat, metadata gen). |
 | `platform/` | Cross-cutting services: `extensions/` (runtime extension seams), `storage/`, `cache/`, `jobs/`, `sandbox/` (safe SQL), `config_ops/`, `notifications/`, `assets/`, `audit.py`. |
