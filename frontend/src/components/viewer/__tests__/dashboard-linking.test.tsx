@@ -277,6 +277,48 @@ describe('dashboard linking', () => {
     expect(bodiesFor('count').every((body) => JSON.stringify(body.filter ?? null).length <= 10_000)).toBe(true);
   });
 
+  it('refuses a pick whose cluster tile URL would overflow a request line with the columns it also carries', async () => {
+    const user = userEvent.setup();
+    const long = (letter: string) => letter.repeat(1200);
+    fetchMock.mockImplementation(async () => ({
+      op: 'value_counts',
+      approximate: false,
+      cached: false,
+      result: { values: ['a', 'b', 'c'].map((letter) => ({ value: long(letter), count: 1 })), other_count: 0 },
+    }) as never);
+    // The popup's fields ride along in the tile URL's cols=.
+    const fields = Array.from({ length: 120 }, (_, i) => `a_rather_long_attribute_column_name_${i}`);
+    const clustered = {
+      ...layer(parcelsId, 'Parcels'),
+      geometry_type: 'POINT',
+      feature_count: 20_000,
+      style_config: { render_mode: 'cluster' },
+      popup_config: { enabled: true, visible_fields: fields },
+    } as SharedLayerResponse;
+    const selector = {
+      version: 1,
+      widgets: [
+        { id: chartId, type: 'category_selector', v: 1, title: 'Land use', layer_id: parcelsId, config: { column: 'land_use', multiple: true } },
+      ],
+    } as DashboardConfig;
+    const { latestMapLayers } = renderViewer([clustered, layer(roadsId, 'Roads')], selector);
+    const boxes = await screen.findAllByRole('checkbox');
+
+    await user.click(boxes[0]);
+    await user.click(boxes[1]);
+    const filtered = latestMapLayers()[0].filter;
+    expect(filtered).toEqual(['in', ['get', 'land_use'], ['literal', [long('a'), long('b')]]]);
+
+    // Three values are about 3,700 characters of CQL2, within the route's 4,096,
+    // but the URL with the columns no longer fits nginx's 8 KiB request line.
+    await user.click(boxes[2]);
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent("Too many values to filter this layer's clusters. Pick fewer."),
+    );
+    expect(latestMapLayers()[0].filter).toEqual(filtered);
+    expect(boxes[2]).not.toBeChecked();
+  });
+
   it('applies a pick with Enter on the focused bar', async () => {
     renderViewer([layer(parcelsId, 'Parcels'), layer(roadsId, 'Roads')]);
     const chart = await screen.findByRole('group', { name: 'Count by land_use' });

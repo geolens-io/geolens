@@ -13,7 +13,7 @@ import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 import { extractPlaceholders } from '@/lib/popup-template';
 import { buildClusterTileUrl, buildSignedTileUrl, getMvtSourceLayerName } from '@/lib/tile-utils';
 import type { LabelConfig, PopupConfig, StyleConfig } from '@/types/api';
-import { getClusterSourceStrategy, serverClusterFilter } from './cluster-source';
+import { fitsTileRequestLine, getClusterSourceStrategy, serverClusterFilter } from './cluster-source';
 import { getCompanionLayerIds } from './companion-ids';
 import { getClusterSourceOptions } from './layer-adapters/cluster-adapter';
 import { resolveHeightColumn } from './layer-adapters/fill-adapter';
@@ -244,12 +244,46 @@ const VECTOR_SOURCE_MAXZOOM = 14;
 /** The server clusters only up to a layer's cluster max zoom, so single points need tiles past z14. */
 const CLUSTER_SOURCE_MAXZOOM = 22;
 
-function clusterRouteFilter(layer: SyncLayerInput): string | undefined {
+type ClusterTileLayer = Pick<
+  SyncLayerInput,
+  'dataset_table_name' | 'tile_version' | 'style_config' | 'filter' | 'dataset_column_info' | 'dataset_tile_columns'
+>;
+
+/**
+ * The `filter` a server-cluster tile URL carries for `layer`, or why it goes
+ * without one (see `serverClusterFilter`); `too-large` also when the whole URL
+ * would not fit a request line. The URL is measured with a stand-in for the
+ * tile token, as long as any the server signs, so the map and a dashboard pick,
+ * which has no token, decide the same way.
+ */
+export function clusterTileFilter(
+  layer: ClusterTileLayer,
+  tileBaseUrl: string,
+  cols: string[],
+): ReturnType<typeof serverClusterFilter> {
   const routed = serverClusterFilter(layer.filter, layer.dataset_column_info, layer.dataset_tile_columns);
-  return 'json' in routed ? routed.json : undefined;
+  if (!('json' in routed)) return routed;
+  // The signed scope is the table name and its publication version, with a hosted tenant's binding in front.
+  const token = { sig: 'f'.repeat(64), exp: 9_999_999_999, scope: `${'t'.repeat(64)}${layer.dataset_table_name}:p9999999999` };
+  const url = buildClusterTileUrl(
+    layer.dataset_table_name,
+    token,
+    tileBaseUrl,
+    layer.tile_version ?? undefined,
+    { ...clusterOptions(layer), filter: routed.json },
+    cols,
+  );
+  return fitsTileRequestLine(url) ? routed : { omitted: 'too-large' };
 }
 
-function clusterOptions(layer: SyncLayerInput) {
+const routedJson = (routed: ReturnType<typeof serverClusterFilter>) => ('json' in routed ? routed.json : undefined);
+
+/** The base tile URLs resolve against: the configured tile host, else this origin's API. */
+export function tileBaseUrlFor(configured: string | undefined, origin: string): string {
+  return configured || `${origin}/api`;
+}
+
+function clusterOptions(layer: Pick<SyncLayerInput, 'style_config'>) {
   return getClusterSourceOptions({ style_config: layer.style_config } as AdapterLayerInput);
 }
 
@@ -361,14 +395,14 @@ function vectorSource(
   const serverCluster = described.drawsAs === 'cluster';
   const token = ctx.tokens.get(layer.dataset_id);
   const vectorToken = token?.kind === 'vector' ? token : null;
-  const tileBaseUrl = ctx.tileBaseUrl || `${ctx.origin}/api`;
+  const tileBaseUrl = tileBaseUrlFor(ctx.tileBaseUrl, ctx.origin);
   const tileVersion = layer.tile_version ?? undefined;
   const cols = getDataDrivenColumnsForSource(described.sourceId, drawn, ctx.idPrefix);
   const bounds = normalizeRasterBounds(layer.bounds);
   return {
     type: 'vector',
     tiles: [serverCluster
-      ? buildClusterTileUrl(layer.dataset_table_name, vectorToken, tileBaseUrl, tileVersion, { ...clusterOptions(layer), filter: clusterRouteFilter(layer) }, cols)
+      ? buildClusterTileUrl(layer.dataset_table_name, vectorToken, tileBaseUrl, tileVersion, { ...clusterOptions(layer), filter: routedJson(clusterTileFilter(layer, tileBaseUrl, cols)) }, cols)
       : buildSignedTileUrl(layer.dataset_table_name, vectorToken, tileBaseUrl, tileVersion, cols)],
     minzoom: VECTOR_SOURCE_MINZOOM,
     maxzoom: serverCluster ? CLUSTER_SOURCE_MAXZOOM : VECTOR_SOURCE_MAXZOOM,

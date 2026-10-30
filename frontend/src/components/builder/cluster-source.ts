@@ -10,10 +10,12 @@ import {
 const CLUSTER_GEOJSON_FEATURE_LIMIT = 5000;
 // The server's limits on a CQL2 filter, as compact JSON counted in characters.
 // The cluster tile route caps its `filter` query parameter (max_length in
-// processing/tiles/router.py), and the request line, which carries it encoded,
-// must fit nginx's 8 KiB `large_client_header_buffers` with the rest of the URL.
+// processing/tiles/router.py).
 const MAX_CLUSTER_FILTER_CHARS = 4096;
-const MAX_CLUSTER_FILTER_URL_CHARS = 6000;
+// nginx reads a request line into one `large_client_header_buffers` buffer, 8k
+// by its default of `4 8k`, which frontend/nginx.conf leaves unset. The margin
+// holds the method, the HTTP version and the tile numbers for {z}/{x}/{y}.
+const MAX_TILE_URL_CHARS = 8 * 1024 - 128;
 // Every route that compiles a filter: MAX_FEATURE_FILTER_LENGTH and
 // MAX_FEATURE_FILTER_BINDS (one bind per value) in standards/ogc/filtering.py.
 const MAX_FEATURE_FILTER_CHARS = 10_000;
@@ -37,12 +39,12 @@ function depth(node: unknown): number {
 const jsonChars = (cql2: Cql2Expression) => [...JSON.stringify(cql2)].length;
 
 function fitsClusterFilterLimits(cql2: Cql2Expression): boolean {
-  const json = JSON.stringify(cql2);
-  return (
-    jsonChars(cql2) <= MAX_CLUSTER_FILTER_CHARS &&
-    encodeURIComponent(json).length <= MAX_CLUSTER_FILTER_URL_CHARS &&
-    countValues(cql2) <= MAX_FILTER_VALUES
-  );
+  return jsonChars(cql2) <= MAX_CLUSTER_FILTER_CHARS && countValues(cql2) <= MAX_FILTER_VALUES;
+}
+
+/** Whether a tile URL fits the request line nginx accepts. */
+export function fitsTileRequestLine(url: string): boolean {
+  return url.length <= MAX_TILE_URL_CHARS;
 }
 
 /**

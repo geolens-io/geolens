@@ -197,6 +197,54 @@ describe('selectionCql2', () => {
   });
 });
 
+describe('linkMapLayers on a bounded cluster', () => {
+  const matches = (filter: FilterSpecification | null | undefined, properties: Record<string, unknown>) =>
+    featureFilter(filter!, 'filter').filter({ zoom: 10 }, { type: 1, properties } as never);
+  const pointLayer = (cluster: boolean, column: string, type: string) =>
+    ({
+      id: 'a',
+      dataset_id: 'ds-a',
+      filter: null,
+      layer_type: 'vector_geolens',
+      geometry_type: 'POINT',
+      feature_count: cluster ? 100 : 20_000,
+      style_config: { render_mode: 'cluster' },
+      column_info: [{ name: column, type }],
+    }) as unknown as SharedLayerResponse;
+  const linkedFilter = (target: SharedLayerResponse, selection: WidgetSelection) =>
+    linkMapLayers([target], [{ widgetId: 'w1', layerId: 'a', selection, cql2: selectionCql2(target, selection)! }])[0].filter;
+
+  it('keeps a picked timestamp\'s feature in the GeoJSON spelling as well as the tiles\'', () => {
+    // The aggregate endpoint and the tiles write PostgreSQL text; to_jsonb puts a T in.
+    const filter = linkedFilter(pointLayer(true, 'seen', 'timestamp without time zone'), pick(['2024-03-01 17:00:00.25'], 'seen'));
+    expect(matches(filter, { seen: '2024-03-01T17:00:00.25' })).toBe(true);
+    expect(matches(filter, { seen: '2024-03-01 17:00:00.25' })).toBe(true);
+    expect(matches(filter, { seen: '2024-03-02T17:00:00.25' })).toBe(false);
+  });
+
+  it('keeps a picked timestamptz, which the endpoint, the tiles and to_jsonb in UTC all write alike', () => {
+    const filter = linkedFilter(pointLayer(true, 'at', 'timestamp with time zone'), pick(['2024-03-01T17:00:00.25+00:00'], 'at'));
+    expect(matches(filter, { at: '2024-03-01T17:00:00.25+00:00' })).toBe(true);
+  });
+
+  it('keeps a picked real in the shortest decimal to_jsonb writes', () => {
+    const float4 = Math.fround(0.1);
+    const filter = linkedFilter(pointLayer(true, 'r', 'real'), pick([float4], 'r'));
+    expect(matches(filter, { r: 0.1 })).toBe(true);
+    expect(matches(filter, { r: float4 })).toBe(true);
+    expect(matches(filter, { r: 0.2 })).toBe(false);
+  });
+
+  it('sends a server-clustered layer only the spelling the server compares', () => {
+    const target = pointLayer(false, 'seen', 'timestamp without time zone');
+    expect(linkedFilter(target, pick(['2024-03-01 17:00:00'], 'seen'))).toEqual([
+      'in',
+      ['get', 'seen'],
+      ['literal', ['2024-03-01 17:00:00']],
+    ]);
+  });
+});
+
 describe('widgetFilter', () => {
   it('joins the saved filter and the other widgets’ picks', () => {
     const residential = selectionCql2(layer('a'), pick(['Residential']))!;

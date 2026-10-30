@@ -1,7 +1,7 @@
 import type { FilterSpecification } from 'maplibre-gl';
 import { convertFilter } from '@maplibre/maplibre-gl-style-spec';
 import { shouldFetchClusterGeoJson } from '@/components/builder/cluster-source';
-import type { WidgetSelection } from '@/components/widgets/contract';
+import type { SelectionValue, WidgetSelection } from '@/components/widgets/contract';
 import { isIntegerColumn } from '@/lib/column-utils';
 import {
   buildNullSafeNumericComparison,
@@ -31,8 +31,10 @@ function columnType(layer: SharedLayerResponse, column: string): string | undefi
  * it reads a saved filter. Numbers compare null-safely, as the editor's numeric
  * conditions do. On an integer column a range's edges move inward to the whole
  * numbers it holds, because the server takes only whole-number literals there.
+ * With `geoJson`, each value also matches the spelling a bounded cluster's
+ * GeoJSON gives it (`geoJsonSpellings`).
  */
-export function selectionFilter(selection: WidgetSelection, type?: string): FilterSpecification {
+export function selectionFilter(selection: WidgetSelection, type?: string, geoJson = false): FilterSpecification {
   const { column } = selection;
   if ('range' in selection) {
     let { lower, upper } = selection.range;
@@ -48,15 +50,46 @@ export function selectionFilter(selection: WidgetSelection, type?: string): Filt
     ] as unknown as FilterSpecification;
   }
   const parts: unknown[] = [];
-  const listed = selection.values.filter((value) => value !== null && typeof value !== 'number');
+  const values = geoJson ? selection.values.flatMap((value) => geoJsonSpellings(value, type)) : selection.values;
+  const listed = values.filter((value) => value !== null && typeof value !== 'number');
   if (listed.length > 0) parts.push(['in', ['get', column], ['literal', listed]]);
-  for (const value of selection.values) {
+  for (const value of values) {
     if (typeof value === 'number') parts.push(buildNullSafeNumericComparison(column, '==', value));
   }
   if (selection.values.includes(null)) {
     parts.push(['any', ['!', ['has', column]], ['==', ['get', column], null]]);
   }
   return (parts.length === 1 ? parts[0] : ['any', ...parts]) as FilterSpecification;
+}
+
+/** The shortest decimal that reads back as the float4 `value`, as PostgreSQL writes a `real` in JSON. */
+function float4Text(value: number): number {
+  if (Math.fround(value) !== value) return value;
+  for (let digits = 1; digits <= 9; digits += 1) {
+    const shortest = Number(value.toPrecision(digits));
+    if (Math.fround(shortest) === value) return shortest;
+  }
+  return value;
+}
+
+/**
+ * A picked value as each source of the map's features writes it. The value
+ * comes from the aggregate endpoint, which writes a timestamp as PostgreSQL
+ * text and a `real` at double precision, as vector tiles do. A bounded
+ * cluster's GeoJSON is written by `to_jsonb`, which puts a `T` in a timestamp
+ * and the shortest decimal in a `real`. A timestamptz is left alone: the
+ * endpoint and the tiles write it in UTC, and `to_jsonb` writes it in the
+ * database's zone, which matches on a database that runs in UTC.
+ */
+function geoJsonSpellings(value: SelectionValue, type: string | undefined): SelectionValue[] {
+  if (typeof value === 'string' && type === 'timestamp without time zone' && value.includes(' ')) {
+    return [value, value.replace(' ', 'T')];
+  }
+  if (typeof value === 'number' && type === 'real') {
+    const json = float4Text(value);
+    return json === value ? [value] : [value, json];
+  }
+  return [value];
 }
 
 /**
@@ -86,7 +119,9 @@ export function linkMapLayers(
     const own = picks.filter((pick) => pick.layerId === layer.id);
     if (own.length === 0) return layer;
     const saved = Array.isArray(layer.filter) && layer.filter.length > 0 ? [expressionFilter(layer.filter)] : [];
-    const picked = own.map(({ selection }) => selectionFilter(selection, columnType(layer, selection.column)));
+    // A bounded cluster draws its GeoJSON, or its tiles while that loads.
+    const geoJson = shouldFetchClusterGeoJson(layer);
+    const picked = own.map(({ selection }) => selectionFilter(selection, columnType(layer, selection.column), geoJson));
     const parts = [...saved, ...picked];
     return { ...layer, filter: (parts.length === 1 ? parts[0] : ['all', ...parts]) as FilterSpecification };
   });

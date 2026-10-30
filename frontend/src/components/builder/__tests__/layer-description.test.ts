@@ -5,7 +5,7 @@ import { RENDER_CONTEXTS } from '@/test/fixtures/render-contexts';
 import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 import { toViewerSyncInput } from '@/components/viewer/ViewerMap';
 import { toSyncInput } from '../map-sync';
-import { describeLayers, type DescribedLayer, type RenderContext } from '../layer-description';
+import { clusterTileFilter, describeLayers, type DescribedLayer, type RenderContext } from '../layer-description';
 import type { ImageSpec, LayerAdapter } from '../layer-adapters/types';
 
 type SavedLayerKey = keyof typeof SAVED_LAYERS;
@@ -191,5 +191,27 @@ describe('toSyncInput column types', () => {
     const columns = [{ name: 'seen', type: 'date' }];
 
     expect(toSyncInput(savedLayer({ dataset_column_info: columns })).dataset_column_info).toEqual(columns);
+  });
+});
+
+describe('clusterTileFilter', () => {
+  const layer = {
+    dataset_table_name: 'quakes',
+    tile_version: 3,
+    style_config: { render_mode: 'cluster' },
+    dataset_column_info: [{ name: 'kind', type: 'text' }],
+    dataset_tile_columns: null,
+    // About 3,000 characters of CQL2: within the route's own 4,096.
+    filter: ['in', ['get', 'kind'], ['literal', Array.from({ length: 300 }, (_, i) => `kind-${i}`)]],
+  } as unknown as Parameters<typeof clusterTileFilter>[0];
+  const base = 'https://geolens.example.org/api';
+
+  it('sends a filter whose whole tile URL fits a request line', () => {
+    expect(clusterTileFilter(layer, base, ['kind'])).toEqual({ json: expect.stringContaining('kind-299') });
+  });
+
+  it('leaves a filter off when the columns the URL also carries push it past a request line', () => {
+    const cols = Array.from({ length: 100 }, (_, i) => `a_rather_long_attribute_column_name_${i}`);
+    expect(clusterTileFilter(layer, base, cols)).toEqual({ omitted: 'too-large' });
   });
 });
