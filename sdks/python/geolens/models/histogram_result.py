@@ -18,7 +18,8 @@ T = TypeVar("T", bound="HistogramResult")
 class HistogramResult:
     """
     Attributes:
-        bins (list[HistogramBin]): Equal-width bins over the finite values; empty with none.
+        bins (list[HistogramBin]): Equal-width bins over the finite values, empty with none; an integer column's bins
+            hold whole numbers, may number fewer than requested, and the last may be narrower.
     """
 
     bins: list[HistogramBin]

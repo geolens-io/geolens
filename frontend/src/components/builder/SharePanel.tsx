@@ -77,14 +77,19 @@ export function buildEmbedSrc({
   shareToken,
   embedTokenRaw,
   origin,
+  dashboardCollapsed = false,
 }: {
   shareToken: string;
   embedTokenRaw: string;
   origin: string;
+  dashboardCollapsed?: boolean;
 }): string {
   const params = new URLSearchParams({ embed: 'true' });
   if (embedTokenRaw) {
     params.set('et', embedTokenRaw);
+  }
+  if (dashboardCollapsed) {
+    params.set('dashboard', 'collapsed');
   }
   return `${origin}/m/${shareToken}?${params.toString()}`;
 }
@@ -131,15 +136,17 @@ export function generateEmbedCode({
   embedTokenRaw,
   origin,
   title,
+  dashboardCollapsed,
 }: {
   shareToken: string;
   embedTokenRaw: string;
   origin: string;
   /** Accessible name for the frame (WCAG 4.1.2); escaped for the attribute. */
   title: string;
+  dashboardCollapsed?: boolean;
 }): string {
   if (!shareToken) return '';
-  const url = buildEmbedSrc({ shareToken, embedTokenRaw, origin });
+  const url = buildEmbedSrc({ shareToken, embedTokenRaw, origin, dashboardCollapsed });
   return `<iframe src="${url}" title="${escapeHtmlAttribute(title)}" width="100%" height="600" sandbox="allow-scripts allow-same-origin" style="border:none;"></iframe>`;
 }
 
@@ -620,9 +627,10 @@ interface EmbedPreviewPaneProps {
   shareToken: string;
   embedTokenRaw: string;
   origin: string;
+  dashboardCollapsed: boolean;
 }
 
-function EmbedPreviewPane({ shareToken, embedTokenRaw, origin }: EmbedPreviewPaneProps) {
+function EmbedPreviewPane({ shareToken, embedTokenRaw, origin, dashboardCollapsed }: EmbedPreviewPaneProps) {
   const { t } = useTranslation('builder');
   const [expanded, setExpanded] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -643,7 +651,7 @@ function EmbedPreviewPane({ shareToken, embedTokenRaw, origin }: EmbedPreviewPan
   // snippet is opened by a customer and names the public host; the preview is
   // opened by this browser and names the host this browser reached. Path,
   // params and sandbox stay identical.
-  const src = buildEmbedSrc({ shareToken, embedTokenRaw, origin });
+  const src = buildEmbedSrc({ shareToken, embedTokenRaw, origin, dashboardCollapsed });
 
   return (
     <div className="space-y-2 border-t pt-3">
@@ -730,6 +738,8 @@ interface ShareDialogProps {
   mapName?: string;
   /** The groups the map is shared with. The server sends them to the owner and admins only. */
   groups?: GroupRef[] | null;
+  /** Whether the saved map has a dashboard; only then can an embed start with it collapsed. */
+  hasDashboard?: boolean;
 }
 
 /**
@@ -928,8 +938,11 @@ export function ShareDialog({
   layers = [],
   mapName,
   groups = null,
+  hasDashboard = false,
 }: ShareDialogProps) {
   const { t } = useTranslation('builder');
+  const [collapseRequested, setCollapseRequested] = useState(false);
+  const dashboardCollapsed = hasDashboard && collapseRequested;
   const { isEnterprise } = useEdition();
   const publishMap = usePublishMap(mapId);
   const audienceBusy = useMapAudienceBusy();
@@ -1279,6 +1292,7 @@ export function ShareDialog({
       embedTokenRaw: embedTokenRaw || '',
       origin: embedBaseUrl,
       title: mapName || t('share.embedTitleFallback'),
+      dashboardCollapsed,
     });
   }
 
@@ -1709,6 +1723,18 @@ export function ShareDialog({
                       </Button>
                     </div>
                   )}
+                  {hasDashboard && (
+                    <div className="flex items-center justify-between gap-2">
+                      <label htmlFor="embed-dashboard-collapsed" className="text-xs font-medium">
+                        {t('share.dashboardCollapsed')}
+                      </label>
+                      <Switch
+                        id="embed-dashboard-collapsed"
+                        checked={collapseRequested}
+                        onCheckedChange={setCollapseRequested}
+                      />
+                    </div>
+                  )}
                   {hasNonPublic && (
                     <div className="flex items-start gap-2 rounded-md border border-info/30 bg-info/5 px-3 py-2">
                       <Info className="h-3.5 w-3.5 text-info mt-0.5 flex-shrink-0" />
@@ -1803,6 +1829,7 @@ export function ShareDialog({
                       shareToken={rawShareToken}
                       embedTokenRaw={embedTokenRaw}
                       origin={previewBaseUrl}
+                      dashboardCollapsed={dashboardCollapsed}
                     />
                   )}
                   {embedTokenRaw && !previewBaseUrl && (

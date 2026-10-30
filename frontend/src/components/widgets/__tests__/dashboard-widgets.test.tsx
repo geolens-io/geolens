@@ -189,15 +189,15 @@ describe('bar chart widget', () => {
     expect(document.querySelectorAll('[tabindex]')).toHaveLength(1);
 
     fireEvent.focus(svg);
-    expect(screen.getByText('Residential: 40')).toBeInTheDocument();
+    expect(screen.getByText('Residential: 40', { selector: 'figcaption span' })).toBeInTheDocument();
     fireEvent.keyDown(svg, { key: 'ArrowRight' });
-    expect(screen.getByText('Commercial: 25')).toBeInTheDocument();
+    expect(screen.getByText('Commercial: 25', { selector: 'figcaption span' })).toBeInTheDocument();
     fireEvent.keyDown(svg, { key: 'End' });
-    expect(screen.getByText('(no value): 5')).toBeInTheDocument();
+    expect(screen.getByText('(no value): 5', { selector: 'figcaption span' })).toBeInTheDocument();
     fireEvent.keyDown(svg, { key: 'ArrowDown' });
-    expect(screen.getByText('(no value): 5')).toBeInTheDocument();
+    expect(screen.getByText('(no value): 5', { selector: 'figcaption span' })).toBeInTheDocument();
     fireEvent.keyDown(svg, { key: 'Home' });
-    expect(screen.getByText('Residential: 40')).toBeInTheDocument();
+    expect(screen.getByText('Residential: 40', { selector: 'figcaption span' })).toBeInTheDocument();
   });
 
   it('draws bars in theme colours, scaled to the largest, with an outline on the active one', () => {
@@ -249,6 +249,24 @@ describe('bar chart widget', () => {
     for (const rect of negative.rects) expect(rect.x + rect.width).toBeCloseTo(negative.zero!);
 
     expect(bars([40, 25]).zero).toBeNull();
+  });
+
+  it('shows a clipped label in full on hover', () => {
+    const long = {
+      ...counts,
+      result: {
+        values: [
+          { value: 'Mixed use residential north', count: 40 },
+          { value: 'Mixed use residential south', count: 25 },
+        ],
+        other_count: 0,
+      },
+    };
+    const { container } = render(<BarChartRenderer config={chart} data={long} />);
+    const labels = [...container.querySelectorAll('svg g > text')].map((node) => node.textContent);
+    expect(labels).toContain('Mixed use resid…');
+    const titles = [...container.querySelectorAll('svg g > title')].map((node) => node.textContent);
+    expect(titles).toEqual(['Mixed use residential north: 40', 'Mixed use residential south: 25']);
   });
 
   it('offers the data as a table, with the rows the top N leaves out', () => {
@@ -303,7 +321,7 @@ describe('bar chart widget', () => {
     const bars = [...container.querySelectorAll('svg rect')];
     expect(bars[1].getAttribute('class')).not.toContain('opacity-35');
     expect(bars[0].getAttribute('class')).toContain('opacity-35');
-    expect(container.querySelector('[data-picked]')).toHaveTextContent(/^✓Commercial/);
+    expect(container.querySelector('[data-picked]')).toHaveTextContent(/✓Commercial/);
     expect(screen.getByRole('rowheader', { name: /Commercial/ })).toHaveTextContent('Commercial✓ (picked)');
     fireEvent.keyDown(svg, { key: 'Home' });
     fireEvent.keyDown(svg, { key: 'ArrowDown' });

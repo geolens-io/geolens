@@ -31,9 +31,10 @@ export default function HistogramRenderer({
   data,
   selection,
   onSelect,
+  columns,
 }: WidgetRenderProps<HistogramConfig>) {
   const { t } = useTranslation('widgets');
-  const text = useHistogramText(config, data);
+  const text = useHistogramText(config, data, columns);
   const hintId = useId();
   const bins = text.bins ?? [];
   const picked = pickedBins(text, config, selection);

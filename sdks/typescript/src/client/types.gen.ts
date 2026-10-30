@@ -6298,7 +6298,7 @@ export type HistogramResult = {
     /**
      * Bins
      *
-     * Equal-width bins over the finite values; empty with none.
+     * Equal-width bins over the finite values, empty with none; an integer column's bins hold whole numbers, may number fewer than requested, and the last may be narrower.
      */
     bins: Array<HistogramBin>;
 };

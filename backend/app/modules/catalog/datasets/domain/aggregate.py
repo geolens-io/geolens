@@ -64,6 +64,7 @@ _MAX_ITEMS = 50
 # filter. Filters the builder writes nest a few levels.
 _MAX_FILTER_DEPTH = 64
 _FLOAT_TYPES = frozenset({"real", "double precision"})
+_INTEGER_TYPES = frozenset({"smallint", "integer", "bigint"})
 # Integers at or past this lose precision as JavaScript numbers.
 _JS_SAFE_INTEGER = 2**53
 _QUERY_CANCELED = "57014"
@@ -209,7 +210,11 @@ class HistogramBin(BaseModel):
 
 class HistogramResult(BaseModel):
     bins: list[HistogramBin] = Field(
-        description="Equal-width bins over the finite values; empty with none."
+        description=(
+            "Equal-width bins over the finite values, empty with none; an integer"
+            " column's bins hold whole numbers, may number fewer than requested,"
+            " and the last may be narrower."
+        )
     )
 
 
@@ -418,17 +423,27 @@ def build_aggregate_sql(
             ") AS _g ORDER BY _g._n DESC, _g._k NULLS LAST"
         )
     if request.op == "histogram":
-        number = _number_sql(
-            request.column, _column_type(columns, request.column, numeric=True)
-        )
+        data_type = _column_type(columns, request.column, numeric=True)
+        number = _number_sql(request.column, data_type)
         quoted = _sql_quote_ident(request.column)
         bins = request.bins
-        return (
+        head = (
             f"WITH _v AS (SELECT {number}::float8 AS x"
             f"{from_where(f'{quoted} IS NOT NULL')}),"
             " _f AS (SELECT x FROM _v"
             " WHERE x > '-Infinity'::float8 AND x < 'Infinity'::float8),"
-            " _r AS (SELECT min(x) AS lo, max(x) AS hi FROM _f)"
+        )
+        if data_type in _INTEGER_TYPES:
+            # Bins of whole numbers: [a, a + w) holds exactly a .. a + w - 1.
+            return (
+                f"{head} _r AS (SELECT min(x) AS lo, max(x) AS hi,"
+                f" greatest(1, ceil((max(x) - min(x) + 1) / {bins})) AS w FROM _f)"
+                " SELECT _r.lo AS _lo, _r.hi AS _hi,"
+                " floor((_f.x - _r.lo) / _r.w)::int AS _b, count(*) AS _n,"
+                " _r.w AS _w FROM _f CROSS JOIN _r GROUP BY 1, 2, 3, 5 ORDER BY 3"
+            )
+        return (
+            f"{head} _r AS (SELECT min(x) AS lo, max(x) AS hi FROM _f)"
             " SELECT _r.lo AS _lo, _r.hi AS _hi, CASE WHEN _r.hi = _r.lo THEN 1"
             f" ELSE least(width_bucket(_f.x, _r.lo, _r.hi, {bins}), {bins}) END AS _b,"
             " count(*) AS _n FROM _f CROSS JOIN _r GROUP BY 1, 2, 3 ORDER BY 3"
@@ -450,6 +465,23 @@ def build_aggregate_sql(
     )
 
 
+def _whole_number_histogram(rows: Sequence[Sequence[Any]]) -> HistogramResult:
+    """Bins of ``w`` whole numbers from the minimum; the last stops after the maximum."""
+    low, high, width = int(rows[0][0]), int(rows[0][1]), int(rows[0][4])
+    counts = {int(row[2]): int(row[3]) for row in rows}
+    count = -(-(high - low + 1) // width)
+    return HistogramResult(
+        bins=[
+            HistogramBin(
+                lower=low + i * width,
+                upper=min(low + (i + 1) * width, high + 1),
+                count=counts.get(i, 0),
+            )
+            for i in range(count)
+        ]
+    )
+
+
 def _histogram(rows: Sequence[Sequence[Any]], bins: int) -> HistogramResult:
     if not rows:
         return HistogramResult(bins=[])
@@ -458,6 +490,9 @@ def _histogram(rows: Sequence[Sequence[Any]], bins: int) -> HistogramResult:
         return HistogramResult(
             bins=[HistogramBin(lower=low, upper=high, count=int(rows[0][3]))]
         )
+    # An integer column's rows carry the bin width as a fifth value.
+    if len(rows[0]) == 5:
+        return _whole_number_histogram(rows)
     counts = {int(row[2]): int(row[3]) for row in rows}
     # A weighted mean of the ends stays finite where high - low would overflow.
     edges = [low * (1 - i / bins) + high * (i / bins) for i in range(bins + 1)]

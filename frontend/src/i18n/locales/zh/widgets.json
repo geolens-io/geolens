@@ -65,6 +65,7 @@
     "filterIgnoredWithPicks": "已应用你的筛选条件，但未应用图层自身的筛选条件，因为它无法用于这些数字。",
     "tooWide": "视图中的要素过多。请放大地图以查看这些数字。",
     "loadFailed": "无法加载这些数字。",
+    "columnUnavailable": "此小组件的列在此处不可用。",
     "allHidden": "这些小组件汇总的图层已隐藏。在图例中显示一个图层即可看到其小组件。",
     "retry": "重试",
     "someFailed": "部分小组件无法加载数字。",
@@ -95,6 +96,10 @@
     "moveDown": "下移{{name}}",
     "remove": "移除{{name}}",
     "preview": "预览",
+    "previewPanel": "预览面板",
+    "embedColumnHint": "此地图的嵌入副本无法显示此列。",
+    "previewPanelDescription": "读者所见的面板，地图处为占位。",
+    "previewMap": "地图",
     "stat": "统计量",
     "statNames": {
       "count": "计数",

@@ -1,14 +1,15 @@
 import { useTranslation } from 'react-i18next';
+import { isIntegerColumn } from '@/lib/column-utils';
 import { formatNumber } from '@/lib/format';
 import { aggregateResult, formatAggregateValue } from '../aggregate';
-import type { WidgetSelection } from '../contract';
+import type { WidgetColumn, WidgetSelection } from '../contract';
 import { togglePick } from '../selection';
 import type { HistogramConfig } from './definition';
 
 export interface HistogramBinRow {
   lower: number;
   upper: number;
-  /** The last bin holds its upper edge, the column's maximum. */
+  /** The last bin holds its upper edge, the column's maximum; whole-number bins are half-open. */
   includeUpper: boolean;
   count: number;
   /** The bin's edges and range in the reader's locale. */
@@ -34,7 +35,11 @@ function edgeDigits(width: number): number {
 }
 
 /** The bins of a histogram's aggregate result, labelled in the reader's locale. */
-export function useHistogramText(config: HistogramConfig, data: unknown): HistogramText {
+export function useHistogramText(
+  config: HistogramConfig,
+  data: unknown,
+  columns?: readonly WidgetColumn[],
+): HistogramText {
   const { t } = useTranslation('widgets');
   const headings = {
     summary: t('types.histogram.summary', { column: config.column }),
@@ -43,24 +48,27 @@ export function useHistogramText(config: HistogramConfig, data: unknown): Histog
   };
   const result = aggregateResult(data, 'histogram');
   if (!result) return headings;
+  const integer = isIntegerColumn(columns?.find((column) => column.name === config.column)?.type ?? '');
   const first = result.bins[0];
   const digits = first ? edgeDigits(first.upper - first.lower) : 2;
   const edge = (value: number) => formatNumber(value, { maximumFractionDigits: digits });
   return {
     ...headings,
     bins: result.bins.map((bin, index, all) => {
+      // The server bins an integer column in whole numbers, so [a, a + w) holds a to a + w - 1.
+      const whole = integer && Number.isInteger(bin.lower) && Number.isInteger(bin.upper);
       const lowerText = edge(bin.lower);
-      const upperText = edge(bin.upper);
+      const upperText = whole ? edge(Math.max(bin.lower, bin.upper - 1)) : edge(bin.upper);
       return {
         lower: bin.lower,
         upper: bin.upper,
-        includeUpper: index === all.length - 1,
+        includeUpper: bin.lower === bin.upper || (index === all.length - 1 && !whole),
         count: bin.count,
         lowerText,
         upperText,
         // One value fills a single bin with no width.
         label:
-          bin.lower === bin.upper
+          bin.lower === bin.upper || (whole && bin.upper - bin.lower <= 1)
             ? lowerText
             : t('types.histogram.range', { lower: lowerText, upper: upperText }),
         countText: formatAggregateValue(bin.count),

@@ -317,6 +317,25 @@ describe('DashboardPanel', () => {
     ).toBeInTheDocument();
   });
 
+  it('says a refused column is unavailable, with no retry, and keeps retry for other failures', async () => {
+    const { ApiError } = await import('@/api/client');
+    fetchMock.mockRejectedValue(
+      new ApiError('refused', 422, { code: 'invalid_column', message: 'Unknown column' }),
+    );
+    const { unmount } = render(
+      <DashboardPanel config={dashboard([countWidget])} layers={[layer()]} map={null} mapId="map-1" />,
+    );
+    expect(await screen.findByText("This widget's column isn't available here.")).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    unmount();
+
+    fetchMock.mockReset();
+    fetchMock.mockRejectedValue(new Error('network down'));
+    render(<DashboardPanel config={dashboard([countWidget])} layers={[layer()]} map={null} mapId="map-1" />);
+    expect(await screen.findByText("These numbers couldn't be loaded.")).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
   it('leaves out widgets whose layer the reader turns off, and keeps those on layers saved hidden', async () => {
     // A reference layer saved hidden can still drive the numbers.
     const otherLayer = layer({ id: '2d9f4a6b-5e3c-4a0d-9b8f-7c4e9a3d1f56', display_name: 'Roads', visible: false });

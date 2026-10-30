@@ -11196,7 +11196,7 @@ export interface components {
         HistogramResult: {
             /**
              * Bins
-             * @description Equal-width bins over the finite values; empty with none.
+             * @description Equal-width bins over the finite values, empty with none; an integer column's bins hold whole numbers, may number fewer than requested, and the last may be narrower.
              */
             bins: components["schemas"]["HistogramBin"][];
         };

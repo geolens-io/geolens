@@ -65,6 +65,7 @@
     "filterIgnoredWithPicks": "Applies your filters, but not the layer's own filter, which can't be applied to these numbers.",
     "tooWide": "Too many features in view. Zoom in to see these numbers.",
     "loadFailed": "These numbers couldn't be loaded.",
+    "columnUnavailable": "This widget's column isn't available here.",
     "allHidden": "The layers these widgets summarize are hidden. Show one in the legend to see its widgets.",
     "retry": "Retry",
     "someFailed": "Some widgets couldn't load their numbers.",
@@ -95,6 +96,10 @@
     "moveDown": "Move {{name}} down",
     "remove": "Remove {{name}}",
     "preview": "Preview",
+    "previewPanel": "Preview panel",
+    "embedColumnHint": "Embedded copies of this map can't show this column.",
+    "previewPanelDescription": "The panel as readers see it, with a placeholder for the map.",
+    "previewMap": "Map",
     "stat": "Statistic",
     "statNames": {
       "count": "Count",

@@ -1,12 +1,13 @@
-import { memo, Suspense, useCallback, useId, useMemo, useRef } from 'react';
+import { memo, Suspense, useCallback, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { arrayMove } from '@dnd-kit/sortable';
-import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Eye, Plus, Trash2 } from 'lucide-react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DashboardWidget, widgetName, type PanelPosition } from '@/components/viewer/DashboardPanel';
+import { DashboardPanel, DashboardWidget, widgetName, type PanelPosition } from '@/components/viewer/DashboardPanel';
 import { useMapViewBbox } from '@/components/viewer/hooks/use-dashboard-data';
 import { toSharedLayer } from '@/components/viewer/shared-layer';
 import { WIDGET_TITLE_MAX_LENGTH, type AnyWidgetDefinition, type WidgetInstance } from '@/components/widgets/contract';
@@ -15,9 +16,11 @@ import { getWidgetDefinition, widgetDefinitions } from '@/components/widgets/reg
 import { useDebouncedValue } from '@/hooks/use-debounce';
 import type { Bbox } from '@/lib/bbox';
 import { randomId } from '@/lib/random-id';
+import { cn } from '@/lib/utils';
 import type { MapLayerResponse } from '@/types/api';
 import {
   dashboardLayers,
+  dashboardPayload,
   layerFollowsView,
   MAX_DASHBOARD_WIDGETS,
   widgetProblem,
@@ -92,6 +95,11 @@ const WidgetCard = memo(function WidgetCard({
   // Until the debounce catches up, the preview's config can still name the previous layer's columns.
   const previewReady = layer !== undefined && !problem && !widgetProblem(preview, layer);
   const canFollowView = layer === undefined || layerFollowsView(layer);
+  // A dataset that limits its tile columns hides the rest from embedded copies, unless anyone can read it in full.
+  const tileColumns = layer?.dataset_visibility === 'public' ? null : layer?.dataset_tile_columns;
+  const hiddenFromEmbeds =
+    !!tileColumns &&
+    (definition.readsColumns?.(widget.config) ?? []).some((use) => !tileColumns.includes(use.name));
   const Editor = definition.Editor;
 
   return (
@@ -194,6 +202,7 @@ const WidgetCard = memo(function WidgetCard({
         </Suspense>
       )}
 
+      {layer && hiddenFromEmbeds && <p className="text-xs text-muted-foreground">{t('editor.embedColumnHint')}</p>}
       {!layer && <p className="text-xs text-muted-foreground">{t('editor.problem.layerRemoved')}</p>}
       {problem && <ProblemText problem={problem} />}
 
@@ -213,6 +222,50 @@ const WidgetCard = memo(function WidgetCard({
 });
 
 /**
+ * The assembled panel as readers see it, beside a placeholder for the map, at
+ * the position the draft chooses. It shows the draft against the Builder's
+ * layers, as a save would store it.
+ */
+function PanelPreview({
+  draft,
+  layers,
+  map,
+  open,
+  onOpenChange,
+}: {
+  draft: DashboardDraft;
+  layers: readonly MapLayerResponse[];
+  map: MaplibreMap | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { t } = useTranslation('widgets');
+  const config = useMemo(() => dashboardPayload(draft, layers, draft.panel), [draft, layers]);
+  const shared = useMemo(() => dashboardLayers(layers).map(toSharedLayer), [layers]);
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-4xl">
+        <DialogHeader>
+          <DialogTitle>{t('editor.previewPanel')}</DialogTitle>
+          <DialogDescription>{t('editor.previewPanelDescription')}</DialogDescription>
+        </DialogHeader>
+        <div
+          className={cn(
+            'flex h-[70dvh] min-h-0 flex-col overflow-hidden rounded-md border',
+            draft.panel === 'right' && 'md:flex-row',
+          )}
+        >
+          <div className="flex min-h-24 flex-1 items-center justify-center bg-muted text-sm text-muted-foreground">
+            {t('editor.previewMap')}
+          </div>
+          <DashboardPanel config={config} layers={shared} map={map} />
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
  * The Builder's dashboard editor: where the panel sits, and the widgets in
  * panel order, each with its type's config editor and a live preview against
  * the Builder's layers and view.
@@ -230,6 +283,7 @@ export function DashboardEditorPanel({
 }) {
   const { t } = useTranslation('widgets');
   const positionId = useId();
+  const [previewing, setPreviewing] = useState(false);
   // Memoized so a title keystroke re-renders only its own card.
   const candidates = useMemo(() => dashboardLayers(layers), [layers]);
   const candidatesById = useMemo(
@@ -294,27 +348,33 @@ export function DashboardEditorPanel({
       {draft.widgets.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t('editor.empty')}</p>
       ) : (
-        <ul className="space-y-3">
-          {draft.widgets.map((widget, index) => {
-            const definition = getWidgetDefinition(widget.type, 'dashboard');
-            if (!definition) return null;
-            return (
-              <WidgetCard
-                key={widget.id}
-                widget={widget}
-                definition={definition}
-                index={index}
-                count={draft.widgets.length}
-                candidates={candidates}
-                layer={candidatesById.get(widget.layer_id ?? '')}
-                viewBbox={widget.scope === 'view' ? viewBbox : null}
-                onChange={changeWidget}
-                onMove={moveWidget}
-                onRemove={removeWidget}
-              />
-            );
-          })}
-        </ul>
+        <>
+          <Button type="button" variant="outline" size="sm" className="self-start" onClick={() => setPreviewing(true)}>
+            <Eye aria-hidden="true" />
+            {t('editor.previewPanel')}
+          </Button>
+          <ul className="space-y-3">
+            {draft.widgets.map((widget, index) => {
+              const definition = getWidgetDefinition(widget.type, 'dashboard');
+              if (!definition) return null;
+              return (
+                <WidgetCard
+                  key={widget.id}
+                  widget={widget}
+                  definition={definition}
+                  index={index}
+                  count={draft.widgets.length}
+                  candidates={candidates}
+                  layer={candidatesById.get(widget.layer_id ?? '')}
+                  viewBbox={widget.scope === 'view' ? viewBbox : null}
+                  onChange={changeWidget}
+                  onMove={moveWidget}
+                  onRemove={removeWidget}
+                />
+              );
+            })}
+          </ul>
+        </>
       )}
 
       {candidates.length === 0 ? (
@@ -344,6 +404,8 @@ export function DashboardEditorPanel({
           )}
         </div>
       )}
+
+      <PanelPreview draft={draft} layers={layers} map={map} open={previewing} onOpenChange={setPreviewing} />
     </div>
   );
 }

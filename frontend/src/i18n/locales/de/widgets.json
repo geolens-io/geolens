@@ -65,6 +65,7 @@
     "filterIgnoredWithPicks": "Wendet Ihre Filter an, aber nicht den eigenen Filter der Ebene, der sich auf diese Zahlen nicht anwenden lässt.",
     "tooWide": "Zu viele Objekte im Ausschnitt. Zoomen Sie hinein, um diese Zahlen zu sehen.",
     "loadFailed": "Diese Zahlen konnten nicht geladen werden.",
+    "columnUnavailable": "Die Spalte dieses Widgets ist hier nicht verfügbar.",
     "allHidden": "Die Layer dieser Widgets sind ausgeblendet. Blenden Sie einen in der Legende ein, um seine Widgets zu sehen.",
     "retry": "Erneut versuchen",
     "someFailed": "Einige Widgets konnten ihre Zahlen nicht laden.",
@@ -95,6 +96,10 @@
     "moveDown": "{{name}} nach unten",
     "remove": "{{name}} entfernen",
     "preview": "Vorschau",
+    "previewPanel": "Panel-Vorschau",
+    "embedColumnHint": "Eingebettete Kopien dieser Karte können diese Spalte nicht anzeigen.",
+    "previewPanelDescription": "Das Panel, wie Leserinnen und Leser es sehen, mit einem Platzhalter für die Karte.",
+    "previewMap": "Karte",
     "stat": "Kennzahl",
     "statNames": {
       "count": "Anzahl",

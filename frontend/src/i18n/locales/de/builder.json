@@ -649,6 +649,7 @@
     "customizeZoom": "-- Zoomstufe anpassen",
     "customizeCenter": "-- Kartenmitte anpassen",
     "customizeLegend": "-- Legende ein-/ausblenden",
+    "dashboardCollapsed": "Mit eingeklapptem Dashboard starten",
     "revokeShareLink": "Freigabelink widerrufen",
     "restrictToDomains": "Auf Domains beschränken",
     "visibilityLabel": "Kartensichtbarkeit: {{status}}",

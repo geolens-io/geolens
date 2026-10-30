@@ -249,6 +249,24 @@ describe('linkMapLayers on a bounded cluster', () => {
     expect(matches(lowerBin, { r: f(0.2) })).toBe(false);
   });
 
+  it('sends a real column\'s range as float4 edges, so the server\'s rounding keeps the bin\'s own values', () => {
+    const f = Math.fround;
+    // 0.35 as a float4 sits just below 0.35, so a plain 0.35 edge rounds to it and drops the point from [0.3, 0.35).
+    const bin = range('r', 0.3, 0.35);
+    const edges = JSON.stringify(selectionCql2(pointLayer(false, 'r', 'real'), bin)).match(/-?\d[\d.e-]*/g)!.map(Number);
+    expect(edges.length).toBeGreaterThan(0);
+    for (const edge of edges) expect(f(edge)).toBe(edge);
+    const [lower, upper] = edges;
+    // Server: the column's float4 value against the rounded edges.
+    const serverKeeps = (value: number) => value >= f(lower) && value < f(upper);
+    expect(serverKeeps(f(0.35))).toBe(true);
+    expect(serverKeeps(f(0.3))).toBe(true);
+    // The point belongs to this bin on the map too, and the next bin starts where this one ends.
+    expect(matches(linkedFilter(pointLayer(false, 'r', 'real'), bin), { r: f(0.35) })).toBe(true);
+    const next = linkedFilter(pointLayer(false, 'r', 'real'), range('r', 0.35, 0.4));
+    expect(matches(next, { r: f(0.35) })).toBe(false);
+  });
+
   it('sends a server-clustered layer only the spelling the server compares', () => {
     const target = pointLayer(false, 'seen', 'timestamp without time zone');
     expect(linkedFilter(target, pick(['2024-03-01 17:00:00'], 'seen'))).toEqual([

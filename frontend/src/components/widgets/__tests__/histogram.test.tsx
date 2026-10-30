@@ -169,6 +169,80 @@ describe('histogram widget', () => {
     expect(screen.getByText('0.125 – 0.15')).toBeInTheDocument();
   });
 
+  describe('on an integer column', () => {
+    const integer = [{ name: 'visits', type: 'integer' }];
+    const visits: HistogramConfig = { column: 'visits', bins: 20 };
+    // The server's whole-number bins: [a, a + w) holds a to a + w - 1.
+    const bins = (width: number, count: number) => ({
+      ...data,
+      result: {
+        bins: Array.from({ length: count }, (_, index) => ({
+          lower: index * width,
+          upper: (index + 1) * width,
+          count: index + 1,
+        })),
+      },
+    });
+
+    it('labels a bin of one whole number by that number', () => {
+      render(<HistogramFallback config={visits} data={bins(1, 3)} columns={integer} />);
+      expect(screen.getAllByRole('rowheader').map((header) => header.textContent)).toEqual(['0', '1', '2']);
+    });
+
+    it('labels a wider bin by the whole numbers it holds', () => {
+      render(<HistogramFallback config={visits} data={bins(50, 2)} columns={integer} />);
+      expect(screen.getByText('0 – 49')).toBeInTheDocument();
+      expect(screen.getByText('50 – 99')).toBeInTheDocument();
+    });
+
+    it('labels the axis with the lowest and highest whole numbers', () => {
+      const { container } = render(<HistogramRenderer config={visits} data={bins(50, 2)} columns={integer} />);
+      const axis = [...container.querySelectorAll('svg text')].map((label) => label.textContent);
+      expect(axis).toEqual(['0', '99']);
+    });
+
+    it('picks the bin with the server\'s edges', () => {
+      const onSelect = vi.fn();
+      render(<HistogramRenderer config={visits} data={bins(50, 2)} columns={integer} onSelect={onSelect} />);
+      const chart = screen.getByRole('group', { name: 'Distribution of visits' });
+      fireEvent.focus(chart);
+      fireEvent.keyDown(chart, { key: 'Enter' });
+      expect(onSelect).toHaveBeenLastCalledWith({
+        column: 'visits',
+        label: '0 – 49',
+        range: { lower: 0, upper: 50, includeUpper: false },
+      });
+    });
+
+    it('leaves the last whole-number bin open above, and a single-value bin closed', () => {
+      const onSelect = vi.fn();
+      const { unmount } = render(<HistogramRenderer config={visits} data={bins(50, 2)} columns={integer} onSelect={onSelect} />);
+      const chart = screen.getByRole('group', { name: 'Distribution of visits' });
+      fireEvent.focus(chart);
+      fireEvent.keyDown(chart, { key: 'End' });
+      fireEvent.keyDown(chart, { key: 'Enter' });
+      expect(onSelect).toHaveBeenLastCalledWith(
+        expect.objectContaining({ range: { lower: 50, upper: 100, includeUpper: false } }),
+      );
+      unmount();
+
+      const single = { ...data, result: { bins: [{ lower: 7, upper: 7, count: 3 }] } };
+      render(<HistogramRenderer config={visits} data={single} columns={integer} onSelect={onSelect} />);
+      const lone = screen.getByRole('group', { name: 'Distribution of visits' });
+      fireEvent.focus(lone);
+      fireEvent.keyDown(lone, { key: 'Enter' });
+      expect(onSelect).toHaveBeenLastCalledWith(
+        expect.objectContaining({ range: { lower: 7, upper: 7, includeUpper: true } }),
+      );
+    });
+
+    it('keeps the range of a column that can hold fractions', () => {
+      const real = [{ name: 'visits', type: 'double precision' }];
+      render(<HistogramFallback config={visits} data={bins(50, 2)} columns={real} />);
+      expect(screen.getByText('0 – 50')).toBeInTheDocument();
+    });
+  });
+
   it('says there is no data before the host fetches it, and when there are no values', () => {
     const { rerender } = render(<HistogramRenderer config={config} />);
     expect(screen.getByText('No data yet')).toBeInTheDocument();

@@ -649,6 +649,7 @@
     "customizeZoom": "-- override zoom level",
     "customizeCenter": "-- override map center",
     "customizeLegend": "-- show/hide legend",
+    "dashboardCollapsed": "Start with the dashboard collapsed",
     "revokeShareLink": "Revoke Share Link",
     "restrictToDomains": "Restrict to domains",
     "visibilityLabel": "Map visibility: {{status}}",
