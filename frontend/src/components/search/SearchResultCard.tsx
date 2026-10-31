@@ -17,6 +17,7 @@ import { getGeometryTypeLabel } from '@/i18n/labels';
 import { ingestionStatusColors, syntheticBadgeColor } from '@/lib/status-colors';
 import { useQuicklook } from '@/components/maps/hooks/use-quicklook';
 import { queryKeys } from '@/lib/query-keys';
+import { distinctDescription } from '@/lib/text';
 import { getDataset } from '@/api/datasets';
 import type { OGCRecordResponse } from '@/types/api';
 
@@ -104,9 +105,8 @@ function buildAutoDescription(
   t: TFunction<'search'>,
   locale: string,
 ): string {
-  if (properties.description && properties.description.trim() !== '') {
-    return properties.description;
-  }
+  const description = distinctDescription(properties.title, properties.description);
+  if (description) return description;
   const recordType = properties.record_type ?? 'vector_dataset';
   switch (recordType) {
     case 'vector_dataset':
@@ -147,6 +147,7 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
   const recordType = properties.record_type ?? 'vector_dataset';
   const isCollection = recordType === 'collection';
   const isTable = recordType === 'table';
+  const collectionDescription = isCollection ? distinctDescription(properties.title, properties.description) : undefined;
   const origin = datasetOrigin(properties);
   const linkPath = isCollection ? `/collections/${feature.id}` : `/datasets/${feature.id}`;
   const bbox = extractBbox(feature);
@@ -234,9 +235,9 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                 <h3 className="block text-base font-semibold leading-tight text-foreground transition-colors group-hover:text-primary line-clamp-1">
                   {properties.title}
                 </h3>
-                {properties.description && (
+                {collectionDescription && (
                   <p className="text-sm leading-5 text-muted-foreground line-clamp-1">
-                    {properties.description}
+                    {collectionDescription}
                   </p>
                 )}
               </div>

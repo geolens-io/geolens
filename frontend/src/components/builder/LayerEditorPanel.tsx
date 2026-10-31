@@ -383,15 +383,11 @@ export const LayerEditorPanel = memo(function LayerEditorPanel({
                 <LayerEditorTypePill layer={layer} />
               )}
             </div>
-            {!isPureSettings && editorScene !== 'basemap-group' && editorScene !== 'basemap-sublayer' && (layer.dataset_geometry_type || caps.kind === 'raster' || caps.kind === 'vrt') && (
+            {!isPureSettings && editorScene !== 'basemap-group' && editorScene !== 'basemap-sublayer' &&
+              (caps.kind === 'raster' || caps.kind === 'vrt') &&
+              typeof layer.band_count === 'number' && layer.band_count >= 1 && (
               <span className="text-mini text-muted-foreground truncate">
-                {layer.dataset_geometry_type ?? (
-                  (caps.kind === 'raster' || caps.kind === 'vrt')
-                    ? (typeof layer.band_count === 'number' && layer.band_count >= 1
-                        ? t('style.raster.bandCount', { count: layer.band_count })
-                        : '')
-                    : ''
-                )}
+                {t('style.raster.bandCount', { count: layer.band_count })}
               </span>
             )}
           </div>

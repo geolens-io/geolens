@@ -240,6 +240,17 @@ describe('DatasetSearchPanel', () => {
     expect(screen.getByRole('link', { name: 'Import data...' })).toHaveAttribute('href', '/import');
   });
 
+  it('leaves out an expanded row description that repeats the title', async () => {
+    const parks = makeRecord({ id: 'parks', title: 'Parks' });
+    parks.properties.description = 'Parks';
+    mockSearchDatasets.mockResolvedValue({ ...searchResponse, numberMatched: 1, numberReturned: 1, features: [parks] });
+    render(<DatasetSearchPanel {...defaultProps()} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Expand Parks' }));
+
+    expect(screen.getAllByText('Parks')).toHaveLength(1);
+  });
+
   it('offers no Add to map, drag or Vector label for an unknown record type', async () => {
     const cloud = makeRecord({ id: 'cloud', title: 'Cloud', recordType: 'hologram_dataset' as RecordType });
     cloud.properties.geometry_type = null;

@@ -22,6 +22,7 @@ import { useDraggable } from '@dnd-kit/core';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { searchDatasets } from '@/api/search';
 import { queryKeys } from '@/lib/query-keys';
+import { distinctDescription } from '@/lib/text';
 import { useDebouncedValue } from '@/hooks/use-debounce';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuthStore } from '@/stores/auth-store';
@@ -190,6 +191,7 @@ const DraggableDatasetRow = memo(function DraggableDatasetRow({
   const recordType = props.record_type ?? 'vector_dataset';
   const addable = recordTypeCapabilities(recordType).mapLayerType !== null;
   const meta = featureMeta(record, t);
+  const description = distinctDescription(props.title, props.description);
 
   const { attributes, listeners, setActivatorNodeRef, setNodeRef, isDragging } = useDraggable({
     id: `catalog:${record.id}`,
@@ -268,8 +270,8 @@ const DraggableDatasetRow = memo(function DraggableDatasetRow({
           <DatasetPreview record={record} />
           <div className="flex min-w-0 flex-1 flex-col gap-2">
             <DatasetMetadata record={record} />
-            {props.description && (
-              <p className="line-clamp-2 text-xs leading-snug text-muted-foreground">{props.description}</p>
+            {description && (
+              <p className="line-clamp-2 text-xs leading-snug text-muted-foreground">{description}</p>
             )}
             {addable && <div className="flex justify-end">{renderDatasetAction(record, true)}</div>}
           </div>
