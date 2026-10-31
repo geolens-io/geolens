@@ -183,7 +183,9 @@ function fillPaint(input: AdapterLayerInput, stroke: PolygonStroke): Record<stri
     ...Object.fromEntries(expressions),
     'fill-opacity': getFeatureOpacity(paint, 'fill'),
     'fill-layer-opacity': input.opacity ?? 1,
-    'fill-outline-color': stroke.disabled ? MAP_COLORS.transparent : (stroke.authoredColor ?? MAP_COLORS.transparent),
+    // The native outline is always one pixel wide, so a zero-width stroke hides it too.
+    'fill-outline-color':
+      stroke.disabled || stroke.width === 0 ? MAP_COLORS.transparent : (stroke.authoredColor ?? MAP_COLORS.transparent),
   };
 }
 
