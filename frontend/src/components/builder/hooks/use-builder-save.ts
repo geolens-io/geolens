@@ -923,7 +923,7 @@ function withRenamedWidgetLayers(
     dashboard_config: {
       ...config,
       widgets: config.widgets.map((w) => {
-        const next = w.layer_id && renamed.get(w.layer_id);
+        const next = 'layer_id' in w && renamed.get(w.layer_id);
         return next ? { ...w, layer_id: next } : w;
       }),
     },
