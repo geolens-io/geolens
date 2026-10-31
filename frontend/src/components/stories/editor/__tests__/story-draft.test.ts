@@ -98,6 +98,32 @@ describe('block edits', () => {
   });
 });
 
+describe('moving blocks', () => {
+  const three = chapter('a', {
+    blocks: ['x', 'y', 'z'].map((id) => ({ id, type: 'markdown' as const, v: 1 as const, title: null, config: { text: id } })),
+  });
+  const order = (chapters: StoryChapter[]) => chapters[0].blocks?.map((b) => b.id);
+
+  it('swaps a block with its neighbour inside its own chapter', () => {
+    const other = chapter('b');
+    expect(order(applyDraftEdit([three, other], { type: 'moveBlock', chapterId: 'a', blockId: 'z', by: -1 }))).toEqual([
+      'x',
+      'z',
+      'y',
+    ]);
+    const moved = applyDraftEdit([three, other], { type: 'moveBlock', chapterId: 'a', blockId: 'x', by: 1 });
+    expect(order(moved)).toEqual(['y', 'x', 'z']);
+    expect(moved[1]).toBe(other);
+  });
+
+  it('leaves the list alone at either end or for an unknown block', () => {
+    const list = [three];
+    expect(applyDraftEdit(list, { type: 'moveBlock', chapterId: 'a', blockId: 'x', by: -1 })).toBe(list);
+    expect(applyDraftEdit(list, { type: 'moveBlock', chapterId: 'a', blockId: 'z', by: 1 })).toBe(list);
+    expect(applyDraftEdit(list, { type: 'moveBlock', chapterId: 'a', blockId: 'nope', by: 1 })).toBe(list);
+  });
+});
+
 describe('document caps', () => {
   it('adds no chapter past the cap and no block past the per-chapter cap', () => {
     const full = Array.from({ length: MAX_CHAPTERS }, (_, i) => chapter(`c${i}`));

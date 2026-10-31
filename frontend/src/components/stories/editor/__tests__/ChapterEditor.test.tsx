@@ -40,6 +40,7 @@ it('numbers text blocks and images separately, Remove buttons included', async (
   render(
     <ChapterEditor
       storyId="s1"
+      uploads={{ get: () => ({ progress: null, error: null }), start: vi.fn(), cancelAll: vi.fn(), uploading: false }}
       chapter={CHAPTER}
       index={0}
       edit={edit}
@@ -61,5 +62,33 @@ it('numbers text blocks and images separately, Remove buttons included', async (
     type: 'removeBlock',
     chapterId: 'c1',
     blockId: '00000000-0000-4000-8000-000000000003',
+  });
+});
+
+it('moves blocks with per-kind names and disables the arrows at the ends', async () => {
+  const edit = vi.fn();
+  render(
+    <ChapterEditor
+      storyId="s1"
+      uploads={{ get: () => ({ progress: null, error: null }), start: vi.fn(), cancelAll: vi.fn(), uploading: false }}
+      chapter={CHAPTER}
+      index={0}
+      edit={edit}
+      readView={() => null}
+      mapMissing={false}
+      focusTitle={false}
+    />,
+  );
+
+  expect(screen.getByRole('button', { name: 'Move text block 1 up' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Move text block 2 down' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Move image 1 up' })).toBeEnabled();
+
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Move image 1 down' }));
+  expect(edit).toHaveBeenCalledWith({
+    type: 'moveBlock',
+    chapterId: 'c1',
+    blockId: '00000000-0000-4000-8000-000000000002',
+    by: 1,
   });
 });

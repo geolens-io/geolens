@@ -12,11 +12,13 @@ import {
 import type { StoryChapter } from '@/types/api';
 import type { DraftEdit } from './story-draft';
 import { StoryImagePicker } from './StoryImagePicker';
+import type { StoryUploads } from './use-story-uploads';
 
 type ImageBlock = Extract<NonNullable<StoryChapter['blocks']>[number], { type: 'image' }>;
 
 interface ImageBlockFieldProps {
   storyId: string;
+  uploads: StoryUploads;
   chapterId: string;
   block: ImageBlock;
   label: string;
@@ -24,7 +26,7 @@ interface ImageBlockFieldProps {
 }
 
 /** An image block: a preview, its required alt text and optional caption, and a replacement upload. */
-export function ImageBlockField({ storyId, chapterId, block, label, edit }: ImageBlockFieldProps) {
+export function ImageBlockField({ storyId, uploads, chapterId, block, label, edit }: ImageBlockFieldProps) {
   const { t } = useTranslation('stories');
   const altId = useId();
   const captionId = useId();
@@ -76,9 +78,9 @@ export function ImageBlockField({ storyId, chapterId, block, label, edit }: Imag
         />
       </div>
       <StoryImagePicker
-        storyId={storyId}
         label={t('editor.image.replace')}
-        onUploaded={(asset) => setImage({ assetId: asset.id })}
+        upload={uploads.get(`replace:${block.id}`)}
+        onPick={(file) => uploads.start(`replace:${block.id}`, file, (asset) => setImage({ assetId: asset.id }))}
       />
     </fieldset>
   );

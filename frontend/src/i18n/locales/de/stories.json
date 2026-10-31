@@ -94,7 +94,6 @@
     "viewStory": "Story ansehen",
     "details": "Details",
     "discard": "Entwurf verwerfen",
-    "save": "Entwurf speichern",
     "publish": "Veröffentlichen",
     "publishing": "Wird veröffentlicht…",
     "stale": "Dieser Entwurf wurde woanders geändert, nachdem Sie ihn geöffnet haben. Laden Sie die neueste Version oder speichern Sie Ihre darüber.",
@@ -120,7 +119,11 @@
       "unsaved": "Nicht gespeicherte Änderungen",
       "neverPublished": "Entwurf gespeichert. Noch nicht veröffentlicht.",
       "unpublishedChanges": "Entwurf gespeichert. Leser sehen noch die zuletzt veröffentlichte Version.",
-      "published": "Veröffentlicht. Leser sehen diese Version."
+      "published": "Veröffentlicht. Leser sehen diese Version.",
+      "saveFailed": "Speichern fehlgeschlagen",
+      "retry": "Erneut versuchen",
+      "waitingForUpload": "Warten auf das Hochladen des Bilds",
+      "waitingForAlt": "Alternativtext hinzufügen, um zu speichern"
     },
     "chapters": {
       "label": "Kapitel",
@@ -140,7 +143,11 @@
       "addTextBlock": "Textblock hinzufügen",
       "addImage": "Bild hinzufügen",
       "imageBlock": "Bild {{index}}",
-      "removeImage": "Bild {{index}} entfernen"
+      "removeImage": "Bild {{index}} entfernen",
+      "moveTextBlockUp": "Textblock {{index}} nach oben verschieben",
+      "moveTextBlockDown": "Textblock {{index}} nach unten verschieben",
+      "moveImageUp": "Bild {{index}} nach oben verschieben",
+      "moveImageDown": "Bild {{index}} nach unten verschieben"
     },
     "scene": {
       "heading": "Kartenszene",

@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from 'react';
+import { useEffect, useId, useState, type FormEvent } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
@@ -21,6 +21,7 @@ import { StoryTextFields } from '../StoryTextFields';
 import { BlockingMapsList } from './BlockingMapsList';
 import { captureAccount } from './same-account';
 import { StoryImagePicker } from './StoryImagePicker';
+import { useStoryUploads } from './use-story-uploads';
 
 const VISIBILITIES: StoryVisibility[] = ['private', 'internal', 'public'];
 
@@ -156,6 +157,8 @@ function CoverField({
 }) {
   const { t } = useTranslation('stories');
   const headingId = useId();
+  const uploads = useStoryUploads(storyId);
+  useEffect(() => onUploadingChange(uploads.uploading), [onUploadingChange, uploads.uploading]);
   return (
     <section aria-labelledby={headingId} className="space-y-2">
       <h3 id={headingId} className="text-sm font-medium">
@@ -170,10 +173,9 @@ function CoverField({
       />
       <div className="flex flex-wrap items-start gap-2">
         <StoryImagePicker
-          storyId={storyId}
           label={cover ? t('details.cover.replace') : t('details.cover.choose')}
-          onUploaded={(asset) => onChange(asset.id)}
-          onUploadingChange={onUploadingChange}
+          upload={uploads.get('cover')}
+          onPick={(file) => uploads.start('cover', file, (asset) => onChange(asset.id))}
         />
         {cover && (
           <Button type="button" variant="ghost" size="sm" onClick={() => onChange(null)}>

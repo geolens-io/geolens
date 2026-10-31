@@ -94,7 +94,6 @@
     "viewStory": "Ver historia",
     "details": "Detalles",
     "discard": "Descartar borrador",
-    "save": "Guardar borrador",
     "publish": "Publicar",
     "publishing": "Publicando…",
     "stale": "Este borrador se cambió en otro lugar después de abrirlo. Carga la versión más reciente o guarda la tuya encima.",
@@ -120,7 +119,11 @@
       "unsaved": "Cambios sin guardar",
       "neverPublished": "Borrador guardado. Aún sin publicar.",
       "unpublishedChanges": "Borrador guardado. Los lectores siguen viendo la última versión publicada.",
-      "published": "Publicada. Los lectores ven esta versión."
+      "published": "Publicada. Los lectores ven esta versión.",
+      "saveFailed": "No se pudo guardar",
+      "retry": "Reintentar",
+      "waitingForUpload": "Esperando a que termine la subida de la imagen",
+      "waitingForAlt": "Añade texto alternativo para guardar"
     },
     "chapters": {
       "label": "Capítulos",
@@ -140,7 +143,11 @@
       "addTextBlock": "Añadir bloque de texto",
       "addImage": "Añadir imagen",
       "imageBlock": "Imagen {{index}}",
-      "removeImage": "Quitar imagen {{index}}"
+      "removeImage": "Quitar imagen {{index}}",
+      "moveTextBlockUp": "Subir el bloque de texto {{index}}",
+      "moveTextBlockDown": "Bajar el bloque de texto {{index}}",
+      "moveImageUp": "Subir la imagen {{index}}",
+      "moveImageDown": "Bajar la imagen {{index}}"
     },
     "scene": {
       "heading": "Escena de mapa",

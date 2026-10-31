@@ -37,7 +37,7 @@ async function createPublicMap(request: APIRequestContext, name: string): Promis
 async function addChapter(page: Page, title: string, text: string, mapName: string) {
   await page.getByRole('navigation', { name: 'Chapters' }).getByRole('button', { name: 'Add chapter' }).click();
   await page.getByLabel('Chapter title').fill(title);
-  await page.getByLabel('Text block 1').fill(text);
+  await page.getByRole('textbox', { name: 'Text block 1' }).fill(text);
   await page.getByRole('combobox', { name: 'Map' }).fill(mapName);
   await page.getByRole('option', { name: new RegExp(`^${mapName}`) }).click();
   await expect(page.getByRole('button', { name: 'Use current view' })).toBeVisible();
@@ -93,7 +93,7 @@ test.describe.serial('Stories', () => {
     await chapter.getByTestId('story-image-input').setInputFiles(IMAGE_FIXTURE);
     const alt = chapter.getByRole('textbox', { name: 'Alt text' });
     await expect(alt).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Save draft' })).toBeDisabled();
+    await expect(page.getByRole('status').filter({ hasText: 'Add alt text to save' })).toBeVisible();
     await alt.fill(IMAGE_ALT);
     await expect(chapter.getByRole('img', { name: IMAGE_ALT })).toBeVisible();
 

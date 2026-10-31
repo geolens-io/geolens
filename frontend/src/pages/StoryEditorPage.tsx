@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { ArrowLeft, BookOpen, Settings2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -15,13 +15,7 @@ import { BlockingMapsList } from '@/components/stories/editor/BlockingMapsList';
 import { ChapterEditor } from '@/components/stories/editor/ChapterEditor';
 import { ChapterList } from '@/components/stories/editor/ChapterList';
 import { StoryDetailsDialog } from '@/components/stories/editor/StoryDetailsDialog';
-import {
-  documentBytes,
-  imagesMissingAlt,
-  MAX_CHAPTERS,
-  MAX_DOCUMENT_BYTES,
-  sameChapters,
-} from '@/components/stories/editor/story-draft';
+import { MAX_CHAPTERS, sameChapters } from '@/components/stories/editor/story-draft';
 import { useStoryEditor, type EditorBusy } from '@/components/stories/editor/use-story-editor';
 import { resolveScene } from '@/components/stories/story-scenes';
 import { useDocumentTitle } from '@/hooks/use-document-title';
@@ -77,9 +71,28 @@ export function StoryEditorPage() {
   return <StoryEditor key={`${userId}:${data.id}`} initial={data} />;
 }
 
-function statusKey(busy: EditorBusy, dirty: boolean, everPublished: boolean, hasUnpublished: boolean) {
+interface SaveState {
+  busy: EditorBusy;
+  dirty: boolean;
+  failed: boolean;
+  stale: boolean;
+  uploading: boolean;
+  missingAlt: number;
+}
+
+function statusKey(
+  { busy, dirty, failed, stale, uploading, missingAlt }: SaveState,
+  everPublished: boolean,
+  hasUnpublished: boolean,
+) {
   if (busy === 'save') return 'editor.status.saving';
-  if (dirty) return 'editor.status.unsaved';
+  if (dirty) {
+    if (stale) return 'editor.status.unsaved';
+    if (failed) return 'editor.status.saveFailed';
+    if (uploading) return 'editor.status.waitingForUpload';
+    if (missingAlt > 0) return 'editor.status.waitingForAlt';
+    return 'editor.status.unsaved';
+  }
   if (!everPublished) return 'editor.status.neverPublished';
   if (hasUnpublished) return 'editor.status.unpublishedChanges';
   return 'editor.status.published';
@@ -88,7 +101,7 @@ function statusKey(busy: EditorBusy, dirty: boolean, everPublished: boolean, has
 function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
   const { t } = useTranslation('stories');
   const editor = useStoryEditor(initial);
-  const { story, chapters, dirty, edit, busy, blocked } = editor;
+  const { story, chapters, dirty, edit, busy, blocked, failed, stale, uploads, missingAlt, tooLarge, unsaveable } = editor;
   const everPublished = story.published_at !== null;
   const { data: published } = useStory(story.id, { enabled: everPublished });
   const [selectedId, setSelectedId] = useState(initial.document.chapters[0]?.id ?? null);
@@ -102,6 +115,37 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
   const focusAfterRemove = useRef<{ id: string | null } | null>(null);
   const paneRef = useRef<StoryMapPaneHandle>(null);
   const blocker = useUnsavedGuard(dirty);
+  // Leaving waits out a running operation, then saves pending edits and asks
+  // only when they can't be saved. A save that fails on the way keeps the
+  // author here, where its error or conflict shows.
+  const [askToLeave, setAskToLeave] = useState(false);
+  const waitedToLeave = useRef(false);
+  // The router applies blocker changes in a transition, and a second
+  // proceed or reset of the same block throws.
+  const leaveSettled = useRef(false);
+  const settleLeave = (go: boolean) => {
+    if (leaveSettled.current) return;
+    leaveSettled.current = true;
+    if (go) blocker.proceed?.();
+    else blocker.reset?.();
+  };
+  const onLeave = useEffectEvent(() => {
+    if (askToLeave || leaveSettled.current) return;
+    if (busy !== null) {
+      waitedToLeave.current = true;
+      return;
+    }
+    const waited = waitedToLeave.current;
+    waitedToLeave.current = false;
+    if (!dirty) settleLeave(true);
+    else if (editor.canAutosave) void editor.saveToLeave();
+    else if (waited && (failed || stale)) settleLeave(false);
+    else setAskToLeave(true);
+  });
+  useEffect(() => {
+    if (blocker.state === 'blocked') onLeave();
+    else leaveSettled.current = false;
+  }, [blocker.state, busy]);
   useDocumentTitle(t('editor.pageTitle', { title: story.title }));
 
   // A selection that's gone (a discard or reload replaced the chapters) falls back to the first chapter.
@@ -114,13 +158,11 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
       (publishedChapters !== undefined && !sameChapters(publishedChapters, story.document.chapters)),
     [everPublished, publishedChapters, story.document.chapters],
   );
-  const tooLarge = useMemo(() => documentBytes(chapters) > MAX_DOCUMENT_BYTES, [chapters]);
-  const missingAlt = useMemo(() => imagesMissingAlt(chapters), [chapters]);
-  const unsaveable = tooLarge || missingAlt > 0;
   const missingMapChapterIds = useMemo(() => {
     const missing = new Set(editor.missingMapIds ?? []);
     return new Set(chapters.filter((c) => c.scene && missing.has(c.scene.map_id)).map((c) => c.id));
   }, [chapters, editor.missingMapIds]);
+  const saveState = { busy, dirty, failed, stale, uploading: uploads.uploading, missingAlt };
   const replacing = busy === 'discard' || busy === 'reload';
 
   // Text edits replace the chapter but keep its scene object, so the map pane
@@ -186,9 +228,20 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
         </Button>
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-base font-semibold">{story.title}</h1>
-          <p className="text-xs text-muted-foreground" role="status">
-            {t(statusKey(busy, dirty, everPublished, hasUnpublished))}
-          </p>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <p role="status">{t(statusKey(saveState, everPublished, hasUnpublished))}</p>
+            {failed && !stale && (
+              <Button
+                variant="link"
+                size="sm"
+                className="h-auto p-0 text-xs"
+                onClick={() => void editor.save()}
+                disabled={busy !== null}
+              >
+                {t('editor.status.retry')}
+              </Button>
+            )}
+          </div>
         </div>
         <Button variant="ghost" size="sm" onClick={() => setDetailsOpen(true)}>
           <Settings2 className="h-4 w-4" aria-hidden="true" />
@@ -200,23 +253,15 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
           </Button>
         )}
         <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void editor.save()}
-          disabled={!dirty || busy !== null || unsaveable}
-        >
-          {t('editor.save')}
-        </Button>
-        <Button
           size="sm"
           onClick={() => void editor.publish()}
-          disabled={chapters.length === 0 || busy !== null || unsaveable || (!dirty && !hasUnpublished)}
+          disabled={chapters.length === 0 || busy !== null || unsaveable || uploads.uploading || (!dirty && !hasUnpublished)}
         >
           {busy === 'publish' ? t('editor.publishing') : t('editor.publish')}
         </Button>
       </div>
 
-      {editor.stale && (
+      {stale && (
         <div role="alert" className="flex flex-wrap items-center gap-3 border-b bg-warning/10 px-4 py-2 text-sm">
           <span className="flex-1">{t('editor.stale')}</span>
           <Button size="sm" variant="outline" onClick={loadLatest} disabled={busy !== null}>
@@ -244,9 +289,9 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
       )}
 
       <div className="flex min-h-0 flex-1 flex-col-reverse md:flex-row">
-        {/* inert while a discard or reload replaces the draft: edits made then would be lost. */}
+        {/* inert while the draft is replaced, or saved before leaving: edits made then would be lost. */}
         <div
-          inert={replacing}
+          inert={replacing || editor.leaving}
           className="min-h-0 flex-1 space-y-6 overflow-y-auto border-e bg-background p-4 md:w-[28rem] md:flex-none lg:w-[32rem]"
         >
           <ChapterList
@@ -269,6 +314,7 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
                 // which drops a map choice still loading for the old copy.
                 key={`${editor.generation}:${chapter.id}`}
                 storyId={story.id}
+                uploads={uploads}
                 chapter={chapter}
                 index={current}
                 edit={edit}
@@ -352,12 +398,16 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
         )}
       </ConfirmDialog>
       <ConfirmDialog
-        open={blocker.state === 'blocked'}
-        onOpenChange={(open) => !open && blocker.reset?.()}
+        open={askToLeave && blocker.state === 'blocked'}
+        onOpenChange={(open) => {
+          if (open) return;
+          setAskToLeave(false);
+          settleLeave(false);
+        }}
         title={t('editor.leaveTitle')}
         description={t('editor.leaveDescription')}
         cancelLabel={t('editor.stay')}
-        confirm={{ label: t('editor.leave'), variant: 'destructive', onClick: () => blocker.proceed?.() }}
+        confirm={{ label: t('editor.leave'), variant: 'destructive', onClick: () => settleLeave(true) }}
       />
     </div>
   );

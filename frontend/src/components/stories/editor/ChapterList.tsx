@@ -1,10 +1,11 @@
-import { memo, useEffect, useRef } from 'react';
+import { memo, useRef } from 'react';
 import { AlertTriangle, ArrowDown, ArrowUp, MapPin, Plus, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { StoryChapter } from '@/types/api';
 import { MAX_CHAPTERS } from './story-draft';
+import { useMoveFocus } from './use-move-focus';
 
 interface ChapterListProps {
   chapters: StoryChapter[];
@@ -32,22 +33,10 @@ export const ChapterList = memo(function ChapterList({
 }: ChapterListProps) {
   const { t } = useTranslation('stories');
   const listRef = useRef<HTMLOListElement>(null);
-  const movedRef = useRef<{ id: string; by: -1 | 1 } | null>(null);
-
-  // Reordering moves the row's DOM node, which drops focus; put it back on the
-  // same arrow, or the other one once the row reaches an end.
-  useEffect(() => {
-    const moved = movedRef.current;
-    if (!moved) return;
-    movedRef.current = null;
-    const row = listRef.current?.querySelector<HTMLElement>(`[data-chapter-id="${moved.id}"]`);
-    const buttons = row?.querySelectorAll<HTMLButtonElement>('[data-move]');
-    const preferred = [...(buttons ?? [])].find((b) => b.dataset.move === String(moved.by) && !b.disabled);
-    (preferred ?? [...(buttons ?? [])].find((b) => !b.disabled))?.focus();
-  }, [chapters]);
+  const markMoved = useMoveFocus(listRef, 'data-chapter-id', chapters);
 
   function move(chapter: StoryChapter, index: number, by: -1 | 1) {
-    movedRef.current = { id: chapter.id, by };
+    markMoved(chapter.id, by);
     onMove(index, by);
   }
 
