@@ -194,6 +194,7 @@
     "workflowTransitionDeniedNoneAllowed": "Ce jeu de données ne peut pas passer de « {{from}} » à « {{to}} » dans le flux de publication, et aucune autre étape ne vous est ouverte. Demandez à un relecteur ou à un administrateur disposant du rôle requis.",
     "workflowTransitionDenied": "Ce jeu de données ne peut pas passer de « {{from}} » à « {{to}} » dans le flux de publication. Étapes disponibles pour vous à partir d’ici : {{allowed}}.",
     "analysisUnknownDissolveColumn": "La colonne « {{column}} » n’existe pas dans ce jeu de données. Choisissez un autre champ de regroupement.",
+    "columnsNeedRefresh": "Les colonnes {{columns}} existent dans la table, mais GeoLens ne les connaît pas encore. Actualisez le jeu de données, puis réessayez.",
     "corsWildcardNotAllowed": "Les origines génériques ne sont pas acceptées. Les requêtes avec identifiants exigent que chaque origine soit indiquée en entier, par exemple https://example.com.",
     "embedDomainLockUnenforceable": "Ce déploiement ne peut pas encore appliquer un verrouillage de domaine : son URL publique est définie sur {{resolved}}, mais vous y avez accédé via {{origin}}. Une intégration charge la carte via GeoLens, le verrouillage bloquerait donc tous les visiteurs. Définissez PUBLIC_APP_URL sur {{origin}}, puis créez le jeton.",
     "duplicateSource": "Un jeu de données provenant de cette source est déjà enregistré ({{title}}).",

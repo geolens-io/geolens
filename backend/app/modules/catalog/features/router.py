@@ -31,6 +31,7 @@ from app.core.db.sqlstate import (
     sqlstate,
 )
 from app.core.identity import Identity
+from app.platform.dataset_origin import classify_origin
 from app.platform.request_credential import api_key_audit_details
 from app.platform.catalog_locks import (
     CatalogLockConflict,
@@ -97,6 +98,7 @@ from app.modules.catalog.features.service import (
     FeatureBatchError,
     FeatureNotFoundError,
     MissingFeaturesError,
+    UnknownPropertyError,
     UnwritablePropertyError,
     delete_feature,
     delete_features,
@@ -113,6 +115,7 @@ from app.modules.catalog.features.service import (
     parse_bbox,
     refresh_dataset_metadata,
     replace_feature,
+    unknown_property_detail,
     update_feature,
 )
 from app.standards.ogc.errors import (
@@ -311,7 +314,22 @@ def _dry_run_response(rows: list[dict], collection: bool) -> JSONResponse:
     )
 
 
-def _batch_feature_refused(error: FeatureBatchError) -> HTTPException:
+async def _write_refusal_detail(db: AsyncSession, dataset, error: Exception) -> str:
+    """The 400 text for a refused write, with the refresh hint where one applies."""
+    if not isinstance(error, UnknownPropertyError):
+        return str(error)
+    return await unknown_property_detail(
+        db,
+        error,
+        dataset.table_name,
+        registered=classify_origin(dataset.source_format, dataset.record.record_type)
+        == "postgis",
+    )
+
+
+def _batch_feature_refused(
+    error: FeatureBatchError, detail: str | None = None
+) -> HTTPException:
     """The refusal a single create would get, naming the feature that failed."""
     cause = error.cause
     if isinstance(cause, DBAPIError):
@@ -322,7 +340,7 @@ def _batch_feature_refused(error: FeatureBatchError) -> HTTPException:
         )
     else:
         refusal = HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(cause)
+            status_code=status.HTTP_400_BAD_REQUEST, detail=detail or str(cause)
         )
     if refusal.status_code >= 500:
         return refusal
@@ -363,10 +381,15 @@ async def _create_features(
             return _dry_run_response(rows, collection=True)
         table_oid = await current_table_oid(db, dataset.table_name)
     except FeatureBatchError as e:
+        # Read before the rollback expires the dataset.
+        detail = await _write_refusal_detail(db, dataset, e.cause)
         await db.rollback()
-        raise _batch_feature_refused(e)
+        raise _batch_feature_refused(e, detail=detail)
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=await _write_refusal_detail(db, dataset, e),
+        )
     except DBAPIError as exc:
         await db.rollback()
         raise _feature_write_db_error(exc)
@@ -1272,7 +1295,7 @@ async def _create(
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=await _write_refusal_detail(db, dataset, e),
         )
     except DBAPIError as exc:
         await db.rollback()
@@ -1386,7 +1409,7 @@ async def replace_single_feature(
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=await _write_refusal_detail(db, dataset, e),
         )
     except DBAPIError as exc:
         await db.rollback()
@@ -1502,7 +1525,7 @@ async def patch_single_feature(
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=await _write_refusal_detail(db, dataset, e),
         )
     except DBAPIError as exc:
         await db.rollback()

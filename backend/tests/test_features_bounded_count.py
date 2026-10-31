@@ -498,3 +498,57 @@ async def test_an_estimated_empty_page_is_not_floored(
 
     assert page.rows == []
     assert page.total < DEEP_ROW_COUNT + 1_000
+
+
+# ---------------------------------------------------------------------------
+# A bbox estimate must not be pinned at the cap.
+# ---------------------------------------------------------------------------
+
+GRID_COLUMNS = 100
+GRID_ROWS = 50
+
+
+@pytest.fixture
+async def spread_dataset(client: AsyncClient, test_db_session):
+    """Points spread over a grid, with a GiST index and fresh statistics."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _create_dataset(test_db_session, created_by=admin_id, rows=0)
+    table = dataset.table_name
+    await test_db_session.execute(
+        text(
+            f"INSERT INTO data.{table} (geom, geom_4326, era) "
+            "SELECT ST_SetSRID(ST_MakePoint(x, y), 4326), "
+            "       ST_SetSRID(ST_MakePoint(x, y), 4326), 'Art Deco' "
+            "FROM generate_series(0, :cols - 1) AS x, "
+            "     generate_series(0, :rows - 1) AS y"
+        ).bindparams(cols=GRID_COLUMNS, rows=GRID_ROWS)
+    )
+    await test_db_session.execute(
+        text(f"CREATE INDEX ON data.{table} USING gist (geom_4326)")
+    )
+    await test_db_session.execute(text(f"ANALYZE data.{table}"))
+    await test_db_session.commit()
+    yield dataset
+    await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table}"))
+    await test_db_session.commit()
+
+
+async def test_a_bbox_estimate_above_the_cap_is_not_pinned_at_the_cap(
+    spread_dataset: Dataset, test_db_session, monkeypatch
+):
+    """A fifth of the grid matches; the estimate must say so, not cap + 1."""
+    cap = 300
+    monkeypatch.setattr(features_service, "_FILTERED_COUNT_CAP", cap)
+    matching = 20 * GRID_ROWS
+
+    page = await features_service.get_features(
+        test_db_session,
+        spread_dataset.table_name,
+        limit=5,
+        bbox=(-0.5, -0.5, 19.5, GRID_ROWS),
+        cached_feature_count=GRID_COLUMNS * GRID_ROWS,
+    )
+
+    assert page.total_is_estimate is True
+    assert page.total > cap + 1
+    assert matching / 2 < page.total < matching * 2

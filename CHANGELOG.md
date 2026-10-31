@@ -123,6 +123,14 @@ and releases use semantic versioning.
 - Saving a Builder map again after a save that stored its layers but failed
   on the map's other settings no longer warns that layers changed in another
   session when you had deleted a layer group. (#3474)
+- A `bbox` query past the exact-count cap now reports the planner's estimate in
+  `numberMatched` instead of the cap. A vector tile whose query times out answers
+  503 without `Retry-After` instead of a retryable 429. A view-scope aggregate
+  whose limited count probe runs out of time answers `too_wide` (the aggregate
+  query itself timing out still answers `query_timeout`), and the verdict is
+  cached.
+  Writing to a column added to a registered table after registration says to
+  refresh the dataset.
 - A layer added or duplicated in the Builder while a save was still running
   is no longer added a second time by the next save, and a layer deleted
   during a save no longer makes the next save warn about changes from another

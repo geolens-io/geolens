@@ -452,6 +452,18 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
     };
   }
 
+  // The write door's unknown-column refusal adds this tail only for columns
+  // that exist in the live table but not in the stored column list.
+  const columnsNeedRefresh = message.match(
+    /^Unknown property columns: .*?\. (.+) exists in the table but not in GeoLens's column list; refresh the dataset/is,
+  );
+  if (columnsNeedRefresh) {
+    return {
+      key: 'errors.columnsNeedRefresh',
+      values: { columns: columnsNeedRefresh[1] },
+    };
+  }
+
   // The backend names the offending maps so a human can fix them. `s` (dotAll)
   // because a map name may contain a newline; `$` is dropped so a trailing
   // newline can't truncate the list.

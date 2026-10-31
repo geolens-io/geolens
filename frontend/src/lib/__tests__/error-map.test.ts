@@ -679,6 +679,19 @@ describe('API error localization boundary', () => {
     });
   });
 
+  it('maps the refresh hint on an unknown write column and leaves the plain refusal generic', () => {
+    const hint =
+      "Unknown property columns: notes, tag. notes, tag exists in the table but not in GeoLens's column list; refresh the dataset to pick it up.";
+    expect(classifyApiError(hint, 400)).toEqual({
+      key: 'errors.columnsNeedRefresh',
+      values: { columns: 'notes, tag' },
+    });
+    expect(translateApiErrorDetail(hint, 400)).toContain('notes, tag');
+    expect(classifyApiError('Unknown property columns: notes, tag', 400).key).not.toBe(
+      'errors.columnsNeedRefresh',
+    );
+  });
+
   // The sandbox advisory lock is shared between analysis previews
   // and AI chat data queries. Unmapped, this 429 collapses to the generic
   // rate-limit fallback, so a busy chat query refuses an analysis preview

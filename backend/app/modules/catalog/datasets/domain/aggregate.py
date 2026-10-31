@@ -761,8 +761,29 @@ async def _compile_narrowed(
 
 def _too_wide() -> AggregateError:
     return AggregateError(
-        "too_wide", "This view holds too many features to summarize exactly. Zoom in."
+        "too_wide",
+        "This view holds too many features to summarize exactly, or counting "
+        "them took too long. Zoom in, or try again later.",
     )
+
+
+async def _count_exceeds_view_limit(
+    db: AsyncSession, source: str, predicate: str, binds: list[Any], caller_key: str
+) -> bool:
+    """Whether the view holds more than ``MAX_VIEW_ROWS`` rows, counted exactly."""
+    probe = (
+        f"SELECT count(*) FROM (SELECT 1 FROM {source} AS _t"
+        f" WHERE {predicate} LIMIT {MAX_VIEW_ROWS + 1}) AS _n"
+    )
+    try:
+        counted = await _sandboxed(db, probe, binds, caller_key, row_limit=1)
+    except SandboxError as exc:
+        # A view that cannot be counted to the limit in time cannot be
+        # aggregated exactly either.
+        if exc.category != "query_timeout":
+            raise
+        return True
+    return int(counted.rows[0][0]) > MAX_VIEW_ROWS
 
 
 async def run_aggregate(
@@ -860,12 +881,9 @@ async def run_aggregate(
             if over_estimate:
                 # Statistics can overstate a view; count it exactly, up to the
                 # limit, before telling the reader to zoom in.
-                probe = (
-                    f"SELECT count(*) FROM (SELECT 1 FROM {source} AS _t"
-                    f" WHERE {predicates[0]} LIMIT {MAX_VIEW_ROWS + 1}) AS _n"
+                too_wide = await _count_exceeds_view_limit(
+                    db, source, predicates[0], binds, caller_key
                 )
-                counted = await _sandboxed(db, probe, binds, caller_key, row_limit=1)
-                too_wide = int(counted.rows[0][0]) > MAX_VIEW_ROWS
             if verdict_key is not None:
                 await get_cache().set(verdict_key, too_wide, ttl=keyed_ttl)
             if too_wide:

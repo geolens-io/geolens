@@ -676,6 +676,29 @@ class TestViewThreshold:
         assert resp.status_code == 200, resp.text
         assert resp.json()["result"] == {"count": 2}
 
+    async def test_a_count_probe_that_times_out_is_too_wide_and_remembered(
+        self, client: AsyncClient, points, monkeypatch
+    ):
+        probes: list[str] = []
+        original = aggregate._sandboxed
+
+        async def _probe_times_out(db, sql, *args, **kwargs):
+            if sql.startswith("SELECT count(*) FROM (SELECT 1"):
+                probes.append(sql)
+                raise aggregate.SandboxError("query_timeout", "Query timed out")
+            return await original(db, sql, *args, **kwargs)
+
+        monkeypatch.setattr(aggregate, "_sandboxed", _probe_times_out)
+        body = {"op": "count", "filter": KEEP, "bbox": FIRST_TWO}
+
+        first = await _aggregate(client, points.id, body)
+        again = await _aggregate(client, points.id, body)
+
+        assert first.status_code == 422, first.text
+        assert first.json()["detail"]["code"] == "too_wide"
+        assert again.json()["detail"]["code"] == "too_wide"
+        assert len(probes) == 1
+
     async def test_a_view_containing_the_dataset_skips_the_view_limit(
         self, client: AsyncClient, points, planned
     ):
