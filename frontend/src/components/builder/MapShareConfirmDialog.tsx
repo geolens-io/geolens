@@ -58,7 +58,9 @@ export function MapShareConfirmDialog({
           {layers.map((layer) => (
             <li key={layer.layer_id} className="rounded-md border px-3 py-2">
               <p className="font-medium">
-                {t('share.groups.confirm.layer', { layer: layer.layer_title, dataset: layer.dataset_title })}
+                {layer.layer_title === layer.dataset_title
+                  ? layer.layer_title
+                  : t('share.groups.confirm.layer', { layer: layer.layer_title, dataset: layer.dataset_title })}
               </p>
               <p className="text-xs text-muted-foreground">
                 {t('share.groups.confirm.lacking', {

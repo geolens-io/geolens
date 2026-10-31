@@ -13,6 +13,8 @@ vi.mock('@/api/datasets', async (importOriginal) => ({
 }));
 vi.mock('@/api/groups', () => ({ listMyGroups: vi.fn() }));
 vi.mock('sonner', () => ({ toast: { warning: vi.fn() } }));
+const groupAdmin = vi.hoisted(() => ({ value: false }));
+vi.mock('@/hooks/use-admin-groups', () => ({ useGroupAdmin: () => groupAdmin.value }));
 
 const mockSet = vi.mocked(setDatasetGroups);
 const mockMine = vi.mocked(listMyGroups);
@@ -43,6 +45,7 @@ describe('DatasetGroupShare', () => {
     mockSet.mockReset();
     mockMine.mockReset();
     mockMine.mockResolvedValue([SURVEYORS, PLANNERS]);
+    groupAdmin.value = false;
   });
 
   it('names the chosen-groups list after the dataset', async () => {
@@ -128,5 +131,21 @@ describe('DatasetGroupShare', () => {
   it('keeps Save disabled until the list changes', async () => {
     setup({ groups: [SURVEYORS] });
     expect(await screen.findByRole('button', { name: 'Save groups' })).toBeDisabled();
+  });
+
+  it('tells someone who cannot manage groups that an administrator adds them', async () => {
+    mockMine.mockResolvedValue([]);
+    setup();
+    expect(await screen.findByText(/You aren't in any groups/)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Create one/ })).not.toBeInTheDocument();
+  });
+
+  it('points a group manager at Admin > Groups instead', async () => {
+    mockMine.mockResolvedValue([]);
+    groupAdmin.value = true;
+    setup();
+    const link = await screen.findByRole('link', { name: 'Create one under Admin > Groups.' });
+    expect(link).toHaveAttribute('href', '/admin/groups');
+    expect(screen.queryByText(/You aren't in any groups/)).not.toBeInTheDocument();
   });
 });

@@ -912,12 +912,12 @@
     },
     "empty": {
       "title": "Noch keine Gruppen",
-      "hint": "Legen Sie eine Gruppe an, fügen Sie Personen hinzu und geben Sie Datensätze für sie frei."
+      "hint": "Legen Sie eine Gruppe an, fügen Sie Personen hinzu und geben Sie Datensätze, Karten und Stories für sie frei."
     },
     "create": {
       "button": "Gruppe erstellen",
       "title": "Gruppe erstellen",
-      "description": "Mit Gruppen geben Sie eingeschränkte Datensätze für einen festgelegten Personenkreis frei."
+      "description": "Mit Gruppen geben Sie eingeschränkte Datensätze, Karten und Stories für einen festgelegten Personenkreis frei."
     },
     "rename": {
       "button": "Umbenennen",
@@ -926,13 +926,13 @@
     },
     "delete": {
       "title": "{{name}} löschen?",
-      "description_one": "Diese Gruppe hat {{count}} Mitglied. Es verliert sofort den Zugriff auf die für die Gruppe freigegebenen Datensätze. Das lässt sich nicht rückgängig machen.",
-      "description_other": "Diese Gruppe hat {{count}} Mitglieder. Sie verlieren sofort den Zugriff auf die für die Gruppe freigegebenen Datensätze. Das lässt sich nicht rückgängig machen.",
+      "description_one": "Diese Gruppe hat {{count}} Mitglied. Es verliert sofort den Zugriff auf die für die Gruppe freigegebenen Datensätze, Karten und Stories. Das lässt sich nicht rückgängig machen.",
+      "description_other": "Diese Gruppe hat {{count}} Mitglieder. Sie verlieren sofort den Zugriff auf die für die Gruppe freigegebenen Datensätze, Karten und Stories. Das lässt sich nicht rückgängig machen.",
       "deleting": "Wird gelöscht..."
     },
     "members": {
       "title": "Mitglieder von {{name}}",
-      "description": "Personen in dieser Gruppe können die für sie freigegebenen Datensätze öffnen.",
+      "description": "Personen in dieser Gruppe können die für sie freigegebenen Datensätze, Karten und Stories öffnen.",
       "addLabel": "Person hinzufügen",
       "listHeading_one": "{{count}} Mitglied",
       "listHeading_other": "{{count}} Mitglieder",

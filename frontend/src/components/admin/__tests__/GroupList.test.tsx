@@ -167,7 +167,7 @@ describe('GroupList', () => {
     await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
 
     const dialog = await screen.findByRole('alertdialog');
-    expect(dialog).toHaveTextContent(/lose access to datasets shared with the group/i);
+    expect(dialog).toHaveTextContent(/lose access to datasets, maps and stories shared with the group/i);
     expect(api.deleteGroup).not.toHaveBeenCalled();
 
     await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));

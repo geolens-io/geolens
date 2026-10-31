@@ -193,6 +193,7 @@
     "results_many": "有 {{count}} 个用户组可选",
     "results_other": "有 {{count}} 个用户组可选",
     "noGroupsAvailable": "您不属于任何用户组。管理员可以把您加入某个用户组。",
+    "noGroupsAdmin": "还没有用户组。<1>请在“管理 > 用户组”中创建。</1>",
     "added": "已添加 {{name}}。保存后生效。",
     "removed": "已移除 {{name}}。保存后生效。",
     "save": "保存用户组",
