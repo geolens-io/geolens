@@ -710,6 +710,7 @@
     "leavePublicConfirmAction": "Stop public sharing",
     "groups": {
       "title": "Groups",
+      "selectedLabel": "Groups this map is shared with",
       "help": "Choose the groups that can open this map. Its layers still follow each dataset's own access.",
       "openedHint": "Pick groups, then save.",
       "effectPrivateEmpty": "Pick a group and save to share this map with specific groups.",

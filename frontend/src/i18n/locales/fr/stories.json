@@ -245,6 +245,7 @@
   },
   "groups": {
     "heading": "Groupes",
+    "selectedLabel": "Groupes avec lesquels ce récit est partagé",
     "help": "Choisissez les groupes dont les membres pourront lire ce récit une fois publié. La carte de chaque scène garde ses propres accès.",
     "effectPrivateEmpty": "Choisissez un groupe et enregistrez pour partager ce récit avec des groupes précis.",
     "effectToRestricted": "L'enregistrement partage ce récit avec des groupes précis : seuls vous, les administrateurs et les membres de ces groupes peuvent le lire.",

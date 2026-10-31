@@ -710,6 +710,7 @@
     "leavePublicConfirmAction": "Öffentliche Freigabe beenden",
     "groups": {
       "title": "Gruppen",
+      "selectedLabel": "Gruppen, mit denen diese Karte geteilt wird",
       "help": "Wählen Sie die Gruppen, die diese Karte öffnen können. Ihre Ebenen folgen weiterhin dem eigenen Zugriff des jeweiligen Datensatzes.",
       "openedHint": "Wählen Sie Gruppen und speichern Sie dann.",
       "effectPrivateEmpty": "Wählen Sie eine Gruppe und speichern Sie, um diese Karte mit bestimmten Gruppen zu teilen.",

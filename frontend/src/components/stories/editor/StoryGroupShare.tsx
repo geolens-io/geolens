@@ -88,6 +88,7 @@ export function StoryGroupShare({ storyId, visibility, groups: current, onSaved,
       </div>
       <GroupPicker
         selected={selected}
+        selectedLabel={t('groups.selectedLabel')}
         onChange={(next) => {
           setBlocked(null);
           edit(next);
