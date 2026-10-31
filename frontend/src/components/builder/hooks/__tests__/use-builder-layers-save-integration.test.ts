@@ -925,6 +925,23 @@ describe('layer creates and deletes during a full-replacement save', () => {
     expectLocalIdsMatchServer(result);
   });
 
+  it('leaves a layer another session added before the read-back on the server', async () => {
+    const remote = makeBuilderLayer({ id: 'remote', dataset_id: 'ds-remote', sort_order: 1 });
+    const { result } = renderOnServer([keep]);
+    const finishSave = await startReplacement(result);
+    act(() => { result.current.handleOpacityChange('keep', 0.6); });
+    mockGetMap.mockImplementationOnce(async () => {
+      server = [...server, remote];
+      return { id: 'map-1', layers: server.map((l) => ({ ...l })) };
+    });
+    await finishSave();
+
+    patchAvailable = true;
+    await act(async () => { await result.current.handleSave(); });
+
+    expect(server.map((l) => l.id)).toEqual(['keep', 'remote']);
+  });
+
   it('removes a layer deleted during the save that the replacement recreated', async () => {
     const { result, removeMutate } = renderOnServer([keep, doomed]);
     const finishSave = await startReplacement(result);

@@ -869,8 +869,8 @@ function pairReplacedLayerIds(
 }
 
 /**
- * The save-diff baseline after a full replacement, which is what the server
- * stored. The PUT deletes layers created while it was in flight and recreates
+ * The save-diff baseline after a full replacement: what the server stored of
+ * this save's layers. The PUT deletes layers created while it was in flight and recreates
  * layers deleted meanwhile under new ids, so the next save sends those creates
  * again and removes the recreated rows. A create recorded before `stored` was
  * read and missing from it is left out of the baseline: sending it again is
@@ -886,12 +886,19 @@ function replacedBaseline(
 ): { renamed: Map<string, string>; baseline: MapLayerResponse[] } {
   const createdIds = new Set<string>();
   for (const r of registrations) if ('add' in r) createdIds.add(r.add.id);
+  const renamed = pairReplacedLayerIds(sent, stored, createdIds);
+  // Rows another session added aren't in the local stack, so a baseline that
+  // held them would make the next save delete them.
+  const known = new Set([...sent.map((l) => l.id), ...renamed.values(), ...createdIds]);
   return {
-    renamed: pairReplacedLayerIds(sent, stored, createdIds),
+    renamed,
     // A DELETE that committed after the read-back isn't in `stored`.
     baseline: registrations
       .filter((r, i) => 'remove' in r || i >= readFrom)
-      .reduce(applyBaselineRegistration, hydrateFolderGroupLayers(stored).layers),
+      .reduce(
+        applyBaselineRegistration,
+        hydrateFolderGroupLayers(stored.filter((l) => known.has(l.id))).layers,
+      ),
   };
 }
 
