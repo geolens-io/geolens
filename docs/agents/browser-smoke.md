@@ -39,6 +39,7 @@ The dev catalog is demo content, so a check that imports, re-uploads or edits wo
 - A service import is `POST /api/services/preview/` with `{url, service_type, layer_name, layer_title, layer_id}` where `service_type` is the display string (`ArcGIS FeatureServer`), then `POST /api/ingest/commit/{job_id}` with `{"title": ...}`. A URL that is already registered is refused with `duplicate_source`, so pick a layer the catalog does not have (the Esri `P3ePLMYs2RVChkJx` samples such as `World_Cities` work).
 - A service re-upload is `POST /api/datasets/{id}/reupload/service/preview` with the same body, then `POST /api/datasets/{id}/reupload/{job_id}/commit`; pass the preview's `review_fingerprint` to accept its review reasons, omit it to leave a held run.
 - The builder is `/maps/{id}` for the map's owner; `/maps/{id}/edit` is not a route. Copy a demo map with `POST /api/maps/{id}/duplicate/` and delete the copy afterwards.
+- A story reads at `/stories/{id}` and edits at `/stories/{id}/edit`. Copy one with `POST /api/stories/{id}/duplicate/` and delete the copy afterwards.
 - A relationship reports `broken` from the dataset's stored `column_info`, not the live table.
 
 ## Cleaning up
@@ -48,3 +49,4 @@ Delete what the smoke check created through the API:
 - `DELETE /api/datasets/{id}` requires a JSON body `{"confirm_title": "<the dataset's title>"}`.
 - `GET /api/admin/users/` returns `{"users": [...]}`; delete each user with `DELETE /api/admin/users/{id}`.
 - `DELETE /api/maps/{id}` removes a map.
+- `DELETE /api/stories/{id}` removes a story. Images uploaded to it go with the story or the periodic story image sweep.

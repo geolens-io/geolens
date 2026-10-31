@@ -149,7 +149,7 @@ flowchart LR
     end
     subgraph GL ["GeoLens"]
       CAT["Katalog<br/>Suche · Metadaten · Herkunft"]
-      MB["Karteneditor<br/>Stile · 3D · Analyse · Teilen"]
+      MB["Karteneditor<br/>Stile · 3D · Analyse · Storys · Dashboards · Teilen"]
       STD["Offene APIs<br/>OGC API · STAC · DCAT · Kacheln"]
     end
     subgraph OUT ["Überall nutzen"]
@@ -202,9 +202,13 @@ Quellseite, bevor sie Ihre Karten erreichen. Verschwindet ein Dienst, funktionie
 - Puffer, Zentroid, Zuschneiden, Auflösen, räumliche Verknüpfung, Auswahl nach Lage, Messen und
   Verschneiden. Die meisten Operationen zeigen eine Vorschau auf der Karte, und jedes Ergebnis wird
   als neuer Datensatz gespeichert, im Editor oder über die CLI.
-- Öffentliche Links zeigen Titel und Bild der Karte, wenn sie in Slack, Teams oder soziale
-  Netzwerke eingefügt werden, und Karten lassen sich mit privaten Tokens in andere Websites
-  einbetten.
+- Story-Karten führen Leser Szene für Szene durch eine Karte, mit Markdown-Text, Bildern,
+  Schaltflächen und Trennlinien. Dashboards stellen Kennzahlen, Diagramme, Filter und
+  Markdown-Notizen neben eine Karte. Ein Kartendaten-Bereich zeigt die Zeilen jeder Ebene, als
+  Tabelle oder als Liste.
+- Öffentliche Karten und veröffentlichte Storys zeigen Titel und Bild, wenn ihre Links in Slack,
+  Teams oder soziale Netzwerke eingefügt werden, und Karten lassen sich mit privaten Tokens in
+  andere Websites einbetten.
 - Die Oberfläche gibt es auf Englisch, Spanisch, Französisch, Deutsch und in vereinfachtem
   Chinesisch.
 

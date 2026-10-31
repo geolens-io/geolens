@@ -6,7 +6,7 @@ This repository is the self-hosted GeoLens application for one organization's sp
 
 ## What's here, and what stays free
 
-Everything in this repository is Apache-2.0: catalog, semantic and full-text search, the map builder, editing, the open standards it implements (OGC API Features/Records, STAC, DCAT), single-organization multi-user collaboration, and the CLI/SDKs. You can run it, modify it, and self-host it indefinitely with no license fee.
+Everything in this repository is Apache-2.0: catalog, semantic and full-text search, the map builder, story maps, map dashboards, editing, the open standards it implements (OGC API Features/Records, STAC, DCAT), single-organization multi-user collaboration, and the CLI/SDKs. You can run it, modify it, and self-host it indefinitely with no license fee.
 
 These commitments define the free and paid boundary:
 

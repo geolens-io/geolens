@@ -78,6 +78,20 @@ imported earlier hold those fields as text. Their next refresh is held for
 review once, with the type changes listed. Accept it to switch to bigint,
 date and timestamptz columns. TimeOnly fields stay text.
 
+Every existing map starts with "Readers can open the attribute table" on. While
+it is on, the map's embed tokens can page its layers' rows through
+`GET /datasets/{id}/rows/`, within each dataset's `tile_columns` allowlist
+when it has one. To
+turn it off, clear the setting under Settings > Readers in the map builder, or
+send `show_attribute_table: false` in `PUT /maps/{id}`. To limit the columns,
+set `tile_columns` with `PATCH /datasets/{id}`.
+
+Migration 0101 drops the four `catalog.datasets.previous_version_*` columns,
+which have been empty since 1.27. Neither 1.27 nor 1.28 reads them, so a
+rolling upgrade from 1.28 keeps working. Coming from 1.26, use
+`scripts/upgrade.sh`, which stops `api` and `worker` before it migrates, or
+upgrade to 1.27.1 first.
+
 ## Rollback
 
 Rollback is re-pinning the previous version and restoring the pre-upgrade dump.
@@ -108,7 +122,9 @@ scope and treats those keys as full-access keys.
 The downgrade of `0088_dataset_kept_versions` stops while any dataset keeps more
 than one previous version. The downgrade of the `restricted` map visibility
 migration turns restricted maps private, and the downgrade of
-`0089_sharing_groups` drops every sharing group and membership.
+`0089_sharing_groups` drops every sharing group and membership. The downgrade
+of `story_group_grants` turns restricted stories private, and the downgrade of
+`map_show_attribute_table` drops the `show_attribute_table` column from maps.
 
 ## Backups and disaster recovery
 

@@ -53,8 +53,11 @@ documentation.
 > import that was being changed around the backup time. A file the catalog no
 > longer references is orphan storage that costs only disk space. Keep it
 > unless you have checked every table that stores paths under the staging
-> volume (datasets, ingest jobs, map thumbnails and map icons). The
-> application's own sweep removes only stale upload files, not every orphan.
+> volume (datasets, ingest jobs, map thumbnails, map icons and story images
+> in `catalog.story_assets`). The application's own sweeps remove stale upload
+> files, and a periodic sweep deletes story image objects that no
+> `catalog.story_assets` row names once they are a day old. They do not remove
+> every orphan.
 
 ### Automated backups are on by default
 
@@ -493,6 +496,11 @@ same script before restarting writers, using the explicit rebind procedure
 above if the restored database name changed. A logical dump does not carry the
 database-level `PUBLIC CONNECT` revocation because GeoLens uses `--no-acl`; the
 mandatory post-restore reconciliation reapplies that boundary.
+
+A restored copy that points at live object storage runs its own sweeps
+against it. The story image sweep deletes objects under `stories/assets/` that
+the restored catalog doesn't name once they are a day old. Give a
+restore-test instance its own storage, or keep its worker stopped.
 
 ### Canonical restore entry point
 
@@ -998,6 +1006,7 @@ What changes:
   | Vector datasets | **Yes, fully.** Features live in PostGIS. A lost object costs the original upload file and the quicklook thumbnail, not the data. |
   | Raster datasets, uploaded | **No.** A managed COG — anything ingested through GeoLens, plus VRT artifacts — lives only in your bucket. The catalog row comes back reading `published`, and every tile request then fails with a 500. Nothing in the catalog marks it broken. |
   | Raster datasets, by reference | **Yes**, as far as GeoLens is concerned. STAC and public-COG imports keep the upstream asset URL (`storage_backend="remote"`) and are served from it, so a restore recovers a working pointer — provided the upstream asset still exists, which is somebody else's retention policy, not yours. |
+  | Story images | **No.** Story rows come back, but the images live only in the bucket, so a lost object answers 404. |
 
   So protect the bucket *before* you need it — this is the step that has no
   GeoLens-side equivalent:
@@ -1278,6 +1287,11 @@ the caller asked for — `?limit=2000` on a feature collection is roughly 10MB �
 they get a mean-based bound of their own rather than counting toward the
 interactive percentile, the same treatment `/tiles/*` gets.
 `GeoLensApiBulkLatencyMean` reports which handler crossed the bound.
+
+A vector tile whose query runs past the tile pool's 10-second command timeout
+answers 503 without `Retry-After`, since a retry would repeat the same work, so
+a burst of slow tile queries shows up in `GeoLensApiHigh5xxRate`. A tile that
+can't get a pool connection in time still answers 429 with `Retry-After`.
 
 To check the rules after editing them (`prom/prometheus` ships `promtool`):
 

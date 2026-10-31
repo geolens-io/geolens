@@ -148,7 +148,7 @@ flowchart LR
     end
     subgraph GL ["GeoLens"]
       CAT["Catalog<br/>search · metadata · provenance"]
-      MB["Map builder<br/>styles · 3D · analysis · sharing"]
+      MB["Map builder<br/>styles · 3D · analysis · stories · dashboards · sharing"]
       STD["Open APIs<br/>OGC API · STAC · DCAT · tiles"]
     end
     subgraph OUT ["Use it anywhere"]
@@ -200,8 +200,11 @@ schema changes before they reach your maps. If a service disappears, the importe
 - Buffer, centroid, clip, dissolve, spatial join, select by location, measure and intersect. Most
   operations preview on the map, and each result is saved as a new dataset, from the builder or
   the CLI.
-- Public links show the map's title and image when pasted into Slack, Teams or social posts, and
-  maps embed in other sites with private tokens.
+- Story maps walk readers through a map scene by scene, with Markdown text, images, buttons and
+  separators. Dashboards put indicators, charts, filters and Markdown notes beside a map. A Map
+  data panel shows the rows behind each layer, as a table or a list.
+- Public maps and published stories show their title and image when pasted into Slack, Teams or
+  social posts, and maps embed in other sites with private tokens.
 - The interface is in English, Spanish, French, German and Simplified Chinese.
 
 ## Use the data from anywhere

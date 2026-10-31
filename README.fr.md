@@ -150,7 +150,7 @@ flowchart LR
     end
     subgraph GL ["GeoLens"]
       CAT["Catalogue<br/>recherche · métadonnées · provenance"]
-      MB["Générateur de cartes<br/>styles · 3D · analyse · partage"]
+      MB["Générateur de cartes<br/>styles · 3D · analyse · récits · tableaux de bord · partage"]
       STD["API ouvertes<br/>OGC API · STAC · DCAT · tuiles"]
     end
     subgraph OUT ["Utiliser partout"]
@@ -205,8 +205,13 @@ fonctionner.
 - Tampon, centroïde, découpage, fusion, jointure spatiale, sélection par localisation, mesure et
   intersection. La plupart des opérations s’affichent d’abord en aperçu sur la carte, et chaque
   résultat est enregistré comme un nouveau jeu de données, depuis le générateur ou la CLI.
-- Les liens publics affichent le titre et l’image de la carte lorsqu’ils sont collés dans Slack,
-  Teams ou les réseaux sociaux, et les cartes s’intègrent à d’autres sites avec des jetons privés.
+- Les cartes narratives guident le lecteur dans une carte scène par scène, avec du texte en
+  Markdown, des images, des boutons et des séparateurs. Les tableaux de bord placent indicateurs,
+  graphiques, filtres et notes en Markdown à côté d’une carte. Un panneau de données de la carte
+  affiche les lignes de chaque couche, en tableau ou en liste.
+- Les cartes publiques et les récits publiés affichent leur titre et leur image lorsqu’ils sont
+  collés dans Slack, Teams ou les réseaux sociaux, et les cartes s’intègrent à d’autres sites avec
+  des jetons privés.
 - L’interface est disponible en anglais, espagnol, français, allemand et chinois simplifié.
 
 ## Utiliser les données partout
