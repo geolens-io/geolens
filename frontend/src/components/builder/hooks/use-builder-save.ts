@@ -850,12 +850,13 @@ function pairReplacedLayerIds(
   stored: readonly MapLayerResponse[],
   createdIds: ReadonlySet<string>,
   pairable: ReadonlySet<string> | null,
+  existingIds: ReadonlySet<string>,
 ): Map<string, string> {
   const sentIds = new Set(sent.map((layer) => layer.id));
   const storedIds = new Set(stored.map((layer) => layer.id));
   const newRowsByDataset = new Map<string, string[]>();
   for (const row of stored) {
-    if (sentIds.has(row.id) || createdIds.has(row.id)) continue;
+    if (sentIds.has(row.id) || createdIds.has(row.id) || existingIds.has(row.id)) continue;
     const queue = newRowsByDataset.get(row.dataset_id);
     if (queue) queue.push(row.id);
     else newRowsByDataset.set(row.dataset_id, [row.id]);
@@ -878,7 +879,8 @@ function pairReplacedLayerIds(
  * it again is safer than losing it. Registrations from `readFrom` on landed
  * after the read, so they are replayed. `renamed` maps each sent layer the
  * server stored under a new id to that id; `pairable`, when given, limits that
- * pairing to the layers a PATCH added.
+ * pairing to the layers a PATCH added, and rows in `existingIds`, which the
+ * map held before the save, are never paired.
  */
 function replacedBaseline(
   sent: readonly MapLayerResponse[],
@@ -886,10 +888,11 @@ function replacedBaseline(
   registrations: readonly BaselineRegistration[],
   readFrom: number,
   pairable: ReadonlySet<string> | null,
+  existingIds: ReadonlySet<string>,
 ): { renamed: Map<string, string>; baseline: MapLayerResponse[] } {
   const createdIds = new Set<string>();
   for (const r of registrations) if ('add' in r) createdIds.add(r.add.id);
-  const renamed = pairReplacedLayerIds(sent, stored, createdIds, pairable);
+  const renamed = pairReplacedLayerIds(sent, stored, createdIds, pairable, existingIds);
   // Rows another session added aren't in the local stack, so a baseline that
   // held them would make the next save delete them. A sent layer it deleted
   // stays in the baseline, so the next save doesn't create it again.
@@ -1231,6 +1234,10 @@ export function useBuilderSave(state: SaveState) {
     // the pan that marks the map unsaved.
     const camera = readMapCamera(map);
     const registrations: BaselineRegistration[] = [];
+    // Rows the map held before this save, as last read; none is a row it creates.
+    const existingIds = new Set(
+      (queryClient.getQueryData<MapResponse>(queryKeys.maps.detail(id))?.layers ?? []).map((l) => l.id),
+    );
     let replacedLayers: MapLayerResponse[] | null = null;
     let replacedReadFrom = 0;
     // The layers a PATCH added, the only ones it stored under new ids.
@@ -1253,6 +1260,7 @@ export function useBuilderSave(state: SaveState) {
           registrations,
           replacedReadFrom,
           patchedAdds,
+          existingIds,
         );
         layerRenames = renamed;
         // The latest render's, whose dashboard draft holds edits made since.

@@ -1019,6 +1019,26 @@ describe('layer creates and deletes during a full-replacement save', () => {
     expect(sent.widgets.map((w: { layer_id: string }) => w.layer_id)).toEqual(['stored-1']);
   });
 
+  it('never pairs a PATCH-added layer with a row the map already held', async () => {
+    const remote = makeBuilderLayer({ id: 'remote', dataset_id: 'ds-keep', sort_order: 1 });
+    const { result, mutate } = renderOnServer([keep]);
+    const finishSave = await startReplacement(result);
+    duplicateDuringSave(result, mutate);
+    // Another session adds a layer on the same dataset before the read-back.
+    mockGetMap.mockImplementationOnce(async () => {
+      server = [...server, remote];
+      return { id: 'map-1', layers: server.map((l) => ({ ...l })) };
+    });
+    await finishSave();
+
+    patchAvailable = true;
+    await act(async () => { await result.current.handleSave(); });
+
+    expect(server.map((l) => l.id)).toEqual(['keep', 'remote', 'stored-1']);
+    const local = result.current.localLayers.filter((l) => !isFolderGroupLayer(l)).map((l) => l.id);
+    expect([...local].sort()).toEqual(['keep', 'stored-1']);
+  });
+
   it('keeps a create made while a PATCH that sends a layer again is in flight', async () => {
     const { result, mutate } = renderOnServer([keep]);
     const finishSave = await startReplacement(result);
