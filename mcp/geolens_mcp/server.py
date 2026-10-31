@@ -194,10 +194,21 @@ def query(
 
     Executes through the server's hardened SQL sandbox: a single SELECT over
     `data.*` tables, an allowlisted function set (aggregates, math, string,
-    date, JSON, common PostGIS like ST_Area/ST_DWithin/ST_Intersects), and a
-    strict server-side budget (a few seconds of runtime, a repetition cap on
-    self-joins, and `row_limit` rows). Returns `{columns, rows, row_count,
-    truncated}` with rows as lists in column order.
+    date, JSON), and a strict server-side budget (a 5 s statement timeout, a
+    repetition cap on self-joins, and `row_limit` rows, at most 1000).
+    Returns `{columns, rows, row_count, truncated}` with rows as lists in
+    column order. Geometry columns come back as hex EWKB; select
+    `ST_AsText(geom)` or `ST_AsGeoJSON(geom)` for readable geometry.
+    `ST_AsGeoJSON(geom, 6)` rounds coordinates to six decimals, which suits
+    display but can make a small polygon invalid.
+
+    PostGIS functions allowed: ST_Area, ST_AsGeoJSON, ST_AsText, ST_Buffer,
+    ST_Centroid, ST_Collect, ST_Contains, ST_Distance, ST_DWithin,
+    ST_GeometryType, ST_GeomFromGeoJSON, ST_GeomFromText, ST_Intersects,
+    ST_IsValid, ST_Length, ST_MakeEnvelope, ST_MakePoint, ST_NPoints, ST_Point,
+    ST_SetSRID, ST_Transform, ST_Union, ST_Within, ST_X, ST_Y. ST_Collect and
+    ST_Union take two geometries (no aggregate form). The `&&` bounding-box
+    operator works, as do `::geography` / `::geometry` and `geography(geom)`.
 
     Requires credentials with AI-chat permission — anonymous configurations
     cannot use this tool. Workflow: `search_datasets` to find a dataset, then
@@ -205,7 +216,8 @@ def query(
     as `data.<table_name>` in the SQL and list the same `table_name` in
     `restrict_tables`. Every table the query touches must be listed there;
     the scope can only narrow what your credentials already see. Writes,
-    other schemas, and unlisted functions are rejected with a short reason.
+    other schemas, and unlisted functions are rejected with a short reason
+    that names the refused function.
 
     Args:
         sql: A single SELECT statement over `data.*` tables.

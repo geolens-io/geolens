@@ -694,7 +694,7 @@ async def test_the_raw_query_endpoint_does_not_expand_a_marker(
         headers=admin_auth_header,
     )
     assert resp.status_code == 422
-    assert resp.json()["detail"] == "Query uses a disallowed function"
+    assert resp.json()["detail"] == ("Query uses a disallowed function: geolens_buffer")
 
     # And the same statement without the marker runs, so the refusal above is
     # about the marker and not about the fixture.

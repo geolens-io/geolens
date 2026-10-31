@@ -725,14 +725,14 @@ async def test_distinct_values_cross_join_explosion_is_rejected(
 
 
 @pytest.mark.parametrize(
-    "expr",
+    ("expr", "name"),
     [
-        "replace(gid::text, '1', 'bbbbbbbb')",
-        "regexp_replace(gid::text, '1', 'bbbbbbbb')",
+        ("replace(gid::text, '1', 'bbbbbbbb')", "replace"),
+        ("regexp_replace(gid::text, '1', 'bbbbbbbb')", "regexp_replace"),
     ],
 )
 async def test_output_amplifying_string_functions_are_rejected(
-    client: AsyncClient, admin_auth_header, test_db_session, expr
+    client: AsyncClient, admin_auth_header, test_db_session, expr, name
 ):
     """The replace / regexp_replace functions expand a small input to
     a huge cell (~100 MB) under the 20 KB request limit — also dropped."""
@@ -749,7 +749,7 @@ async def test_output_amplifying_string_functions_are_rejected(
         headers=headers,
     )
     assert resp.status_code == 422
-    assert resp.json()["detail"] == "Query uses a disallowed function"
+    assert resp.json()["detail"] == f"Query uses a disallowed function: {name}"
 
 
 async def test_chained_pipe_concatenation_is_rejected(
@@ -796,7 +796,7 @@ async def test_concat_function_is_rejected(
         headers=headers,
     )
     assert resp.status_code == 422
-    assert resp.json()["detail"] == "Query uses a disallowed function"
+    assert resp.json()["detail"] == "Query uses a disallowed function: concat"
 
 
 async def test_oversized_values_is_rejected(
@@ -838,7 +838,7 @@ async def test_output_amplifying_format_is_rejected(
         headers=headers,
     )
     assert resp.status_code == 422
-    assert resp.json()["detail"] == "Query uses a disallowed function"
+    assert resp.json()["detail"] == "Query uses a disallowed function: format"
 
 
 async def test_lateral_values_nested_subquery_is_rejected(

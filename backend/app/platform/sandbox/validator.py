@@ -275,24 +275,38 @@ _ALLOWED_FUNCTIONS: frozenset[str] = frozenset(
         "l1_distance",
         "vector_dims",
         "vector_norm",
+        # -- PostGIS casts in function-call form (geom::geography already
+        # parses as a Cast) ----------------------------------------------
+        "geography",
+        "geometry",
     }
 )
 
 # PostGIS is intentionally fail-closed. Allowing every st_* function admits
-# generators such as ST_GeneratePoints with attacker-chosen cardinality; the
-# SQL generator prompt is the source of truth for what may be emitted.
+# generators such as ST_GeneratePoints with attacker-chosen cardinality. A
+# name belongs here only when it returns one value per call, reads no file or
+# table beyond spatial_ref_sys, and cannot multiply rows or vertices on its own
+# (so no ST_Dump*, ST_Segmentize or ST_GeneratePoints). Both the raw query
+# endpoint and AI chat use this list, and the MCP query tool advertises it.
 _ALLOWED_POSTGIS_FUNCTIONS: frozenset[str] = frozenset(
     {
         "st_area",
         "st_asgeojson",
+        "st_astext",
         "st_buffer",
         "st_centroid",
         "st_collect",
         "st_contains",
         "st_distance",
         "st_dwithin",
+        "st_geometrytype",
+        "st_geomfromgeojson",
+        "st_geomfromtext",
         "st_intersects",
+        "st_isvalid",
         "st_length",
+        "st_makeenvelope",
+        "st_npoints",
         "st_point",  # sqlglot canonical name for ST_MakePoint
         "st_setsrid",
         "st_transform",
@@ -314,6 +328,36 @@ def _func_name(func: exp.Func) -> str:
     if isinstance(func, exp.Anonymous):
         return func.name.lower() if hasattr(func, "name") else ""
     return func.sql_name().lower() if hasattr(func, "sql_name") else ""
+
+
+# PostgreSQL truncates identifiers to 63 bytes; an Anonymous name is caller text.
+_REFUSED_NAME_MAX = 63
+
+
+def _refused_function(message: str, func: exp.Func, fn_name: str, sql: str) -> str:
+    """``message`` naming the refused function as the caller spelled it.
+
+    sqlglot renames some functions (LPAD is ``pad``, STRING_AGG is
+    ``group_concat``), so the name comes from the source span when the parser
+    kept one, then from the PostgreSQL rendering, then the canonical name.
+    Only a plain, unquoted identifier is echoed back.
+    """
+    if (
+        isinstance(func, exp.Anonymous)
+        and isinstance(func.this, exp.Identifier)
+        and func.this.quoted
+    ):
+        return message
+    start, end = func.meta.get("start"), func.meta.get("end")
+    if isinstance(start, int) and isinstance(end, int):
+        written = sql[start : end + 1].strip('"')
+    else:
+        written = func.sql(dialect="postgres").split("(", 1)[0]
+    for candidate in (written, fn_name):
+        name = candidate.strip().lower()
+        if _IDENTIFIER_TOKEN_RE.fullmatch(name):
+            return f"{message}: {name[:_REFUSED_NAME_MAX]}"
+    return message
 
 
 def _validate_function_cost(func: exp.Func, fn_name: str, sql: str) -> None:
@@ -877,10 +921,11 @@ def _check_niladic_keywords(stmt: exp.Expression, sql: str) -> None:
             continue
         if identifier.name.lower() not in _BLOCKED_NILADIC_KEYWORDS:
             continue
-        logger.info(
-            "sandbox.blocked_niladic_keyword", sql=sql, keyword=identifier.name.lower()
+        keyword = identifier.name.lower()
+        logger.info("sandbox.blocked_niladic_keyword", sql=sql, keyword=keyword)
+        raise SandboxError(
+            "invalid_query", f"Query uses a disallowed function: {keyword}"
         )
-        raise SandboxError("invalid_query", "Query uses a disallowed function")
 
 
 def _check_function_allowlist(
@@ -898,7 +943,7 @@ def _check_function_allowlist(
     Then apply fail-closed logic (order matters):
       1. BLOCKED  → always reject (defense-in-depth; checked before allowlist)
       2. Inside a verified canonical buffer → skip 3-5
-      3. "st_" name → require the prompt-derived PostGIS allowlist
+      3. "st_" name → require _ALLOWED_POSTGIS_FUNCTIONS
       4. Other name → require _ALLOWED_FUNCTIONS
       5. Allowed spatial functions → reject unbounded aggregate/complexity forms
       6. Otherwise → reject (fail-closed)
@@ -914,10 +959,12 @@ def _check_function_allowlist(
         # operands regardless, so nothing inside escapes the allowlist.
         if isinstance(func, exp.Connector):
             continue
-        # Sqlglot reaches EXISTS through the same Func path, but it
-        # is a subquery predicate rather than a callable. find_all walks its
-        # operand regardless.
-        if isinstance(func, exp.Exists):
+        # EXISTS (a subquery predicate) and `&&` (PostGIS bounding-box
+        # overlap, parsed as ArrayOverlaps) reach the same Func path but are
+        # not callables; find_all walks their operands regardless. PostgreSQL
+        # has no array_overlaps function, so the call spelling that parses to
+        # the same node fails at execution.
+        if isinstance(func, (exp.Exists, exp.ArrayOverlaps)):
             continue
         fn_name = _func_name(func)
 
@@ -928,11 +975,16 @@ def _check_function_allowlist(
             # output-amplifying functions that neither the SQL-length cap nor
             # row_limit bounds, while AI chat keeps them.
             logger.info("sandbox.blocked_function", sql=sql, function=fn_name)
-            raise SandboxError("invalid_query", "Query uses a disallowed function")
+            raise SandboxError(
+                "invalid_query",
+                _refused_function(
+                    "Query uses a disallowed function", func, fn_name, sql
+                ),
+            )
 
-        # The sixteen names the canonical buffer needs are admitted
-        # here and nowhere else. The BLOCKED check above still runs, so a
-        # renderer change could never smuggle a blocked function in.
+        # The names the canonical buffer needs beyond the allowlists are
+        # admitted here and nowhere else. The BLOCKED check above still runs,
+        # so a renderer change could never smuggle a blocked function in.
         if id(func) in buffer_scaffold:
             continue
 
@@ -942,11 +994,19 @@ def _check_function_allowlist(
                     "sandbox.unlisted_postgis_function", sql=sql, function=fn_name
                 )
                 raise SandboxError(
-                    "invalid_query", "Query uses a disallowed spatial function"
+                    "invalid_query",
+                    _refused_function(
+                        "Query uses a disallowed spatial function", func, fn_name, sql
+                    ),
                 )
         elif fn_name not in _ALLOWED_FUNCTIONS:
             logger.info("sandbox.unlisted_function", sql=sql, function=fn_name)
-            raise SandboxError("invalid_query", "Query uses a disallowed function")
+            raise SandboxError(
+                "invalid_query",
+                _refused_function(
+                    "Query uses a disallowed function", func, fn_name, sql
+                ),
+            )
 
         _validate_function_cost(func, fn_name, sql)
 

@@ -72,6 +72,11 @@ and releases use semantic versioning.
 
 ### Changed
 
+- The SQL sandbox (`POST /api/query/`, the MCP `query` tool, AI chat) allows
+  `ST_IsValid`, `ST_GeometryType`, `ST_NPoints`, `ST_AsText`, `ST_MakeEnvelope`,
+  `ST_GeomFromText`, `ST_GeomFromGeoJSON`, `geography()`, `geometry()` and the
+  `&&` operator, and a refusal names the function. The MCP `query` tool lists
+  the allowed spatial functions.
 - `DashboardConfig` and `DashboardConfigInput` accept `histogram` and
   `category_selector` widgets, whose schemas already existed. A 1.28.0 server
   refuses them on save and keeps stored ones out of its responses. Additive.
