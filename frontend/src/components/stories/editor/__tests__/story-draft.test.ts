@@ -184,6 +184,17 @@ describe('image block edits', () => {
     expect(imagesMissingAlt(applyDraftEdit(described, { type: 'setImage', chapterId: 'a', blockId: 'img', alt: '  ' }))).toBe(1);
   });
 
+  it('needs no alt text for a decorative image, and stores no blank alt for one', () => {
+    let chapters = applyDraftEdit([chapter('a')], { type: 'addImageBlock', chapterId: 'a', blockId: 'img', assetId: asset });
+    chapters = applyDraftEdit(chapters, { type: 'setImage', chapterId: 'a', blockId: 'img', decorative: true });
+    expect(imagesMissingAlt(chapters)).toBe(0);
+    expect(chapters[0].blocks?.[1].config).toEqual({ decorative: true, caption: null });
+
+    chapters = applyDraftEdit(chapters, { type: 'setImage', chapterId: 'a', blockId: 'img', decorative: false });
+    expect(imagesMissingAlt(chapters)).toBe(1);
+    expect(chapters[0].blocks?.[1].config).toEqual({ caption: null });
+  });
+
   it('replaces the image and sets or clears the caption, leaving other blocks alone', () => {
     let chapters = applyDraftEdit([chapter('a')], { type: 'addImageBlock', chapterId: 'a', blockId: 'img', assetId: asset });
     chapters = applyDraftEdit(chapters, { type: 'setImage', chapterId: 'a', blockId: 'img', assetId: other });

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { WidgetRenderProps } from '../contract';
-import type { ImageConfig } from './definition';
+import { readerAlt, type ImageConfig } from './definition';
 
 export function ImageFigure({ caption, children }: { caption?: string | null; children: ReactNode }) {
   return (
@@ -24,9 +24,11 @@ export function ImageDescription({ alt }: { alt: string }) {
 
 /** The image's alt text and caption, for when the image itself can't be shown. */
 export function ImageBlockFallback({ config }: WidgetRenderProps<ImageConfig>) {
+  const alt = readerAlt(config);
+  if (!alt && !config.caption) return null;
   return (
     <ImageFigure caption={config.caption}>
-      <ImageDescription alt={config.alt} />
+      {alt && <ImageDescription alt={alt} />}
     </ImageFigure>
   );
 }

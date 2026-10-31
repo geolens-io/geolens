@@ -205,6 +205,8 @@
       "alt": "Texte alternatif",
       "altHint": "Décrivez l’image pour les personnes qui ne peuvent pas la voir.",
       "altRequired": "Rédigez le texte alternatif avant d’enregistrer.",
+      "decorative": "Image décorative",
+      "decorativeHint": "Les lecteurs ignorent une image qui n’apporte rien à l’histoire ; elle n’a donc pas besoin de texte alternatif.",
       "caption": "Légende (facultative)",
       "replace": "Remplacer l’image",
       "uploading": "Envoi : {{percent}} %",

@@ -22,7 +22,7 @@ class StoryAssetResponse:
         id (UUID): Served at `/stories/{story_id}/assets/{id}` as WebP.
         width (int):
         height (int):
-        byte_size (int): Size of the stored WebP.
+        byte_size (int): Size of the stored image in all its sizes.
         created_at (datetime.datetime):
     """
 

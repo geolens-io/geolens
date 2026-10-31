@@ -397,6 +397,7 @@
     "storyImageBusy": "Andere Bilder werden gerade verarbeitet. Versuchen Sie es gleich noch einmal.",
     "storyImageMissing": "Es wurde kein Bild gesendet. Wählen Sie eine Datei und versuchen Sie es erneut.",
     "storyAssetLimit": "Diese Story enthält bereits die maximale Anzahl an Bildern: 200 oder insgesamt 250 MB.",
+    "storyAssetOwnerLimit": "Ihre Storys enthalten bereits so viel Bildspeicher, wie ein Admin erlaubt. Entfernen Sie Bilder aus Ihren Storys oder bitten Sie einen Admin, das Limit zu erhöhen.",
     "storyAssetsNotFound": "Einige Bilder dieser Story wurden nicht gefunden. Entfernen Sie diese Bildblöcke und speichern Sie erneut."
   },
   "settings": {

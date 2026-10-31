@@ -1026,6 +1026,15 @@ MAX_DATASETS_PER_USER = PersistentConfig[int](
     label="Max Datasets per User (0=unlimited)",
 )
 
+# Checked at each story image upload; images already stored stay.
+MAX_STORY_IMAGE_MB_PER_USER = PersistentConfig[int](
+    key="max_story_image_mb_per_user",
+    type_=int,
+    env_default=0,
+    tab="storage",
+    label="Max Story Image Storage per User (MB, 0=unlimited)",
+)
+
 # Lowering it frees no storage until each dataset's next replacement or restore.
 PREVIOUS_VERSIONS_KEPT = PersistentConfig[int](
     key="previous_versions_kept",

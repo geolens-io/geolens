@@ -397,6 +397,7 @@
     "storyImageBusy": "Se están procesando otras imágenes. Inténtalo de nuevo en un momento.",
     "storyImageMissing": "No se envió ninguna imagen. Elige un archivo e inténtalo de nuevo.",
     "storyAssetLimit": "Esta historia ya tiene el máximo de imágenes: 200, o 250 MB en total.",
+    "storyAssetOwnerLimit": "Tus historias ya ocupan todo el almacenamiento de imágenes que permite un administrador. Quita imágenes de tus historias o pide a un administrador que aumente el límite.",
     "storyAssetsNotFound": "No se encontraron algunas imágenes de esta historia. Quita esos bloques de imagen y vuelve a guardar."
   },
   "settings": {

@@ -6047,8 +6047,8 @@ export interface paths {
          *     PNG, JPEG and WebP, told apart by their bytes. It's stored as sRGB WebP
          *     without its metadata. 400 `story_image_unreadable`, 413
          *     `story_image_too_large`, 415 `story_image_unsupported`, 409
-         *     `story_asset_limit`, 503 `story_image_busy`. Readers get it once a
-         *     published block or the cover uses it.
+         *     `story_asset_limit` or `story_asset_owner_limit`, 503 `story_image_busy`.
+         *     Readers get it once a published block or the cover uses it.
          */
         post: operations["upload_story_asset_endpoint_stories__story_id__assets_post"];
         delete?: never;
@@ -6066,7 +6066,7 @@ export interface paths {
         };
         /**
          * Get Story Asset Endpoint
-         * @description Serve one of the story's images as WebP.
+         * @description Serve one of the story's images, as WebP unless `variant` says otherwise.
          *
          *     Its owner and admins get any of them. Anyone else who can read the story
          *     gets the cover and the images its published document uses. 404 otherwise.
@@ -11245,9 +11245,14 @@ export interface components {
         ImageConfig: {
             /**
              * Alt
-             * @description Text that stands in for the image.
+             * @description Text that stands in for the image; required unless it is decorative.
              */
-            alt: string;
+            alt?: string | null;
+            /**
+             * Decorative
+             * @description True when the image adds nothing a reader needs: readers get an empty alt, and `alt` may be left out.
+             */
+            decorative?: boolean | null;
             /** Caption */
             caption?: string | null;
         };
@@ -16302,7 +16307,7 @@ export interface components {
             height: number;
             /**
              * Byte Size
-             * @description Size of the stored WebP.
+             * @description Size of the stored image in all its sizes.
              */
             byte_size: number;
             /**
@@ -48031,7 +48036,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description The story already holds its most images or bytes (`detail.code` `story_asset_limit`), or another change holds its lock. */
+            /** @description The story already holds its most images or bytes (`detail.code` `story_asset_limit`), its owner's stories hold the most image bytes the admin allows (`story_asset_owner_limit`), or another change holds its lock. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -48109,7 +48114,10 @@ export interface operations {
     };
     get_story_asset_endpoint_stories__story_id__assets__asset_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description `card`: at most 640 pixels wide, as WebP. `social`: 1200 by 630, cropped to fill, as JPEG. An image uploaded before these sizes existed answers with the original. */
+                variant?: ("card" | "social") | null;
+            };
             header?: never;
             path: {
                 story_id: string;
@@ -48125,6 +48133,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "image/jpeg": string;
                     "image/webp": string;
                 };
             };
@@ -48599,7 +48608,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description Conflict — resource state prevents the operation */
+            /** @description The copied images would take your stories past the most image bytes the admin allows (`detail.code` `story_asset_owner_limit`). */
             409: {
                 headers: {
                     [name: string]: unknown;

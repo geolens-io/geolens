@@ -918,6 +918,7 @@ describe('story write refusals', () => {
     [{ code: 'story_image_busy', message: 'x' }, 503, 'Other images are being processed. Try again in a moment.'],
     [{ code: 'story_image_missing', message: 'x' }, 422, 'No image was sent. Choose a file and try again.'],
     [{ code: 'story_asset_limit', message: 'x' }, 409, 'This story already holds its most images: 200, or 250 MB of them.'],
+    [{ code: 'story_asset_owner_limit', message: 'x' }, 409, 'Your stories already hold the most image storage an admin allows. Remove images from your stories, or ask an admin to raise the limit.'],
     [{ code: 'story_assets_not_found', message: 'x', asset_ids: [] }, 422, "Some images in this story weren't found. Remove those image blocks and save again."],
   ])('localizes %j', (detail, status, expected) => {
     expect(translateApiErrorDetail(detail, status)).toBe(expected);

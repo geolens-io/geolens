@@ -205,6 +205,8 @@
       "alt": "Alternativtext",
       "altHint": "Beschreiben Sie das Bild für Menschen, die es nicht sehen können.",
       "altRequired": "Schreiben Sie vor dem Speichern einen Alternativtext.",
+      "decorative": "Dekoratives Bild",
+      "decorativeHint": "Leser überspringen ein Bild, das der Story nichts hinzufügt; es braucht daher keinen Alternativtext.",
       "caption": "Bildunterschrift (optional)",
       "replace": "Bild ersetzen",
       "uploading": "Wird hochgeladen: {{percent}} %",

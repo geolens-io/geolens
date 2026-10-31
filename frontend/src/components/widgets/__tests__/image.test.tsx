@@ -40,6 +40,13 @@ describe('image block instances', () => {
     expect(imageWidget.parseConfig({ alt: 'x', caption: null }, 1)).toEqual({ alt: 'x' });
   });
 
+  it('need no alt text when decorative, as the server does', () => {
+    expect(parseStoredWidget({ ...block, config: { decorative: true } }, 'story').ok).toBe(true);
+    for (const config of [{ decorative: false }, { decorative: 'yes', alt: 'x' }, { decorative: true, alt: ' ' }]) {
+      expect(parseStoredWidget({ ...block, config }, 'story').ok, JSON.stringify(config)).toBe(false);
+    }
+  });
+
   it('are not dashboard widgets', () => {
     expect(parseStoredWidget({ ...block, layer_id: assetId }, 'dashboard')).toMatchObject({ ok: false });
   });
@@ -64,6 +71,14 @@ describe('image block renderer', () => {
     renderBlock(block);
     expect(await screen.findByText('Image: A river at dusk')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole('img', { name: /A river at dusk/ })).not.toBeInTheDocument());
+  });
+
+  it('gives a decorative image an empty alt and no description', async () => {
+    vi.mocked(apiFetchBlob).mockImplementation(async () => new Blob(['x'], { type: 'image/webp' }));
+    const { container } = renderBlock({ ...block, config: { alt: 'A river at dusk', decorative: true } });
+    await waitFor(() => expect(container.querySelector('img')).not.toBeNull());
+    expect(container.querySelector('img')?.getAttribute('alt')).toBe('');
+    expect(screen.queryByRole('img', { name: /A river at dusk/ })).not.toBeInTheDocument();
   });
 
   it('fetches nothing without a host route', async () => {

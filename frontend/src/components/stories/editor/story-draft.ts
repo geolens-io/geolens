@@ -1,5 +1,5 @@
 import { arrayMove } from '@dnd-kit/sortable';
-import { IMAGE_DEFAULT_CONFIG, validImageAlt } from '@/components/widgets/image/definition';
+import { IMAGE_DEFAULT_CONFIG, imageNeedsAlt } from '@/components/widgets/image/definition';
 import { deepEqual } from '@/lib/deep-equal';
 import type { StoryCamera, StoryChapter, StoryScene } from '@/types/api';
 
@@ -30,7 +30,15 @@ export type DraftEdit =
   | { type: 'addTextBlock'; chapterId: string; blockId: string }
   | { type: 'setBlockText'; chapterId: string; blockId: string; text: string }
   | { type: 'addImageBlock'; chapterId: string; blockId: string; assetId: string }
-  | { type: 'setImage'; chapterId: string; blockId: string; assetId?: string; alt?: string; caption?: string }
+  | {
+      type: 'setImage';
+      chapterId: string;
+      blockId: string;
+      assetId?: string;
+      alt?: string;
+      decorative?: boolean;
+      caption?: string;
+    }
   | { type: 'moveBlock'; chapterId: string; blockId: string; by: -1 | 1 }
   | { type: 'removeBlock'; chapterId: string; blockId: string };
 
@@ -46,7 +54,7 @@ function imageBlock(id: string, assetId: string): Block {
 export function imagesMissingAlt(chapters: readonly StoryChapter[]): number {
   return chapters
     .flatMap((chapter) => chapter.blocks ?? [])
-    .filter((block) => block.type === 'image' && !validImageAlt(block.config.alt)).length;
+    .filter((block) => block.type === 'image' && imageNeedsAlt(block.config)).length;
 }
 
 function update(chapters: StoryChapter[], chapterId: string, change: (c: StoryChapter) => StoryChapter) {
@@ -125,7 +133,11 @@ export function applyDraftEdit(chapters: StoryChapter[], edit: DraftEdit): Story
             if (block.id !== edit.blockId || block.type !== 'image') return block;
             const config = { ...block.config };
             if (edit.alt !== undefined) config.alt = edit.alt;
+            if (edit.decorative !== undefined) config.decorative = edit.decorative;
             if (edit.caption !== undefined) config.caption = edit.caption || null;
+            // The server refuses blank alt text, and stores neither field unset.
+            if (!config.decorative) delete config.decorative;
+            if (config.decorative && !config.alt?.trim()) delete config.alt;
             return { ...block, asset_id: edit.assetId ?? block.asset_id, config };
           }),
         ),

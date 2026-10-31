@@ -8,7 +8,8 @@ vi.mock('@/api/stories', () => ({
   listStories: vi.fn(),
   duplicateStory: vi.fn(),
   deleteStory: vi.fn(),
-  storyAssetPath: (story: string, asset: string) => `/stories/${story}/assets/${asset}`,
+  storyAssetPath: (story: string, asset: string, size?: string) =>
+    `/stories/${story}/assets/${asset}${size ? `?variant=${size}` : ''}`,
 }));
 const blob = vi.hoisted(() => ({ paths: [] as string[] }));
 vi.mock('@/api/client', async (importOriginal) => ({
@@ -145,7 +146,7 @@ it('shows a story’s cover on its card, decoratively', async () => {
   const [card, plain] = screen.getAllByTestId('story-card');
   await waitFor(() => expect(card.querySelector('img')).not.toBeNull());
   expect(card.querySelector('img')).toHaveAttribute('alt', '');
-  expect(blob.paths).toContain('/stories/covered/assets/cover-1');
+  expect(blob.paths).toContain('/stories/covered/assets/cover-1?variant=card');
   expect(plain.querySelector('img')).toBeNull();
 });
 

@@ -119,6 +119,7 @@ class StoryAsset(Base):
         ForeignKey("catalog.stories.id", ondelete="CASCADE"), nullable=False
     )
     storage_key: Mapped[str] = mapped_column(Text, nullable=False)
+    # Every stored size of the image, which is what the caps count.
     byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
     width: Mapped[int] = mapped_column(Integer, nullable=False)
     height: Mapped[int] = mapped_column(Integer, nullable=False)

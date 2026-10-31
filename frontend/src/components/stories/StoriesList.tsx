@@ -119,7 +119,7 @@ export function StoriesList() {
 function StoryCardCover({ story }: { story: StorySummary }) {
   return (
     <AssetImage
-      path={story.cover_asset_id ? storyAssetPath(story.id, story.cover_asset_id) : null}
+      path={story.cover_asset_id ? storyAssetPath(story.id, story.cover_asset_id, 'card') : null}
       alt=""
       lazy
       className="h-12 w-16 shrink-0 rounded object-cover"

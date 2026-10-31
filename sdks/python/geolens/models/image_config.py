@@ -17,15 +17,28 @@ T = TypeVar("T", bound="ImageConfig")
 class ImageConfig:
     """
     Attributes:
-        alt (str): Text that stands in for the image.
+        alt (None | str | Unset): Text that stands in for the image; required unless it is decorative.
+        decorative (bool | None | Unset): True when the image adds nothing a reader needs: readers get an empty alt, and
+            `alt` may be left out.
         caption (None | str | Unset):
     """
 
-    alt: str
+    alt: None | str | Unset = UNSET
+    decorative: bool | None | Unset = UNSET
     caption: None | str | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
-        alt = self.alt
+        alt: None | str | Unset
+        if isinstance(self.alt, Unset):
+            alt = UNSET
+        else:
+            alt = self.alt
+
+        decorative: bool | None | Unset
+        if isinstance(self.decorative, Unset):
+            decorative = UNSET
+        else:
+            decorative = self.decorative
 
         caption: None | str | Unset
         if isinstance(self.caption, Unset):
@@ -35,11 +48,11 @@ class ImageConfig:
 
         field_dict: dict[str, Any] = {}
 
-        field_dict.update(
-            {
-                "alt": alt,
-            }
-        )
+        field_dict.update({})
+        if alt is not UNSET:
+            field_dict["alt"] = alt
+        if decorative is not UNSET:
+            field_dict["decorative"] = decorative
         if caption is not UNSET:
             field_dict["caption"] = caption
 
@@ -48,7 +61,24 @@ class ImageConfig:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        alt = d.pop("alt")
+
+        def _parse_alt(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        alt = _parse_alt(d.pop("alt", UNSET))
+
+        def _parse_decorative(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        decorative = _parse_decorative(d.pop("decorative", UNSET))
 
         def _parse_caption(data: object) -> None | str | Unset:
             if data is None:
@@ -61,6 +91,7 @@ class ImageConfig:
 
         image_config = cls(
             alt=alt,
+            decorative=decorative,
             caption=caption,
         )
 

@@ -695,6 +695,8 @@
       "invalidStorageQuantity": "Geben Sie eine Menge ein, die einer ganzen Anzahl von Bytes entspricht.",
       "maxDatasetsPerUser": "Max. Datensätze pro Benutzer",
       "maxDatasetsPerUserDescription": "Maximale Anzahl an Datensätzen, die jeder Benutzer erstellen kann (0 = unbegrenzt).",
+      "maxStoryImageMbPerUser": "Max. Story-Bildspeicher pro Benutzer (MB)",
+      "maxStoryImageMbPerUserDescription": "Die Gesamtgröße der Bilder, die die Storys eines Benutzers enthalten können, in Megabyte (0 = unbegrenzt). Bereits gespeicherte Bilder bleiben; nur neue Uploads und Kopien werden abgelehnt.",
       "saved": "Upload-Einstellungen gespeichert"
     },
     "oauth": {

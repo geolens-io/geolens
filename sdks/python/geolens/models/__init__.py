@@ -506,6 +506,9 @@ from .get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature_g
 from .get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature_properties import (
     GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureProperties,
 )
+from .get_story_asset_endpoint_stories_story_id_assets_asset_id_get_variant_type_0 import (
+    GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetVariantType0,
+)
 from .group_by_request import GroupByRequest
 from .group_by_request_filter_type_0 import GroupByRequestFilterType0
 from .group_by_request_stat import GroupByRequestStat
@@ -1410,6 +1413,7 @@ __all__ = (
     "GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometryType",
     "GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometryType",
     "GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureProperties",
+    "GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetVariantType0",
     "GroupByRequest",
     "GroupByRequestFilterType0",
     "GroupByRequestStat",

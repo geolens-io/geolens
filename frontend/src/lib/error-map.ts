@@ -326,6 +326,7 @@ const STORY_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   story_image_busy: 'errors.storyImageBusy',
   story_image_missing: 'errors.storyImageMissing',
   story_asset_limit: 'errors.storyAssetLimit',
+  story_asset_owner_limit: 'errors.storyAssetOwnerLimit',
   story_assets_not_found: 'errors.storyAssetsNotFound',
 };
 

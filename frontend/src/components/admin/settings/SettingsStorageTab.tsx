@@ -35,6 +35,7 @@ const FIELDS = [
   { key: 'tile_cache_ttl', defaultValue: 300 },
   { key: 'max_storage_bytes_per_user', defaultValue: 0 },
   { key: 'max_datasets_per_user', defaultValue: 0 },
+  { key: 'max_story_image_mb_per_user', defaultValue: 0 },
   { key: 'previous_versions_kept', defaultValue: 3 },
 ] as const;
 
@@ -244,6 +245,25 @@ export function SettingsStorageTab({ settings, envOnly, onSave, onReset: submitR
             step={1}
             value={values.max_datasets_per_user as number}
             onChange={(e) => setters.max_datasets_per_user(Number(e.target.value))}
+            disabled={envOnly}
+            className="w-32"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="max-story-image-mb-per-user">{t('settings.uploads.maxStoryImageMbPerUser')}</Label>
+            <SettingSourceBadge source={findSetting(settings, 'max_story_image_mb_per_user')?.source ?? 'default'} settingKey="max_story_image_mb_per_user" onReset={onReset} />
+          </div>
+          <p id="max-story-image-help" className="text-sm text-muted-foreground">{t('settings.uploads.maxStoryImageMbPerUserDescription')}</p>
+          <Input
+            id="max-story-image-mb-per-user"
+            type="number"
+            min={0}
+            step={1}
+            value={values.max_story_image_mb_per_user as number}
+            onChange={(e) => setters.max_story_image_mb_per_user(Number(e.target.value))}
+            aria-describedby="max-story-image-help"
             disabled={envOnly}
             className="w-32"
           />
