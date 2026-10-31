@@ -143,7 +143,7 @@ export default function BarChartRenderer({
       <p id={hintId} className="sr-only">
         {t(onSelect ? 'types.bar_chart.keyboardHintPick' : 'types.bar_chart.keyboardHint')}
       </p>
-      <figcaption className="text-sm" aria-live="polite">
+      <figcaption className="min-h-5 text-sm" aria-live="polite">
         {current !== null && (
           <span>{t('types.bar_chart.bar', { label: rows[current].label, value: rows[current].text })}</span>
         )}

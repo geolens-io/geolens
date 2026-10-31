@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from 'react';
+import { useState, type KeyboardEvent, type MouseEvent } from 'react';
 
 const NEXT = new Set(['ArrowDown', 'ArrowRight']);
 const PREVIOUS = new Set(['ArrowUp', 'ArrowLeft']);
@@ -50,7 +50,8 @@ export function useChartMarks(count: number, onPick?: (index: number) => void) {
       onPick
         ? {
             className: 'cursor-pointer',
-            onClick: () => {
+            onClick: (event: MouseEvent<SVGElement>) => {
+              event.currentTarget.ownerSVGElement?.focus({ preventScroll: true });
               setActive(index);
               onPick(index);
             },

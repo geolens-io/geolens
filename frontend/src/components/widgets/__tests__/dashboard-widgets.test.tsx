@@ -335,9 +335,9 @@ describe('bar chart widget', () => {
     const svg = screen.getByRole('group', { name: 'Count by land_use' });
     const bars = [...container.querySelectorAll('svg rect')];
 
-    fireEvent.focus(svg);
     fireEvent.click(container.querySelectorAll('svg g[aria-hidden="true"]')[1]);
     expect(onSelect).toHaveBeenLastCalledWith({ column: 'land_use', label: 'Commercial', values: ['Commercial'] });
+    expect(svg).toHaveFocus();
     expect(bars[1]).toHaveAttribute('stroke-width', '2');
     expect(screen.getByText('Commercial: 25', { selector: 'figcaption span' })).toBeInTheDocument();
 

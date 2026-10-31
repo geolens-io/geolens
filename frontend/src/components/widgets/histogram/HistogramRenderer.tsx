@@ -104,7 +104,7 @@ export default function HistogramRenderer({
       <p id={hintId} className="sr-only">
         {t(onSelect ? 'types.histogram.keyboardHintPick' : 'types.histogram.keyboardHint')}
       </p>
-      <figcaption className="text-sm" aria-live="polite">
+      <figcaption className="min-h-5 text-sm" aria-live="polite">
         {current !== null && (
           <span>{t('types.histogram.bin', { range: bins[current].label, value: bins[current].countText })}</span>
         )}
