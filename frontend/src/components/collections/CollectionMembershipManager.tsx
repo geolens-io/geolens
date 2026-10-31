@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { LiveAnnouncement } from '@/components/ui/live-announcement';
 import { searchDatasets } from '@/api/search';
+import { distinctDescription } from '@/lib/text';
 import { useAuthStore } from '@/stores/auth-store';
 import { useDebouncedValue } from '@/hooks/use-debounce';
 import { useAddDatasetsToCollection, useCollectionDatasets } from '@/components/collections/hooks/use-collections';
@@ -179,7 +180,9 @@ function MembershipPanel({ collectionId }: CollectionMembershipManagerProps) {
 
       {available.length > 0 && (
         <ul aria-label={t('membership.listLabel')} className="divide-y rounded-md border">
-          {available.map((record) => (
+          {available.map((record) => {
+            const description = distinctDescription(record.properties.title, record.properties.description);
+            return (
             <li key={record.id} className="flex items-center gap-3 px-4 py-3">
               <Checkbox
                 id={`membership-${record.id}`}
@@ -189,14 +192,15 @@ function MembershipPanel({ collectionId }: CollectionMembershipManagerProps) {
               />
               <label htmlFor={`membership-${record.id}`} className="min-w-0 flex-1 cursor-pointer">
                 <span className="block truncate text-sm font-medium">{record.properties.title}</span>
-                {record.properties.description && (
+                {description && (
                   <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                    {record.properties.description}
+                    {description}
                   </span>
                 )}
               </label>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
 

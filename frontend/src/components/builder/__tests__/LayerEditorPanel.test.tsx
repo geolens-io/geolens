@@ -736,6 +736,37 @@ describe('LayerEditorPanel', () => {
       expect(pill?.className).toContain('type-vector');
     });
 
+    it('shows a vector layer geometry type once in the header', () => {
+      render(
+        <LayerEditorPanel
+          layer={makeLayer({ dataset_geometry_type: 'MULTIPOLYGON' })}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          editorScene="default"
+        />
+      );
+      expect(screen.getAllByText(/multi\s?polygon/i)).toHaveLength(1);
+    });
+
+    it('shows a raster layer band count in the header', () => {
+      render(
+        <LayerEditorPanel
+          layer={makeLayer({
+            dataset_record_type: 'raster_dataset',
+            layer_type: 'raster_geolens',
+            dataset_geometry_type: null,
+            band_count: 3,
+          })}
+          onClose={vi.fn()}
+          handlers={makeHandlers()}
+          activeTab={null}
+          editorScene="default"
+        />
+      );
+      expect(screen.getByText('style.raster.bandCount')).toBeInTheDocument();
+    });
+
     it('AUD-06: raster layer type pill has bg-[var(--type-raster-bg)] class', () => {
       const layer = makeLayer({
         dataset_record_type: 'raster_dataset',

@@ -567,6 +567,29 @@ describe('SearchResultCard', () => {
       expect(screen.getByTestId('dataset-card-description')).toHaveTextContent('A real description');
     });
 
+    it('falls back to the generated description when the description repeats the title', () => {
+      render(<SearchResultCard feature={makeFeature({ title: 'World Countries', description: 'World Countries' })} />);
+
+      expect(screen.getAllByText('World Countries')).toHaveLength(1);
+      expect(screen.getByTestId('dataset-card-description')).not.toHaveTextContent('World Countries');
+      expect(screen.getByTestId('dataset-card-description')).toHaveTextContent(/195/);
+    });
+
+    it('prints a collection title once when the description repeats it', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature({
+            record_type: 'collection',
+            title: 'Parks',
+            description: 'Parks',
+            geometry_type: null,
+          })}
+        />,
+      );
+
+      expect(screen.getAllByText('Parks')).toHaveLength(1);
+    });
+
     it('renders auto-description when description is null', () => {
       render(<SearchResultCard feature={makeFeature({ description: '' })} />);
 
