@@ -149,7 +149,7 @@ flowchart LR
     end
     subgraph GL ["GeoLens"]
       CAT["Katalog<br/>Suche · Metadaten · Herkunft"]
-      MB["Karteneditor<br/>Stile · 3D · Analyse · Stories · Dashboards · Teilen"]
+      MB["Karteneditor<br/>Stile · 3D · Analyse · Storys · Dashboards · Teilen"]
       STD["Offene APIs<br/>OGC API · STAC · DCAT · Kacheln"]
     end
     subgraph OUT ["Überall nutzen"]
@@ -206,7 +206,7 @@ Quellseite, bevor sie Ihre Karten erreichen. Verschwindet ein Dienst, funktionie
   Schaltflächen und Trennlinien. Dashboards stellen Kennzahlen, Diagramme, Filter und
   Markdown-Notizen neben eine Karte. Ein Kartendaten-Bereich zeigt die Zeilen jeder Ebene, als
   Tabelle oder als Liste.
-- Öffentliche Karten und veröffentlichte Stories zeigen Titel und Bild, wenn ihre Links in Slack,
+- Öffentliche Karten und veröffentlichte Storys zeigen Titel und Bild, wenn ihre Links in Slack,
   Teams oder soziale Netzwerke eingefügt werden, und Karten lassen sich mit privaten Tokens in
   andere Websites einbetten.
 - Die Oberfläche gibt es auf Englisch, Spanisch, Französisch, Deutsch und in vereinfachtem
