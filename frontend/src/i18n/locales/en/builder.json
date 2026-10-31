@@ -1369,7 +1369,9 @@
     "aiPermissionBody": "You don't have permission to use AI chat.",
     "aiGoToSettings": "Go to Settings",
     "aiConfigureSettings": "Configure in Settings",
-    "notesButtonWithNotes": "Notes (map has notes)"
+    "notesButtonWithNotes": "Notes (map has notes)",
+    "dashboardButtonWithWidgets_one": "Dashboard ({{count}} widget)",
+    "dashboardButtonWithWidgets_other": "Dashboard ({{count}} widgets)"
   },
   "stackRow": {
     "dragHandle": "Drag to reorder {{name}}",

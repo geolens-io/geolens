@@ -66,7 +66,8 @@ const SaveChatPreviewDialog = lazy(() =>
 );
 import { MapToolbar } from '@/components/builder/MapToolbar';
 import { MapTitleBar } from '@/components/builder/MapTitleBar';
-import { BuilderRail, type RailPanel } from '@/components/builder/BuilderRail';
+import { BuilderRail, railButtonPresence, type RailPanel } from '@/components/builder/BuilderRail';
+import { useDashboardAutoOpen } from '@/components/builder/hooks/use-dashboard-auto-open';
 import { BuilderDialogs } from '@/components/builder/BuilderDialogs';
 const StyleJsonDialog = lazy(() =>
   import('@/components/builder/StyleJsonDialog').then((m) => ({ default: m.StyleJsonDialog }))
@@ -862,6 +863,15 @@ export function MapBuilderPage() {
     },
     [setAnalysisJob, id],
   );
+  const dashboardWidgetCount = layers.dashboard.widgets.length;
+  useDashboardAutoOpen({
+    mapId: id,
+    ready: !error && !!mapData && layers.layersMapId === id,
+    hasWidgets: dashboardWidgetCount > 0,
+    sheetLayout: isEditorHidden,
+    railPanel,
+    setRailPanel,
+  });
   // Only a loaded map whose layers have hydrated can take the add, so the
   // loading and error screens below leave an open toast on "View dataset".
   const addAnalysisOutput =
@@ -2080,13 +2090,7 @@ export function MapBuilderPage() {
                     disabled={btn.disabled}
                     data-unavailable={btn.unavailable || undefined}
                     title={btn.label}
-                    // aria-label replaces the subtree, so the notes-presence state
-                    // lives in the name rather than on the dot span.
-                    aria-label={
-                      btn.id === 'notes' && dockNotes.trim().length > 0
-                        ? t('rail.notesButtonWithNotes', { defaultValue: 'Notes (map has notes)' })
-                        : btn.label
-                    }
+                    aria-label={railButtonPresence(btn.id, btn.label, { notes: dockNotes, widgetCount: dashboardWidgetCount }, t).label}
                     aria-pressed={railPanel === btn.id}
                     aria-busy={btn.id === 'analysis' && analysisJobRunning}
                     className={cn(
@@ -2103,10 +2107,8 @@ export function MapBuilderPage() {
                     ) : (
                       <btn.icon className="h-4 w-4" aria-hidden="true" />
                     )}
-                    {/* Mobile counterpart of BuilderRail's notes dot (the rail is
-                        hidden at <800px). Decorative: the aria-label above carries
-                        the state. */}
-                    {btn.id === 'notes' && dockNotes.trim().length > 0 && (
+                    {/* Mobile counterpart of BuilderRail's presence dot (the rail is hidden at <800px). */}
+                    {railButtonPresence(btn.id, btn.label, { notes: dockNotes, widgetCount: dashboardWidgetCount }, t).dot && (
                       <span
                         aria-hidden="true"
                         className="absolute -top-0.5 -end-0.5 size-1.5 rounded-full bg-primary"

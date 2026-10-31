@@ -1369,7 +1369,9 @@
     "aiPermissionBody": "您没有使用 AI 聊天的权限。",
     "aiGoToSettings": "前往设置",
     "aiConfigureSettings": "在设置中配置",
-    "notesButtonWithNotes": "备注（地图有备注）"
+    "notesButtonWithNotes": "备注（地图有备注）",
+    "dashboardButtonWithWidgets_one": "仪表板（{{count}} 个组件）",
+    "dashboardButtonWithWidgets_other": "仪表板（{{count}} 个组件）"
   },
   "stackRow": {
     "dragHandle": "拖拽以重新排序 {{name}}",

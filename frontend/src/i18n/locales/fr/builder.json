@@ -1365,7 +1365,9 @@
     "aiGoToSettings": "Aller aux paramètres",
     "aiConfigureSettings": "Configurer dans les paramètres",
     "closePanel": "Fermer le panneau",
-    "notesButtonWithNotes": "Notes (la carte a des notes)"
+    "notesButtonWithNotes": "Notes (la carte a des notes)",
+    "dashboardButtonWithWidgets_one": "Tableau de bord ({{count}} widget)",
+    "dashboardButtonWithWidgets_other": "Tableau de bord ({{count}} widgets)"
   },
   "stackRow": {
     "dragHandle": "Glisser pour réorganiser {{name}}",

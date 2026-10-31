@@ -117,6 +117,11 @@ export function DashboardWidget({
     embedToken,
     linked,
   });
+  const loadingSkeleton = (
+    <Skeleton className="h-12 w-full">
+      <span className="sr-only">{t('common:loading')}</span>
+    </Skeleton>
+  );
   const layerName = layerDisplayName(layer);
   const named = widgetName(definition, instance, layer.column_info, t);
   const heading = named || layerName;
@@ -170,9 +175,7 @@ export function DashboardWidget({
         </div>
       )}
       {loading ? (
-        <Skeleton className="h-12 w-full">
-          <span className="sr-only">{t('common:loading')}</span>
-        </Skeleton>
+        loadingSkeleton
       ) : (
         <div className={cn('transition-opacity', stale && 'opacity-50')}>
           <WidgetView
@@ -181,6 +184,7 @@ export function DashboardWidget({
             selection={selection}
             onSelect={onSelect}
             columnLabel={(column) => columnDisplayName(layer.column_info, column)}
+            loadingFallback={loadingSkeleton}
           />
         </div>
       )}
@@ -407,6 +411,12 @@ export function DashboardPanel({
       })),
     [config],
   );
+  // Renderer chunks download alongside the aggregate requests.
+  useEffect(() => {
+    for (const { parsed } of widgets) {
+      if (parsed.ok) void parsed.definition.loadRenderer().catch(() => {});
+    }
+  }, [widgets]);
   if (widgets.length === 0) return null;
   const panel = dashboardPanelPosition(config);
   const right = panel === 'right';

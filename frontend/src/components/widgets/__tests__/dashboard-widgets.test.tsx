@@ -319,8 +319,8 @@ describe('bar chart widget', () => {
     const picked = { column: 'land_use', label: 'Commercial', values: ['Commercial'] };
     rerender(<BarChartRenderer config={chart} data={counts} selection={picked} onSelect={onSelect} />);
     const bars = [...container.querySelectorAll('svg rect')];
-    expect(bars[1].getAttribute('class')).not.toContain('opacity-35');
-    expect(bars[0].getAttribute('class')).toContain('opacity-35');
+    expect(bars[1].getAttribute('class')).not.toContain('opacity-75');
+    expect(bars[0].getAttribute('class')).toContain('opacity-75');
     expect(container.querySelector('[data-picked]')).toHaveTextContent(/✓Commercial/);
     expect(screen.getByRole('rowheader', { name: /Commercial/ })).toHaveTextContent('Commercial✓ (picked)');
     fireEvent.keyDown(svg, { key: 'Home' });

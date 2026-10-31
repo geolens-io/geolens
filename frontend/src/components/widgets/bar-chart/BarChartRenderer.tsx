@@ -111,7 +111,7 @@ export default function BarChartRenderer({
                 rx={2}
                 className={cn(
                   'fill-primary',
-                  picked.length > 0 && !isPicked && 'opacity-35',
+                  picked.length > 0 && !isPicked && 'opacity-75',
                   isActive && 'stroke-foreground',
                 )}
                 strokeWidth={isActive ? 2 : 0}

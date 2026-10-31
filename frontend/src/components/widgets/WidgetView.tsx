@@ -56,6 +56,7 @@ export function WidgetView({
   assetPath,
   columnLabel,
   headingLevel,
+  loadingFallback,
 }: {
   parsed: ParsedWidget;
   data?: unknown;
@@ -64,6 +65,8 @@ export function WidgetView({
   assetPath?: string;
   columnLabel?: ColumnLabel;
   headingLevel?: WidgetRenderProps<unknown>['headingLevel'];
+  /** Shown while the renderer loads, in place of the text fallback, which still covers a failed load. */
+  loadingFallback?: ReactNode;
 }) {
   if (!parsed.ok) return <UnavailableWidget />;
   const { definition, instance } = parsed;
@@ -79,7 +82,7 @@ export function WidgetView({
   );
   return (
     <WidgetErrorBoundary type={definition.type} fallback={fallback}>
-      <Suspense fallback={fallback}>
+      <Suspense fallback={loadingFallback ?? fallback}>
         <definition.Renderer
           config={instance.config}
           data={data}

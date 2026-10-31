@@ -1365,7 +1365,9 @@
     "aiGoToSettings": "Zu den Einstellungen",
     "aiConfigureSettings": "In den Einstellungen konfigurieren",
     "closePanel": "Panel schließen",
-    "notesButtonWithNotes": "Notizen (Karte hat Notizen)"
+    "notesButtonWithNotes": "Notizen (Karte hat Notizen)",
+    "dashboardButtonWithWidgets_one": "Dashboard ({{count}} Widget)",
+    "dashboardButtonWithWidgets_other": "Dashboard ({{count}} Widgets)"
   },
   "stackRow": {
     "dragHandle": "Ziehen zum Neuanordnen von {{name}}",
