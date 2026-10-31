@@ -7,6 +7,8 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.29.0] - 2026-10-31
+
 ### Added
 
 - Story maps in the web app, on the stories API from 1.28.0. A story reads at
@@ -15,7 +17,8 @@ and releases use semantic versioning.
   with arrow-key controls. Each chapter change is announced to screen
   readers, and camera moves jump instead of flying under reduced motion.
   Anyone who can read a story can open it, signed in or not; a chapter whose
-  map the reader can't open shows its text with a notice. (#3483)
+  map the reader can't open shows its text with a notice. A story with no
+  scenes reads as text only, without a map pane. (#3483, #3494)
 - The Maps page has a Stories tab that lists the stories you can read, with
   New story, Edit, Duplicate and Delete where you're allowed to use them.
   (#3483)
@@ -28,9 +31,11 @@ and releases use semantic versioning.
   the story from reaching its audience, and Discard draft goes back to the
   published version. If the draft was saved somewhere else since you opened
   it, you can load that version or keep yours with "Overwrite with my
-  version". (#3483)
+  version". Blocks are numbered per kind, such as "Text block 2" and "Image
+  1". (#3483, #3494)
 - `geolens apply` manifests accept GeoParquet (`.parquet`) vector sources, as
   upload and `geolens publish` already do, and `geolens scan` lists them.
+  (#3501)
 - Stories take images. Authors upload a PNG, JPEG or WebP into a chapter as an
   image block with alt text and an optional caption, or as the story's cover,
   which shows on its card, above its title and in its link preview. Save and
@@ -63,9 +68,10 @@ and releases use semantic versioning.
   `dashboard=collapsed`. Each widget applies its layer's saved filter, or says
   when it can't, and a widget set to follow the map view updates once the map
   stops moving. Widgets on a layer the reader turns off in the legend leave
-  the panel.
+  the panel. A widget without a title is named from what it shows, such as
+  "Count by kind", with its layer name below. (#3484, #3493)
 - The Builder can preview a map's Dashboard panel before saving, and the
-  share panel can start an embed with the dashboard collapsed.
+  share panel can start an embed with the dashboard collapsed. (#3503)
 - Dashboard authoring in the Builder. The Dashboard panel adds indicator, bar
   chart, histogram and category selector widgets, picks each one's layer,
   columns and scope, orders them, places the panel and previews each widget
@@ -73,11 +79,13 @@ and releases use semantic versioning.
   lacks or isn't numeric, or follows the map view on a layer without geometry.
   A new bar chart or selector starts on a text column with few sampled values
   where the layer has one, rather than a nearly unique one such as a place name.
+  (#3484, #3486)
 - Readers can open a Map data panel under the map, with a Table of a layer's
   rows next to the List view. Rows follow the layer's filter and the
   dashboard's Picks, can be limited to the map view, and select their feature
   on the map and back. On a phone the panel docks under the map and expands to
   full screen. The Builder's attribute table follows map clicks the same way.
+  (#3509, #3527)
 - Linked dashboard widgets. Clicking a bar or a histogram bin, or choosing
   values in a category selector, filters that layer on the map and its other
   widgets until the reader clears it. Each filter shows as a chip that clears
@@ -86,13 +94,14 @@ and releases use semantic versioning.
   came from keeps showing every value, with the pick marked. Bars and bins
   take Enter or Space from the keyboard, widgets on a column the server can't
   filter by don't offer picks, and linking works on share links and in embeds.
-- Maps have a Show attribute table setting, on by default. While it's on, an
-  embed token for the map can page its layers' rows through
+  (#3486)
+- Maps have a "Readers can open the attribute table" setting, on by default.
+  While it's on, an embed token for the map can page its layers' rows through
   `GET /datasets/{id}/rows/`, inside the dataset's tile column allowlist when
   it has one. The rows route also accepts `gid` (one row) and `with_bbox`
-  (each row's bounding box), and maps gain `show_attribute_table`.
+  (each row's bounding box), and maps gain `show_attribute_table`. (#3505)
 - The Maps page marks a map with a dashboard you can see with a Dashboard
-  badge, in the list and grid views.
+  badge, in the list and grid views. (#3484)
 - Stories can be shared with groups, as maps can. In a story's Details, the
   owner picks groups they belong to (an admin can pick any group). A private
   story shared with groups becomes restricted: once published, members of
@@ -103,7 +112,11 @@ and releases use semantic versioning.
   refusal names the maps, and when they're all yours it offers "Share my maps",
   which shares them with the same groups first. Deleting a story's last group
   makes it private. The API adds `PUT /stories/{id}/groups/`, `confirm` on
-  publish and `groups` on story drafts.
+  publish and `groups` on story drafts. (#3499)
+- Deleting a map names the stories that use it, so the owner knows which
+  chapters will lose their scene before confirming. Stories the owner can't
+  read are counted without titles. The API adds `GET /maps/{id}/stories/`.
+  (#3477)
 - A Text widget for map dashboards: Markdown written in the Builder, shown
   beside the numbers for titles, notes on how to read the charts and source
   credits. It has no layer, so picks, the map view and hiding layers don't
@@ -119,7 +132,7 @@ and releases use semantic versioning.
   `ST_IsValid`, `ST_GeometryType`, `ST_NPoints`, `ST_AsText`, `ST_MakeEnvelope`,
   `ST_GeomFromText`, `ST_GeomFromGeoJSON`, `geography()`, `geometry()` and the
   `&&` operator, and a refusal names the function. The MCP `query` tool lists
-  the allowed spatial functions.
+  the allowed spatial functions. (#3502)
 - `DashboardConfig` and `DashboardConfigInput` accept `markdown` widgets, which
   take no `layer_id` or `scope` and whose config is `{"text": "..."}` of at
   most 20,000 characters. A 1.28.0 server refuses them on save and keeps
@@ -131,30 +144,29 @@ and releases use semantic versioning.
   refuses them on save and keeps stored ones out of its responses. Additive.
 - The MCP server returns compact JSON. `search_datasets` returns a fixed set of
   fields per dataset, and `get_map` returns a summary of the map and its layers
-  without styling, column info or sample values.
+  without styling, column info or sample values. (#3500)
 - `DashboardConfig` gains `panel`, `right` or `bottom` (default `right`). A
   save may send it; leaving it out keeps the stored panel. GeoLens sends it
   only for a bottom panel, since a 1.28.0 server refuses the key. A 1.28.0
   server reads a stored bottom panel as right and drops it on its next save.
+  (#3503)
 - Builder map responses carry each column's title, semantic role and value
   labels, as shared map responses already did. `features.geojson` writes
-  `timestamptz` values as UTC text, the same text the tiles carry.
+  `timestamptz` values as UTC text, the same text the tiles carry. (#3507)
 - `MapSummaryResponse` gains `has_dashboard`, true when the map shows you at
-  least one dashboard widget. Additive.
+  least one dashboard widget. Additive. (#3484)
 - A histogram widget on a whole-number column bins in whole numbers;
   `POST /datasets/{id}/aggregate` returns integer bin edges for integer columns
   whose values are within JavaScript's safe range, marks them with
   `whole_numbers: true`, may return fewer bins than asked for a short range,
-  and its last bin can be narrower. A widget whose column isn't available to the reader says so instead
-  of offering Retry, and a bar chart shows a clipped label in full on hover.
-  (Closes #3491)
+  and its last bin can be narrower. (#3503, #3491)
 - `SharedLayerResponse` gains `dataset_tile_columns`, the dataset's tile
   attribute allowlist as `MapLayerResponse` already reports it, so share links
-  and embeds can tell which columns their tiles carry. Additive.
+  and embeds can tell which columns their tiles carry. Additive. (#3497)
 - The story editor saves the draft on its own, two seconds after the last
   edit and when the tab is hidden, and the Save draft button is gone. Blocks
   can move up and down within a chapter, and an image upload keeps going when
-  the author switches chapters.
+  the author switches chapters. (#3498)
 - Every feature read writes `timestamptz` values as UTC text, such as
   `2024-03-01T17:00:00+00:00`, whatever the database's `TimeZone`: OGC API
   Features items, `/datasets/{id}/features/` and `/datasets/{id}/features/{gid}`,
@@ -172,23 +184,33 @@ and releases use semantic versioning.
   giving two datasets one title. (#3495)
 - The Builder and the legend no longer treat interval and point columns as
   numeric, so data-driven styles and heatmap weights no longer offer them.
+  (#3490)
+- A dashboard widget whose column isn't available to the reader says so
+  instead of offering Retry, and a bar chart shows a clipped label in full on
+  hover. (#3503)
+- Raster tile renders take a slot from their own budget, as vector tiles do,
+  so a burst above capacity gets a prompt 429 with `Retry-After` instead of
+  queueing behind TiTiler, and the proxy retries only a failure that never
+  reached TiTiler. An nginx rate limit on raster tiles answers 429 instead of
+  503. (#3481, #3482)
 - Dashboard widget legends, data tables, summaries and indicator labels now
   name a column by its attribute title, as the widget headings already do.
   (#3537)
 - A dashboard Pick now filters a layer whose saved filter uses MapLibre's
   legacy syntax, Picks on a layer the reader hides step aside until it is shown
-  again, and Pick chips use the column's attribute title.
+  again, and Pick chips use the column's attribute title. (#3507)
 - Turning a Builder layer, group or several layers off and back on no longer
   leaves the map marked "Unsaved changes" when it matches the saved map, so
   leaving the page no longer asks for confirmation. (#3465)
 - A `PUT /maps/{id}` that adds layers and saves a dashboard naming them in the
   same request now saves instead of refusing the widgets, and a refusal says
-  why for each widget (`widgets: [{id, layer_id, reason}]`). A layer saved with
+  why for each widget in a new `widgets` list (`{id, layer_id, reason}`),
+  alongside `widget_ids`. A layer saved with
   its own paint no longer gets the default builder outline, and a fill outline
   follows a string `fill-outline-color` when no builder outline is set, in the
   app and in the exported style alike. The layer `layout` and `style_config`
   descriptions document the `_minzoom`/`_maxzoom` zoom range and the
-  `legendLabel`, `colorLabel` and `sizeLabel` keys.
+  `legendLabel`, `colorLabel` and `sizeLabel` keys. (#3504)
 - Saving a Builder map again after a save that stored its layers but failed
   on the map's other settings no longer warns that layers changed in another
   session when you had deleted a layer group. (#3474)
@@ -197,9 +219,9 @@ and releases use semantic versioning.
   503 without `Retry-After` instead of a retryable 429. A view-scope aggregate
   whose limited count probe runs out of time answers `too_wide` (the aggregate
   query itself timing out still answers `query_timeout`), and the verdict is
-  cached.
-  Writing to a column added to a registered table after registration says to
-  refresh the dataset.
+  cached. (#3510)
+- Writing to a column added to a registered table after registration says to
+  refresh the dataset. (#3510)
 - A layer added or duplicated in the Builder while a save was still running
   is no longer added a second time by the next save, and a layer deleted
   during a save no longer makes the next save warn about changes from another
@@ -213,6 +235,10 @@ and releases use semantic versioning.
 ### Security
 
 - Reads authorized by an embed token now stay inside the dataset's tile column allowlist, as its tiles already do. Datasets without an allowlist are unchanged.
+- Python dependencies: joserfc 1.7.7, which authlib uses for OAuth sign-in, for
+  CVE-2026-119283 and CVE-2026-119284, and pyasn1 0.6.5, used only through
+  google-auth for the Vertex AI provider, for CVE-2026-119194 to
+  CVE-2026-119197. (#3506, #3536)
 
 ### Upgrade notes
 
@@ -220,7 +246,7 @@ and releases use semantic versioning.
   that 0088 emptied in 1.27. Neither 1.27 nor 1.28 reads them, so a rolling
   upgrade from 1.28 keeps working. Coming from 1.26, stop at 1.27.1 first, or
   use `scripts/upgrade.sh`, which stops `api` and `worker` before it migrates.
-  (#3381)
+  (#3381, #3445)
 
 ## [1.28.0] - 2026-10-29
 
@@ -7064,7 +7090,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.28.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.29.0...HEAD
+[1.29.0]: https://github.com/geolens-io/geolens/compare/v1.28.0...v1.29.0
 [1.28.0]: https://github.com/geolens-io/geolens/compare/v1.27.1...v1.28.0
 [1.27.1]: https://github.com/geolens-io/geolens/compare/v1.27.0...v1.27.1
 [1.27.0]: https://github.com/geolens-io/geolens/compare/v1.26.0...v1.27.0
