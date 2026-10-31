@@ -873,6 +873,15 @@ describe('layer creates and deletes during a full-replacement save', () => {
     act(() => { handlers.onSuccess(); });
   }
 
+  const indicatorOn = (layerId: string) => ({
+    id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+    type: 'indicator',
+    v: 1,
+    layer_id: layerId,
+    scope: 'layer' as const,
+    config: { stat: 'count', column: null },
+  });
+
   // The ids the second save's PUT listed; undefined when it sent no layers.
   const resentIds = () =>
     (mockUpdateMapMutateAsync.mock.calls[1][0].data.layers as MapLayerInput[] | undefined)?.map((l) => l.id);
@@ -971,19 +980,28 @@ describe('layer creates and deletes during a full-replacement save', () => {
     expectLocalIdsMatchServer(result);
   });
 
+  it('names the id a PATCH stores in the dashboard the same save sends', async () => {
+    const { result, mutate } = renderOnServer([keep]);
+    const finishSave = await startReplacement(result);
+    duplicateDuringSave(result, mutate);
+    await finishSave();
+    act(() => {
+      result.current.handleDashboardChange({ ...result.current.dashboard, widgets: [indicatorOn('dup')] });
+    });
+
+    patchAvailable = true;
+    await act(async () => { await result.current.handleSave(); });
+
+    const sent = mockUpdateMapMutateAsync.mock.calls.at(-1)?.[0].data.dashboard_config;
+    expect(sent.widgets.map((w: { layer_id: string }) => w.layer_id)).toEqual(['stored-1']);
+  });
+
   it('points dashboard widgets at the id a replacement re-creates their layer under', async () => {
     const { result } = renderOnServer([keep, doomed]);
     act(() => {
       result.current.handleDashboardChange({
         ...result.current.dashboard,
-        widgets: [{
-          id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
-          type: 'indicator',
-          v: 1,
-          layer_id: 'doomed',
-          scope: 'layer',
-          config: { stat: 'count', column: null },
-        }],
+        widgets: [indicatorOn('doomed')],
       });
     });
     const finishSave = await startReplacement(result);

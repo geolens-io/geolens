@@ -905,6 +905,25 @@ function replacedBaseline(
   };
 }
 
+/** ``payload`` with its dashboard widgets pointed at the ids ``renamed`` gives their layers. */
+function withRenamedWidgetLayers(
+  payload: MapUpdateRequest,
+  renamed: ReadonlyMap<string, string>,
+): MapUpdateRequest {
+  const config = payload.dashboard_config;
+  if (!config?.widgets || renamed.size === 0) return payload;
+  return {
+    ...payload,
+    dashboard_config: {
+      ...config,
+      widgets: config.widgets.map((w) => {
+        const next = w.layer_id && renamed.get(w.layer_id);
+        return next ? { ...w, layer_id: next } : w;
+      }),
+    },
+  };
+}
+
 export function buildLayerDiff(
   baselineLayers: MapLayerResponse[],
   currentLayers: MapLayerResponse[],
@@ -1211,6 +1230,9 @@ export function useBuilderSave(state: SaveState) {
     const registrations: BaselineRegistration[] = [];
     let replacedLayers: MapLayerResponse[] | null = null;
     let replacedReadFrom = 0;
+    // Layers the server stored under new ids, which the metadata PUT's
+    // dashboard must name.
+    let layerRenames: ReadonlyMap<string, string> = new Map();
     // A layer PATCH commits even when the metadata PUT after it fails, so the
     // baseline advances as soon as it lands; otherwise the retry re-sends
     // removals the server already applied. Layers created or deleted while the
@@ -1226,6 +1248,7 @@ export function useBuilderSave(state: SaveState) {
           registrations,
           replacedReadFrom,
         );
+        layerRenames = renamed;
         // The latest render's, whose dashboard draft holds edits made since.
         if (renamed.size > 0) latestStateRef.current.remapLayerIds(renamed);
         baselineLayersRef.current = baseline;
@@ -1344,7 +1367,7 @@ export function useBuilderSave(state: SaveState) {
                 throw new StaleLayerDiffError();
               }
               commitLayerBaseline();
-              await putMap(metadataPayload);
+              await putMap(withRenamedWidgetLayers(metadataPayload, layerRenames));
               commitSaved();
               toast.warning(t('toasts.mapSavedAfterRemoteChange'));
               if (!editedDuringSave(state, sentPluginSet, camera)) {
@@ -1372,7 +1395,7 @@ export function useBuilderSave(state: SaveState) {
             return;
           }
         }
-        await putMap(metadataPayload);
+        await putMap(withRenamedWidgetLayers(metadataPayload, layerRenames));
       }
 
       commitSaved();
