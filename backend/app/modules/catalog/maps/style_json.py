@@ -594,10 +594,12 @@ def _fill_companion_layers(
     stroke_disabled = bool(
         builder.get("strokeDisabled") or paint.get("_stroke-disabled")
     )
+    native = paint.get("fill-outline-color")
     outline_color = (
         builder.get("outlineColor")
         or paint.get("_outline-color")
         or paint.get("outline-color")
+        or (native if isinstance(native, str) else None)
         or DEFAULT_STROKE_COLOR
     )
     outline_width = (

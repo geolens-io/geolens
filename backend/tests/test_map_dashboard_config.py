@@ -152,6 +152,9 @@ class TestMergeDashboard:
             )
         assert exc.value.status_code == 422
         assert exc.value.detail["widget_ids"] == [on_hidden["id"]]
+        assert exc.value.detail["widgets"] == [
+            {"id": on_hidden["id"], "layer_id": str(shown), "reason": "id_in_use"}
+        ]
 
     def test_the_cap_counts_kept_widgets_without_naming_them(self):
         shown, hidden = uuid.uuid4(), uuid.uuid4()
@@ -484,6 +487,72 @@ class TestDashboardConfigApi:
         )
         assert resp.status_code == 200, resp.text
         assert resp.json()["layer_count"] == 1
+
+    async def test_widgets_can_name_layers_created_by_the_same_save(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(test_db_session, created_by=admin_id)
+        map_id, _ = await _map_with_layers(client, admin_auth_header)
+        sent_id = str(uuid.uuid4())
+
+        resp = await client.put(
+            f"/maps/{map_id}",
+            json={
+                "layers": [{"id": sent_id, "dataset_id": str(dataset.id)}],
+                "dashboard_config": {"widgets": [_widget("indicator", sent_id)]},
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        (layer,) = body["layers"]
+        assert layer["id"] != sent_id
+        assert [w["layer_id"] for w in body["dashboard_config"]["widgets"]] == [
+            layer["id"]
+        ]
+
+    async def test_an_id_sent_for_two_new_layers_names_neither(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(test_db_session, created_by=admin_id)
+        map_id, _ = await _map_with_layers(client, admin_auth_header)
+        sent_id = str(uuid.uuid4())
+
+        resp = await client.put(
+            f"/maps/{map_id}",
+            json={
+                "layers": [
+                    {"id": sent_id, "dataset_id": str(dataset.id)},
+                    {"id": sent_id, "dataset_id": str(dataset.id), "sort_order": 1},
+                ],
+                "dashboard_config": {"widgets": [_widget("indicator", sent_id)]},
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422, resp.text
+
+    async def test_a_refusal_says_why_per_widget(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(test_db_session, created_by=admin_id)
+        map_id, _ = await _map_with_layers(client, admin_auth_header, dataset)
+        _other, (off_map,) = await _map_with_layers(client, admin_auth_header, dataset)
+        widget = _widget("indicator", off_map)
+
+        resp = await client.put(
+            f"/maps/{map_id}",
+            json={"dashboard_config": {"widgets": [widget]}},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422
+        detail = resp.json()["detail"]
+        assert detail["widget_ids"] == [widget["id"]]
+        assert detail["widgets"] == [
+            {"id": widget["id"], "layer_id": off_map, "reason": "layer_unavailable"}
+        ]
 
     async def test_stored_widgets_this_server_cannot_parse_survive_a_save(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session

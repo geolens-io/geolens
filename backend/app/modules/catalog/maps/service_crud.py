@@ -29,7 +29,11 @@ from app.modules.catalog.maps.dashboard import (
     merge_dashboard,
     shows_widgets,
 )
-from app.modules.catalog.maps.service_diff import _replace_layers, _unreadable_layer_ids
+from app.modules.catalog.maps.service_diff import (
+    _coerce_uuid,
+    _replace_layers,
+    _unreadable_layer_ids,
+)
 from app.modules.catalog.maps.sharing import readable_thumbnail_urls
 from app.modules.catalog.maps.service_layers import (
     MAP_WRITE_DENIED,
@@ -532,7 +536,8 @@ async def update_map(
     if layers is not None:
         if map_obj.dashboard_config is not None:
             datasets_before = await _layer_datasets(session, map_id)
-        await _replace_layers(session, map_id, layers, user)
+        created_ids = await _replace_layers(session, map_id, layers, user)
+        dashboard_config = _with_created_layer_ids(dashboard_config, created_ids)
     if dashboard_config is not _UNSET or datasets_before:
         map_obj.dashboard_config = await _saved_dashboard(
             session, map_obj, dashboard_config, user, datasets_before
@@ -550,6 +555,27 @@ async def update_map(
     if db_updated_at is not None:
         map_obj.updated_at = db_updated_at
     return map_obj, layer_rows, forked_name, owner_username
+
+
+def _with_created_layer_ids(
+    dashboard: object, created_ids: dict[uuid.UUID, uuid.UUID]
+) -> object:
+    """``dashboard`` with each widget's layer id swapped for the id the server
+    gave the layer this request created under it."""
+    if not created_ids or not isinstance(dashboard, dict):
+        return dashboard
+    widgets = dashboard.get("widgets")
+    if not isinstance(widgets, list):
+        return dashboard
+    remapped = []
+    for widget in widgets:
+        sent_id = (
+            _coerce_uuid(widget.get("layer_id")) if isinstance(widget, dict) else None
+        )
+        if sent_id in created_ids:
+            widget = {**widget, "layer_id": str(created_ids[sent_id])}
+        remapped.append(widget)
+    return {**dashboard, "widgets": remapped}
 
 
 async def _layer_datasets(

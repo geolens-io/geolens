@@ -390,7 +390,7 @@
     "storyVisibilityUnsupported": "Storys können mit dieser Sichtbarkeit noch nicht veröffentlicht werden.",
     "dashboardTooNew": "Dieses Dashboard wurde mit einer neueren GeoLens-Version gespeichert und kann hier nicht geändert werden.",
     "dashboardTooManyWidgets": "Ein Dashboard enthält höchstens 50 Widgets. Entfernen Sie vor dem Speichern einige.",
-    "dashboardWidgetsRefused": "Einige Dashboard-Widgets nutzen Layer dieser Karte, die Sie nicht lesen können. Entfernen Sie sie oder wählen Sie andere Layer.",
+    "dashboardWidgetsRefused": "Einige Dashboard-Widgets nutzen Layer, die nicht auf dieser Karte liegen oder die Sie nicht lesen können. Entfernen Sie sie oder wählen Sie andere Layer.",
     "storyImageUnreadable": "Die Datei ist kein lesbares Bild.",
     "storyImageTooLarge": "Dieses Bild ist zu groß. Laden Sie eine Datei unter 50 MB mit weniger Pixeln hoch.",
     "storyImageUnsupported": "Nur PNG-, JPEG- und WebP-Bilder können hochgeladen werden.",

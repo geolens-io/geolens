@@ -224,15 +224,26 @@ def merge_dashboard(
                 locked_ids.add(unseen_id)
         kept.append(KeptWidget(tuple(reversed(shown_before)), raw))
 
-    refused = sorted(
-        str(w.id)
-        for w in sent_widgets
-        if str(w.layer_id) not in readable or str(w.id) in locked_ids
-    )
+    # A missing layer and an unreadable one share a reason so a refusal never
+    # tells the editor a hidden layer exists.
+    refused = []
+    for w in sent_widgets:
+        if str(w.layer_id) not in readable:
+            reason = "layer_unavailable"
+        elif str(w.id) in locked_ids:
+            reason = "id_in_use"
+        else:
+            continue
+        refused.append({"id": str(w.id), "layer_id": str(w.layer_id), "reason": reason})
+    refused.sort(key=lambda item: item["id"])
     if refused:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail={"message": _REFUSED, "widget_ids": refused},
+            detail={
+                "message": _REFUSED,
+                "widget_ids": [item["id"] for item in refused],
+                "widgets": refused,
+            },
         )
     if sent is None and not kept:
         return None

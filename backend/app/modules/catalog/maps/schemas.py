@@ -676,7 +676,12 @@ class MapLayerInput(BaseModel):
         default=None, description="MapLibre paint properties override"
     )
     layout: dict | None = Field(
-        default=None, description="MapLibre layout properties override"
+        default=None,
+        description=(
+            "MapLibre layout properties override. `_minzoom` and `_maxzoom` set "
+            "the zoom range where the layer is visible; the exported style "
+            "writes them as `minzoom` and `maxzoom`."
+        ),
     )
     display_name: str | None = Field(
         default=None, max_length=255, description="Label shown in the layer list"
@@ -738,7 +743,11 @@ class MapLayerPatch(BaseModel):
         default=None, description="MapLibre paint properties override"
     )
     layout: dict | None = Field(
-        default=None, description="MapLibre layout properties override"
+        default=None,
+        description=(
+            "MapLibre layout properties override. `_minzoom` and `_maxzoom` set "
+            "the zoom range where the layer is visible."
+        ),
     )
     display_name: str | None = Field(default=None, max_length=255)
     filter: list | None = Field(default=None, description="MapLibre filter expression")
