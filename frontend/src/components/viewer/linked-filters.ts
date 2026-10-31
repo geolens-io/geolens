@@ -42,11 +42,18 @@ export function selectionFilter(selection: WidgetSelection, type?: string, geoJs
     if (type && isIntegerColumn(type)) {
       lower = Math.ceil(lower);
       upper = includeUpper ? Math.floor(upper) : Math.ceil(upper);
-    } else if (geoJson && type === 'real') {
-      // GeoJSON writes an edge's value as its shortest decimal, which can sit on
-      // either side of the edge; each bound moves to whichever keeps the same points.
-      lower = Math.min(lower, float4Text(lower));
-      upper = includeUpper ? Math.max(upper, float4Text(upper)) : Math.min(upper, float4Text(upper));
+    } else if (type === 'real') {
+      // The server rounds an edge to float4. Edges that are float4 already, the
+      // lower one up and an exclusive upper one up, keep exactly the values the
+      // bin's float8 range holds, as the map compares them.
+      lower = float4Ceil(lower);
+      upper = includeUpper ? float4Floor(upper) : float4Ceil(upper);
+      if (geoJson) {
+        // GeoJSON writes an edge's value as its shortest decimal, which can sit on
+        // either side of the edge; each bound moves to whichever keeps the same points.
+        lower = Math.min(lower, float4Text(lower));
+        upper = includeUpper ? Math.max(upper, float4Text(upper)) : Math.min(upper, float4Text(upper));
+      }
     }
     return [
       'all',
@@ -65,6 +72,23 @@ export function selectionFilter(selection: WidgetSelection, type?: string, geoJs
     parts.push(['any', ['!', ['has', column]], ['==', ['get', column], null]]);
   }
   return (parts.length === 1 ? parts[0] : ['any', ...parts]) as FilterSpecification;
+}
+
+const FLOAT4_BITS = new DataView(new ArrayBuffer(4));
+
+/** The smallest float4 that is at least `value`, as a double. */
+function float4Ceil(value: number): number {
+  const rounded = Math.fround(value);
+  if (!Number.isFinite(rounded) || rounded >= value) return rounded;
+  if (rounded === 0) return 2 ** -149;
+  FLOAT4_BITS.setFloat32(0, rounded);
+  FLOAT4_BITS.setInt32(0, FLOAT4_BITS.getInt32(0) + (rounded > 0 ? 1 : -1));
+  return FLOAT4_BITS.getFloat32(0);
+}
+
+/** The largest float4 that is at most `value`, as a double. */
+function float4Floor(value: number): number {
+  return -float4Ceil(-value);
 }
 
 /** The shortest decimal that reads back as the float4 `value`, as PostgreSQL writes a `real` in JSON. */

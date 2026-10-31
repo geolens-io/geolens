@@ -300,6 +300,78 @@ describe('DashboardEditorPanel', () => {
     expect(within(preview).queryByRole('heading', { level: 3 })).not.toBeInTheDocument();
   });
 
+  it('previews the assembled panel beside the map, where readers see it', async () => {
+    const user = userEvent.setup();
+    const stored = {
+      id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+      type: 'indicator',
+      v: 1,
+      layer_id: parcels.id,
+      scope: 'layer' as const,
+      title: 'Parcel count',
+      config: { stat: 'count', column: null },
+    };
+    render(<Harness initial={{ panel: 'bottom', widgets: [stored] }} onChange={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Preview panel' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Preview panel' });
+    const panel = within(dialog).getByRole('region', { name: 'Dashboard' });
+    expect(await within(panel).findByText('42')).toBeInTheDocument();
+    expect(within(panel).getByRole('heading', { name: 'Parcel count' })).toBeInTheDocument();
+    expect(within(dialog).getByText('Map')).toBeInTheDocument();
+    // Below the map the preview stacks; to its right it sits in a row.
+    expect(panel.parentElement).not.toHaveClass('md:flex-row');
+  });
+
+  it('lays the preview out in a row for a panel to the right of the map', async () => {
+    const user = userEvent.setup();
+    const stored = {
+      id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+      type: 'indicator',
+      v: 1,
+      layer_id: parcels.id,
+      scope: 'layer' as const,
+      config: { stat: 'count', column: null },
+    };
+    render(<Harness initial={{ panel: 'right', widgets: [stored] }} onChange={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: 'Preview panel' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Preview panel' });
+    expect(within(dialog).getByRole('region', { name: 'Dashboard' }).parentElement).toHaveClass('md:flex-row');
+  });
+
+  it('offers no panel preview before there are widgets', () => {
+    render(<Harness onChange={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Preview panel' })).not.toBeInTheDocument();
+  });
+
+  it('warns that embedded copies cannot show a column outside the dataset\'s tile columns', () => {
+    const widget = {
+      id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+      type: 'bar_chart',
+      v: 1,
+      layer_id: parcels.id,
+      scope: 'layer' as const,
+      config: { column: 'land_use', stat: 'count', stat_column: null, limit: 10 },
+    };
+    const limited = layer({ ...parcels, dataset_tile_columns: ['parcel_id'], dataset_visibility: 'private' });
+    const { unmount } = render(<Harness layers={[limited]} initial={{ panel: 'right', widgets: [widget] }} onChange={vi.fn()} />);
+    expect(screen.getByText("Embedded copies of this map can't show this column.")).toBeInTheDocument();
+    unmount();
+
+    for (const fields of [
+      { dataset_tile_columns: null },
+      { dataset_tile_columns: ['land_use'] },
+      // Anyone can read a public dataset in full, so an embed isn't narrowed.
+      { dataset_tile_columns: ['parcel_id'], dataset_visibility: 'public' as const },
+    ]) {
+      const open = layer({ ...parcels, ...fields });
+      const view = render(<Harness layers={[open]} initial={{ panel: 'right', widgets: [widget] }} onChange={vi.fn()} />);
+      expect(screen.queryByText(/Embedded copies/)).not.toBeInTheDocument();
+      view.unmount();
+    }
+  });
+
   it('asks for a layer with rows before offering widgets', async () => {
     render(<Harness layers={[raster]} onChange={vi.fn()} />);
     expect(

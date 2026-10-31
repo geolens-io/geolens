@@ -649,6 +649,7 @@
     "customizeZoom": "-- nivel de zoom",
     "customizeCenter": "-- centro del mapa",
     "customizeLegend": "-- mostrar/ocultar leyenda",
+    "dashboardCollapsed": "Abrir con el panel plegado",
     "revokeShareLink": "Revocar enlace compartido",
     "restrictToDomains": "Restringir a dominios",
     "visibilityLabel": "Visibilidad del mapa: {{status}}",

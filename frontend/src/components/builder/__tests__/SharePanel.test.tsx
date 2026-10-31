@@ -144,6 +144,7 @@ function setup({
   groups,
   gateEmbedTokens = false,
   groupHiddenIds = [],
+  hasDashboard = false,
   onOpenChange = vi.fn(),
 }: {
   enterprise?: boolean;
@@ -187,6 +188,8 @@ function setup({
   gateEmbedTokens?: boolean;
   /** The layer ids the server says some of the map's groups can't read. */
   groupHiddenIds?: string[];
+  /** Whether the saved map has a dashboard. */
+  hasDashboard?: boolean;
   onOpenChange?: (open: boolean) => void;
 } = {}) {
   const createShareToken = vi.fn().mockResolvedValue({
@@ -317,6 +320,7 @@ function setup({
       hasUnsavedChanges={hasUnsavedChanges}
       saveStatus={saveStatus}
       layers={layers}
+      hasDashboard={hasDashboard}
     />
   );
   // Bare: see the renderUnderStrictMode import comment above. Every hook
@@ -494,6 +498,25 @@ describe('#1515: embed code sandbox attribute', () => {
     expect(textarea.value).toContain('title="');
     expect(textarea.value).toContain('width="100%"');
   });
+
+  it('adds dashboard=collapsed to the embed code from a toggle shown only for a map with a dashboard', async () => {
+    const user = userEvent.setup();
+    setup({ enterprise: false, hasShareToken: false, hasDashboard: true });
+    await user.click(screen.getByRole('button', { name: /generate share link/i }));
+    const textarea = (await screen.findByRole('textbox')) as HTMLTextAreaElement;
+    expect(textarea.value).not.toContain('dashboard=collapsed');
+
+    await user.click(screen.getByRole('switch', { name: 'Start with the dashboard collapsed' }));
+    expect(textarea.value).toContain('dashboard=collapsed');
+  });
+
+  it('offers no collapsed toggle for a map without a dashboard', async () => {
+    const user = userEvent.setup();
+    setup({ enterprise: false, hasShareToken: false });
+    await user.click(screen.getByRole('button', { name: /generate share link/i }));
+    await screen.findByRole('textbox');
+    expect(screen.queryByRole('switch', { name: 'Start with the dashboard collapsed' })).not.toBeInTheDocument();
+  });
 });
 
 describe('SHARE-04: buildEmbedSrc shared URL builder', () => {
@@ -509,6 +532,14 @@ describe('SHARE-04: buildEmbedSrc shared URL builder', () => {
   it('omits et= when no embed token is supplied', () => {
     const src = buildEmbedSrc({ shareToken: 'abc123', embedTokenRaw: '', origin: 'https://x.io' });
     expect(src).toBe('https://x.io/m/abc123?embed=true');
+  });
+
+  it('adds dashboard=collapsed only when asked', () => {
+    const args = { shareToken: 'abc123', embedTokenRaw: 'tok-456', origin: 'https://x.io' };
+    expect(buildEmbedSrc({ ...args, dashboardCollapsed: true })).toBe(
+      'https://x.io/m/abc123?embed=true&et=tok-456&dashboard=collapsed',
+    );
+    expect(buildEmbedSrc({ ...args, dashboardCollapsed: false })).not.toContain('dashboard');
   });
 
   it('generateEmbedCode wraps the exact buildEmbedSrc output (no drift)', () => {
@@ -1074,6 +1105,10 @@ describe('SHARE-03 embed-preview iframe', () => {
     vi.useRealTimers();
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('test_preview_pane_collapsed_by_default: Preview toggle visible but iframe NOT in DOM after generating link', async () => {
     const user = userEvent.setup();
     // hasNonPublic:true so embedTokenRaw is created (preview pane requires embedTokenRaw)
@@ -1123,6 +1158,38 @@ describe('SHARE-03 embed-preview iframe', () => {
       title: 'Harbor map',
     });
     expect(snippet).toContain(`sandbox="${iframe.getAttribute('sandbox')}"`);
+  });
+
+  it('waits on a fresh load when the collapsed switch changes the preview URL', async () => {
+    const user = userEvent.setup();
+    setup({ enterprise: false, hasShareToken: false, hasNonPublic: true, hasDashboard: true });
+
+    await generateShareLinkAndWait(user);
+    await user.click(screen.getByRole('button', { name: /preview/i }));
+    const iframe = await screen.findByTestId('share-preview-iframe');
+    fireEvent.load(iframe);
+    expect(iframe).toHaveClass('opacity-100');
+
+    await user.click(screen.getByRole('switch', { name: 'Start with the dashboard collapsed' }));
+    expect(screen.getByTestId('share-preview-iframe')).toHaveClass('opacity-0');
+  });
+
+  it('gives the replacement URL a full 8 seconds to load when the switch changes it mid-load', async () => {
+    const user = userEvent.setup();
+    setup({ enterprise: false, hasShareToken: false, hasNonPublic: true, hasDashboard: true });
+    await generateShareLinkAndWait(user);
+
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole('button', { name: /preview/i }));
+    expect(screen.getByTestId('share-preview-iframe')).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(7000));
+    fireEvent.click(screen.getByRole('switch', { name: 'Start with the dashboard collapsed' }));
+
+    act(() => vi.advanceTimersByTime(7999));
+    expect(screen.getByTestId('share-preview-iframe')).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.queryByTestId('share-preview-iframe')).not.toBeInTheDocument();
+    expect(screen.getByText('Preview unavailable')).toBeInTheDocument();
   });
 
   it('test_iframe_title_attribute_set: iframe has title="Map embed preview" (a11y)', async () => {

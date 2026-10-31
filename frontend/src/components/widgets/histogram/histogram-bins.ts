@@ -8,7 +8,11 @@ import type { HistogramConfig } from './definition';
 export interface HistogramBinRow {
   lower: number;
   upper: number;
-  /** The last bin holds its upper edge, the column's maximum. */
+  /**
+   * The last bin holds its upper edge, the column's maximum. A whole-number
+   * bin is closed at its last whole number, so a pick never names a value past
+   * the column type's maximum.
+   */
   includeUpper: boolean;
   count: number;
   /** The bin's edges and range in the reader's locale. */
@@ -43,24 +47,28 @@ export function useHistogramText(config: HistogramConfig, data: unknown): Histog
   };
   const result = aggregateResult(data, 'histogram');
   if (!result) return headings;
+  // A server that predates the flag sends half-open bins whatever the column.
+  const whole = result.whole_numbers === true;
   const first = result.bins[0];
   const digits = first ? edgeDigits(first.upper - first.lower) : 2;
   const edge = (value: number) => formatNumber(value, { maximumFractionDigits: digits });
   return {
     ...headings,
     bins: result.bins.map((bin, index, all) => {
+      // A whole-number bin [a, a + w) holds a to a + w - 1.
+      const upper = whole ? bin.upper - 1 : bin.upper;
       const lowerText = edge(bin.lower);
-      const upperText = edge(bin.upper);
+      const upperText = edge(upper);
       return {
         lower: bin.lower,
-        upper: bin.upper,
-        includeUpper: index === all.length - 1,
+        upper,
+        includeUpper: whole || index === all.length - 1,
         count: bin.count,
         lowerText,
         upperText,
-        // One value fills a single bin with no width.
+        // A bin of one value is labelled by that value.
         label:
-          bin.lower === bin.upper
+          bin.lower === bin.upper || (whole && bin.upper - bin.lower <= 1)
             ? lowerText
             : t('types.histogram.range', { lower: lowerText, upper: upperText }),
         countText: formatAggregateValue(bin.count),

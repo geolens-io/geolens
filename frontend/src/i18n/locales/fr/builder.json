@@ -649,6 +649,7 @@
     "customizeZoom": "-- niveau de zoom",
     "customizeCenter": "-- centre de la carte",
     "customizeLegend": "-- afficher/masquer la légende",
+    "dashboardCollapsed": "Démarrer avec le tableau de bord réduit",
     "revokeShareLink": "Révoquer le lien de partage",
     "restrictToDomains": "Restreindre aux domaines",
     "visibilityLabel": "Visibilité de la carte: {{status}}",

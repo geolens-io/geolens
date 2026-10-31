@@ -649,6 +649,7 @@
     "customizeZoom": "覆盖缩放级别",
     "customizeCenter": "覆盖地图中心",
     "customizeLegend": "显示或隐藏图例",
+    "dashboardCollapsed": "以折叠的仪表板启动",
     "revokeShareLink": "撤销共享链接",
     "restrictToDomains": "限制域名",
     "visibilityLabel": "地图可见性：{{status}}",

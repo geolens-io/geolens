@@ -50,6 +50,8 @@ and releases use semantic versioning.
   when it can't, and a widget set to follow the map view updates once the map
   stops moving. Widgets on a layer the reader turns off in the legend leave
   the panel.
+- The Builder can preview a map's Dashboard panel before saving, and the
+  share panel can start an embed with the dashboard collapsed.
 - Dashboard authoring in the Builder. The Dashboard panel adds indicator, bar
   chart, histogram and category selector widgets, picks each one's layer,
   columns and scope, orders them, places the panel and previews each widget
@@ -82,6 +84,13 @@ and releases use semantic versioning.
   server reads a stored bottom panel as right and drops it on its next save.
 - `MapSummaryResponse` gains `has_dashboard`, true when the map shows you at
   least one dashboard widget. Additive.
+- A histogram widget on a whole-number column bins in whole numbers;
+  `POST /datasets/{id}/aggregate` returns integer bin edges for integer columns
+  whose values are within JavaScript's safe range, marks them with
+  `whole_numbers: true`, may return fewer bins than asked for a short range,
+  and its last bin can be narrower. A widget whose column isn't available to the reader says so instead
+  of offering Retry, and a bar chart shows a clipped label in full on hover.
+  (Closes #3491)
 - `SharedLayerResponse` gains `dataset_tile_columns`, the dataset's tile
   attribute allowlist as `MapLayerResponse` already reports it, so share links
   and embeds can tell which columns their tiles carry. Additive.

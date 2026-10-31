@@ -127,9 +127,10 @@ OPERATIONS = [
         {"op": "histogram", "column": "pop", "bins": 2},
         {
             "bins": [
-                {"lower": 10.0, "upper": 45.0, "count": 4},
-                {"lower": 45.0, "upper": 80.0, "count": 4},
-            ]
+                {"lower": 10.0, "upper": 46.0, "count": 4},
+                {"lower": 46.0, "upper": 81.0, "count": 4},
+            ],
+            "whole_numbers": True,
         },
     ),
     (
@@ -226,6 +227,142 @@ class TestOperations:
             {"lower": -1e308, "upper": 0.0, "count": 1},
             {"lower": 0.0, "upper": 1e308, "count": 5},
         ]
+
+    async def test_an_integer_histogram_has_whole_number_bins_over_a_wide_range(
+        self, client: AsyncClient, points
+    ):
+        resp = await _aggregate(
+            client, points.id, {"op": "histogram", "column": "pop", "bins": 3}
+        )
+
+        assert resp.status_code == 200, resp.text
+        # 10 .. 80 is 71 whole numbers; 24 to a bin keeps every edge whole.
+        assert resp.json()["result"] == {
+            "bins": [
+                {"lower": 10.0, "upper": 34.0, "count": 3},
+                {"lower": 34.0, "upper": 58.0, "count": 2},
+                {"lower": 58.0, "upper": 81.0, "count": 3},
+            ],
+            "whole_numbers": True,
+        }
+
+    async def test_an_integer_histogram_has_no_empty_bins_between_whole_numbers(
+        self, client: AsyncClient, test_db_session, points
+    ):
+        await test_db_session.execute(
+            text(f"UPDATE data.{points.table_name} SET pop = gid")  # noqa: S608
+        )
+        await test_db_session.commit()
+
+        resp = await _aggregate(
+            client, points.id, {"op": "histogram", "column": "pop", "bins": 20}
+        )
+
+        # Eight whole numbers fill eight bins, not twenty.
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["result"]["bins"] == [
+            {"lower": float(i), "upper": float(i + 1), "count": 1} for i in range(1, 9)
+        ]
+
+    async def test_a_bigint_histogram_bins_each_value_where_its_edges_say(
+        self, client: AsyncClient, test_db_session, points
+    ):
+        table = f"data.{points.table_name}"
+        await test_db_session.execute(
+            text(f"ALTER TABLE {table} ALTER COLUMN pop TYPE bigint")  # noqa: S608
+        )
+        await test_db_session.execute(
+            text(
+                f"UPDATE {table} SET pop = CASE gid"  # noqa: S608
+                " WHEN 1 THEN -9007199254740991 WHEN 2 THEN 4503599627370496"
+                " WHEN 3 THEN 9007199254740990 END"
+            )
+        )
+        await test_db_session.commit()
+
+        resp = await _aggregate(
+            client, points.id, {"op": "histogram", "column": "pop", "bins": 4}
+        )
+
+        # The middle value sits just below the last bin's lower edge, and the
+        # last upper edge is 2^53 - 1, the largest safe integer.
+        assert resp.status_code == 200, resp.text
+        result = resp.json()["result"]
+        assert result["whole_numbers"] is True
+        assert [b["count"] for b in result["bins"]] == [1, 0, 1, 1]
+        assert result["bins"][2] == {
+            "lower": 1.0,
+            "upper": 4503599627370497.0,
+            "count": 1,
+        }
+        assert result["bins"][3]["upper"] == 9007199254740991.0
+
+    async def test_a_bigint_histogram_ending_at_the_largest_safe_integer_has_float_bins(
+        self, client: AsyncClient, test_db_session, points
+    ):
+        table = f"data.{points.table_name}"
+        await test_db_session.execute(
+            text(f"ALTER TABLE {table} ALTER COLUMN pop TYPE bigint")  # noqa: S608
+        )
+        await test_db_session.execute(
+            text(f"UPDATE {table} SET pop = 9007199254740991 WHERE gid = 8")  # noqa: S608
+        )
+        await test_db_session.commit()
+
+        resp = await _aggregate(
+            client, points.id, {"op": "histogram", "column": "pop", "bins": 4}
+        )
+
+        # Whole-number bins would end at 2^53, past the safe integers.
+        assert resp.status_code == 200, resp.text
+        result = resp.json()["result"]
+        assert result["whole_numbers"] is False
+        assert result["bins"][-1]["upper"] == 9007199254740991.0
+        assert [b["count"] for b in result["bins"]] == [7, 0, 0, 1]
+
+    @pytest.mark.parametrize(
+        ("values", "counts"),
+        [
+            ([2**53, 2**53 + 1, 2**53 + 1000], [2, 0, 0, 1]),
+            ([-(2**53) - 1000, -(2**53) - 1, -(2**53)], [1, 0, 0, 2]),
+        ],
+        ids=["positive", "negative"],
+    )
+    async def test_a_bigint_histogram_past_the_safe_integers_has_float_bins(
+        self, client: AsyncClient, test_db_session, points, values, counts
+    ):
+        table = f"data.{points.table_name}"
+        await test_db_session.execute(
+            text(f"ALTER TABLE {table} ALTER COLUMN pop TYPE bigint")  # noqa: S608
+        )
+        await test_db_session.execute(
+            text(
+                f"UPDATE {table} SET pop = CASE gid"  # noqa: S608
+                f" WHEN 1 THEN {values[0]} WHEN 2 THEN {values[1]}"
+                f" WHEN 3 THEN {values[2]} END"
+            )
+        )
+        await test_db_session.commit()
+
+        resp = await _aggregate(
+            client, points.id, {"op": "histogram", "column": "pop", "bins": 4}
+        )
+
+        # Edges 250 apart are exact doubles, and the neighbours share the bin
+        # holding both of them.
+        assert resp.status_code == 200, resp.text
+        low = min(values)
+        assert resp.json()["result"] == {
+            "bins": [
+                {
+                    "lower": float(low + 250 * i),
+                    "upper": float(low + 250 * (i + 1)),
+                    "count": count,
+                }
+                for i, count in enumerate(counts)
+            ],
+            "whole_numbers": False,
+        }
 
     def test_histogram_edges_never_decrease_over_adjacent_doubles(self):
         low, high = 0.3, 0.30000000000000004
@@ -596,6 +733,23 @@ class TestCache:
         after = await _aggregate(client, points.id, body)
         assert after.json()["cached"] is False
         assert after.json()["result"]["count"] == 9
+
+    async def test_a_result_cached_in_an_older_format_is_not_read(
+        self, client: AsyncClient, points
+    ):
+        body = {"op": "stats", "column": "pop", "stats": ["count"]}
+        request = aggregate.StatsRequest.model_validate(body)
+        old_key = aggregate._cache_key(
+            "aggregate",
+            points,
+            request.model_dump(mode="json") | {"bbox": None, "covered": False},
+        )
+        await aggregate.get_cache().set(old_key, {"count": 999}, ttl=300)
+
+        resp = await _aggregate(client, points.id, body)
+
+        assert resp.json()["cached"] is False
+        assert resp.json()["result"]["count"] == 8
 
 
 @pytest.fixture

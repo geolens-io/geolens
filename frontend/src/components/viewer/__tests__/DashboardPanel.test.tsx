@@ -193,6 +193,27 @@ describe('DashboardPanel', () => {
     expect(within(panel).getByRole('article', { name: 'Sum of score City parcels' })).toBeInTheDocument();
   });
 
+  it('keeps an integer column\'s histogram bins half-open when the server doesn\'t say they are whole numbers', async () => {
+    const histogram = { ...chartWidget, type: 'histogram', config: { column: 'score', bins: 2 } };
+    const bins = [
+      { lower: 10, upper: 45, count: 4 },
+      { lower: 45, upper: 80, count: 4 },
+    ];
+    // A server from before the flag bins integers as floats, the last bin holding the maximum.
+    fetchMock.mockImplementation(async () => ({ op: 'histogram', approximate: false, cached: false, result: { bins } }) as never);
+    render(
+      <DashboardPanel
+        config={dashboard([histogram])}
+        layers={[layer({ column_info: [{ name: 'score', type: 'integer' }] })]}
+        map={null}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('rowheader').map((header) => header.textContent)).toEqual(['10 – 45', '45 – 80']);
+    });
+  });
+
   it('collapses and reopens, remembering the choice for the map', async () => {
     const user = userEvent.setup();
     const props = {
@@ -315,6 +336,33 @@ describe('DashboardPanel', () => {
     expect(
       await screen.findByText('Too many features in view. Zoom in to see these numbers.'),
     ).toBeInTheDocument();
+  });
+
+  it('says a refused column is unavailable, with no retry, and keeps retry for other failures', async () => {
+    const { ApiError } = await import('@/api/client');
+    fetchMock.mockRejectedValue(
+      new ApiError('refused', 422, { code: 'invalid_column', message: 'Unknown column' }),
+    );
+    const { unmount } = render(
+      <DashboardPanel config={dashboard([countWidget])} layers={[layer()]} map={null} mapId="map-1" />,
+    );
+    expect(await screen.findByText("This widget's column isn't available here.")).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    unmount();
+
+    fetchMock.mockReset();
+    fetchMock.mockRejectedValue(new Error('network down'));
+    render(<DashboardPanel config={dashboard([countWidget])} layers={[layer()]} map={null} mapId="map-1" />);
+    expect(await screen.findByText("These numbers couldn't be loaded.")).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
+  it('says a refused filter cannot be applied, with no retry', async () => {
+    const { ApiError } = await import('@/api/client');
+    fetchMock.mockRejectedValue(new ApiError('refused', 422, { code: 'invalid_filter', message: 'Filter too deep' }));
+    render(<DashboardPanel config={dashboard([countWidget])} layers={[layer()]} map={null} mapId="map-1" />);
+    expect(await screen.findByText("This widget's filter can't be applied here.")).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
   });
 
   it('leaves out widgets whose layer the reader turns off, and keeps those on layers saved hidden', async () => {

@@ -17,7 +17,7 @@ import { isCql2QueryableColumn, type Cql2Expression } from '@/lib/maplibre-filte
 import { isMvtSourceLayerConfigReady } from '@/lib/tile-utils';
 import { readStorage, removeStorage, storageKeys, writeStorage } from '@/lib/storage';
 import { cn } from '@/lib/utils';
-import type { DashboardConfig, SharedLayerResponse } from '@/types/api';
+import type { SharedLayerResponse } from '@/types/api';
 import { FilterChips } from './FilterChips';
 import { useMapViewBbox, useWidgetAggregate } from './hooks/use-dashboard-data';
 import { usePicks } from './hooks/use-picks';
@@ -39,12 +39,21 @@ export function widgetName(
   );
 }
 
-function errorKey(error: unknown): 'dashboard.tooWide' | 'dashboard.loadFailed' {
-  const code =
-    error instanceof ApiError && typeof error.body === 'object' && error.body !== null
-      ? (error.body as { code?: unknown }).code
-      : undefined;
-  return code === 'too_wide' ? 'dashboard.tooWide' : 'dashboard.loadFailed';
+/** A refused column or filter is refused again on a retry; a column the reader can't see is refused like a missing one. */
+const REFUSED_CODES: ReadonlySet<unknown> = new Set(['invalid_column', 'invalid_filter']);
+
+function errorCode(error: unknown): unknown {
+  return error instanceof ApiError && typeof error.body === 'object' && error.body !== null
+    ? (error.body as { code?: unknown }).code
+    : undefined;
+}
+
+function errorKey(
+  code: unknown,
+): 'dashboard.tooWide' | 'dashboard.columnUnavailable' | 'dashboard.filterRefused' | 'dashboard.loadFailed' {
+  if (code === 'too_wide') return 'dashboard.tooWide';
+  if (code === 'invalid_filter') return 'dashboard.filterRefused';
+  return code === 'invalid_column' ? 'dashboard.columnUnavailable' : 'dashboard.loadFailed';
 }
 
 /** One widget with its heading, notices and data; the Builder's editor previews widgets with it. */
@@ -95,6 +104,7 @@ export function DashboardWidget({
   // Numbers kept on screen while a pan's new ones load.
   const stale = query.isPlaceholderData;
   const failed = query.isError;
+  const code = failed ? errorCode(query.error) : undefined;
   useEffect(() => {
     onFailedChange?.(instance.id, failed);
   }, [onFailedChange, instance.id, failed]);
@@ -131,10 +141,12 @@ export function DashboardWidget({
       )}
       {failed && (
         <div className="flex flex-wrap items-center gap-2">
-          <p className="text-xs text-destructive">{t(errorKey(query.error))}</p>
-          <Button type="button" variant="outline" size="xs" onClick={() => void query.refetch()}>
-            {t('dashboard.retry')}
-          </Button>
+          <p className="text-xs text-destructive">{t(errorKey(code))}</p>
+          {!REFUSED_CODES.has(code) && (
+            <Button type="button" variant="outline" size="xs" onClick={() => void query.refetch()}>
+              {t('dashboard.retry')}
+            </Button>
+          )}
         </div>
       )}
       {loading ? (
@@ -150,11 +162,14 @@ export function DashboardWidget({
   );
 }
 
+/** The part of a dashboard config the panel reads: a stored one, or a draft's as a save would send it. */
+type PanelConfig = { panel?: string | null; widgets?: readonly { id: string }[] };
+
 type PanelWidget = { key: string; parsed: ParsedWidget };
 export type PanelPosition = 'right' | 'bottom';
 
 /** Where the author put the panel; a dashboard from before the choice existed sits on the right. */
-export function dashboardPanelPosition(config: DashboardConfig | null | undefined): PanelPosition {
+export function dashboardPanelPosition(config: PanelConfig | null | undefined): PanelPosition {
   return config?.panel === 'bottom' ? 'bottom' : 'right';
 }
 
@@ -264,7 +279,7 @@ function DashboardWidgetList({
 }
 
 interface DashboardPanelProps {
-  config: DashboardConfig | null | undefined;
+  config: PanelConfig | null | undefined;
   layers: readonly SharedLayerResponse[];
   /** Ids of the layers the reader turned off in the legend; their widgets are left out. */
   hiddenLayers?: ReadonlySet<string>;

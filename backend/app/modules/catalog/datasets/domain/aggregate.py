@@ -64,6 +64,7 @@ _MAX_ITEMS = 50
 # filter. Filters the builder writes nest a few levels.
 _MAX_FILTER_DEPTH = 64
 _FLOAT_TYPES = frozenset({"real", "double precision"})
+_INTEGER_TYPES = frozenset({"smallint", "integer", "bigint"})
 # Integers at or past this lose precision as JavaScript numbers.
 _JS_SAFE_INTEGER = 2**53
 _QUERY_CANCELED = "57014"
@@ -209,7 +210,20 @@ class HistogramBin(BaseModel):
 
 class HistogramResult(BaseModel):
     bins: list[HistogramBin] = Field(
-        description="Equal-width bins over the finite values; empty with none."
+        description=(
+            "Equal-width bins over the finite values, empty with none. Unless"
+            " whole_numbers is true, a bin holds its lower edge but not its upper"
+            " one, and the last bin holds both."
+        )
+    )
+    whole_numbers: bool = Field(
+        False,
+        description=(
+            "Whether each bin holds the whole numbers from its lower edge to one"
+            " below its upper edge. Only an integer column has whole-number bins,"
+            " and only while every edge is a safe JavaScript integer; they may"
+            " then number fewer than requested, and the last may be narrower."
+        ),
     )
 
 
@@ -418,17 +432,36 @@ def build_aggregate_sql(
             ") AS _g ORDER BY _g._n DESC, _g._k NULLS LAST"
         )
     if request.op == "histogram":
-        number = _number_sql(
-            request.column, _column_type(columns, request.column, numeric=True)
-        )
+        data_type = _column_type(columns, request.column, numeric=True)
+        number = _number_sql(request.column, data_type)
         quoted = _sql_quote_ident(request.column)
         bins = request.bins
-        return (
+        if data_type in _INTEGER_TYPES:
+            # [a, a + w) holds a .. a + w - 1, by integer division on numeric
+            # since float8 rounds a bigint. Edges lie in [lo, hi + 1]; when JSON
+            # can't hold them exactly, w is NULL and the values take float bins.
+            safe = _JS_SAFE_INTEGER - 1
+            return (
+                f"WITH _f AS (SELECT {number} AS x"
+                f"{from_where(f'{quoted} IS NOT NULL')}),"
+                " _r AS (SELECT min(x) AS lo, max(x) AS hi FROM _f),"
+                f" _s AS (SELECT lo, hi, CASE WHEN lo >= -{safe} AND hi < {safe}"
+                f" THEN greatest(1, div(hi - lo + {bins}, {bins})) END AS w FROM _r)"
+                " SELECT _s.lo AS _lo, _s.hi AS _hi, CASE"
+                " WHEN _s.w IS NOT NULL THEN div(_f.x - _s.lo, _s.w)::int"
+                " WHEN _s.hi::float8 = _s.lo::float8 THEN 1 ELSE least(width_bucket("
+                f"_f.x::float8, _s.lo::float8, _s.hi::float8, {bins}), {bins}) END AS _b,"
+                " count(*) AS _n, _s.w AS _w"
+                " FROM _f CROSS JOIN _s GROUP BY 1, 2, 3, 5 ORDER BY 3"
+            )
+        head = (
             f"WITH _v AS (SELECT {number}::float8 AS x"
             f"{from_where(f'{quoted} IS NOT NULL')}),"
             " _f AS (SELECT x FROM _v"
             " WHERE x > '-Infinity'::float8 AND x < 'Infinity'::float8),"
-            " _r AS (SELECT min(x) AS lo, max(x) AS hi FROM _f)"
+        )
+        return (
+            f"{head} _r AS (SELECT min(x) AS lo, max(x) AS hi FROM _f)"
             " SELECT _r.lo AS _lo, _r.hi AS _hi, CASE WHEN _r.hi = _r.lo THEN 1"
             f" ELSE least(width_bucket(_f.x, _r.lo, _r.hi, {bins}), {bins}) END AS _b,"
             " count(*) AS _n FROM _f CROSS JOIN _r GROUP BY 1, 2, 3 ORDER BY 3"
@@ -450,9 +483,31 @@ def build_aggregate_sql(
     )
 
 
+def _whole_number_histogram(rows: Sequence[Sequence[Any]]) -> HistogramResult:
+    """Bins of ``w`` whole numbers from the minimum; the last stops after the maximum."""
+    low, high, width = int(rows[0][0]), int(rows[0][1]), int(rows[0][4])
+    counts = {int(row[2]): int(row[3]) for row in rows}
+    count = -(-(high - low + 1) // width)
+    return HistogramResult(
+        bins=[
+            HistogramBin(
+                lower=low + i * width,
+                upper=min(low + (i + 1) * width, high + 1),
+                count=counts.get(i, 0),
+            )
+            for i in range(count)
+        ],
+        whole_numbers=True,
+    )
+
+
 def _histogram(rows: Sequence[Sequence[Any]], bins: int) -> HistogramResult:
     if not rows:
         return HistogramResult(bins=[])
+    # An integer column's rows carry a fifth value, the width of its
+    # whole-number bins, or NULL when it was binned as floats.
+    if len(rows[0]) == 5 and rows[0][4] is not None:
+        return _whole_number_histogram(rows)
     low, high = float(rows[0][0]), float(rows[0][1])
     if low == high:
         return HistogramResult(
@@ -618,6 +673,11 @@ def _check_filter_depth(cql2: Any) -> None:
             pending.extend((child, depth + 1) for child in children)
 
 
+# Part of each result's cache key, so a server never reads an answer cached in
+# another result format; at 3, a histogram says whether its bins are whole numbers.
+_RESULT_FORMAT = 3
+
+
 def _cache_key(prefix: str, dataset: Dataset, body: dict) -> str | None:
     if not tenant_cache_context_available():
         return None
@@ -754,7 +814,8 @@ async def run_aggregate(
     cache_key = _cache_key(
         "aggregate",
         dataset,
-        request.model_dump(mode="json") | {"bbox": bbox, "covered": covered},
+        request.model_dump(mode="json")
+        | {"bbox": bbox, "covered": covered, "format": _RESULT_FORMAT},
     )
     cached = await get_cache().get(cache_key) if cache_key is not None else None
     if cached is not None:

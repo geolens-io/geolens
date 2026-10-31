@@ -11196,9 +11196,15 @@ export interface components {
         HistogramResult: {
             /**
              * Bins
-             * @description Equal-width bins over the finite values; empty with none.
+             * @description Equal-width bins over the finite values, empty with none. Unless whole_numbers is true, a bin holds its lower edge but not its upper one, and the last bin holds both.
              */
             bins: components["schemas"]["HistogramBin"][];
+            /**
+             * Whole Numbers
+             * @description Whether each bin holds the whole numbers from its lower edge to one below its upper edge. Only an integer column has whole-number bins, and only while every edge is a safe JavaScript integer; they may then number fewer than requested, and the last may be narrower.
+             * @default false
+             */
+            whole_numbers: boolean;
         };
         /** HistogramWidget */
         HistogramWidget: {

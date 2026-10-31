@@ -86,6 +86,7 @@ export default function BarChartRenderer({
           const isPicked = picked.includes(row.key);
           return (
             <g key={index} aria-hidden="true" data-picked={isPicked || undefined} {...markProps(index)}>
+              <title>{t('types.bar_chart.bar', { label: row.label, value: row.text })}</title>
               {isPicked && (
                 <text x={0} y={y + ROW_HEIGHT / 2} dominantBaseline="middle" fontSize={11} className="fill-foreground">
                   {PICKED_GLYPH}
