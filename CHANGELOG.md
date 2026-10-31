@@ -42,6 +42,11 @@ An instance on 1.29.0 moves to 1.29.1 with no migration.
   can add them to one. The group admin dialogs say groups share datasets,
   maps and stories, not only datasets, and the map share confirmation names a
   layer once when its dataset has the same title. (#3562)
+- After a reader cleared a dashboard Pick with its chip, the bar they had
+  clicked kept its outline, bold label and readout, so the chart looked
+  filtered. Bar chart and histogram widgets now show the active bar only
+  while the chart has focus, and the readout under them keeps its line, so
+  the widgets below no longer shift when it clears. (#3565)
 
 ## [1.29.0] - 2026-10-31
 
