@@ -7,7 +7,7 @@ vi.mock('@/api/client', async (importOriginal) => ({
   apiFetchBlob: async () => new Blob(['x'], { type: 'image/webp' }),
 }));
 
-const uploads = { get: () => ({ progress: null, error: null }), start: vi.fn(), uploading: false };
+const uploads = { get: () => ({ progress: null, error: null }), start: vi.fn(), cancelAll: vi.fn(), uploading: false };
 
 function renderField(config: { alt?: string; decorative?: boolean; caption?: string | null }) {
   const edit = vi.fn();
