@@ -193,6 +193,59 @@ describe('DashboardPanel', () => {
     expect(within(panel).getByRole('article', { name: 'Sum of score City parcels' })).toBeInTheDocument();
   });
 
+  it('names a column by its title in the legend, tables and indicator label as in the heading', async () => {
+    const widget = (id: string, type: string, config: unknown) => ({
+      id,
+      type,
+      v: 1,
+      layer_id: layerId,
+      scope: 'layer',
+      config,
+    });
+    const ids = [
+      '1a1a1a1a-1111-4111-8111-111111111111',
+      '2b2b2b2b-2222-4222-8222-222222222222',
+      '3c3c3c3c-3333-4333-8333-333333333333',
+      '4d4d4d4d-4444-4444-8444-444444444444',
+    ];
+    fetchMock.mockImplementation(async (_dataset, body) => {
+      if (body.op === 'stats') return { op: 'stats', approximate: false, cached: false, result: { sum: 7 } } as never;
+      if (body.op === 'histogram') {
+        const bins = [{ lower: 0, upper: 1, count: 3 }];
+        return { op: 'histogram', approximate: false, cached: false, result: { bins } } as never;
+      }
+      return respond(body) as never;
+    });
+    render(
+      <DashboardPanel
+        config={dashboard([
+          widget(ids[0], 'indicator', { stat: 'sum', column: 'score' }),
+          widget(ids[1], 'histogram', { column: 'score', bins: 1 }),
+          widget(ids[2], 'category_selector', { column: 'land_use', multiple: true }),
+          { ...chartWidget, id: ids[3] },
+        ])}
+        layers={[
+          layer({
+            column_info: [
+              { name: 'land_use', type: 'text', title: 'Land use' },
+              { name: 'score', type: 'integer', title: 'Score' },
+            ],
+          }),
+        ]}
+        map={null}
+        mapId="map-1"
+      />,
+    );
+
+    const panel = screen.getByRole('region', { name: 'Dashboard' });
+    expect(await within(panel).findByRole('group', { name: 'Filter by Land use' })).toBeInTheDocument();
+    // The heading and the indicator's own label.
+    await waitFor(() => expect(within(panel).getAllByText('Sum of Score')).toHaveLength(2));
+    await waitFor(() => expect(within(panel).getAllByRole('columnheader', { name: 'Land use' })).toHaveLength(1));
+    expect(within(panel).getByRole('table', { name: 'Count by Land use', hidden: true })).toBeInTheDocument();
+    expect(panel.textContent).not.toMatch(/land_use|\bscore\b/);
+  });
+
   it('keeps an integer column\'s histogram bins half-open when the server doesn\'t say they are whole numbers', async () => {
     const histogram = { ...chartWidget, type: 'histogram', config: { column: 'score', bins: 2 } };
     const bins = [

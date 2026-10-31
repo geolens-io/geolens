@@ -114,6 +114,9 @@ and releases use semantic versioning.
   giving two datasets one title. (#3495)
 - The Builder and the legend no longer treat interval and point columns as
   numeric, so data-driven styles and heatmap weights no longer offer them.
+- Dashboard widget legends, data tables, summaries and indicator labels now
+  name a column by its attribute title, as the widget headings already do.
+  (#3537)
 - A dashboard Pick now filters a layer whose saved filter uses MapLibre's
   legacy syntax, Picks on a layer the reader hides step aside until it is shown
   again, and Pick chips use the column's attribute title.

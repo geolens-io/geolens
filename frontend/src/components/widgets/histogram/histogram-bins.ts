@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { formatNumber } from '@/lib/format';
 import { aggregateResult, formatAggregateValue } from '../aggregate';
-import type { WidgetSelection } from '../contract';
+import { columnName, type ColumnLabel, type WidgetSelection } from '../contract';
 import { togglePick } from '../selection';
 import type { HistogramConfig } from './definition';
 
@@ -38,10 +38,14 @@ function edgeDigits(width: number): number {
 }
 
 /** The bins of a histogram's aggregate result, labelled in the reader's locale. */
-export function useHistogramText(config: HistogramConfig, data: unknown): HistogramText {
+export function useHistogramText(
+  config: HistogramConfig,
+  data: unknown,
+  columnLabel: ColumnLabel = columnName,
+): HistogramText {
   const { t } = useTranslation('widgets');
   const headings = {
-    summary: t('types.histogram.summary', { column: config.column }),
+    summary: t('types.histogram.summary', { column: columnLabel(config.column) }),
     rangeHeader: t('types.histogram.rangeHeader'),
     countHeader: t('stats.count'),
   };

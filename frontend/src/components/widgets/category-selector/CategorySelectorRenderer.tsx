@@ -1,7 +1,7 @@
 import { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Checkbox } from '@/components/ui/checkbox';
-import type { SelectionValue, WidgetRenderProps } from '../contract';
+import { columnName, type SelectionValue, type WidgetRenderProps } from '../contract';
 import { selectedValues } from '../selection';
 import { categoryLabel, useCategoryRows } from '../value-counts';
 import type { CategorySelectorConfig } from './definition';
@@ -26,6 +26,7 @@ export default function CategorySelectorRenderer({
   data,
   selection,
   onSelect,
+  columnLabel,
 }: WidgetRenderProps<CategorySelectorConfig>) {
   const { t } = useTranslation('widgets');
   const { rows, other } = useCategoryRows(data);
@@ -56,7 +57,9 @@ export default function CategorySelectorRenderer({
 
   return (
     <fieldset className="space-y-1" disabled={disabled}>
-      <legend className="sr-only">{t('types.category_selector.summary', { column: config.column })}</legend>
+      <legend className="sr-only">
+        {t('types.category_selector.summary', { column: (columnLabel ?? columnName)(config.column) })}
+      </legend>
       <ul className="max-h-64 space-y-0.5 overflow-y-auto">
         {!config.multiple && (
           <li className={OPTION_CLASS}>

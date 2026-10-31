@@ -64,7 +64,15 @@ export interface WidgetRenderProps<C> {
   onSelect?: (selection: WidgetSelection | null) => void;
   /** Where the host serves the image the instance names in `asset_id`. */
   assetPath?: string;
+  /** A column's display label, its attribute title else its name; `columnName` without it. */
+  columnLabel?: ColumnLabel;
 }
+
+/** Names a column for readers, by its attribute title where the host has one. */
+export type ColumnLabel = (column: string) => string;
+
+/** The label of a column when the host has no titles: its name. */
+export const columnName: ColumnLabel = (column) => column;
 
 /** A column of the layer a dashboard widget summarizes. */
 export interface WidgetColumn {
@@ -116,7 +124,7 @@ export interface WidgetDefinition<C> {
    * What an untitled instance is called, from its config. `columnLabel` gives a
    * column's display label. Display only; a type without it has no derived heading.
    */
-  heading?: (config: C, t: TFunction<'widgets'>, columnLabel: (column: string) => string) => string;
+  heading?: (config: C, t: TFunction<'widgets'>, columnLabel: ColumnLabel) => string;
   /** The column a reader's pick on this widget filters; a type without it takes no picks. */
   picksColumn?: (config: C) => string;
   /** The columns `config` reads, so an editor can check them against the layer before saving. */

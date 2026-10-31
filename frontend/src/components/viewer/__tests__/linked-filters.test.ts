@@ -292,6 +292,42 @@ describe('linkMapLayers on a bounded cluster', () => {
     expect(matches(next, { r: f(0.35) })).toBe(false);
   });
 
+  it('keeps the same real values as the float8 range at every edge, just below and just above it', () => {
+    const f = Math.fround;
+    const view = new DataView(new ArrayBuffer(4));
+    const step = (value: number, by: number) => {
+      view.setFloat32(0, value);
+      view.setInt32(0, view.getInt32(0) + by * (value >= 0 ? 1 : -1));
+      return view.getFloat32(0);
+    };
+    const target = pointLayer(false, 'r', 'real');
+    const edgesOf = (bin: ReturnType<typeof range>) =>
+      JSON.stringify(selectionCql2(target, bin)).match(/-?\d[\d.e-]*/g)!.map(Number);
+    const edgePairs = [
+      [0.3, 0.35],
+      [0.1, 0.2],
+      [0, 0.05],
+      [0.95, 1],
+      [12.34, 56.78],
+      [1e-7, 3e-7],
+      [0.7, 0.7000000001],
+    ];
+    for (const [lo, hi] of edgePairs) {
+      for (const includeUpper of [false, true]) {
+        const [lower, upper] = edgesOf(range('r', lo, hi, includeUpper));
+        // The server rounds every bind it gets to the column's float4.
+        const serverKeeps = (v: number) => v >= f(lower) && (includeUpper ? v <= f(upper) : v < f(upper));
+        const mapKeeps = (v: number) => v >= lo && (includeUpper ? v <= hi : v < hi);
+        for (const edge of [lo, hi]) {
+          for (let by = -3; by <= 3; by += 1) {
+            const value = step(f(edge), by);
+            expect(serverKeeps(value), `${value} in [${lo}, ${hi}${includeUpper ? ']' : ')'}`).toBe(mapKeeps(value));
+          }
+        }
+      }
+    }
+  });
+
   it('sends a server-clustered layer only the spelling the server compares', () => {
     const target = pointLayer(false, 'seen', 'timestamp without time zone');
     expect(linkedFilter(target, pick(['2024-03-01 17:00:00'], 'seen'))).toEqual([
