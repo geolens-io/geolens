@@ -49,6 +49,14 @@ python scripts/seed-showcase.py \
   --username "${GEOLENS_ADMIN_USERNAME:-admin}" \
   --password "$GEOLENS_ADMIN_PASSWORD" \
   --refresh-quakes
+
+# Add (or update in place) the hurricane story and the earthquake dashboard map
+# on an instance that already has the hurricane and earthquake maps and their
+# datasets, then exit. A full seed creates both too.
+python scripts/seed-showcase.py \
+  --username "${GEOLENS_ADMIN_USERNAME:-admin}" \
+  --password "$GEOLENS_ADMIN_PASSWORD" \
+  --story-and-dashboard
 ```
 
 Run `python scripts/seed-showcase.py --help` for the flags and their defaults.
