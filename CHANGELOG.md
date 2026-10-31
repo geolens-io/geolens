@@ -21,7 +21,7 @@ An instance on 1.29.0 moves to 1.29.1 with no migration.
   opens when such a map loads unless the author closed it on that map before,
   which the browser remembers per map. On a narrow screen, where rail panels
   open as a sheet, it stays closed. (#3559)
-- Bar chart and histogram widgets draw the bars a Pick leaves out at 75%
+- Bar chart and histogram widgets draw the bars outside a Pick at 75%
   opacity instead of 35%, so they keep 3:1 contrast against the panel in
   light and dark themes. (#3559)
 
