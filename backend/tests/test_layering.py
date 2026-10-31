@@ -1436,7 +1436,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # capture, and the create dry run checks the table's kind, insert triggers
     # and rules, and the shapes that run user code on insert, with the same
     # catalog probes.
-    "backend/app/modules/catalog/features/service.py": 1711,
+    "backend/app/modules/catalog/features/service.py": 1694,
     # Dataset visibility, and the VRT member counts and extents each requester
     # may see, and which groups can't read a dataset, share the permission
     # extension's one audience; map reads, and which groups can't read a map,

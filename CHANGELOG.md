@@ -122,6 +122,15 @@ and releases use semantic versioning.
   edit and when the tab is hidden, and the Save draft button is gone. Blocks
   can move up and down within a chapter, and an image upload keeps going when
   the author switches chapters.
+- Every feature read writes `timestamptz` values as UTC text, such as
+  `2024-03-01T17:00:00+00:00`, whatever the database's `TimeZone`: OGC API
+  Features items, `/datasets/{id}/features/` and `/datasets/{id}/features/{gid}`,
+  the features that feature writes return, and related-record rows. These
+  used the database session's time zone before, so they could disagree with
+  tiles and aggregates. On a database set to UTC only two kinds of value
+  read differently: a BC value now takes ISO 8601's signed year
+  (`-0043-03-15T00:00:00+00:00` instead of `0044-03-15T00:00:00+00:00 BC`),
+  and a value past year 9999 reads `infinity`. (#3531)
 
 ### Fixed
 
