@@ -33,4 +33,32 @@ describe('isSafeHttpUrl', () => {
       expect(isSafeHttpUrl(url), JSON.stringify(url)).toBe(false);
     }
   });
+
+  it('refuses what the server refuses: credentials, odd host labels, encoded or rewritten hosts', () => {
+    for (const url of [
+      'https://user:pass@example.com/report',
+      'https://user@example.com/report',
+      'https://internal_host/report',
+      'https://-bad.example.com/',
+      'https://a..b.example.com/',
+      'https://exa%6dple.com/',
+      'https://0x7f.1/',
+      'https://192.168.1/',
+    ]) {
+      expect(isSafeHttpUrl(url), url).toBe(false);
+    }
+  });
+
+  it('accepts ports, IP literals and international hosts', () => {
+    for (const url of [
+      'https://example.com:8443/report',
+      'https://192.168.1.10/report',
+      'https://[2001:db8::1]/report',
+      'https://xn--bcher-kva.example/',
+      'https://bücher.example/',
+      'https://EXAMPLE.com/Report',
+    ]) {
+      expect(isSafeHttpUrl(url), url).toBe(true);
+    }
+  });
 });
