@@ -124,7 +124,8 @@
       "saveFailed": "Speichern fehlgeschlagen",
       "retry": "Erneut versuchen",
       "waitingForUpload": "Warten auf das Hochladen des Bilds",
-      "waitingForAlt": "Alternativtext hinzufügen, um zu speichern"
+      "waitingForAlt": "Alternativtext hinzufügen, um zu speichern",
+      "waitingForButtons": "Schaltflächen vervollständigen, um zu speichern"
     },
     "chapters": {
       "label": "Kapitel",
@@ -148,7 +149,17 @@
       "moveTextBlockUp": "Textblock {{index}} nach oben verschieben",
       "moveTextBlockDown": "Textblock {{index}} nach unten verschieben",
       "moveImageUp": "Bild {{index}} nach oben verschieben",
-      "moveImageDown": "Bild {{index}} nach unten verschieben"
+      "moveImageDown": "Bild {{index}} nach unten verschieben",
+      "addButton": "Schaltfläche hinzufügen",
+      "buttonBlock": "Schaltfläche {{index}}",
+      "removeButton": "Schaltfläche {{index}} entfernen",
+      "moveButtonUp": "Schaltfläche {{index}} nach oben verschieben",
+      "moveButtonDown": "Schaltfläche {{index}} nach unten verschieben",
+      "addSeparator": "Trenner hinzufügen",
+      "separatorBlock": "Trenner {{index}}",
+      "removeSeparator": "Trenner {{index}} entfernen",
+      "moveSeparatorUp": "Trenner {{index}} nach oben verschieben",
+      "moveSeparatorDown": "Trenner {{index}} nach unten verschieben"
     },
     "scene": {
       "heading": "Kartenszene",
@@ -200,7 +211,9 @@
       "blocks_other": "Ein Kapitel kann bis zu {{count}} Textblöcke haben.",
       "size": "Diese Story ist größer als die 2 MB, die ein Entwurf fassen kann. Kürzen oder entfernen Sie Text, um sie zu speichern.",
       "altMissing_one": "{{count}} Bild braucht vor dem Speichern einen Alternativtext.",
-      "altMissing_other": "{{count}} Bilder brauchen vor dem Speichern einen Alternativtext."
+      "altMissing_other": "{{count}} Bilder brauchen vor dem Speichern einen Alternativtext.",
+      "buttonsIncomplete_one": "{{count}} Schaltfläche braucht vor dem Speichern eine Beschriftung und eine Webadresse.",
+      "buttonsIncomplete_other": "{{count}} Schaltflächen brauchen vor dem Speichern eine Beschriftung und eine Webadresse."
     },
     "image": {
       "alt": "Alternativtext",
@@ -215,7 +228,20 @@
       "progress": "Upload-Fortschritt",
       "notShown": "Dieses Bild kann nicht angezeigt werden. Ersetzen oder entfernen Sie es."
     },
-    "publishedSharingMaps": "Story veröffentlicht, und Ihre Karten, die sie blockiert haben, sind jetzt mit ihren Gruppen geteilt."
+    "publishedSharingMaps": "Story veröffentlicht, und Ihre Karten, die sie blockiert haben, sind jetzt mit ihren Gruppen geteilt.",
+    "button": {
+      "label": "Beschriftung der Schaltfläche",
+      "labelRequired": "Beschriftung vor dem Speichern eingeben.",
+      "url": "Linkadresse",
+      "urlHint": "Beginnt mit http:// oder https://.",
+      "urlInvalid": "Adresse eingeben, die mit http:// oder https:// beginnt.",
+      "newTab": "In neuem Tab öffnen"
+    },
+    "separator": {
+      "style": "Stil",
+      "line": "Linie",
+      "gap": "Abstand"
+    }
   },
   "groups": {
     "heading": "Gruppen",

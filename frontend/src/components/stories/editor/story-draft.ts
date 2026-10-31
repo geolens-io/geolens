@@ -1,5 +1,7 @@
 import { arrayMove } from '@dnd-kit/sortable';
+import { BUTTON_DEFAULT_CONFIG, buttonNeedsAttention } from '@/components/widgets/button/definition';
 import { IMAGE_DEFAULT_CONFIG, imageNeedsAlt } from '@/components/widgets/image/definition';
+import { SEPARATOR_DEFAULT_CONFIG, type SeparatorStyle } from '@/components/widgets/separator/definition';
 import { deepEqual } from '@/lib/deep-equal';
 import type { StoryCamera, StoryChapter, StoryScene } from '@/types/api';
 
@@ -39,6 +41,10 @@ export type DraftEdit =
       decorative?: boolean;
       caption?: string;
     }
+  | { type: 'addButtonBlock'; chapterId: string; blockId: string }
+  | { type: 'setButton'; chapterId: string; blockId: string; label?: string; url?: string; newTab?: boolean }
+  | { type: 'addSeparatorBlock'; chapterId: string; blockId: string }
+  | { type: 'setSeparator'; chapterId: string; blockId: string; style: SeparatorStyle }
   | { type: 'moveBlock'; chapterId: string; blockId: string; by: -1 | 1 }
   | { type: 'removeBlock'; chapterId: string; blockId: string };
 
@@ -48,6 +54,21 @@ function textBlock(id: string): Block {
 
 function imageBlock(id: string, assetId: string): Block {
   return { id, type: 'image', v: 1, title: null, asset_id: assetId, config: { ...IMAGE_DEFAULT_CONFIG } };
+}
+
+function buttonBlock(id: string): Block {
+  return { id, type: 'button', v: 1, title: null, config: { ...BUTTON_DEFAULT_CONFIG } };
+}
+
+function separatorBlock(id: string): Block {
+  return { id, type: 'separator', v: 1, title: null, config: { ...SEPARATOR_DEFAULT_CONFIG } };
+}
+
+/** How many button blocks still lack a label or an http(s) address; the server refuses a draft with any. */
+export function buttonsNeedingAttention(chapters: readonly StoryChapter[]): number {
+  return chapters
+    .flatMap((chapter) => chapter.blocks ?? [])
+    .filter((block) => block.type === 'button' && buttonNeedsAttention(block.config)).length;
 }
 
 /** How many image blocks still need alt text; the server refuses a draft with any. */
@@ -68,6 +89,20 @@ function updateScene(chapters: StoryChapter[], chapterId: string, change: (scene
 
 function updateBlocks(chapter: StoryChapter, change: (blocks: Block[]) => Block[]): StoryChapter {
   return { ...chapter, blocks: change(chapter.blocks ?? []) };
+}
+
+/** Adds a block to a chapter unless it is full. */
+function appendBlock(chapters: StoryChapter[], chapterId: string, block: Block) {
+  return update(chapters, chapterId, (c) =>
+    (c.blocks?.length ?? 0) >= MAX_BLOCKS_PER_CHAPTER ? c : updateBlocks(c, (blocks) => [...blocks, block]),
+  );
+}
+
+/** Changes one block; `change` returns any block it doesn't edit unchanged. */
+function updateBlock(chapters: StoryChapter[], chapterId: string, blockId: string, change: (block: Block) => Block) {
+  return update(chapters, chapterId, (c) =>
+    updateBlocks(c, (blocks) => blocks.map((block) => (block.id === blockId ? change(block) : block))),
+  );
 }
 
 export function applyDraftEdit(chapters: StoryChapter[], edit: DraftEdit): StoryChapter[] {
@@ -105,42 +140,45 @@ export function applyDraftEdit(chapters: StoryChapter[], edit: DraftEdit): Story
         layer_visibility: { ...scene.layer_visibility, [edit.layerId]: edit.visible },
       }));
     case 'addTextBlock':
-      return update(chapters, edit.chapterId, (c) =>
-        (c.blocks?.length ?? 0) >= MAX_BLOCKS_PER_CHAPTER
-          ? c
-          : updateBlocks(c, (blocks) => [...blocks, textBlock(edit.blockId)]),
-      );
+      return appendBlock(chapters, edit.chapterId, textBlock(edit.blockId));
     case 'setBlockText':
-      return update(chapters, edit.chapterId, (c) =>
-        updateBlocks(c, (blocks) =>
-          blocks.map((block) =>
-            block.id === edit.blockId && block.type === 'markdown'
-              ? { ...block, config: { text: edit.text } }
-              : block,
-          ),
-        ),
+      return updateBlock(chapters, edit.chapterId, edit.blockId, (block) =>
+        block.type === 'markdown' ? { ...block, config: { text: edit.text } } : block,
       );
     case 'addImageBlock':
-      return update(chapters, edit.chapterId, (c) =>
-        (c.blocks?.length ?? 0) >= MAX_BLOCKS_PER_CHAPTER
-          ? c
-          : updateBlocks(c, (blocks) => [...blocks, imageBlock(edit.blockId, edit.assetId)]),
-      );
+      return appendBlock(chapters, edit.chapterId, imageBlock(edit.blockId, edit.assetId));
     case 'setImage':
-      return update(chapters, edit.chapterId, (c) =>
-        updateBlocks(c, (blocks) =>
-          blocks.map((block) => {
-            if (block.id !== edit.blockId || block.type !== 'image') return block;
-            const config = { ...block.config };
-            if (edit.alt !== undefined) config.alt = edit.alt;
-            if (edit.decorative !== undefined) config.decorative = edit.decorative;
-            if (edit.caption !== undefined) config.caption = edit.caption || null;
-            // The server refuses blank alt text, and stores neither field unset.
-            if (!config.decorative) delete config.decorative;
-            if (config.decorative && !config.alt?.trim()) delete config.alt;
-            return { ...block, asset_id: edit.assetId ?? block.asset_id, config };
-          }),
-        ),
+      return updateBlock(chapters, edit.chapterId, edit.blockId, (block) => {
+        if (block.type !== 'image') return block;
+        const config = { ...block.config };
+        if (edit.alt !== undefined) config.alt = edit.alt;
+        if (edit.decorative !== undefined) config.decorative = edit.decorative;
+        if (edit.caption !== undefined) config.caption = edit.caption || null;
+        // The server refuses blank alt text, and stores neither field unset.
+        if (!config.decorative) delete config.decorative;
+        if (config.decorative && !config.alt?.trim()) delete config.alt;
+        return { ...block, asset_id: edit.assetId ?? block.asset_id, config };
+      });
+    case 'addButtonBlock':
+      return appendBlock(chapters, edit.chapterId, buttonBlock(edit.blockId));
+    case 'setButton':
+      return updateBlock(chapters, edit.chapterId, edit.blockId, (block) =>
+        block.type === 'button'
+          ? {
+              ...block,
+              config: {
+                label: edit.label ?? block.config.label,
+                url: edit.url ?? block.config.url,
+                new_tab: edit.newTab ?? block.config.new_tab,
+              },
+            }
+          : block,
+      );
+    case 'addSeparatorBlock':
+      return appendBlock(chapters, edit.chapterId, separatorBlock(edit.blockId));
+    case 'setSeparator':
+      return updateBlock(chapters, edit.chapterId, edit.blockId, (block) =>
+        block.type === 'separator' ? { ...block, config: { style: edit.style } } : block,
       );
     case 'moveBlock': {
       const blocks = chapters.find((c) => c.id === edit.chapterId)?.blocks ?? [];

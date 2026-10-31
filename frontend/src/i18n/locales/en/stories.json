@@ -124,7 +124,8 @@
       "saveFailed": "Couldn't save",
       "retry": "Retry",
       "waitingForUpload": "Waiting for the image upload",
-      "waitingForAlt": "Add alt text to save"
+      "waitingForAlt": "Add alt text to save",
+      "waitingForButtons": "Complete the buttons to save"
     },
     "chapters": {
       "label": "Chapters",
@@ -148,7 +149,17 @@
       "moveTextBlockUp": "Move text block {{index}} up",
       "moveTextBlockDown": "Move text block {{index}} down",
       "moveImageUp": "Move image {{index}} up",
-      "moveImageDown": "Move image {{index}} down"
+      "moveImageDown": "Move image {{index}} down",
+      "addButton": "Add button",
+      "buttonBlock": "Button {{index}}",
+      "removeButton": "Remove button {{index}}",
+      "moveButtonUp": "Move button {{index}} up",
+      "moveButtonDown": "Move button {{index}} down",
+      "addSeparator": "Add separator",
+      "separatorBlock": "Separator {{index}}",
+      "removeSeparator": "Remove separator {{index}}",
+      "moveSeparatorUp": "Move separator {{index}} up",
+      "moveSeparatorDown": "Move separator {{index}} down"
     },
     "scene": {
       "heading": "Map scene",
@@ -200,7 +211,9 @@
       "blocks_other": "A chapter can have up to {{count}} text blocks.",
       "size": "This story is larger than the 2 MB a draft can hold. Shorten or remove some text to save it.",
       "altMissing_one": "{{count}} image needs alt text before you can save.",
-      "altMissing_other": "{{count}} images need alt text before you can save."
+      "altMissing_other": "{{count}} images need alt text before you can save.",
+      "buttonsIncomplete_one": "{{count}} button needs a label and a web address before you can save.",
+      "buttonsIncomplete_other": "{{count}} buttons need a label and a web address before you can save."
     },
     "image": {
       "alt": "Alt text",
@@ -215,7 +228,20 @@
       "progress": "Upload progress",
       "notShown": "This image can't be shown. Replace or remove it."
     },
-    "publishedSharingMaps": "Story published, and your maps that blocked it are now shared with its groups."
+    "publishedSharingMaps": "Story published, and your maps that blocked it are now shared with its groups.",
+    "button": {
+      "label": "Button label",
+      "labelRequired": "Write a label before saving.",
+      "url": "Link address",
+      "urlHint": "Starts with http:// or https://.",
+      "urlInvalid": "Enter an address that starts with http:// or https://.",
+      "newTab": "Open in a new tab"
+    },
+    "separator": {
+      "style": "Style",
+      "line": "Line",
+      "gap": "Gap"
+    }
   },
   "groups": {
     "heading": "Groups",

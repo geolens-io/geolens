@@ -1,5 +1,6 @@
 import {
   applyDraftEdit,
+  buttonsNeedingAttention,
   documentBytes,
   imagesMissingAlt,
   MAX_BLOCKS_PER_CHAPTER,
@@ -219,5 +220,61 @@ describe('image block edits', () => {
     });
     const chapters = [full];
     expect(applyDraftEdit(chapters, { type: 'addImageBlock', chapterId: 'a', blockId: 'img', assetId: asset })[0]).toBe(full);
+  });
+});
+
+describe('button and separator block edits', () => {
+  const base = [chapter('a', { blocks: [] })];
+
+  it('adds an empty button that is not yet saveable, and sets its fields', () => {
+    const added = applyDraftEdit(base, { type: 'addButtonBlock', chapterId: 'a', blockId: 'x' });
+    expect(added[0].blocks).toEqual([
+      { id: 'x', type: 'button', v: 1, title: null, config: { label: '', url: '', new_tab: false } },
+    ]);
+    expect(buttonsNeedingAttention(added)).toBe(1);
+
+    const labelled = applyDraftEdit(added, { type: 'setButton', chapterId: 'a', blockId: 'x', label: 'Go' });
+    expect(buttonsNeedingAttention(labelled)).toBe(1);
+    const done = applyDraftEdit(labelled, { type: 'setButton', chapterId: 'a', blockId: 'x', url: 'https://example.com', newTab: true });
+    expect(done[0].blocks?.[0]).toMatchObject({ config: { label: 'Go', url: 'https://example.com', new_tab: true } });
+    expect(buttonsNeedingAttention(done)).toBe(0);
+  });
+
+  it('counts a button whose address is not http or https', () => {
+    for (const url of ['javascript:alert(1)']) {
+      const chapters = [
+        chapter('a', {
+          blocks: [{ id: 'x', type: 'button', v: 1, title: null, config: { label: 'Go', url, new_tab: false } }],
+        }),
+      ];
+      expect(buttonsNeedingAttention(chapters), url).toBe(1);
+    }
+  });
+
+  it('adds a line separator and changes its style', () => {
+    const added = applyDraftEdit(base, { type: 'addSeparatorBlock', chapterId: 'a', blockId: 's' });
+    expect(added[0].blocks).toEqual([{ id: 's', type: 'separator', v: 1, title: null, config: { style: 'line' } }]);
+    const gap = applyDraftEdit(added, { type: 'setSeparator', chapterId: 'a', blockId: 's', style: 'gap' });
+    expect(gap[0].blocks?.[0]).toMatchObject({ config: { style: 'gap' } });
+  });
+
+  it('refuses either block past the cap', () => {
+    const full = [
+      chapter('a', {
+        blocks: Array.from({ length: MAX_BLOCKS_PER_CHAPTER }, (_, i) => ({
+          id: `b${i}`,
+          type: 'separator' as const,
+          v: 1 as const,
+          title: null,
+          config: { style: 'line' as const },
+        })),
+      }),
+    ];
+    expect(applyDraftEdit(full, { type: 'addButtonBlock', chapterId: 'a', blockId: 'x' })[0].blocks).toHaveLength(
+      MAX_BLOCKS_PER_CHAPTER,
+    );
+    expect(applyDraftEdit(full, { type: 'addSeparatorBlock', chapterId: 'a', blockId: 'x' })[0].blocks).toHaveLength(
+      MAX_BLOCKS_PER_CHAPTER,
+    );
   });
 });

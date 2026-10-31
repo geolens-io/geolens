@@ -52,6 +52,13 @@
       "label": "Bild",
       "description": "Bild: {{alt}}",
       "loading": "Bild wird geladen: {{alt}}"
+    },
+    "button": {
+      "label": "Schaltfläche",
+      "opensInNewTab": "(öffnet in neuem Tab)"
+    },
+    "separator": {
+      "label": "Trenner"
     }
   },
   "dashboard": {

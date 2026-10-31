@@ -124,7 +124,8 @@
       "saveFailed": "No se pudo guardar",
       "retry": "Reintentar",
       "waitingForUpload": "Esperando a que termine la subida de la imagen",
-      "waitingForAlt": "Añade texto alternativo para guardar"
+      "waitingForAlt": "Añade texto alternativo para guardar",
+      "waitingForButtons": "Completa los botones para guardar"
     },
     "chapters": {
       "label": "Capítulos",
@@ -148,7 +149,17 @@
       "moveTextBlockUp": "Subir el bloque de texto {{index}}",
       "moveTextBlockDown": "Bajar el bloque de texto {{index}}",
       "moveImageUp": "Subir la imagen {{index}}",
-      "moveImageDown": "Bajar la imagen {{index}}"
+      "moveImageDown": "Bajar la imagen {{index}}",
+      "addButton": "Añadir botón",
+      "buttonBlock": "Botón {{index}}",
+      "removeButton": "Quitar botón {{index}}",
+      "moveButtonUp": "Subir el botón {{index}}",
+      "moveButtonDown": "Bajar el botón {{index}}",
+      "addSeparator": "Añadir separador",
+      "separatorBlock": "Separador {{index}}",
+      "removeSeparator": "Quitar separador {{index}}",
+      "moveSeparatorUp": "Subir el separador {{index}}",
+      "moveSeparatorDown": "Bajar el separador {{index}}"
     },
     "scene": {
       "heading": "Escena de mapa",
@@ -200,7 +211,9 @@
       "blocks_other": "Un capítulo puede tener hasta {{count}} bloques de texto.",
       "size": "Esta historia supera los 2 MB que admite un borrador. Acorta o quita texto para guardarla.",
       "altMissing_one": "{{count}} imagen necesita texto alternativo antes de guardar.",
-      "altMissing_other": "{{count}} imágenes necesitan texto alternativo antes de guardar."
+      "altMissing_other": "{{count}} imágenes necesitan texto alternativo antes de guardar.",
+      "buttonsIncomplete_one": "{{count}} botón necesita una etiqueta y una dirección web antes de guardar.",
+      "buttonsIncomplete_other": "{{count}} botones necesitan una etiqueta y una dirección web antes de guardar."
     },
     "image": {
       "alt": "Texto alternativo",
@@ -215,7 +228,20 @@
       "progress": "Progreso de la subida",
       "notShown": "Esta imagen no se puede mostrar. Reemplázala o quítala."
     },
-    "publishedSharingMaps": "Historia publicada, y tus mapas que la bloqueaban ahora se comparten con sus grupos."
+    "publishedSharingMaps": "Historia publicada, y tus mapas que la bloqueaban ahora se comparten con sus grupos.",
+    "button": {
+      "label": "Etiqueta del botón",
+      "labelRequired": "Escribe una etiqueta antes de guardar.",
+      "url": "Dirección del enlace",
+      "urlHint": "Empieza por http:// o https://.",
+      "urlInvalid": "Introduce una dirección que empiece por http:// o https://.",
+      "newTab": "Abrir en una pestaña nueva"
+    },
+    "separator": {
+      "style": "Estilo",
+      "line": "Línea",
+      "gap": "Espacio"
+    }
   },
   "groups": {
     "heading": "Grupos",

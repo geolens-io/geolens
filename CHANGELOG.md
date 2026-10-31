@@ -47,6 +47,15 @@ and releases use semantic versioning.
   story image storage per owner (`max_story_image_mb_per_user`, off by
   default), and a worker job removes image objects no story names.
   (Closes #3487, #3488)
+- Stories take button and separator blocks. A button is a link styled as a
+  button, with a label, an `http` or `https` address and an option to open a
+  new tab, which carries `rel="noopener noreferrer"`. The server refuses any
+  other scheme, `javascript:` and `data:` included, with a 422, and a stored
+  address that isn't http or https shows its label as plain text. A separator
+  is a thin line or a larger gap, announced to assistive technology as a
+  separator. Chapters now accept `button` and `separator` blocks. Additive, but
+  a 1.28.0 API process refuses both, so during a rolling upgrade they work once
+  every process runs this release. (#3519)
 - Map dashboards in the viewer. A map with a dashboard shows its widgets in a
   panel to the right of the map or below it, as the author chose, and always
   below on narrow screens. The panel appears on the map page, share links and

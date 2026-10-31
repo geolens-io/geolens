@@ -52,6 +52,13 @@
       "label": "图片",
       "description": "图片：{{alt}}",
       "loading": "正在加载图片：{{alt}}"
+    },
+    "button": {
+      "label": "按钮",
+      "opensInNewTab": "（在新标签页中打开）"
+    },
+    "separator": {
+      "label": "分隔线"
     }
   },
   "dashboard": {

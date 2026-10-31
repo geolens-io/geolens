@@ -124,7 +124,8 @@
       "saveFailed": "Échec de l'enregistrement",
       "retry": "Réessayer",
       "waitingForUpload": "En attente de la fin du téléversement de l'image",
-      "waitingForAlt": "Ajoutez un texte alternatif pour enregistrer"
+      "waitingForAlt": "Ajoutez un texte alternatif pour enregistrer",
+      "waitingForButtons": "Complétez les boutons pour enregistrer"
     },
     "chapters": {
       "label": "Chapitres",
@@ -148,7 +149,17 @@
       "moveTextBlockUp": "Monter le bloc de texte {{index}}",
       "moveTextBlockDown": "Descendre le bloc de texte {{index}}",
       "moveImageUp": "Monter l'image {{index}}",
-      "moveImageDown": "Descendre l'image {{index}}"
+      "moveImageDown": "Descendre l'image {{index}}",
+      "addButton": "Ajouter un bouton",
+      "buttonBlock": "Bouton {{index}}",
+      "removeButton": "Retirer le bouton {{index}}",
+      "moveButtonUp": "Monter le bouton {{index}}",
+      "moveButtonDown": "Descendre le bouton {{index}}",
+      "addSeparator": "Ajouter un séparateur",
+      "separatorBlock": "Séparateur {{index}}",
+      "removeSeparator": "Retirer le séparateur {{index}}",
+      "moveSeparatorUp": "Monter le séparateur {{index}}",
+      "moveSeparatorDown": "Descendre le séparateur {{index}}"
     },
     "scene": {
       "heading": "Scène de carte",
@@ -200,7 +211,9 @@
       "blocks_other": "Un chapitre peut compter jusqu'à {{count}} blocs de texte.",
       "size": "Ce récit dépasse les 2 Mo qu'un brouillon peut contenir. Raccourcissez ou retirez du texte pour l'enregistrer.",
       "altMissing_one": "{{count}} image doit avoir un texte alternatif avant l’enregistrement.",
-      "altMissing_other": "{{count}} images doivent avoir un texte alternatif avant l’enregistrement."
+      "altMissing_other": "{{count}} images doivent avoir un texte alternatif avant l’enregistrement.",
+      "buttonsIncomplete_one": "{{count}} bouton doit avoir un libellé et une adresse web avant l’enregistrement.",
+      "buttonsIncomplete_other": "{{count}} boutons doivent avoir un libellé et une adresse web avant l’enregistrement."
     },
     "image": {
       "alt": "Texte alternatif",
@@ -215,7 +228,20 @@
       "progress": "Progression de l’envoi",
       "notShown": "Cette image ne peut pas être affichée. Remplacez-la ou retirez-la."
     },
-    "publishedSharingMaps": "Récit publié, et vos cartes qui le bloquaient sont désormais partagées avec ses groupes."
+    "publishedSharingMaps": "Récit publié, et vos cartes qui le bloquaient sont désormais partagées avec ses groupes.",
+    "button": {
+      "label": "Libellé du bouton",
+      "labelRequired": "Saisissez un libellé avant d’enregistrer.",
+      "url": "Adresse du lien",
+      "urlHint": "Commence par http:// ou https://.",
+      "urlInvalid": "Saisissez une adresse commençant par http:// ou https://.",
+      "newTab": "Ouvrir dans un nouvel onglet"
+    },
+    "separator": {
+      "style": "Style",
+      "line": "Ligne",
+      "gap": "Espace"
+    }
   },
   "groups": {
     "heading": "Groupes",

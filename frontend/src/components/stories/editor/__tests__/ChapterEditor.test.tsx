@@ -92,3 +92,69 @@ it('moves blocks with per-kind names and disables the arrows at the ends', async
     by: 1,
   });
 });
+
+function editorWith(chapter: StoryChapter, edit = vi.fn()) {
+  render(
+    <ChapterEditor
+      storyId="s1"
+      uploads={{ get: () => ({ progress: null, error: null }), start: vi.fn(), cancelAll: vi.fn(), uploading: false }}
+      chapter={chapter}
+      index={0}
+      edit={edit}
+      readView={() => null}
+      mapMissing={false}
+      focusTitle={false}
+    />,
+  );
+  return edit;
+}
+
+it('adds a button and a separator', async () => {
+  const edit = editorWith({ ...CHAPTER, blocks: [] } as StoryChapter);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: 'Add button' }));
+  await user.click(screen.getByRole('button', { name: 'Add separator' }));
+  expect(edit).toHaveBeenNthCalledWith(1, { type: 'addButtonBlock', chapterId: 'c1', blockId: expect.any(String) });
+  expect(edit).toHaveBeenNthCalledWith(2, { type: 'addSeparatorBlock', chapterId: 'c1', blockId: expect.any(String) });
+});
+
+it('edits, moves and removes button and separator blocks', async () => {
+  const buttonId = '00000000-0000-4000-8000-0000000000b1';
+  const separatorId = '00000000-0000-4000-8000-0000000000b2';
+  const edit = editorWith({
+    ...CHAPTER,
+    blocks: [
+      { id: buttonId, type: 'button', v: 1, title: null, config: { label: 'Go', url: 'https://example.com', new_tab: false } },
+      { id: separatorId, type: 'separator', v: 1, title: null, config: { style: 'line' } },
+    ],
+  } as StoryChapter);
+  const user = userEvent.setup();
+
+  expect(screen.getByRole('group', { name: 'Button 1' })).toBeInTheDocument();
+  expect(screen.getByRole('group', { name: 'Separator 1' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Move button 1 up' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Move separator 1 down' })).toBeDisabled();
+
+  await user.type(screen.getByLabelText('Button label'), '!');
+  expect(edit).toHaveBeenLastCalledWith({ type: 'setButton', chapterId: 'c1', blockId: buttonId, label: 'Go!' });
+  await user.click(screen.getByRole('checkbox', { name: 'Open in a new tab' }));
+  expect(edit).toHaveBeenLastCalledWith({ type: 'setButton', chapterId: 'c1', blockId: buttonId, newTab: true });
+  await user.click(screen.getByRole('radio', { name: 'Gap' }));
+  expect(edit).toHaveBeenLastCalledWith({ type: 'setSeparator', chapterId: 'c1', blockId: separatorId, style: 'gap' });
+
+  await user.click(screen.getByRole('button', { name: 'Move button 1 down' }));
+  expect(edit).toHaveBeenLastCalledWith({ type: 'moveBlock', chapterId: 'c1', blockId: buttonId, by: 1 });
+  await user.click(screen.getByRole('button', { name: 'Remove separator 1' }));
+  expect(edit).toHaveBeenLastCalledWith({ type: 'removeBlock', chapterId: 'c1', blockId: separatorId });
+});
+
+it('flags a button with a script address', () => {
+  editorWith({
+    ...CHAPTER,
+    blocks: [
+      { id: 'b', type: 'button', v: 1, title: null, config: { label: 'Go', url: 'javascript:alert(1)', new_tab: false } },
+    ],
+  } as StoryChapter);
+  expect(screen.getByLabelText('Link address')).toBeInvalid();
+  expect(screen.getByText('Enter an address that starts with http:// or https://.')).toBeInTheDocument();
+});

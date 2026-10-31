@@ -22,11 +22,14 @@ from pydantic import (
     BeforeValidator,
     ConfigDict,
     Field,
+    StrictBool,
     StringConstraints,
     TypeAdapter,
     ValidationError,
     model_validator,
 )
+
+from app.core.config import validate_privacy_url_shape
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -93,6 +96,26 @@ class ImageConfig(_Strict):
         return self
 
 
+class ButtonConfig(_Strict):
+    label: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)
+    ]
+    url: Annotated[
+        str,
+        StringConstraints(max_length=2048),
+        AfterValidator(validate_privacy_url_shape),
+    ] = Field(description="An http or https address; any other scheme is refused.")
+    new_tab: StrictBool = Field(
+        default=False, description="Open the link in a new tab."
+    )
+
+
+class SeparatorConfig(_Strict):
+    style: Literal["line", "gap"] = Field(
+        default="line", description="A thin line, or a larger empty gap."
+    )
+
+
 class IndicatorConfig(_Strict):
     stat: Statistic
     column: ColumnName | None = None
@@ -136,6 +159,18 @@ class ImageWidget(_Widget):
     v: Literal[1]
     asset_id: uuid.UUID = Field(description="An image uploaded to the host story.")
     config: ImageConfig
+
+
+class ButtonWidget(_Widget):
+    type: Literal["button"]
+    v: Literal[1]
+    config: ButtonConfig
+
+
+class SeparatorWidget(_Widget):
+    type: Literal["separator"]
+    v: Literal[1]
+    config: SeparatorConfig
 
 
 class IndicatorWidget(_LayerWidget):
@@ -211,7 +246,7 @@ DashboardWidget = Annotated[
     BeforeValidator(upgrade),
 ]
 StoryBlock = Annotated[
-    MarkdownWidget | ImageWidget,
+    MarkdownWidget | ImageWidget | ButtonWidget | SeparatorWidget,
     Field(discriminator="type"),
     BeforeValidator(upgrade),
 ]

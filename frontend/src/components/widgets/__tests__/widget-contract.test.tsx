@@ -14,7 +14,8 @@ import {
 // fallback. A new widget type adds its entry here.
 const id = '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11';
 
-const examples: Record<string, { config: unknown; fallbackText: string | RegExp }> = {
+// A type with no text (`fallbackText: null`) is a separator for assistive technology instead.
+const examples: Record<string, { config: unknown; fallbackText: string | RegExp | null }> = {
   markdown: { config: { text: '## Heading\n\nSome **bold** text.' }, fallbackText: /Some \*\*bold\*\* text\./ },
   indicator: { config: { stat: 'sum', column: 'area' }, fallbackText: /Sum of area/ },
   bar_chart: {
@@ -24,11 +25,16 @@ const examples: Record<string, { config: unknown; fallbackText: string | RegExp 
   histogram: { config: { column: 'height', bins: 12 }, fallbackText: /No data yet/ },
   category_selector: { config: { column: 'land_use', multiple: false }, fallbackText: /No data yet/ },
   image: { config: { alt: 'A river at dusk', caption: 'Looking north' }, fallbackText: /A river at dusk/ },
+  button: {
+    config: { label: 'Read the report', url: 'https://example.com/report', new_tab: true },
+    fallbackText: 'Read the report',
+  },
+  separator: { config: { style: 'gap' }, fallbackText: null },
 };
 
 // Defaults the author has to finish before the instance is valid: an image's
-// alt text is theirs to write.
-const INCOMPLETE_DEFAULTS = new Set(['image']);
+// alt text, or a button's label and address, is theirs to write.
+const INCOMPLETE_DEFAULTS = new Set(['image', 'button']);
 
 // An image block names the image it shows.
 const assetId = '9a3e5c71-2b4d-4f86-8e1a-7c5d3b2f4e60';
@@ -108,13 +114,15 @@ describe.each(widgetDefinitions.map((definition) => [definition.type, definition
 
     it('renders its fallback as text', () => {
       render(<definition.Fallback config={example.config} />);
-      expect(screen.getByText(example.fallbackText)).toBeInTheDocument();
+      if (example.fallbackText === null) expect(screen.getByRole('separator')).toBeInTheDocument();
+      else expect(screen.getByText(example.fallbackText)).toBeInTheDocument();
     });
 
     it('loads a renderer that renders its example config', async () => {
       const { default: Renderer } = await definition.loadRenderer();
       const { container } = render(<Renderer config={example.config} />);
-      expect(container.textContent).not.toBe('');
+      if (example.fallbackText === null) expect(container.firstChild).not.toBeNull();
+      else expect(container.textContent).not.toBe('');
     });
 
     it('has its i18n keys in all five locales', async () => {
