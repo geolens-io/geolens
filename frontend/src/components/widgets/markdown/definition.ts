@@ -19,11 +19,13 @@ function parseMarkdownTextConfig(config: unknown): MarkdownTextConfig | null {
 export const markdownTextWidget = defineWidget<MarkdownTextConfig>({
   type: 'markdown',
   v: 1,
-  surfaces: ['story'],
+  surfaces: ['story', 'dashboard'],
+  layerless: true,
   labelKey: 'types.markdown.label',
-  i18nKeys: ['types.markdown.imageNotShown', 'types.markdown.imageNotShownAlt'],
+  i18nKeys: ['types.markdown.imageNotShown', 'types.markdown.imageNotShownAlt', 'types.markdown.sourceHint'],
   defaultConfig: { text: '' },
   parseConfig: parseMarkdownTextConfig,
+  loadEditor: () => import('./MarkdownTextEditor'),
   loadRenderer: () => import('./MarkdownTextRenderer'),
   Fallback: MarkdownTextFallback,
 });

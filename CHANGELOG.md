@@ -85,6 +85,14 @@ and releases use semantic versioning.
   which shares them with the same groups first. Deleting a story's last group
   makes it private. The API adds `PUT /stories/{id}/groups/`, `confirm` on
   publish and `groups` on story drafts.
+- A Text widget for map dashboards: Markdown written in the Builder, shown
+  beside the numbers for titles, notes on how to read the charts and source
+  credits. It has no layer, so picks, the map view and hiding layers don't
+  touch it, and it makes no data request. It renders with the story text
+  block's sanitising: raw HTML and images never render, and only `http`,
+  `https` and `mailto` links are kept, opened with
+  `rel="noopener noreferrer nofollow"`. Its headings start one level below the
+  widget's title. The source is capped at 20,000 characters. (#3513)
 
 ### Changed
 
@@ -93,6 +101,12 @@ and releases use semantic versioning.
   `ST_GeomFromText`, `ST_GeomFromGeoJSON`, `geography()`, `geometry()` and the
   `&&` operator, and a refusal names the function. The MCP `query` tool lists
   the allowed spatial functions.
+- `DashboardConfig` and `DashboardConfigInput` accept `markdown` widgets, which
+  take no `layer_id` or `scope` and whose config is `{"text": "..."}` of at
+  most 20,000 characters. A 1.28.0 server refuses them on save and keeps
+  stored ones out of its responses. Additive. (#3513)
+- Story text blocks now keep only `http`, `https` and `mailto` link targets;
+  `irc`, `ircs` and `xmpp` links no longer render as links. (#3513)
 - `DashboardConfig` and `DashboardConfigInput` accept `histogram` and
   `category_selector` widgets, whose schemas already existed. A 1.28.0 server
   refuses them on save and keeps stored ones out of its responses. Additive.

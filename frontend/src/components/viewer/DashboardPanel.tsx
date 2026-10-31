@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { LayoutDashboard, Loader2, PanelBottomClose, PanelRightClose } from 'lucide-react';
@@ -9,7 +9,7 @@ import { LiveAnnouncement } from '@/components/ui/live-announcement';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { AnyWidgetDefinition, WidgetInstance, WidgetSelection } from '@/components/widgets/contract';
 import { WidgetView } from '@/components/widgets/WidgetView';
-import { parseStoredWidget, type ParsedWidget } from '@/components/widgets/registry';
+import { isLayerBound, parseStoredWidget, type ParsedWidget } from '@/components/widgets/registry';
 import type { Bbox } from '@/lib/bbox';
 import { getClusterSourceStrategy } from '@/components/builder/cluster-source';
 import { useTileConfig } from '@/hooks/use-settings';
@@ -54,6 +54,27 @@ function errorKey(
   if (code === 'too_wide') return 'dashboard.tooWide';
   if (code === 'invalid_filter') return 'dashboard.filterRefused';
   return code === 'invalid_column' ? 'dashboard.columnUnavailable' : 'dashboard.loadFailed';
+}
+
+/** The card around a dashboard widget. */
+function WidgetShell({
+  labelledBy,
+  busy,
+  children,
+}: {
+  labelledBy?: string;
+  busy?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <article
+      aria-labelledby={labelledBy}
+      aria-busy={busy}
+      className="space-y-2 rounded-md border bg-card p-3 text-card-foreground"
+    >
+      {children}
+    </article>
+  );
 }
 
 /** One widget with its heading, notices and data; the Builder's editor previews widgets with it. */
@@ -111,11 +132,10 @@ export function DashboardWidget({
   useEffect(() => () => onFailedChange?.(instance.id, false), [onFailedChange, instance.id]);
 
   return (
-    <article
+    <WidgetShell
       // A derived name like "Count" repeats across layers, so the layer joins it.
-      aria-labelledby={layerBelow && !instance.title?.trim() ? `${headingId} ${layerLineId}` : headingId}
-      aria-busy={query.isFetching}
-      className="space-y-2 rounded-md border bg-card p-3 text-card-foreground"
+      labelledBy={layerBelow && !instance.title?.trim() ? `${headingId} ${layerLineId}` : headingId}
+      busy={query.isFetching}
     >
       <header>
         <div className="flex items-start gap-2">
@@ -164,7 +184,35 @@ export function DashboardWidget({
           />
         </div>
       )}
-    </article>
+    </WidgetShell>
+  );
+}
+
+/**
+ * A widget with no layer, such as text. It is titled only when its author
+ * gave it a title, and its own headings go one level below that title.
+ */
+export function DashboardTextWidget({
+  parsed,
+  headingLevel = 3,
+}: {
+  parsed: ReadyWidget;
+  /** 4 where the widget sits under a heading of its own, as in the Builder's editor. */
+  headingLevel?: 3 | 4;
+}) {
+  const headingId = useId();
+  const Heading = headingLevel === 4 ? 'h4' : 'h3';
+  const title = parsed.instance.title?.trim();
+  const contentLevel = title ? (headingLevel === 4 ? 5 : 4) : headingLevel;
+  return (
+    <WidgetShell labelledBy={title ? headingId : undefined}>
+      {title && (
+        <Heading id={headingId} className="text-sm font-medium break-words">
+          {title}
+        </Heading>
+      )}
+      <WidgetView parsed={parsed} headingLevel={contentLevel} />
+    </WidgetShell>
   );
 }
 
@@ -243,6 +291,13 @@ function DashboardWidgetList({
       )}
     >
       {shown.map(({ key, parsed }) => {
+        if (parsed.ok && !isLayerBound(parsed.instance.type)) {
+          return (
+            <li key={key}>
+              <DashboardTextWidget parsed={parsed} />
+            </li>
+          );
+        }
         const layer = parsed.ok ? layersById.get(parsed.instance.layer_id ?? '') : undefined;
         if (parsed.ok && layer) {
           const { id: widgetId, config } = parsed.instance;

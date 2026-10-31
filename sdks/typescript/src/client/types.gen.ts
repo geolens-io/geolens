@@ -3676,7 +3676,7 @@ export type DashboardConfig = {
      *
      * The widgets on layers this response shows, in panel order.
      */
-    widgets: Array<IndicatorWidget | BarChartWidget | HistogramWidget | CategorySelectorWidget>;
+    widgets: Array<MarkdownWidget | IndicatorWidget | BarChartWidget | HistogramWidget | CategorySelectorWidget>;
 };
 
 /**
@@ -3696,9 +3696,9 @@ export type DashboardConfigInput = {
     /**
      * Widgets
      *
-     * Widgets in panel order. Each names a layer of this map that you can read. Stored widgets you can't see are kept in place.
+     * Widgets in panel order. Each, except a text widget, names a layer of this map that you can read. Stored widgets you can't see are kept in place.
      */
-    widgets?: Array<IndicatorWidget | BarChartWidget | HistogramWidget | CategorySelectorWidget>;
+    widgets?: Array<MarkdownWidget | IndicatorWidget | BarChartWidget | HistogramWidget | CategorySelectorWidget>;
 };
 
 /**

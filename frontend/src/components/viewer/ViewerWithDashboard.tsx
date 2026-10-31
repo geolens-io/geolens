@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { DashboardConfig, SharedLayerResponse } from '@/types/api';
+import { widgetLayerId } from '@/components/widgets/registry';
 import { cn } from '@/lib/utils';
 import { DashboardPanel, dashboardPanelPosition } from './DashboardPanel';
 import { linkMapLayers, type LinkedPick } from './linked-filters';
@@ -40,7 +41,7 @@ export function ViewerWithDashboard({ children, ...panel }: ViewerWithDashboardP
     const live = storedPicks.filter(
       (pick) =>
         !hiddenLayers?.has(pick.layerId) &&
-        panel.config?.widgets.some((widget) => widget.id === pick.widgetId && widget.layer_id === pick.layerId) &&
+        panel.config?.widgets.some((widget) => widget.id === pick.widgetId && widgetLayerId(widget) === pick.layerId) &&
         panel.layers.some((layer) => layer.id === pick.layerId),
     );
     return live.length === storedPicks.length ? storedPicks : live;

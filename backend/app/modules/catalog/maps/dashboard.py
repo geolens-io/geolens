@@ -16,8 +16,6 @@ from pydantic import (
     BeforeValidator,
     ConfigDict,
     Field,
-    TypeAdapter,
-    ValidationError,
     field_validator,
 )
 
@@ -27,6 +25,7 @@ from app.modules.catalog.widgets.schemas import (
     HistogramWidget,
     IndicatorWidget,
     KeptWidget,
+    MarkdownWidget,
     read_stored,
     to_store,
     upgrade,
@@ -38,7 +37,11 @@ MAX_DASHBOARD_WIDGETS = 50
 # aside and put back on save, like one this server can't parse, so a client
 # that can't show it never drops it by leaving it out.
 _Registered = (
-    IndicatorWidget | BarChartWidget | HistogramWidget | CategorySelectorWidget
+    MarkdownWidget
+    | IndicatorWidget
+    | BarChartWidget
+    | HistogramWidget
+    | CategorySelectorWidget
 )
 _ACCEPTED = get_args(_Registered)
 AcceptedWidget = Annotated[
@@ -47,7 +50,6 @@ AcceptedWidget = Annotated[
     BeforeValidator(upgrade),
 ]
 _REFUSED = "Some dashboard widgets can't be saved on this map"
-_ACCEPTED_ADAPTER: TypeAdapter[Any] = TypeAdapter(AcceptedWidget)
 # Where readers see the panel. Stored only when not the default, so a release
 # that doesn't know the key reads the row unchanged; its saves drop the key.
 PanelPosition = Literal["right", "bottom"]
@@ -69,8 +71,9 @@ class DashboardConfigInput(BaseModel):
         default_factory=list,
         max_length=MAX_DASHBOARD_WIDGETS,
         description=(
-            "Widgets in panel order. Each names a layer of this map that you "
-            "can read. Stored widgets you can't see are kept in place."
+            "Widgets in panel order. Each, except a text widget, names a layer "
+            "of this map that you can read. Stored widgets you can't see are "
+            "kept in place."
         ),
     )
 
@@ -123,6 +126,18 @@ def _parsed(raw: Any) -> Any | None:
     return widgets[0] if widgets else None
 
 
+def _layer_id(widget: Any) -> str | None:
+    """The layer a widget summarizes; None for a text widget, which has none."""
+    layer_id = getattr(widget, "layer_id", None)
+    return None if layer_id is None else str(layer_id)
+
+
+def _on_layers(widget: Any, layer_ids: Collection[str]) -> bool:
+    """Whether the widget's layer is among ``layer_ids``; a widget with no layer always is."""
+    layer_id = _layer_id(widget)
+    return layer_id is None or layer_id in layer_ids
+
+
 def _raw_id(raw: Any) -> str | None:
     """The id of a stored widget this server can't parse, as a parsed id reads."""
     try:
@@ -136,13 +151,15 @@ def render_dashboard(
 ) -> DashboardConfig | None:
     """The stored dashboard as a reader sees it: only widgets on ``layer_ids``.
 
+    A widget with no layer, such as text, is always shown.
+
     None when no widget is left to show.
     """
     shown = {str(layer_id) for layer_id in layer_ids}
     widgets = [
         widget
         for widget in read_stored(_stored_widgets(stored), "dashboard").widgets
-        if isinstance(widget, _ACCEPTED) and str(widget.layer_id) in shown
+        if isinstance(widget, _ACCEPTED) and _on_layers(widget, shown)
     ]
     if not widgets:
         return None
@@ -154,22 +171,13 @@ def render_dashboard(
 def shows_widgets(stored: Any, layer_ids: Collection[uuid.UUID | str]) -> bool:
     """Whether ``render_dashboard(stored, layer_ids)`` would show a widget.
 
-    For lists: it stops at the first such widget, validates only widgets on
-    ``layer_ids`` and builds no response.
+    For lists: it stops at the first such widget and builds no response.
     """
     shown = {str(layer_id) for layer_id in layer_ids}
     for raw in _stored_widgets(stored):
-        try:
-            layer_id = str(uuid.UUID(str(raw["layer_id"])))
-        except (KeyError, TypeError, ValueError):
-            continue
-        if layer_id not in shown:
-            continue
-        try:
-            _ACCEPTED_ADAPTER.validate_python(raw)
-        except ValidationError:
-            continue
-        return True
+        widget = _parsed(raw)
+        if isinstance(widget, _ACCEPTED) and _on_layers(widget, shown):
+            return True
     return False
 
 
@@ -211,10 +219,9 @@ def merge_dashboard(
     for raw in _stored_widgets(stored):
         widget = _parsed(raw)
         if widget is not None:
-            layer_id = str(widget.layer_id)
-            if layer_id not in known:
+            if not _on_layers(widget, known):
                 continue
-            if layer_id in readable and isinstance(widget, _ACCEPTED):
+            if _on_layers(widget, readable) and isinstance(widget, _ACCEPTED):
                 shown_before.append(str(widget.id))
                 continue
             locked_ids.add(str(widget.id))
@@ -228,13 +235,13 @@ def merge_dashboard(
     # tells the editor a hidden layer exists.
     refused = []
     for w in sent_widgets:
-        if str(w.layer_id) not in readable:
+        if not _on_layers(w, readable):
             reason = "layer_unavailable"
         elif str(w.id) in locked_ids:
             reason = "id_in_use"
         else:
             continue
-        refused.append({"id": str(w.id), "layer_id": str(w.layer_id), "reason": reason})
+        refused.append({"id": str(w.id), "layer_id": _layer_id(w), "reason": reason})
     refused.sort(key=lambda item: item["id"])
     if refused:
         raise HTTPException(
@@ -269,7 +276,7 @@ def drop_repointed(stored: Any, repointed_layer_ids: Collection[uuid.UUID]) -> A
     remaining = []
     for raw in widgets:
         widget = _parsed(raw)
-        if widget is None or str(widget.layer_id) not in repointed:
+        if widget is None or _layer_id(widget) not in repointed:
             remaining.append(raw)
     if len(remaining) == len(widgets):
         return stored
@@ -291,6 +298,9 @@ def fork_dashboard(
         return None
     widgets = []
     for widget in read_stored(_stored_widgets(stored), "dashboard").widgets:
+        if _layer_id(widget) is None:
+            widgets.append(widget)
+            continue
         copied = copied_layers.get(widget.layer_id)
         if copied is not None:
             widgets.append(widget.model_copy(update={"layer_id": copied}))

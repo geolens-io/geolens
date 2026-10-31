@@ -393,7 +393,52 @@ describe('DashboardEditorPanel', () => {
     expect(
       screen.getByText('Add a vector or table layer to the map to give it widgets.'),
     ).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^Add / })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Add (Indicator|Bar chart|Histogram)/ })).not.toBeInTheDocument();
     await waitFor(() => expect(fetchMock).not.toHaveBeenCalled());
+  });
+
+  it('adds a text widget without a layer, edits its Markdown and previews it with no data request', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<Harness layers={[raster]} onChange={onChange} />);
+
+    await user.click(screen.getByRole('button', { name: 'Add Text' }));
+
+    const added = lastDraft(onChange).widgets[0];
+    expect(added).toMatchObject({ type: 'markdown', v: 1, config: { text: '' } });
+    expect(added).not.toHaveProperty('layer_id');
+    expect(added).not.toHaveProperty('scope');
+    expect(screen.queryByRole('combobox', { name: 'Layer' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Covers' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/no longer on the map/)).not.toBeInTheDocument();
+
+    await user.type(await screen.findByRole('textbox', { name: 'Text' }), '## Notes{enter}{enter}Read **this**');
+    expect(lastDraft(onChange).widgets[0].config).toEqual({ text: '## Notes\n\nRead **this**' });
+
+    // The preview starts a level below the preview's own h4 heading.
+    const preview = screen.getByRole('region', { name: 'Preview' });
+    expect(await within(preview).findByRole('heading', { level: 5, name: 'Notes' })).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('lists, orders and removes a text widget among layer widgets', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const text = {
+      id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+      type: 'markdown',
+      v: 1,
+      title: 'How to read',
+      config: { text: 'Hello' },
+    };
+    render(<Harness initial={{ panel: 'right', widgets: [text] }} onChange={onChange} />);
+    await user.click(screen.getByRole('button', { name: 'Add Indicator' }));
+    expect(lastDraft(onChange).widgets.map((w) => w.type)).toEqual(['markdown', 'indicator']);
+
+    await user.click(screen.getByRole('button', { name: 'Move How to read down' }));
+    expect(lastDraft(onChange).widgets.map((w) => w.type)).toEqual(['indicator', 'markdown']);
+
+    await user.click(screen.getByRole('button', { name: 'Remove How to read' }));
+    expect(lastDraft(onChange).widgets.map((w) => w.type)).toEqual(['indicator']);
   });
 });

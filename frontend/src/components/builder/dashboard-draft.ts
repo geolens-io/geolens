@@ -1,7 +1,7 @@
 import { deepEqual } from '@/lib/deep-equal';
 import { dashboardPanelPosition, type PanelPosition } from '@/components/viewer/DashboardPanel';
 import type { WidgetInstance } from '@/components/widgets/contract';
-import { getWidgetDefinition, parseStoredWidget } from '@/components/widgets/registry';
+import { getWidgetDefinition, isLayerBound, parseStoredWidget } from '@/components/widgets/registry';
 import { isAggregateNumeric } from '@/lib/column-utils';
 import { canOpenAttributeTable } from '@/lib/layer-capabilities';
 import type { DashboardConfig, MapLayerResponse } from '@/types/api';
@@ -67,6 +67,7 @@ export function dashboardLayers(layers: readonly MapLayerResponse[]): MapLayerRe
 
 /** True when the widget's layer is no longer one it can summarize; the save drops the widget. */
 export function widgetLayerGone(widget: WidgetInstance, layers: readonly MapLayerResponse[]): boolean {
+  if (!isLayerBound(widget.type)) return false;
   return !layers.some((layer) => layer.id === widget.layer_id && canOpenAttributeTable(layer));
 }
 
