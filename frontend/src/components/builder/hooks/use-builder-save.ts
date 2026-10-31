@@ -1342,10 +1342,11 @@ export function useBuilderSave(state: SaveState) {
           try {
             const patched = await patchMapLayers.mutateAsync({ id, diff });
             // The server stores added layers under new ids, so reconcile from
-            // its rows as after a replacement.
+            // its rows as after a replacement. A PATCH deletes nothing it
+            // doesn't name, so every create made during the save is kept.
             if (diff.added?.length) {
               replacedLayers = patched.layers ?? [];
-              replacedReadFrom = registrations.length;
+              replacedReadFrom = 0;
             }
             commitLayerBaseline();
           } catch (error) {

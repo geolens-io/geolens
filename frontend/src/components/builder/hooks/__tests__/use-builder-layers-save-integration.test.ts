@@ -980,6 +980,39 @@ describe('layer creates and deletes during a full-replacement save', () => {
     expectLocalIdsMatchServer(result);
   });
 
+  it('keeps a create made while a PATCH that sends a layer again is in flight', async () => {
+    const { result, mutate } = renderOnServer([keep]);
+    const finishSave = await startReplacement(result);
+    duplicateDuringSave(result, mutate);
+    await finishSave();
+
+    patchAvailable = true;
+    const patch = mockPatchMapLayersMutateAsync.getMockImplementation()!;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    mockPatchMapLayersMutateAsync.mockImplementationOnce(async (args) => {
+      const response = await patch(args);
+      await held;
+      return response;
+    });
+    let saving!: Promise<void>;
+    act(() => { saving = result.current.handleSave(); });
+    await act(async () => {
+      await vi.waitFor(() => expect(mockPatchMapLayersMutateAsync).toHaveBeenCalledTimes(2));
+    });
+    // A create that commits after the PATCH answered, before its response arrives.
+    const late = makeBuilderLayer({ id: 'late', dataset_id: 'ds-keep', sort_order: 2 });
+    act(() => { result.current.handleDuplicateRendering('keep'); });
+    server = [...server, late];
+    const [, { onSuccess }] = mutate.mock.calls[1];
+    act(() => { onSuccess(late); });
+    await act(async () => { release(); await saving; });
+
+    await act(async () => { await result.current.handleSave(); });
+
+    expect(server.map((l) => l.id)).toEqual(['keep', 'stored-1', 'late']);
+  });
+
   it('names the id a PATCH stores in the dashboard the same save sends', async () => {
     const { result, mutate } = renderOnServer([keep]);
     const finishSave = await startReplacement(result);
