@@ -37,9 +37,10 @@ describe('Markdown text widget', () => {
     expect(link).toHaveAttribute('rel', 'noopener noreferrer nofollow');
   });
 
-  it('drops javascript: link targets', () => {
+  it('shows a javascript: link as its text', () => {
     renderMarkdown('[click](javascript:alert(1))');
-    expect(screen.getByText('click').getAttribute('href') ?? '').not.toMatch(/javascript/i);
+    expect(screen.queryByRole('link', { name: 'click' })).toBeNull();
+    expect(screen.getByText('click')).toBeInTheDocument();
   });
 
   it('shows a notice instead of loading an image', () => {
@@ -51,14 +52,15 @@ describe('Markdown text widget', () => {
     expect(screen.getByText('Image not shown')).toBeInTheDocument();
   });
 
-  it('never loads an event-handler image, and shows other unsafe link targets as plain anchors without a destination', () => {
+  it('never loads an event-handler image, and shows other unsafe link targets as their text', () => {
     const { container } = renderMarkdown(
       '<img src=x onerror="window.pwned = 1">\n\n[a](javascript:alert(1)) [b](data:text/html,x) [c](tel:555) [d](irc://h/c) [e](https://example.com) [f](mailto:a@b.co) [g](/relative)',
     );
     expect(container.querySelector('img, [onerror]')).toBeNull();
     expect(container.textContent).toContain('<img src=x onerror=');
     const hrefs = [...container.querySelectorAll('a')].map((a) => a.getAttribute('href'));
-    expect(hrefs).toEqual(['', '', '', '', 'https://example.com', 'mailto:a@b.co', '/relative']);
+    expect(hrefs).toEqual(['https://example.com', 'mailto:a@b.co', '/relative']);
+    expect(container.textContent).toContain('a b c d');
   });
 
   it('draws story headings at the default level with the styling they always had', () => {

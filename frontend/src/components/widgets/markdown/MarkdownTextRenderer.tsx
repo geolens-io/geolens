@@ -25,11 +25,15 @@ function heading(level: number) {
 function componentsFor(firstHeading: number): Components {
   return {
     ...Object.fromEntries([0, 1, 2, 3, 4, 5].map((rank) => [`h${rank + 1}`, heading(firstHeading + rank)])),
-    a: ({ node: _node, children, ...props }) => (
-      <a {...props} rel="noopener noreferrer nofollow">
-        {children}
-      </a>
-    ),
+    // A link whose target the transform dropped reads as its text.
+    a: ({ node: _node, children, ...props }) =>
+      props.href ? (
+        <a {...props} rel="noopener noreferrer nofollow">
+          {children}
+        </a>
+      ) : (
+        <>{children}</>
+      ),
     img: function BlockedImage({ alt }) {
       // The CSP allows any https image, so the renderer is what keeps a story
       // or dashboard from loading third-party images. Uploaded images go in

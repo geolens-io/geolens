@@ -106,7 +106,7 @@ and releases use semantic versioning.
   most 20,000 characters. A 1.28.0 server refuses them on save and keeps
   stored ones out of its responses. Additive. (#3513)
 - Story text blocks now keep only `http`, `https` and `mailto` link targets;
-  `irc`, `ircs` and `xmpp` links no longer render as links. (#3513)
+  any other link, `irc`, `ircs` and `xmpp` included, reads as its text. (#3513)
 - `DashboardConfig` and `DashboardConfigInput` accept `histogram` and
   `category_selector` widgets, whose schemas already existed. A 1.28.0 server
   refuses them on save and keeps stored ones out of its responses. Additive.
