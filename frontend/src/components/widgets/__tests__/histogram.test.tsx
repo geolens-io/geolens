@@ -108,8 +108,8 @@ describe('histogram widget', () => {
     const picked = { column: 'height', label: '0 – 10', range: { lower: 0, upper: 10, includeUpper: false } };
     rerender(<HistogramRenderer config={config} data={data} selection={picked} onSelect={onSelect} />);
     const columns = [...container.querySelectorAll('svg rect.fill-primary')];
-    expect(columns[0].getAttribute('class')).not.toContain('opacity-35');
-    expect(columns[1].getAttribute('class')).toContain('opacity-35');
+    expect(columns[0].getAttribute('class')).not.toContain('opacity-75');
+    expect(columns[1].getAttribute('class')).toContain('opacity-75');
     expect(container.querySelector('[data-picked]')).toHaveTextContent('✓');
     fireEvent.keyDown(chart, { key: 'Home' });
     fireEvent.keyDown(chart, { key: ' ' });

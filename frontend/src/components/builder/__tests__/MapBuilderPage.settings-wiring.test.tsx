@@ -130,6 +130,7 @@ vi.mock('@/components/builder/hooks/use-builder-dialogs', () => ({
 // SettingsEditorScene without driving the sidebar cog.
 vi.mock('@/components/builder/hooks/use-builder-layers', () => ({
   useBuilderLayers: () => ({
+    dashboard: { panel: 'right', widgets: [] },
     localLayers: [],
     savedLayerBaseline: [],
     localName: 'Operations Map',

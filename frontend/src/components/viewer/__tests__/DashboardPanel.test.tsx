@@ -5,6 +5,7 @@ import { render } from '@/test/test-utils';
 import { fetchAggregate, type AggregateRequest } from '@/api/aggregate';
 import { storageKeys } from '@/lib/storage';
 import type { DashboardConfig, SharedLayerResponse } from '@/types/api';
+import { getWidgetDefinition } from '@/components/widgets/registry';
 import { DashboardPanel } from '../DashboardPanel';
 import { VIEW_REFETCH_DEBOUNCE_MS } from '../hooks/use-dashboard-data';
 
@@ -116,6 +117,24 @@ beforeEach(() => {
 });
 
 describe('DashboardPanel', () => {
+  it('starts each widget type\'s renderer download when the config arrives', () => {
+    const indicator = getWidgetDefinition('indicator', 'dashboard')!;
+    const chart = getWidgetDefinition('bar_chart', 'dashboard')!;
+    const loadIndicator = vi.spyOn(indicator, 'loadRenderer');
+    const loadChart = vi.spyOn(chart, 'loadRenderer');
+    const second = { ...countWidget, id: '1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5e' };
+    render(
+      <DashboardPanel
+        config={dashboard([countWidget, second, chartWidget])}
+        layers={[layer()]}
+        map={null}
+        mapId="map-1"
+      />,
+    );
+    expect(loadIndicator).toHaveBeenCalled();
+    expect(loadChart).toHaveBeenCalled();
+  });
+
   it('renders the widgets in order and asks for each with the layer filter', async () => {
     render(
       <DashboardPanel

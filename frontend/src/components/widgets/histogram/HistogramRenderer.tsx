@@ -78,7 +78,7 @@ export default function HistogramRenderer({
                 height={drawn}
                 className={cn(
                   'fill-primary',
-                  anyPicked && !isPicked && 'opacity-35',
+                  anyPicked && !isPicked && 'opacity-75',
                   isActive && 'stroke-foreground',
                 )}
                 strokeWidth={isActive ? 2 : 0}

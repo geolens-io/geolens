@@ -7,7 +7,8 @@ import { useAuthStore } from '@/stores/auth-store';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (_key: string, options?: { defaultValue?: string }) => options?.defaultValue ?? _key,
+    t: (_key: string, options?: { defaultValue?: string; count?: number }) =>
+      options?.defaultValue ?? (options?.count === undefined ? _key : `${_key}:${options.count}`),
   }),
 }));
 
@@ -266,6 +267,36 @@ describe('named aside landmarks', () => {
     expect(
       screen.getByRole('complementary', { name: 'History' }),
     ).toBeInTheDocument();
+  });
+});
+
+describe('Dashboard presence indicator', () => {
+  const widget = { id: 'w', type: 'indicator' } as never;
+  const renderRail = (widgets: unknown[]) =>
+    render(
+      <BuilderRail
+        activePanel={null}
+        onPanelChange={vi.fn()}
+        aiAvailable
+        notes=""
+        onNotesChange={vi.fn()}
+        dashboard={{ panel: 'right', widgets: widgets as never[] }}
+        onDashboardChange={vi.fn()}
+        mapId="map-1"
+        layers={[]}
+      />,
+    );
+
+  it('counts the widgets in the button name and shows the dot', () => {
+    renderRail([widget, widget, widget]);
+    const button = screen.getByRole('button', { name: 'rail.dashboardButtonWithWidgets:3' });
+    expect(button.querySelector('[aria-hidden="true"].bg-primary')).not.toBeNull();
+  });
+
+  it('keeps the plain name and no dot without widgets', () => {
+    renderRail([]);
+    const button = screen.getByRole('button', { name: 'dock.dashboard' });
+    expect(button.querySelector('.bg-primary')).toBeNull();
   });
 });
 

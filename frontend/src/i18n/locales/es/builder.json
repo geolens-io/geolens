@@ -1364,7 +1364,9 @@
     "aiGoToSettings": "Ir a Configuración",
     "aiConfigureSettings": "Configurar en Configuración",
     "closePanel": "Cerrar panel",
-    "notesButtonWithNotes": "Notas (el mapa tiene notas)"
+    "notesButtonWithNotes": "Notas (el mapa tiene notas)",
+    "dashboardButtonWithWidgets_one": "Panel ({{count}} widget)",
+    "dashboardButtonWithWidgets_other": "Panel ({{count}} widgets)"
   },
   "stackRow": {
     "dragHandle": "Arrastrar para reordenar {{name}}",

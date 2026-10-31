@@ -94,6 +94,7 @@ vi.mock('@/components/builder/hooks/use-builder-dialogs', () => ({
 
 vi.mock('@/components/builder/hooks/use-builder-layers', () => ({
   useBuilderLayers: () => ({
+    dashboard: { panel: 'right', widgets: [] },
     localLayers: [],
     localName: 'Operations Map',
     setLocalName: vi.fn(),
