@@ -23,6 +23,7 @@ import { canOpenAttributeTable } from '@/lib/layer-capabilities';
 import { useDatasetRows } from '@/components/dataset/hooks/use-dataset';
 import { useUpdateFeature } from '@/hooks/use-features';
 import { getFeature } from '@/api/features';
+import { useMapSelectionStore } from '@/stores/map-selection-store';
 import { toFitBounds } from '@/lib/bbox';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';
@@ -145,6 +146,8 @@ beforeAll(() => {
   })) as unknown as typeof window.matchMedia;
 });
 
+const scrollToIndex = vi.hoisted(() => vi.fn());
+
 // jsdom computes no layout, so the real virtualizer renders a zero window of
 // rows; render them all instead (same stub as
 // AttributeTable.batch-delete.test.tsx).
@@ -159,6 +162,7 @@ vi.mock('@tanstack/react-virtual', () => ({
       })),
     getTotalSize: () => count * estimateSize(),
     measure: () => {},
+    scrollToIndex: scrollToIndex,
   }),
 }));
 
@@ -260,6 +264,7 @@ function makeRowsReturn(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  useMapSelectionStore.getState().clear();
   vi.mocked(useDatasetRows).mockReturnValue(makeRowsReturn() as never);
   vi.mocked(useUpdateFeature).mockReturnValue({
     mutateAsync: vi.fn(),
@@ -475,6 +480,141 @@ describe('AttributeTableDrawer', () => {
     });
     expect(map.addSource).toHaveBeenCalledTimes(1);
     expect(map.addLayer).toHaveBeenCalledTimes(2);
+  });
+
+  it('subscribes to style.load once per map, not on every render', () => {
+    const map = makeFakeMap();
+    const props = { layer: makeLayer(), open: true, onClose: vi.fn(), mapRef: { current: map } };
+    const { rerender } = render(<AttributeTableDrawer {...props} />);
+    rerender(<AttributeTableDrawer {...props} />);
+    rerender(<AttributeTableDrawer {...props} />);
+
+    const calls = (map.on as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    expect(calls.filter(([event]) => event === 'style.load')).toHaveLength(1);
+  });
+
+  describe('selection from a map click', () => {
+    const rowByGid = (gid: number) => screen.getByRole('row', { name: `Show row ${gid} on the map` });
+
+    const pick = (layerId: string, featureId: number) =>
+      act(() => useMapSelectionStore.getState().select(layerId, featureId));
+
+    it('selects the clicked feature’s row and scrolls it into view, leaving the camera alone', () => {
+      const map = makeFakeMap();
+      const layer = makeLayer();
+      const mapRef = { current: map };
+      render(<AttributeTableDrawer layer={layer} open onClose={vi.fn()} mapRef={mapRef} />);
+      expect(rowByGid(2)).toHaveAttribute('aria-selected', 'false');
+
+      pick(layer.id, 2);
+
+      expect(rowByGid(2)).toHaveAttribute('aria-selected', 'true');
+      expect(rowByGid(1)).toHaveAttribute('aria-selected', 'false');
+      // jsdom lays out nothing, so any row below the first scrolls the region.
+      expect(rowByGid(2).closest('[role="region"]')!.scrollTop).toBeGreaterThan(0);
+      expect(map.fitBounds).not.toHaveBeenCalled();
+    });
+
+    it('ignores a click on another layer and one that predates the drawer', () => {
+      const layer = makeLayer();
+      const mapRef = { current: makeFakeMap() };
+      useMapSelectionStore.getState().select(layer.id, 1);
+      render(<AttributeTableDrawer layer={layer} open onClose={vi.fn()} mapRef={mapRef} />);
+      expect(rowByGid(1)).toHaveAttribute('aria-selected', 'false');
+
+      pick('another-layer', 2);
+      expect(rowByGid(2)).toHaveAttribute('aria-selected', 'false');
+    });
+
+    it('replaces a row click’s map highlight and drops its pending response', async () => {
+      const map = makeFakeMap();
+      const layer = makeLayer();
+      const mapRef = { current: map };
+      render(<AttributeTableDrawer layer={layer} open onClose={vi.fn()} mapRef={mapRef} />);
+      fireEvent.click(rowByGid(2));
+      await waitFor(() => expect(map.addSource).toHaveBeenCalledTimes(1));
+
+      pick(layer.id, 1);
+
+      expect(rowByGid(1)).toHaveAttribute('aria-selected', 'true');
+      expect(rowByGid(2)).toHaveAttribute('aria-selected', 'false');
+      expect(map.getSource('attribute-table-highlight')).toBeUndefined();
+    });
+  });
+
+  describe('show selection', () => {
+    const lastCall = () => vi.mocked(useDatasetRows).mock.calls.at(-1);
+
+    // The mount-time selection is ignored by design, so select after mounting.
+    function selectOffPage(layer = makeLayer()) {
+      const props = { layer, open: true, onClose: vi.fn(), mapRef: { current: makeFakeMap() } };
+      const view = render(<AttributeTableDrawer {...props} />);
+      act(() => useMapSelectionStore.getState().select(layer.id, 382));
+      return view;
+    }
+
+    it('offers Show selected when the feature is not among the loaded rows, and filters to it', () => {
+      vi.mocked(useDatasetRows).mockImplementation(((...args: unknown[]) => (
+        args[6] === 382
+          ? makeRowsReturn({ data: { ...makeRowsReturn().data, rows: [{ gid: 382, name: 'z' }], approximate_total: 1 } })
+          : makeRowsReturn()
+      )) as never);
+      selectOffPage();
+      expect(screen.getByText("The selected feature isn't on this page.")).toBeInTheDocument();
+      expect(lastCall()?.[6]).toBeUndefined();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Show selected' }));
+      expect(lastCall()?.[6]).toBe(382);
+      expect(screen.getByText('Showing the selected feature only.')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Show all rows' }));
+      expect(lastCall()?.[6]).toBeUndefined();
+    });
+
+    it('stops narrowing once another feature is selected', () => {
+      const layer = makeLayer();
+      selectOffPage(layer);
+      fireEvent.click(screen.getByRole('button', { name: 'Show selected' }));
+      expect(lastCall()?.[6]).toBe(382);
+
+      act(() => useMapSelectionStore.getState().select(layer.id, 383));
+      expect(lastCall()?.[6]).toBeUndefined();
+      expect(screen.getByRole('button', { name: 'Show selected' })).toBeInTheDocument();
+
+      // Picking the first feature again doesn't bring the narrowing back.
+      act(() => useMapSelectionStore.getState().select(layer.id, 382));
+      expect(lastCall()?.[6]).toBeUndefined();
+    });
+
+    it('keeps the layer filter and the column filters beside the gid param', () => {
+      selectOffPage(makeLayer({ filter: ['==', ['get', 'name'], 'b'] as never }));
+      fireEvent.click(screen.getByRole('button', { name: 'Show selected' }));
+
+      const call = lastCall();
+      expect(call?.[5]).toBe(JSON.stringify({ op: '=', args: [{ property: 'name' }, 'b'] }));
+      expect(call?.[6]).toBe(382);
+    });
+
+    it('does not offer it when the selected row is loaded', () => {
+      const layer = makeLayer();
+      const props = { layer, open: true, onClose: vi.fn(), mapRef: { current: makeFakeMap() } };
+      render(<AttributeTableDrawer {...props} />);
+      act(() => useMapSelectionStore.getState().select(layer.id, 2));
+
+      expect(screen.queryByRole('button', { name: 'Show selected' })).not.toBeInTheDocument();
+    });
+
+    it('explains an empty table when the table’s filters hide the selected feature', () => {
+      vi.mocked(useDatasetRows).mockImplementation(((...args: unknown[]) => (
+        args[6] === 382
+          ? makeRowsReturn({ data: { ...makeRowsReturn().data, rows: [], approximate_total: 0, total_kind: 'exact' } })
+          : makeRowsReturn()
+      )) as never);
+      selectOffPage();
+      fireEvent.click(screen.getByRole('button', { name: 'Show selected' }));
+
+      expect(screen.getByText("The selected feature is hidden by the table's filters.")).toBeInTheDocument();
+    });
   });
 
   // Rows are focusable and activate from the keyboard, not just the pointer:
@@ -863,14 +1003,14 @@ describe('docked attribute table (round 4)', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('fits with exactly { padding: 40, maxZoom: 18 } at several table heights', async () => {
+  it('fits a point with exactly { padding: 40, maxZoom: 16 } at several table heights', async () => {
     const map = makeFakeMap();
     render(<AttributeTableDrawer layer={makeLayer()} open onClose={vi.fn()} mapRef={{ current: map }} />);
 
     const row2 = screen.getByRole('row', { name: 'Show row 2 on the map' });
     fireEvent.click(row2);
     await waitFor(() => expect(map.fitBounds).toHaveBeenCalledTimes(1));
-    expect(map.fitBounds).toHaveBeenNthCalledWith(1, toFitBounds([12.5, 48.1, 12.5, 48.1]), { padding: 40, maxZoom: 18 });
+    expect(map.fitBounds).toHaveBeenNthCalledWith(1, toFitBounds([12.5, 48.1, 12.5, 48.1]), { padding: 40, maxZoom: 16 });
 
     // Vary the table height through the resize contract; the fit options must
     // not depend on it.
@@ -879,13 +1019,13 @@ describe('docked attribute table (round 4)', () => {
     const afterUp = valuenow();
     fireEvent.click(row2);
     await waitFor(() => expect(map.fitBounds).toHaveBeenCalledTimes(2));
-    expect(map.fitBounds).toHaveBeenNthCalledWith(2, toFitBounds([12.5, 48.1, 12.5, 48.1]), { padding: 40, maxZoom: 18 });
+    expect(map.fitBounds).toHaveBeenNthCalledWith(2, toFitBounds([12.5, 48.1, 12.5, 48.1]), { padding: 40, maxZoom: 16 });
 
     fireEvent.keyDown(resizeHandle(), { key: 'ArrowDown' });
     expect(valuenow()).not.toBe(afterUp);
     fireEvent.click(row2);
     await waitFor(() => expect(map.fitBounds).toHaveBeenCalledTimes(3));
-    expect(map.fitBounds).toHaveBeenNthCalledWith(3, toFitBounds([12.5, 48.1, 12.5, 48.1]), { padding: 40, maxZoom: 18 });
+    expect(map.fitBounds).toHaveBeenNthCalledWith(3, toFitBounds([12.5, 48.1, 12.5, 48.1]), { padding: 40, maxZoom: 16 });
   });
 
   it('resize: keyboard steps and past-bound drags clamp, and aria-value* track the height', () => {
@@ -1266,7 +1406,9 @@ describe('docked attribute table (round 4)', () => {
     }
     const [w, s, e, n] = fits;
     expect(map.fitBounds).toHaveBeenCalledTimes(1);
-    expect(map.fitBounds).toHaveBeenNthCalledWith(1, toFitBounds([w, s, e, n]), { padding: 40, maxZoom: 18 });
+    // A point fits at street level; anything wider may zoom further.
+    const maxZoom = e - w < 1e-5 && n - s < 1e-5 ? 16 : 18;
+    expect(map.fitBounds).toHaveBeenNthCalledWith(1, toFitBounds([w, s, e, n]), { padding: 40, maxZoom });
     // The highlight source carries the clicked geometry.
     expect(map.addSource).toHaveBeenCalledWith('attribute-table-highlight', {
       type: 'geojson',
@@ -2137,7 +2279,7 @@ describe('row response during a basemap style load', () => {
       expect(map.fitBounds).toHaveBeenCalledTimes(1);
       expect(map.fitBounds).toHaveBeenCalledWith(
         toFitBounds([12.5, 48.1, 12.5, 48.1]),
-        { padding: 40, maxZoom: 18 },
+        { padding: 40, maxZoom: 16 },
       );
     } finally {
       tableSpy.mockRestore();
@@ -2162,7 +2304,7 @@ describe('style readiness after style.load', () => {
     expect(map.getLayer('attribute-table-highlight-point')).toBeTruthy();
     expect(map.fitBounds).toHaveBeenCalledExactlyOnceWith(
       toFitBounds([12.5, 48.1, 12.5, 48.1]),
-      { padding: 40, maxZoom: 18 },
+      { padding: 40, maxZoom: 16 },
     );
     expect(map.once).not.toHaveBeenCalled();
   });
@@ -2250,7 +2392,7 @@ describe('style readiness after style.load', () => {
       type: 'geojson',
       data: { type: 'Feature', geometry: { type: 'Point', coordinates: [3, 4] }, properties: {} },
     });
-    expect(map.fitBounds).toHaveBeenCalledExactlyOnceWith(toFitBounds([3, 4, 3, 4]), { padding: 40, maxZoom: 18 });
+    expect(map.fitBounds).toHaveBeenCalledExactlyOnceWith(toFitBounds([3, 4, 3, 4]), { padding: 40, maxZoom: 16 });
   });
 });
 
@@ -2312,7 +2454,7 @@ describe('fit padding across an in-flight breakpoint change', () => {
       toFitBounds([12.5, 48.1, 12.5, 48.1]),
       {
         padding: sheet ? { top: 40, right: 40, left: 40, bottom: 40 + sheetHeight } : 40,
-        maxZoom: 18,
+        maxZoom: 16,
       },
     );
   });
@@ -2363,7 +2505,7 @@ describe('below-800px attribute table height', () => {
       });
       expect(map.fitBounds).toHaveBeenLastCalledWith(
         toFitBounds([12.5, 48.1, 12.5, 48.1]),
-        { padding: { top: 40, right: 40, left: 40, bottom: 40 + sheetHeight }, maxZoom: 18 },
+        { padding: { top: 40, right: 40, left: 40, bottom: 40 + sheetHeight }, maxZoom: 16 },
       );
     };
 

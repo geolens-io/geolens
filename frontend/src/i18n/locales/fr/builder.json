@@ -1472,7 +1472,12 @@
     "layerPicker": "Couche de la table attributaire",
     "filterUnsupported": "Le filtre de la couche n'a pas pu être appliqué — toutes les lignes sont affichées.",
     "resizeHandle": "Redimensionner la table attributaire",
-    "close": "Fermer la table attributaire"
+    "close": "Fermer la table attributaire",
+    "selectionMissing": "L'élément sélectionné n'est pas sur cette page.",
+    "selectionShow": "Afficher la sélection",
+    "selectionShowing": "Affichage de l'élément sélectionné uniquement.",
+    "selectionShowAll": "Afficher toutes les lignes",
+    "selectionHiddenByFilters": "Les filtres du tableau masquent l'élément sélectionné."
   },
   "layerEditor": {
     "close": "Fermer l'éditeur de couche",
@@ -1558,7 +1563,11 @@
     "projectionAria": "Projection de la carte",
     "globeDisclaimer": "La projection globe est expérimentale. Certaines couches peuvent ne pas s'afficher correctement.",
     "terrainSmallDemTip": "Astuce : une carte n'a qu'une seule source de terrain. Pour un petit MNT haute résolution, zoomez sur son emprise ou utilisez un MNT qui couvre toute la zone de la carte.",
-    "openTerrainLayer": "Ouvrir la couche de terrain"
+    "openTerrainLayer": "Ouvrir la couche de terrain",
+    "readersLabel": "LECTEURS",
+    "attributeTable": "Les lecteurs peuvent ouvrir la table attributaire",
+    "attributeTableOn": "Table activée",
+    "attributeTableOff": "Table désactivée"
   },
   "common": {
     "reload": "Recharger"

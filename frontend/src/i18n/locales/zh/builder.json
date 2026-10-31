@@ -1476,7 +1476,12 @@
     "layerPicker": "属性表图层",
     "filterUnsupported": "无法应用图层过滤器——显示所有行。",
     "resizeHandle": "调整属性表大小",
-    "close": "关闭属性表"
+    "close": "关闭属性表",
+    "selectionMissing": "所选要素不在此页。",
+    "selectionShow": "显示所选",
+    "selectionShowing": "仅显示所选要素。",
+    "selectionShowAll": "显示所有行",
+    "selectionHiddenByFilters": "所选要素被表格的筛选条件隐藏。"
   },
   "layerEditor": {
     "close": "关闭图层编辑器",
@@ -1568,7 +1573,11 @@
     "projectionAria": "地图投影",
     "globeDisclaimer": "球面投影为实验性功能。部分图层可能无法正确渲染。",
     "terrainSmallDemTip": "提示：一张地图只有一个地形来源。对于小范围高分辨率 DEM，请放大到其范围，或使用能覆盖整个地图区域的 DEM。",
-    "openTerrainLayer": "打开地形图层"
+    "openTerrainLayer": "打开地形图层",
+    "readersLabel": "读者",
+    "attributeTable": "读者可以打开属性表",
+    "attributeTableOn": "表格已开启",
+    "attributeTableOff": "表格已关闭"
   },
   "cluster": {
     "popupTitle_one": "聚合：{{countLabel}} 个要素",

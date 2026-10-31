@@ -139,6 +139,7 @@ function StoryMap({
             visibleLayers={visibleLayers}
             onMapReady={handleMapReady}
             onDrawnChange={setDrawnLayers}
+            showAttributeTable={data.show_attribute_table}
           />
         </Suspense>
       </MapErrorBoundary>

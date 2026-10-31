@@ -81,10 +81,13 @@ export function useDatasetRows(
   filters?: Record<string, string>,
   sort?: DatasetRowsSort,
   cql2Filter?: string,
+  gid?: number,
+  request: { withBbox?: boolean; embedToken?: string } = {},
 ) {
+  const { withBbox, embedToken } = request;
   return useQuery({
-    queryKey: queryKeys.datasets.rows(id, limit, cursor, filters, sort, cql2Filter),
-    queryFn: () => getDatasetRows(id, { limit, after: cursor, filters, sort, cql2Filter }),
+    queryKey: queryKeys.datasets.rows(id, limit, cursor, filters, sort, cql2Filter, gid, { withBbox, embedToken }),
+    queryFn: () => getDatasetRows(id, { limit, after: cursor, filters, sort, cql2Filter, gid, withBbox, embedToken }),
     enabled: !!id,
     placeholderData: keepPreviousData,
     staleTime: 60_000,

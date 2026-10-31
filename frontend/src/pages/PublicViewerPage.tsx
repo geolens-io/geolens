@@ -83,6 +83,16 @@ function PublicViewer() {
 
   const [basemapId, setBasemapId] = useState<string | null>(null);
   const handleLegendToggle = useCallback(() => setIsLegendOpen((prev) => !prev), [setIsLegendOpen]);
+  // Memoized so the memoized ViewerMap doesn't re-render with the page.
+  const savedBasemap = data?.basemap_style;
+  const mapOverlays = useMemo(() => (isEmbed || savedBasemap === undefined ? null : (
+    <BasemapToggle
+      value={basemapId ?? savedBasemap}
+      onChange={setBasemapId}
+      title={t('viewer.changeBasemap')}
+      className="absolute bottom-8 start-3 z-10"
+    />
+  )), [isEmbed, savedBasemap, basemapId, t]);
 
   // Every branch except embeds shows the site banner, expired and invalid
   // share links included, so maintenance notices reach those visitors.
@@ -201,6 +211,8 @@ function PublicViewer() {
                   onMapReady={onMapReady}
                   onDrawnChange={setDrawnLayers}
                   datasetLinksAllowed={!data.has_non_public_layers}
+                  showAttributeTable={data.show_attribute_table}
+                  overlays={mapOverlays}
                 />
               </Suspense>
             </MapErrorBoundary>
@@ -218,16 +230,6 @@ function PublicViewer() {
                 terrainConfig={data.terrain_config ?? null}
                 legendTitle={data.legend_title ?? null}
                 drawn={drawnLayers}
-              />
-            )}
-
-            {/* Basemap switcher */}
-            {!isEmbed && (
-              <BasemapToggle
-                value={basemapId ?? data.basemap_style}
-                onChange={setBasemapId}
-                title={t('viewer.changeBasemap')}
-                className="absolute bottom-8 start-3 z-10"
               />
             )}
 

@@ -73,6 +73,11 @@ and releases use semantic versioning.
   lacks or isn't numeric, or follows the map view on a layer without geometry.
   A new bar chart or selector starts on a text column with few sampled values
   where the layer has one, rather than a nearly unique one such as a place name.
+- Readers can open a Map data panel under the map, with a Table of a layer's
+  rows next to the List view. Rows follow the layer's filter and the
+  dashboard's Picks, can be limited to the map view, and select their feature
+  on the map and back. On a phone the panel docks under the map and expands to
+  full screen. The Builder's attribute table follows map clicks the same way.
 - Linked dashboard widgets. Clicking a bar or a histogram bin, or choosing
   values in a category selector, filters that layer on the map and its other
   widgets until the reader clears it. Each filter shows as a chip that clears

@@ -36,6 +36,10 @@ export interface FeatureInfo {
    *  attribute stripping ("zoom in" hint) from a feature whose values are
    *  genuinely all null ("no attributes"). */
   zoomAtClick?: number;
+  /** The map layer the feature was clicked on. */
+  layerId?: string;
+  /** The vector tile feature id, which is the row's `gid`. */
+  featureId?: number;
 }
 
 /** MVT attribute budget: below this zoom the tile

@@ -1,5 +1,6 @@
 import type { MapGeoJSONFeature } from 'maplibre-gl';
 import type { SharedLayerResponse } from '@/types/api';
+import { geometryBounds } from '@/lib/bbox';
 import { groupsDigits } from '@/lib/feature-property-value';
 import { substitutePopupTemplate } from '@/lib/popup-template';
 
@@ -28,55 +29,6 @@ export interface AccessibleMapFeatureResult {
 type ResolveAccessibleLayer = (
   mapLayerId: string,
 ) => SharedLayerResponse | null;
-
-/**
- * Envelope of one GeoJSON geometry as [west, south, east, north]. Collections
- * fold member-by-member, recursing into nested collections; null when no
- * coordinate is finite.
- */
-export function geometryBounds(
-  geometry: GeoJSON.Geometry | null | undefined,
-): AccessibleMapFeature['bounds'] {
-  if (!geometry) return null;
-
-  let west = Number.POSITIVE_INFINITY;
-  let south = Number.POSITIVE_INFINITY;
-  let east = Number.NEGATIVE_INFINITY;
-  let north = Number.NEGATIVE_INFINITY;
-
-  const visitCoordinates = (value: unknown) => {
-    if (!Array.isArray(value)) return;
-    if (
-      value.length >= 2
-      && typeof value[0] === 'number'
-      && typeof value[1] === 'number'
-      && Number.isFinite(value[0])
-      && Number.isFinite(value[1])
-    ) {
-      west = Math.min(west, value[0]);
-      east = Math.max(east, value[0]);
-      south = Math.min(south, value[1]);
-      north = Math.max(north, value[1]);
-      return;
-    }
-    for (const item of value) visitCoordinates(item);
-  };
-
-  if (geometry.type === 'GeometryCollection') {
-    for (const item of geometry.geometries) {
-      const bounds = geometryBounds(item);
-      if (!bounds) continue;
-      west = Math.min(west, bounds[0]);
-      south = Math.min(south, bounds[1]);
-      east = Math.max(east, bounds[2]);
-      north = Math.max(north, bounds[3]);
-    }
-  } else {
-    visitCoordinates(geometry.coordinates);
-  }
-
-  return Number.isFinite(west) ? [west, south, east, north] : null;
-}
 
 function visibleProperties(
   properties: Record<string, unknown>,

@@ -1030,6 +1030,8 @@ interface SaveState {
   localDescription: string;
   /** Custom map-level legend title. Null = no override. */
   legendTitle: string | null;
+  /** Whether readers can open the Map data table. */
+  showAttributeTable?: boolean;
   dockNotes: string;
   /** The Builder's dashboard; a save sends it only when `dashboardEdited`. */
   dashboard: DashboardDraft;
@@ -1080,6 +1082,7 @@ const SAVE_SNAPSHOT_FIELDS = [
   'localName',
   'localDescription',
   'legendTitle',
+  'showAttributeTable',
   'dockNotes',
   'dashboard',
   'localBasemap',
@@ -1183,6 +1186,7 @@ export function useBuilderSave(state: SaveState) {
       localName,
       localDescription,
       legendTitle,
+      showAttributeTable,
       dockNotes,
       dashboard,
       savedDashboard,
@@ -1305,6 +1309,7 @@ export function useBuilderSave(state: SaveState) {
       plugins: resolvePluginsPayload(id, queryClient, enabledPluginIds),
       // Empty/null clears the custom legend title server-side.
       legend_title: legendTitle && legendTitle.trim() ? legendTitle.trim() : null,
+      ...(showAttributeTable === undefined ? {} : { show_attribute_table: showAttributeTable }),
       ...(sendDashboard
         ? { dashboard_config: dashboardPayload(dashboard, localLayers, savedDashboard.panel) }
         : {}),

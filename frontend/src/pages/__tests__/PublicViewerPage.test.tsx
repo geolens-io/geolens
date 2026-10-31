@@ -32,7 +32,7 @@ vi.mock('@/hooks/use-document-title', () => ({
 vi.mock('@/components/viewer/ViewerMap', () => ({
   ViewerMap: (props: React.ComponentProps<typeof ViewerMap>) => {
     viewerMapMock.props = props;
-    return <div data-testid="viewer-map">viewer map</div>;
+    return <div data-testid="viewer-map">viewer map{props.overlays}</div>;
   },
 }));
 
@@ -343,7 +343,8 @@ describe('PublicViewerPage', () => {
 
     expect(mockedUseSharedMap).toHaveBeenCalledWith('share-token', 'embed-token');
     expect(JSON.stringify(mockedUseSharedMap.mock.calls)).not.toContain('account-key');
-    expect(JSON.stringify(viewerMapMock.props)).not.toContain('account-key');
+    // The overlays are React elements, which don't serialize; they carry no credential.
+    expect(JSON.stringify({ ...viewerMapMock.props, overlays: undefined })).not.toContain('account-key');
   });
 
   it.each([

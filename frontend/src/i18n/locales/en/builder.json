@@ -1476,7 +1476,12 @@
     "layerPicker": "Attribute table layer",
     "filterUnsupported": "The layer's filter could not be applied — showing every row.",
     "resizeHandle": "Resize attribute table",
-    "close": "Close attribute table"
+    "close": "Close attribute table",
+    "selectionMissing": "The selected feature isn't on this page.",
+    "selectionShow": "Show selected",
+    "selectionShowing": "Showing the selected feature only.",
+    "selectionShowAll": "Show all rows",
+    "selectionHiddenByFilters": "The selected feature is hidden by the table's filters."
   },
   "layerEditor": {
     "close": "Close layer editor",
@@ -1568,7 +1573,11 @@
     "projectionAria": "Map projection",
     "globeDisclaimer": "Globe projection is experimental. Some layers may not render correctly.",
     "terrainSmallDemTip": "Tip: a map has one terrain source. For a small high-resolution DEM, zoom in to its extent, or use a DEM that covers the whole map area.",
-    "openTerrainLayer": "Open terrain layer"
+    "openTerrainLayer": "Open terrain layer",
+    "readersLabel": "READERS",
+    "attributeTable": "Readers can open the attribute table",
+    "attributeTableOn": "Table on",
+    "attributeTableOff": "Table off"
   },
   "cluster": {
     "popupTitle_one": "Cluster: {{countLabel}} feature",

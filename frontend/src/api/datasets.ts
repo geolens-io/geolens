@@ -66,6 +66,12 @@ export async function getDatasetRows(
     sort?: DatasetRowsSort;
     /** CQL2-JSON filter expression, sent verbatim as `filter`. */
     cql2Filter?: string;
+    /** Narrows the rows to this one feature; ANDs with the other filters. */
+    gid?: number;
+    /** Also returns `bboxes`, each row's EPSG:4326 bounding box. */
+    withBbox?: boolean;
+    /** Sent as `X-Embed-Token`, for an embedded map's reader. */
+    embedToken?: string;
   } = {},
 ): Promise<DatasetRowsResponse> {
   const query = new URLSearchParams();
@@ -76,13 +82,18 @@ export async function getDatasetRows(
     query.set('order', params.sort.desc ? 'desc' : 'asc');
   }
   if (params.cql2Filter) query.set('filter', params.cql2Filter);
+  if (params.gid !== undefined) query.set('gid', String(params.gid));
+  if (params.withBbox) query.set('with_bbox', 'true');
   if (params.filters) {
     for (const [col, value] of Object.entries(params.filters)) {
       if (value) query.set(`filter[${col}]`, value);
     }
   }
   const qs = query.toString();
-  return apiFetch<DatasetRowsResponse>(`/datasets/${encodeURIComponent(id)}/rows/${qs ? `?${qs}` : ''}`);
+  return apiFetch<DatasetRowsResponse>(
+    `/datasets/${encodeURIComponent(id)}/rows/${qs ? `?${qs}` : ''}`,
+    params.embedToken ? { headers: { 'X-Embed-Token': params.embedToken } } : undefined,
+  );
 }
 
 function getExportUrl(

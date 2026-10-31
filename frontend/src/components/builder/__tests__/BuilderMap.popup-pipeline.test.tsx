@@ -9,12 +9,13 @@
 // produced is readable from the DOM.
 
 import type { ReactNode } from 'react';
-import { act, render, screen } from '@/test/test-utils';
+import { act, cleanup, render, screen } from '@/test/test-utils';
 import type { MapLayerResponse } from '@/types/api';
 import type { VectorTileToken } from '@/api/tiles';
 import { BuilderMap } from '../BuilderMap';
 import { useMapDrawStore } from '@/stores/map-draw-store';
 import { usePluginStore } from '@/stores/map-plugin-store';
+import { useMapSelectionStore } from '@/stores/map-selection-store';
 
 vi.mock('@/hooks/use-settings', () => ({
   useBasemaps: () => ({
@@ -79,6 +80,7 @@ vi.mock('@/components/builder/map-sync', async (importOriginal) => {
 
 type QueriedFeature = {
   layer: { id: string };
+  id?: number | string;
   properties: Record<string, unknown>;
 };
 
@@ -210,6 +212,7 @@ function clickMap() {
 
 beforeEach(() => {
   mapState.reset();
+  useMapSelectionStore.getState().clear();
   useMapDrawStore.setState({ drawActive: false });
   usePluginStore.setState({ activePlugins: new Set<string>() });
 });
@@ -222,6 +225,22 @@ describe('BuilderMap popup pipeline (fix #943)', () => {
     clickMap();
 
     expect(screen.getByTestId('feature-popup')).toHaveTextContent('Parcels');
+  });
+
+  it('selects the clicked feature by layer and tile id, and clears the selection with the map', async () => {
+    await renderMap([makeLayer()]);
+    const selection = () => useMapSelectionStore.getState().selection;
+
+    mapState.hits.features = [{ ...featureHit(), id: 'not-a-gid' }];
+    clickMap();
+    expect(selection()).toBeNull();
+
+    mapState.hits.features = [{ ...featureHit(), id: 7 }];
+    clickMap();
+    expect(selection()).toMatchObject({ layerId: 'layer-1', featureId: 7 });
+
+    cleanup();
+    expect(selection()).toBeNull();
   });
 
   it('opens no popup when the layer has popups disabled', async () => {

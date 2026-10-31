@@ -318,6 +318,7 @@ export function MapBuilderPage() {
     localName: layers.localName,
     localDescription: layers.localDescription,
     legendTitle: layers.localLegendTitle,
+    showAttributeTable: layers.localShowAttributeTable,
     dockNotes,
     dashboard: layers.dashboard,
     savedDashboard: layers.savedDashboard,
@@ -1697,6 +1698,8 @@ export function MapBuilderPage() {
             }}
             projection={localProjection}
             onSetProjection={handleSetProjection}
+            showAttributeTable={layers.localShowAttributeTable}
+            onShowAttributeTableChange={layers.handleShowAttributeTableChange}
           />
         </Suspense>
       </LazyLoadErrorBoundary>

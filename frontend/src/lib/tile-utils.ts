@@ -249,3 +249,13 @@ interface MaplibreMapLike {
   getStyle?: () => { sources?: Record<string, unknown> } | undefined;
   refreshTiles?: (sourceId: string) => void;
 }
+
+/**
+ * The row `gid` of a feature picked from a vector tile. The tile server writes
+ * each feature's `gid` as its MVT feature id, so MapLibre reports it as
+ * `feature.id`; undefined for anything else, such as a cluster or a feature
+ * whose id is not a safe integer.
+ */
+export function featureGid(feature: { id?: unknown }): number | undefined {
+  return typeof feature.id === 'number' && Number.isSafeInteger(feature.id) ? feature.id : undefined;
+}

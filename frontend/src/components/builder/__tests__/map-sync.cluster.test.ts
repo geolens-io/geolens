@@ -668,6 +668,31 @@ describe('syncLayersToMap cluster rendering', () => {
     );
   });
 
+  it('removes another layer drawing from the clustered source before rebuilding it', () => {
+    const map = makeMockMap();
+    const layer = makeLayer({ filter: ['==', ['get', 'status'], 'open'] as SyncLayerInput['filter'] });
+    const geojsonData = new Map<string, GeoJSON.FeatureCollection>([[layer.id, featureCollection]]);
+    const sync = (next: SyncLayerInput, known: string[]) => syncLayersToMap(
+      map, [next], tokenMap(next), undefined, { current: new Set(known) }, { current: '' }, geojsonData,
+    );
+    sync(layer, []);
+    // A feature highlight paints from the layer's own source.
+    map.addLayer({ id: 'feature-highlight-line', type: 'line', source: 'source-cluster-1' });
+    // MapLibre refuses to remove a source a layer still uses.
+    const removeSource = vi.mocked(map.removeSource).getMockImplementation()!;
+    vi.mocked(map.removeSource).mockImplementation((id: string) => {
+      const inUse = map.getStyle().layers.some((l) => 'source' in l && l.source === id);
+      if (inUse) throw new Error(`Source "${id}" cannot be removed while a layer uses it`);
+      return removeSource(id);
+    });
+
+    const closed = ['==', ['get', 'status'], 'closed'];
+    sync(makeLayer({ filter: closed as SyncLayerInput['filter'] }), ['source-cluster-1']);
+
+    expect(map.getLayer('feature-highlight-line')).toBeNull();
+    expect(map.addSource).toHaveBeenLastCalledWith('source-cluster-1', expect.objectContaining({ filter: closed }));
+  });
+
   it('hands the clustered source an expression filter when the layer filter is a legacy one', () => {
     const map = makeMockMap();
     const layer = makeLayer({ filter: ['==', 'status', 'open'] as SyncLayerInput['filter'] });

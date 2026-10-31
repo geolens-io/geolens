@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@/test/test-utils';
+import { fireEvent, render, screen, within } from '@/test/test-utils';
 import { SettingsEditorScene } from '../SettingsEditorScene';
 import type { SettingsEditorSceneProps } from '../SettingsEditorScene';
 
@@ -119,6 +119,8 @@ function defaultProps(overrides: Partial<SettingsEditorSceneProps> = {}): Settin
     onBackgroundColorReset: vi.fn(),
     projection: 'mercator',
     onSetProjection: vi.fn(),
+    showAttributeTable: true,
+    onShowAttributeTableChange: vi.fn(),
     ...overrides,
   };
 }
@@ -171,12 +173,18 @@ describe('SettingsEditorScene · Plugins section (UX-04)', () => {
     ).toBeInTheDocument();
   });
 
+  // The scene's other sections carry switches of their own.
+  const pluginSwitches = () => {
+    const group = screen.queryByRole('group', { name: 'Plugins' });
+    return group ? within(group).getAllByRole('switch') : [];
+  };
+
   // Test 5 — single Switch per plugin id (no duplicate availability controls)
   it('renders exactly one Switch element per plugin id within the Settings scene', () => {
     render(<SettingsEditorScene {...defaultProps()} />);
 
     // 2 plugins in the mock registry, so exactly 2 Switches must exist
-    const switches = screen.getAllByRole('switch');
+    const switches = pluginSwitches();
     expect(switches).toHaveLength(2);
 
     // and none of them share an aria-label (no duplicate availability control for the same plugin)
@@ -198,14 +206,14 @@ describe('SettingsEditorScene · Plugins section (UX-04)', () => {
     expect(screen.getByRole('switch', { name: 'Enable legend' })).toBeInTheDocument();
     // …the disabled plugin has no toggle at all (not a dead "Enable measurement").
     expect(screen.queryByRole('switch', { name: 'Enable measurement' })).toBeNull();
-    expect(screen.getAllByRole('switch')).toHaveLength(1);
+    expect(pluginSwitches()).toHaveLength(1);
   });
 
   // Test 7 — when the admin disables every plugin, the section shows the empty state.
   it('renders the empty state when the admin allowlist is empty', () => {
     render(<SettingsEditorScene {...defaultProps({ enabledPluginIds: [] })} />);
 
-    expect(screen.queryAllByRole('switch')).toHaveLength(0);
+    expect(pluginSwitches()).toHaveLength(0);
     expect(screen.getByText('No plugins available.')).toBeInTheDocument();
   });
 });
