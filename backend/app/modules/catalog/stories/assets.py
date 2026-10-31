@@ -64,27 +64,6 @@ def object_keys(storage_key: str) -> dict[str, str]:
     return {name: variant_key(storage_key, name) for name in STORY_ASSET_VARIANTS}
 
 
-async def copy_story_asset_objects(storage, src_key: str, dst_key: str) -> None:
-    """Copy every size of an asset; raises FileNotFoundError only when the
-    original is gone. Logical keys."""
-    names = list(STORY_ASSET_VARIANTS)
-    results = await asyncio.gather(
-        *(
-            storage.copy(
-                resolve_current_storage_key(variant_key(src_key, name)),
-                resolve_current_storage_key(variant_key(dst_key, name)),
-            )
-            for name in names
-        ),
-        return_exceptions=True,
-    )
-    for name, result in zip(names, results):
-        if isinstance(result, FileNotFoundError) and name != "original":
-            continue
-        if isinstance(result, BaseException):
-            raise result
-
-
 def chapters_of(document: Any) -> list[dict[str, Any]]:
     chapters = document.get("chapters") if isinstance(document, dict) else None
     return [c for c in chapters or () if isinstance(c, dict)]
@@ -475,8 +454,25 @@ async def copy_story_assets(
     gate = asyncio.Semaphore(MAX_DELETES_IN_FLIGHT)
 
     async def copy_one(row: StoryAsset, key: str) -> None:
+        """Copy every size of an asset; raises FileNotFoundError only when the
+        original is gone."""
+        variants = list(STORY_ASSET_VARIANTS)
         async with gate:
-            await copy_story_asset_objects(storage, row.storage_key, key)
+            results = await asyncio.gather(
+                *(
+                    storage.copy(
+                        resolve_current_storage_key(variant_key(row.storage_key, name)),
+                        resolve_current_storage_key(variant_key(key, name)),
+                    )
+                    for name in variants
+                ),
+                return_exceptions=True,
+            )
+        for name, result in zip(variants, results):
+            if isinstance(result, FileNotFoundError) and name != "original":
+                continue
+            if isinstance(result, BaseException):
+                raise result
 
     results = await await_draining(
         asyncio.gather(
