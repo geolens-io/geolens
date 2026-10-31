@@ -1226,7 +1226,8 @@ export function useBuilderSave(state: SaveState) {
           registrations,
           replacedReadFrom,
         );
-        if (renamed.size > 0) state.remapLayerIds(renamed);
+        // The latest render's, whose dashboard draft holds edits made since.
+        if (renamed.size > 0) latestStateRef.current.remapLayerIds(renamed);
         baselineLayersRef.current = baseline;
         return;
       }
@@ -1316,7 +1317,13 @@ export function useBuilderSave(state: SaveState) {
       } else {
         if (hasDiff(diff)) {
           try {
-            await patchMapLayers.mutateAsync({ id, diff });
+            const patched = await patchMapLayers.mutateAsync({ id, diff });
+            // The server stores added layers under new ids, so reconcile from
+            // its rows as after a replacement.
+            if (diff.added?.length) {
+              replacedLayers = patched.layers ?? [];
+              replacedReadFrom = registrations.length;
+            }
             commitLayerBaseline();
           } catch (error) {
             // A stale diff is a conflict, not a missing endpoint. Refetch, drop

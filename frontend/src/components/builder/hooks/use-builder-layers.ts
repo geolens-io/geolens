@@ -963,7 +963,17 @@ export function useBuilderLayers(
       }),
     );
     setExpandedLayerId((prev) => (prev && ids.get(prev)) ?? prev);
-  }, []);
+    // Otherwise the next save would drop the widgets as on a removed layer.
+    if (dashboard.widgets.some((w) => w.layer_id && ids.has(w.layer_id))) {
+      setDashboard({
+        ...dashboard,
+        widgets: dashboard.widgets.map((w) => {
+          const next = w.layer_id && ids.get(w.layer_id);
+          return next ? { ...w, layer_id: next } : w;
+        }),
+      });
+    }
+  }, [dashboard, setDashboard]);
 
   const markDirty = useCallback(() => setHasUnsavedChanges(true), []);
 

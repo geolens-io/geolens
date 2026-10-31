@@ -958,6 +958,43 @@ describe('layer creates and deletes during a full-replacement save', () => {
     expect(server.map((l) => l.id)).toEqual(['keep']);
   });
 
+  it('follows the id the server stores for a layer a PATCH sends again', async () => {
+    const { result, mutate } = renderOnServer([keep]);
+    const finishSave = await startReplacement(result);
+    duplicateDuringSave(result, mutate);
+    await finishSave();
+
+    patchAvailable = true;
+    await act(async () => { await result.current.handleSave(); });
+
+    expect(server.map((l) => l.id)).toEqual(['keep', 'stored-1']);
+    expectLocalIdsMatchServer(result);
+  });
+
+  it('points dashboard widgets at the id a replacement re-creates their layer under', async () => {
+    const { result } = renderOnServer([keep, doomed]);
+    act(() => {
+      result.current.handleDashboardChange({
+        ...result.current.dashboard,
+        widgets: [{
+          id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+          type: 'indicator',
+          v: 1,
+          layer_id: 'doomed',
+          scope: 'layer',
+          config: { stat: 'count', column: null },
+        }],
+      });
+    });
+    const finishSave = await startReplacement(result);
+    // Another session deletes the layer while the PUT is in flight.
+    server = server.filter((l) => l.id !== 'doomed');
+    await finishSave();
+
+    expect(server.map((l) => l.id)).toEqual(['keep', 'stored-1']);
+    expect(result.current.dashboard.widgets[0].layer_id).toBe('stored-1');
+  });
+
   it('removes a layer deleted during the save that the replacement recreated', async () => {
     const { result, removeMutate } = renderOnServer([keep, doomed]);
     const finishSave = await startReplacement(result);
