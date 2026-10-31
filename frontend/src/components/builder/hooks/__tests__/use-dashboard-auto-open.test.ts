@@ -64,6 +64,32 @@ describe('useDashboardAutoOpen', () => {
     expect(localStorage.getItem(storageKeys.dashboardRailClosed('a'))).toBeNull();
   });
 
+  it('closes a panel it opened when the next map does not open it, without recording a closure', () => {
+    localStorage.setItem(storageKeys.dashboardRailClosed('b'), '1');
+    const { result, rerender } = setup({ mapId: 'a' });
+    expect(result.current.railPanel).toBe('dashboard');
+    rerender({ mapId: 'b' });
+    expect(result.current.railPanel).toBeNull();
+    rerender({ mapId: 'c', hasWidgets: false });
+    expect(result.current.railPanel).toBeNull();
+    expect(localStorage.getItem(storageKeys.dashboardRailClosed('a'))).toBeNull();
+    expect(localStorage.getItem(storageKeys.dashboardRailClosed('c'))).toBeNull();
+  });
+
+  it('closes an auto-opened panel on a switch to a map without widgets', () => {
+    const { result, rerender } = setup({ mapId: 'a' });
+    rerender({ mapId: 'b', hasWidgets: false });
+    expect(result.current.railPanel).toBeNull();
+    expect(localStorage.getItem(storageKeys.dashboardRailClosed('b'))).toBeNull();
+  });
+
+  it('keeps a panel the author picked when the map changes', () => {
+    const { result, rerender } = setup({ mapId: 'a' });
+    act(() => result.current.setRailPanel('history'));
+    rerender({ mapId: 'b', hasWidgets: false });
+    expect(result.current.railPanel).toBe('history');
+  });
+
   it('does not open where panels open as a sheet', () => {
     const { result } = setup({ mapId: 'a', sheetLayout: true });
     expect(result.current.railPanel).toBeNull();
