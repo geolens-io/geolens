@@ -710,6 +710,7 @@
     "leavePublicConfirmAction": "Dejar de compartir públicamente",
     "groups": {
       "title": "Grupos",
+      "selectedLabel": "Grupos con los que se comparte este mapa",
       "help": "Elige los grupos que pueden abrir este mapa. Sus capas siguen el acceso propio de cada conjunto de datos.",
       "openedHint": "Elige grupos y luego guarda.",
       "effectPrivateEmpty": "Elige un grupo y guarda para compartir este mapa con grupos concretos.",

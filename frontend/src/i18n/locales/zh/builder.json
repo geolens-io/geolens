@@ -710,6 +710,7 @@
     "leavePublicConfirmAction": "停止公开共享",
     "groups": {
       "title": "用户组",
+      "selectedLabel": "已共享此地图的用户组",
       "help": "选择可以打开此地图的用户组。其图层仍遵循各数据集自身的访问权限。",
       "openedHint": "选择用户组，然后保存。",
       "effectPrivateEmpty": "选择用户组并保存，即可与指定用户组共享此地图。",

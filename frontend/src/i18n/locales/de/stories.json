@@ -245,6 +245,7 @@
   },
   "groups": {
     "heading": "Gruppen",
+    "selectedLabel": "Gruppen, mit denen diese Story geteilt wird",
     "help": "Wählen Sie die Gruppen, deren Mitglieder diese Story nach dem Veröffentlichen lesen können. Die Karte jeder Szene behält ihre eigenen Zugriffsrechte.",
     "effectPrivateEmpty": "Wählen Sie eine Gruppe und speichern Sie, um diese Story mit bestimmten Gruppen zu teilen.",
     "effectToRestricted": "Durch Speichern wird diese Story mit bestimmten Gruppen geteilt: Nur Sie, Administratoren und Mitglieder dieser Gruppen können sie lesen.",

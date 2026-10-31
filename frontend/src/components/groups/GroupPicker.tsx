@@ -9,6 +9,8 @@ import type { GroupRef } from '@/types/api';
 
 interface GroupPickerProps {
   selected: GroupRef[];
+  /** Accessible name of the chosen-groups list; names the resource being shared. */
+  selectedLabel: string;
   onChange: (next: GroupRef[]) => void;
   /** Receives the sentence to read out after an add or a removal. */
   onAnnounce: (text: string) => void;
@@ -22,10 +24,10 @@ interface GroupPickerProps {
 }
 
 /**
- * Chips for the groups a dataset or map is shared with, plus a searchable
+ * Chips for the groups a dataset, map or story is shared with, plus a searchable
  * picker over the caller's own groups (every group for an admin).
  */
-export function GroupPicker({ selected, onChange, onAnnounce, busy, inputRef, focusWhenReady, onOpenChange }: GroupPickerProps) {
+export function GroupPicker({ selected, selectedLabel, onChange, onAnnounce, busy, inputRef, focusWhenReady, onOpenChange }: GroupPickerProps) {
   const { t } = useTranslation('dataset');
   const myGroups = useMyGroups(true);
   const ready = !myGroups.isLoading;
@@ -65,7 +67,7 @@ export function GroupPicker({ selected, onChange, onAnnounce, busy, inputRef, fo
 
   return (
     <div>
-      <ul aria-label={t('groupShare.selectedLabel')} className="flex flex-wrap gap-2">
+      <ul aria-label={selectedLabel} className="flex flex-wrap gap-2">
         {selected.map((group) => (
           <li
             key={group.id}

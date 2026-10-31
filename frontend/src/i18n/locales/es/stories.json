@@ -245,6 +245,7 @@
   },
   "groups": {
     "heading": "Grupos",
+    "selectedLabel": "Grupos con los que se comparte esta historia",
     "help": "Elige los grupos cuyos miembros pueden leer esta historia cuando se publique. El mapa de cada escena mantiene su propio acceso.",
     "effectPrivateEmpty": "Elige un grupo y guarda para compartir esta historia con grupos concretos.",
     "effectToRestricted": "Al guardar, esta historia se comparte con grupos concretos: solo tú, los administradores y los miembros de estos grupos pueden leerla.",
