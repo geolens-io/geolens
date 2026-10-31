@@ -42,6 +42,8 @@ describe('isSafeHttpUrl', () => {
       'https://-bad.example.com/',
       'https://a..b.example.com/',
       'https://example.com../',
+      'https:///path',
+      'https://example.com\\@evil.com/',
       'https://exa%6dple.com/',
       'https://0x7f.1/',
       'https://192.168.1/',

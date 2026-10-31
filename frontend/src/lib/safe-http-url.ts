@@ -22,7 +22,10 @@ const HOST_LABEL = /^(?!-)[a-z0-9-]{1,63}(?<!-)$/;
  * form a browser keeps.
  */
 export function isSafeHttpUrl(value: string | null | undefined): value is string {
-  if (typeof value !== 'string' || !HTTP_URL_PATTERN.test(value) || WHITESPACE_OR_CONTROL.test(value)) return false;
+  // A browser reads a backslash as a slash, so `host\@other` would open `host`.
+  if (typeof value !== 'string' || !HTTP_URL_PATTERN.test(value) || WHITESPACE_OR_CONTROL.test(value) || value.includes('\\')) {
+    return false;
+  }
   let url: URL;
   try {
     url = new URL(value);
@@ -38,6 +41,6 @@ export function isSafeHttpUrl(value: string | null | undefined): value is string
   // so the host must appear in the address as written. An international host
   // is rewritten to punycode, which the server accepts too.
   const international = labels.some((label) => label.startsWith('xn--'));
-  if (!international && !value.toLowerCase().includes(`//${host}`)) return false;
+  if (!international && !value.toLowerCase().startsWith(`${url.protocol}//${host}`)) return false;
   return labels.every((label) => HOST_LABEL.test(label));
 }
