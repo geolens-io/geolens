@@ -9,15 +9,15 @@ from ...types import Response
 from ... import errors
 
 from ...models.problem_detail import ProblemDetail
+from ...models.story_publish import StoryPublish
 from ...models.story_response import StoryResponse
-from ...models.story_revision import StoryRevision
 from uuid import UUID
 
 
 def _get_kwargs(
     story_id: UUID,
     *,
-    body: StoryRevision,
+    body: StoryPublish,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
 
@@ -110,7 +110,7 @@ def sync_detailed(
     story_id: UUID,
     *,
     client: AuthenticatedClient,
-    body: StoryRevision,
+    body: StoryPublish,
 ) -> Response[ProblemDetail | StoryResponse]:
     """Publish Story Endpoint
 
@@ -119,11 +119,12 @@ def sync_detailed(
     `revision` must match the stored draft's, or 409 `stale_revision`. 409
     `maps_narrower_than_story` when a map a scene uses can't be read by
     everyone the story's visibility reaches: `detail.maps` names the ones you
-    can read and `detail.unreadable_maps` counts the rest.
+    can read and `detail.unreadable_maps` counts the rest. For a restricted
+    story, a map only some of its groups lack is `can_share`; see `confirm`.
 
     Args:
         story_id (UUID):
-        body (StoryRevision):
+        body (StoryPublish):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -149,7 +150,7 @@ def sync(
     story_id: UUID,
     *,
     client: AuthenticatedClient,
-    body: StoryRevision,
+    body: StoryPublish,
 ) -> ProblemDetail | StoryResponse | None:
     """Publish Story Endpoint
 
@@ -158,11 +159,12 @@ def sync(
     `revision` must match the stored draft's, or 409 `stale_revision`. 409
     `maps_narrower_than_story` when a map a scene uses can't be read by
     everyone the story's visibility reaches: `detail.maps` names the ones you
-    can read and `detail.unreadable_maps` counts the rest.
+    can read and `detail.unreadable_maps` counts the rest. For a restricted
+    story, a map only some of its groups lack is `can_share`; see `confirm`.
 
     Args:
         story_id (UUID):
-        body (StoryRevision):
+        body (StoryPublish):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -183,7 +185,7 @@ async def asyncio_detailed(
     story_id: UUID,
     *,
     client: AuthenticatedClient,
-    body: StoryRevision,
+    body: StoryPublish,
 ) -> Response[ProblemDetail | StoryResponse]:
     """Publish Story Endpoint
 
@@ -192,11 +194,12 @@ async def asyncio_detailed(
     `revision` must match the stored draft's, or 409 `stale_revision`. 409
     `maps_narrower_than_story` when a map a scene uses can't be read by
     everyone the story's visibility reaches: `detail.maps` names the ones you
-    can read and `detail.unreadable_maps` counts the rest.
+    can read and `detail.unreadable_maps` counts the rest. For a restricted
+    story, a map only some of its groups lack is `can_share`; see `confirm`.
 
     Args:
         story_id (UUID):
-        body (StoryRevision):
+        body (StoryPublish):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -220,7 +223,7 @@ async def asyncio(
     story_id: UUID,
     *,
     client: AuthenticatedClient,
-    body: StoryRevision,
+    body: StoryPublish,
 ) -> ProblemDetail | StoryResponse | None:
     """Publish Story Endpoint
 
@@ -229,11 +232,12 @@ async def asyncio(
     `revision` must match the stored draft's, or 409 `stale_revision`. 409
     `maps_narrower_than_story` when a map a scene uses can't be read by
     everyone the story's visibility reaches: `detail.maps` names the ones you
-    can read and `detail.unreadable_maps` counts the rest.
+    can read and `detail.unreadable_maps` counts the rest. For a restricted
+    story, a map only some of its groups lack is `can_share`; see `confirm`.
 
     Args:
         story_id (UUID):
-        body (StoryRevision):
+        body (StoryPublish):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

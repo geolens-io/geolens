@@ -24,6 +24,7 @@ from app.modules.auth.dependencies import require_mode_permission
 from app.modules.auth.models import Group
 from app.modules.catalog.group_access import change_group_access
 from app.modules.catalog.maps.service import unshare_group_maps
+from app.modules.catalog.stories.groups import unshare_group_stories
 from app.platform.ratelimit import limiter
 from app.standards.ogc.errors import CONFLICT_RESPONSE, NOT_FOUND_RESPONSE
 
@@ -206,11 +207,15 @@ async def delete_group(
 ) -> Response:
     """Delete a sharing group and all its memberships (admin only).
 
-    Its members lose the group's datasets and maps at once, signed tile URLs
-    included. A restricted map shared only with this group becomes private.
+    Its members lose the group's datasets, maps and stories at once, signed
+    tile URLs included. A restricted map or story shared only with this group
+    becomes private.
     """
 
     async def delete() -> tuple[str, int, list[uuid.UUID]]:
+        # Stories before maps: sharing a story's blocking maps locks them in
+        # that order.
+        await unshare_group_stories(db, group_id)
         await unshare_group_maps(db, group_id)
         return await group_service.delete_group(
             db, group_id, id_limit=AUDIT_MEMBER_ID_CAP

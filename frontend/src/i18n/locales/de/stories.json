@@ -75,7 +75,8 @@
     "unreadableMaps_other": "{{count}} weitere Karten, die Sie nicht öffnen können",
     "blockedTitle": "Veröffentlichen wurde abgelehnt",
     "blockedDescription": "Einige Karten dieser Story kann nicht jeder lesen, den ihre Sichtbarkeit erreicht. Machen Sie sie für dieses Publikum sichtbar oder schränken Sie die Sichtbarkeit der Story unter Details ein.",
-    "close": "Schließen"
+    "close": "Schließen",
+    "shareMapsAndPublish": "Meine Karten teilen und veröffentlichen"
   },
   "unavailable": {
     "title": "Story nicht verfügbar",
@@ -213,6 +214,31 @@
       "processing": "Bild wird verarbeitet…",
       "progress": "Upload-Fortschritt",
       "notShown": "Dieses Bild kann nicht angezeigt werden. Ersetzen oder entfernen Sie es."
-    }
+    },
+    "publishedSharingMaps": "Story veröffentlicht, und Ihre Karten, die sie blockiert haben, sind jetzt mit ihren Gruppen geteilt."
+  },
+  "groups": {
+    "heading": "Gruppen",
+    "help": "Wählen Sie die Gruppen, deren Mitglieder diese Story nach dem Veröffentlichen lesen können. Die Karte jeder Szene behält ihre eigenen Zugriffsrechte.",
+    "effectPrivateEmpty": "Wählen Sie eine Gruppe und speichern Sie, um diese Story mit bestimmten Gruppen zu teilen.",
+    "effectToRestricted": "Durch Speichern wird diese Story mit bestimmten Gruppen geteilt: Nur Sie, Administratoren und Mitglieder dieser Gruppen können sie lesen.",
+    "effectRestricted": "Durch Speichern ändert sich, welche Gruppen diese Story lesen können.",
+    "effectToPrivate": "Durch Speichern wird die letzte Gruppe entfernt. Nur Sie und Administratoren können diese Story lesen.",
+    "effectKept": "Die Gruppen ändern derzeit nicht, wer diese Story lesen kann. Sie gelten, wenn Sie die Story privat machen.",
+    "save": "Gruppen speichern",
+    "saving": "Gruppen werden gespeichert…",
+    "saved": "Gruppen gespeichert.",
+    "savedRestricted": "Gruppen gespeichert. Diese Story ist jetzt nur mit bestimmten Gruppen geteilt.",
+    "savedPrivate": "Gruppen entfernt. Nur Sie und Administratoren können diese Story lesen.",
+    "sharedMaps_one": "Gruppen gespeichert, und {{count}} Ihrer Karten ist jetzt mit ihnen geteilt.",
+    "sharedMaps_many": "Gruppen gespeichert, und {{count}} Ihrer Karten sind jetzt mit ihnen geteilt.",
+    "sharedMaps_other": "Gruppen gespeichert, und {{count}} Ihrer Karten sind jetzt mit ihnen geteilt.",
+    "failed": "Gruppen konnten nicht gespeichert werden",
+    "blockedTitle": "Diese Gruppen können einige Karten nicht lesen",
+    "blockedCanShare": "Einige Personen in diesen Gruppen können die folgenden Karten nicht öffnen. Teilen Sie Ihre Karten ebenfalls mit den Gruppen oder entfernen Sie die Szenen, die sie verwenden.",
+    "blockedCannotShare": "Einige Personen in diesen Gruppen können die folgenden Karten nicht öffnen, und Sie können nicht alle davon teilen. Bitten Sie die jeweiligen Kartenbesitzer, sie mit den Gruppen zu teilen, oder entfernen Sie die Szenen, die sie verwenden.",
+    "cannotShareMap": "(Sie können diese Karte nicht teilen)",
+    "shareMaps": "Meine Karten teilen und speichern",
+    "sharingRevokesLinks": "Eine private Karte, die Sie so teilen, funktioniert nicht mehr über ihren Freigabelink und ihre Einbettungscodes, und Ebenen, die die Gruppen nicht lesen können, bleiben für sie ausgeblendet."
   }
 }

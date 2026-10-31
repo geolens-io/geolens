@@ -25,8 +25,8 @@ class StorySummary:
         id (UUID):
         title (str):
         summary (None | str):
-        visibility (StoredStoryVisibility): A story's visibility as stored. ``restricted`` is reserved for story
-            group sharing, which no route sets yet.
+        visibility (StoredStoryVisibility): A story's visibility as stored. A private story shared with groups is
+            ``restricted``: its groups' members read it too.
         created_by (None | UUID):
         published_at (datetime.datetime | None): When the story was last published; null if never.
         cover_asset_id (None | UUID): The cover image, served at `/stories/{id}/assets/{cover_asset_id}`; null without

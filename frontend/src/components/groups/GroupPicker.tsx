@@ -73,6 +73,7 @@ export function GroupPicker({ selected, onChange, onAnnounce, busy, inputRef, fo
           >
             <span>{group.name}</span>
             <Button
+              type="button"
               variant="ghost"
               size="icon-xs"
               disabled={busy}

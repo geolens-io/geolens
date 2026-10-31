@@ -16,10 +16,17 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AssetImage } from '@/components/widgets/image/AssetImage';
 import { getVisibilityLabel } from '@/i18n/labels';
-import type { StoryDraftResponse, StoryResponse, StoryUpdate, StoryVisibility } from '@/types/api';
+import type {
+  StoryDraftResponse,
+  StoryGroupsResponse,
+  StoryResponse,
+  StoryUpdate,
+  StoryVisibility,
+} from '@/types/api';
 import { StoryTextFields } from '../StoryTextFields';
 import { BlockingMapsList } from './BlockingMapsList';
 import { captureAccount } from './same-account';
+import { StoryGroupShare } from './StoryGroupShare';
 import { StoryImagePicker } from './StoryImagePicker';
 import { useStoryUploads } from './use-story-uploads';
 
@@ -30,15 +37,29 @@ interface StoryDetailsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: (story: StoryResponse) => void;
+  onGroupsSaved: (result: StoryGroupsResponse) => void;
 }
 
-/** Title, summary, visibility and cover. These apply at once, without Publish. */
-export function StoryDetailsDialog({ story, open, onOpenChange, onSaved }: StoryDetailsDialogProps) {
+/** Title, summary, visibility, groups and cover. These apply at once, without Publish. */
+export function StoryDetailsDialog({ story, open, onOpenChange, onSaved, onGroupsSaved }: StoryDetailsDialogProps) {
+  const [pickerOpen, setPickerOpen] = useState(false);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
+        onEscapeKeyDown={(event) => {
+          // Escape closes the group picker's results first.
+          if (pickerOpen) event.preventDefault();
+        }}
+      >
         {/* Inside the content, so the form starts from the story each time the dialog opens. */}
-        <StoryDetailsForm story={story} onSaved={onSaved} onClose={() => onOpenChange(false)} />
+        <StoryDetailsForm
+          story={story}
+          onSaved={onSaved}
+          onGroupsSaved={onGroupsSaved}
+          onPickerOpenChange={setPickerOpen}
+          onClose={() => onOpenChange(false)}
+        />
       </DialogContent>
     </Dialog>
   );
@@ -47,10 +68,14 @@ export function StoryDetailsDialog({ story, open, onOpenChange, onSaved }: Story
 function StoryDetailsForm({
   story,
   onSaved,
+  onGroupsSaved,
+  onPickerOpenChange,
   onClose,
 }: {
   story: StoryDraftResponse;
   onSaved: (story: StoryResponse) => void;
+  onGroupsSaved: (result: StoryGroupsResponse) => void;
+  onPickerOpenChange: (open: boolean) => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation('stories');
@@ -125,6 +150,18 @@ function StoryDetailsForm({
         </Select>
         <p className="text-xs text-muted-foreground">{t('details.visibilityHint')}</p>
       </div>
+      <StoryGroupShare
+        storyId={story.id}
+        visibility={story.visibility}
+        groups={story.groups ?? []}
+        onPickerOpenChange={onPickerOpenChange}
+        onSaved={(result) => {
+          onGroupsSaved(result);
+          // The groups decide private against restricted; the select follows them.
+          setVisibility(result.visibility);
+          setBlocked(null);
+        }}
+      />
       <CoverField storyId={story.id} cover={cover} onChange={setCover} onUploadingChange={setCoverUploading} />
       {blocked && (
         <div role="alert" className="space-y-2 rounded-md border border-destructive/40 p-3 text-sm">

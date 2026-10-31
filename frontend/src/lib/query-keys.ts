@@ -76,6 +76,8 @@ export const queryKeys = {
     // Under the maps root, so whatever refreshes map lists refreshes the story map picker.
     picker: (search: string) => ['maps', 'picker', search] as const,
     detail: (id: string | undefined) => ['map', id] as const,
+    // Prefix of every map's detail key and the keys under it.
+    detailRoot: ['map'] as const,
     // Under the detail key, so whatever refetches the map refetches its gaps.
     groupGaps: (id: string | undefined) => ['map', id, 'group-gaps'] as const,
     access: (id: string | undefined) => ['map-access', id] as const,

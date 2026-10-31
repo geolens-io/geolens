@@ -94,6 +94,13 @@ _REFUSED_ROUTES: dict[tuple[str, str], str] = {
         ],
         "widens who reads a map, which a publish key may not",
     ),
+    **dict.fromkeys(
+        [
+            ("PUT", "/stories/{story_id}/groups"),
+            ("PUT", "/stories/{story_id}/groups/"),
+        ],
+        "widens who reads a story, which a publish key may not",
+    ),
     ("PATCH", "/maps/{map_id}"): "transfers map ownership",
     ("PUT", "/maps/{map_id}"): (
         "replaces a map's layers and settings in place, with no earlier "

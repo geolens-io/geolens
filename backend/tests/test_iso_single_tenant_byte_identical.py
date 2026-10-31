@@ -49,6 +49,7 @@ _RLS_TABLES = [
     "stories",
     "story_maps",
     "story_assets",
+    "story_group_grants",
 ]
 
 
@@ -130,7 +131,8 @@ class TestRlsDisabledInSingleTenant:
                 'catalog.map_group_grants'::regclass,
                 'catalog.stories'::regclass,
                 'catalog.story_maps'::regclass,
-                'catalog.story_assets'::regclass
+                'catalog.story_assets'::regclass,
+                'catalog.story_group_grants'::regclass
             ])
             ORDER BY relname
             """
@@ -169,7 +171,8 @@ class TestRlsDisabledInSingleTenant:
                 'catalog.map_group_grants'::regclass,
                 'catalog.stories'::regclass,
                 'catalog.story_maps'::regclass,
-                'catalog.story_assets'::regclass
+                'catalog.story_assets'::regclass,
+                'catalog.story_group_grants'::regclass
             ])
             ORDER BY relname
             """

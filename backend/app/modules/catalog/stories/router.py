@@ -21,6 +21,7 @@ from app.modules.catalog.authorization import (
     check_public_visibility_allowed,
     get_user_roles,
 )
+from app.modules.catalog.group_sharing import GroupNotJoinedError
 from app.modules.catalog.link_preview import (
     link_preview_response,
     preview_description,
@@ -35,18 +36,27 @@ from app.modules.catalog.stories.assets import (
     story_asset_keys,
     touch_story_assets,
 )
+from app.modules.catalog.stories.groups import (
+    audit_shared_maps,
+    lock_story_groups,
+    sharing_blocking_maps,
+    story_groups,
+    story_visibility_for,
+)
 from app.modules.catalog.stories.models import Story
 from app.modules.catalog.stories.schemas import (
     StoryCreate,
     StoryDraftResponse,
     StoryDraftUpdate,
     StoryListResponse,
+    StoryPublish,
     StoryRevision,
     StoryResponse,
     StorySummary,
     StoryUpdate,
 )
 from app.modules.catalog.stories.service import (
+    STORY_NOT_FOUND,
     StoryMapsNotFoundError,
     StoryReachError,
     can_edit_story,
@@ -62,6 +72,7 @@ from app.modules.catalog.stories.service import (
     lock_story,
     preview_scene_map,
     publish,
+    reach_conflict,
     refuse_stale_revision,
     render_for,
     save_draft,
@@ -129,18 +140,6 @@ async def _owned_story(
     return await lock_story(db, story_id, user)
 
 
-def _reach_conflict(exc: StoryReachError) -> HTTPException:
-    return HTTPException(
-        status_code=status.HTTP_409_CONFLICT,
-        detail={
-            "code": "maps_narrower_than_story",
-            "message": "Some maps this story uses can't be read by everyone the story reaches.",
-            "maps": [m.model_dump(mode="json") for m in exc.maps],
-            "unreadable_maps": exc.unreadable,
-        },
-    )
-
-
 async def _draft_response(
     db: AsyncSession, story: Story, user: Identity, roles: set[str]
 ) -> StoryDraftResponse:
@@ -148,6 +147,7 @@ async def _draft_response(
         **_summary(story, True),
         revision=story.draft_revision,
         document=await render_for(db, story.draft, user, roles),
+        groups=await story_groups(db, story.id),
     )
 
 
@@ -350,7 +350,8 @@ async def update_story_endpoint(
 
     These apply at once, without Publish. A visibility wider than a map the
     published story uses answers 409 `maps_narrower_than_story`; a narrower
-    one is always allowed.
+    one is always allowed. A story shared with groups stays restricted when
+    made private.
     """
     story = await get_story(db, story_id)
     if story is None:
@@ -365,11 +366,13 @@ async def update_story_endpoint(
     )
     story, roles = await lock_story(db, story_id, user)
     changes = body.model_dump(exclude_unset=True, mode="json")
+    if visibility is not None:
+        visibility = await story_visibility_for(db, story.id, visibility)
     if visibility is not None and visibility != story.visibility:
         try:
             await check_visibility_change(db, story, visibility, user, roles)
         except StoryReachError as exc:
-            raise _reach_conflict(exc) from exc
+            raise reach_conflict(exc) from exc
         story.visibility = visibility
     if "title" in changes and body.title is not None:
         story.title = body.title
@@ -408,7 +411,7 @@ async def update_story_endpoint(
 )
 async def publish_story_endpoint(
     story_id: uuid.UUID,
-    body: StoryRevision,
+    body: StoryPublish,
     request: Request,
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
@@ -418,14 +421,32 @@ async def publish_story_endpoint(
     `revision` must match the stored draft's, or 409 `stale_revision`. 409
     `maps_narrower_than_story` when a map a scene uses can't be read by
     everyone the story's visibility reaches: `detail.maps` names the ones you
-    can read and `detail.unreadable_maps` counts the rest.
+    can read and `detail.unreadable_maps` counts the rest. For a restricted
+    story, a map only some of its groups lack is `can_share`; see `confirm`.
     """
+    if body.confirm is not None:
+        # Sharing maps locks the story's groups, which must come first.
+        found = await get_story(db, story_id)
+        if found is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=STORY_NOT_FOUND
+            )
+        await check_story_ownership(db, found, user)
+        await lock_story_groups(db, found)
     story, roles = await _owned_story(db, story_id, user)
     refuse_stale_revision(story, body.revision)
     try:
-        released = await publish(db, story, user, roles)
+        released, shared = await sharing_blocking_maps(
+            db, lambda: publish(db, story, user, roles), user, body.confirm
+        )
     except StoryReachError as exc:
-        raise _reach_conflict(exc) from exc
+        raise reach_conflict(exc) from exc
+    except GroupNotJoinedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can share a map only with groups you belong to.",
+        )
+    await audit_shared_maps(db, shared, user, _ip(request), story.id)
     await audit_emit(
         db,
         AuditEvent(

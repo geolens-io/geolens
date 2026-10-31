@@ -288,7 +288,7 @@ it('saves unsaved edits before publishing, then publishes that revision', async 
   await ready();
   await user.type(screen.getByLabelText('Chapter title'), '!');
   await user.click(screen.getByRole('button', { name: 'Publish' }));
-  await waitFor(() => expect(publishStory).toHaveBeenCalledWith('s1', 5));
+  await waitFor(() => expect(publishStory).toHaveBeenCalledWith('s1', 5, undefined));
   expect(saveStoryDraft).toHaveBeenCalledWith('s1', 4, expect.any(Array));
   expect(toast.success).toHaveBeenCalledWith('Story published');
 });
@@ -310,6 +310,51 @@ it('names the maps that keep the story from publishing', async () => {
   const dialog = await screen.findByRole('alertdialog', { name: 'Publishing was refused' });
   expect(within(dialog).getByRole('link', { name: 'Private tracks' })).toHaveAttribute('href', '/maps/map-p');
   expect(within(dialog).getByText("2 more maps you can't open")).toBeInTheDocument();
+});
+
+const SHAREABLE = { id: 'map-p', name: 'Private tracks', can_share: true };
+
+/** Publishes a restricted story, refused for `maps`; resolves with the refusal dialog. */
+async function publishRestrictedRefusedBy(maps: { id: string; name: string; can_share: boolean }[]) {
+  vi.mocked(getStoryDraft).mockResolvedValue(draft({ visibility: 'restricted' }));
+  vi.mocked(getStory).mockResolvedValue({ ...published([CHAPTERS[0]]), visibility: 'restricted' });
+  vi.mocked(publishStory).mockRejectedValueOnce(
+    new ApiError('Conflict', 409, { code: 'maps_narrower_than_story', maps, unreadable_maps: 0 }),
+  );
+  const user = userEvent.setup();
+  renderEditor();
+  await screen.findByText('Draft saved. Readers still see the last published version.');
+  await user.click(screen.getByRole('button', { name: 'Publish' }));
+  const dialog = await screen.findByRole('alertdialog', { name: 'Publishing was refused' });
+  return { user, dialog };
+}
+
+it('offers to share the author\'s blocking maps with a restricted story\'s groups and publishes with that', async () => {
+  const { user, dialog } = await publishRestrictedRefusedBy([SHAREABLE]);
+  vi.mocked(publishStory).mockResolvedValueOnce({ ...published(), visibility: 'restricted' });
+
+  expect(within(dialog).getByRole('link', { name: 'Private tracks' })).toBeInTheDocument();
+  expect(within(dialog).getByText(/stops working through its share link and embed codes/)).toBeInTheDocument();
+  expect(vi.mocked(publishStory)).toHaveBeenLastCalledWith('s1', 4, undefined);
+  await user.click(within(dialog).getByRole('button', { name: 'Share my maps and publish' }));
+
+  await waitFor(() => expect(vi.mocked(publishStory)).toHaveBeenLastCalledWith('s1', 4, 'share_maps'));
+  await waitFor(() =>
+    expect(toast.success).toHaveBeenCalledWith(
+      'Story published, and your maps that blocked it are now shared with its groups.',
+    ),
+  );
+});
+
+it('offers no sharing while a blocking map is someone else\'s', async () => {
+  const { dialog } = await publishRestrictedRefusedBy([
+    SHAREABLE,
+    { id: 'map-q', name: 'Their tracks', can_share: false },
+  ]);
+
+  expect(within(dialog).getByText("(you can't share this map)")).toBeInTheDocument();
+  expect(within(dialog).queryByRole('button', { name: 'Share my maps and publish' })).not.toBeInTheDocument();
+  expect(within(dialog).queryByText(/stops working through its share link/)).not.toBeInTheDocument();
 });
 
 it('stops on a stale revision and reloads the latest draft on request', async () => {

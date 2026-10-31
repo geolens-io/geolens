@@ -583,6 +583,7 @@ export type StoryCreate = components['schemas']['StoryCreate'];
 export type StoryUpdate = components['schemas']['StoryUpdate'];
 export type StoryVisibility = components['schemas']['StoryVisibility'];
 export type StoryAssetResponse = components['schemas']['StoryAssetResponse'];
+export type StoryGroupsResponse = components['schemas']['StoryGroupsResponse'];
 
 export interface MapBrowseParams {
   skip?: number;

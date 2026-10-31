@@ -27,6 +27,7 @@ from app.modules.catalog.maps.service_groups import (
     map_groups,
     map_group_layer_gaps,
     RestrictedWithoutGroupsError,
+    record_map_groups_change,
     set_map_groups,
     unshare_group_maps,
 )
@@ -81,6 +82,7 @@ __all__ = [
     "DatasetGroupNotJoinedError",
     "LayersHiddenFromGroupsError",
     "RestrictedWithoutGroupsError",
+    "record_map_groups_change",
     "set_map_groups",
     "unshare_group_maps",
     "get_dataset_meta",

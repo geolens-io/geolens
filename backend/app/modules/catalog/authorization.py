@@ -1291,16 +1291,10 @@ RESTRICTED_MAP_VISIBILITY = "restricted"
 
 def map_group_member(map_id: Any, user_id: Any) -> ColumnElement[bool]:
     """Whether ``user_id`` belongs to a group granted on ``map_id``."""
-    from app.modules.auth.models import GroupMember
+    from app.modules.catalog.group_sharing import granted_group_member
     from app.modules.catalog.maps.models import MapGroupGrant
 
-    member = exists().where(
-        MapGroupGrant.map_id == map_id,
-        GroupMember.group_id == MapGroupGrant.group_id,
-        GroupMember.user_id == user_id,
-    )
-    # Explicit: auto-correlation reaches only the immediately enclosing select.
-    return member.correlate_except(MapGroupGrant, GroupMember)
+    return granted_group_member(MapGroupGrant, "map_id", map_id, user_id)
 
 
 def apply_map_visibility_filter(
@@ -1356,3 +1350,47 @@ async def check_map_access(
             status_code=status.HTTP_404_NOT_FOUND, detail="Map not found"
         )
     return roles
+
+
+async def groups_lacking_maps(
+    db: AsyncSession,
+    map_ids: Iterable[uuid.UUID],
+    group_ids: Iterable[uuid.UUID],
+) -> dict[uuid.UUID, set[uuid.UUID]]:
+    """For each map of ``map_ids`` that some group of ``group_ids`` lacks,
+    those groups: each has an active member ``check_map_access`` refuses."""
+    from app.modules.auth.models import GroupMember, Role, User, UserRole
+    from app.modules.catalog.maps.models import Map
+
+    maps, groups = set(map_ids), set(group_ids)
+    if not (maps and groups):
+        return {}
+    member = aliased(GroupMember)
+    reads = or_(
+        User.id.in_(
+            select(UserRole.user_id)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(Role.name == "admin")
+        ),
+        Map.created_by == User.id,
+        Map.visibility.in_(SIGNED_IN_MAP_VISIBILITIES),
+        and_(
+            Map.visibility == RESTRICTED_MAP_VISIBILITY,
+            map_group_member(Map.id, User.id),
+        ),
+    )
+    rows = await db.execute(
+        select(Map.id, member.group_id)
+        .distinct()
+        .join(member, member.group_id.in_(groups))
+        .join(User, User.id == member.user_id)
+        .where(Map.id.in_(maps))
+        .where(User.is_active.is_(True))
+        .where(User.status == "active")
+        # NULL, as for a map without an owner, counts as unable.
+        .where(reads.is_not(True))
+    )
+    lacking: dict[uuid.UUID, set[uuid.UUID]] = {}
+    for map_id, group_id in rows.all():
+        lacking.setdefault(map_id, set()).add(group_id)
+    return lacking

@@ -1175,7 +1175,7 @@ def test_analysis_sql_facade_guard_sees_every_bypass_shape() -> None:
 def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     """Keep split service modules and their stable facades bounded."""
     facade_line_budgets = {
-        "backend/app/modules/catalog/maps/service.py": 126,
+        "backend/app/modules/catalog/maps/service.py": 128,
         "backend/app/modules/catalog/search/service.py": 80,
         "backend/app/modules/catalog/datasets/domain/service.py": 130,
         "backend/app/processing/ai/chat_service.py": 487,
@@ -1439,8 +1439,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/features/service.py": 1711,
     # Dataset visibility, and the VRT member counts and extents each requester
     # may see, and which groups can't read a dataset, share the permission
-    # extension's one audience; map reads share the one map guard beside it.
-    "backend/app/modules/catalog/authorization.py": 1358,
+    # extension's one audience; map reads, and which groups can't read a map,
+    # share the one map guard beside it.
+    "backend/app/modules/catalog/authorization.py": 1396,
 }
 
 

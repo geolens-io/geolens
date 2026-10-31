@@ -16,6 +16,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.modules.auth.schemas import GroupRef
 from app.modules.catalog.widgets.schemas import StoryBlock, StoryBlocks
 
 STORY_DOCUMENT_VERSION = 1
@@ -37,8 +38,8 @@ class StoryVisibility(str, enum.Enum):
 
 
 class StoredStoryVisibility(str, enum.Enum):
-    """A story's visibility as stored. ``restricted`` is reserved for story
-    group sharing, which no route sets yet."""
+    """A story's visibility as stored. A private story shared with groups is
+    ``restricted``: its groups' members read it too."""
 
     private = "private"
     internal = "internal"
@@ -159,6 +160,52 @@ class StoryRevision(_Strict):
     )
 
 
+SHARE_MAPS_DESCRIPTION = (
+    "Required to go ahead when maps the story uses block some of its groups; "
+    "without it the request answers 409 and lists them. `share_maps` first "
+    "shares each map marked `can_share` with the groups that lack it, which "
+    "makes a private one restricted. The request is still refused while any "
+    "other map blocks it."
+)
+
+
+class StoryPublish(StoryRevision):
+    confirm: Literal["share_maps"] | None = Field(
+        default=None, description=SHARE_MAPS_DESCRIPTION
+    )
+
+
+class StoryGroupsUpdate(_Strict):
+    group_ids: list[uuid.UUID] = Field(
+        max_length=100,
+        description=(
+            "Every group the story is shared with afterwards; an empty list "
+            "unshares it. An owner may add only groups they belong to, and an "
+            "admin any group."
+        ),
+    )
+    confirm: Literal["share_maps"] | None = Field(
+        default=None, description=SHARE_MAPS_DESCRIPTION
+    )
+
+
+class StoryGroupsResponse(BaseModel):
+    visibility: StoredStoryVisibility = Field(
+        description=(
+            "The story's visibility after the change: a private story shared "
+            "with a group becomes restricted, and a restricted one left with "
+            "no group becomes private."
+        )
+    )
+    groups: list[GroupRef] = Field(
+        description="The sharing groups the story is shared with, by name."
+    )
+    shared_map_ids: list[uuid.UUID] = Field(
+        default_factory=list,
+        description="Maps this request shared with the story's new groups.",
+    )
+
+
 class StoryDraftUpdate(_Strict):
     revision: int = Field(description="The draft revision this save replaces.")
     document: StoryDocumentInput
@@ -193,6 +240,10 @@ class StoryResponse(StorySummary):
 class StoryDraftResponse(StorySummary):
     revision: int
     document: StoryDocument
+    groups: list[GroupRef] = Field(
+        default_factory=list,
+        description="The sharing groups the story is shared with, by name.",
+    )
 
 
 class StoryListResponse(BaseModel):
@@ -213,6 +264,13 @@ class StoryAssetResponse(BaseModel):
 class BlockingMap(BaseModel):
     id: uuid.UUID
     name: str
+    can_share: bool = Field(
+        default=False,
+        description=(
+            "Only some of the story's groups lack the map, and `confirm: "
+            "share_maps` would share it with them."
+        ),
+    )
 
 
 class MapStoryReference(BaseModel):

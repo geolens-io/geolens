@@ -14,11 +14,11 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Literal
 
-from sqlalchemy import exists, select, update
-from sqlalchemy.orm import aliased
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
+from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.auth.schemas import GroupRef
 from app.modules.catalog.authorization import (
     ANONYMOUS_MAP_VISIBILITIES,
@@ -29,6 +29,7 @@ from app.modules.catalog.group_sharing import (
     group_refs,
     lock_share_groups,
     refuse_unjoined_groups,
+    unshare_sole_group_items,
     write_group_grants,
 )
 from app.modules.catalog.maps.models import Map, MapGroupGrant
@@ -38,6 +39,7 @@ from app.modules.catalog.maps.service_group_gaps import (
     layer_gaps,
     share_layer_datasets,
 )
+from app.modules.catalog.maps.service_history import record_map_history_event
 from app.modules.catalog.maps.service_layers import lock_map_layers
 from app.modules.catalog.maps.service_public import revoke_share_token_by_map
 from app.modules.embed_tokens.service import revoke_embed_tokens_by_map
@@ -53,6 +55,8 @@ class RestrictedWithoutGroupsError(ValueError):
 @dataclass
 class MapShareResult:
     previous: str | None
+    # The map's groups afterwards.
+    group_ids: list[uuid.UUID] = field(default_factory=list)
     # Each dataset shared on the way, with its groups and visibility after.
     shared_datasets: dict[uuid.UUID, tuple[list[uuid.UUID], str]] = field(
         default_factory=dict
@@ -126,34 +130,58 @@ async def prepare_map_visibility(
     return visibility
 
 
-async def unshare_group_maps(session: AsyncSession, group_id: uuid.UUID) -> None:
-    """Make private the restricted maps ``group_id`` is the last group of.
-
-    Call holding the group's row lock, before its deletion cascades its grants
-    away; the map then reaches its owner and admins either way. Locks each map
-    shared with the group, in id order, so concurrent deletions of a map's
-    last two groups can't each count the other's grant as still there.
-    """
-    shared = select(MapGroupGrant.map_id).where(MapGroupGrant.group_id == group_id)
-    await session.execute(
-        select(Map.id)
-        .where(Map.id.in_(shared))
-        .order_by(Map.id)
-        .with_for_update(key_share=True)
+async def record_map_groups_change(
+    session: AsyncSession,
+    map_id: uuid.UUID,
+    map_name: str,
+    *,
+    previous: str,
+    group_ids: list[uuid.UUID],
+    actor: Identity,
+    visibility: str,
+    ip_address: str | None,
+    details: dict[str, str] | None = None,
+) -> None:
+    """Audit a change to a map's groups, with ``details`` added, and record a
+    visibility it moved in the map's history."""
+    await audit_emit(
+        session,
+        AuditEvent(
+            user_id=actor.id,
+            action="map.update",
+            resource_type="map",
+            resource_id=map_id,
+            details={
+                "changed_fields": ["groups"],
+                "group_ids": [str(group_id) for group_id in group_ids],
+                "visibility": visibility,
+                **(details or {}),
+            },
+            ip_address=ip_address,
+        ),
     )
-    other = aliased(MapGroupGrant)
-    sole = shared.where(
-        ~exists().where(
-            other.map_id == MapGroupGrant.map_id, other.group_id != group_id
+    if visibility != previous:
+        await record_map_history_event(
+            session,
+            map_id=map_id,
+            actor=actor,
+            target_type="map",
+            target_id=map_id,
+            target_name=map_name,
+            action="map.visibility_update",
+            summary=f"Changed visibility to {visibility}",
+            details={
+                "field": "visibility",
+                "previous": previous,
+                "current": visibility,
+            },
         )
-    )
-    await session.execute(
-        update(Map)
-        .where(Map.id.in_(sole))
-        .where(Map.visibility == RESTRICTED_MAP_VISIBILITY)
-        .values(visibility="private")
-        .execution_options(synchronize_session=False)
-    )
+
+
+async def unshare_group_maps(session: AsyncSession, group_id: uuid.UUID) -> None:
+    """Make private the restricted maps ``group_id`` is the last group of; see
+    ``unshare_sole_group_items``."""
+    await unshare_sole_group_items(session, Map, MapGroupGrant, "map_id", group_id)
 
 
 async def set_map_groups(
@@ -164,8 +192,10 @@ async def set_map_groups(
     actor: Identity,
     is_admin: bool,
     confirm: Literal["share_datasets", "map_only"] | None = None,
+    keep_current: bool = False,
 ) -> MapShareResult:
-    """Share ``map_obj`` with exactly ``group_ids``.
+    """Share ``map_obj`` with exactly ``group_ids``, or with them besides its
+    current groups when ``keep_current``.
 
     When the map ends restricted and groups that newly reach it can't read
     some layers, nothing is written unless ``confirm`` says what to do:
@@ -186,6 +216,8 @@ async def set_map_groups(
     # Loaded before the lock: judge the row as committed, not as first read.
     await session.refresh(map_obj, ["visibility", "created_by"])
     current = set(await session.scalars(granted))
+    if keep_current:
+        wanted |= current
     added, removed = wanted - current, current - wanted
     await refuse_unjoined_groups(session, added, actor, is_admin=is_admin)
     previous = map_obj.visibility
@@ -195,9 +227,9 @@ async def set_map_groups(
     elif visibility == RESTRICTED_MAP_VISIBILITY and not wanted:
         visibility = "private"
     if not (added or removed) and visibility == previous:
-        return MapShareResult(previous=None)
+        return MapShareResult(previous=None, group_ids=sorted(wanted))
 
-    result = MapShareResult(previous=previous)
+    result = MapShareResult(previous=previous, group_ids=sorted(wanted))
     if visibility == RESTRICTED_MAP_VISIBILITY:
         # Grants on an internal or public map are dormant until it narrows.
         reaching = added if previous == RESTRICTED_MAP_VISIBILITY else wanted

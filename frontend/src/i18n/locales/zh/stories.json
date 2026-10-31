@@ -75,7 +75,8 @@
     "unreadableMaps_other": "另有 {{count}} 个你无法打开的地图",
     "blockedTitle": "发布被拒绝",
     "blockedDescription": "此故事中的部分地图无法被故事可见范围内的所有读者阅读。请让这些地图对该范围可见，或在“详情”中缩小故事的可见范围。",
-    "close": "关闭"
+    "close": "关闭",
+    "shareMapsAndPublish": "共享我的地图并发布"
   },
   "unavailable": {
     "title": "故事不可用",
@@ -213,6 +214,31 @@
       "processing": "正在处理图片…",
       "progress": "上传进度",
       "notShown": "无法显示此图片。请替换或移除它。"
-    }
+    },
+    "publishedSharingMaps": "故事已发布，阻止发布的您的地图现已与其用户组共享。"
+  },
+  "groups": {
+    "heading": "用户组",
+    "help": "选择在故事发布后可以阅读它的用户组成员。每个场景的地图仍遵循其自身的访问权限。",
+    "effectPrivateEmpty": "选择一个用户组并保存，即可与指定用户组共享此故事。",
+    "effectToRestricted": "保存后此故事将与指定用户组共享：只有您、管理员和这些用户组的成员可以阅读它。",
+    "effectRestricted": "保存将改变可以阅读此故事的用户组。",
+    "effectToPrivate": "保存将移除最后一个用户组。只有您和管理员可以阅读此故事。",
+    "effectKept": "这些用户组目前不会改变谁可以阅读此故事。将故事设为私有后它们才会生效。",
+    "save": "保存用户组",
+    "saving": "正在保存用户组…",
+    "saved": "已保存用户组。",
+    "savedRestricted": "已保存用户组。此故事现在仅与指定用户组共享。",
+    "savedPrivate": "已移除用户组。只有您和管理员可以阅读此故事。",
+    "sharedMaps_one": "已保存用户组，您的 {{count}} 个地图现已与这些用户组共享。",
+    "sharedMaps_many": "已保存用户组，您的 {{count}} 个地图现已与这些用户组共享。",
+    "sharedMaps_other": "已保存用户组，您的 {{count}} 个地图现已与这些用户组共享。",
+    "failed": "无法保存用户组",
+    "blockedTitle": "这些用户组无法阅读部分地图",
+    "blockedCanShare": "这些用户组中的部分成员无法打开以下地图。请同时将您的地图与这些用户组共享，或移除使用这些地图的场景。",
+    "blockedCannotShare": "这些用户组中的部分成员无法打开以下地图，而且您无法共享全部地图。请让每个地图的所有者将其与这些用户组共享，或移除使用这些地图的场景。",
+    "cannotShareMap": "（您无法共享此地图）",
+    "shareMaps": "共享我的地图并保存",
+    "sharingRevokesLinks": "以这种方式共享的私有地图将无法再通过其共享链接和嵌入代码访问，且这些用户组无法读取的图层仍对他们隐藏。"
   }
 }

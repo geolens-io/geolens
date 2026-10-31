@@ -10,6 +10,7 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -95,6 +96,38 @@ class StoryMap(Base):
     # Derived from the story by trigger, which also refuses another tenant's map.
     tenant_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
+    )
+
+
+class StoryGroupGrant(Base):
+    """A sharing group whose members may read a ``restricted`` story."""
+
+    __tablename__ = "story_group_grants"
+    __table_args__ = (
+        Index("ix_story_group_grants_group_id", "group_id"),
+        Index(
+            "ix_story_group_grants_granted_by",
+            "granted_by",
+            postgresql_where=text("granted_by IS NOT NULL"),
+        ),
+        {"schema": "catalog"},
+    )
+
+    story_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("catalog.stories.id", ondelete="CASCADE"), primary_key=True
+    )
+    group_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("catalog.groups.id", ondelete="CASCADE"), primary_key=True
+    )
+    granted_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True
+    )
+    # Derived from the story by trigger, which also refuses another tenant's group.
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 

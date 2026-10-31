@@ -58,6 +58,7 @@ _RLS_TABLES = [
     "stories",
     "story_maps",
     "story_assets",
+    "story_group_grants",
 ]
 
 _POLICY_NAMES = [f"tenant_isolation_{t}" for t in _RLS_TABLES]
@@ -70,6 +71,7 @@ _CREATED_AFTER_0005 = {
     "stories",
     "story_maps",
     "story_assets",
+    "story_group_grants",
 }
 
 
@@ -103,7 +105,8 @@ async def _get_rls_state() -> dict[str, dict[str, bool]]:
                 to_regclass('catalog.map_group_grants'),
                 to_regclass('catalog.stories'),
                 to_regclass('catalog.story_maps'),
-                to_regclass('catalog.story_assets')
+                to_regclass('catalog.story_assets'),
+                to_regclass('catalog.story_group_grants')
             ]
         )
         ORDER BY relname

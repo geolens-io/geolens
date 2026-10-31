@@ -278,8 +278,9 @@ export interface paths {
          * Delete Group
          * @description Delete a sharing group and all its memberships (admin only).
          *
-         *     Its members lose the group's datasets and maps at once, signed tile URLs
-         *     included. A restricted map shared only with this group becomes private.
+         *     Its members lose the group's datasets, maps and stories at once, signed
+         *     tile URLs included. A restricted map or story shared only with this group
+         *     becomes private.
          */
         delete: operations["delete_group_admin_groups__group_id__delete"];
         options?: never;
@@ -6025,7 +6026,8 @@ export interface paths {
          *
          *     These apply at once, without Publish. A visibility wider than a map the
          *     published story uses answers 409 `maps_narrower_than_story`; a narrower
-         *     one is always allowed.
+         *     one is always allowed. A story shared with groups stays restricted when
+         *     made private.
          */
         patch: operations["update_story_endpoint_stories__story_id__patch"];
         trace?: never;
@@ -6163,6 +6165,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stories/{story_id}/groups/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Story Groups Endpoint
+         * @description Share a story with exactly these sharing groups (owner or admin).
+         *
+         *     An owner may add only groups they belong to (403); an admin may add any.
+         *     A private story shared with a group becomes restricted, and once
+         *     published its members can read it; a restricted one left with no group
+         *     becomes private. Internal and public stories keep their audience. 404 for
+         *     an unknown group.
+         *
+         *     409 `maps_narrower_than_story` when the published story uses maps some
+         *     member of a new group can't read: `detail.maps` names the ones you can
+         *     read, each with `can_share`, and `detail.unreadable_maps` counts the
+         *     rest; see `confirm`.
+         */
+        put: operations["set_story_groups_endpoint_stories__story_id__groups__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stories/{story_id}/publish": {
         parameters: {
             query?: never;
@@ -6179,7 +6212,8 @@ export interface paths {
          *     `revision` must match the stored draft's, or 409 `stale_revision`. 409
          *     `maps_narrower_than_story` when a map a scene uses can't be read by
          *     everyone the story's visibility reaches: `detail.maps` names the ones you
-         *     can read and `detail.unreadable_maps` counts the rest.
+         *     can read and `detail.unreadable_maps` counts the rest. For a restricted
+         *     story, a map only some of its groups lack is `can_share`; see `confirm`.
          */
         post: operations["publish_story_endpoint_stories__story_id__publish_post"];
         delete?: never;
@@ -16288,8 +16322,8 @@ export interface components {
         };
         /**
          * StoredStoryVisibility
-         * @description A story's visibility as stored. ``restricted`` is reserved for story
-         *     group sharing, which no route sets yet.
+         * @description A story's visibility as stored. A private story shared with groups is
+         *     ``restricted``: its groups' members read it too.
          * @enum {string}
          */
         StoredStoryVisibility: "private" | "internal" | "public" | "restricted";
@@ -16442,6 +16476,11 @@ export interface components {
             /** Revision */
             revision: number;
             document: components["schemas"]["StoryDocument"];
+            /**
+             * Groups
+             * @description The sharing groups the story is shared with, by name.
+             */
+            groups?: components["schemas"]["GroupRef"][];
         };
         /** StoryDraftUpdate */
         StoryDraftUpdate: {
@@ -16452,12 +16491,53 @@ export interface components {
             revision: number;
             document: components["schemas"]["StoryDocumentInput"];
         };
+        /** StoryGroupsResponse */
+        StoryGroupsResponse: {
+            /** @description The story's visibility after the change: a private story shared with a group becomes restricted, and a restricted one left with no group becomes private. */
+            visibility: components["schemas"]["StoredStoryVisibility"];
+            /**
+             * Groups
+             * @description The sharing groups the story is shared with, by name.
+             */
+            groups: components["schemas"]["GroupRef"][];
+            /**
+             * Shared Map Ids
+             * @description Maps this request shared with the story's new groups.
+             */
+            shared_map_ids?: string[];
+        };
+        /** StoryGroupsUpdate */
+        StoryGroupsUpdate: {
+            /**
+             * Group Ids
+             * @description Every group the story is shared with afterwards; an empty list unshares it. An owner may add only groups they belong to, and an admin any group.
+             */
+            group_ids: string[];
+            /**
+             * Confirm
+             * @description Required to go ahead when maps the story uses block some of its groups; without it the request answers 409 and lists them. `share_maps` first shares each map marked `can_share` with the groups that lack it, which makes a private one restricted. The request is still refused while any other map blocks it.
+             */
+            confirm?: "share_maps" | null;
+        };
         /** StoryListResponse */
         StoryListResponse: {
             /** Stories */
             stories: components["schemas"]["StorySummary"][];
             /** Total */
             total: number;
+        };
+        /** StoryPublish */
+        StoryPublish: {
+            /**
+             * Revision
+             * @description The draft revision this publish or discard acts on.
+             */
+            revision: number;
+            /**
+             * Confirm
+             * @description Required to go ahead when maps the story uses block some of its groups; without it the request answers 409 and lists them. `share_maps` first shares each map marked `can_share` with the groups that lack it, which makes a private one restricted. The request is still refused while any other map blocks it.
+             */
+            confirm?: "share_maps" | null;
         };
         /** StoryResponse */
         StoryResponse: {
@@ -48666,6 +48746,115 @@ export interface operations {
             };
         };
     };
+    set_story_groups_endpoint_stories__story_id__groups__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                story_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoryGroupsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryGroupsResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Maps the published story uses that some new groups can't read (`detail.code` `maps_narrower_than_story`, the maps under `detail.maps`), or another change holding the story's lock (no `detail.code`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
     publish_story_endpoint_stories__story_id__publish_post: {
         parameters: {
             query?: never;
@@ -48677,7 +48866,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["StoryRevision"];
+                "application/json": components["schemas"]["StoryPublish"];
             };
         };
         responses: {
