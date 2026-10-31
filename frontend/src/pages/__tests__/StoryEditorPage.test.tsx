@@ -885,7 +885,8 @@ describe('document caps', () => {
     expect(screen.getByText('A story can have up to 200 chapters.')).toBeInTheDocument();
   });
 
-  it('stops adding text blocks at 100 per chapter', async () => {
+  // Renders a hundred or more editors, which jsdom is slow at.
+  it('stops adding text blocks at 100 per chapter', { timeout: 15_000 }, async () => {
     const blocks = Array.from({ length: 100 }, (_, i) => markdown(`blk-${i}`, ''));
     const crowded = { ...CHAPTERS[0], blocks };
     vi.mocked(getStoryDraft).mockResolvedValue(draft({ document: { version: 1, chapters: [crowded] } }));
@@ -896,7 +897,8 @@ describe('document caps', () => {
     expect(screen.getByText('A chapter can have up to 100 text blocks.')).toBeInTheDocument();
   });
 
-  it('refuses to save a draft over 2 MB', async () => {
+  // Renders a hundred or more editors, which jsdom is slow at.
+  it('refuses to save a draft over 2 MB', { timeout: 15_000 }, async () => {
     const big = Array.from({ length: 12 }, (_, i) => ({
       ...CHAPTERS[0],
       id: `big${i}`,
