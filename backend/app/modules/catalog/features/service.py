@@ -298,8 +298,7 @@ async def live_property_columns(
     ``only`` keeps just the named columns; an empty list keeps none. A
     timestamptz column is projected under its own name as the UTC text vector
     tiles carry, so a value reads the same on every route whatever the
-    session's TimeZone. Outside the projection that column is text, so a
-    predicate on its stored type runs inside it.
+    session's TimeZone.
     """
     allowed = None if only is None else set(only)
     columns = []
@@ -583,14 +582,10 @@ async def get_features(
 
     # Build SELECT columns over the projected row (see live_property_columns
     # for why geom must never reach to_jsonb).
-    if has_geometry and include_geometry:
+    with_geometry = has_geometry and include_geometry
+    if with_geometry:
         select_cols = (
             "gid, ST_AsGeoJSON(geom_4326, 6)::json AS geometry, "
-            "to_jsonb(t.*) - 'gid' - 'geom_4326' AS properties"
-        )
-    elif has_geometry:
-        select_cols = (
-            "gid, NULL::json AS geometry, "
             "to_jsonb(t.*) - 'gid' - 'geom_4326' AS properties"
         )
     else:
@@ -638,16 +633,12 @@ async def get_features(
     if where_clauses:
         where_sql = "WHERE " + " AND ".join(where_clauses)
     row_source = await _projected_row_source(
-        db, table_name, with_geometry=has_geometry, where_sql=where_sql
+        db, table_name, with_geometry=with_geometry, where_sql=where_sql
     )
 
-    if use_keyset:
-        data_sql = f"SELECT {select_cols} FROM {row_source} t ORDER BY gid LIMIT :limit"
-    else:
-        data_sql = (
-            f"SELECT {select_cols} FROM {row_source} t "
-            "ORDER BY gid LIMIT :limit OFFSET :offset"
-        )
+    data_sql = f"SELECT {select_cols} FROM {row_source} t ORDER BY gid LIMIT :limit"
+    if not use_keyset:
+        data_sql += " OFFSET :offset"
         bind_values["offset"] = offset
     # One row past the page, so `has_more` is a fact about the
     # rows rather than a comparison against a count that may be estimated.

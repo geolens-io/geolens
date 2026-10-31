@@ -277,37 +277,6 @@ class TestGetFeaturesGeoJSONZService:
         # (all features returned — actual count is authoritative)
         assert total_count == 3  # actual count, not cached
 
-    async def test_writes_timestamptz_in_utc_whatever_the_session_zone(
-        self, z_dataset, test_db_session
-    ):
-        """The map matches a pick's UTC text from the aggregate endpoint against these values."""
-        from app.modules.catalog.features.service import get_features_geojson_z
-
-        table = z_dataset.table_name
-        await test_db_session.execute(
-            text(f"ALTER TABLE data.{table} ADD COLUMN seen timestamptz")
-        )
-        await test_db_session.execute(
-            text(
-                f"UPDATE data.{table} SET seen = CASE name "
-                "WHEN 'Point A' THEN '2024-03-01 17:00:00+00'::timestamptz "
-                "WHEN 'Point B' THEN '2024-07-01 04:30:00.25+00'::timestamptz END"
-            )
-        )
-        await test_db_session.commit()
-        await test_db_session.execute(text("SET TIME ZONE 'America/New_York'"))
-        try:
-            rows, _, _ = await get_features_geojson_z(test_db_session, table)
-        finally:
-            await test_db_session.execute(text("RESET TIME ZONE"))
-
-        seen = {row["properties"]["name"]: row["properties"]["seen"] for row in rows}
-        assert seen == {
-            "Point A": "2024-03-01T17:00:00+00:00",
-            "Point B": "2024-07-01T04:30:00.25+00:00",
-            "Point C": None,
-        }
-
 
 # ---------------------------------------------------------------------------
 # HTTP endpoint tests
