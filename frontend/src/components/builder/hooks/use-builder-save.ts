@@ -872,14 +872,17 @@ function pairReplacedLayerIds(
  * The save-diff baseline after a full replacement, which is what the server
  * stored. The PUT deletes layers created while it was in flight and recreates
  * layers deleted meanwhile under new ids, so the next save sends those creates
- * again and removes the recreated rows. A create missing from `stored` is
- * left out of the baseline: sending it again is safer than losing it.
- * `renamed` maps each sent layer the server stored under a new id to that id.
+ * again and removes the recreated rows. A create recorded before `stored` was
+ * read and missing from it is left out of the baseline: sending it again is
+ * safer than losing it. Registrations from `readFrom` on landed after the read,
+ * so they are replayed. `renamed` maps each sent layer the server stored under
+ * a new id to that id.
  */
 function replacedBaseline(
   sent: readonly MapLayerResponse[],
   stored: MapLayerResponse[],
   registrations: readonly BaselineRegistration[],
+  readFrom: number,
 ): { renamed: Map<string, string>; baseline: MapLayerResponse[] } {
   const createdIds = new Set<string>();
   for (const r of registrations) if ('add' in r) createdIds.add(r.add.id);
@@ -887,7 +890,7 @@ function replacedBaseline(
     renamed: pairReplacedLayerIds(sent, stored, createdIds),
     // A DELETE that committed after the read-back isn't in `stored`.
     baseline: registrations
-      .filter((r) => 'remove' in r)
+      .filter((r, i) => 'remove' in r || i >= readFrom)
       .reduce(applyBaselineRegistration, hydrateFolderGroupLayers(stored).layers),
   };
 }
@@ -1197,6 +1200,7 @@ export function useBuilderSave(state: SaveState) {
     const camera = readMapCamera(map);
     const registrations: BaselineRegistration[] = [];
     let replacedLayers: MapLayerResponse[] | null = null;
+    let replacedReadFrom = 0;
     // A layer PATCH commits even when the metadata PUT after it fails, so the
     // baseline advances as soon as it lands; otherwise the retry re-sends
     // removals the server already applied. Layers created or deleted while the
@@ -1206,7 +1210,12 @@ export function useBuilderSave(state: SaveState) {
       // belong to another map by now.
       if (latestStateRef.current.mapId !== id) return;
       if (replacedLayers) {
-        const { renamed, baseline } = replacedBaseline(persistableLayers, replacedLayers, registrations);
+        const { renamed, baseline } = replacedBaseline(
+          persistableLayers,
+          replacedLayers,
+          registrations,
+          replacedReadFrom,
+        );
         if (renamed.size > 0) state.remapLayerIds(renamed);
         baselineLayersRef.current = baseline;
         return;
@@ -1270,6 +1279,7 @@ export function useBuilderSave(state: SaveState) {
     };
     const replaceLayers = async () => {
       const saved = await putMap(fullReplacementPayload);
+      replacedReadFrom = registrations.length;
       try {
         // Joins the detail refetch the PUT started, if one is running. Unlike
         // the PUT response, it includes creates and deletes that landed after

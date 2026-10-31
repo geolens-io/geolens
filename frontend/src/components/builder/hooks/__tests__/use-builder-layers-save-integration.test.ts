@@ -901,6 +901,30 @@ describe('layer creates and deletes during a full-replacement save', () => {
     expectLocalIdsMatchServer(result);
   });
 
+  it('keeps a layer created after the read-back instead of sending it again', async () => {
+    const { result, mutate } = renderOnServer([keep]);
+    act(() => { result.current.handleOpacityChange('keep', 0.4); });
+    let releaseRead!: () => void;
+    const readHeld = new Promise<void>((resolve) => { releaseRead = resolve; });
+    mockGetMap.mockImplementationOnce(async () => {
+      const snapshot = server.map((l) => ({ ...l }));
+      await readHeld;
+      return { id: 'map-1', layers: snapshot };
+    });
+    let saving!: Promise<void>;
+    act(() => { saving = result.current.handleSave(); });
+    await act(async () => { await vi.waitFor(() => expect(mockGetMap).toHaveBeenCalled()); });
+    duplicateDuringSave(result, mutate);
+    await act(async () => { releaseRead(); await saving; });
+
+    patchAvailable = true;
+    act(() => { result.current.handleOpacityChange('keep', 0.6); });
+    await act(async () => { await result.current.handleSave(); });
+
+    expect(server.map((l) => l.id)).toEqual(['keep', 'dup']);
+    expectLocalIdsMatchServer(result);
+  });
+
   it('removes a layer deleted during the save that the replacement recreated', async () => {
     const { result, removeMutate } = renderOnServer([keep, doomed]);
     const finishSave = await startReplacement(result);
