@@ -129,6 +129,8 @@ export interface AttributeTableProps {
     hideColumnTypes?: boolean;
     hideColumnFilters?: boolean;
     announceCount?: boolean;
+    /** Text for a read-only cell; keep it stable, since a new function rebuilds every cell. Default: the stored value. */
+    formatValue?: (column: string, value: unknown) => string;
   };
   /**
    * The highlighted row's gid (the builder drawer's map highlight). Set, every
@@ -530,6 +532,7 @@ export function AttributeTable({
     [data?.columns, columnSpec],
   );
   const hideColumnTypes = !!display?.hideColumnTypes;
+  const formatValue = display?.formatValue;
 
   const columnDefs = useMemo<ColumnDef<typeof features, Record<string, unknown>>[]>(() => {
     if (!dataColumns) return [];
@@ -585,8 +588,9 @@ export function AttributeTable({
           );
         }
 
-        const cellValue = String(info.getValue() ?? '');
-        const codeLabel = valueLabelFor(labelsByColumn?.get(col.name), info.getValue());
+        const rawValue = info.getValue();
+        const cellValue = formatValue ? formatValue(col.name, rawValue) : String(rawValue ?? '');
+        const codeLabel = valueLabelFor(labelsByColumn?.get(col.name), rawValue);
         if (cellsEditable && !NON_EDITABLE_COLUMNS.has(col.name)) {
           // The code shows beside its label on hover and focus, and screen
           // readers always read it.
@@ -645,7 +649,7 @@ export function AttributeTable({
     // cell, and with it any open editor, whenever it changes. `t` is safe
     // because react-i18next caches its useSyncExternalStore snapshot and hands
     // back a new `t` only on a language change, a legitimate reason to rebuild.
-  }, [dataColumns, data?.sortable_columns, titleByName, hideColumnTypes, t]);
+  }, [dataColumns, data?.sortable_columns, titleByName, hideColumnTypes, formatValue, t]);
 
   const defaultHidden = useMemo<ColumnVisibilityState>(
     () => Object.fromEntries((columnSpec ?? []).filter((col) => col.hidden).map((col) => [col.name, false])),

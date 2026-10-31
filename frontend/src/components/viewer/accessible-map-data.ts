@@ -1,7 +1,7 @@
 import type { MapGeoJSONFeature } from 'maplibre-gl';
 import type { SharedLayerResponse } from '@/types/api';
 import { geometryBounds } from '@/lib/bbox';
-import { groupsDigits } from '@/lib/feature-property-value';
+import { formatFeaturePropertyValue, groupsDigits } from '@/lib/feature-property-value';
 import { substitutePopupTemplate } from '@/lib/popup-template';
 
 const EXCLUDED_PROPERTY_KEYS = new Set(['geom', 'geometry']);
@@ -56,7 +56,22 @@ function visibleProperties(
   return entries;
 }
 
-function ungroupedKeys(layer: SharedLayerResponse): Set<string> {
+/**
+ * A value as the Map data List and Table views show it. 5 fraction digits,
+ * not the shared default of 4: the panel is the accessible surface for raw
+ * feature coordinates, so it keeps the more precise formatting.
+ */
+export function formatMapDataValue(
+  value: unknown,
+  locale: string,
+  booleanTrue: string,
+  booleanFalse: string,
+  useGrouping: boolean,
+): string | null {
+  return formatFeaturePropertyValue(value, locale, booleanTrue, booleanFalse, 5, useGrouping);
+}
+
+export function ungroupedKeys(layer: SharedLayerResponse): Set<string> {
   return new Set(
     (layer.column_info ?? [])
       .filter((column) => typeof column.semantic_role === 'string' && !groupsDigits(column.semantic_role))

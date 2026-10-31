@@ -24,7 +24,7 @@ import { layerFilterToServerCql2 } from '@/lib/maplibre-filter-utils';
 import type { Bbox } from '@/lib/bbox';
 import type { SharedLayerResponse } from '@/types/api';
 import { AccessibleMapDataPanel } from './AccessibleMapDataPanel';
-import type { AccessibleMapFeatureResult } from './accessible-map-data';
+import { formatMapDataValue, ungroupedKeys, type AccessibleMapFeatureResult } from './accessible-map-data';
 import { mapViewBbox, useMapViewBbox } from './hooks/use-dashboard-data';
 import type { ViewerLayerEntry } from './layer-identity';
 import { combineCql2, inViewFilter, layerHighlightSource, tableColumns } from './map-data-table';
@@ -105,7 +105,7 @@ export function MapDataPanel({
   onClose,
   onListShownChange,
 }: MapDataPanelProps) {
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
   const titleId = useId();
   const isPhone = useIsMobile();
   const size = useTableShellSize(mapRef, { ref: paneRef, minHeight: isPhone ? PHONE_MIN_HEIGHT : undefined });
@@ -141,6 +141,18 @@ export function MapDataPanel({
   const cql2Filter = useMemo(
     () => combineCql2(savedFilter, viewBbox ? inViewFilter(viewBbox) : null),
     [savedFilter, viewBbox],
+  );
+  const ungrouped = useMemo(() => (layer ? ungroupedKeys(layer) : new Set<string>()), [layer]);
+  const formatValue = useCallback(
+    (column: string, value: unknown) =>
+      formatMapDataValue(
+        value,
+        i18n.language,
+        t('viewer.data.booleanTrue'),
+        t('viewer.data.booleanFalse'),
+        column !== 'gid' && !ungrouped.has(column),
+      ) ?? '',
+    [i18n.language, t, ungrouped],
   );
   const columns = useMemo(
     () => (layer ? tableColumns(layer, { embedded: !!embedToken, allDatasetsPublic: datasetLinksAllowed }) : undefined),
@@ -299,7 +311,7 @@ export function MapDataPanel({
             loading: <RowsSkeleton label={rowsLabel} />,
           },
           // A docked phone table has room for rows or for per-column filters, not both.
-          display: { hideColumnTypes: true, hideColumnFilters: isPhone && !inDialog, announceCount: true },
+          display: { hideColumnTypes: true, hideColumnFilters: isPhone && !inDialog, announceCount: true, formatValue },
         }}
       />
     );
