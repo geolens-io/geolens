@@ -61,7 +61,9 @@ async def _autocommit_query(query: str, params: dict | None = None):
     """
     from app.core.config import settings
 
-    engine = create_async_engine(settings.database_url, isolation_level="AUTOCOMMIT")
+    engine = create_async_engine(
+        settings.test_database_url, isolation_level="AUTOCOMMIT"
+    )
     try:
         async with engine.connect() as conn:
             if params:
@@ -226,7 +228,7 @@ class TestCatalogReadsNotBlockedByRls:
         # Bypass count — SET LOCAL row_security=off then COUNT(*) in the same
         # connection, using separate execute() calls so asyncpg is happy.
         engine = create_async_engine(
-            settings.database_url, isolation_level="AUTOCOMMIT"
+            settings.test_database_url, isolation_level="AUTOCOMMIT"
         )
         try:
             async with engine.connect() as conn:
@@ -363,7 +365,7 @@ class TestGucUnsetInSingleTenant:
         from app.core.config import settings
 
         # Use a normal (non-AUTOCOMMIT) engine to exercise the session hook.
-        engine = create_async_engine(settings.database_url)
+        engine = create_async_engine(settings.test_database_url)
         try:
             async with engine.begin() as conn:
                 row = await conn.execute(

@@ -272,7 +272,7 @@ class TestSingleTenantSnapshot:
         """Every reviewed tenant_isolation_* policy exists in pg_policies."""
         from app.core.config import settings
 
-        live = await _reflect_policies(settings.database_url)
+        live = await _reflect_policies(settings.test_database_url)
         snap = _load_snapshot()
         _assert_policies_match_snapshot(live, snap)
 
@@ -280,7 +280,7 @@ class TestSingleTenantSnapshot:
         """relrowsecurity=False + relforcerowsecurity=False in single_tenant."""
         from app.core.config import settings
 
-        live_flags = await _reflect_rls_flags(settings.database_url)
+        live_flags = await _reflect_rls_flags(settings.test_database_url)
         snap = _load_snapshot()
         _assert_rls_flags_match_snapshot(live_flags, snap, "single_tenant")
 
@@ -288,7 +288,7 @@ class TestSingleTenantSnapshot:
         """No policy qual or with_check contains IS NULL (no fail-open escape)."""
         from app.core.config import settings
 
-        live = await _reflect_policies(settings.database_url)
+        live = await _reflect_policies(settings.test_database_url)
         for policy in live:
             qual = policy["qual"] or ""
             with_check = policy["with_check"] or ""
