@@ -955,6 +955,16 @@ export function useBuilderLayers(
     );
   }, [addLayerMutation, mapId, t, saveBaselineSyncRef]);
 
+  const remapLayerIds = useCallback((ids: ReadonlyMap<string, string>) => {
+    setLocalLayers((prev) =>
+      prev.map((layer) => {
+        const next = ids.get(layer.id);
+        return next ? { ...layer, id: next } : layer;
+      }),
+    );
+    setExpandedLayerId((prev) => (prev && ids.get(prev)) ?? prev);
+  }, []);
+
   const markDirty = useCallback(() => setHasUnsavedChanges(true), []);
 
   // For state this hook can't compare against server data (dock notes, plugin
@@ -1289,6 +1299,7 @@ export function useBuilderLayers(
     handleMoveLayerOutOfGroup,
     handleAddDataset,
     handleDuplicateRendering,
+    remapLayerIds,
     dispatchLayerAction,
     handleAiRemoveLayer,
     handleQueryResult,

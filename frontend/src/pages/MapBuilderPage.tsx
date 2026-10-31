@@ -330,6 +330,7 @@ export function MapBuilderPage() {
     hasThumbnail: !!mapData?.thumbnail_url,
     pendingLayerAdd,
     saveBaselineSyncRef,
+    remapLayerIds: layers.remapLayerIds,
     saveFence: layers.saveFence,
   });
 

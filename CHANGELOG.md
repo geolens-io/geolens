@@ -98,6 +98,11 @@ and releases use semantic versioning.
   is no longer added a second time by the next save, and a layer deleted
   during a save no longer makes the next save warn about changes from another
   session. (#3474)
+- When the Builder has to save a map by replacing all of its layers (for
+  example behind a proxy that blocks PATCH), a layer added while that save
+  ran is now sent again by the next save instead of being lost, and a layer
+  deleted while it ran no longer comes back. The Builder also picks up the
+  layer ids the server stored, so later saves name the right layers. (#3475)
 
 ### Security
 
