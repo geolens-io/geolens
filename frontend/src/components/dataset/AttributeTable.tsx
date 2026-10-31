@@ -589,7 +589,8 @@ export function AttributeTable({
         }
 
         const rawValue = info.getValue();
-        const cellValue = formatValue ? formatValue(col.name, rawValue) : String(rawValue ?? '');
+        const storedValue = String(rawValue ?? '');
+        const cellValue = formatValue ? formatValue(col.name, rawValue) : storedValue;
         const codeLabel = valueLabelFor(labelsByColumn?.get(col.name), rawValue);
         if (cellsEditable && !NON_EDITABLE_COLUMNS.has(col.name)) {
           // The code shows beside its label on hover and focus, and screen
@@ -598,7 +599,7 @@ export function AttributeTable({
             <>
               {codeLabel}{' '}
               <span className="text-muted-foreground opacity-0 group-hover/cell:opacity-100 group-focus-visible/cell:opacity-100">
-                ({cellValue})
+                ({storedValue})
               </span>
             </>
           );
@@ -623,7 +624,7 @@ export function AttributeTable({
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="max-w-sm break-all">
-                {cellValue}
+                {storedValue}
               </TooltipContent>
             </Tooltip>
           );
