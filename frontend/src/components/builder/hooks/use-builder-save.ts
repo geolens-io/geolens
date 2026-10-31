@@ -888,17 +888,20 @@ function replacedBaseline(
   for (const r of registrations) if ('add' in r) createdIds.add(r.add.id);
   const renamed = pairReplacedLayerIds(sent, stored, createdIds);
   // Rows another session added aren't in the local stack, so a baseline that
-  // held them would make the next save delete them.
+  // held them would make the next save delete them. A sent layer it deleted
+  // stays in the baseline, so the next save doesn't create it again.
   const known = new Set([...sent.map((l) => l.id), ...renamed.values(), ...createdIds]);
+  const storedIds = new Set(stored.map((l) => l.id));
+  const deletedElsewhere = sent.filter((l) => !storedIds.has(l.id) && !renamed.has(l.id));
   return {
     renamed,
     // A DELETE that committed after the read-back isn't in `stored`.
     baseline: registrations
       .filter((r, i) => 'remove' in r || i >= readFrom)
-      .reduce(
-        applyBaselineRegistration,
-        hydrateFolderGroupLayers(stored.filter((l) => known.has(l.id))).layers,
-      ),
+      .reduce(applyBaselineRegistration, [
+        ...hydrateFolderGroupLayers(stored.filter((l) => known.has(l.id))).layers,
+        ...deletedElsewhere,
+      ]),
   };
 }
 

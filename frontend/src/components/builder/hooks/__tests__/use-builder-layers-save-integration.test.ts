@@ -942,6 +942,22 @@ describe('layer creates and deletes during a full-replacement save', () => {
     expect(server.map((l) => l.id)).toEqual(['keep', 'remote']);
   });
 
+  it('does not create again a layer another session deleted before the read-back', async () => {
+    const { result } = renderOnServer([keep, doomed]);
+    const finishSave = await startReplacement(result);
+    act(() => { result.current.handleOpacityChange('keep', 0.6); });
+    mockGetMap.mockImplementationOnce(async () => {
+      server = server.filter((l) => l.id !== 'doomed');
+      return { id: 'map-1', layers: server.map((l) => ({ ...l })) };
+    });
+    await finishSave();
+
+    patchAvailable = true;
+    await act(async () => { await result.current.handleSave(); });
+
+    expect(server.map((l) => l.id)).toEqual(['keep']);
+  });
+
   it('removes a layer deleted during the save that the replacement recreated', async () => {
     const { result, removeMutate } = renderOnServer([keep, doomed]);
     const finishSave = await startReplacement(result);
