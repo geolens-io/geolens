@@ -87,7 +87,7 @@ class TestManifestApplySchemas:
 
     @pytest.mark.parametrize(
         "extension",
-        [".fgb", ".kml", ".kmz", ".zip"],
+        [".fgb", ".kml", ".kmz", ".zip", ".parquet"],
     )
     def test_accepts_tier1_vector_extensions(self, extension: str):
         """Manifest sources accept the same four tier-1
@@ -192,6 +192,7 @@ class TestManifestApplySchemas:
             ("raster_cog", "./data/roads.fgb", "requires one of"),
             ("raster_cog", "./data/roads.kml", "requires one of"),
             ("raster_cog", "./data/roads.kmz", "requires one of"),
+            ("raster_cog", "./data/roads.parquet", "requires one of"),
         ],
     )
     def test_rejects_source_type_extension_mismatch(

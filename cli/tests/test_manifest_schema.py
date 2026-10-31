@@ -86,6 +86,7 @@ def test_valid_manifest_fixtures_pass() -> None:
         "vector-fgb.yaml",
         "vector-kml.yaml",
         "vector-kmz.yaml",
+        "vector-parquet.yaml",
     }
     for path in valid_fixtures:
         assert validate_manifest(load_manifest(path)) == [], path.name
@@ -179,6 +180,7 @@ def test_manifest_v1_dataset_batch_is_bounded() -> None:
         ("raster_cog", "./data/trails.fgb"),
         ("raster_cog", "./data/poi.kml"),
         ("raster_cog", "./data/poi.kmz"),
+        ("raster_cog", "./data/parcels.parquet"),
     ],
 )
 def test_manifest_source_type_requires_matching_extension(
@@ -197,6 +199,7 @@ def test_manifest_source_type_requires_matching_extension(
         "./data/poi.kml",
         "https://data.example.com/poi-archive.kmz",
         "./data/parcels.zip",
+        "./data/parcels.parquet",
     ],
 )
 def test_manifest_accepts_tier1_vector_extensions(uri: str) -> None:

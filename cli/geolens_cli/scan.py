@@ -12,7 +12,7 @@ CLI MVP intentionally excludes those:
 - .csv: brittle without --csv flag (deferred lat/lon column detection)
 - .xls/.xlsx: not geospatial primaries
 - .zip: shapefile bundles handled via sidecar grouping on extracted .shp
-FlatGeobuf, KML, and KMZ are included; a zipped File Geodatabase is not,
+FlatGeobuf, KML, KMZ, and GeoParquet are included; a zipped File Geodatabase is not,
 because it arrives as .zip.
 """
 from __future__ import annotations
@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, Optional
 
-VECTOR_EXTS = {".geojson", ".gpkg", ".shp", ".fgb", ".kml", ".kmz"}
+VECTOR_EXTS = {".geojson", ".gpkg", ".shp", ".fgb", ".kml", ".kmz", ".parquet"}
 RASTER_EXTS = {".tif", ".tiff"}
 # Single-file vector primaries that classify on extension alone: no sidecars
 # to group, no content peek to disambiguate. `_classify_group` maps each to
@@ -32,6 +32,7 @@ SINGLE_FILE_VECTOR_FORMATS = {
     ".fgb": "flatgeobuf",
     ".kml": "kml",
     ".kmz": "kmz",
+    ".parquet": "geoparquet",
 }
 # Extensions that start a dataset of their own, so they are never absorbed as
 # a sidecar of a same-named shapefile.

@@ -273,6 +273,7 @@ class TestManifestApplyHelpers:
             ("./data/poi.kml", "poi.kml", ".kml"),
             ("./data/poi.kmz", "poi.kmz", ".kmz"),
             ("./data/parcels.zip", "parcels.zip", ".zip"),
+            ("./data/parcels.parquet", "parcels.parquet", ".parquet"),
         ],
     )
     def test_source_filename_and_extension_derivation_tier1_formats(
@@ -289,7 +290,12 @@ class TestManifestApplyHelpers:
     @pytest.mark.anyio
     @pytest.mark.parametrize(
         "uri",
-        ["./data/trails.fgb", "./data/poi.kml", "./data/poi.kmz"],
+        [
+            "./data/trails.fgb",
+            "./data/poi.kml",
+            "./data/poi.kmz",
+            "./data/parcels.parquet",
+        ],
     )
     async def test_classify_manifest_source_accepts_tier1_vector_formats(
         self, uri: str
@@ -679,6 +685,45 @@ class TestManifestApplyService:
         assert job.user_metadata["visibility"] == "private"
         assert job.user_metadata["record_status"] == "ready"
         assert job.user_metadata["srid_override"] == 4326
+
+    async def test_new_geoparquet_entry_queues_a_valid_job(
+        self, test_db_session, clean_tables
+    ):
+        import pyarrow.parquet as pq
+        from shapely.geometry import Point
+
+        from app.core.config import settings
+        from app.processing.export.parquet import build_geoparquet_table
+        from app.processing.ingest.validation import validate_file_content
+
+        staged = Path(settings.upload_staging_dir) / "tests/fixtures/ingest/pts.parquet"
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        table = build_geoparquet_table(
+            [Point(0, 0).wkb, Point(1, 1).wkb], {"name": ["a", "b"]}, ["name"]
+        )
+        pq.write_table(table, staged)
+        user = await _admin_user(test_db_session)
+        request = _request(
+            _manifest_dataset(
+                key="manifest-create-geoparquet",
+                uri="tests/fixtures/ingest/pts.parquet",
+            )
+        )
+
+        with patch(
+            "app.processing.ingest.manifest_service.queue_ingest_job",
+            new=AsyncMock(),
+        ) as queue:
+            response = await apply_manifest(
+                test_db_session, request, user, _http_request()
+            )
+
+        assert response.accepted is True
+        assert response.results[0].action == "create"
+        queue.assert_awaited_once()
+        job = await test_db_session.get(IngestJob, response.results[0].job_id)
+        assert job.source_filename.endswith(".parquet")
+        validate_file_content(job.file_path, job.source_filename)
 
     async def test_new_raster_entry_sets_raster_queue_metadata(
         self, test_db_session, clean_tables

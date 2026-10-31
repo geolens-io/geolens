@@ -78,7 +78,8 @@ async def test_upload_extensions_are_what_a_manifest_can_publish(
         "allowed_extensions"
     ]
     assert ".geojson" in extensions
-    assert ".parquet" not in extensions
+    assert ".parquet" in extensions
+    assert ".laz" not in extensions
     assert extensions == sorted(extensions)
 
 
