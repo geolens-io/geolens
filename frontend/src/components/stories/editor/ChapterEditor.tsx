@@ -6,18 +6,51 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { randomId } from '@/lib/random-id';
 import type { StoryCamera, StoryChapter } from '@/types/api';
+import { ButtonBlockField } from './ButtonBlockField';
 import { ImageBlockField } from './ImageBlockField';
 import { MarkdownField } from './MarkdownField';
 import { SceneEditor } from './SceneEditor';
+import { SeparatorBlockField } from './SeparatorBlockField';
 import { CHAPTER_TITLE_MAX_LENGTH, MAX_BLOCKS_PER_CHAPTER, type DraftEdit } from './story-draft';
 import { StoryImagePicker } from './StoryImagePicker';
 import { useMoveFocus } from './use-move-focus';
 import type { StoryUploads } from './use-story-uploads';
 
 const MOVES = [
-  { by: -1, Icon: ArrowUp, label: { image: 'editor.chapter.moveImageUp', markdown: 'editor.chapter.moveTextBlockUp' } },
-  { by: 1, Icon: ArrowDown, label: { image: 'editor.chapter.moveImageDown', markdown: 'editor.chapter.moveTextBlockDown' } },
+  {
+    by: -1,
+    Icon: ArrowUp,
+    label: {
+      image: 'editor.chapter.moveImageUp',
+      markdown: 'editor.chapter.moveTextBlockUp',
+      button: 'editor.chapter.moveButtonUp',
+      separator: 'editor.chapter.moveSeparatorUp',
+    },
+  },
+  {
+    by: 1,
+    Icon: ArrowDown,
+    label: {
+      image: 'editor.chapter.moveImageDown',
+      markdown: 'editor.chapter.moveTextBlockDown',
+      button: 'editor.chapter.moveButtonDown',
+      separator: 'editor.chapter.moveSeparatorDown',
+    },
+  },
 ] as const;
+
+const ADD_BLOCKS = [
+  { type: 'addTextBlock', label: 'editor.chapter.addTextBlock' },
+  { type: 'addButtonBlock', label: 'editor.chapter.addButton' },
+  { type: 'addSeparatorBlock', label: 'editor.chapter.addSeparator' },
+] as const;
+
+const REMOVE_LABELS = {
+  image: 'editor.chapter.removeImage',
+  markdown: 'editor.chapter.removeBlock',
+  button: 'editor.chapter.removeButton',
+  separator: 'editor.chapter.removeSeparator',
+} as const;
 
 interface ChapterEditorProps {
   storyId: string;
@@ -61,6 +94,21 @@ export function ChapterEditor({
   }, []);
 
   const markMoved = useMoveFocus(textRef, 'data-block-id', chapter.blocks);
+
+  const addButton = ({ type, label }: (typeof ADD_BLOCKS)[number]) => (
+    <Button
+      key={type}
+      type="button"
+      variant="outline"
+      size="sm"
+      disabled={blocksFull}
+      aria-describedby={blocksFull ? `${titleId}-blocks-full` : undefined}
+      onClick={() => edit({ type, chapterId: chapter.id, blockId: randomId() })}
+    >
+      <Plus className="h-4 w-4" aria-hidden="true" />
+      {t(label)}
+    </Button>
+  );
 
   function moveBlock(blockId: string, by: -1 | 1) {
     markMoved(blockId, by);
@@ -117,14 +165,27 @@ export function ChapterEditor({
                 label={t('editor.chapter.imageBlock', { index: kindNumbers[i] })}
                 edit={edit}
               />
+            ) : block.type === 'button' ? (
+              <ButtonBlockField
+                chapterId={chapter.id}
+                block={block}
+                label={t('editor.chapter.buttonBlock', { index: kindNumbers[i] })}
+                edit={edit}
+              />
+            ) : block.type === 'separator' ? (
+              <SeparatorBlockField
+                chapterId={chapter.id}
+                block={block}
+                label={t('editor.chapter.separatorBlock', { index: kindNumbers[i] })}
+                edit={edit}
+              />
             ) : (
               <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
                 {t('editor.chapter.blockNotEditable')}
               </p>
             )}
             <div className="flex flex-wrap items-center gap-1">
-              {(block.type === 'image' || block.type === 'markdown') &&
-                MOVES.map(({ by, Icon, label }) => (
+              {MOVES.map(({ by, Icon, label }) => (
                   <Button
                     key={by}
                     type="button"
@@ -147,25 +208,13 @@ export function ChapterEditor({
                 onClick={() => edit({ type: 'removeBlock', chapterId: chapter.id, blockId: block.id })}
               >
                 <Trash2 className="h-4 w-4" aria-hidden="true" />
-                {block.type === 'image'
-                  ? t('editor.chapter.removeImage', { index: kindNumbers[i] })
-                  : t('editor.chapter.removeBlock', { index: kindNumbers[i] })}
+                {t(REMOVE_LABELS[block.type], { index: kindNumbers[i] })}
               </Button>
             </div>
           </div>
         ))}
         <div className="flex flex-wrap items-start gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={blocksFull}
-            aria-describedby={blocksFull ? `${titleId}-blocks-full` : undefined}
-            onClick={() => edit({ type: 'addTextBlock', chapterId: chapter.id, blockId: randomId() })}
-          >
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            {t('editor.chapter.addTextBlock')}
-          </Button>
+          {ADD_BLOCKS.map(addButton)}
           <StoryImagePicker
             label={t('editor.chapter.addImage')}
             disabled={blocksFull}

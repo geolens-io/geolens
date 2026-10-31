@@ -51,6 +51,13 @@
       "label": "Image",
       "description": "Image : {{alt}}",
       "loading": "Chargement de l’image : {{alt}}"
+    },
+    "button": {
+      "label": "Bouton",
+      "opensInNewTab": "(s’ouvre dans un nouvel onglet)"
+    },
+    "separator": {
+      "label": "Séparateur"
     }
   },
   "dashboard": {

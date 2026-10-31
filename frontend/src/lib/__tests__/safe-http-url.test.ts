@@ -27,4 +27,10 @@ describe('isSafeHttpUrl', () => {
     expect(isSafeHttpUrl(null)).toBe(false);
     expect(isSafeHttpUrl(undefined)).toBe(false);
   });
+
+  it('rejects an address with no host, or with whitespace or control characters', () => {
+    for (const url of ['https://', 'https://exa mple.com', 'https://example.com/\n', ' https://example.com']) {
+      expect(isSafeHttpUrl(url), JSON.stringify(url)).toBe(false);
+    }
+  });
 });

@@ -358,6 +358,45 @@ async def test_unknown_block_on_write_is_refused(client: AsyncClient, people):
         assert resp.status_code == 422, (block, resp.text)
 
 
+async def test_button_with_a_script_address_is_refused_on_save(
+    client: AsyncClient, people
+):
+    story = await _story(client, people["owner"])
+    for url in ("javascript:alert(1)", "data:text/html,hi", "ftp://example.com/a"):
+        block = {
+            "id": str(uuid.uuid4()),
+            "type": "button",
+            "v": 1,
+            "config": {"label": "Go", "url": url},
+        }
+        resp = await _save(client, people["owner"], story, [_chapter(blocks=[block])])
+        assert resp.status_code == 422, (url, resp.text)
+        assert "http" in resp.text
+
+
+async def test_button_and_separator_blocks_round_trip(client: AsyncClient, people):
+    story = await _story(client, people["owner"])
+    button = {
+        "id": str(uuid.uuid4()),
+        "type": "button",
+        "v": 1,
+        "config": {"label": "Read it", "url": "https://example.com/r", "new_tab": True},
+    }
+    separator = {
+        "id": str(uuid.uuid4()),
+        "type": "separator",
+        "v": 1,
+        "config": {"style": "gap"},
+    }
+    saved = await _saved(
+        client, people["owner"], story, [_chapter(blocks=[button, separator])]
+    )
+    blocks = saved["document"]["chapters"][0]["blocks"]
+    assert [b["type"] for b in blocks] == ["button", "separator"]
+    assert blocks[0]["config"] == button["config"]
+    assert blocks[1]["config"] == {"style": "gap"}
+
+
 async def test_stored_unknown_block_survives_a_save(
     client: AsyncClient, people, test_db_session
 ):

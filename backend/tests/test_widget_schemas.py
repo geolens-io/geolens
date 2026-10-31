@@ -29,6 +29,8 @@ SAMPLES: dict[str, dict[str, Any]] = {
     "category_selector": {"layer_id": LAYER, "config": {"column": "landuse"}},
     "markdown": {"config": {"text": "# Chapter one"}},
     "image": {"asset_id": str(uuid.uuid4()), "config": {"alt": "A river"}},
+    "button": {"config": {"label": "Read the report", "url": "https://example.com/r"}},
+    "separator": {"config": {}},
 }
 
 
@@ -166,6 +168,65 @@ class TestAClientSendingWhatTheServerCantParseIsRefused:
         stored = to_store(_story([_widget("image")]), [])
 
         assert stored[0]["config"] == {"alt": "A river", "caption": None}
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "javascript:alert(1)",
+            "JavaScript:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "javascript://example.com/%0Aalert(1)",
+            "data://example.com/text",
+            "vbscript:msgbox(1)",
+            "file:///etc/passwd",
+            "ftp://example.com/a",
+            "//example.com/a",
+            "/relative/path",
+            "example.com",
+            "https://",
+            "http:///path",
+            "https://exa mple.com",
+            "https://example.com/\nx",
+            "https://user:pass@example.com/a",
+            "https://example.com:99999/a",
+            "",
+        ],
+    )
+    def test_a_button_url_must_be_http_or_https(self, url: str) -> None:
+        item = _widget("button", config={"label": "Go", "url": url})
+        with pytest.raises(ValidationError):
+            _story([item])
+
+    @pytest.mark.parametrize(
+        "url", ["http://example.com", "HTTPS://Example.com/a?b=1#c"]
+    )
+    def test_a_button_takes_http_and_https(self, url: str) -> None:
+        block = _story([_widget("button", config={"label": " Go ", "url": url})])[0]
+        assert block.config.url == url
+        assert block.config.label == "Go"
+        assert block.config.new_tab is False
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            {"label": "  ", "url": "https://example.com"},
+            {"label": "x" * 121, "url": "https://example.com"},
+            {"label": "Go", "url": "https://example.com/" + "a" * 2048},
+            {"label": "Go", "url": "https://example.com", "new_tab": "yes"},
+            {"label": "Go", "url": "https://example.com", "colour": "red"},
+        ],
+    )
+    def test_a_button_config_is_bounded(self, config: dict[str, Any]) -> None:
+        with pytest.raises(ValidationError):
+            _story([_widget("button", config=config)])
+
+    @pytest.mark.parametrize("config", [{"style": "dots"}, {"text": "x"}])
+    def test_a_separator_takes_only_line_or_gap(self, config: dict[str, Any]) -> None:
+        with pytest.raises(ValidationError):
+            _story([_widget("separator", config=config)])
+
+    def test_a_separator_defaults_to_a_line(self) -> None:
+        assert _story([_widget("separator")])[0].config.style == "line"
 
     def test_duplicate_ids_are_refused(self) -> None:
         first = _widget("histogram")

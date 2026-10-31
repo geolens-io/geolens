@@ -79,10 +79,11 @@ interface SaveState {
   stale: boolean;
   uploading: boolean;
   missingAlt: number;
+  incompleteButtons: number;
 }
 
 function statusKey(
-  { busy, dirty, failed, stale, uploading, missingAlt }: SaveState,
+  { busy, dirty, failed, stale, uploading, missingAlt, incompleteButtons }: SaveState,
   everPublished: boolean,
   hasUnpublished: boolean,
 ) {
@@ -92,6 +93,7 @@ function statusKey(
     if (failed) return 'editor.status.saveFailed';
     if (uploading) return 'editor.status.waitingForUpload';
     if (missingAlt > 0) return 'editor.status.waitingForAlt';
+    if (incompleteButtons > 0) return 'editor.status.waitingForButtons';
     return 'editor.status.unsaved';
   }
   if (!everPublished) return 'editor.status.neverPublished';
@@ -102,7 +104,7 @@ function statusKey(
 function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
   const { t } = useTranslation('stories');
   const editor = useStoryEditor(initial);
-  const { story, chapters, dirty, edit, busy, blocked, failed, stale, uploads, missingAlt, tooLarge, unsaveable } = editor;
+  const { story, chapters, dirty, edit, busy, blocked, failed, stale, uploads, missingAlt, incompleteButtons, tooLarge, unsaveable } = editor;
   const toGroups = story.visibility === 'restricted';
   const sharingOffer = blocked !== null && sharingMapsClears(blocked);
   const everPublished = story.published_at !== null;
@@ -165,7 +167,7 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
     const missing = new Set(editor.missingMapIds ?? []);
     return new Set(chapters.filter((c) => c.scene && missing.has(c.scene.map_id)).map((c) => c.id));
   }, [chapters, editor.missingMapIds]);
-  const saveState = { busy, dirty, failed, stale, uploading: uploads.uploading, missingAlt };
+  const saveState = { busy, dirty, failed, stale, uploading: uploads.uploading, missingAlt, incompleteButtons };
   const replacing = busy === 'discard' || busy === 'reload';
 
   // Text edits replace the chapter but keep its scene object, so the map pane
@@ -288,6 +290,12 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
       {missingAlt > 0 && (
         <div role="status" className="border-b bg-warning/10 px-4 py-2 text-sm">
           {t('editor.limits.altMissing', { count: missingAlt })}
+        </div>
+      )}
+
+      {incompleteButtons > 0 && (
+        <div role="status" className="border-b bg-warning/10 px-4 py-2 text-sm">
+          {t('editor.limits.buttonsIncomplete', { count: incompleteButtons })}
         </div>
       )}
 

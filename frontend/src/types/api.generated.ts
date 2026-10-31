@@ -8052,6 +8052,44 @@ export interface components {
             /** Revoked Count */
             revoked_count: number;
         };
+        /** ButtonConfig */
+        ButtonConfig: {
+            /** Label */
+            label: string;
+            /**
+             * Url
+             * @description An http or https address; any other scheme is refused.
+             */
+            url: string;
+            /**
+             * New Tab
+             * @description Open the link in a new tab.
+             * @default false
+             */
+            new_tab: boolean;
+        };
+        /** ButtonWidget */
+        ButtonWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "button";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            config: components["schemas"]["ButtonConfig"];
+        };
         /** CapabilitiesAuth */
         CapabilitiesAuth: {
             /**
@@ -14880,6 +14918,38 @@ export interface components {
              */
             row_count_delta: number | null;
         };
+        /** SeparatorConfig */
+        SeparatorConfig: {
+            /**
+             * Style
+             * @description A thin line, or a larger empty gap.
+             * @default line
+             * @enum {string}
+             */
+            style: "line" | "gap";
+        };
+        /** SeparatorWidget */
+        SeparatorWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "separator";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            config: components["schemas"]["SeparatorConfig"];
+        };
         /**
          * ServiceAuthRequest
          * @description How one request authenticates to the remote service it names.
@@ -16390,7 +16460,7 @@ export interface components {
              */
             scene_hidden: boolean;
             /** Blocks */
-            blocks?: (components["schemas"]["MarkdownWidget"] | components["schemas"]["ImageWidget"])[];
+            blocks?: (components["schemas"]["MarkdownWidget"] | components["schemas"]["ImageWidget"] | components["schemas"]["ButtonWidget"] | components["schemas"]["SeparatorWidget"])[];
         };
         /** StoryChapterInput */
         StoryChapterInput: {
@@ -16410,7 +16480,7 @@ export interface components {
              */
             scene_hidden: boolean;
             /** Blocks */
-            blocks?: (components["schemas"]["MarkdownWidget"] | components["schemas"]["ImageWidget"])[];
+            blocks?: (components["schemas"]["MarkdownWidget"] | components["schemas"]["ImageWidget"] | components["schemas"]["ButtonWidget"] | components["schemas"]["SeparatorWidget"])[];
         };
         /** StoryCreate */
         StoryCreate: {

@@ -139,6 +139,8 @@ from .bulk_register_response import BulkRegisterResponse
 from .bulk_register_result import BulkRegisterResult
 from .bulk_revoke_request import BulkRevokeRequest
 from .bulk_revoke_response import BulkRevokeResponse
+from .button_config import ButtonConfig
+from .button_widget import ButtonWidget
 from .capabilities_auth import CapabilitiesAuth
 from .capabilities_basemap import CapabilitiesBasemap
 from .capabilities_key import CapabilitiesKey
@@ -890,6 +892,9 @@ from .search_datasets_endpoint_search_datasets_get_spatial_predicate import (
 from .search_facets_endpoint_search_facets_get_spatial_predicate import (
     SearchFacetsEndpointSearchFacetsGetSpatialPredicate,
 )
+from .separator_config import SeparatorConfig
+from .separator_config_style import SeparatorConfigStyle
+from .separator_widget import SeparatorWidget
 from .service_auth_request import ServiceAuthRequest
 from .service_auth_request_method import ServiceAuthRequestMethod
 from .service_health import ServiceHealth
@@ -1181,6 +1186,8 @@ __all__ = (
     "BulkRegisterResult",
     "BulkRevokeRequest",
     "BulkRevokeResponse",
+    "ButtonConfig",
+    "ButtonWidget",
     "CapabilitiesAuth",
     "CapabilitiesBasemap",
     "CapabilitiesKey",
@@ -1682,6 +1689,9 @@ __all__ = (
     "SchemaDiff",
     "SearchDatasetsEndpointSearchDatasetsGetSpatialPredicate",
     "SearchFacetsEndpointSearchFacetsGetSpatialPredicate",
+    "SeparatorConfig",
+    "SeparatorConfigStyle",
+    "SeparatorWidget",
     "ServiceAuthRequest",
     "ServiceAuthRequestMethod",
     "ServiceHealth",

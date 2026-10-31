@@ -3286,6 +3286,79 @@
         "title": "BulkRevokeResponse",
         "type": "object"
       },
+      "ButtonConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "url": {
+            "description": "An http or https address; any other scheme is refused.",
+            "maxLength": 2048,
+            "title": "Url",
+            "type": "string"
+          },
+          "new_tab": {
+            "default": false,
+            "description": "Open the link in a new tab.",
+            "title": "New Tab",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "label",
+          "url"
+        ],
+        "title": "ButtonConfig",
+        "type": "object"
+      },
+      "ButtonWidget": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Made by the client and stable across saves.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "type": {
+            "const": "button",
+            "title": "Type",
+            "type": "string"
+          },
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "config": {
+            "$ref": "#/components/schemas/ButtonConfig"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "v",
+          "config"
+        ],
+        "title": "ButtonWidget",
+        "type": "object"
+      },
       "CapabilitiesAuth": {
         "properties": {
           "password_login_enabled": {
@@ -19208,6 +19281,67 @@
         "title": "SchemaDiff",
         "type": "object"
       },
+      "SeparatorConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "style": {
+            "default": "line",
+            "description": "A thin line, or a larger empty gap.",
+            "enum": [
+              "line",
+              "gap"
+            ],
+            "title": "Style",
+            "type": "string"
+          }
+        },
+        "title": "SeparatorConfig",
+        "type": "object"
+      },
+      "SeparatorWidget": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Made by the client and stable across saves.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "type": {
+            "const": "separator",
+            "title": "Type",
+            "type": "string"
+          },
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "config": {
+            "$ref": "#/components/schemas/SeparatorConfig"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "v",
+          "config"
+        ],
+        "title": "SeparatorWidget",
+        "type": "object"
+      },
       "ServiceAuthRequest": {
         "description": "How one request authenticates to the remote service it names.",
         "properties": {
@@ -22465,8 +22599,10 @@
             "items": {
               "discriminator": {
                 "mapping": {
+                  "button": "#/components/schemas/ButtonWidget",
                   "image": "#/components/schemas/ImageWidget",
-                  "markdown": "#/components/schemas/MarkdownWidget"
+                  "markdown": "#/components/schemas/MarkdownWidget",
+                  "separator": "#/components/schemas/SeparatorWidget"
                 },
                 "propertyName": "type"
               },
@@ -22476,6 +22612,12 @@
                 },
                 {
                   "$ref": "#/components/schemas/ImageWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/ButtonWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/SeparatorWidget"
                 }
               ]
             },
@@ -22530,8 +22672,10 @@
             "items": {
               "discriminator": {
                 "mapping": {
+                  "button": "#/components/schemas/ButtonWidget",
                   "image": "#/components/schemas/ImageWidget",
-                  "markdown": "#/components/schemas/MarkdownWidget"
+                  "markdown": "#/components/schemas/MarkdownWidget",
+                  "separator": "#/components/schemas/SeparatorWidget"
                 },
                 "propertyName": "type"
               },
@@ -22541,6 +22685,12 @@
                 },
                 {
                   "$ref": "#/components/schemas/ImageWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/ButtonWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/SeparatorWidget"
                 }
               ]
             },

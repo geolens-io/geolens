@@ -17,6 +17,7 @@ import { captureAccount } from './same-account';
 import {
   applyDraftEdit,
   documentBytes,
+  buttonsNeedingAttention,
   imagesMissingAlt,
   MAX_DOCUMENT_BYTES,
   type DraftEdit,
@@ -60,8 +61,9 @@ export function useStoryEditor(initial: StoryDraftResponse) {
   const dirty = chapters !== saved.document.chapters;
 
   const missingAlt = useMemo(() => imagesMissingAlt(chapters), [chapters]);
+  const incompleteButtons = useMemo(() => buttonsNeedingAttention(chapters), [chapters]);
   const tooLarge = useMemo(() => documentBytes(chapters) > MAX_DOCUMENT_BYTES, [chapters]);
-  const unsaveable = tooLarge || missingAlt > 0;
+  const unsaveable = tooLarge || missingAlt > 0 || incompleteButtons > 0;
   const stale = conflict?.code === 'stale_revision';
 
   const edit = useCallback((change: DraftEdit) => {
@@ -265,6 +267,7 @@ export function useStoryEditor(initial: StoryDraftResponse) {
     stale,
     uploads,
     missingAlt,
+    incompleteButtons,
     tooLarge,
     unsaveable,
     canAutosave,

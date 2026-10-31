@@ -12,8 +12,10 @@ from typing import cast
 from uuid import UUID
 
 if TYPE_CHECKING:
+    from ..models.button_widget import ButtonWidget
     from ..models.image_widget import ImageWidget
     from ..models.markdown_widget import MarkdownWidget
+    from ..models.separator_widget import SeparatorWidget
     from ..models.story_scene import StoryScene
 
 
@@ -29,17 +31,21 @@ class StoryChapter:
         scene (None | StoryScene | Unset):
         scene_hidden (bool | Unset): The chapter has a scene on a map you can't read, so it's shown without one.
             Default: False.
-        blocks (list[ImageWidget | MarkdownWidget] | Unset):
+        blocks (list[ButtonWidget | ImageWidget | MarkdownWidget | SeparatorWidget] | Unset):
     """
 
     id: UUID
     title: None | str | Unset = UNSET
     scene: None | StoryScene | Unset = UNSET
     scene_hidden: bool | Unset = False
-    blocks: list[ImageWidget | MarkdownWidget] | Unset = UNSET
+    blocks: (
+        list[ButtonWidget | ImageWidget | MarkdownWidget | SeparatorWidget] | Unset
+    ) = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.button_widget import ButtonWidget
+        from ..models.image_widget import ImageWidget
         from ..models.markdown_widget import MarkdownWidget
         from ..models.story_scene import StoryScene
 
@@ -68,6 +74,10 @@ class StoryChapter:
                 blocks_item: dict[str, Any]
                 if isinstance(blocks_item_data, MarkdownWidget):
                     blocks_item = blocks_item_data.to_dict()
+                elif isinstance(blocks_item_data, ImageWidget):
+                    blocks_item = blocks_item_data.to_dict()
+                elif isinstance(blocks_item_data, ButtonWidget):
+                    blocks_item = blocks_item_data.to_dict()
                 else:
                     blocks_item = blocks_item_data.to_dict()
 
@@ -93,8 +103,10 @@ class StoryChapter:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.button_widget import ButtonWidget
         from ..models.image_widget import ImageWidget
         from ..models.markdown_widget import MarkdownWidget
+        from ..models.separator_widget import SeparatorWidget
         from ..models.story_scene import StoryScene
 
         d = dict(src_dict)
@@ -129,12 +141,16 @@ class StoryChapter:
         scene_hidden = d.pop("scene_hidden", UNSET)
 
         _blocks = d.pop("blocks", UNSET)
-        blocks: list[ImageWidget | MarkdownWidget] | Unset = UNSET
+        blocks: (
+            list[ButtonWidget | ImageWidget | MarkdownWidget | SeparatorWidget] | Unset
+        ) = UNSET
         if _blocks is not UNSET:
             blocks = []
             for blocks_item_data in _blocks:
 
-                def _parse_blocks_item(data: object) -> ImageWidget | MarkdownWidget:
+                def _parse_blocks_item(
+                    data: object,
+                ) -> ButtonWidget | ImageWidget | MarkdownWidget | SeparatorWidget:
                     try:
                         if not isinstance(data, dict):
                             raise TypeError()
@@ -143,11 +159,27 @@ class StoryChapter:
                         return blocks_item_type_0
                     except (TypeError, ValueError, AttributeError, KeyError):
                         pass
+                    try:
+                        if not isinstance(data, dict):
+                            raise TypeError()
+                        blocks_item_type_1 = ImageWidget.from_dict(data)
+
+                        return blocks_item_type_1
+                    except (TypeError, ValueError, AttributeError, KeyError):
+                        pass
+                    try:
+                        if not isinstance(data, dict):
+                            raise TypeError()
+                        blocks_item_type_2 = ButtonWidget.from_dict(data)
+
+                        return blocks_item_type_2
+                    except (TypeError, ValueError, AttributeError, KeyError):
+                        pass
                     if not isinstance(data, dict):
                         raise TypeError()
-                    blocks_item_type_1 = ImageWidget.from_dict(data)
+                    blocks_item_type_3 = SeparatorWidget.from_dict(data)
 
-                    return blocks_item_type_1
+                    return blocks_item_type_3
 
                 blocks_item = _parse_blocks_item(blocks_item_data)
 

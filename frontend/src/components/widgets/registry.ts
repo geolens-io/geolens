@@ -4,13 +4,17 @@ import { barChartWidget } from './bar-chart/definition';
 import { categorySelectorWidget } from './category-selector/definition';
 import { histogramWidget } from './histogram/definition';
 import { indicatorWidget } from './indicator/definition';
+import { buttonWidget } from './button/definition';
 import { imageWidget } from './image/definition';
 import { markdownTextWidget } from './markdown/definition';
+import { separatorWidget } from './separator/definition';
 
 /** Every widget type this build knows. Add new types here; see README.md. */
 export const widgetDefinitions: readonly AnyWidgetDefinition[] = [
   markdownTextWidget,
   imageWidget,
+  buttonWidget,
+  separatorWidget,
   indicatorWidget,
   barChartWidget,
   histogramWidget,

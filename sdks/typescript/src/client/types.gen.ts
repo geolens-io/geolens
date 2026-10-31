@@ -2027,6 +2027,53 @@ export type BulkRevokeResponse = {
 };
 
 /**
+ * ButtonConfig
+ */
+export type ButtonConfig = {
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Url
+     *
+     * An http or https address; any other scheme is refused.
+     */
+    url: string;
+    /**
+     * New Tab
+     *
+     * Open the link in a new tab.
+     */
+    new_tab?: boolean;
+};
+
+/**
+ * ButtonWidget
+ */
+export type ButtonWidget = {
+    /**
+     * Id
+     *
+     * Made by the client and stable across saves.
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Type
+     */
+    type: 'button';
+    /**
+     * V
+     */
+    v: 1;
+    config: ButtonConfig;
+};
+
+/**
  * CapabilitiesAuth
  */
 export type CapabilitiesAuth = {
@@ -11199,6 +11246,43 @@ export type SchemaDiff = {
 };
 
 /**
+ * SeparatorConfig
+ */
+export type SeparatorConfig = {
+    /**
+     * Style
+     *
+     * A thin line, or a larger empty gap.
+     */
+    style?: 'line' | 'gap';
+};
+
+/**
+ * SeparatorWidget
+ */
+export type SeparatorWidget = {
+    /**
+     * Id
+     *
+     * Made by the client and stable across saves.
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Type
+     */
+    type: 'separator';
+    /**
+     * V
+     */
+    v: 1;
+    config: SeparatorConfig;
+};
+
+/**
  * ServiceAuthRequest
  *
  * How one request authenticates to the remote service it names.
@@ -13126,7 +13210,7 @@ export type StoryChapter = {
     /**
      * Blocks
      */
-    blocks?: Array<MarkdownWidget | ImageWidget>;
+    blocks?: Array<MarkdownWidget | ImageWidget | ButtonWidget | SeparatorWidget>;
 };
 
 /**
@@ -13153,7 +13237,7 @@ export type StoryChapterInput = {
     /**
      * Blocks
      */
-    blocks?: Array<MarkdownWidget | ImageWidget>;
+    blocks?: Array<MarkdownWidget | ImageWidget | ButtonWidget | SeparatorWidget>;
 };
 
 /**

@@ -124,7 +124,8 @@
       "saveFailed": "无法保存",
       "retry": "重试",
       "waitingForUpload": "正在等待图片上传完成",
-      "waitingForAlt": "添加替代文本后才能保存"
+      "waitingForAlt": "添加替代文本后才能保存",
+      "waitingForButtons": "完善按钮后才能保存"
     },
     "chapters": {
       "label": "章节",
@@ -148,7 +149,17 @@
       "moveTextBlockUp": "将文字块 {{index}} 上移",
       "moveTextBlockDown": "将文字块 {{index}} 下移",
       "moveImageUp": "将图片 {{index}} 上移",
-      "moveImageDown": "将图片 {{index}} 下移"
+      "moveImageDown": "将图片 {{index}} 下移",
+      "addButton": "添加按钮",
+      "buttonBlock": "按钮 {{index}}",
+      "removeButton": "移除按钮 {{index}}",
+      "moveButtonUp": "将按钮 {{index}} 上移",
+      "moveButtonDown": "将按钮 {{index}} 下移",
+      "addSeparator": "添加分隔线",
+      "separatorBlock": "分隔线 {{index}}",
+      "removeSeparator": "移除分隔线 {{index}}",
+      "moveSeparatorUp": "将分隔线 {{index}} 上移",
+      "moveSeparatorDown": "将分隔线 {{index}} 下移"
     },
     "scene": {
       "heading": "地图场景",
@@ -200,7 +211,9 @@
       "blocks_other": "一个章节最多可有 {{count}} 个文字块。",
       "size": "此故事超过了草稿可容纳的 2 MB。请缩短或删除部分文字后再保存。",
       "altMissing_one": "{{count}} 张图片需要替代文本才能保存。",
-      "altMissing_other": "{{count}} 张图片需要替代文本才能保存。"
+      "altMissing_other": "{{count}} 张图片需要替代文本才能保存。",
+      "buttonsIncomplete_one": "{{count}} 个按钮需要标签和网址才能保存。",
+      "buttonsIncomplete_other": "{{count}} 个按钮需要标签和网址才能保存。"
     },
     "image": {
       "alt": "替代文本",
@@ -215,7 +228,20 @@
       "progress": "上传进度",
       "notShown": "无法显示此图片。请替换或移除它。"
     },
-    "publishedSharingMaps": "故事已发布，阻止发布的您的地图现已与其用户组共享。"
+    "publishedSharingMaps": "故事已发布，阻止发布的您的地图现已与其用户组共享。",
+    "button": {
+      "label": "按钮标签",
+      "labelRequired": "保存前请填写标签。",
+      "url": "链接地址",
+      "urlHint": "以 http:// 或 https:// 开头。",
+      "urlInvalid": "请输入以 http:// 或 https:// 开头的地址。",
+      "newTab": "在新标签页中打开"
+    },
+    "separator": {
+      "style": "样式",
+      "line": "线条",
+      "gap": "间隔"
+    }
   },
   "groups": {
     "heading": "用户组",
