@@ -245,6 +245,7 @@
   },
   "groups": {
     "heading": "Groups",
+    "selectedLabel": "Groups this story is shared with",
     "help": "Choose the groups whose members can read this story once it's published. Each scene's map still follows its own access.",
     "effectPrivateEmpty": "Pick a group and save to share this story with specific groups.",
     "effectToRestricted": "Saving shares this story with specific groups: only you, admins and members of these groups can read it.",

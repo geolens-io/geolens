@@ -48,6 +48,11 @@ describe('MapGroupShare', () => {
     mockMine.mockResolvedValue([SURVEYORS, PLANNERS]);
   });
 
+  it('names the chosen-groups list after the map', async () => {
+    setup({ visibility: 'restricted', groups: [SURVEYORS] });
+    expect(await screen.findByRole('list', { name: 'Groups this map is shared with' })).toBeInTheDocument();
+  });
+
   it('moves focus to the picker and says what to do next when opened from the level', async () => {
     setup({ focusOnOpen: true });
     const input = await screen.findByRole('combobox', { name: 'Add a group' });

@@ -710,6 +710,7 @@
     "leavePublicConfirmAction": "Arrêter le partage public",
     "groups": {
       "title": "Groupes",
+      "selectedLabel": "Groupes avec lesquels cette carte est partagée",
       "help": "Choisissez les groupes qui peuvent ouvrir cette carte. Ses couches suivent toujours l'accès propre à chaque jeu de données.",
       "openedHint": "Choisissez des groupes, puis enregistrez.",
       "effectPrivateEmpty": "Choisissez un groupe et enregistrez pour partager cette carte avec des groupes précis.",

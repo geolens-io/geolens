@@ -45,6 +45,11 @@ describe('DatasetGroupShare', () => {
     mockMine.mockResolvedValue([SURVEYORS, PLANNERS]);
   });
 
+  it('names the chosen-groups list after the dataset', async () => {
+    setup({ visibility: 'restricted', groups: [SURVEYORS] });
+    expect(await screen.findByRole('list', { name: 'Groups this dataset is shared with' })).toBeInTheDocument();
+  });
+
   it('shares a private dataset with the picked group and reports it restricted', async () => {
     mockSet.mockResolvedValue({ visibility: 'restricted', groups: [SURVEYORS] });
     const user = setup();

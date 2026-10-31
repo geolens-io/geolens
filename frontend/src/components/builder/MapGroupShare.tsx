@@ -109,6 +109,7 @@ export function MapGroupShare({
 
       <GroupPicker
         selected={selected}
+        selectedLabel={t('share.groups.selectedLabel')}
         onChange={(next) => {
           save.reset();
           edit(next);

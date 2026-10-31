@@ -50,6 +50,7 @@ export function DatasetGroupShare({ datasetId, visibility, groups: current }: Da
       <div className="mt-3">
         <GroupPicker
           selected={selected}
+          selectedLabel={t('groupShare.selectedLabel')}
           onChange={(next) => {
             save.reset();
             edit(next);

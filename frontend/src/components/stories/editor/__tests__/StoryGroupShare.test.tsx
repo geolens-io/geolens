@@ -35,6 +35,11 @@ describe('StoryGroupShare', () => {
     vi.mocked(listMyGroups).mockResolvedValue([SURVEYORS]);
   });
 
+  it('names the chosen-groups list after the story', async () => {
+    render(<StoryGroupShare storyId="s1" visibility="restricted" groups={[SURVEYORS]} onSaved={vi.fn()} />);
+    expect(await screen.findByRole('list', { name: 'Groups this story is shared with' })).toBeInTheDocument();
+  });
+
   it('shares the story with the picked groups', async () => {
     mockSet.mockResolvedValue({ visibility: 'restricted', groups: [SURVEYORS], shared_map_ids: [] });
     const { onSaved } = await pickAndSave();
