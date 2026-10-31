@@ -1980,3 +1980,26 @@ def test_a_keyword_written_before_a_failure_is_remembered(runner, tmp_path, geol
     assert result.exit_code == 0, result.output
     assert service.keywords[parcels] == ["cadastre"]
     assert any("'parcels'" in n for n in _state(plan_file)["items"][A2]["notes"])
+
+
+def test_same_named_layers_without_ids_are_told_apart_by_position():
+    from geolens_cli.arcgis_migrate_layers import _titles
+
+    assert _titles("Base", [("Parcels", None), ("Parcels", None)]) == [
+        "Base - Parcels (#1)",
+        "Base - Parcels (#2)",
+    ]
+
+
+def test_same_named_layers_mixing_missing_and_real_ids_stay_distinct():
+    from geolens_cli.arcgis_migrate_layers import _titles
+
+    titles = _titles("Base", [("Parcels", None), ("Parcels", "7")])
+    assert titles == ["Base - Parcels (#1)", "Base - Parcels (7)"]
+
+
+def test_a_position_tag_never_matches_a_numeric_layer_id():
+    from geolens_cli.arcgis_migrate_layers import _titles
+
+    titles = _titles("Base", [("Parcels", None), ("Parcels", "1")])
+    assert titles == ["Base - Parcels (#1)", "Base - Parcels (1)"]

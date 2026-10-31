@@ -219,7 +219,8 @@ def _titles(base: str, layers: list[tuple[str, str | None]]) -> list[str]:
     Layers that would share a title get their layer id added, checked
     against the final titles: a layer already named like another layer's
     tagged title is tagged too, so every layer ends up told apart (layer
-    ids are unique within a service).
+    ids are unique within a service). A layer with no id is tagged with its
+    1-based position, as ``#2``, which no numeric layer id can match.
     """
     labels = [label if len(layers) > 1 else None for label, _layer in layers]
     titles = [_title(base, label) for label in labels]
@@ -231,7 +232,7 @@ def _titles(base: str, layers: list[tuple[str, str | None]]) -> list[str]:
         moved = False
         for i, (label, layer_id) in enumerate(layers):
             if titles[i] in shared and not tagged[i]:
-                titles[i] = _title(base, label, layer_id)
+                titles[i] = _title(base, label, layer_id or f"#{i + 1}")
                 tagged[i] = True
                 moved = True
         if not moved:
