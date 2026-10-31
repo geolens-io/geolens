@@ -86,6 +86,9 @@ and releases use semantic versioning.
 
 ### Fixed
 
+- `geolens arcgis migrate` now tells apart same-named layers of a service
+  that report no layer id, tagging each with its position (`#2`) instead of
+  giving two datasets one title. (#3495)
 - The Builder and the legend no longer treat interval and point columns as
   numeric, so data-driven styles and heatmap weights no longer offer them.
 - Turning a Builder layer, group or several layers off and back on no longer
