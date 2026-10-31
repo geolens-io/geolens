@@ -17,7 +17,8 @@
     "markdown": {
       "label": "Texte",
       "imageNotShown": "Image non affichée",
-      "imageNotShownAlt": "Image non affichée : {{alt}}"
+      "imageNotShownAlt": "Image non affichée : {{alt}}",
+      "sourceHint": "Markdown : les titres, les listes et les liens fonctionnent. Le HTML et les images ne sont pas affichés."
     },
     "indicator": {
       "label": "Indicateur",

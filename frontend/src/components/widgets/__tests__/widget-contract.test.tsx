@@ -33,14 +33,16 @@ const INCOMPLETE_DEFAULTS = new Set(['image']);
 // An image block names the image it shows.
 const assetId = '9a3e5c71-2b4d-4f86-8e1a-7c5d3b2f4e60';
 
-// A dashboard widget names the layer it summarizes.
+// A dashboard widget names the layer it summarizes, unless its type is layerless.
 const layerId = '0b7d2f4e-3c1a-4e8b-9f6d-5a2c7e1b9d34';
 
 function instanceFor(surface: WidgetSurface, instance: Record<string, unknown>) {
   const named = getWidgetDefinition(String(instance.type), surface)?.asset
     ? { asset_id: assetId, ...instance }
     : instance;
-  return surface === 'dashboard' ? { layer_id: layerId, ...named } : named;
+  return surface === 'dashboard' && !getWidgetDefinition(String(instance.type), surface)?.layerless
+    ? { layer_id: layerId, ...named }
+    : named;
 }
 
 function lookupKey(bundle: unknown, key: string): unknown {

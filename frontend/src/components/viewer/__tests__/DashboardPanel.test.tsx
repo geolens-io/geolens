@@ -535,3 +535,68 @@ describe('DashboardPanel', () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
+
+describe('DashboardPanel text widget', () => {
+  const textId = '3e0a5b7c-6f4d-4b1e-8c9a-8d5f0b4e2a67';
+  const textWidget = (text: string, title?: string) => ({
+    id: textId,
+    type: 'markdown',
+    v: 1,
+    ...(title ? { title } : {}),
+    config: { text },
+  });
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(async (_dataset, body) => respond(body) as never);
+  });
+
+  it('renders Markdown with no data request, below the panel and widget headings', async () => {
+    render(
+      <DashboardPanel
+        config={dashboard([textWidget('# Context\n\nParcels are **taxable**.', 'About')])}
+        layers={[]}
+        map={null}
+      />,
+    );
+    expect(screen.getByRole('heading', { level: 2, name: 'Dashboard' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: 'About' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 4, name: 'Context' })).toBeInTheDocument();
+    expect(screen.getByText('taxable').tagName).toBe('STRONG');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('puts the first heading directly under the panel heading when untitled', async () => {
+    render(<DashboardPanel config={dashboard([textWidget('# Context')])} layers={[]} map={null} />);
+    expect(await screen.findByRole('heading', { level: 3, name: 'Context' })).toBeInTheDocument();
+  });
+
+  it('stays when layers are turned off and does not ask for data beside layer widgets', async () => {
+    render(
+      <DashboardPanel
+        config={dashboard([textWidget('Read me'), countWidget])}
+        layers={[layer()]}
+        hiddenLayers={new Set([layerId])}
+        map={null}
+      />,
+    );
+    expect(screen.getByText('Read me')).toBeInTheDocument();
+    expect(screen.queryByText('Parcels counted')).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('shows scripts and event-handler images in the source as inert text', async () => {
+    const { container } = render(
+      <DashboardPanel
+        config={dashboard([
+          textWidget('<script>window.pwned = 1</script>\n\n<img src=x onerror="window.pwned = 2"> after'),
+        ])}
+        layers={[]}
+        map={null}
+      />,
+    );
+    await screen.findByText(/after/);
+    expect(container.querySelector('script, img, [onerror]')).toBeNull();
+    expect(container.textContent).toContain('<script>');
+  });
+});

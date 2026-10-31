@@ -17,7 +17,8 @@
     "markdown": {
       "label": "文本",
       "imageNotShown": "未显示图片",
-      "imageNotShownAlt": "未显示图片：{{alt}}"
+      "imageNotShownAlt": "未显示图片：{{alt}}",
+      "sourceHint": "支持 Markdown 的标题、列表和链接。不显示 HTML 和图片。"
     },
     "indicator": {
       "label": "指标",

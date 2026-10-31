@@ -6032,11 +6032,15 @@
                   "bar_chart": "#/components/schemas/BarChartWidget",
                   "category_selector": "#/components/schemas/CategorySelectorWidget",
                   "histogram": "#/components/schemas/HistogramWidget",
-                  "indicator": "#/components/schemas/IndicatorWidget"
+                  "indicator": "#/components/schemas/IndicatorWidget",
+                  "markdown": "#/components/schemas/MarkdownWidget"
                 },
                 "propertyName": "type"
               },
               "oneOf": [
+                {
+                  "$ref": "#/components/schemas/MarkdownWidget"
+                },
                 {
                   "$ref": "#/components/schemas/IndicatorWidget"
                 },
@@ -6088,18 +6092,22 @@
             "title": "Panel"
           },
           "widgets": {
-            "description": "Widgets in panel order. Each names a layer of this map that you can read. Stored widgets you can't see are kept in place.",
+            "description": "Widgets in panel order. Each, except a text widget, names a layer of this map that you can read. Stored widgets you can't see are kept in place.",
             "items": {
               "discriminator": {
                 "mapping": {
                   "bar_chart": "#/components/schemas/BarChartWidget",
                   "category_selector": "#/components/schemas/CategorySelectorWidget",
                   "histogram": "#/components/schemas/HistogramWidget",
-                  "indicator": "#/components/schemas/IndicatorWidget"
+                  "indicator": "#/components/schemas/IndicatorWidget",
+                  "markdown": "#/components/schemas/MarkdownWidget"
                 },
                 "propertyName": "type"
               },
               "oneOf": [
+                {
+                  "$ref": "#/components/schemas/MarkdownWidget"
+                },
                 {
                   "$ref": "#/components/schemas/IndicatorWidget"
                 },

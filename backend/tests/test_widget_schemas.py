@@ -86,7 +86,8 @@ class TestEveryTypeFollowsTheContract:
                     hosts.append(validate)
                 except ValidationError:
                     pass
-            assert len(hosts) == 1, kind
+            # Text is the one type both hosts take.
+            assert len(hosts) == (2 if kind == "markdown" else 1), kind
 
 
 class TestAClientSendingWhatTheServerCantParseIsRefused:
@@ -96,7 +97,14 @@ class TestAClientSendingWhatTheServerCantParseIsRefused:
             pytest.param(_widget("histogram", type="timeline"), id="unknown type"),
             pytest.param(_widget("histogram", v=2), id="newer v"),
             pytest.param(_widget("histogram", v=0), id="older v without an upgrader"),
-            pytest.param(_widget("markdown"), id="a story block on a dashboard"),
+            pytest.param(_widget("image"), id="a story block on a dashboard"),
+            pytest.param(
+                _widget("markdown", layer_id=LAYER), id="text bound to a layer"
+            ),
+            pytest.param(
+                _widget("markdown", config={"text": "x" * 20_001}),
+                id="text over the length cap",
+            ),
             pytest.param(_widget("histogram", extra=1), id="extra instance field"),
             pytest.param(
                 _widget("histogram", config={"column": "pop", "colour": "red"}),

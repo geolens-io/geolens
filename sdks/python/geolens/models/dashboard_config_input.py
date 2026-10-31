@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from ..models.category_selector_widget import CategorySelectorWidget
     from ..models.histogram_widget import HistogramWidget
     from ..models.indicator_widget import IndicatorWidget
+    from ..models.markdown_widget import MarkdownWidget
 
 
 T = TypeVar("T", bound="DashboardConfigInput")
@@ -31,15 +32,20 @@ class DashboardConfigInput:
         version (Literal[1] | Unset):  Default: 1.
         panel (DashboardConfigInputPanelType0 | None | Unset): Where the panel sits beside the map: `right` or `bottom`.
             On narrow screens it is always below the map. Leave it out to keep the stored panel.
-        widgets (list[BarChartWidget | CategorySelectorWidget | HistogramWidget | IndicatorWidget] | Unset): Widgets in
-            panel order. Each names a layer of this map that you can read. Stored widgets you can't see are kept in place.
+        widgets (list[BarChartWidget | CategorySelectorWidget | HistogramWidget | IndicatorWidget | MarkdownWidget] |
+            Unset): Widgets in panel order. Each, except a text widget, names a layer of this map that you can read. Stored
+            widgets you can't see are kept in place.
     """
 
     version: Literal[1] | Unset = 1
     panel: DashboardConfigInputPanelType0 | None | Unset = UNSET
     widgets: (
         list[
-            BarChartWidget | CategorySelectorWidget | HistogramWidget | IndicatorWidget
+            BarChartWidget
+            | CategorySelectorWidget
+            | HistogramWidget
+            | IndicatorWidget
+            | MarkdownWidget
         ]
         | Unset
     ) = UNSET
@@ -48,6 +54,7 @@ class DashboardConfigInput:
         from ..models.bar_chart_widget import BarChartWidget
         from ..models.histogram_widget import HistogramWidget
         from ..models.indicator_widget import IndicatorWidget
+        from ..models.markdown_widget import MarkdownWidget
 
         version = self.version
 
@@ -64,7 +71,9 @@ class DashboardConfigInput:
             widgets = []
             for widgets_item_data in self.widgets:
                 widgets_item: dict[str, Any]
-                if isinstance(widgets_item_data, IndicatorWidget):
+                if isinstance(widgets_item_data, MarkdownWidget):
+                    widgets_item = widgets_item_data.to_dict()
+                elif isinstance(widgets_item_data, IndicatorWidget):
                     widgets_item = widgets_item_data.to_dict()
                 elif isinstance(widgets_item_data, BarChartWidget):
                     widgets_item = widgets_item_data.to_dict()
@@ -93,6 +102,7 @@ class DashboardConfigInput:
         from ..models.category_selector_widget import CategorySelectorWidget
         from ..models.histogram_widget import HistogramWidget
         from ..models.indicator_widget import IndicatorWidget
+        from ..models.markdown_widget import MarkdownWidget
 
         d = dict(src_dict)
         version = cast(Literal[1] | Unset, d.pop("version", UNSET))
@@ -123,6 +133,7 @@ class DashboardConfigInput:
                 | CategorySelectorWidget
                 | HistogramWidget
                 | IndicatorWidget
+                | MarkdownWidget
             ]
             | Unset
         ) = UNSET
@@ -137,11 +148,12 @@ class DashboardConfigInput:
                     | CategorySelectorWidget
                     | HistogramWidget
                     | IndicatorWidget
+                    | MarkdownWidget
                 ):
                     try:
                         if not isinstance(data, dict):
                             raise TypeError()
-                        widgets_item_type_0 = IndicatorWidget.from_dict(data)
+                        widgets_item_type_0 = MarkdownWidget.from_dict(data)
 
                         return widgets_item_type_0
                     except (TypeError, ValueError, AttributeError, KeyError):
@@ -149,7 +161,7 @@ class DashboardConfigInput:
                     try:
                         if not isinstance(data, dict):
                             raise TypeError()
-                        widgets_item_type_1 = BarChartWidget.from_dict(data)
+                        widgets_item_type_1 = IndicatorWidget.from_dict(data)
 
                         return widgets_item_type_1
                     except (TypeError, ValueError, AttributeError, KeyError):
@@ -157,16 +169,24 @@ class DashboardConfigInput:
                     try:
                         if not isinstance(data, dict):
                             raise TypeError()
-                        widgets_item_type_2 = HistogramWidget.from_dict(data)
+                        widgets_item_type_2 = BarChartWidget.from_dict(data)
 
                         return widgets_item_type_2
                     except (TypeError, ValueError, AttributeError, KeyError):
                         pass
+                    try:
+                        if not isinstance(data, dict):
+                            raise TypeError()
+                        widgets_item_type_3 = HistogramWidget.from_dict(data)
+
+                        return widgets_item_type_3
+                    except (TypeError, ValueError, AttributeError, KeyError):
+                        pass
                     if not isinstance(data, dict):
                         raise TypeError()
-                    widgets_item_type_3 = CategorySelectorWidget.from_dict(data)
+                    widgets_item_type_4 = CategorySelectorWidget.from_dict(data)
 
-                    return widgets_item_type_3
+                    return widgets_item_type_4
 
                 widgets_item = _parse_widgets_item(widgets_item_data)
 

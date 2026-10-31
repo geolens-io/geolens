@@ -66,6 +66,8 @@ export interface WidgetRenderProps<C> {
   assetPath?: string;
   /** A column's display label, its attribute title else its name; `columnName` without it. */
   columnLabel?: ColumnLabel;
+  /** The level of the first heading a text widget may draw, one below the heading it sits under. Stories use 3. */
+  headingLevel?: 3 | 4 | 5;
 }
 
 /** Names a column for readers, by its attribute title where the host has one. */
@@ -105,6 +107,8 @@ export interface WidgetDefinition<C> {
   surfaces: readonly WidgetSurface[];
   /** Each instance names an image uploaded to its host in `asset_id`. */
   asset?: true;
+  /** On a dashboard, an instance names no layer and no scope, and no data request is made for it. */
+  layerless?: true;
   /** i18n key in the `widgets` namespace naming the type in editor menus. */
   labelKey: string;
   /** Every other `widgets` key the renderer and fallback use. */

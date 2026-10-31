@@ -123,3 +123,24 @@ describe('dashboard drafts', () => {
     expect(widgetProblem(indicator({}), layer({ dataset_geometry_type: null }))).toBeNull();
   });
 });
+
+describe('a widget with no layer', () => {
+  const text = {
+    id: '2d9f4a6b-5e3c-4a0d-9b8f-7c4e9a3d1f56',
+    type: 'markdown',
+    v: 1,
+    config: { text: 'Source: county GIS' },
+  };
+
+  it('is kept when no layer can host widgets, and saved without a layer', () => {
+    expect(widgetLayerGone(text, [])).toBe(false);
+    expect(dashboardPayload({ panel: 'right', widgets: [text] }, [], 'right')).toEqual({
+      version: 1,
+      widgets: [text],
+    });
+  });
+
+  it('reads back from a map response', () => {
+    expect(toDashboardDraft({ version: 1, widgets: [text] } as never).widgets).toEqual([text]);
+  });
+});

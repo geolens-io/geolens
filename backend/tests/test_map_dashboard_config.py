@@ -2,12 +2,11 @@
 
 import json
 import uuid
-from typing import Annotated, get_args
+from typing import get_args
 
 import pytest
 from fastapi import HTTPException
 from httpx import AsyncClient
-from pydantic import Field, TypeAdapter
 from sqlalchemy import text
 
 import app.core.db as db_module
@@ -26,6 +25,7 @@ from app.modules.catalog.widgets.schemas import (
     BarChartWidget,
     CategorySelectorWidget,
     IndicatorWidget,
+    MarkdownWidget,
 )
 from tests.factories import create_dataset, create_user, get_user_id
 from tests.test_embed_token_creator_access import _embed
@@ -39,6 +39,7 @@ _WIDGET_DEFAULTS = {
     },
     "histogram": {"config": {"column": "height", "bins": 12}},
     "category_selector": {"config": {"column": "kind", "multiple": False}},
+    "markdown": {"config": {"text": "How to read the charts"}},
     "gauge": {},
 }
 
@@ -46,13 +47,10 @@ _WIDGET_DEFAULTS = {
 @pytest.fixture
 def histogram_unregistered(monkeypatch):
     """Clients register every dashboard type the schema has; this one plays a type they don't yet."""
-    registered = IndicatorWidget | BarChartWidget | CategorySelectorWidget
-    monkeypatch.setattr(dashboard, "_ACCEPTED", get_args(registered))
-    monkeypatch.setattr(
-        dashboard,
-        "_ACCEPTED_ADAPTER",
-        TypeAdapter(Annotated[registered, Field(discriminator="type")]),
+    registered = (
+        MarkdownWidget | IndicatorWidget | BarChartWidget | CategorySelectorWidget
     )
+    monkeypatch.setattr(dashboard, "_ACCEPTED", get_args(registered))
 
 
 def _widget(type, layer_id=None, widget_id=None, **extra) -> dict:
@@ -300,6 +298,39 @@ def test_the_list_flag_agrees_with_what_a_read_renders():
     for stored in cases:
         expected = render_dashboard(stored, [shown]) is not None
         assert shows_widgets(stored, [shown]) is expected, stored
+
+
+def test_a_text_widget_has_no_layer_and_shows_whatever_the_layers_are():
+    text = _widget("markdown")
+    stored = {"version": 1, "widgets": [text, _widget("indicator", uuid.uuid4())]}
+
+    assert [str(w.id) for w in render_dashboard(stored, []).widgets] == [text["id"]]
+    assert shows_widgets(stored, [])
+    assert not shows_widgets(
+        {"version": 1, "widgets": [{**text, "config": {"text": 7}}]}, []
+    )
+
+
+def test_a_text_widget_is_saved_beside_layers_and_survives_repoint_and_fork():
+    shown, copy = uuid.uuid4(), uuid.uuid4()
+    text, chart = _widget("markdown"), _widget("indicator", shown)
+    sent = {"widgets": [text, chart]}
+
+    merged = _merge(sent, None, readable={shown})
+    assert _ids(merged["widgets"]) == [text["id"], chart["id"]]
+
+    kept = _merge(None, merged, readable={shown})
+    assert kept is None
+    stored = {"version": 1, "widgets": merged["widgets"]}
+    assert _ids(
+        _merge(sent, stored, readable={shown}, repointed={shown})["widgets"]
+    ) == [
+        text["id"],
+        chart["id"],
+    ]
+    assert _ids(drop_repointed(stored, {shown})["widgets"]) == [text["id"]]
+    assert _ids(fork_dashboard(stored, {shown: copy})["widgets"]) == _ids([text, chart])
+    assert _ids(fork_dashboard(stored, {})["widgets"]) == [text["id"]]
 
 
 def test_fork_remaps_layers_and_drops_what_it_cannot_copy():

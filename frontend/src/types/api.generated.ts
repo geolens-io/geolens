@@ -9224,7 +9224,7 @@ export interface components {
              * Widgets
              * @description The widgets on layers this response shows, in panel order.
              */
-            widgets: (components["schemas"]["IndicatorWidget"] | components["schemas"]["BarChartWidget"] | components["schemas"]["HistogramWidget"] | components["schemas"]["CategorySelectorWidget"])[];
+            widgets: (components["schemas"]["MarkdownWidget"] | components["schemas"]["IndicatorWidget"] | components["schemas"]["BarChartWidget"] | components["schemas"]["HistogramWidget"] | components["schemas"]["CategorySelectorWidget"])[];
         };
         /** DashboardConfigInput */
         DashboardConfigInput: {
@@ -9241,9 +9241,9 @@ export interface components {
             panel?: ("right" | "bottom") | null;
             /**
              * Widgets
-             * @description Widgets in panel order. Each names a layer of this map that you can read. Stored widgets you can't see are kept in place.
+             * @description Widgets in panel order. Each, except a text widget, names a layer of this map that you can read. Stored widgets you can't see are kept in place.
              */
-            widgets?: (components["schemas"]["IndicatorWidget"] | components["schemas"]["BarChartWidget"] | components["schemas"]["HistogramWidget"] | components["schemas"]["CategorySelectorWidget"])[];
+            widgets?: (components["schemas"]["MarkdownWidget"] | components["schemas"]["IndicatorWidget"] | components["schemas"]["BarChartWidget"] | components["schemas"]["HistogramWidget"] | components["schemas"]["CategorySelectorWidget"])[];
         };
         /** DatasetApiKeyCreateRequest */
         DatasetApiKeyCreateRequest: {

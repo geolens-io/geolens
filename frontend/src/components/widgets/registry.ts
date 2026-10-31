@@ -21,7 +21,7 @@ const byType = new Map(widgetDefinitions.map((definition) => [definition.type, d
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const INSTANCE_KEYS = new Set(['id', 'type', 'v', 'title', 'config']);
-// Every dashboard widget summarizes one layer of the dashboard's map.
+// A dashboard widget summarizes one layer of the dashboard's map, unless its type is layerless.
 const DASHBOARD_INSTANCE_KEYS = new Set([...INSTANCE_KEYS, 'layer_id', 'scope']);
 
 type WidgetRejection =
@@ -45,6 +45,16 @@ export function getWidgetDefinition(
   return definition?.surfaces.includes(surface) ? definition : undefined;
 }
 
+/** Whether a dashboard widget of this type summarizes a layer; text doesn't. */
+export function isLayerBound(type: string): boolean {
+  return !byType.get(type)?.layerless;
+}
+
+/** The layer a stored or submitted dashboard widget names, if it names one. */
+export function widgetLayerId(widget: object): string | undefined {
+  return 'layer_id' in widget && typeof widget.layer_id === 'string' ? widget.layer_id : undefined;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -52,15 +62,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * Parses one instance with the server's rules: the keys are exactly `id`,
  * `type`, `v`, `title` and `config`, plus a required `layer_id` and an
- * optional `scope` on a dashboard and a required `asset_id` for a type that
- * shows an uploaded image, and the config is the registered type's at a
+ * optional `scope` on a dashboard (not for a layerless type) and a required
+ * `asset_id` for a type that shows an uploaded image, and the config is the registered type's at a
  * version this build reads. Never throws: an instance it can't read comes
  * back as `ok: false` and is shown as a notice. On success the config is
  * upgraded to the definition's `v`.
  */
 export function parseStoredWidget(raw: unknown, surface: WidgetSurface): ParsedWidget {
-  const allowedKeys = surface === 'dashboard' ? DASHBOARD_INSTANCE_KEYS : INSTANCE_KEYS;
-  const takesAsset = isRecord(raw) && typeof raw.type === 'string' && !!byType.get(raw.type)?.asset;
+  const rawType = isRecord(raw) && typeof raw.type === 'string' ? byType.get(raw.type) : undefined;
+  const bound = surface === 'dashboard' && !rawType?.layerless;
+  const allowedKeys = bound ? DASHBOARD_INSTANCE_KEYS : INSTANCE_KEYS;
+  const takesAsset = !!rawType?.asset;
   if (
     !isRecord(raw) ||
     !Object.keys(raw).every((key) => allowedKeys.has(key) || (takesAsset && key === 'asset_id')) ||
@@ -82,7 +94,7 @@ export function parseStoredWidget(raw: unknown, surface: WidgetSurface): ParsedW
     return { ok: false, reason: 'malformed' };
   }
   if (
-    surface === 'dashboard' &&
+    bound &&
     (typeof raw.layer_id !== 'string' ||
       !UUID.test(raw.layer_id) ||
       (raw.scope !== undefined && raw.scope !== 'layer' && raw.scope !== 'view'))
@@ -94,7 +106,7 @@ export function parseStoredWidget(raw: unknown, surface: WidgetSurface): ParsedW
   const instance: WidgetInstance = { id: raw.id, type: raw.type, v: definition.v, config };
   if (typeof raw.title === 'string') instance.title = raw.title;
   if (definition.asset) instance.asset_id = raw.asset_id as string;
-  if (surface === 'dashboard') {
+  if (bound) {
     instance.layer_id = raw.layer_id as string;
     instance.scope = raw.scope === 'view' ? 'view' : 'layer';
   }

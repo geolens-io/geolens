@@ -202,7 +202,11 @@ def _unique_ids(widgets: list[Any]) -> list[Any]:
 
 
 DashboardWidget = Annotated[
-    IndicatorWidget | BarChartWidget | HistogramWidget | CategorySelectorWidget,
+    MarkdownWidget
+    | IndicatorWidget
+    | BarChartWidget
+    | HistogramWidget
+    | CategorySelectorWidget,
     Field(discriminator="type"),
     BeforeValidator(upgrade),
 ]

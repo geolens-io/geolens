@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from ..models.category_selector_widget import CategorySelectorWidget
     from ..models.histogram_widget import HistogramWidget
     from ..models.indicator_widget import IndicatorWidget
+    from ..models.markdown_widget import MarkdownWidget
 
 
 T = TypeVar("T", bound="DashboardConfig")
@@ -26,15 +27,19 @@ class DashboardConfig:
     """
     Attributes:
         version (int):
-        widgets (list[BarChartWidget | CategorySelectorWidget | HistogramWidget | IndicatorWidget]): The widgets on
-            layers this response shows, in panel order.
+        widgets (list[BarChartWidget | CategorySelectorWidget | HistogramWidget | IndicatorWidget | MarkdownWidget]):
+            The widgets on layers this response shows, in panel order.
         panel (DashboardConfigPanel | Unset): Where the panel sits beside the map: `right` or `bottom`. On narrow
             screens it is always below the map. Default: 'right'.
     """
 
     version: int
     widgets: list[
-        BarChartWidget | CategorySelectorWidget | HistogramWidget | IndicatorWidget
+        BarChartWidget
+        | CategorySelectorWidget
+        | HistogramWidget
+        | IndicatorWidget
+        | MarkdownWidget
     ]
     panel: DashboardConfigPanel | Unset = "right"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -43,13 +48,16 @@ class DashboardConfig:
         from ..models.bar_chart_widget import BarChartWidget
         from ..models.histogram_widget import HistogramWidget
         from ..models.indicator_widget import IndicatorWidget
+        from ..models.markdown_widget import MarkdownWidget
 
         version = self.version
 
         widgets = []
         for widgets_item_data in self.widgets:
             widgets_item: dict[str, Any]
-            if isinstance(widgets_item_data, IndicatorWidget):
+            if isinstance(widgets_item_data, MarkdownWidget):
+                widgets_item = widgets_item_data.to_dict()
+            elif isinstance(widgets_item_data, IndicatorWidget):
                 widgets_item = widgets_item_data.to_dict()
             elif isinstance(widgets_item_data, BarChartWidget):
                 widgets_item = widgets_item_data.to_dict()
@@ -83,6 +91,7 @@ class DashboardConfig:
         from ..models.category_selector_widget import CategorySelectorWidget
         from ..models.histogram_widget import HistogramWidget
         from ..models.indicator_widget import IndicatorWidget
+        from ..models.markdown_widget import MarkdownWidget
 
         d = dict(src_dict)
         version = d.pop("version")
@@ -98,11 +107,12 @@ class DashboardConfig:
                 | CategorySelectorWidget
                 | HistogramWidget
                 | IndicatorWidget
+                | MarkdownWidget
             ):
                 try:
                     if not isinstance(data, dict):
                         raise TypeError()
-                    widgets_item_type_0 = IndicatorWidget.from_dict(data)
+                    widgets_item_type_0 = MarkdownWidget.from_dict(data)
 
                     return widgets_item_type_0
                 except (TypeError, ValueError, AttributeError, KeyError):
@@ -110,7 +120,7 @@ class DashboardConfig:
                 try:
                     if not isinstance(data, dict):
                         raise TypeError()
-                    widgets_item_type_1 = BarChartWidget.from_dict(data)
+                    widgets_item_type_1 = IndicatorWidget.from_dict(data)
 
                     return widgets_item_type_1
                 except (TypeError, ValueError, AttributeError, KeyError):
@@ -118,16 +128,24 @@ class DashboardConfig:
                 try:
                     if not isinstance(data, dict):
                         raise TypeError()
-                    widgets_item_type_2 = HistogramWidget.from_dict(data)
+                    widgets_item_type_2 = BarChartWidget.from_dict(data)
 
                     return widgets_item_type_2
                 except (TypeError, ValueError, AttributeError, KeyError):
                     pass
+                try:
+                    if not isinstance(data, dict):
+                        raise TypeError()
+                    widgets_item_type_3 = HistogramWidget.from_dict(data)
+
+                    return widgets_item_type_3
+                except (TypeError, ValueError, AttributeError, KeyError):
+                    pass
                 if not isinstance(data, dict):
                     raise TypeError()
-                widgets_item_type_3 = CategorySelectorWidget.from_dict(data)
+                widgets_item_type_4 = CategorySelectorWidget.from_dict(data)
 
-                return widgets_item_type_3
+                return widgets_item_type_4
 
             widgets_item = _parse_widgets_item(widgets_item_data)
 
