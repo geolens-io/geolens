@@ -16,9 +16,10 @@ and `registry.ts` mirrors it. Each instance is `{ id, type, v, title?, config }`
 the map layer it summarizes, and a `scope`, `layer` (the default) or `view`; no
 other keys are allowed. A `layerless` type (text) takes neither on a dashboard:
 the host makes no data request for it, picks and view scope don't reach it,
-and it never leaves the panel when a layer is hidden or removed. A type that needs more adds those keys to the server
-model and to `parseStoredWidget` together. The document that holds the
-instances, a story or a map's `dashboard_config`, has its own `version`.
+and it never leaves the panel when a layer is hidden or removed. A type that
+needs more adds those keys to the server model and to `parseStoredWidget`
+together. The document that holds the instances, a story or a map's
+`dashboard_config`, has its own `version`.
 
 A chart is SVG drawn by its renderer, with no chart library: one tab stop,
 arrow keys to move between its marks, colours from theme tokens, and its data
