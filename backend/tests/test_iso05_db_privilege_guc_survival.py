@@ -120,7 +120,7 @@ _PROBE_ROLES = ["geolens_reader", "geolens_readonly"]
 async def _get_db_url() -> str:
     from app.core.config import settings
 
-    return settings.database_url
+    return settings.test_database_url
 
 
 # ---------------------------------------------------------------------------
