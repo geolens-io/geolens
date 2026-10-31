@@ -1,9 +1,14 @@
 import { useTranslation } from 'react-i18next';
 import { aggregateResult, aggregateStat, formatAggregateValue, STAT_LABEL_KEYS } from '../aggregate';
+import { columnName, type ColumnLabel } from '../contract';
 import type { IndicatorConfig } from './definition';
 
 /** The statistic's label and its value as text, with "no data" before the host has fetched it. */
-export function useIndicatorText(config: IndicatorConfig, data: unknown): { label: string; value: string } {
+export function useIndicatorText(
+  config: IndicatorConfig,
+  data: unknown,
+  columnLabel: ColumnLabel = columnName,
+): { label: string; value: string } {
   const { t } = useTranslation('widgets');
   let value: number | string | null | undefined;
   if (config.stat === 'count') {
@@ -13,7 +18,7 @@ export function useIndicatorText(config: IndicatorConfig, data: unknown): { labe
     value = aggregateResult(data, 'stats')?.[stat];
   }
   return {
-    label: t(STAT_LABEL_KEYS[config.stat], { column: config.column }),
+    label: t(STAT_LABEL_KEYS[config.stat], { column: config.column && columnLabel(config.column) }),
     value: value === undefined ? t('noData') : formatAggregateValue(value),
   };
 }

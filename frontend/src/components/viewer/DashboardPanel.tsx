@@ -155,7 +155,13 @@ export function DashboardWidget({
         </Skeleton>
       ) : (
         <div className={cn('transition-opacity', stale && 'opacity-50')}>
-          <WidgetView parsed={parsed} data={query.data} selection={selection} onSelect={onSelect} />
+          <WidgetView
+            parsed={parsed}
+            data={query.data}
+            selection={selection}
+            onSelect={onSelect}
+            columnLabel={(column) => columnDisplayName(layer.column_info, column)}
+          />
         </div>
       )}
     </article>

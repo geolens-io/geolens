@@ -2,7 +2,7 @@ import { Component, Suspense, type ErrorInfo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { logger } from '@/lib/logger';
 import { pushReportEntry } from '@/lib/report';
-import type { WidgetSelection } from './contract';
+import type { ColumnLabel, WidgetSelection } from './contract';
 import type { ParsedWidget } from './registry';
 
 /** Shows the widget's fallback when its renderer fails to load or crashes. */
@@ -44,7 +44,8 @@ function UnavailableWidget() {
  * Renders one parsed instance: its lazy renderer, with the text fallback while
  * loading or on failure. `selection` and `onSelect` come from a host that
  * links widgets; see `WidgetRenderProps`. A host that serves uploaded images
- * passes the path of the one an image instance names.
+ * passes the path of the one an image instance names. `columnLabel` names the
+ * columns a widget shows; see `WidgetRenderProps`.
  */
 export function WidgetView({
   parsed,
@@ -52,17 +53,25 @@ export function WidgetView({
   selection,
   onSelect,
   assetPath,
+  columnLabel,
 }: {
   parsed: ParsedWidget;
   data?: unknown;
   selection?: WidgetSelection | null;
   onSelect?: (selection: WidgetSelection | null) => void;
   assetPath?: string;
+  columnLabel?: ColumnLabel;
 }) {
   if (!parsed.ok) return <UnavailableWidget />;
   const { definition, instance } = parsed;
   const fallback = (
-    <definition.Fallback config={instance.config} data={data} selection={selection} assetPath={assetPath} />
+    <definition.Fallback
+      config={instance.config}
+      data={data}
+      selection={selection}
+      assetPath={assetPath}
+      columnLabel={columnLabel}
+    />
   );
   return (
     <WidgetErrorBoundary type={definition.type} fallback={fallback}>
@@ -73,6 +82,7 @@ export function WidgetView({
           selection={selection}
           onSelect={onSelect}
           assetPath={assetPath}
+          columnLabel={columnLabel}
         />
       </Suspense>
     </WidgetErrorBoundary>

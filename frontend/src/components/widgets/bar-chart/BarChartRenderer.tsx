@@ -38,9 +38,10 @@ export default function BarChartRenderer({
   data,
   selection,
   onSelect,
+  columnLabel,
 }: WidgetRenderProps<BarChartConfig>) {
   const { t } = useTranslation('widgets');
-  const text = useBarChartText(config, data);
+  const text = useBarChartText(config, data, columnLabel);
   const hintId = useId();
   const rows = text.rows ?? [];
   const picked = selectedValues(selection, config.column);
