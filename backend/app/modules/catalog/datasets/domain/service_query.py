@@ -54,6 +54,7 @@ __all__ = [
     "get_datasets_list",
     "get_dataset_detail",
     "get_dataset_rows",
+    "get_row_bboxes",
     "InvalidSortColumn",
     "sortable_columns",
 ]
@@ -474,14 +475,19 @@ def _build_where_filters(
     limit: int,
     keyset: str,
     label_codes: dict[str, list[str]],
+    gid: int | None = None,
 ) -> tuple[str, dict[str, object]]:
     """Compose the WHERE clause + bind params for keyset pagination + ILIKE filters.
 
     ``keyset`` is the predicate selecting rows after ``after_gid``.
     ``label_codes`` adds, per column, rows whose stored code is in the list.
+    ``gid`` keeps only that row.
     """
     where_clauses: list[str] = [f"({keyset})"]
     bind_params: dict[str, object] = {"limit": limit, "after_gid": after_gid}
+    if gid is not None:
+        where_clauses.append("gid = CAST(:row_gid AS bigint)")
+        bind_params["row_gid"] = gid
     for col_name, search_term in (filters or {}).items():
         if not SAFE_TABLE_NAME_RE.match(col_name):
             continue
@@ -517,6 +523,7 @@ async def _select_rows(
     descending: bool,
     label_codes: dict[str, list[str]],
     cql2_filter: LayerFilter | None = None,
+    gid: int | None = None,
 ) -> list[dict]:
     """Run the page query; a sorted page continues after the cursor row."""
     # Sorted reads keep the unsorted domain, gid > 0: a row at gid 0 or below
@@ -543,6 +550,7 @@ async def _select_rows(
         limit=limit,
         keyset=keyset,
         label_codes=label_codes,
+        gid=gid,
     )
     cql2_binds: list = []
     if cql2_filter is not None:
@@ -573,6 +581,7 @@ async def _count_matches(
     filters: dict[str, str] | None,
     label_codes: dict[str, list[str]],
     cql2_filter: LayerFilter | None = None,
+    gid: int | None = None,
 ) -> tuple[int, str]:
     """``(count, "exact")`` for the rows *filters* and *cql2_filter* match, or
     ``(FILTERED_COUNT_CAP, "at_least")`` when more match."""
@@ -583,6 +592,7 @@ async def _count_matches(
         limit=FILTERED_COUNT_CAP + 1,
         keyset="gid > :after_gid",
         label_codes=label_codes,
+        gid=gid,
     )
     cql2_binds: list = []
     if cql2_filter is not None:
@@ -614,6 +624,7 @@ async def get_dataset_rows(
     descending: bool = False,
     dataset_id: uuid.UUID | None = None,
     cql2_filter: LayerFilter | None = None,
+    gid: int | None = None,
 ) -> tuple[list[dict], int, str, list[dict], int | None]:
     """Fetch keyset-paginated rows from a dataset's data table.
 
@@ -637,6 +648,9 @@ async def get_dataset_rows(
     ``sort`` orders by that column, then gid; ``after_gid`` is still the last
     row's gid, and a page after a since-deleted cursor row is empty. Raises
     InvalidSortColumn for a column not in ``sortable_columns(column_info)``.
+
+    ``gid`` keeps only that row, ANDed with the other filters, and counts
+    like a filter.
     """
     if not SAFE_TABLE_NAME_RE.match(table_name):
         raise ValueError(f"Invalid table name: {table_name}")
@@ -677,11 +691,18 @@ async def get_dataset_rows(
             descending=descending,
             label_codes=label_codes,
             cql2_filter=cql2_filter,
+            gid=gid,
         )
 
-        if filters or cql2_filter is not None:
+        if filters or cql2_filter is not None or gid is not None:
             total, total_kind = await _count_matches(
-                db, _table_ref, cols, filters, label_codes, cql2_filter=cql2_filter
+                db,
+                _table_ref,
+                cols,
+                filters,
+                label_codes,
+                cql2_filter=cql2_filter,
+                gid=gid,
             )
         else:
             count_result = await db.execute(
@@ -711,3 +732,36 @@ async def get_dataset_rows(
         return [], 0, "exact", column_info or [], None
 
     return rows, total, total_kind, column_info or [], next_cursor
+
+
+async def get_row_bboxes(
+    db: AsyncSession, table_name: str, gids: list[int]
+) -> dict[int, list[float] | None]:
+    """Each row's [minx, miny, maxx, maxy] in EPSG:4326 to 6 decimals, as the
+    feature GeoJSON routes write coordinates; None for no geometry.
+
+    The table must have a ``geom_4326`` column. Rows deleted since the caller
+    read them are absent from the result.
+    """
+    if not SAFE_TABLE_NAME_RE.match(table_name):
+        raise ValueError(f"Invalid table name: {table_name}")
+    if not gids:
+        return {}
+
+    from app.core.db.tenant_schema import tenant_data_schema
+    from app.core.db.tenant_session import current_tenant_var
+    from app.modules.catalog.datasets.domain._sql_safety import _safe_table_ref
+
+    table_ref = _safe_table_ref(
+        table_name, schema=tenant_data_schema(current_tenant_var.get())
+    )
+    result = await db.execute(
+        text(
+            # codeql[py/sql-injection]
+            f"SELECT gid, ST_XMin(geom_4326), ST_YMin(geom_4326), ST_XMax(geom_4326), ST_YMax(geom_4326) FROM {table_ref} WHERE gid = ANY(CAST(:gids AS bigint[]))"
+        ).bindparams(gids=gids)
+    )
+    return {
+        row[0]: None if row[1] is None else [round(float(v), 6) for v in row[1:]]
+        for row in result.all()
+    }

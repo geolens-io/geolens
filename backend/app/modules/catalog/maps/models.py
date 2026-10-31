@@ -98,6 +98,12 @@ class Map(Base):
         JSONB, nullable=True, default=None
     )
 
+    # Whether viewers offer the layers' attribute tables; embed tokens may page
+    # rows only while it is on.
+    show_attribute_table: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+
     # Visibility
     visibility: Mapped[str] = mapped_column(
         String(20), default="private", server_default="private"

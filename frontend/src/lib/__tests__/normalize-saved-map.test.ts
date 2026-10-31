@@ -50,6 +50,7 @@ function makeMapResponse(overrides: Partial<MapResponse> = {}): MapResponse {
     pitch: 0,
     basemap_style: overrides.basemap_style ?? 'positron',
     show_basemap_labels: overrides.show_basemap_labels ?? true,
+    show_attribute_table: overrides.show_attribute_table ?? true,
     basemap_config: overrides.basemap_config ?? null,
     terrain_config: overrides.terrain_config ?? null,
     visibility: 'private',
@@ -78,6 +79,7 @@ function makeSharedMapResponse(overrides: Partial<SharedMapResponse> = {}): Shar
     bearing: 0,
     pitch: 0,
     basemap_style: overrides.basemap_style ?? 'positron',
+    show_attribute_table: overrides.show_attribute_table ?? true,
     // show_basemap_labels intentionally omitted when caller doesn't pass it
     ...(overrides.show_basemap_labels !== undefined
       ? { show_basemap_labels: overrides.show_basemap_labels }

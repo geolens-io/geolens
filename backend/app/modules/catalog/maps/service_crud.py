@@ -455,6 +455,7 @@ async def update_map(
     pitch: float | None = None,
     basemap_style: str | None = None,
     show_basemap_labels: bool | None = None,
+    show_attribute_table: bool | None = None,
     basemap_config: dict | None | object = _UNSET,
     terrain_config: dict | None | object = _UNSET,
     dashboard_config: dict | None | object = _UNSET,
@@ -510,6 +511,7 @@ async def update_map(
         "pitch": pitch,
         "basemap_style": basemap_style,
         "show_basemap_labels": show_basemap_labels,
+        "show_attribute_table": show_attribute_table,
         "visibility": visibility,
     }
     for key, value in scalar_fields.items():
@@ -718,6 +720,7 @@ async def duplicate_map(
         pitch=source.pitch,
         basemap_style=source.basemap_style,
         show_basemap_labels=source.show_basemap_labels,
+        show_attribute_table=source.show_attribute_table,
         basemap_config=source.basemap_config,
         # The fork's owner may not see the source's DEM, and every later read of
         # the fork would return the id stored here.

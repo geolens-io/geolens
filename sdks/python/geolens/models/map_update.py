@@ -36,6 +36,9 @@ class MapUpdate:
         pitch (float | None | Unset): Map tilt in degrees (0-85)
         basemap_style (None | str | Unset): Basemap style ID or URL
         show_basemap_labels (bool | None | Unset):
+        show_attribute_table (bool | None | Unset): Whether viewers offer each layer's attribute table. Embed tokens for
+            the map may read a layer's rows only while it is on; the columns they may read come from each dataset's tile
+            column allowlist.
         basemap_config (BasemapConfig | None | Unset): Curated map-level basemap appearance preferences
         terrain_config (None | TerrainConfig | Unset): Map-level terrain source and exaggeration preferences
         dashboard_config (DashboardConfigInput | None | Unset): The dashboard. Omit to keep it; null removes the widgets
@@ -59,6 +62,7 @@ class MapUpdate:
     pitch: float | None | Unset = UNSET
     basemap_style: None | str | Unset = UNSET
     show_basemap_labels: bool | None | Unset = UNSET
+    show_attribute_table: bool | None | Unset = UNSET
     basemap_config: BasemapConfig | None | Unset = UNSET
     terrain_config: None | TerrainConfig | Unset = UNSET
     dashboard_config: DashboardConfigInput | None | Unset = UNSET
@@ -132,6 +136,12 @@ class MapUpdate:
             show_basemap_labels = UNSET
         else:
             show_basemap_labels = self.show_basemap_labels
+
+        show_attribute_table: bool | None | Unset
+        if isinstance(self.show_attribute_table, Unset):
+            show_attribute_table = UNSET
+        else:
+            show_attribute_table = self.show_attribute_table
 
         basemap_config: dict[str, Any] | None | Unset
         if isinstance(self.basemap_config, Unset):
@@ -215,6 +225,8 @@ class MapUpdate:
             field_dict["basemap_style"] = basemap_style
         if show_basemap_labels is not UNSET:
             field_dict["show_basemap_labels"] = show_basemap_labels
+        if show_attribute_table is not UNSET:
+            field_dict["show_attribute_table"] = show_attribute_table
         if basemap_config is not UNSET:
             field_dict["basemap_config"] = basemap_config
         if terrain_config is not UNSET:
@@ -331,6 +343,17 @@ class MapUpdate:
 
         show_basemap_labels = _parse_show_basemap_labels(
             d.pop("show_basemap_labels", UNSET)
+        )
+
+        def _parse_show_attribute_table(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        show_attribute_table = _parse_show_attribute_table(
+            d.pop("show_attribute_table", UNSET)
         )
 
         def _parse_basemap_config(data: object) -> BasemapConfig | None | Unset:
@@ -464,6 +487,7 @@ class MapUpdate:
             pitch=pitch,
             basemap_style=basemap_style,
             show_basemap_labels=show_basemap_labels,
+            show_attribute_table=show_attribute_table,
             basemap_config=basemap_config,
             terrain_config=terrain_config,
             dashboard_config=dashboard_config,

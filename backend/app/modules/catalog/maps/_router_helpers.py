@@ -377,6 +377,7 @@ def _build_map_response(
         pitch=map_obj.pitch,
         basemap_style=map_obj.basemap_style,
         show_basemap_labels=map_obj.show_basemap_labels,
+        show_attribute_table=map_obj.show_attribute_table,
         basemap_config=map_obj.basemap_config,
         terrain_config=terrain_config,
         dashboard_config=render_dashboard(

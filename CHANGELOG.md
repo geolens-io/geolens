@@ -81,6 +81,11 @@ and releases use semantic versioning.
   came from keeps showing every value, with the pick marked. Bars and bins
   take Enter or Space from the keyboard, widgets on a column the server can't
   filter by don't offer picks, and linking works on share links and in embeds.
+- Maps have a Show attribute table setting, on by default. While it's on, an
+  embed token for the map can page its layers' rows through
+  `GET /datasets/{id}/rows/`, inside the dataset's tile column allowlist when
+  it has one. The rows route also accepts `gid` (one row) and `with_bbox`
+  (each row's bounding box), and maps gain `show_attribute_table`.
 - The Maps page marks a map with a dashboard you can see with a Dashboard
   badge, in the list and grid views.
 - Stories can be shared with groups, as maps can. In a story's Details, the

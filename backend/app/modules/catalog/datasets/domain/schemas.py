@@ -1258,6 +1258,14 @@ class DatasetRowsResponse(BaseModel):
         default_factory=list,
         description="Columns the rows endpoint accepts as `sort`.",
     )
+    bboxes: list[list[float] | None] | None = Field(
+        default=None,
+        description=(
+            "With `with_bbox=true`, one entry per row in `rows` order: the "
+            "row's [minx, miny, maxx, maxy] in EPSG:4326, or null for a row "
+            "without geometry. Null otherwise."
+        ),
+    )
     table_id: str | None = Field(
         default=None,
         description=(

@@ -896,6 +896,15 @@ class MapUpdate(BaseModel):
         default=None, max_length=2000, description="Basemap style ID or URL"
     )
     show_basemap_labels: bool | None = None
+    show_attribute_table: bool | None = Field(
+        default=None,
+        description=(
+            "Whether viewers offer each layer's attribute table. Embed tokens "
+            "for the map may read a layer's rows only while it is on; the "
+            "columns they may read come from each dataset's tile column "
+            "allowlist."
+        ),
+    )
     basemap_config: BasemapConfig | None = Field(
         default=None,
         description="Curated map-level basemap appearance preferences",
@@ -1047,6 +1056,15 @@ class MapResponse(BaseModel):
     pitch: float
     basemap_style: str
     show_basemap_labels: bool
+    show_attribute_table: bool = Field(
+        default=True,
+        description=(
+            "Whether viewers offer each layer's attribute table. Embed tokens "
+            "for the map may read a layer's rows only while it is on; the "
+            "columns they may read come from each dataset's tile column "
+            "allowlist."
+        ),
+    )
     basemap_config: BasemapConfig | None = None
     terrain_config: TerrainConfig | None = None
     dashboard_config: DashboardConfig | None = None
@@ -1377,6 +1395,13 @@ class SharedMapResponse(BaseModel):
     pitch: float
     basemap_style: str
     show_basemap_labels: bool = True
+    show_attribute_table: bool = Field(
+        default=True,
+        description=(
+            "Whether the viewer offers each layer's attribute table. The columns "
+            "an embed may read come from each dataset's tile column allowlist."
+        ),
+    )
     basemap_config: BasemapConfig | None = None
     terrain_config: TerrainConfig | None = None
     dashboard_config: DashboardConfig | None = None
