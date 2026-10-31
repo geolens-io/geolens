@@ -41,6 +41,7 @@ describe('isSafeHttpUrl', () => {
       'https://internal_host/report',
       'https://-bad.example.com/',
       'https://a..b.example.com/',
+      'https://example.com../',
       'https://exa%6dple.com/',
       'https://0x7f.1/',
       'https://192.168.1/',
@@ -57,6 +58,7 @@ describe('isSafeHttpUrl', () => {
       'https://xn--bcher-kva.example/',
       'https://bücher.example/',
       'https://EXAMPLE.com/Report',
+      'https://example.com./privacy',
     ]) {
       expect(isSafeHttpUrl(url), url).toBe(true);
     }

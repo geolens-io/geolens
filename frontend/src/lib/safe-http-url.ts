@@ -32,7 +32,8 @@ export function isSafeHttpUrl(value: string | null | undefined): value is string
   const host = url.hostname;
   if (host === '' || url.username || url.password) return false;
   if (host.startsWith('[')) return true;
-  const labels = host.split('.');
+  // A trailing dot names the DNS root; the server accepts it too.
+  const labels = host.replace(/\.$/, '').split('.');
   // The parser decodes `%6d` and rewrites `0x7f.1`; the server refuses both,
   // so the host must appear in the address as written. An international host
   // is rewritten to punycode, which the server accepts too.
