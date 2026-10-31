@@ -73,6 +73,7 @@ const PUBLIC_MAP: MapResponse = {
   pitch: 55,
   basemap_style: 'openfreemap-positron',
   show_basemap_labels: false,
+  show_attribute_table: true,
   basemap_config: {
     label_mode: 'hidden',
     road_visibility: 'subtle',

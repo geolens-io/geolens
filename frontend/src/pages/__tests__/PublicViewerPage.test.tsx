@@ -73,6 +73,7 @@ const SHARED_MAP: SharedMapResponse = {
   pitch: 0,
   basemap_style: 'carto-light',
   show_basemap_labels: true,
+  show_attribute_table: true,
   basemap_config: {
     label_mode: 'subtle',
     road_visibility: 'hidden',
