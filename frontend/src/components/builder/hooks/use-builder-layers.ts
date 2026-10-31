@@ -955,6 +955,26 @@ export function useBuilderLayers(
     );
   }, [addLayerMutation, mapId, t, saveBaselineSyncRef]);
 
+  const remapLayerIds = useCallback((ids: ReadonlyMap<string, string>) => {
+    setLocalLayers((prev) =>
+      prev.map((layer) => {
+        const next = ids.get(layer.id);
+        return next ? { ...layer, id: next } : layer;
+      }),
+    );
+    setExpandedLayerId((prev) => (prev && ids.get(prev)) ?? prev);
+    // Otherwise the next save would drop the widgets as on a removed layer.
+    if (dashboard.widgets.some((w) => w.layer_id && ids.has(w.layer_id))) {
+      setDashboard({
+        ...dashboard,
+        widgets: dashboard.widgets.map((w) => {
+          const next = w.layer_id && ids.get(w.layer_id);
+          return next ? { ...w, layer_id: next } : w;
+        }),
+      });
+    }
+  }, [dashboard, setDashboard]);
+
   const markDirty = useCallback(() => setHasUnsavedChanges(true), []);
 
   // For state this hook can't compare against server data (dock notes, plugin
@@ -1289,6 +1309,7 @@ export function useBuilderLayers(
     handleMoveLayerOutOfGroup,
     handleAddDataset,
     handleDuplicateRendering,
+    remapLayerIds,
     dispatchLayerAction,
     handleAiRemoveLayer,
     handleQueryResult,

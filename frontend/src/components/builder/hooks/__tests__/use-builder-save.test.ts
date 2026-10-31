@@ -32,7 +32,9 @@ const mockEnabledPlugins = vi.hoisted(() => ({
   value: null as string[] | null | undefined,
 }));
 
-vi.mock('@/hooks/use-maps', () => ({
+vi.mock('@/hooks/use-maps', async (importOriginal) => ({
+  // The real query, whose getMap is the mock below.
+  mapDetailQuery: (await importOriginal<typeof import('@/hooks/use-maps')>()).mapDetailQuery,
   useUpdateMap: () => ({
     mutate: mockMutate,
     mutateAsync: mockUpdateMapMutateAsync,
@@ -236,6 +238,7 @@ function makeSaveState(overrides: Partial<SaveState> = {}): SaveState {
     // The real MapBuilderPage owns this ref; tests that don't
     // exercise the layer-create → save-baseline bridge get a plain no-op ref.
     saveBaselineSyncRef: { current: { add: () => {}, remove: () => {} } },
+    remapLayerIds: vi.fn(),
     saveFence: { inFlight: () => false, begin: () => {}, settle: () => {} },
     ...overrides,
   };
@@ -1344,7 +1347,9 @@ describe('useBuilderSave', () => {
       await result.current.handleSave();
     });
 
-    expect(mockGetMap).not.toHaveBeenCalled();
+    // No stale-diff recovery: the only read is the full PUT's read-back.
+    expect(mockPatchMapLayersMutateAsync).toHaveBeenCalledOnce();
+    expect(mockGetMap).toHaveBeenCalledOnce();
     expect(mockUpdateMapMutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({

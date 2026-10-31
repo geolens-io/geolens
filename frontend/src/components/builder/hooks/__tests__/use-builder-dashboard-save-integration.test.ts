@@ -82,6 +82,7 @@ function useCombinedBuilder(mapData: MapResponse) {
     hasUnsavedEdits: layers.hasUnsavedEdits,
     hasThumbnail: true,
     saveBaselineSyncRef,
+    remapLayerIds: layers.remapLayerIds,
     saveFence: layers.saveFence,
   });
   return { ...layers, ...save };
