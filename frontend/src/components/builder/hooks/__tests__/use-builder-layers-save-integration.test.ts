@@ -997,6 +997,28 @@ describe('layer creates and deletes during a full-replacement save', () => {
     expect([...local].sort()).toEqual(['doomed', 'keep', 'stored-1']);
   });
 
+  it('pairs only the layers a PATCH added with the ids it stored', async () => {
+    // Ahead of the restored layer, so it would be paired first.
+    const sibling = makeBuilderLayer({ id: 'sibling', dataset_id: 'ds-keep', sort_order: 0 });
+    const { result, mutate } = renderOnServer([sibling, keep]);
+    const finishSave = await startReplacement(result);
+    duplicateDuringSave(result, mutate);
+    await finishSave();
+    // Another session deletes a layer on the same dataset that this one edits.
+    server = server.filter((l) => l.id !== 'sibling');
+    act(() => { result.current.handleOpacityChange('sibling', 0.2); });
+    act(() => {
+      result.current.handleDashboardChange({ ...result.current.dashboard, widgets: [indicatorOn('dup')] });
+    });
+
+    patchAvailable = true;
+    await act(async () => { await result.current.handleSave(); });
+
+    expect(server.map((l) => l.id)).toEqual(['keep', 'stored-1']);
+    const sent = mockUpdateMapMutateAsync.mock.calls.at(-1)?.[0].data.dashboard_config;
+    expect(sent.widgets.map((w: { layer_id: string }) => w.layer_id)).toEqual(['stored-1']);
+  });
+
   it('keeps a create made while a PATCH that sends a layer again is in flight', async () => {
     const { result, mutate } = renderOnServer([keep]);
     const finishSave = await startReplacement(result);

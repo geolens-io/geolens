@@ -849,6 +849,7 @@ function pairReplacedLayerIds(
   sent: readonly MapLayerResponse[],
   stored: readonly MapLayerResponse[],
   createdIds: ReadonlySet<string>,
+  pairable: ReadonlySet<string> | null,
 ): Map<string, string> {
   const sentIds = new Set(sent.map((layer) => layer.id));
   const storedIds = new Set(stored.map((layer) => layer.id));
@@ -861,7 +862,7 @@ function pairReplacedLayerIds(
   }
   const pairs = new Map<string, string>();
   for (const layer of sent) {
-    if (storedIds.has(layer.id)) continue;
+    if (storedIds.has(layer.id) || (pairable && !pairable.has(layer.id))) continue;
     const next = newRowsByDataset.get(layer.dataset_id)?.shift();
     if (next) pairs.set(layer.id, next);
   }
@@ -870,23 +871,25 @@ function pairReplacedLayerIds(
 
 /**
  * The save-diff baseline after a full replacement: what the server stored of
- * this save's layers. The PUT deletes layers created while it was in flight and recreates
- * layers deleted meanwhile under new ids, so the next save sends those creates
- * again and removes the recreated rows. A create recorded before `stored` was
- * read and missing from it is left out of the baseline: sending it again is
- * safer than losing it. Registrations from `readFrom` on landed after the read,
- * so they are replayed. `renamed` maps each sent layer the server stored under
- * a new id to that id.
+ * this save's layers. The PUT deletes layers created while it was in flight
+ * and recreates layers deleted meanwhile under new ids, so the next save sends
+ * those creates again and removes the recreated rows. A create recorded before
+ * `stored` was read and missing from it is left out of the baseline: sending
+ * it again is safer than losing it. Registrations from `readFrom` on landed
+ * after the read, so they are replayed. `renamed` maps each sent layer the
+ * server stored under a new id to that id; `pairable`, when given, limits that
+ * pairing to the layers a PATCH added.
  */
 function replacedBaseline(
   sent: readonly MapLayerResponse[],
   stored: MapLayerResponse[],
   registrations: readonly BaselineRegistration[],
   readFrom: number,
+  pairable: ReadonlySet<string> | null,
 ): { renamed: Map<string, string>; baseline: MapLayerResponse[] } {
   const createdIds = new Set<string>();
   for (const r of registrations) if ('add' in r) createdIds.add(r.add.id);
-  const renamed = pairReplacedLayerIds(sent, stored, createdIds);
+  const renamed = pairReplacedLayerIds(sent, stored, createdIds, pairable);
   // Rows another session added aren't in the local stack, so a baseline that
   // held them would make the next save delete them. A sent layer it deleted
   // stays in the baseline, so the next save doesn't create it again.
@@ -1230,6 +1233,8 @@ export function useBuilderSave(state: SaveState) {
     const registrations: BaselineRegistration[] = [];
     let replacedLayers: MapLayerResponse[] | null = null;
     let replacedReadFrom = 0;
+    // The layers a PATCH added, the only ones it stored under new ids.
+    let patchedAdds: ReadonlySet<string> | null = null;
     // Layers the server stored under new ids, which the metadata PUT's
     // dashboard must name.
     let layerRenames: ReadonlyMap<string, string> = new Map();
@@ -1247,6 +1252,7 @@ export function useBuilderSave(state: SaveState) {
           replacedLayers,
           registrations,
           replacedReadFrom,
+          patchedAdds,
         );
         layerRenames = renamed;
         // The latest render's, whose dashboard draft holds edits made since.
@@ -1331,6 +1337,7 @@ export function useBuilderSave(state: SaveState) {
       if (!layerDiff.added?.length) return;
       replacedLayers = patched.layers ?? [];
       replacedReadFrom = 0;
+      patchedAdds = new Set(layerDiff.added.flatMap((l) => (l.id ? [l.id] : [])));
     };
     saveFence.begin(id);
     inFlightRegistrationsRef.current.add(registrations);
