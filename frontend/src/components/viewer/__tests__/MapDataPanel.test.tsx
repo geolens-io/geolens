@@ -192,6 +192,37 @@ describe('MapDataPanel', () => {
     expect(screen.queryByText('x')).not.toBeInTheDocument();
   });
 
+  it('shows Table values as the List view formats them', async () => {
+    const layer: SharedLayerResponse = {
+      ...LAYER,
+      column_info: [
+        { name: 'depth', type: 'double precision' },
+        { name: 'pop', type: 'integer' },
+        { name: 'year', type: 'integer', semantic_role: 'temporal' },
+        { name: 'active', type: 'boolean' },
+      ],
+      popup_config: { enabled: true, visible_fields: ['gid', 'depth', 'pop', 'year', 'active'] },
+      dataset_tile_columns: null,
+    };
+    vi.mocked(getDatasetRows).mockResolvedValue({
+      ...ROWS,
+      columns: [
+        { name: 'gid', type: 'integer' },
+        { name: 'depth', type: 'double precision' },
+        { name: 'pop', type: 'integer' },
+        { name: 'year', type: 'integer' },
+        { name: 'active', type: 'boolean' },
+      ],
+      rows: [{ gid: 98765, depth: 30.7199993133545, pop: 12345, year: 1952, active: true }],
+      bboxes: [null],
+    } as DatasetRowsResponse);
+    render(<Harness map={fakeMap()} layers={[layer]} />);
+    const row = (await screen.findByText('30.72')).closest('tr')!;
+
+    // Row ids and years read without grouping, as identifiers do.
+    expect(within(row).getAllByRole('cell').map((cell) => cell.textContent)).toEqual(['98765', '30.72', '12,345', '1952', 'True']);
+  });
+
   it('lets a reader add a column the popup leaves out', async () => {
     const user = userEvent.setup();
     render(<Harness map={fakeMap()} />);

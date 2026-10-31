@@ -73,6 +73,22 @@ describe('AttributeTable coded values', () => {
     expect(await screen.findByRole('tooltip')).toHaveTextContent('1');
   });
 
+  it('keeps the stored code behind a label when the host formats values', async () => {
+    const user = userEvent.setup();
+    render(
+      <AttributeTable
+        datasetId="ds"
+        valueLabels={LABELS}
+        display={{ formatValue: (_column, value) => `formatted ${String(value)}` }}
+      />,
+    );
+
+    expect(screen.getByRole('cell', { name: 'formatted 7' })).toBeInTheDocument();
+    const label = screen.getByRole('button', { name: 'Active' });
+    for (let i = 0; i < 20 && document.activeElement !== label; i += 1) await user.tab();
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(/^1$/);
+  });
+
   it('shows the label and the code together in an editable cell, and edits the code', async () => {
     const user = userEvent.setup();
     render(<AttributeTable datasetId="ds" canEdit valueLabels={LABELS} />);

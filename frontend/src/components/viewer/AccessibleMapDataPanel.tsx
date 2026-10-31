@@ -5,8 +5,7 @@ import { Button } from '@/components/ui/button';
 import { LiveAnnouncement } from '@/components/ui/live-announcement';
 import type { SharedLayerResponse } from '@/types/api';
 import { createViewerLayerEntries } from '@/components/viewer/layer-identity';
-import { formatFeaturePropertyValue } from '@/lib/feature-property-value';
-import type { AccessibleMapFeatureResult } from './accessible-map-data';
+import { formatMapDataValue, type AccessibleMapFeatureResult } from './accessible-map-data';
 
 interface AccessibleMapDataPanelProps {
   layers: SharedLayerResponse[];
@@ -29,19 +28,6 @@ function humanizeKey(key: string): string {
   return key
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (character) => character.toUpperCase());
-}
-
-function formatValue(
-  value: unknown,
-  locale: string,
-  booleanTrue: string,
-  booleanFalse: string,
-  useGrouping: boolean,
-): string {
-  // 5 fraction digits (not the shared default of 4): this panel is the
-  // accessible surface for raw feature coordinates, so it keeps the more
-  // precise formatting.
-  return formatFeaturePropertyValue(value, locale, booleanTrue, booleanFalse, 5, useGrouping) ?? '—';
 }
 
 export function AccessibleMapDataPanel({
@@ -224,13 +210,13 @@ export function AccessibleMapDataPanel({
                               {humanizeKey(key)}
                             </dt>
                             <dd className="break-words text-sm">
-                              {formatValue(
+                              {formatMapDataValue(
                                 value,
                                 i18n.language,
                                 t('viewer.data.booleanTrue'),
                                 t('viewer.data.booleanFalse'),
                                 !feature.ungroupedKeys.has(key),
-                              )}
+                              ) ?? '—'}
                             </dd>
                           </div>
                         ))}
