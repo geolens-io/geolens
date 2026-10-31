@@ -832,6 +832,9 @@ function ensureVectorSource(
     && currentClusterSignature !== desiredClusterSignature;
   if (currentSource && (currentSource.type !== source.type || geoJsonClusterSourceOptionsChanged)) {
     removeKnownVectorLayers(map, layerId, layer.id, prefix);
+    // MapLibre refuses to remove a source another layer still draws from, such
+    // as a feature highlight.
+    removeLayersUsingSource(map, sourceId);
     map.removeSource(sourceId);
     clusterStore.delete(sourceId);
     tileStore.delete(sourceId);
