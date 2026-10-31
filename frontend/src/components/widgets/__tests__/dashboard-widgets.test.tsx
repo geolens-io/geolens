@@ -329,6 +329,27 @@ describe('bar chart widget', () => {
     expect(onSelect).toHaveBeenLastCalledWith(null);
   });
 
+  it('drops the active bar outline and readout when focus leaves the chart', () => {
+    const onSelect = vi.fn();
+    const { container } = render(<BarChartRenderer config={chart} data={counts} onSelect={onSelect} />);
+    const svg = screen.getByRole('group', { name: 'Count by land_use' });
+    const bars = [...container.querySelectorAll('svg rect')];
+
+    fireEvent.focus(svg);
+    fireEvent.click(container.querySelectorAll('svg g[aria-hidden="true"]')[1]);
+    expect(onSelect).toHaveBeenLastCalledWith({ column: 'land_use', label: 'Commercial', values: ['Commercial'] });
+    expect(bars[1]).toHaveAttribute('stroke-width', '2');
+    expect(screen.getByText('Commercial: 25', { selector: 'figcaption span' })).toBeInTheDocument();
+
+    fireEvent.blur(svg);
+    expect(bars.every((bar) => bar.getAttribute('stroke-width') === '0')).toBe(true);
+    expect(screen.queryByText('Commercial: 25', { selector: 'figcaption span' })).toBeNull();
+
+    fireEvent.focus(svg);
+    fireEvent.keyDown(svg, { key: 'ArrowDown' });
+    expect(bars[1]).toHaveAttribute('stroke-width', '2');
+  });
+
   it('ignores Enter where the host does not link widgets', () => {
     const { container } = render(<BarChartRenderer config={chart} data={counts} />);
     const svg = screen.getByRole('group', { name: 'Count by land_use' });

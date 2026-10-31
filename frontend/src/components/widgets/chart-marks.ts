@@ -7,7 +7,8 @@ const PREVIOUS = new Set(['ArrowUp', 'ArrowLeft']);
  * Keyboard and pointer handling for a chart of `count` marks drawn as one tab
  * stop: arrow keys, Home and End move the active mark, focus starts at the
  * first, and with `onPick` a click on a mark, or Enter or Space on the active
- * one, picks it. Spread `chartProps` on the SVG and `markProps(i)` on each mark.
+ * one, picks it. The active mark clears when focus leaves the chart. Spread
+ * `chartProps` on the SVG and `markProps(i)` on each mark.
  */
 export function useChartMarks(count: number, onPick?: (index: number) => void) {
   const [active, setActive] = useState<number | null>(null);
@@ -41,6 +42,7 @@ export function useChartMarks(count: number, onPick?: (index: number) => void) {
       tabIndex: 0,
       onKeyDown,
       onFocus: () => setActive((value) => value ?? 0),
+      onBlur: () => setActive(null),
       className:
         'h-auto w-full rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
     },
