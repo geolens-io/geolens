@@ -7,6 +7,42 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.29.1] - 2026-10-31
+
+An instance on 1.29.0 moves to 1.29.1 with no migration.
+
+### Changed
+
+- A map's dashboard shows a placeholder in each widget card while the
+  widget's chart code loads, instead of a line of text, and the panel starts
+  loading that code as soon as it opens. (#3559)
+- In the Builder, the Dashboard rail button of a map with widgets carries a
+  dot, as Notes does, and its name reads "Dashboard (6 widgets)". The panel
+  opens when such a map loads unless the author closed it on that map before,
+  which the browser remembers per map. On a narrow screen, where rail panels
+  open as a sheet, it stays closed. (#3559)
+- Bar chart and histogram widgets draw the bars a Pick leaves out at 75%
+  opacity instead of 35%, so they keep 3:1 contrast against the panel in
+  light and dark themes. (#3559)
+
+### Fixed
+
+- The Table view of a map's Map data panel shows numbers as its List view
+  does, rounded and with digit grouping, instead of the stored value such as
+  `30.7199993133545`. (#3558)
+- The group picker on a map's or story's Share panel named its list of chosen
+  groups after a dataset, so screen readers announced the wrong thing. (#3557)
+- A dataset with no summary no longer shows its title twice on search
+  results, in a collection's Add Datasets picker or in the Builder's dataset
+  picker; a dataset search card shows its generated description instead. The
+  Builder's layer editor no longer repeats a vector layer's geometry type
+  under its type badge. (#3561)
+- Someone who can manage groups, opening a group picker before any group
+  exists, is pointed at Admin > Groups instead of being told an administrator
+  can add them to one. The group admin dialogs say groups share datasets,
+  maps and stories, not only datasets, and the map share confirmation names a
+  layer once when its dataset has the same title. (#3562)
+
 ## [1.29.0] - 2026-10-31
 
 ### Added
@@ -7090,7 +7126,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.29.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.29.1...HEAD
+[1.29.1]: https://github.com/geolens-io/geolens/compare/v1.29.0...v1.29.1
 [1.29.0]: https://github.com/geolens-io/geolens/compare/v1.28.0...v1.29.0
 [1.28.0]: https://github.com/geolens-io/geolens/compare/v1.27.1...v1.28.0
 [1.27.1]: https://github.com/geolens-io/geolens/compare/v1.27.0...v1.27.1

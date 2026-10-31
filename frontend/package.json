@@ -1,7 +1,7 @@
 {
   "name": "frontend",
   "private": true,
-  "version": "1.29.0",
+  "version": "1.29.1",
   "type": "module",
   "license": "Apache-2.0",
   "author": "GeoLens contributors",

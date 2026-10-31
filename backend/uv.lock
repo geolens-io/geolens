@@ -891,7 +891,7 @@ wheels = [
 
 [[package]]
 name = "geolens-backend"
-version = "1.29.0"
+version = "1.29.1"
 source = { virtual = "." }
 dependencies = [
     { name = "alembic" },
