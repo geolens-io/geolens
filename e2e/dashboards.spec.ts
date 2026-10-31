@@ -75,7 +75,8 @@ test.describe('Map dashboards', () => {
 
       await page.reload();
       await waitForBuilder(page);
-      await page.locator('[data-rail-button="dashboard"]').click();
+      // A map with widgets opens its dashboard panel on load.
+      await expect(page.locator('[data-rail-button="dashboard"]')).toHaveAttribute('aria-pressed', 'true');
       await expect(page.getByRole('button', { name: /^Remove / })).toHaveCount(2);
 
       const reader = await anonymousPage(browser);
