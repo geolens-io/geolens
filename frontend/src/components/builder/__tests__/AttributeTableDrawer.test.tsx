@@ -580,6 +580,10 @@ describe('AttributeTableDrawer', () => {
       act(() => useMapSelectionStore.getState().select(layer.id, 383));
       expect(lastCall()?.[6]).toBeUndefined();
       expect(screen.getByRole('button', { name: 'Show selected' })).toBeInTheDocument();
+
+      // Picking the first feature again doesn't bring the narrowing back.
+      act(() => useMapSelectionStore.getState().select(layer.id, 382));
+      expect(lastCall()?.[6]).toBeUndefined();
     });
 
     it('keeps the layer filter and the column filters beside the gid param', () => {

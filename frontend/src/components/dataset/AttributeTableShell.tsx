@@ -27,7 +27,7 @@ export function AttributeTableShell({ resize, table, selectionLabels, notice, ..
   // narrows the rows to it through the rows route's `gid` param, on top of
   // the host's filters. It ends when that feature stops being the selection.
   const [selectedOnlyGid, setSelectedOnlyGid] = useState<number | null>(null);
-  if (table.selectedGid == null && selectedOnlyGid != null) setSelectedOnlyGid(null);
+  if (selectedOnlyGid != null && selectedOnlyGid !== table.selectedGid) setSelectedOnlyGid(null);
   const filterToSelected = selectedOnlyGid != null && selectedOnlyGid === table.selectedGid;
 
   return (
