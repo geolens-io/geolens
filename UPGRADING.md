@@ -80,10 +80,17 @@ date and timestamptz columns. TimeOnly fields stay text.
 
 Every existing map starts with "Readers can open the attribute table" on. While
 it is on, the map's embed tokens can page its layers' rows through
-`GET /datasets/{id}/rows/`, within each dataset's `tile_columns` allowlist. To
+`GET /datasets/{id}/rows/`, within each dataset's `tile_columns` allowlist
+when it has one. To
 turn it off, clear the setting under Settings > Readers in the map builder, or
 send `show_attribute_table: false` in `PUT /maps/{id}`. To limit the columns,
 set `tile_columns` with `PATCH /datasets/{id}`.
+
+Migration 0101 drops the four `catalog.datasets.previous_version_*` columns,
+which have been empty since 1.27. Neither 1.27 nor 1.28 reads them, so a
+rolling upgrade from 1.28 keeps working. Coming from 1.26, use
+`scripts/upgrade.sh`, which stops `api` and `worker` before it migrates, or
+upgrade to 1.27.1 first.
 
 ## Rollback
 

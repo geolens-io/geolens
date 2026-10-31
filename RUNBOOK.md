@@ -1288,6 +1288,11 @@ they get a mean-based bound of their own rather than counting toward the
 interactive percentile, the same treatment `/tiles/*` gets.
 `GeoLensApiBulkLatencyMean` reports which handler crossed the bound.
 
+A vector tile whose query runs past the tile pool's 10-second command timeout
+answers 503 without `Retry-After`, since a retry would repeat the same work, so
+a burst of slow tile queries shows up in `GeoLensApiHigh5xxRate`. A tile that
+can't get a pool connection in time still answers 429 with `Retry-After`.
+
 To check the rules after editing them (`prom/prometheus` ships `promtool`):
 
 ```bash

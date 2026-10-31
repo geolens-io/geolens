@@ -202,9 +202,10 @@ Quellseite, bevor sie Ihre Karten erreichen. Verschwindet ein Dienst, funktionie
 - Puffer, Zentroid, Zuschneiden, Auflösen, räumliche Verknüpfung, Auswahl nach Lage, Messen und
   Verschneiden. Die meisten Operationen zeigen eine Vorschau auf der Karte, und jedes Ergebnis wird
   als neuer Datensatz gespeichert, im Editor oder über die CLI.
-- Story-Karten führen Leser Szene für Szene durch eine Karte, mit Markdown-Text und Bildern.
-  Dashboards stellen Kennzahlen, Diagramme und Filter neben eine Karte. Ein Kartendaten-Bereich
-  zeigt die Zeilen jeder Ebene, als Tabelle oder als Liste.
+- Story-Karten führen Leser Szene für Szene durch eine Karte, mit Markdown-Text, Bildern,
+  Schaltflächen und Trennlinien. Dashboards stellen Kennzahlen, Diagramme, Filter und
+  Markdown-Notizen neben eine Karte. Ein Kartendaten-Bereich zeigt die Zeilen jeder Ebene, als
+  Tabelle oder als Liste.
 - Öffentliche Karten und veröffentlichte Stories zeigen Titel und Bild, wenn ihre Links in Slack,
   Teams oder soziale Netzwerke eingefügt werden, und Karten lassen sich mit privaten Tokens in
   andere Websites einbetten.

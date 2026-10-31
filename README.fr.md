@@ -206,9 +206,9 @@ fonctionner.
   intersection. La plupart des opérations s’affichent d’abord en aperçu sur la carte, et chaque
   résultat est enregistré comme un nouveau jeu de données, depuis le générateur ou la CLI.
 - Les cartes narratives guident le lecteur dans une carte scène par scène, avec du texte en
-  Markdown et des images. Les tableaux de bord placent indicateurs, graphiques et filtres à côté
-  d’une carte. Un panneau de données de la carte affiche les lignes de chaque couche, en tableau
-  ou en liste.
+  Markdown, des images, des boutons et des séparateurs. Les tableaux de bord placent indicateurs,
+  graphiques, filtres et notes en Markdown à côté d’une carte. Un panneau de données de la carte
+  affiche les lignes de chaque couche, en tableau ou en liste.
 - Les cartes publiques et les récits publiés affichent leur titre et leur image lorsqu’ils sont
   collés dans Slack, Teams ou les réseaux sociaux, et les cartes s’intègrent à d’autres sites avec
   des jetons privés.

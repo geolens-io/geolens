@@ -19,9 +19,9 @@ _Avoid_: 3D Tiles dataset, mesh.
 
 **Companion drawing**: A label, arrow or extrusion associated with a saved layer. It belongs to that layer's presentation rather than representing another saved layer.
 
-**Dashboard**: A panel of widgets saved with a map, shown beside or below it. It follows the map's sharing and has no access of its own; a reader sees the widgets on the layers they can read.
+**Dashboard**: A panel of widgets saved with a map, shown beside or below it. It follows the map's sharing and has no access of its own; a reader sees the widgets on the layers they can read, and every text widget.
 
-**Widget**: One summary in a dashboard of a single saved layer, such as an indicator, a bar chart, a histogram or a category selector. It applies the layer's saved filter, or says when it can't.
+**Widget**: One item in a dashboard: a summary of a single saved layer, such as an indicator, a bar chart, a histogram or a category selector, or a block of Markdown text that reads no layer. A layer's widget applies the layer's saved filter, or says when it can't.
 _Avoid_: Chart, when the widget is a number.
 
 **Pick**: A reader's choice of a bar, a histogram bin or selector values in a dashboard. It filters that layer on the map and its other widgets for the session, never the widget it came from, and is never saved.
@@ -57,7 +57,7 @@ _Avoid_: Team, role, layer group (layers grouped inside a map).
 
 **Story**: An ordered list of chapters told over saved maps. It has its own owner and visibility, and it can't be published more widely than any map it uses can be read.
 
-**Chapter**: One step of a story: a title, blocks of text and an optional scene.
+**Chapter**: One step of a story: a title, blocks (text, images, buttons and separators) and an optional scene.
 
 **Scene**: What the map shows for a chapter: a saved map, its camera and which of its saved layers are visible. A chapter without a scene keeps the one before it; chapters before the first scene show that first scene.
 _Avoid_: Slide, view (a map's own saved camera).
