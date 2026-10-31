@@ -193,6 +193,7 @@
     "results_many": "{{count}} groupes disponibles",
     "results_other": "{{count}} groupes disponibles",
     "noGroupsAvailable": "Vous n'appartenez à aucun groupe. Un administrateur peut vous en ajouter un.",
+    "noGroupsAdmin": "Aucun groupe pour l’instant. <1>Créez-en un sous Administration > Groupes.</1>",
     "added": "{{name}} ajouté. Enregistrez pour appliquer.",
     "removed": "{{name}} retiré. Enregistrez pour appliquer.",
     "save": "Enregistrer les groupes",

@@ -912,12 +912,12 @@
     },
     "empty": {
       "title": "No groups yet",
-      "hint": "Create a group, add people to it, then share datasets with it."
+      "hint": "Create a group, add people to it, then share datasets, maps and stories with it."
     },
     "create": {
       "button": "Create group",
       "title": "Create group",
-      "description": "Groups let you share restricted datasets with a set of people."
+      "description": "Groups let you share restricted datasets, maps and stories with a set of people."
     },
     "rename": {
       "button": "Rename",
@@ -926,13 +926,13 @@
     },
     "delete": {
       "title": "Delete {{name}}?",
-      "description_one": "This group has {{count}} member. They lose access to datasets shared with the group right away. This can't be undone.",
-      "description_other": "This group has {{count}} members. They lose access to datasets shared with the group right away. This can't be undone.",
+      "description_one": "This group has {{count}} member. They lose access to datasets, maps and stories shared with the group right away. This can't be undone.",
+      "description_other": "This group has {{count}} members. They lose access to datasets, maps and stories shared with the group right away. This can't be undone.",
       "deleting": "Deleting..."
     },
     "members": {
       "title": "Members of {{name}}",
-      "description": "People in this group can open the datasets shared with it.",
+      "description": "People in this group can open the datasets, maps and stories shared with it.",
       "addLabel": "Add a person",
       "listHeading_one": "{{count}} member",
       "listHeading_other": "{{count}} members",

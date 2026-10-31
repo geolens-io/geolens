@@ -912,12 +912,12 @@
     },
     "empty": {
       "title": "Aún no hay grupos",
-      "hint": "Cree un grupo, añada personas y comparta conjuntos de datos con él."
+      "hint": "Cree un grupo, añada personas y comparta con él conjuntos de datos, mapas e historias."
     },
     "create": {
       "button": "Crear grupo",
       "title": "Crear grupo",
-      "description": "Los grupos permiten compartir conjuntos de datos restringidos con un conjunto de personas."
+      "description": "Los grupos permiten compartir conjuntos de datos, mapas e historias restringidos con un conjunto de personas."
     },
     "rename": {
       "button": "Renombrar",
@@ -926,13 +926,13 @@
     },
     "delete": {
       "title": "¿Eliminar {{name}}?",
-      "description_one": "Este grupo tiene {{count}} miembro. Pierde de inmediato el acceso a los conjuntos de datos compartidos con el grupo. Esta acción no se puede deshacer.",
-      "description_other": "Este grupo tiene {{count}} miembros. Pierden de inmediato el acceso a los conjuntos de datos compartidos con el grupo. Esta acción no se puede deshacer.",
+      "description_one": "Este grupo tiene {{count}} miembro. Pierde de inmediato el acceso a los conjuntos de datos, mapas e historias compartidos con el grupo. Esta acción no se puede deshacer.",
+      "description_other": "Este grupo tiene {{count}} miembros. Pierden de inmediato el acceso a los conjuntos de datos, mapas e historias compartidos con el grupo. Esta acción no se puede deshacer.",
       "deleting": "Eliminando..."
     },
     "members": {
       "title": "Miembros de {{name}}",
-      "description": "Las personas de este grupo pueden abrir los conjuntos de datos compartidos con él.",
+      "description": "Las personas de este grupo pueden abrir los conjuntos de datos, mapas e historias compartidos con él.",
       "addLabel": "Añadir una persona",
       "listHeading_one": "{{count}} miembro",
       "listHeading_other": "{{count}} miembros",

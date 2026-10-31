@@ -912,12 +912,12 @@
     },
     "empty": {
       "title": "Aucun groupe pour le moment",
-      "hint": "Créez un groupe, ajoutez-y des personnes, puis partagez-lui des jeux de données."
+      "hint": "Créez un groupe, ajoutez-y des personnes, puis partagez-lui des jeux de données, des cartes et des récits."
     },
     "create": {
       "button": "Créer un groupe",
       "title": "Créer un groupe",
-      "description": "Les groupes permettent de partager des jeux de données restreints avec un ensemble de personnes."
+      "description": "Les groupes permettent de partager des jeux de données, des cartes et des récits restreints avec un ensemble de personnes."
     },
     "rename": {
       "button": "Renommer",
@@ -926,13 +926,13 @@
     },
     "delete": {
       "title": "Supprimer {{name}} ?",
-      "description_one": "Ce groupe compte {{count}} membre. Il perd aussitôt l’accès aux jeux de données partagés avec le groupe. Cette action est irréversible.",
-      "description_other": "Ce groupe compte {{count}} membres. Ils perdent aussitôt l’accès aux jeux de données partagés avec le groupe. Cette action est irréversible.",
+      "description_one": "Ce groupe compte {{count}} membre. Il perd aussitôt l’accès aux jeux de données, aux cartes et aux récits partagés avec le groupe. Cette action est irréversible.",
+      "description_other": "Ce groupe compte {{count}} membres. Ils perdent aussitôt l’accès aux jeux de données, aux cartes et aux récits partagés avec le groupe. Cette action est irréversible.",
       "deleting": "Suppression..."
     },
     "members": {
       "title": "Membres de {{name}}",
-      "description": "Les personnes de ce groupe peuvent ouvrir les jeux de données partagés avec lui.",
+      "description": "Les personnes de ce groupe peuvent ouvrir les jeux de données, les cartes et les récits partagés avec lui.",
       "addLabel": "Ajouter une personne",
       "listHeading_one": "{{count}} membre",
       "listHeading_other": "{{count}} membres",

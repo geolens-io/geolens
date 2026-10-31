@@ -193,6 +193,7 @@
     "results_many": "{{count}} Gruppen verfügbar",
     "results_other": "{{count}} Gruppen verfügbar",
     "noGroupsAvailable": "Sie gehören keiner Gruppe an. Ein Administrator kann Sie einer Gruppe hinzufügen.",
+    "noGroupsAdmin": "Noch keine Gruppen. <1>Legen Sie unter Admin > Gruppen eine an.</1>",
     "added": "{{name}} hinzugefügt. Zum Übernehmen speichern.",
     "removed": "{{name}} entfernt. Zum Übernehmen speichern.",
     "save": "Gruppen speichern",

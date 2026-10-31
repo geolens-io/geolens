@@ -1,7 +1,9 @@
 import { useEffect, useMemo, type RefObject } from 'react';
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
+import { Link } from 'react-router';
 import { Loader2, X } from 'lucide-react';
 import { useMyGroups } from '@/hooks/use-groups';
+import { useGroupAdmin } from '@/hooks/use-admin-groups';
 import { UserPicker, type PickerUser } from '@/components/admin/UserPicker';
 import { Button } from '@/components/ui/button';
 import { formatMutationError } from '@/lib/error-map';
@@ -30,6 +32,7 @@ interface GroupPickerProps {
 export function GroupPicker({ selected, selectedLabel, onChange, onAnnounce, busy, inputRef, focusWhenReady, onOpenChange }: GroupPickerProps) {
   const { t } = useTranslation('dataset');
   const myGroups = useMyGroups(true);
+  const canManageGroups = useGroupAdmin();
   const ready = !myGroups.isLoading;
 
   useEffect(() => {
@@ -101,7 +104,17 @@ export function GroupPicker({ selected, selectedLabel, onChange, onAnnounce, bus
             {formatMutationError('dataset:groupShare.loadFailed', myGroups.error)}
           </p>
         ) : (myGroups.data ?? []).length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t('groupShare.noGroupsAvailable')}</p>
+          <p className="text-sm text-muted-foreground">
+            {canManageGroups ? (
+              <Trans
+                i18nKey="groupShare.noGroupsAdmin"
+                t={t}
+                components={{ 1: <Link to="/admin/groups" className="underline underline-offset-2" /> }}
+              />
+            ) : (
+              t('groupShare.noGroupsAvailable')
+            )}
+          </p>
         ) : (
           <UserPicker
             ref={inputRef}

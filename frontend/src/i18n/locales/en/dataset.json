@@ -193,6 +193,7 @@
     "results_many": "{{count}} groups available",
     "results_other": "{{count}} groups available",
     "noGroupsAvailable": "You aren't in any groups. An administrator can add you to one.",
+    "noGroupsAdmin": "No groups yet. <1>Create one under Admin > Groups.</1>",
     "added": "{{name}} added. Save to apply.",
     "removed": "{{name}} removed. Save to apply.",
     "save": "Save groups",

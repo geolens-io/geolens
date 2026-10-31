@@ -193,6 +193,7 @@
     "results_many": "{{count}} grupos disponibles",
     "results_other": "{{count}} grupos disponibles",
     "noGroupsAvailable": "No pertenece a ningún grupo. Un administrador puede añadirle a uno.",
+    "noGroupsAdmin": "Aún no hay grupos. <1>Cree uno en Admin > Grupos.</1>",
     "added": "{{name}} añadido. Guarde para aplicar.",
     "removed": "{{name}} quitado. Guarde para aplicar.",
     "save": "Guardar grupos",
