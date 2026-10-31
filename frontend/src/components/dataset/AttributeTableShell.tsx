@@ -25,9 +25,10 @@ interface AttributeTableShellProps extends Omit<DockedPanelHeaderProps, 'count' 
 export function AttributeTableShell({ resize, table, selectionLabels, notice, ...header }: AttributeTableShellProps) {
   // The selected feature can sit on a page the table has not loaded; this
   // narrows the rows to it through the rows route's `gid` param, on top of
-  // the host's filters. It ends when nothing is selected.
-  const [selectedOnly, setSelectedOnly] = useState(false);
-  const filterToSelected = selectedOnly && table.selectedGid != null;
+  // the host's filters. It ends when that feature stops being the selection.
+  const [selectedOnlyGid, setSelectedOnlyGid] = useState<number | null>(null);
+  if (table.selectedGid == null && selectedOnlyGid != null) setSelectedOnlyGid(null);
+  const filterToSelected = selectedOnlyGid != null && selectedOnlyGid === table.selectedGid;
 
   return (
     <DockedPanelFrame resize={resize}>
@@ -58,7 +59,7 @@ export function AttributeTableShell({ resize, table, selectionLabels, notice, ..
                       <button
                         type="button"
                         className="cursor-pointer text-foreground underline underline-offset-2"
-                        onClick={() => setSelectedOnly(selectionNotice.narrow)}
+                        onClick={() => setSelectedOnlyGid(selectionNotice.narrow ? (table.selectedGid ?? null) : null)}
                       >
                         {selectionNotice.action}
                       </button>

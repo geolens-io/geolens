@@ -17,9 +17,12 @@ interface MapSelectionState {
   clear: () => void;
 }
 
-export const useMapSelectionStore = create<MapSelectionState>()((set, get) => ({
+// Never reset, so a selection after `clear()` is still new to a subscriber
+// that handled an earlier one.
+let lastNonce = 0;
+
+export const useMapSelectionStore = create<MapSelectionState>()((set) => ({
   selection: null,
-  select: (layerId, featureId) =>
-    set({ selection: { layerId, featureId, nonce: (get().selection?.nonce ?? 0) + 1 } }),
+  select: (layerId, featureId) => set({ selection: { layerId, featureId, nonce: ++lastNonce } }),
   clear: () => set({ selection: null }),
 }));

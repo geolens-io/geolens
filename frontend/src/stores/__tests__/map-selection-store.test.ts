@@ -20,4 +20,14 @@ describe('map selection store', () => {
 
     expect(useMapSelectionStore.getState().selection).toBeNull();
   });
+
+  it('keeps the nonce increasing across a clear', () => {
+    const { select, clear } = useMapSelectionStore.getState();
+    select('l1', 5);
+    const before = useMapSelectionStore.getState().selection!.nonce;
+    clear();
+    select('l1', 5);
+
+    expect(useMapSelectionStore.getState().selection!.nonce).toBeGreaterThan(before);
+  });
 });

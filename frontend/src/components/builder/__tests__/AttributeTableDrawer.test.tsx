@@ -571,6 +571,17 @@ describe('AttributeTableDrawer', () => {
       expect(lastCall()?.[6]).toBeUndefined();
     });
 
+    it('stops narrowing once another feature is selected', () => {
+      const layer = makeLayer();
+      selectOffPage(layer);
+      fireEvent.click(screen.getByRole('button', { name: 'Show selected' }));
+      expect(lastCall()?.[6]).toBe(382);
+
+      act(() => useMapSelectionStore.getState().select(layer.id, 383));
+      expect(lastCall()?.[6]).toBeUndefined();
+      expect(screen.getByRole('button', { name: 'Show selected' })).toBeInTheDocument();
+    });
+
     it('keeps the layer filter and the column filters beside the gid param', () => {
       selectOffPage(makeLayer({ filter: ['==', ['get', 'name'], 'b'] as never }));
       fireEvent.click(screen.getByRole('button', { name: 'Show selected' }));
