@@ -291,6 +291,22 @@ describe('DashboardEditorPanel', () => {
     expect(screen.getByText('A dashboard holds at most 50 widgets.')).toBeInTheDocument();
   });
 
+  it('names an untitled widget by its column\'s attribute title, in its card and its preview', async () => {
+    const user = userEvent.setup();
+    const titled = {
+      ...parcels,
+      dataset_column_info: parcels.dataset_column_info!.map((column) =>
+        column.name === 'land_use' ? { ...column, title: 'Land use' } : column,
+      ),
+    };
+    render(<Harness layers={[titled]} onChange={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: 'Add Bar chart' }));
+
+    expect(screen.getByRole('heading', { level: 3, name: 'Count by Land use' })).toBeInTheDocument();
+    const preview = await screen.findByRole('region', { name: 'Preview' });
+    expect(within(preview).getByRole('heading', { level: 4, name: 'Count by Land use' })).toBeInTheDocument();
+  });
+
   it('keeps the preview widget\'s heading under its card\'s', async () => {
     const user = userEvent.setup();
     render(<Harness onChange={vi.fn()} />);

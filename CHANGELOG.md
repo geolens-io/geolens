@@ -82,6 +82,9 @@ and releases use semantic versioning.
   save may send it; leaving it out keeps the stored panel. GeoLens sends it
   only for a bottom panel, since a 1.28.0 server refuses the key. A 1.28.0
   server reads a stored bottom panel as right and drops it on its next save.
+- Builder map responses carry each column's title, semantic role and value
+  labels, as shared map responses already did. `features.geojson` writes
+  `timestamptz` values as UTC text, the same text the tiles carry.
 - `MapSummaryResponse` gains `has_dashboard`, true when the map shows you at
   least one dashboard widget. Additive.
 - A histogram widget on a whole-number column bins in whole numbers;
@@ -103,6 +106,9 @@ and releases use semantic versioning.
 
 - The Builder and the legend no longer treat interval and point columns as
   numeric, so data-driven styles and heatmap weights no longer offer them.
+- A dashboard Pick now filters a layer whose saved filter uses MapLibre's
+  legacy syntax, Picks on a layer the reader hides step aside until it is shown
+  again, and Pick chips use the column's attribute title.
 - Turning a Builder layer, group or several layers off and back on no longer
   leaves the map marked "Unsaved changes" when it matches the saved map, so
   leaving the page no longer asks for confirmation. (#3465)

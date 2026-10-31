@@ -169,6 +169,34 @@ describe('dashboard linking', () => {
     expect(document.activeElement).toBe(within(panel).getByRole('button', { name: 'Hide dashboard' }));
   });
 
+  it('names a pick\'s column by its attribute title in the chip and the announcement', async () => {
+    const user = userEvent.setup();
+    const parcels = layer(parcelsId, 'Parcels');
+    const titled = {
+      ...parcels,
+      column_info: parcels.column_info!.map((column) =>
+        column.name === 'land_use' ? { ...column, title: 'Land use' } : column,
+      ),
+    } as SharedLayerResponse;
+    renderViewer([titled, layer(roadsId, 'Roads')]);
+    const chart = await screen.findByRole('group', { name: /^Count by / });
+    const bar = [...chart.querySelectorAll('g[aria-hidden="true"]')].find((g) => g.textContent?.includes('Residential'));
+    fireEvent.click(bar!);
+
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent('Filtered Parcels to Land use: Residential.'),
+    );
+    const chip = within(screen.getByRole('group', { name: 'Filters' })).getByRole('button', {
+      name: 'Remove filter Land use: Residential on Parcels',
+    });
+    expect(chip).toHaveTextContent('Land use: Residential');
+
+    await user.click(chip);
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent('Removed filter Land use: Residential on Parcels.'),
+    );
+  });
+
   it('drops a pick whose widget or dashboard a refreshed map no longer has', async () => {
     const parcels = layer(parcelsId, 'Parcels');
     const layers = [parcels, layer(roadsId, 'Roads')];
@@ -498,6 +526,65 @@ describe('dashboard linking', () => {
     await user.click(chip);
     expect(latestMapLayers()[0]).toBe(parcels);
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Hide dashboard' }));
+  });
+
+  it('sets aside the picks on a layer the reader hides and brings them back when it is shown', async () => {
+    const parcels = layer(parcelsId, 'Parcels');
+    const roads = layer(roadsId, 'Roads');
+    const roadsChartId = '2e4f6a8b-0c1d-4e2f-9a3b-5c7d9e1f2a4b';
+    const config = {
+      ...dashboard(),
+      widgets: [
+        ...dashboard().widgets,
+        {
+          id: roadsChartId,
+          type: 'bar_chart',
+          v: 1,
+          title: 'Road use',
+          layer_id: roadsId,
+          config: { column: 'land_use', stat: 'count', stat_column: null, limit: 5 },
+        },
+      ],
+    } as DashboardConfig;
+    const mapLayers = vi.fn();
+    const viewer = (hiddenLayers?: ReadonlySet<string>) => (
+      <ViewerWithDashboard config={config} layers={[parcels, roads]} hiddenLayers={hiddenLayers}>
+        {({ mapLayers: linked }) => {
+          mapLayers(linked);
+          return <div />;
+        }}
+      </ViewerWithDashboard>
+    );
+    const latest = () => mapLayers.mock.calls.at(-1)![0] as SharedLayerResponse[];
+    const chips = () =>
+      within(screen.getByRole('group', { name: 'Filters' }))
+        .getAllByRole('button')
+        .map((chip) => chip.getAttribute('aria-label'));
+    const clickBarIn = async (chartName: string, value: string) => {
+      const article = await screen.findByRole('article', { name: chartName });
+      const chart = await within(article).findByRole('group', { name: 'Count by land_use' });
+      const bar = [...chart.querySelectorAll('g[aria-hidden="true"]')].find((g) => g.textContent?.includes(value));
+      fireEvent.click(bar!);
+    };
+    const { rerender } = render(viewer());
+    await clickBarIn('Land use', 'Residential');
+    expect(latest()[0].filter).not.toBeNull();
+
+    rerender(viewer(new Set([parcelsId])));
+    expect(latest()[0]).toBe(parcels);
+    expect(screen.queryByRole('group', { name: 'Filters' })).not.toBeInTheDocument();
+
+    // A pick on another layer while Parcels is hidden keeps Parcels' pick set aside.
+    await clickBarIn('Road use', 'Commercial');
+    expect(chips()).toEqual(['Remove filter land_use: Commercial on Roads']);
+
+    rerender(viewer(new Set()));
+    expect(latest()[0].filter).toEqual(['in', ['get', 'land_use'], ['literal', ['Residential']]]);
+    expect(latest()[1].filter).toEqual(['in', ['get', 'land_use'], ['literal', ['Commercial']]]);
+    expect(chips()).toEqual([
+      'Remove filter land_use: Residential on Parcels',
+      'Remove filter land_use: Commercial on Roads',
+    ]);
   });
 
   it('keeps the chips in the header row of a collapsed bottom panel', async () => {

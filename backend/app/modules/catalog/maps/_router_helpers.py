@@ -35,6 +35,7 @@ from app.modules.catalog.maps.service import (
     filter_layer_rows_by_dataset_visibility,
     terrain_dataset_ids_visible_to,
     validate_public_visibility,
+    with_attribute_display,
 )
 from app.modules.catalog.maps.sharing import can_read_every_map_dataset
 from app.modules.catalog.maps.dashboard import render_dashboard
@@ -397,6 +398,15 @@ def _build_map_response(
     )
 
 
+async def _readable_layers(
+    db: AsyncSession, layer_rows: list[LayerRow], user: Identity | None
+) -> list[MapLayerResponse]:
+    """The layers ``user`` may read, as map responses return them: each VRT's
+    extent as ``user`` sees it, and each column's current attribute display."""
+    visible_rows = await filter_layer_rows_by_dataset_visibility(db, layer_rows, user)
+    return _layers_from_tuples(await with_attribute_display(db, visible_rows))
+
+
 async def _visible_map_response(
     db: AsyncSession,
     map_obj: Map,
@@ -413,8 +423,7 @@ async def _visible_map_response(
 
     Stored layers are untouched; this shapes the response only.
     """
-    visible_rows = await filter_layer_rows_by_dataset_visibility(db, layer_rows, user)
-    layers = _layers_from_tuples(visible_rows)
+    layers = await _readable_layers(db, layer_rows, user)
     if forked_from_name is not None:
         if roles is None:
             roles = await get_user_roles(db, user) if user is not None else set()

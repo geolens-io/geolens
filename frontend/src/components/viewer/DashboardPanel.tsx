@@ -22,7 +22,7 @@ import { FilterChips } from './FilterChips';
 import { useMapViewBbox, useWidgetAggregate } from './hooks/use-dashboard-data';
 import { usePicks } from './hooks/use-picks';
 import { mapCarriesColumn, NO_PICKS, type LinkedPick } from './linked-filters';
-import { layerDisplayName } from './shared-layer';
+import { columnDisplayName, layerDisplayName } from './shared-layer';
 
 type ReadyWidget = Extract<ParsedWidget, { ok: true }>;
 
@@ -35,7 +35,7 @@ export function widgetName(
 ): string | undefined {
   return (
     instance.title?.trim() ||
-    definition.heading?.(instance.config, t, (column) => columns?.find((info) => info.name === column)?.title || column)
+    definition.heading?.(instance.config, t, (column) => columnDisplayName(columns, column))
   );
 }
 
@@ -325,7 +325,7 @@ export function DashboardPanel({
     () => startCollapsed || (storageKey !== null && readStorage(storageKey) === '1'),
   );
   const toggleRef = useRef<HTMLButtonElement>(null);
-  const { choose, remove, announcement, layerName } = usePicks(picks, onPicksChange, layers);
+  const { choose, remove, announcement, layerName, pickLabel } = usePicks(picks, onPicksChange, layers);
   // One announcement for the panel, so a pan that fails every widget doesn't speak once per widget.
   const [failedIds, setFailedIds] = useState<ReadonlySet<string>>(() => new Set());
   const onFailedChange = useCallback((widgetId: string, failed: boolean) => {
@@ -368,6 +368,7 @@ export function DashboardPanel({
     <FilterChips
       picks={picks}
       layerName={layerName}
+      pickLabel={pickLabel}
       onRemove={remove}
       fallbackFocus={toggleRef}
       className={className}

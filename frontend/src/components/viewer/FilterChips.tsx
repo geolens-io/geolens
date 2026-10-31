@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { pickText } from './hooks/use-picks';
 import type { LinkedPick } from './linked-filters';
 
 /**
@@ -13,12 +12,15 @@ import type { LinkedPick } from './linked-filters';
 export function FilterChips({
   picks,
   layerName,
+  pickLabel,
   onRemove,
   fallbackFocus,
   className,
 }: {
   picks: readonly LinkedPick[];
   layerName: (layerId: string) => string;
+  /** The pick as its chip reads. */
+  pickLabel: (pick: LinkedPick) => string;
   onRemove: (pick: LinkedPick) => void;
   fallbackFocus: RefObject<HTMLElement | null>;
   className?: string;
@@ -46,10 +48,10 @@ export function FilterChips({
           variant="secondary"
           size="xs"
           className="max-w-full"
-          aria-label={t('dashboard.removeFilter', { filter: pickText(pick, t), layer: layerName(pick.layerId) })}
+          aria-label={t('dashboard.removeFilter', { filter: pickLabel(pick), layer: layerName(pick.layerId) })}
           onClick={() => remove(index)}
         >
-          <span className="truncate">{pickText(pick, t)}</span>
+          <span className="truncate">{pickLabel(pick)}</span>
           <X aria-hidden="true" />
         </Button>
       ))}

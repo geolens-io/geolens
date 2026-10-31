@@ -1,6 +1,7 @@
 import type { FilterSpecification } from 'maplibre-gl';
 import { featureFilter } from '@maplibre/maplibre-gl-style-spec';
 import type { SelectionValue, WidgetSelection } from '@/components/widgets/contract';
+import { serverClusterFilter } from '@/components/builder/cluster-source';
 import { layerFilterToServerCql2 } from '@/lib/maplibre-filter-utils';
 import type { SharedLayerResponse } from '@/types/api';
 import { linkMapLayers, selectionCql2, selectionFilter, widgetFilter, type LinkedPick } from '../linked-filters';
@@ -180,6 +181,30 @@ describe('linkMapLayers', () => {
   });
 });
 
+describe('linkMapLayers with a legacy saved filter', () => {
+  it('writes it in forms the cluster tiles can send as CQL2', () => {
+    const [linked] = linkMapLayers(
+      [layer('a', ['!in', 'zone', 'B'] as FilterSpecification)],
+      [linkedPick('w1', 'a', pick(['Residential']))],
+    );
+    expect(serverClusterFilter(linked.filter, columns, null)).toEqual({
+      json: JSON.stringify({
+        op: 'and',
+        args: [
+          {
+            op: 'or',
+            args: [
+              { op: 'isNull', args: [{ property: 'zone' }] },
+              { op: 'not', args: [{ op: 'in', args: [{ property: 'zone' }, ['B']] }] },
+            ],
+          },
+          { op: 'in', args: [{ property: 'land_use' }, ['Residential']] },
+        ],
+      }),
+    });
+  });
+});
+
 describe('layerFilterToServerCql2', () => {
   it('refuses a literal its column cannot hold at any depth', () => {
     // 'two' can't be compared with an integer column, so the server would refuse the whole filter.
@@ -292,6 +317,20 @@ describe('widgetFilter', () => {
       },
     });
     expect(widgetFilter(layer('a'), [])).toEqual({ savedIgnored: false, filter: null });
+  });
+
+  it('sends a legacy saved filter with the picks', () => {
+    const residential = selectionCql2(layer('a'), pick(['Residential']))!;
+    expect(widgetFilter(layer('a', ['in', 'zone', 'A', 'C'] as FilterSpecification), [residential])).toEqual({
+      savedIgnored: false,
+      filter: {
+        op: 'and',
+        args: [
+          { op: 'in', args: [{ property: 'zone' }, ['A', 'C']] },
+          { op: 'in', args: [{ property: 'land_use' }, ['Residential']] },
+        ],
+      },
+    });
   });
 
   it('applies the picks when the saved filter cannot be sent, and says so', () => {

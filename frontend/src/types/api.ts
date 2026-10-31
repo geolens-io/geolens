@@ -530,7 +530,15 @@ export type MapLayerResponse = Omit<
   | 'layer_type'
   | 'dataset_record_type'
 > & {
-  dataset_column_info?: { name: string; type: string }[] | null;
+  dataset_column_info?:
+    | {
+        name: string;
+        type: string;
+        title?: string;
+        value_labels?: Record<string, string>;
+        semantic_role?: string | null;
+      }[]
+    | null;
   dataset_sample_values?: Record<string, unknown[]> | null;
   filter?: FilterSpecification | null;
   label_config?: LabelConfig | null;

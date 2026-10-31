@@ -47,7 +47,9 @@ class MapLayerResponse:
         opacity (float):
         paint (MapLayerResponsePaint):
         layout (MapLayerResponseLayout):
-        dataset_column_info (list[MapLayerResponseDatasetColumnInfoType0Item] | None | Unset):
+        dataset_column_info (list[MapLayerResponseDatasetColumnInfoType0Item] | None | Unset): The dataset's columns,
+            each with its name and type. In a map response each also carries its current attribute title, semantic role and
+            value labels when set.
         dataset_tile_columns (list[str] | None | Unset): Dataset tile attribute allowlist, used to check cluster
             filters; null allows all queryable columns, [] exposes none.
         dataset_feature_count (int | None | Unset):

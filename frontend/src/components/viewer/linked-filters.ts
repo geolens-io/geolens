@@ -6,6 +6,7 @@ import { isIntegerColumn } from '@/lib/column-utils';
 import {
   buildNullSafeNumericComparison,
   layerFilterToServerCql2,
+  legacyFilterToExpression,
   type Cql2Expression,
 } from '@/lib/maplibre-filter-utils';
 import type { SharedLayerResponse } from '@/types/api';
@@ -107,8 +108,7 @@ function float4Text(value: number): number {
  * text and a `real` at double precision, as vector tiles do. A bounded
  * cluster's GeoJSON is written by `to_jsonb`, which puts a `T` in a timestamp
  * and the shortest decimal in a `real`. A timestamptz is left alone: the
- * endpoint and the tiles write it in UTC, and `to_jsonb` writes it in the
- * database's zone, which matches on a database that runs in UTC.
+ * endpoint, the tiles and the GeoJSON all write it as the same UTC text.
  */
 function geoJsonSpellings(value: SelectionValue, type: string | undefined): SelectionValue[] {
   if (typeof value === 'string' && type === 'timestamp without time zone' && value.includes(' ')) {
@@ -124,9 +124,13 @@ function geoJsonSpellings(value: SelectionValue, type: string | undefined): Sele
 /**
  * `filter` in expression syntax. MapLibre reads a filter wholly as expressions
  * or wholly as the legacy syntax, so a legacy saved filter must be converted
- * before picks join it. One the converter refuses comes back unchanged.
+ * before picks join it. The editor's forms come first, so the cluster tiles
+ * can still send it as CQL2; failing those, MapLibre's converter writes it,
+ * and one that refuses too comes back unchanged.
  */
 function expressionFilter(filter: FilterSpecification): FilterSpecification {
+  const translated = legacyFilterToExpression(filter);
+  if (translated && translated !== 'unsupported') return translated;
   try {
     return convertFilter(filter as Parameters<typeof convertFilter>[0]) as FilterSpecification;
   } catch {

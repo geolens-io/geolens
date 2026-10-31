@@ -8,11 +8,11 @@ import { clusterTileFilter, getDataDrivenColumnsForLayer, tileBaseUrlFor } from 
 import { useTileConfig } from '@/hooks/use-settings';
 import { resolveTileBaseUrl } from '@/lib/tile-utils';
 import { linkMapLayers, selectionCql2, widgetFilter, type LinkedPick } from '../linked-filters';
-import { layerDisplayName } from '../shared-layer';
+import { columnDisplayName, layerDisplayName } from '../shared-layer';
 
-/** A pick as its filter chip reads, e.g. "land_use: Residential". */
-export function pickText(pick: LinkedPick, t: TFunction<'widgets'>): string {
-  return t('dashboard.filterChip', { column: pick.selection.column, value: pick.selection.label });
+/** A pick as its filter chip reads, e.g. "Land use: Residential", naming the column by its attribute title. */
+function pickText(pick: LinkedPick, t: TFunction<'widgets'>, columns: SharedLayerResponse['column_info']): string {
+  return t('dashboard.filterChip', { column: columnDisplayName(columns, pick.selection.column), value: pick.selection.label });
 }
 
 type PickFilterProblem = 'too-many-values' | 'clusters-cant-filter' | 'too-many-for-clusters';
@@ -78,10 +78,12 @@ export function usePicks(
     const layer = layers.find((candidate) => candidate.id === layerId);
     return layer ? layerDisplayName(layer) : '';
   };
+  const pickLabel = (pick: LinkedPick) =>
+    pickText(pick, t, layers.find((candidate) => candidate.id === pick.layerId)?.column_info);
 
   const remove = (pick: LinkedPick) => {
     onPicksChange?.(picks.filter((other) => other.widgetId !== pick.widgetId));
-    announce(t('dashboard.filterCleared', { filter: pickText(pick, t), layer: layerName(pick.layerId) }));
+    announce(t('dashboard.filterCleared', { filter: pickLabel(pick), layer: layerName(pick.layerId) }));
   };
 
   const choose = (widgetId: string, layer: SharedLayerResponse, selection: WidgetSelection | null) => {
@@ -105,8 +107,8 @@ export function usePicks(
       return;
     }
     onPicksChange?.(nextPicks);
-    announce(t('dashboard.filterApplied', { filter: pickText(next, t), layer: layerDisplayName(layer) }));
+    announce(t('dashboard.filterApplied', { filter: pickText(next, t, layer.column_info), layer: layerDisplayName(layer) }));
   };
 
-  return { choose, remove, announcement, layerName };
+  return { choose, remove, announcement, layerName, pickLabel };
 }

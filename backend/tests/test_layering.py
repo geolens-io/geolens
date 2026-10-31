@@ -1175,7 +1175,7 @@ def test_analysis_sql_facade_guard_sees_every_bypass_shape() -> None:
 def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     """Keep split service modules and their stable facades bounded."""
     facade_line_budgets = {
-        "backend/app/modules/catalog/maps/service.py": 124,
+        "backend/app/modules/catalog/maps/service.py": 126,
         "backend/app/modules/catalog/search/service.py": 80,
         "backend/app/modules/catalog/datasets/domain/service.py": 130,
         "backend/app/processing/ai/chat_service.py": 487,
@@ -1192,7 +1192,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/search/service_datasets.py": 316,
         # Shared-map audience decisions stay behind the permission extension seam,
         # restricted maps' group members included.
-        "backend/app/modules/catalog/maps/service_public.py": 1093,
+        "backend/app/modules/catalog/maps/service_public.py": 1117,
         # Record assembly keeps one format and asset branch per record type.
         "backend/app/modules/catalog/search/service_records.py": 636,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
@@ -1316,7 +1316,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/api/main.py": 1640,
     # Map request validation and published response contracts share this module,
     # including the visibility a client that hasn't opted in reads.
-    "backend/app/modules/catalog/maps/schemas.py": 1523,
+    "backend/app/modules/catalog/maps/schemas.py": 1530,
     # Metadata facade preserves the import and patch surface used by extensions and
     # callers.
     "backend/app/processing/ingest/metadata.py": 169,
@@ -1403,7 +1403,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1427,
     # Map endpoints share response assembly, visibility and ownership checks.
-    "backend/app/modules/catalog/maps/router.py": 1505,
+    "backend/app/modules/catalog/maps/router.py": 1506,
     # Feature writes, single and batch, share the dataset guards, the database
     # error mapping and the catalog refresh; create also carries idempotent
     # repeats and the dry run.
@@ -1436,7 +1436,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # capture, and the create dry run checks the table's kind, insert triggers
     # and rules, and the shapes that run user code on insert, with the same
     # catalog probes.
-    "backend/app/modules/catalog/features/service.py": 1657,
+    "backend/app/modules/catalog/features/service.py": 1678,
     # Dataset visibility, and the VRT member counts and extents each requester
     # may see, and which groups can't read a dataset, share the permission
     # extension's one audience; map reads share the one map guard beside it.

@@ -168,7 +168,8 @@ test.describe('Map dashboard linking', () => {
           await expect(chart.locator('svg g[data-picked] text')).toHaveText(['✓', 'park', '3']);
           await expect(chart.locator('svg rect.fill-primary')).toHaveCount(3);
 
-          const chip = panel.getByRole('button', { name: /^Remove filter kind: park/ });
+          // The chip names the column by its attribute title.
+          const chip = panel.getByRole('button', { name: /^Remove filter Kind: park/ });
           await expect(chip).toBeVisible();
           await chip.click();
           await expect(chip).toHaveCount(0);

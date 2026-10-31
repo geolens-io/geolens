@@ -5,6 +5,11 @@ export function layerDisplayName(layer: { display_name?: string | null; dataset_
   return layer.display_name || layer.dataset_name;
 }
 
+/** The name readers see for a column: its attribute title, else its name. */
+export function columnDisplayName(columns: SharedLayerResponse['column_info'], column: string): string {
+  return columns?.find((info) => info.name === column)?.title || column;
+}
+
 /**
  * Transform a MapLayerResponse (from GET /maps/{id}) into the SharedLayerResponse
  * format that ViewerMap consumes.

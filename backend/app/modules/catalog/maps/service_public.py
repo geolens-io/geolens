@@ -67,6 +67,7 @@ from app.modules.catalog.maps.service_layers import (
     lock_maps_for_admin_write,
 )
 from app.modules.catalog.maps.service_shared import (
+    LayerRow,
     _extract_dem_vertical_units,
     readable_dataset_ids,
 )
@@ -483,6 +484,29 @@ def _column_info_with_display(
         if isinstance(col, dict) and col.get("name") in display
         else col
         for col in column_info
+    ]
+
+
+async def with_attribute_display(
+    session: AsyncSession, layer_rows: list[LayerRow]
+) -> list[LayerRow]:
+    """``layer_rows`` with each column's current attribute title, role and
+    value labels, as a shared map's layers carry them."""
+    exposed: dict[uuid.UUID, set[str]] = {}
+    for row in layer_rows:
+        exposed.setdefault(row.layer.dataset_id, set()).update(
+            col["name"]
+            for col in row.column_info or []
+            if isinstance(col, dict) and isinstance(col.get("name"), str)
+        )
+    display = await _attribute_display_by_dataset(session, exposed)
+    return [
+        row._replace(
+            column_info=_column_info_with_display(
+                row.column_info, display.get(row.layer.dataset_id)
+            )
+        )
+        for row in layer_rows
     ]
 
 

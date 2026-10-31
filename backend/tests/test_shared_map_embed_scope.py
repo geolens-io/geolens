@@ -28,7 +28,12 @@ from app.modules.embed_tokens.service import (
     resolve_embed_scope_for_map,
 )
 
-from tests.factories import create_dataset, get_user_id, set_tile_columns
+from tests.factories import (
+    create_dataset,
+    create_user,
+    get_user_id,
+    set_tile_columns,
+)
 
 
 async def _downgrade_to_private(session, dataset: Dataset) -> None:
@@ -535,6 +540,81 @@ class TestSharedMapColumnTitles:
             {"name": "year_built", "type": "integer", "semantic_role": "temporal"},
             {"name": "floors", "type": "integer"},
         ]
+
+
+class TestBuilderMapColumnTitles:
+    async def _titled_map(self, client, headers, session) -> str:
+        admin_id = await get_user_id(session, "admin")
+        ds = await create_dataset(
+            session,
+            created_by=admin_id,
+            visibility="public",
+            column_info=[
+                {"name": "land_use", "type": "text"},
+                {"name": "plain", "type": "text"},
+            ],
+        )
+        session.add_all(
+            [
+                AttributeMetadata(
+                    dataset_id=ds.id,
+                    field_name="land_use",
+                    title="Land use",
+                    value_labels={"R": "Residential"},
+                ),
+                AttributeMetadata(
+                    dataset_id=ds.id, field_name="not_exposed", title="Internal"
+                ),
+            ]
+        )
+        await session.commit()
+        create_resp = await client.post(
+            "/maps/", json={"name": "Builder titles"}, headers=headers
+        )
+        map_id = create_resp.json()["id"]
+        layer_resp = await client.post(
+            f"/maps/{map_id}/layers", json={"dataset_id": str(ds.id)}, headers=headers
+        )
+        assert layer_resp.status_code == 201, layer_resp.text
+        return map_id
+
+    @pytest.mark.parametrize("call", ["read", "update", "duplicate", "transfer"])
+    async def test_map_responses_carry_titles_and_labels_of_their_columns(
+        self, call, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        map_id = await self._titled_map(client, admin_auth_header, test_db_session)
+
+        if call == "read":
+            resp = await client.get(f"/maps/{map_id}", headers=admin_auth_header)
+        elif call == "update":
+            resp = await client.put(
+                f"/maps/{map_id}", json={"name": "Renamed"}, headers=admin_auth_header
+            )
+        elif call == "duplicate":
+            resp = await client.post(
+                f"/maps/{map_id}/duplicate/", json={}, headers=admin_auth_header
+            )
+        else:
+            _headers, new_owner_id = await create_user(
+                client, admin_auth_header, "editor"
+            )
+            resp = await client.patch(
+                f"/maps/{map_id}",
+                json={"owner_id": new_owner_id},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code in (200, 201), resp.text
+        assert resp.json()["layers"][0]["dataset_column_info"] == [
+            {
+                "name": "land_use",
+                "type": "text",
+                "title": "Land use",
+                "value_labels": {"R": "Residential"},
+            },
+            {"name": "plain", "type": "text"},
+        ]
+        assert "Internal" not in resp.text
 
 
 class TestSharedMapValueLabels:
