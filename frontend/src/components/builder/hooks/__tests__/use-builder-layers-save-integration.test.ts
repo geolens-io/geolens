@@ -980,6 +980,23 @@ describe('layer creates and deletes during a full-replacement save', () => {
     expectLocalIdsMatchServer(result);
   });
 
+  it('follows the id a retried PATCH stores for a layer it sends again', async () => {
+    const { result, mutate } = renderOnServer([keep, doomed]);
+    const finishSave = await startReplacement(result);
+    duplicateDuringSave(result, mutate);
+    await finishSave();
+    // Another session deletes a layer this one still edits, so the PATCH is stale.
+    server = server.filter((l) => l.id !== 'doomed');
+    act(() => { result.current.handleOpacityChange('doomed', 0.2); });
+
+    patchAvailable = true;
+    await act(async () => { await result.current.handleSave(); });
+
+    expect(server.map((l) => l.id)).toEqual(['keep', 'stored-1']);
+    const local = result.current.localLayers.filter((l) => !isFolderGroupLayer(l)).map((l) => l.id);
+    expect([...local].sort()).toEqual(['doomed', 'keep', 'stored-1']);
+  });
+
   it('keeps a create made while a PATCH that sends a layer again is in flight', async () => {
     const { result, mutate } = renderOnServer([keep]);
     const finishSave = await startReplacement(result);

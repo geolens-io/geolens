@@ -1324,6 +1324,14 @@ export function useBuilderSave(state: SaveState) {
         replacedLayers = saved.layers ?? [];
       }
     };
+    // The server stores added layers under new ids, so reconcile from a
+    // PATCH's rows as after a replacement. A PATCH deletes nothing it doesn't
+    // name, so every create made during the save is kept.
+    const adoptPatched = (layerDiff: MapLayerDiffRequest, patched: MapResponse) => {
+      if (!layerDiff.added?.length) return;
+      replacedLayers = patched.layers ?? [];
+      replacedReadFrom = 0;
+    };
     saveFence.begin(id);
     inFlightRegistrationsRef.current.add(registrations);
     try {
@@ -1340,14 +1348,7 @@ export function useBuilderSave(state: SaveState) {
       } else {
         if (hasDiff(diff)) {
           try {
-            const patched = await patchMapLayers.mutateAsync({ id, diff });
-            // The server stores added layers under new ids, so reconcile from
-            // its rows as after a replacement. A PATCH deletes nothing it
-            // doesn't name, so every create made during the save is kept.
-            if (diff.added?.length) {
-              replacedLayers = patched.layers ?? [];
-              replacedReadFrom = 0;
-            }
+            adoptPatched(diff, await patchMapLayers.mutateAsync({ id, diff }));
             commitLayerBaseline();
           } catch (error) {
             // A stale diff is a conflict, not a missing endpoint. Refetch, drop
@@ -1362,7 +1363,7 @@ export function useBuilderSave(state: SaveState) {
                 const serverLayerIds = (fresh.layers ?? []).map((l) => l.id);
                 const reconciled = reconcileLayerDiffWithServer(diff, serverLayerIds);
                 if (hasDiff(reconciled)) {
-                  await patchMapLayers.mutateAsync({ id, diff: reconciled });
+                  adoptPatched(reconciled, await patchMapLayers.mutateAsync({ id, diff: reconciled }));
                 }
               } catch {
                 throw new StaleLayerDiffError();
