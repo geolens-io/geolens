@@ -95,6 +95,11 @@ ALLOWLIST: dict[str, tuple[int, str]] = {
         "1.9 dataset queries failed until it was replaced",
     ),
     "0083_list_order_indexes.py": (1, "renames an index, not a table"),
+    "0101_drop_dataset_previous_version_columns.py": (
+        4,
+        "drops the four datasets.previous_version_* columns that 0088 emptied; "
+        "1.27 neither maps nor reads them",
+    ),
 }
 
 

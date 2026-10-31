@@ -209,6 +209,14 @@ and releases use semantic versioning.
 
 - Reads authorized by an embed token now stay inside the dataset's tile column allowlist, as its tiles already do. Datasets without an allowlist are unchanged.
 
+### Upgrade notes
+
+- Migration 0101 drops the four `catalog.datasets.previous_version_*` columns
+  that 0088 emptied in 1.27. Neither 1.27 nor 1.28 reads them, so a rolling
+  upgrade from 1.28 keeps working. Coming from 1.26, stop at 1.27.1 first, or
+  use `scripts/upgrade.sh`, which stops `api` and `worker` before it migrates.
+  (#3381)
+
 ## [1.28.0] - 2026-10-29
 
 ### Added
