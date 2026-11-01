@@ -4746,8 +4746,7 @@ def seed_quake_dashboard(
     """A public map whose dashboard summarizes the USGS earthquake layer.
 
     Its own map, found by name, so the pinned Restless Earth map stays as it
-    is. A dashboard has no text widget, so the snapshot note lives in the map
-    description.
+    is. The snapshot note lives in the map description.
     """
     quakes_ds = api.datasets_by_title().get(QUAKES_TITLE)
     if not quakes_ds:
@@ -5170,6 +5169,56 @@ def seed_skyline_story(
     return story_id
 
 
+ATTRIBUTE_TITLES = {
+    SKYLINE_BUILDINGS_TITLE: {
+        "height_roof": "Roof height (ft)",
+        "construction_year": "Year built",
+        "era": "Era",
+        "name": "Name",
+        "title": "Building",
+    },
+    QUAKES_TITLE: {
+        "place": "Place",
+        "mag": "Magnitude",
+        "event_time_utc_date_fmt": "Time (UTC)",
+        "depth_num": "Depth (km)",
+        "felt": "Felt reports",
+        "tsunami": "Tsunami flag",
+        "sig": "Significance",
+        "magtype": "Magnitude type",
+        "net": "Network",
+    },
+}
+
+
+def set_attribute_titles(api: Api) -> None:
+    """Give the dashboard datasets readable column titles; a rerun changes nothing.
+
+    Widgets and the Map data table label a column by its attribute title.
+    """
+    by_title = api.datasets_by_title()
+    for dataset_title, titles in ATTRIBUTE_TITLES.items():
+        dataset_id = by_title.get(dataset_title)
+        if dataset_id is None:
+            continue
+        r = api.client.get(
+            f"{api.base}/api/datasets/{dataset_id}/attributes/", headers=api.h
+        )
+        r.raise_for_status()
+        changed = 0
+        for attr in r.json()["attributes"]:
+            title = titles.get(attr["field_name"])
+            if title is None or attr["title"] == title:
+                continue
+            api.client.patch(
+                f"{api.base}/api/datasets/{dataset_id}/attributes/{attr['id']}/",
+                headers=api.h,
+                json={"title": title},
+            ).raise_for_status()
+            changed += 1
+        print(f"  attribute titles: {dataset_title} ({changed} set)")
+
+
 def run_story_and_dashboard(api: Api) -> int:
     """Seed only the story and the dashboard map, then exit.
 
@@ -5177,6 +5226,11 @@ def run_story_and_dashboard(api: Api) -> int:
     full seed it runs none of the metadata, styling or thumbnail passes.
     """
     failed = False
+    try:
+        set_attribute_titles(api)
+    except httpx.HTTPError as e:
+        print(f"\nERROR in [set_attribute_titles]: {e}", file=sys.stderr)
+        failed = True
     for seed in (
         seed_hurricane_story,
         seed_quake_dashboard,
@@ -7900,6 +7954,8 @@ def main() -> int:
     # Backfill license + keywords on whatever showcase datasets now exist (the
     # ingest flow leaves them "proprietary" with no keywords). Isolated per
     # dataset; a guarded update fails on any it could not write.
+    if not args.expected_state:
+        set_attribute_titles(api)
     print("\nEnriching catalog metadata (license + keywords)...")
     unenriched = enrich_showcase_metadata(api)
     if unenriched and args.expected_state:
