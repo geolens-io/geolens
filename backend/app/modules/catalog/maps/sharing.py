@@ -16,7 +16,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.core.text import escape_ilike
-from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
+from app.modules.catalog.authorization import (
+    RESTRICTED_MAP_VISIBILITY,
+    apply_visibility_filter,
+    get_user_roles,
+)
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.link_preview import site_card_image_url
 from app.modules.catalog.maps.models import Map, MapLayer
@@ -128,13 +132,19 @@ async def get_map_embed_scope(
     )
 
 
-async def map_contains_dataset(
+async def map_embeds_dataset(
     session: AsyncSession, map_id: uuid.UUID, dataset_id: uuid.UUID
 ) -> bool:
-    """Return whether a dataset is still a live layer on a map."""
+    """Whether a map's embed tokens may still serve a dataset: it is a live
+    layer on the map, and the map isn't restricted to its groups."""
     result = await session.execute(
         select(MapLayer.id)
-        .where(MapLayer.map_id == map_id, MapLayer.dataset_id == dataset_id)
+        .join(Map, Map.id == MapLayer.map_id)
+        .where(
+            MapLayer.map_id == map_id,
+            MapLayer.dataset_id == dataset_id,
+            Map.visibility != RESTRICTED_MAP_VISIBILITY,
+        )
         .limit(1)
     )
     return result.scalar_one_or_none() is not None

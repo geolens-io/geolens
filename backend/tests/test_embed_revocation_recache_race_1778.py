@@ -115,7 +115,7 @@ async def _validate_with(cache, raw, dataset_id, map_id) -> bool:
     with (
         patch("app.modules.embed_tokens.service.get_cache", return_value=cache),
         patch(
-            "app.modules.embed_tokens.service.map_contains_dataset",
+            "app.modules.embed_tokens.service.map_embeds_dataset",
             AsyncMock(return_value=True),
         ),
         patch(
