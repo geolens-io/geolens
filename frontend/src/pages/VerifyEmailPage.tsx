@@ -105,7 +105,7 @@ export function VerifyEmailPage() {
       {pageState === 'loading' && (
         <Card className="w-full max-w-sm">
           <CardHeader className="items-center text-center">
-            <Loader2 className="text-muted-foreground mb-2 h-10 w-10 animate-spin" />
+            <Loader2 className="text-muted-foreground mx-auto mb-2 h-10 w-10 animate-spin" />
             <CardTitle level={2} className="text-xl">{t('verifyEmail.title')}</CardTitle>
             <CardDescription>{t('verifyEmail.verifying')}</CardDescription>
           </CardHeader>
@@ -115,7 +115,7 @@ export function VerifyEmailPage() {
       {pageState === 'success' && (
         <Card className="w-full max-w-sm">
           <CardHeader className="items-center text-center">
-            <Mail className="text-primary mb-2 h-10 w-10" />
+            <Mail className="text-primary mx-auto mb-2 h-10 w-10" />
             <CardTitle level={2} className="text-xl">{t('verifyEmail.title')}</CardTitle>
             <CardDescription>{t('verifyEmail.success')}</CardDescription>
           </CardHeader>
@@ -133,7 +133,7 @@ export function VerifyEmailPage() {
       {pageState === 'awaitingApproval' && (
         <Card className="w-full max-w-sm">
           <CardHeader className="items-center text-center">
-            <Mail className="text-primary mb-2 h-10 w-10" />
+            <Mail className="text-primary mx-auto mb-2 h-10 w-10" />
             <CardTitle level={2} className="text-xl">{t('pendingApproval')}</CardTitle>
             <CardDescription>{t('verifyEmail.awaitingApproval')}</CardDescription>
           </CardHeader>
