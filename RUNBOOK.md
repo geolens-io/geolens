@@ -1247,7 +1247,10 @@ container.
 
 The API and the worker each serve their own `/metrics` endpoint
 (`http://api:8000/metrics` and `http://worker:8001/metrics` on the Compose
-network). The api service runs multiple uvicorn workers in production and is
+network). Scrape the API directly, not through a proxy: its `/metrics`
+answers 404 to a request carrying `Forwarded`, `X-Forwarded-For` or
+`X-Real-IP`, as the bundled nginx and most reverse proxies send them. The api
+service runs multiple uvicorn workers in production and is
 scraped correctly under that fan-out because `docker-compose.yml` and
 `docker-compose.prod.yml` set `PROMETHEUS_MULTIPROC_DIR` for it by default. A
 bespoke deployment that runs the api image outside these compose files with
