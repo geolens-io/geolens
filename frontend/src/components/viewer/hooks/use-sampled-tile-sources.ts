@@ -1,11 +1,15 @@
 import { useEffect, useState, type RefObject } from 'react';
 import type { Map as MapLibreMap, VectorTileSource } from 'maplibre-gl';
 import { isTileSampled, subscribeTileSampling } from '@/lib/tile-sampling';
+import { absoluteTileUrl } from '@/lib/tile-utils';
 
 const NONE: ReadonlySet<string> = new Set();
 
 function tileUrl(template: string, { z, x, y }: { z: number; x: number; y: number }): string {
-  return template.replaceAll('{z}', String(z)).replaceAll('{x}', String(x)).replaceAll('{y}', String(y));
+  // The protocol records the absolute URL; a deployment's tile base can be site-relative (`/api`).
+  return absoluteTileUrl(
+    template.replaceAll('{z}', String(z)).replaceAll('{x}', String(x)).replaceAll('{y}', String(y)),
+  );
 }
 
 function sampledInView(map: MapLibreMap, sourceIds: ReadonlySet<string>): ReadonlySet<string> {
