@@ -17,7 +17,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 
-type PageState = 'loading' | 'success' | 'error';
+type PageState = 'loading' | 'success' | 'awaitingApproval' | 'error';
 
 export function VerifyEmailPage() {
   const { t } = useTranslation('auth');
@@ -46,7 +46,13 @@ export function VerifyEmailPage() {
     }
 
     verifyEmail(token)
-      .then(() => {
+      .then((response) => {
+        // The address is confirmed but an administrator still has to approve
+        // the account, so signing in would only be refused.
+        if (response.next_step === 'await_approval') {
+          setPageState('awaitingApproval');
+          return;
+        }
         setPageState('success');
         toast.success(t('verifyEmail.success'));
       })
@@ -112,6 +118,24 @@ export function VerifyEmailPage() {
             <Mail className="text-primary mb-2 h-10 w-10" />
             <CardTitle level={2} className="text-xl">{t('verifyEmail.title')}</CardTitle>
             <CardDescription>{t('verifyEmail.success')}</CardDescription>
+          </CardHeader>
+          <CardContent className="flex justify-center">
+            <Link
+              to="/login"
+              className="text-primary text-sm underline hover:text-primary/80"
+            >
+              {t('backToSignIn')}
+            </Link>
+          </CardContent>
+        </Card>
+      )}
+
+      {pageState === 'awaitingApproval' && (
+        <Card className="w-full max-w-sm">
+          <CardHeader className="items-center text-center">
+            <Mail className="text-primary mb-2 h-10 w-10" />
+            <CardTitle level={2} className="text-xl">{t('pendingApproval')}</CardTitle>
+            <CardDescription>{t('verifyEmail.awaitingApproval')}</CardDescription>
           </CardHeader>
           <CardContent className="flex justify-center">
             <Link

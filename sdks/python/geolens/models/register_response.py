@@ -25,7 +25,8 @@ class RegisterResponse:
         message (str):
         next_step (None | RegisterResponseNextStepType0 | Unset): Post-registration step for the client to display:
             'verify_email' when a verification email was (or, for a swallowed collision, would have been) sent;
-            'await_approval' for the admin-approval path. None on non-register responses.
+            'await_approval' for the admin-approval path, and from verify-email when the address is confirmed but the
+            account still waits for an administrator. None otherwise.
     """
 
     message: str

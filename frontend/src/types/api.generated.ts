@@ -1320,6 +1320,9 @@ export interface paths {
          * Resend Verification
          * @description Re-issue and re-send a verification email.
          *
+         *     Sends nothing unless self-registration is on and requires email
+         *     verification, since only then can the link activate an account.
+         *
          *     Enumeration-safe: ALWAYS returns the same 200 body
          *     regardless of whether the email exists, is unknown, or is already verified.
          *     Send errors are logged server-side only and never branch the HTTP response.
@@ -1342,11 +1345,13 @@ export interface paths {
         put?: never;
         /**
          * Verify Email
-         * @description Redeem a verification token to activate the account.
+         * @description Redeem a verification token, confirming the address.
          *
-         *     A valid single-use expiring token flips email_verified=True,
-         *     is_active=True, and status="active" so the user can log in via the
-         *     existing auth gate in dependencies.py.
+         *     A valid single-use expiring token sets email_verified=True. While
+         *     self-registration is on and requires email verification, it also
+         *     activates a pending account with the default self-registration role.
+         *     Otherwise a pending account stays pending and the response carries
+         *     ``next_step="await_approval"``.
          *
          *     Expired, unknown, and already-consumed tokens all return the same
          *     "Invalid or expired" error (enumeration-safe).
@@ -14505,7 +14510,7 @@ export interface components {
             message: string;
             /**
              * Next Step
-             * @description Post-registration step for the client to display: 'verify_email' when a verification email was (or, for a swallowed collision, would have been) sent; 'await_approval' for the admin-approval path. None on non-register responses.
+             * @description Post-registration step for the client to display: 'verify_email' when a verification email was (or, for a swallowed collision, would have been) sent; 'await_approval' for the admin-approval path, and from verify-email when the address is confirmed but the account still waits for an administrator. None otherwise.
              */
             next_step?: ("verify_email" | "await_approval") | null;
         };
