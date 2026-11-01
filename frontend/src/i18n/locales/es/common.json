@@ -459,6 +459,7 @@
       "weightedBy": "Ponderado por: {{column}}",
       "weightedByScaled": "Ponderado por: {{column}} (escalado)",
       "other": "Otros",
+      "sampled": "Con este zoom solo se muestra una parte de los elementos. Acerca el zoom para verlos todos.",
       "cluster": {
         "server": "Clúster del servidor",
         "bounded": "Clúster acotado",

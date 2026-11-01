@@ -459,6 +459,7 @@
       "weightedBy": "Pondéré par : {{column}}",
       "weightedByScaled": "Pondéré par : {{column}} (mis à l'échelle)",
       "other": "Autres",
+      "sampled": "Échantillon affiché à ce niveau de zoom. Zoomez pour afficher toutes les entités.",
       "cluster": {
         "server": "Regroupement côté serveur",
         "bounded": "Regroupement limité",

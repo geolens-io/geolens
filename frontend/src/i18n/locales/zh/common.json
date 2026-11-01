@@ -158,6 +158,7 @@
       "weightedBy": "权重依据：{{column}}",
       "weightedByScaled": "权重依据：{{column}}（缩放）",
       "other": "其他",
+      "sampled": "当前缩放级别仅显示部分要素。放大以查看全部要素。",
       "cluster": {
         "server": "服务端聚合",
         "bounded": "客户端聚合",

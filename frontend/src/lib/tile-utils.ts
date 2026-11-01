@@ -54,6 +54,11 @@ interface TileTransformRequestOptions {
   getTileConfig?: () => { cdn_base_url?: string | null } | null | undefined;
 }
 
+/** A site-relative tile URL made absolute against this page, as MapLibre requests it. */
+export function absoluteTileUrl(url: string): string {
+  return url.startsWith('/') && !url.startsWith('//') ? `${window.location.origin}${url}` : url;
+}
+
 /**
  * Resolve site-relative URLs and attach credentials only to first-party requests.
  * Embed viewers never use the signed-in session, even without an embed token.
@@ -70,8 +75,7 @@ export function buildTileTransformRequest(
     // Absolutify only site-relative paths: a `startsWith('http')` predicate would
     // origin-prefix other schemes, and transformRequest runs before MapLibre's
     // custom-protocol dispatch, so `pmtiles://…` would never reach its handler.
-    const absUrl =
-      url.startsWith('/') && !url.startsWith('//') ? `${window.location.origin}${url}` : url;
+    const absUrl = absoluteTileUrl(url);
     const tileConfig = options.getTileConfig?.() ?? null;
     const headers: Record<string, string> = {};
     if (options.embedToken && !isThirdPartyTileUrl(url, tileConfig)) {

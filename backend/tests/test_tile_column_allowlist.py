@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from app.processing.tiles.service import (
     _DEFAULT_NO_ATTR_BELOW_ZOOM,
+    _SAMPLE_ORDER,
+    _TILE_FEATURE_LIMIT,
     _build_attr_columns,
     _build_tile_query,
     _select_tile_columns,
@@ -220,8 +222,8 @@ def test_build_tile_query_orders_before_the_feature_cap():
     rebuilds and each uvicorn worker can cache a different rendering.
     """
     query = _build_tile_query("perf_test", _DATASET_COLUMNS)
-    order_at = query.find("ORDER BY t.gid")
-    limit_at = query.find("LIMIT 50000")
+    order_at = query.find(f"ORDER BY {_SAMPLE_ORDER}")
+    limit_at = query.find(f"LIMIT {_TILE_FEATURE_LIMIT + 1}")
     assert order_at != -1, "vector tile query must order before the feature cap"
     assert limit_at != -1
     assert order_at < limit_at, "ORDER BY must precede the LIMIT it makes deterministic"

@@ -197,7 +197,10 @@ def sync_detailed(
     a malformed table path or an out-of-range tile coordinate.
 
     A tile holding no features answers 204, and a repeat request whose
-    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    ``If-None-Match`` matches answers 304. When more than 100,000 points fall
+    in or next to the tile, or it would hold more than 50,000 features, it
+    holds a fixed sample and carries ``X-GeoLens-Tile-Sampled: true``. Where a deployment runs cold
+    storage,
     a dataset still being restored answers 202 with a job id to poll. Requests
     answer 429 with ``Retry-After`` when the per-process capacity for uncached
     renders stays full for a short wait, tile-pool acquisition times out, or the
@@ -298,7 +301,10 @@ def sync(
     a malformed table path or an out-of-range tile coordinate.
 
     A tile holding no features answers 204, and a repeat request whose
-    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    ``If-None-Match`` matches answers 304. When more than 100,000 points fall
+    in or next to the tile, or it would hold more than 50,000 features, it
+    holds a fixed sample and carries ``X-GeoLens-Tile-Sampled: true``. Where a deployment runs cold
+    storage,
     a dataset still being restored answers 202 with a job id to poll. Requests
     answer 429 with ``Retry-After`` when the per-process capacity for uncached
     renders stays full for a short wait, tile-pool acquisition times out, or the
@@ -394,7 +400,10 @@ async def asyncio_detailed(
     a malformed table path or an out-of-range tile coordinate.
 
     A tile holding no features answers 204, and a repeat request whose
-    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    ``If-None-Match`` matches answers 304. When more than 100,000 points fall
+    in or next to the tile, or it would hold more than 50,000 features, it
+    holds a fixed sample and carries ``X-GeoLens-Tile-Sampled: true``. Where a deployment runs cold
+    storage,
     a dataset still being restored answers 202 with a job id to poll. Requests
     answer 429 with ``Retry-After`` when the per-process capacity for uncached
     renders stays full for a short wait, tile-pool acquisition times out, or the
@@ -493,7 +502,10 @@ async def asyncio(
     a malformed table path or an out-of-range tile coordinate.
 
     A tile holding no features answers 204, and a repeat request whose
-    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    ``If-None-Match`` matches answers 304. When more than 100,000 points fall
+    in or next to the tile, or it would hold more than 50,000 features, it
+    holds a fixed sample and carries ``X-GeoLens-Tile-Sampled: true``. Where a deployment runs cold
+    storage,
     a dataset still being restored answers 202 with a job id to poll. Requests
     answer 429 with ``Retry-After`` when the per-process capacity for uncached
     renders stays full for a short wait, tile-pool acquisition times out, or the

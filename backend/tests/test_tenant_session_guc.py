@@ -1537,7 +1537,7 @@ async def test_live_tenant_tile_binary_has_tenant_qualified_mvt_layer_name():
                 )
 
         assert tile is not None
-        assert _mvt_layer_names(bytes(tile)) == [f"{schema}.{table}"]
+        assert _mvt_layer_names(tile.mvt) == [f"{schema}.{table}"]
     finally:
         _reload_settings()
         if role_created:
