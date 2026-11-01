@@ -721,3 +721,16 @@ def test_retained_validation_model_keeps_the_schema_it_references() -> None:
     }
     _drop_unreferenced_validation_models(unreferenced)
     assert set(unreferenced["components"]["schemas"]) == {"Kept"}
+
+
+async def test_snapshot_and_served_openapi_share_the_api_server() -> None:
+    """app.openapi() and the served /openapi.json both list /api once."""
+    from httpx import ASGITransport, AsyncClient
+
+    assert _openapi()["servers"] == [{"url": "/api"}]
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get("/openapi.json")
+    assert response.status_code == 200
+    assert response.json()["servers"] == [{"url": "/api"}]
