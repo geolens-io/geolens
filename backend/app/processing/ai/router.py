@@ -2,10 +2,11 @@
 
 import json
 import uuid as uuid_mod
-from collections.abc import Awaitable
+from collections.abc import AsyncIterator, Awaitable
 from datetime import datetime, timedelta, timezone
 from typing import TypeVar
 
+import anyio
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
@@ -69,6 +70,7 @@ from app.core.persistent_config import (
     llm_model_unset,
 )
 from app.processing.ai.token_usage import AITokenUsage
+from app.platform.cache import get_cache
 from app.platform.ratelimit import limiter
 from app.platform.sandbox.validator import build_table_allowlist
 from app.standards.ogc.errors import BAD_GATEWAY_RESPONSE, ERROR_RESPONSES_AUTH
@@ -216,8 +218,8 @@ async def _check_ai_available(db: AsyncSession) -> None:
         )
 
 
-async def _check_ai_budget(db: AsyncSession, user: Identity) -> None:
-    """Enforce the per-user rolling 24h AI token budget. No-op when unset.
+async def _check_ai_budget(db: AsyncSession, user: Identity) -> int:
+    """Enforce the per-user rolling 24h AI token budget and return the cap.
 
     slowapi's per-IP limits cap request *frequency*, not cumulative token
     spend, so an editor could sustain heavy multi-round tool loops
@@ -228,7 +230,7 @@ async def _check_ai_budget(db: AsyncSession, user: Identity) -> None:
     """
     cap = await MAX_AI_TOKENS_PER_USER_PER_DAY.get(db)
     if cap <= 0:
-        return
+        return cap
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     used = await db.scalar(
         select(
@@ -242,19 +244,56 @@ async def _check_ai_budget(db: AsyncSession, user: Identity) -> None:
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Daily AI token budget exceeded. Try again later.",
         )
+    return cap
+
+
+# Usage lands only as each provider call returns, so requests that pass the
+# budget check together each spend unseen by the others. Bounding a capped
+# user's requests in flight bounds that overshoot.
+_MAX_AI_REQUESTS_IN_FLIGHT = 2
+# Outlives the longest gated request (map generation's 300 s tool loop); a
+# slot expires on its own only when its worker died without releasing it.
+_IN_FLIGHT_SLOT_TTL_SECONDS = 600
+
+
+async def _claim_in_flight_slot(user: Identity) -> tuple[str, str] | None:
+    """Take one of the user's in-flight slots: ``(key, token)``, or None when all are held."""
+    cache = get_cache()
+    token = uuid_mod.uuid4().hex
+    for slot in range(_MAX_AI_REQUESTS_IN_FLIGHT):
+        key = f"ai:in_flight:{user.id}:{slot}"
+        if await cache.set_if_absent(key, token, ttl=_IN_FLIGHT_SLOT_TTL_SECONDS):
+            return key, token
+    return None
 
 
 async def enforce_ai_token_budget(
     user: Identity = Depends(_require_ai_chat),
     db: AsyncSession = Depends(get_db),
-) -> Identity:
+) -> AsyncIterator[Identity]:
     """AI-endpoint gate: ``use_ai_chat`` permission + the per-user token budget.
 
     Runs before the handler body (and before any SSE stream opens), so an
     over-budget caller gets a clean 429 rather than a mid-stream failure.
+    With a daily cap set, the caller also holds one of a few per-user
+    in-flight slots until the response, streamed or not, has finished.
     """
-    await _check_ai_budget(db, user)
-    return user
+    if await _check_ai_budget(db, user) <= 0:
+        yield user
+        return
+    claim = await _claim_in_flight_slot(user)
+    if claim is None:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many AI requests in progress. Try again when one finishes.",
+        )
+    try:
+        yield user
+    finally:
+        # Shielded: a client that disconnects mid-stream cancels the response,
+        # and the slot must still be released.
+        with anyio.CancelScope(shield=True):
+            await get_cache().compare_and_delete(*claim)
 
 
 @router.get("/availability/", response_model=AIAvailabilityResponse)
