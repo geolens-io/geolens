@@ -8,6 +8,8 @@ import {
 } from '@/lib/maplibre-filter-utils';
 
 const CLUSTER_GEOJSON_FEATURE_LIMIT = 5000;
+// The server caps each vector tile at this many features (_TILE_FEATURE_LIMIT in backend/app/processing/tiles/service.py).
+export const TILE_FEATURE_LIMIT = 50_000;
 // The server's limits on a CQL2 filter, as compact JSON counted in characters.
 // The cluster tile route caps its `filter` query parameter (max_length in
 // processing/tiles/router.py).
@@ -138,6 +140,12 @@ function isVectorLayer(layer: ClusterSourceLayer) {
   if (layer.layer_type === 'raster_geolens') return false;
   if (layer.dataset_record_type && layer.dataset_record_type !== 'vector_dataset') return false;
   return layer.layer_type == null || layer.layer_type === 'vector_geolens' || layer.layer_type === 'geojson';
+}
+
+/** A point layer too big for one tile: zoomed out, its tiles hold only a sample. */
+export function exceedsTileFeatureLimit(layer: ClusterSourceLayer) {
+  const count = featureCount(layer);
+  return count != null && count > TILE_FEATURE_LIMIT && isVectorLayer(layer) && isPointGeometry(layer);
 }
 
 export function isClusterRenderMode(layer: ClusterSourceLayer) {

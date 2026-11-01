@@ -184,6 +184,7 @@
     "layerOpacity": "Deckkraft des Layers",
     "pointOpacityHelp": "Deckkraft der Füllung jedes Punkts. Die Ebenendeckkraft unten wird darauf multipliziert.",
     "layerOpacityHelp": "Wird mit den Deckkraft-Einstellungen oben kombiniert.",
+    "tileCapHint": "Kartenkacheln fassen bis zu {{limit}} Objekte, und diese Ebene hat {{count}}. Beim Herauszoomen sehen Leser eine Stichprobe. Fassen Sie die Punkte zu Clustern zusammen oder legen Sie eine minimale Zoomstufe fest, um alle anzuzeigen.",
     "color": "Farbe",
     "hexValueFor": "Hexadezimalwert für {{label}}",
     "hexColorValue": "Hexadezimaler Farbwert",

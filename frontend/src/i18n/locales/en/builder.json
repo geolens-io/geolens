@@ -184,6 +184,7 @@
     "layerOpacity": "Layer opacity",
     "pointOpacityHelp": "Opacity of each point's fill. Layer opacity below is multiplied on top.",
     "layerOpacityHelp": "Combined with the opacity settings above.",
+    "tileCapHint": "Map tiles hold up to {{limit}} features, and this layer has {{count}}. Zoomed out, readers see a sample. Cluster the points or set a minimum zoom to show them all.",
     "color": "Color",
     "hexValueFor": "{{label}} hex value",
     "hexColorValue": "Hex color value",
