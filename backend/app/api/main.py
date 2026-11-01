@@ -771,6 +771,9 @@ app = FastAPI(
     summary="PostGIS-native geospatial data catalog with OGC API Features and Records support",
     description=_DESCRIPTION,
     root_path="/api",
+    # FastAPI adds the root path to ``servers`` only when serving
+    # /openapi.json, so app.openapi() (the committed snapshot) would omit it.
+    servers=[{"url": "/api"}],
     docs_url=None if _is_production else "/docs",
     redoc_url=None if _is_production else "/redoc",
     openapi_tags=_OPENAPI_TAGS,

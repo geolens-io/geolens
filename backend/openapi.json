@@ -73158,6 +73158,11 @@
       }
     }
   },
+  "servers": [
+    {
+      "url": "/api"
+    }
+  ],
   "tags": [
     {
       "description": "OGC API Features endpoints: landing page, conformance, collections, and items. Compatible with QGIS, GDAL/ogr2ogr, and other OGC clients.",
