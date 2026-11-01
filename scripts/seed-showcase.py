@@ -1002,18 +1002,40 @@ class Api:
 
     def aggregate(self, dataset_id: str, **body) -> dict:
         """One exact aggregate over a dataset - the call the widgets make."""
+        # The endpoint is rate limited per second, and a story's figures come
+        # from back-to-back aggregates.
         for _ in range(5):
             r = self.client.post(
                 f"{self.base}/api/datasets/{dataset_id}/aggregate/",
                 headers=self.h,
                 json=body,
             )
-            # The endpoint allows 10 requests a second; a story reads a dozen.
             if r.status_code != 429:
                 break
-            time.sleep(1.0)
+            time.sleep(float(r.headers.get("Retry-After", 0.2)))
         r.raise_for_status()
         return r.json()["result"]
+
+    def attributes(self, dataset_id: str) -> list[dict]:
+        r = self.client.get(
+            f"{self.base}/api/datasets/{dataset_id}/attributes/", headers=self.h
+        )
+        r.raise_for_status()
+        return r.json()["attributes"]
+
+    def set_attribute_title(self, dataset_id: str, attr_id: str, title: str) -> None:
+        r = self.client.patch(
+            f"{self.base}/api/datasets/{dataset_id}/attributes/{attr_id}/",
+            headers=self.h,
+            json={"title": title},
+        )
+        r.raise_for_status()
+
+    def story_document(self, story_id: str) -> dict:
+        """The story's current draft document."""
+        r = self.client.get(f"{self.base}/api/stories/{story_id}/draft", headers=self.h)
+        r.raise_for_status()
+        return r.json()["document"]
 
     def delete_map(self, map_id: str) -> None:
         r = self.client.delete(f"{self.base}/api/maps/{map_id}", headers=self.h)
@@ -4740,6 +4762,47 @@ def seed_hurricane_story(
     return story_id
 
 
+def _dashboard_map(
+    api: Api, name: str, description: str, layer: dict
+) -> tuple[str, dict, bool, str]:
+    """Find or create the named map and its layer over ``layer["dataset_id"]``.
+
+    Returns the map id, the map as found, whether it was created, and the
+    layer id.
+    """
+    map_id = api.list_maps().get(name)
+    created = map_id is None
+    if created:
+        map_id = api.create_map(name, description)
+    current = api.get_map(map_id)
+    found = next(
+        (
+            lay
+            for lay in current["layers"]
+            if lay["dataset_id"] == layer["dataset_id"]
+        ),
+        None,
+    )
+    if found is None:
+        found = api.add_layer(map_id, layer)
+    return map_id, current, created, found["id"]
+
+
+def _dashboard_widget(
+    prefix: str, layer_id: str, key: str, kind: str, title: str, config: dict
+) -> dict:
+    """A data widget scoped to the map view, with an id stable across reruns."""
+    return {
+        "id": _seed_id(prefix, key),
+        "type": kind,
+        "v": 1,
+        "title": title,
+        "layer_id": layer_id,
+        "scope": "view",
+        "config": config,
+    }
+
+
 def seed_quake_dashboard(
     api: Api, force: bool = False, force_pinned: bool = False
 ) -> str:
@@ -4754,48 +4817,31 @@ def seed_quake_dashboard(
             f"{QUAKES_TITLE!r} is not seeded yet - run --only restless first"
         )
     print("\n[dashboard] " + DASHBOARD_MAP)
-    map_id = api.list_maps().get(DASHBOARD_MAP)
-    created = map_id is None
-    if created:
-        map_id = api.create_map(DASHBOARD_MAP, DASHBOARD_MAP_DESCRIPTION)
-    current = api.get_map(map_id)
-    layer = next(
-        (lay for lay in current["layers"] if lay["dataset_id"] == quakes_ds),
-        None,
-    )
-    if layer is None:
-        edges = [5.0, 6.0, 7.0]
-        layer = api.add_layer(
-            map_id,
-            {
-                "dataset_id": quakes_ds,
-                "sort_order": 0,
-                "opacity": 1.0,
-                "display_name": "Earthquakes (last 30 days, by magnitude)",
-                "paint": {
-                    "circle-radius": step_expr("mag", edges, [3, 5, 8, 12]),
-                    "circle-color": step_expr(
-                        "mag", edges, ["#fecc5c", "#fd8d3c", "#f03b20", "#bd0026"]
-                    ),
-                    "circle-opacity": 0.85,
-                    "circle-stroke-color": "#7f1d1d",
-                    "circle-stroke-width": 0.5,
-                },
-                "popup_config": QUAKE_POPUP_CONFIG,
+    edges = [5.0, 6.0, 7.0]
+    map_id, current, created, layer_id = _dashboard_map(
+        api,
+        DASHBOARD_MAP,
+        DASHBOARD_MAP_DESCRIPTION,
+        {
+            "dataset_id": quakes_ds,
+            "sort_order": 0,
+            "opacity": 1.0,
+            "display_name": "Earthquakes (last 30 days, by magnitude)",
+            "paint": {
+                "circle-radius": step_expr("mag", edges, [3, 5, 8, 12]),
+                "circle-color": step_expr(
+                    "mag", edges, ["#fecc5c", "#fd8d3c", "#f03b20", "#bd0026"]
+                ),
+                "circle-opacity": 0.85,
+                "circle-stroke-color": "#7f1d1d",
+                "circle-stroke-width": 0.5,
             },
-        )
-    layer_id = layer["id"]
+            "popup_config": QUAKE_POPUP_CONFIG,
+        },
+    )
 
     def widget(key: str, kind: str, title: str, config: dict) -> dict:
-        return {
-            "id": _seed_id("dashboard", key),
-            "type": kind,
-            "v": 1,
-            "title": title,
-            "layer_id": layer_id,
-            "scope": "view",
-            "config": config,
-        }
+        return _dashboard_widget("dashboard", layer_id, key, kind, title, config)
 
     camera = (
         {
@@ -4851,18 +4897,6 @@ def seed_quake_dashboard(
     return map_id
 
 
-def _skyline_dataset_and_map(api: Api) -> tuple[str, str]:
-    """The buildings dataset and the Manhattan map id, which a builder seeds first."""
-    buildings_ds = api.datasets_by_title().get(SKYLINE_BUILDINGS_TITLE)
-    map_id = api.list_maps().get(SKYLINE_MAP)
-    if not (buildings_ds and map_id):
-        raise RuntimeError(
-            f"{SKYLINE_MAP!r} and its buildings are not seeded yet - run "
-            "--only manhattan first"
-        )
-    return buildings_ds, map_id
-
-
 def seed_skyline_dashboard(
     api: Api, force: bool = False, force_pinned: bool = False
 ) -> str:
@@ -4870,34 +4904,24 @@ def seed_skyline_dashboard(
 
     Its own map, found by name, so the Manhattan map stays as it is.
     """
-    buildings_ds, _ = _skyline_dataset_and_map(api)
+    buildings_ds = api.datasets_by_title().get(SKYLINE_BUILDINGS_TITLE)
+    if not buildings_ds:
+        raise RuntimeError(
+            f"{SKYLINE_BUILDINGS_TITLE!r} is not seeded yet - run "
+            "--only manhattan first"
+        )
     print("\n[skyline-dashboard] " + SKYLINE_DASHBOARD_MAP)
-    map_id = api.list_maps().get(SKYLINE_DASHBOARD_MAP)
-    created = map_id is None
-    if created:
-        map_id = api.create_map(SKYLINE_DASHBOARD_MAP, SKYLINE_DASHBOARD_DESCRIPTION)
-    layer = next(
-        (
-            lay
-            for lay in api.get_map(map_id)["layers"]
-            if lay["dataset_id"] == buildings_ds
-        ),
-        None,
+    map_id, _, created, layer_id = _dashboard_map(
+        api,
+        SKYLINE_DASHBOARD_MAP,
+        SKYLINE_DASHBOARD_DESCRIPTION,
+        manhattan_buildings_layer(buildings_ds, 0),
     )
-    if layer is None:
-        layer = api.add_layer(map_id, manhattan_buildings_layer(buildings_ds, 0))
-    layer_id = layer["id"]
 
     def widget(key: str, kind: str, title: str, config: dict) -> dict:
-        return {
-            "id": _seed_id("skyline-dashboard", key),
-            "type": kind,
-            "v": 1,
-            "title": title,
-            "layer_id": layer_id,
-            "scope": "view",
-            "config": config,
-        }
+        return _dashboard_widget(
+            "skyline-dashboard", layer_id, key, kind, title, config
+        )
 
     camera = SKYLINE_CAMERAS["dashboard"]
     api.set_view(
@@ -4997,21 +5021,22 @@ def seed_skyline_story(
     place on a rerun, and every figure in the text is read from the buildings
     dataset when this runs. The map is not touched.
     """
-    buildings_ds, map_id = _skyline_dataset_and_map(api)
-    dashboard_id = api.list_maps().get(SKYLINE_DASHBOARD_MAP)
-    if dashboard_id is None:
+    maps = api.list_maps()
+    by_title = api.datasets_by_title()
+    buildings_ds = by_title.get(SKYLINE_BUILDINGS_TITLE)
+    map_id = maps.get(SKYLINE_MAP)
+    dashboard_id = maps.get(SKYLINE_DASHBOARD_MAP)
+    if not (buildings_ds and map_id and dashboard_id):
         raise RuntimeError(
-            f"{SKYLINE_DASHBOARD_MAP!r} is not seeded yet - run "
-            "--only skyline-dashboard first"
+            f"{SKYLINE_MAP!r} or {SKYLINE_DASHBOARD_MAP!r} is not seeded yet - "
+            "run --only manhattan and --only skyline-dashboard first"
         )
     print("\n[skyline-story] " + SKYLINE_STORY_TITLE)
     manhattan = api.get_map(map_id)
     subway = [
         lay["id"] for lay in manhattan["layers"] if lay["dataset_id"] != buildings_ds
     ]
-    subway_off = {lid: False for lid in subway}
-    subway_on = {lid: True for lid in subway}
-    stations_ds = api.datasets_by_title()["NYC Subway Stations (MTA)"]
+    stations_ds = by_title["NYC Subway Stations (MTA)"]
 
     total = api.aggregate(buildings_ds, op="count")["count"]
     by_era = {
@@ -5092,12 +5117,32 @@ def seed_skyline_story(
         story_id = api.create_story(SKYLINE_STORY_TITLE, summary)
         verb = "created"
 
-    photo = fetch(SKYLINE_PHOTO_URL)
-    if hashlib.sha256(photo).hexdigest() != SKYLINE_PHOTO_SHA256:
-        raise RuntimeError("skyline photo checksum differs from the pinned value")
-    asset_id = api.upload_story_asset(story_id, "midtown-1941.jpg", photo)
+    # Keyed on the pin, so a rerun reuses the uploaded photo and a new pin
+    # uploads a new one.
+    photo_block_id = _seed_id(
+        "story", "skyline-midtown", "photo", SKYLINE_PHOTO_SHA256
+    )
+    asset_id = None
+    if verb == "updated":
+        asset_id = next(
+            (
+                block.get("asset_id")
+                for chapter in api.story_document(story_id).get("chapters", [])
+                for block in chapter.get("blocks", [])
+                if block.get("id") == photo_block_id
+            ),
+            None,
+        )
+    if asset_id is None:
+        photo = fetch(SKYLINE_PHOTO_URL)
+        if hashlib.sha256(photo).hexdigest() != SKYLINE_PHOTO_SHA256:
+            raise RuntimeError(
+                "skyline photo checksum differs from the pinned value"
+            )
+        asset_id = api.upload_story_asset(story_id, "midtown-1941.jpg", photo)
 
-    def scene(camera: str, visibility: dict[str, bool]) -> dict:
+    def scene(camera: str, show_subway: bool = False) -> dict:
+        visibility = {layer_id: show_subway for layer_id in subway}
         return _story_scene(manhattan, visibility, SKYLINE_CAMERAS[camera])
 
     document = {
@@ -5106,23 +5151,23 @@ def seed_skyline_story(
             _story_chapter(
                 "skyline-overview",
                 "Manhattan, building by building",
-                scene("overview", subway_off),
+                scene("overview"),
                 overview_text,
             ),
             _story_chapter(
                 "skyline-downtown",
                 "Downtown before 1930",
-                scene("downtown", subway_off),
+                scene("downtown"),
                 downtown_text,
             ),
             _story_chapter(
                 "skyline-midtown",
                 "Midtown in the 1930s",
-                scene("midtown", subway_off),
+                scene("midtown"),
                 midtown_text,
                 [
                     {
-                        "id": _seed_id("story", "skyline-midtown", "photo"),
+                        "id": photo_block_id,
                         "type": "image",
                         "v": 1,
                         "asset_id": asset_id,
@@ -5142,13 +5187,13 @@ def seed_skyline_story(
             _story_chapter(
                 "skyline-supertalls",
                 "57th Street since 2015",
-                scene("supertalls", subway_off),
+                scene("supertalls"),
                 supertall_text,
             ),
             _story_chapter(
                 "skyline-method",
                 "Where the data comes from",
-                scene("method", subway_on),
+                scene("method", show_subway=True),
                 method_text,
                 [
                     {
@@ -5201,20 +5246,12 @@ def set_attribute_titles(api: Api) -> None:
         dataset_id = by_title.get(dataset_title)
         if dataset_id is None:
             continue
-        r = api.client.get(
-            f"{api.base}/api/datasets/{dataset_id}/attributes/", headers=api.h
-        )
-        r.raise_for_status()
         changed = 0
-        for attr in r.json()["attributes"]:
+        for attr in api.attributes(dataset_id):
             title = titles.get(attr["field_name"])
             if title is None or attr["title"] == title:
                 continue
-            api.client.patch(
-                f"{api.base}/api/datasets/{dataset_id}/attributes/{attr['id']}/",
-                headers=api.h,
-                json={"title": title},
-            ).raise_for_status()
+            api.set_attribute_title(dataset_id, attr["id"], title)
             changed += 1
         print(f"  attribute titles: {dataset_title} ({changed} set)")
 
