@@ -78,6 +78,7 @@
     "allHidden": "Die Layer dieser Widgets sind ausgeblendet. Blenden Sie einen in der Legende ein, um seine Widgets zu sehen.",
     "retry": "Erneut versuchen",
     "someFailed": "Einige Widgets konnten ihre Zahlen nicht laden.",
+    "someTooWide": "Zoomen Sie hinein, um die Zahlen einiger Widgets zu sehen.",
     "filters": "Filter",
     "filterChip": "{{column}}: {{value}}",
     "removeFilter": "Filter {{filter}} auf {{layer}} entfernen",

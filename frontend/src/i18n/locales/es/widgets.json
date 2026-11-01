@@ -78,6 +78,7 @@
     "allHidden": "Las capas que resumen estos widgets están ocultas. Muestra una en la leyenda para ver sus widgets.",
     "retry": "Reintentar",
     "someFailed": "Algunos widgets no pudieron cargar sus cifras.",
+    "someTooWide": "Acerca el zoom para ver las cifras de algunos widgets.",
     "filters": "Filtros",
     "filterChip": "{{column}}: {{value}}",
     "removeFilter": "Quitar el filtro {{filter}} de {{layer}}",

@@ -80,6 +80,9 @@ function WidgetShell({
   );
 }
 
+/** Why a widget has no numbers to show: its request failed, or its view holds too many rows. */
+type WidgetProblem = 'failed' | 'tooWide';
+
 /** One widget with its heading, notices and data; the Builder's editor previews widgets with it. */
 export function DashboardWidget({
   parsed,
@@ -87,7 +90,7 @@ export function DashboardWidget({
   viewBbox,
   embedToken,
   headingLevel = 3,
-  onFailedChange,
+  onProblemChange,
   linked,
   selection,
   onSelect,
@@ -98,8 +101,8 @@ export function DashboardWidget({
   embedToken?: string;
   /** 4 where the widget sits under a heading of its own, as in the Builder's editor. */
   headingLevel?: 3 | 4;
-  /** Told when the widget's data fails or recovers, so the panel can announce it once for all widgets. */
-  onFailedChange?: (id: string, failed: boolean) => void;
+  /** Told when the widget's data fails, is refused as too wide, or recovers, so the panel can announce it once for all widgets. */
+  onProblemChange?: (id: string, problem: WidgetProblem | null) => void;
   /** The reader's picks on the layer's other widgets, which filter this widget's numbers. */
   linked?: readonly Cql2Expression[];
   /** This widget's own pick, which it shows without filtering its own numbers by it. */
@@ -134,10 +137,11 @@ export function DashboardWidget({
   const stale = query.isPlaceholderData;
   const failed = query.isError;
   const code = failed ? errorCode(query.error) : undefined;
+  const problem: WidgetProblem | null = !failed ? null : code === 'too_wide' ? 'tooWide' : 'failed';
   useEffect(() => {
-    onFailedChange?.(instance.id, failed);
-  }, [onFailedChange, instance.id, failed]);
-  useEffect(() => () => onFailedChange?.(instance.id, false), [onFailedChange, instance.id]);
+    onProblemChange?.(instance.id, problem);
+  }, [onProblemChange, instance.id, problem]);
+  useEffect(() => () => onProblemChange?.(instance.id, null), [onProblemChange, instance.id]);
 
   return (
     <WidgetShell
@@ -245,7 +249,7 @@ function DashboardWidgetList({
   panel,
   picks,
   onChoose,
-  onFailedChange,
+  onProblemChange,
 }: {
   id: string;
   widgets: readonly PanelWidget[];
@@ -256,7 +260,7 @@ function DashboardWidgetList({
   panel: PanelPosition;
   picks: readonly LinkedPick[];
   onChoose?: (widgetId: string, layer: SharedLayerResponse, selection: WidgetSelection | null) => void;
-  onFailedChange: (id: string, failed: boolean) => void;
+  onProblemChange: (id: string, problem: WidgetProblem | null) => void;
 }) {
   const { t } = useTranslation('widgets');
   const { data: tileConfig } = useTileConfig();
@@ -325,7 +329,7 @@ function DashboardWidgetList({
                 layer={layer}
                 viewBbox={parsed.instance.scope === 'view' ? viewBbox : null}
                 embedToken={embedToken}
-                onFailedChange={onFailedChange}
+                onProblemChange={onProblemChange}
                 linked={linkedByWidget.get(widgetId)}
                 selection={picks.find((pick) => pick.widgetId === widgetId)?.selection ?? null}
                 onSelect={pickable ? (selection) => onChoose(widgetId, layer, selection) : undefined}
@@ -395,16 +399,17 @@ export function DashboardPanel({
   const toggleRef = useRef<HTMLButtonElement>(null);
   const { choose, remove, announcement, layerName, pickLabel } = usePicks(picks, onPicksChange, layers);
   // One announcement for the panel, so a pan that fails every widget doesn't speak once per widget.
-  const [failedIds, setFailedIds] = useState<ReadonlySet<string>>(() => new Set());
-  const onFailedChange = useCallback((widgetId: string, failed: boolean) => {
-    setFailedIds((current) => {
-      if (current.has(widgetId) === failed) return current;
-      const next = new Set(current);
-      if (failed) next.add(widgetId);
+  const [problems, setProblems] = useState<ReadonlyMap<string, WidgetProblem>>(() => new Map());
+  const onProblemChange = useCallback((widgetId: string, problem: WidgetProblem | null) => {
+    setProblems((current) => {
+      if ((current.get(widgetId) ?? null) === problem) return current;
+      const next = new Map(current);
+      if (problem) next.set(widgetId, problem);
       else next.delete(widgetId);
       return next;
     });
   }, []);
+  const problemKinds = new Set(problems.values());
 
   const widgets: PanelWidget[] = useMemo(
     () =>
@@ -462,7 +467,13 @@ export function DashboardPanel({
       )}
     >
       <LiveAnnouncement
-        text={[failedIds.size > 0 ? t('dashboard.someFailed') : '', announcement.text].filter(Boolean).join(' ')}
+        text={[
+          problemKinds.has('failed') ? t('dashboard.someFailed') : '',
+          problemKinds.has('tooWide') ? t('dashboard.someTooWide') : '',
+          announcement.text,
+        ]
+          .filter(Boolean)
+          .join(' ')}
         trigger={String(announcement.count)}
       />
       <div className={cn('flex items-center gap-2 px-3 py-2', !collapsed && 'border-b')}>
@@ -514,7 +525,7 @@ export function DashboardPanel({
           panel={panel}
           picks={picks}
           onChoose={onPicksChange ? choose : undefined}
-          onFailedChange={onFailedChange}
+          onProblemChange={onProblemChange}
         />
       )}
     </section>
