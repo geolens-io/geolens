@@ -13,9 +13,6 @@ and releases use semantic versioning.
   /datasets/{id}/previous-version` and the dataset detail's `previous_version`
   field, deprecated in 1.27.0, now stay until at least 2027-01-22. Use the
   `previous-versions` routes and field instead.
-- The `cql2_filter_lang` spelling and the JSON-body `keywords` form on
-  `/search/datasets/` and `/collections/datasets/items` are not removed before
-  2027-02-01. Use the `filter-lang` and `keywords` query parameters.
 
 ## [1.29.1] - 2026-10-31
 
