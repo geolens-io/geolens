@@ -78,6 +78,7 @@
     "allHidden": "这些小组件汇总的图层已隐藏。在图例中显示一个图层即可看到其小组件。",
     "retry": "重试",
     "someFailed": "部分小组件无法加载数字。",
+    "someTooWide": "请放大地图以查看部分小组件的数字。",
     "filters": "筛选条件",
     "filterChip": "{{column}}：{{value}}",
     "removeFilter": "移除 {{layer}} 上的筛选 {{filter}}",

@@ -392,7 +392,7 @@ describe('DashboardPanel', () => {
     expect(requestedBodies()).toEqual([{ op: 'count' }]);
   });
 
-  it('asks the reader to zoom in when the view holds too many rows', async () => {
+  it('asks the reader to zoom in when the view holds too many rows, with no retry or empty value', async () => {
     const { ApiError } = await import('@/api/client');
     fetchMock.mockRejectedValue(
       new ApiError('too wide', 422, { code: 'too_wide', message: 'too wide' }),
@@ -408,6 +408,26 @@ describe('DashboardPanel', () => {
     expect(
       await screen.findByText('Too many features in view. Zoom in to see these numbers.'),
     ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    expect(screen.queryByText('No data yet')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent("Zoom in to see some widgets' numbers."));
+    expect(screen.getByRole('status')).not.toHaveTextContent("couldn't load");
+  });
+
+  it('announces a too-wide view and a failed widget in separate sentences', async () => {
+    const { ApiError } = await import('@/api/client');
+    fetchMock.mockImplementation(async (_dataset, body) => {
+      if (body.op === 'count') throw new ApiError('too wide', 422, { code: 'too_wide', message: 'too wide' });
+      throw new ApiError('down', 503);
+    });
+    render(
+      <DashboardPanel config={dashboard([countWidget, chartWidget])} layers={[layer()]} map={null} mapId="map-1" />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent(
+        "Some widgets couldn't load their numbers. Zoom in to see some widgets' numbers.",
+      ),
+    );
   });
 
   it('says a refused column is unavailable, with no retry, and keeps retry for other failures', async () => {

@@ -78,6 +78,7 @@
     "allHidden": "The layers these widgets summarize are hidden. Show one in the legend to see its widgets.",
     "retry": "Retry",
     "someFailed": "Some widgets couldn't load their numbers.",
+    "someTooWide": "Zoom in to see some widgets' numbers.",
     "filters": "Filters",
     "filterChip": "{{column}}: {{value}}",
     "removeFilter": "Remove filter {{filter}} on {{layer}}",

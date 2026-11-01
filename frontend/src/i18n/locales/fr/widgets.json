@@ -78,6 +78,7 @@
     "allHidden": "Les couches que résument ces widgets sont masquées. Affichez-en une dans la légende pour voir ses widgets.",
     "retry": "Réessayer",
     "someFailed": "Certains widgets n'ont pas pu charger leurs chiffres.",
+    "someTooWide": "Zoomez pour voir les chiffres de certains widgets.",
     "filters": "Filtres",
     "filterChip": "{{column}} : {{value}}",
     "removeFilter": "Retirer le filtre {{filter}} sur {{layer}}",
