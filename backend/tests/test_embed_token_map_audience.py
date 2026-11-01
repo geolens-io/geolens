@@ -1,12 +1,14 @@
 """An embed token can't open a map to anonymous holders beyond its audience."""
 
+import asyncio
 import uuid
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import update
+from sqlalchemy import delete, insert, select, update
 
 from app.core.config import settings
+from app.modules.auth.models import Role, UserRole
 from app.modules.catalog.maps.models import Map
 from app.modules.catalog.write_recheck import PUBLIC_VISIBILITY_DENIED
 from app.modules.embed_tokens.router import RESTRICTED_MAP_EMBED_REFUSED
@@ -159,3 +161,72 @@ async def test_a_token_stops_serving_once_its_map_is_restricted(
     await _set_visibility(test_db_session, map_id, "restricted")
 
     assert not await validate_embed_token_access(raw_token, dataset_id, test_db_session)
+
+
+async def _mint_while_holding_the_map(
+    client: AsyncClient, session, map_id: str, headers: dict, change
+):
+    """Mint while ``session`` holds the map row and an uncommitted ``change``,
+    committed once the mint is waiting on that row."""
+    await session.execute(
+        select(Map.id)
+        .where(Map.id == uuid.UUID(map_id))
+        .with_for_update(key_share=True)
+    )
+    await change()
+    mint = asyncio.create_task(_mint(client, map_id, headers))
+    await asyncio.sleep(0.8)
+    assert not mint.done(), "the mint should be waiting on the map row"
+    await session.commit()
+    return await mint
+
+
+async def test_a_mint_waiting_on_a_map_going_restricted_is_refused(
+    client: AsyncClient, test_db_session, editor
+):
+    map_id, _ = await _map_with_layer(
+        client, test_db_session, editor["headers"], editor["id"], "private"
+    )
+
+    async def restrict() -> None:
+        await test_db_session.execute(
+            update(Map)
+            .where(Map.id == uuid.UUID(map_id))
+            .values(visibility="restricted")
+        )
+
+    refused = await _mint_while_holding_the_map(
+        client, test_db_session, map_id, editor["headers"], restrict
+    )
+
+    assert refused.status_code == 409, refused.text
+
+
+@pytest.mark.usefixtures("_restrict_public_visibility")
+async def test_a_mint_waiting_on_its_owners_demotion_is_judged_on_the_new_role(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    headers, owner_id = await _create_test_user(client, admin_auth_header, "admin")
+    owner_id = uuid.UUID(owner_id)
+    map_id, _ = await _map_with_layer(
+        client, test_db_session, headers, owner_id, "private"
+    )
+    editor_role = await test_db_session.scalar(
+        select(Role.id).where(Role.name == "editor")
+    )
+    await test_db_session.commit()
+
+    async def demote() -> None:
+        await test_db_session.execute(
+            delete(UserRole).where(UserRole.user_id == owner_id)
+        )
+        await test_db_session.execute(
+            insert(UserRole).values(user_id=owner_id, role_id=editor_role)
+        )
+
+    refused = await _mint_while_holding_the_map(
+        client, test_db_session, map_id, headers, demote
+    )
+
+    assert refused.status_code == 403, refused.text
+    assert refused.json()["detail"] == PUBLIC_VISIBILITY_DENIED

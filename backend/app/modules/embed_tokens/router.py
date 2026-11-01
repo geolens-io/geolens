@@ -61,22 +61,23 @@ RESTRICTED_MAP_EMBED_REFUSED = (
 
 
 async def _refuse_embed_beyond_map_audience(
-    db: AsyncSession, user: Identity, visibility: str, roles: set[str]
+    db: AsyncSession, user: Identity, visibility: str
 ) -> None:
     """Refuse a token that would open a non-public map to anonymous holders
-    when its audience forbids that.
+    when its audience forbids that. Call holding the map row lock.
 
     A restricted map is for its groups only, so it refuses every caller (409).
     On any other non-public map the token is the only anonymous way in, so it
     takes the same gate as making the map public (403 for a non-admin while
-    public visibility is restricted).
+    public visibility is restricted), judged on the caller's roles as
+    committed now.
     """
     if visibility == RESTRICTED_MAP_VISIBILITY:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=RESTRICTED_MAP_EMBED_REFUSED
         )
     if visibility not in ANONYMOUS_MAP_VISIBILITIES:
-        await check_public_visibility_allowed(db, user, "public", user_roles=roles)
+        await check_public_visibility_allowed(db, user, "public")
 
 
 # Trailing slash is canonical (in OpenAPI); the no-slash form is a hidden alias
@@ -110,7 +111,7 @@ async def create_embed_token_endpoint(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Map not found",
         )
-    roles = await check_map_ownership(map_obj, user, db)
+    await check_map_ownership(map_obj, user, db)
 
     # Refuse a lock this deployment can't enforce at mint time rather than
     # failing silently later.
@@ -125,10 +126,11 @@ async def create_embed_token_endpoint(
     # Before the scope read, so the token freezes the layers the map has now,
     # and before the revocation's cache denials, which no rollback undoes.
     await lock_map_layers(db, map_id)
-    # Read under the lock that sharing with groups also takes, so a map going
-    # restricted can't gain a token after that revoked its others.
+    # Read under the lock that sharing with groups and visibility changes also
+    # take, so a map going restricted can't gain a token after that revoked its
+    # others.
     await db.refresh(map_obj, ["visibility"])
-    await _refuse_embed_beyond_map_audience(db, user, map_obj.visibility, roles)
+    await _refuse_embed_beyond_map_audience(db, user, map_obj.visibility)
     try:
         token, raw_token = await create_embed_token(
             db,
