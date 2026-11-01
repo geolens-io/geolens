@@ -7,6 +7,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import structlog
 from fastapi import HTTPException, Request
@@ -522,20 +523,31 @@ async def _admit_staged_source(
     )
 
 
-async def _caller_owns_job(db: AsyncSession, job: IngestJob, user: Identity) -> bool:
-    """Owner-or-admin gate for referencing an existing manifest job's ids.
+# One wording for every refusal of a key the caller doesn't own, so the answer
+# never says whether the key's dataset is visible to the caller.
+MANIFEST_KEY_NOT_OWNED = (
+    "This manifest key belongs to a dataset or apply you don't own. "
+    "Use a different key, or have the dataset transferred to you first."
+)
 
-    In-flight jobs may have no Dataset row yet, so the dataset-level write
-    gate can't run; ownership keys on IngestJob.created_by instead, the same
-    contract as service.py's reupload ownership check.
+
+async def _admit_key_dataset(db: AsyncSession, dataset: Any, user: Identity) -> None:
+    """Admit the caller to the dataset a manifest key already names.
+
+    Keys are global, so write access alone would let a key someone else
+    created steer an admin's source into that person's dataset. Only the
+    dataset's owner may update or reference it through its key.
     """
-    if job.created_by is not None and job.created_by == user.id:
-        return True
     # Lazy import: processing/ must not import app.modules.catalog.* at module
     # level (layering invariant).
-    from app.modules.catalog.authorization import get_user_roles
+    from app.modules.catalog.authorization import check_dataset_write_access
 
-    return "admin" in await get_user_roles(db, user)
+    if dataset.record.created_by != user.id:
+        raise ManifestSourceError(MANIFEST_KEY_NOT_OWNED)
+    try:
+        await check_dataset_write_access(db, dataset, dataset.id, user)
+    except HTTPException as exc:
+        raise ManifestSourceError(MANIFEST_KEY_NOT_OWNED) from exc
 
 
 def _skip_result_for_in_flight(
@@ -625,6 +637,10 @@ async def _classify_dataset(
 
     in_flight = await latest_in_flight_manifest_job(db, dataset.key)
     if in_flight is not None:
+        # Before the fingerprint comparison, so a non-owner can't learn whether
+        # their entry matches someone else's apply.
+        if in_flight.created_by != user.id:
+            raise ManifestSourceError(MANIFEST_KEY_NOT_OWNED)
         in_flight_fingerprint = (in_flight.user_metadata or {}).get(
             MANIFEST_FINGERPRINT_METADATA_KEY
         )
@@ -1137,8 +1153,6 @@ async def _reserve_or_settle_entry(
     A result answers from what the key holds; a reservation means the caller
     owns it. Every exit commits, so no key lock outlives the entry.
     """
-    from app.modules.catalog.authorization import check_dataset_write_access
-
     (
         classification,
         prepared,
@@ -1150,25 +1164,14 @@ async def _reserve_or_settle_entry(
         raise ManifestSourceError("Manifest source could not be prepared")
 
     if classification == "skip_in_flight" and job is not None:
-        # A matching fingerprint must not turn the skip path into an
-        # enumeration oracle for another user's key. Non-owners get the generic
-        # fingerprint-mismatch error, with no ids.
-        if not await _caller_owns_job(db, job, user):
-            raise ManifestSourceError(
-                "Manifest dataset key already has an in-flight apply"
-            )
         result = _skip_result_for_in_flight(dataset, job)
         await db.commit()
         return result
 
     if classification == "skip_complete" and job is not None:
-        if existing_dataset is not None:
-            # The same gate as the update branch below. It raises 404/403 into
-            # the per-entry error wrapper, so the skip response cannot
-            # disclose another user's job/dataset UUIDs.
-            await check_dataset_write_access(
-                db, existing_dataset, existing_dataset.id, user
-            )
+        if existing_dataset is None:
+            raise ManifestSourceError(MANIFEST_KEY_NOT_OWNED)
+        await _admit_key_dataset(db, existing_dataset, user)
         result = ManifestApplyEntryResult(
             dataset_key=dataset.key,
             action="skip",
@@ -1181,12 +1184,8 @@ async def _reserve_or_settle_entry(
 
     update_dataset_id: uuid.UUID | None = None
     if classification == "update" and existing_dataset is not None:
-        # manifest_key is caller-supplied and globally namespaced, so the gate
-        # runs before the blocked and dry-run responses, which would otherwise
-        # leak another user's dataset id.
-        await check_dataset_write_access(
-            db, existing_dataset, existing_dataset.id, user
-        )
+        # Before the blocked and dry-run responses, which name the dataset.
+        await _admit_key_dataset(db, existing_dataset, user)
         if held := await held_entry(db, dataset, fingerprint, job, existing_dataset):
             await db.commit()
             return held
