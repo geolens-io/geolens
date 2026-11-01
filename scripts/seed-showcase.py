@@ -4943,12 +4943,21 @@ def seed_skyline_dashboard(
             "--only manhattan first"
         )
     print("\n[skyline-dashboard] " + SKYLINE_DASHBOARD_MAP)
-    map_id, _, created, layer_id = _dashboard_map(
-        api,
-        SKYLINE_DASHBOARD_MAP,
-        SKYLINE_DASHBOARD_DESCRIPTION,
-        manhattan_buildings_layer(buildings_ds, 0),
+    layer = manhattan_buildings_layer(buildings_ds, 0)
+    # The Map data table opens with the popup's fields, so it leads with the
+    # building's name rather than survey columns.
+    fields = ["title", "height_roof", "construction_year", "era"]
+    layer["popup_config"] = {**layer["popup_config"], "visible_fields": fields}
+    map_id, current, created, layer_id = _dashboard_map(
+        api, SKYLINE_DASHBOARD_MAP, SKYLINE_DASHBOARD_DESCRIPTION, layer
     )
+    existing = next((lay for lay in current["layers"] if lay["id"] == layer_id), None)
+    popup = (existing or {}).get("popup_config") or {}
+    if existing and popup.get("visible_fields") != fields:
+        api.update_layer(
+            map_id,
+            {"id": layer_id, "popup_config": {**popup, "visible_fields": fields}},
+        )
 
     def widget(key: str, kind: str, title: str, config: dict) -> dict:
         return _dashboard_widget(
