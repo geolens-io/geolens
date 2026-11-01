@@ -105,6 +105,9 @@ def sync_detailed(
 
      Re-issue and re-send a verification email.
 
+    Sends nothing unless self-registration is on and requires email
+    verification, since only then can the link activate an account.
+
     Enumeration-safe: ALWAYS returns the same 200 body
     regardless of whether the email exists, is unknown, or is already verified.
     Send errors are logged server-side only and never branch the HTTP response.
@@ -140,6 +143,9 @@ def sync(
 
      Re-issue and re-send a verification email.
 
+    Sends nothing unless self-registration is on and requires email
+    verification, since only then can the link activate an account.
+
     Enumeration-safe: ALWAYS returns the same 200 body
     regardless of whether the email exists, is unknown, or is already verified.
     Send errors are logged server-side only and never branch the HTTP response.
@@ -169,6 +175,9 @@ async def asyncio_detailed(
     """Resend Verification
 
      Re-issue and re-send a verification email.
+
+    Sends nothing unless self-registration is on and requires email
+    verification, since only then can the link activate an account.
 
     Enumeration-safe: ALWAYS returns the same 200 body
     regardless of whether the email exists, is unknown, or is already verified.
@@ -202,6 +211,9 @@ async def asyncio(
     """Resend Verification
 
      Re-issue and re-send a verification email.
+
+    Sends nothing unless self-registration is on and requires email
+    verification, since only then can the link activate an account.
 
     Enumeration-safe: ALWAYS returns the same 200 body
     regardless of whether the email exists, is unknown, or is already verified.

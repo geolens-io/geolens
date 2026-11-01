@@ -18283,7 +18283,7 @@
                 "type": "null"
               }
             ],
-            "description": "Post-registration step for the client to display: 'verify_email' when a verification email was (or, for a swallowed collision, would have been) sent; 'await_approval' for the admin-approval path. None on non-register responses.",
+            "description": "Post-registration step for the client to display: 'verify_email' when a verification email was (or, for a swallowed collision, would have been) sent; 'await_approval' for the admin-approval path, and from verify-email when the address is confirmed but the account still waits for an administrator. None otherwise.",
             "title": "Next Step"
           }
         },
@@ -34754,7 +34754,7 @@
     },
     "/auth/resend-verification/": {
       "post": {
-        "description": "Re-issue and re-send a verification email.\n\nEnumeration-safe: ALWAYS returns the same 200 body\nregardless of whether the email exists, is unknown, or is already verified.\nSend errors are logged server-side only and never branch the HTTP response.",
+        "description": "Re-issue and re-send a verification email.\n\nSends nothing unless self-registration is on and requires email\nverification, since only then can the link activate an account.\n\nEnumeration-safe: ALWAYS returns the same 200 body\nregardless of whether the email exists, is unknown, or is already verified.\nSend errors are logged server-side only and never branch the HTTP response.",
         "operationId": "resend_verification_auth_resend_verification__post",
         "requestBody": {
           "content": {
@@ -34875,7 +34875,7 @@
     },
     "/auth/verify-email/": {
       "post": {
-        "description": "Redeem a verification token to activate the account.\n\nA valid single-use expiring token flips email_verified=True,\nis_active=True, and status=\"active\" so the user can log in via the\nexisting auth gate in dependencies.py.\n\nExpired, unknown, and already-consumed tokens all return the same\n\"Invalid or expired\" error (enumeration-safe).",
+        "description": "Redeem a verification token, confirming the address.\n\nA valid single-use expiring token sets email_verified=True. While\nself-registration is on and requires email verification, it also\nactivates a pending account with the default self-registration role.\nOtherwise a pending account stays pending and the response carries\n``next_step=\"await_approval\"``.\n\nExpired, unknown, and already-consumed tokens all return the same\n\"Invalid or expired\" error (enumeration-safe).",
         "operationId": "verify_email_auth_verify_email__post",
         "requestBody": {
           "content": {

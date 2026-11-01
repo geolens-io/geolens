@@ -1409,6 +1409,9 @@ export const registerAuthRegisterPost = <ThrowOnError extends boolean = false>(o
  *
  * Re-issue and re-send a verification email.
  *
+ * Sends nothing unless self-registration is on and requires email
+ * verification, since only then can the link activate an account.
+ *
  * Enumeration-safe: ALWAYS returns the same 200 body
  * regardless of whether the email exists, is unknown, or is already verified.
  * Send errors are logged server-side only and never branch the HTTP response.
@@ -1425,11 +1428,13 @@ export const resendVerificationAuthResendVerificationPost = <ThrowOnError extend
 /**
  * Verify Email
  *
- * Redeem a verification token to activate the account.
+ * Redeem a verification token, confirming the address.
  *
- * A valid single-use expiring token flips email_verified=True,
- * is_active=True, and status="active" so the user can log in via the
- * existing auth gate in dependencies.py.
+ * A valid single-use expiring token sets email_verified=True. While
+ * self-registration is on and requires email verification, it also
+ * activates a pending account with the default self-registration role.
+ * Otherwise a pending account stays pending and the response carries
+ * ``next_step="await_approval"``.
  *
  * Expired, unknown, and already-consumed tokens all return the same
  * "Invalid or expired" error (enumeration-safe).
