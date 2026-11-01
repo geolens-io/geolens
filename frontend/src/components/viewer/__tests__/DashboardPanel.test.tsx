@@ -392,7 +392,7 @@ describe('DashboardPanel', () => {
     expect(requestedBodies()).toEqual([{ op: 'count' }]);
   });
 
-  it('asks the reader to zoom in when the view holds too many rows', async () => {
+  it('asks the reader to zoom in when the view holds too many rows, with no retry or empty value', async () => {
     const { ApiError } = await import('@/api/client');
     fetchMock.mockRejectedValue(
       new ApiError('too wide', 422, { code: 'too_wide', message: 'too wide' }),
@@ -408,6 +408,8 @@ describe('DashboardPanel', () => {
     expect(
       await screen.findByText('Too many features in view. Zoom in to see these numbers.'),
     ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    expect(screen.queryByText('No data yet')).not.toBeInTheDocument();
   });
 
   it('says a refused column is unavailable, with no retry, and keeps retry for other failures', async () => {

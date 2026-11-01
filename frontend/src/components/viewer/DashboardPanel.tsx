@@ -39,8 +39,11 @@ export function widgetName(
   );
 }
 
-/** A refused column or filter is refused again on a retry; a column the reader can't see is refused like a missing one. */
-const REFUSED_CODES: ReadonlySet<unknown> = new Set(['invalid_column', 'invalid_filter']);
+/**
+ * Refusals a retry repeats: a column the reader can't see is refused like a
+ * missing one, and a view too wide stays so until the map moves.
+ */
+const REFUSED_CODES: ReadonlySet<unknown> = new Set(['invalid_column', 'invalid_filter', 'too_wide']);
 
 function errorCode(error: unknown): unknown {
   return error instanceof ApiError && typeof error.body === 'object' && error.body !== null
@@ -176,7 +179,7 @@ export function DashboardWidget({
       )}
       {loading ? (
         loadingSkeleton
-      ) : (
+      ) : failed && query.data === undefined ? null : (
         <div className={cn('transition-opacity', stale && 'opacity-50')}>
           <WidgetView
             parsed={parsed}
