@@ -248,8 +248,9 @@ async def _oidc_identity_claims(client, provider, token) -> dict:
     A generic OIDC provider may return ``email_verified`` or the group claim
     only from UserInfo (Okta does, in the code flow). When the ID token lacks
     either, UserInfo fills only the missing keys, and only when its ``sub``
-    matches the ID token's (OIDC Core 5.3.2). A failed fetch keeps the ID
-    token's claims alone.
+    matches the ID token's (OIDC Core 5.3.2). ``email_verified`` is kept only
+    when it came with the same address as the merged ``email``. A failed
+    fetch keeps the ID token's claims alone.
     """
     id_claims = token.get("userinfo")
     if id_claims is None:
@@ -274,7 +275,21 @@ async def _oidc_identity_claims(client, provider, token) -> dict:
             provider=provider.slug,
         )
         return claims
-    return {**extra, **claims}
+    merged = {**extra, **claims}
+    # Verification belongs to an address: a flag from one source never vouches
+    # for the other source's email.
+    email_src = claims if "email" in claims else extra
+    verified_src = claims if "email_verified" in claims else extra
+    if email_src is not verified_src:
+        email = _casefold_email(email_src)
+        if email is None or email != _casefold_email(verified_src):
+            merged.pop("email_verified", None)
+    return merged
+
+
+def _casefold_email(claims: dict) -> str | None:
+    email = claims.get("email")
+    return email.casefold() if isinstance(email, str) else None
 
 
 async def build_oauth_client(provider_slug: str, db: AsyncSession) -> tuple:

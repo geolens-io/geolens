@@ -29,7 +29,43 @@ ID_CLAIMS = {"sub": "okta-sub", "email": "ana@example.com", "name": "Ana"}
 
 async def test_userinfo_fills_only_claims_the_id_token_lacks():
     client = _client(
-        {"sub": "okta-sub", "email": "other@example.com", "email_verified": True}
+        {
+            "sub": "okta-sub",
+            "email": "ana@example.com",
+            "email_verified": True,
+            "name": "Ana Userinfo",
+            "locale": "en-US",
+        }
+    )
+
+    claims = await _oidc_identity_claims(
+        client, _provider(), {"userinfo": dict(ID_CLAIMS)}
+    )
+
+    assert claims == {**ID_CLAIMS, "email_verified": True, "locale": "en-US"}
+    client.userinfo.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {"sub": "okta-sub", "email": "other@example.com", "email_verified": True},
+        {"sub": "okta-sub", "email_verified": True},
+        {"sub": "okta-sub", "email": None, "email_verified": True},
+    ],
+)
+async def test_userinfo_verification_for_another_address_is_dropped(response):
+    claims = await _oidc_identity_claims(
+        _client(response), _provider(), {"userinfo": dict(ID_CLAIMS)}
+    )
+
+    assert "email_verified" not in claims
+    assert claims["email"] == "ana@example.com"
+
+
+async def test_userinfo_verification_matches_the_address_ignoring_case():
+    client = _client(
+        {"sub": "okta-sub", "email": "Ana@Example.COM", "email_verified": True}
     )
 
     claims = await _oidc_identity_claims(
@@ -38,7 +74,34 @@ async def test_userinfo_fills_only_claims_the_id_token_lacks():
 
     assert claims["email_verified"] is True
     assert claims["email"] == "ana@example.com"
-    client.userinfo.assert_awaited_once()
+
+
+async def test_id_token_without_email_takes_email_and_verification_together():
+    client = _client(
+        {"sub": "okta-sub", "email": "ana@example.com", "email_verified": True}
+    )
+
+    claims = await _oidc_identity_claims(
+        client, _provider(), {"userinfo": {"sub": "okta-sub"}}
+    )
+
+    assert claims == {
+        "sub": "okta-sub",
+        "email": "ana@example.com",
+        "email_verified": True,
+    }
+
+
+async def test_id_token_verification_does_not_vouch_for_a_userinfo_email():
+    client = _client({"sub": "okta-sub", "email": "ana@example.com", "groups": []})
+
+    claims = await _oidc_identity_claims(
+        client,
+        _provider(group_claim="groups"),
+        {"userinfo": {"sub": "okta-sub", "email_verified": True}},
+    )
+
+    assert "email_verified" not in claims
 
 
 @pytest.mark.parametrize(
@@ -141,7 +204,7 @@ async def _sign_in(client, db, monkeypatch, *, userinfo, allowlist):
         idp.userinfo = AsyncMock(side_effect=userinfo)
     else:
         idp.userinfo = AsyncMock(
-            return_value={**userinfo, "sub": userinfo["sub"] or sub}
+            return_value={"email": email, **userinfo, "sub": userinfo["sub"] or sub}
         )
     client.cookies.clear()
     browser = Browser(client)
@@ -208,6 +271,21 @@ async def test_userinfo_for_another_subject_leaves_the_identity_unverified(
         test_db_session,
         monkeypatch,
         userinfo={"sub": "someone-else", "email_verified": True},
+        allowlist=["example.com"],
+    )
+
+    assert fragment["error"] == ["email_not_verified"]
+    assert await _linked_user(test_db_session, sub) is None
+
+
+async def test_userinfo_verifying_another_address_is_refused_by_the_allowlist(
+    client, test_db_session, monkeypatch
+):
+    fragment, sub = await _sign_in(
+        client,
+        test_db_session,
+        monkeypatch,
+        userinfo={"sub": None, "email": "other@example.com", "email_verified": True},
         allowlist=["example.com"],
     )
 
