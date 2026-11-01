@@ -36,16 +36,36 @@ from app.standards.ogc.errors import ERROR_RESPONSES_AUTH, RATE_LIMIT_RESPONSE
 router = APIRouter(prefix="/datasets", tags=["Datasets - Analysis"])
 
 # Each widget on a dashboard asks once per refresh, and a pan refreshes them
-# all; the filtered OGC items route takes the same per-address rate.
+# all. Signed-in callers each get this budget; anonymous and embed viewers
+# share one per address. The global per-address default applies to everyone.
 _AGGREGATE_RATE_LIMIT = "10/second"
+
+
+async def _note_rate_limit_identity(
+    request: Request,
+    user: Identity | None = Depends(get_optional_user_fail_open),
+) -> None:
+    # slowapi checks the limit after dependencies resolve, and its key function
+    # sees only the request, so the verified identity is handed over here.
+    request.state.aggregate_rate_user_id = user.id if user is not None else None
+
+
+def _aggregate_rate_key(request: Request) -> str:
+    user_id = getattr(request.state, "aggregate_rate_user_id", None)
+    if user_id is None:
+        return get_remote_address(request)
+    return f"user:{user_id}"
 
 
 @router.post(
     "/{dataset_id}/aggregate/",
     response_model=AggregateResponse,
     responses={**ERROR_RESPONSES_AUTH, 429: RATE_LIMIT_RESPONSE},
+    dependencies=[Depends(_note_rate_limit_identity)],
 )
-@limiter.limit(_AGGREGATE_RATE_LIMIT, override_defaults=False)
+@limiter.limit(
+    _AGGREGATE_RATE_LIMIT, key_func=_aggregate_rate_key, override_defaults=False
+)
 async def aggregate_endpoint(
     dataset_id: uuid.UUID,
     body: AggregateRequest,

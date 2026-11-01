@@ -19,9 +19,9 @@ export type AggregateResponse =
 
 // The endpoint answers a caller's third concurrent request with 429.
 const slots = createSlotPool(2);
-// It also allows each address ten requests a second. At most eight starts in
-// any second keeps a full dashboard, a pan of many view-scoped widgets, and a
-// few readers behind one office address clear of it.
+// It also allows ten requests a second to each signed-in user, and to each
+// address for anonymous and embed viewers. At most eight starts in any second
+// keeps a full dashboard and a pan of many view-scoped widgets clear of it.
 export const AGGREGATE_STARTS_PER_WINDOW = 8;
 const WINDOW_MS = 1000;
 // How long the whole page waits after the rate limit refuses one request, when
@@ -52,7 +52,7 @@ function bookStart(): number {
 }
 
 /**
- * What a 429 means: the address's rate limit (a plain detail), or this caller
+ * What a 429 means: the rate limit (a plain detail), or this caller
  * already having its share of running aggregates (`query_busy`,
  * `query_at_capacity`).
  */

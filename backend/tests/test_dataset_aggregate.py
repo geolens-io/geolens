@@ -7,6 +7,7 @@ import uuid
 from pathlib import Path
 
 import httpx
+import jwt
 import pytest
 import sqlalchemy
 from httpx import AsyncClient
@@ -25,6 +26,7 @@ from tests.factories import (
 from tests.test_api_key_publish_scope import _mint
 from tests.test_api_key_scope_875 import _remove_keys_minted_by_the_test  # noqa: F401
 from tests.test_embed_token_creator_access import _embed
+from tests.test_ogc_features_filter import _freeze_rate_limit_window
 
 pytestmark = pytest.mark.anyio
 
@@ -1249,3 +1251,109 @@ class TestApiKeys:
         assert public.status_code == 200, public.text
         assert public.json()["result"] == {"count": 6}
         assert private.status_code == 404, private.text
+
+
+async def _codes(client: AsyncClient, calls) -> list[int]:
+    """Status codes for ``(dataset_id, headers)`` calls under the rate limiter."""
+    from app.platform.ratelimit import limiter
+
+    original = limiter.enabled
+    try:
+        limiter.enabled = True
+        limiter._storage.reset()
+        return [
+            (await _aggregate(client, dataset_id, {"op": "count"}, headers)).status_code
+            for dataset_id, headers in calls
+        ]
+    finally:
+        limiter.enabled = original
+        limiter._storage.reset()
+
+
+class TestRateLimit:
+    """Every client here shares the test transport's one address."""
+
+    @pytest.fixture(autouse=True)
+    def _frozen_window(self, monkeypatch):
+        _freeze_rate_limit_window(monkeypatch)
+
+    @pytest.fixture
+    def budget(self) -> int:
+        from app.modules.catalog.datasets.api.router_aggregate import (
+            _AGGREGATE_RATE_LIMIT,
+        )
+
+        return int(_AGGREGATE_RATE_LIMIT.split("/")[0])
+
+    async def test_each_signed_in_caller_has_its_own_budget(
+        self, client: AsyncClient, admin_auth_header: dict, points, budget
+    ):
+        editor, _user_id = await create_user(client, admin_auth_header, "editor")
+        api_key = await _mint(client, editor, "read_only")
+
+        codes = await _codes(
+            client,
+            [(points.id, admin_auth_header)] * budget
+            + [(points.id, api_key)] * budget
+            + [(points.id, admin_auth_header)],
+        )
+
+        assert codes == [200] * (2 * budget) + [429], codes
+
+    async def test_anonymous_callers_share_the_address_budget(
+        self, client: AsyncClient, points, budget
+    ):
+        codes = await _codes(client, [(points.id, None)] * (budget + 1))
+
+        assert codes == [200] * budget + [429], codes
+
+    async def test_a_forged_bearer_token_is_counted_with_its_address(
+        self, client: AsyncClient, test_db_session, points, budget
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        forged = jwt.encode(
+            {"sub": str(admin_id), "token_version": 10**6},
+            "not-the-signing-key-" + uuid.uuid4().hex,
+            algorithm=settings.jwt_algorithm,
+        )
+        bearer = {"Authorization": f"Bearer {forged}"}
+
+        codes = await _codes(
+            client,
+            [(points.id, bearer)]
+            + [(points.id, None)] * (budget - 1)
+            + [(points.id, bearer), (points.id, None)],
+        )
+
+        assert codes == [401] + [200] * (budget - 1) + [429, 429], codes
+
+    async def test_an_embed_viewer_shares_the_address_budget(
+        self, client: AsyncClient, points, private_points, embed_headers, budget
+    ):
+        embed = await embed_headers(private_points.id)
+        half = budget // 2
+
+        codes = await _codes(
+            client,
+            [(points.id, None)] * half
+            + [(private_points.id, embed)] * (budget - half + 1),
+        )
+
+        assert codes == [200] * budget + [429], codes
+
+    async def test_the_global_default_still_caps_the_address(
+        self, client: AsyncClient, admin_auth_header: dict, points, monkeypatch
+    ):
+        from app.platform import ratelimit
+
+        global_budget = 15
+        monkeypatch.setattr(
+            ratelimit, "get_cached_global_rate_limit", lambda: global_budget
+        )
+        editor, _user_id = await create_user(client, admin_auth_header, "editor")
+
+        codes = await _codes(
+            client, [(points.id, admin_auth_header), (points.id, editor)] * 8
+        )
+
+        assert codes == [200] * global_budget + [429], codes
