@@ -137,6 +137,28 @@ describe('LayerLegend notes under an entry', () => {
   const clusters = [SAVED_LAYERS.boundedCluster, SAVED_LAYERS.serverCluster, SAVED_LAYERS.fallbackCluster];
   const entry = (name: string) => within(screen.getByText(name).closest('li')!);
 
+  it('says a layer is a sample while a capped tile is in view, and clears when none is', () => {
+    const note = 'Showing a sample at this zoom. Zoom in to see all features.';
+    const quakes = layer();
+    const legend = (drawn: ReadonlyMap<string, DrawnLayer>) => (
+      <LayerLegend
+        layers={[quakes]}
+        visibleLayers={new Set([quakes.id])}
+        onToggleVisibility={vi.fn()}
+        isOpen
+        onToggle={vi.fn()}
+        drawn={drawn}
+      />
+    );
+    const { rerender } = render(legend(new Map([[quakes.id, { drawsAs: 'circle', sampled: true }]])));
+
+    expect(entry('Earthquakes (M5+)').getByText(note)).toBeInTheDocument();
+
+    rerender(legend(new Map([[quakes.id, { drawsAs: 'circle' }]])));
+
+    expect(screen.queryByText(note)).not.toBeInTheDocument();
+  });
+
   it('names each cluster by its saved strategy when the map has reported nothing', () => {
     renderLegend(clusters);
 

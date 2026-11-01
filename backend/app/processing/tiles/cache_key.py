@@ -1,6 +1,14 @@
-"""The cache identity of a vector tile, shared by the tile route and the seeder."""
+"""The cache identity and entry of a vector tile, shared by the tile route and the seeder."""
 
 import uuid
+
+# Pins the vector tile SQL and the entry layout below. A new value makes
+# entries an older release wrote, or reads, unreachable across a deploy.
+_VECTOR_ENTRY_FORMAT = "mvt2"
+
+# Gzip output starts with 0x1f 0x8b, so this prefix can't be mistaken for a
+# tile, and the empty sentinel stays empty.
+_SAMPLED_PREFIX = b"S"
 
 
 def generation_table_key(
@@ -48,4 +56,17 @@ def tile_cache_key(
     generation = generation_table_key(
         table_name, dataset_id, publication_version, tile_cache_version
     )
-    return f"{tenant_id}:{generation}" if tenant_id is not None else generation
+    key = f"{generation}:{_VECTOR_ENTRY_FORMAT}"
+    return f"{tenant_id}:{key}" if tenant_id is not None else key
+
+
+def tile_cache_entry(compressed: bytes, *, sampled: bool) -> bytes:
+    """The cached form of gzip tile bytes, carrying whether the cap sampled them."""
+    return _SAMPLED_PREFIX + compressed if sampled else compressed
+
+
+def read_tile_cache_entry(entry: bytes) -> tuple[bytes, bool]:
+    """The gzip tile bytes and sampled flag a ``tile_cache_entry`` holds."""
+    if entry.startswith(_SAMPLED_PREFIX):
+        return entry[len(_SAMPLED_PREFIX) :], True
+    return entry, False

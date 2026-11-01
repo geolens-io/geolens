@@ -1,5 +1,6 @@
 import { AJAXError, type AddProtocolAction } from 'maplibre-gl';
 import { abortableDelay } from './abort';
+import { recordTileSampling, TILE_SAMPLED_HEADER } from './tile-sampling';
 
 // Keep one browser below the default ten-render server budget.
 const MAX_CONCURRENT_TILES = 6;
@@ -69,6 +70,7 @@ const fetchTile: AddProtocolAction = async (request, controller) => {
       signal: controller.signal,
     });
     if (response.ok) {
+      recordTileSampling(url, response.headers.get(TILE_SAMPLED_HEADER) === 'true');
       return {
         data: await response.arrayBuffer(),
         cacheControl: response.headers.get('Cache-Control'),

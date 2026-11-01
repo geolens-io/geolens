@@ -130,7 +130,9 @@ _PUBLIC_EXPOSE_HEADERS = (
     # The feature delete route's committed tile_cache_version; a 204
     # has no body to carry it in, so a cross-origin caller needs it
     # exposed to read it at all.
-    "X-GeoLens-Tile-Cache-Version"
+    "X-GeoLens-Tile-Cache-Version, "
+    # Marks a vector tile the feature cap sampled.
+    "X-GeoLens-Tile-Sampled"
 )
 _EXPOSE_HEADERS = "X-Total-Count, Content-Disposition, " + _PUBLIC_EXPOSE_HEADERS
 

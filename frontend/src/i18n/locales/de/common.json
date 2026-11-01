@@ -459,6 +459,7 @@
       "weightedBy": "Gewichtet nach: {{column}}",
       "weightedByScaled": "Gewichtet nach: {{column}} (skaliert)",
       "other": "Sonstige",
+      "sampled": "Bei dieser Zoomstufe wird nur eine Stichprobe angezeigt. Zoomen Sie hinein, um alle Objekte zu sehen.",
       "cluster": {
         "server": "Server-Cluster",
         "bounded": "Begrenzter Cluster",

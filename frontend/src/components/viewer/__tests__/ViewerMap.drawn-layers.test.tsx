@@ -1,8 +1,9 @@
 // The viewer reports what it draws each layer as once any bounded cluster GeoJSON has settled.
 import { useState, type ReactNode } from 'react';
-import { render, screen, waitFor, within } from '@/test/test-utils';
+import { act, render, screen, waitFor, within } from '@/test/test-utils';
 import { BLANK_BASEMAP_ID } from '@/lib/basemap-utils';
 import { fetchBoundedGeoJson, type BoundedGeoJsonResponse } from '@/api/geojson-z';
+import { recordTileSampling } from '@/lib/tile-sampling';
 import type { DrawnLayer } from '@/components/map/legend-facts';
 import type { SharedLayerResponse } from '@/types/api';
 import { SAVED_LAYERS, toSharedLayer } from '@/test/fixtures/saved-layers';
@@ -28,6 +29,7 @@ const mapState = vi.hoisted(() => {
       queryRenderedFeatures: vi.fn(() => []),
       getCanvas: vi.fn(() => canvas),
       getZoom: vi.fn(() => 5),
+      coveringTiles: vi.fn(() => [] as { canonical: { z: number; x: number; y: number } }[]),
       setMissingStyleImageResolver: vi.fn(),
       setLayoutProperty: vi.fn(),
       setTerrain: vi.fn(),
@@ -150,6 +152,33 @@ describe('ViewerMap drawn layers', () => {
     // The dataset changed while the viewer stayed open.
     rerender(viewer(withCluster({ filter: ['==', ['get', 'kind'], 'park'], tile_version: 2 })));
     await waitFor(() => expect(fetchBoundedGeoJson).toHaveBeenCalledTimes(2));
+  });
+
+  it('reports a layer as sampled while a sampled tile of it is in view', async () => {
+    vi.mocked(fetchBoundedGeoJson).mockResolvedValue(EMPTY_GEOJSON);
+    const template = 'https://geolens.test/api/tiles/data.parcels/{z}/{x}/{y}.pbf';
+    const tileUrl = 'https://geolens.test/api/tiles/data.parcels/2/1/1.pbf';
+    mapState.fakeMap.getSource.mockImplementation(((id: string) =>
+      id.endsWith(`source-data-${polygon.dataset_table_name}`)
+        ? { type: 'vector', tiles: [template], tileSize: 512, minzoom: 0, maxzoom: 14 }
+        : null) as () => null);
+    mapState.fakeMap.coveringTiles.mockReturnValue([{ canonical: { z: 2, x: 1, y: 1 } }]);
+    const onDrawnChange = vi.fn();
+    try {
+      renderViewer(onDrawnChange);
+      await waitFor(() => expect(onDrawnChange).toHaveBeenCalled());
+
+      act(() => recordTileSampling(tileUrl, true));
+      await waitFor(() =>
+        expect(onDrawnChange.mock.lastCall![0].get(polygon.id)).toEqual({ drawsAs: 'fill', sampled: true }));
+      expect(onDrawnChange.mock.lastCall![0].get(cluster.id)).toEqual({ drawsAs: 'cluster' });
+
+      act(() => recordTileSampling(tileUrl, false));
+      await waitFor(() => expect(onDrawnChange.mock.lastCall![0].get(polygon.id)).toEqual({ drawsAs: 'fill' }));
+    } finally {
+      mapState.fakeMap.getSource.mockImplementation(() => null);
+      mapState.fakeMap.coveringTiles.mockReturnValue([]);
+    }
   });
 
   it('reports a bounded cluster whose GeoJSON fetch failed as single points', async () => {

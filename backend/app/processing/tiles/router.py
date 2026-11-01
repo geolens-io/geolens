@@ -71,6 +71,7 @@ from app.processing.tiles.admission import raster_render_slot, tile_render_slot
 from app.processing.tiles import cluster_filter as cluster_filters
 from app.processing.tiles.cache_key import (
     generation_table_key as _generation_table_key,
+    tile_cache_entry,
     tile_cache_key,
 )
 from app.processing.tiles.pool import (
@@ -79,6 +80,7 @@ from app.processing.tiles.pool import (
     set_tenant_role_for_tile_request,
 )
 from app.processing.tiles.responses import (
+    _cached_tile_response,
     _empty_tile_headers as _empty_tile_headers,
     _if_none_match_satisfied as _if_none_match_satisfied,
     _serving_tile_headers,
@@ -2350,13 +2352,13 @@ def _cluster_cache_table_key(
     cluster_max_zoom: int,
     filter_digest: str | None = None,
 ) -> str:
-    # The version tag pins the cluster SQL semantics. Bump it whenever
-    # _build_cluster_tile_query changes the emitted tile geometry/properties, or
+    # The version tag pins the cluster SQL semantics and the cache entry
+    # layout (cache_key.tile_cache_entry). Bump it whenever either changes, or
     # a deploy keeps serving stale cluster tiles until TTL expiry.
     generation = _generation_table_key(
         table_name, dataset_id, publication_version, tile_cache_version
     )
-    key = f"{generation}:cluster:v3:r{cluster_radius}:z{cluster_max_zoom}"
+    key = f"{generation}:cluster:v4:r{cluster_radius}:z{cluster_max_zoom}"
     return f"{key}:f{filter_digest}" if filter_digest else key
 
 
@@ -2382,7 +2384,7 @@ async def _acquire_and_serve_tile(
     """Shared acquire, bind-role, run-query, gzip, cache and respond core.
 
     Both the vector and cluster endpoints supply a ``query_callable`` (async
-    ``(pool, conn) -> bytes | None``) plus a cache key; this owns the
+    ``(pool, conn) -> RenderedTile | None``) plus a cache key; this owns the
     shared scaffold: bounded tile-pool acquire, a single-connection
     transaction with per-tenant role/search_path bind, error mapping
     (pool acquire timeout -> 429, query timeout or broad Exception -> 503),
@@ -2418,7 +2420,7 @@ async def _acquire_and_serve_tile(
                     # Bound before the tile query; a no-op in single_tenant or
                     # when tid is None.
                     await set_tenant_role_for_tile_request(tile_conn, tid)
-                    tile_data = await query_callable(pool, tile_conn)
+                    tile = await query_callable(pool, tile_conn)
             except asyncio.TimeoutError:
                 # A query that outruns the command timeout will again, so a
                 # retry hint would only repeat the work.
@@ -2461,7 +2463,7 @@ async def _acquire_and_serve_tile(
             detail="Tile service unavailable",
         )
 
-    if tile_data is None:
+    if tile is None:
         # Empty tiles are cached to avoid repeated PostGIS queries for sparse
         # datasets.
         if tile_cache is not None:
@@ -2482,13 +2484,14 @@ async def _acquire_and_serve_tile(
     # gzip is CPU-bound, so offload to a thread so the event loop isn't
     # stalled compressing wide low-zoom tiles. mtime=0 makes the gzip stream
     # deterministic so the content-hash ETag is stable across requests.
-    compressed = await asyncio.to_thread(gzip.compress, tile_data, 6, mtime=0)
+    compressed = await asyncio.to_thread(gzip.compress, tile.mvt, 6, mtime=0)
     if tile_cache is not None:
+        entry = tile_cache_entry(compressed, sampled=tile.sampled)
         await tile_cache.set(
-            cache_key, z, x, y, compressed, ttl=cache_ttl, cols_key=cols_cache_key
+            cache_key, z, x, y, entry, ttl=cache_ttl, cols_key=cols_cache_key
         )
 
-    return _tile_response(request, compressed, base_headers)
+    return _tile_response(request, compressed, base_headers, sampled=tile.sampled)
 
 
 @router.get(
@@ -2550,7 +2553,9 @@ async def cluster_tile_endpoint(
     a malformed table path or an out-of-range tile coordinate.
 
     A tile holding no features answers 204, and a repeat request whose
-    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    ``If-None-Match`` matches answers 304. When more than 100,000 points fall
+    in or next to the tile, or it would hold more than 50,000 features, it
+    holds a fixed sample and carries ``X-GeoLens-Tile-Sampled: true``. Where a deployment runs cold storage,
     a dataset still being restored answers 202 with a job id to poll. Requests
     answer 429 with ``Retry-After`` when the per-process capacity for uncached
     renders stays full for a short wait, tile-pool acquisition times out, or the
@@ -2624,7 +2629,7 @@ async def cluster_tile_endpoint(
                         empty=True,
                     ),
                 )
-            return _tile_response(
+            return _cached_tile_response(
                 request,
                 cached,
                 _serving_tile_headers(cache_scope, cache_ttl, _cluster_cache_control),
@@ -2757,7 +2762,9 @@ async def tile_endpoint(
 
     A malformed table path or an out-of-range tile coordinate answers 400. A
     tile holding no features answers 204, and a repeat request whose
-    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    ``If-None-Match`` matches answers 304. When the tile holds more than 50,000
+    features, it carries a fixed sample of them spread across the tile and
+    ``X-GeoLens-Tile-Sampled: true``. Where a deployment runs cold storage,
     a dataset still being restored answers 202 with a job id to poll. Requests
     answer 429 with ``Retry-After`` when the per-process capacity for uncached
     renders stays full for a short wait, tile-pool acquisition times out, or the
@@ -2822,7 +2829,7 @@ async def tile_endpoint(
                         empty=True,
                     ),
                 )
-            return _tile_response(
+            return _cached_tile_response(
                 request,
                 cached,
                 _serving_tile_headers(cache_scope, cache_ttl, _tile_cache_control),

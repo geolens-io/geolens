@@ -274,6 +274,7 @@ async def test_hosted_tile_endpoints_share_cache_policy_and_limit_only_db_misses
     from app.core.dependencies import get_db
     from app.modules.auth.dependencies import get_optional_user
     from app.processing.tiles import router as tile_router
+    from app.processing.tiles.service import RenderedTile
 
     tenant_id = uuid.UUID("00000000-0000-0000-0000-000000000123")
     table_name = f"hosted_{tile_kind}"
@@ -307,8 +308,8 @@ async def test_hosted_tile_endpoints_share_cache_policy_and_limit_only_db_misses
         set=AsyncMock(),
     )
     pool = _FakeTilePool()
-    vector_query = AsyncMock(return_value=b"vector-mvt")
-    cluster_query = AsyncMock(return_value=b"cluster-mvt")
+    vector_query = AsyncMock(return_value=RenderedTile(b"vector-mvt", sampled=False))
+    cluster_query = AsyncMock(return_value=RenderedTile(b"cluster-mvt", sampled=False))
 
     monkeypatch.setattr(
         tile_router, "_resolve_dataset_meta", AsyncMock(return_value=meta)

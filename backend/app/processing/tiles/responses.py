@@ -7,6 +7,10 @@ import hashlib
 from fastapi import HTTPException, Request, Response, status
 
 from app.platform.cache.scope import bound_shared_cache_lifetime
+from app.processing.tiles.cache_key import read_tile_cache_entry
+
+# Sent on a tile the feature cap sampled, so a client can say so.
+TILE_SAMPLED_HEADER = "X-GeoLens-Tile-Sampled"
 
 
 def tile_busy_error(detail: str = "Tile service busy, please retry") -> HTTPException:
@@ -99,9 +103,22 @@ def _if_none_match_satisfied(if_none_match: str | None, etag: str) -> bool:
 
 
 def _tile_response(
-    request: Request, content: bytes, base_headers: dict[str, str]
+    request: Request,
+    content: bytes,
+    base_headers: dict[str, str],
+    *,
+    sampled: bool = False,
 ) -> Response:
-    """Build an MVT response with ETag-based conditional-request support."""
+    """Build an MVT response with ETag-based conditional-request support.
+
+    A ``sampled`` tile carries ``TILE_SAMPLED_HEADER``, on a 304 too.
+    """
+    if sampled:
+        base_headers = {
+            **base_headers,
+            TILE_SAMPLED_HEADER: "true",
+            "Access-Control-Expose-Headers": TILE_SAMPLED_HEADER,
+        }
     etag = _tile_etag(content)
     if _if_none_match_satisfied(request.headers.get("if-none-match"), etag):
         conditional_headers = {
@@ -119,3 +136,11 @@ def _tile_response(
         media_type="application/vnd.mapbox-vector-tile",
         headers={**base_headers, "ETag": etag},
     )
+
+
+def _cached_tile_response(
+    request: Request, entry: bytes, base_headers: dict[str, str]
+) -> Response:
+    """Serve a tile cache entry with the sampled mark it was cached with."""
+    content, sampled = read_tile_cache_entry(entry)
+    return _tile_response(request, content, base_headers, sampled=sampled)

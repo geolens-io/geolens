@@ -2,7 +2,7 @@
 
 import re
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, NamedTuple
 
 import asyncpg
 import structlog
@@ -53,6 +53,14 @@ _TILE_FEATURE_LIMIT = 50000
 # keeping cluster tiles bounded for dense low-zoom datasets while still
 # allowing many more points than client-side GeoJSON.
 _CLUSTER_INPUT_LIMIT = 100000
+
+# The order rows meet a feature cap in. A hash of gid spreads the kept rows
+# across the tile when the table was loaded sorted by place, date or category,
+# where gid order would keep only the first ones. It is deterministic, so
+# rebuilds keep the content-hash ETag and every worker caches the same tile;
+# gid breaks hash collisions. No index serves this order, so a crowded tile
+# reads every row it covers instead of stopping at the cap.
+_SAMPLE_ORDER = "hashint8(t.gid::bigint), t.gid"
 
 # MVT tile extent (ST_AsMVTGeom resolution). One MVT coordinate unit spans
 # 360/(extent*2^z) degrees of longitude at zoom z.
@@ -300,8 +308,9 @@ def _build_tile_query(
 ) -> str:
     """Build the ST_AsMVT tile query for the given table and columns.
 
-    Simplification applies below z=10, and the inner CTE has a 50K-feature
-    LIMIT to bound query cost on wide low-zoom tiles. The tolerance is in
+    Simplification applies below z=10, and a 50K-feature cap bounds query
+    cost on wide low-zoom tiles. Past the cap the tile holds a sample taken in
+    ``_SAMPLE_ORDER``, and the query's second column says so. The tolerance is in
     EPSG:4326 degrees and follows one continuous schedule
     (``_simplify_tolerance_degrees``) that halves each zoom (z>=10 uses the
     original geometry untouched).
@@ -327,7 +336,7 @@ _env AS (
 bounds AS (
     SELECT _env.geom, ST_Transform(_env.geom, 4326) AS geom_4326 FROM _env
 ),
-mvtgeom AS (
+sampled AS (
     SELECT ST_AsMVTGeom(
         ST_Transform(
             -- Single continuous tolerance schedule for all
@@ -357,15 +366,18 @@ mvtgeom AS (
     t.gid{attr_columns}
     FROM {qualified_table} t, bounds
     WHERE t.geom_4326 && bounds.geom_4326
-    -- Deterministic under the feature cap, matching the cluster
-    -- query's candidate CTE. Without an ordering a tile whose bbox selects
-    -- more than {_TILE_FEATURE_LIMIT} rows returns an arbitrary subset, so
-    -- successive rebuilds flip the content-hash ETag and each uvicorn worker
-    -- can hold a different rendering of the same tile in its own cache.
-    ORDER BY t.gid
-    LIMIT {_TILE_FEATURE_LIMIT}
+    ORDER BY {_SAMPLE_ORDER}
+    LIMIT {_TILE_FEATURE_LIMIT + 1}
+),
+-- The row past the cap only marks the tile sampled; keeping the sample's
+-- lowest gids drops it. Encoding in gid order keeps a tile under the cap
+-- byte-identical whatever the sample order.
+mvtgeom AS (
+    SELECT * FROM sampled ORDER BY gid LIMIT {_TILE_FEATURE_LIMIT}
 )
-SELECT ST_AsMVT(mvtgeom.*, $4::text, 4096, 'geom', 'gid')
+SELECT
+    ST_AsMVT(mvtgeom.*, $4::text, 4096, 'geom', 'gid'),
+    (SELECT count(*) FROM sampled) > {_TILE_FEATURE_LIMIT}
 FROM mvtgeom
 -- ST_AsMVTGeom returns NULL for features clipped away or
 -- degenerate at this zoom; without this WHERE those rows are encoded as
@@ -426,10 +438,11 @@ def _build_cluster_tile_query(
     keeps every anchor inside [world_min, world_max]: inclusive lower bounds
     cover the west/south world edges, and the east/north edge tiles use
     inclusive upper bounds since an anchor can land exactly on the world
-    maximum; internal borders stay half-open. ``ORDER BY gid`` keeps candidate
-    membership deterministic per envelope.
+    maximum; internal borders stay half-open. ``_SAMPLE_ORDER`` keeps candidate
+    membership deterministic per envelope, and the query's second column says
+    whether the input cap or the feature cap left anything out.
 
-    Ownership filters before the feature cap (in the ``grouped`` CTE), so
+    Ownership filters before the feature cap (in the ``cells`` CTE), so
     neighbor-owned cells can never consume the output budget and displace
     owned cells. A cell owned via its anchor can have its centroid up to one
     bucket inside the neighbor tile, where a client whose viewport covers the
@@ -515,7 +528,7 @@ grid AS (
 -- Scan envelope = tile + one full bucket, so
 -- a cell straddling the tile border is seen with its COMPLETE membership.
 -- Expansion applies at clustering zooms ONLY: past cluster
--- max zoom no cross-tile cells exist, and lower-gid ring candidates would
+-- max zoom no cross-tile cells exist, and ring candidates would
 -- just consume the input cap before ownership discards them, starving the
 -- tile of its own points. Clamped to the world envelope BEFORE the 4326
 -- transform: past the world edge proj wraps longitude and the transformed
@@ -537,7 +550,7 @@ scan AS (
     ) AS geom_4326
     FROM bounds, grid
 ),
-candidates AS (
+sampled AS (
     SELECT
         t.gid,
         ST_Transform(ST_PointOnSurface(t.geom_4326), 3857) AS geom_3857
@@ -546,8 +559,12 @@ candidates AS (
       AND NOT ST_IsEmpty(t.geom_4326){filter_clause}
     -- Deterministic under the input cap, so neighboring tiles
     -- that both see a straddling cell agree on membership and centroid.
-    ORDER BY t.gid
-    LIMIT {_CLUSTER_INPUT_LIMIT}
+    ORDER BY {_SAMPLE_ORDER}
+    LIMIT {_CLUSTER_INPUT_LIMIT + 1}
+),
+-- The candidate past the cap only marks the tile sampled.
+candidates AS (
+    SELECT * FROM sampled ORDER BY gid LIMIT {_CLUSTER_INPUT_LIMIT}
 ),
 bucketed AS (
     SELECT
@@ -590,7 +607,7 @@ anchored AS (
         END AS anchor_y
     FROM bucketed, grid
 ),
-grouped AS (
+cells AS (
     SELECT
         bucket_x,
         bucket_y,
@@ -624,10 +641,14 @@ grouped AS (
         OR ($3::integer = 0 AND anchored.anchor_y <= ST_YMax(bounds.geom))
       )
     GROUP BY bucket_x, bucket_y
-    -- Same determinism rule as the vector query above -- the cap
-    -- has to pick the same cells every rebuild.
-    ORDER BY bucket_x, bucket_y
-    LIMIT {_TILE_FEATURE_LIMIT}
+    -- Same sample rule as the candidates, on each cell's source gid. Past
+    -- cluster max zoom every point is its own cell, so this cap samples too.
+    ORDER BY hashint8(min(gid)::bigint), min(gid)
+    LIMIT {_TILE_FEATURE_LIMIT + 1}
+),
+-- The cell past the cap only marks the tile sampled.
+grouped AS (
+    SELECT * FROM cells ORDER BY bucket_x, bucket_y LIMIT {_TILE_FEATURE_LIMIT}
 ),
 features AS (
     SELECT
@@ -706,10 +727,29 @@ features AS (
         ) AS geom
     FROM grouped{unclustered_attr_join}, bounds, grid
 )
-SELECT ST_AsMVT(features.*, $4::text, 4096, 'geom', 'gid')
+SELECT
+    ST_AsMVT(features.*, $4::text, 4096, 'geom', 'gid'),
+    (SELECT count(*) FROM sampled) > {_CLUSTER_INPUT_LIMIT}
+        OR (SELECT count(*) FROM cells) > {_TILE_FEATURE_LIMIT}
 FROM features
 WHERE geom IS NOT NULL
 """
+
+
+class RenderedTile(NamedTuple):
+    """An MVT tile and whether a feature cap left features out of it."""
+
+    mvt: bytes
+    sampled: bool
+
+
+async def _fetch_rendered_tile(
+    executor: asyncpg.Pool | asyncpg.Connection, query: str, *args: Any
+) -> RenderedTile | None:
+    row = await executor.fetchrow(query, *args)
+    if row is None or not row[0]:
+        return None
+    return RenderedTile(bytes(row[0]), bool(row[1]))
 
 
 async def get_tile(
@@ -724,8 +764,8 @@ async def get_tile(
     additional_columns: list[str] | None = None,
     conn: asyncpg.Connection | None = None,
     schema: str = "data",
-) -> bytes | None:
-    """Execute a tile query and return MVT bytes, or None if empty.
+) -> RenderedTile | None:
+    """Execute a tile query and return the rendered tile, or None if empty.
 
     Args:
         pool: asyncpg connection pool (used only when ``conn`` is None).
@@ -747,7 +787,8 @@ async def get_tile(
             clause is explicitly schema-qualified.
 
     Returns:
-        MVT binary data, or None if the tile contains no features.
+        The MVT bytes and whether the feature cap sampled them, or None if
+        the tile contains no features.
     """
     _validate_tile_table_name(table_name)
 
@@ -764,15 +805,9 @@ async def get_tile(
     # URLs. The physical schema qualification is required for tenant isolation.
     layer_name = f"{schema}.{table_name}"
 
-    if conn is not None:
-        result = await conn.fetchval(query, z, x, y, layer_name)
-    else:
-        result = await pool.fetchval(query, z, x, y, layer_name)
-
-    if result is None or len(result) == 0:
-        return None
-
-    return result
+    return await _fetch_rendered_tile(
+        conn if conn is not None else pool, query, z, x, y, layer_name
+    )
 
 
 async def get_cluster_tile(
@@ -791,7 +826,7 @@ async def get_cluster_tile(
     schema: str = "data",
     filter_sql: str | None = None,
     filter_params: Sequence[Any] = (),
-) -> bytes | None:
+) -> RenderedTile | None:
     """Execute a server-side point-cluster MVT query.
 
     Emits MapLibre-compatible cluster properties while keeping the source
@@ -833,7 +868,8 @@ async def get_cluster_tile(
     layer_name = f"{schema}.{table_name}"
 
     try:
-        result = await (conn if conn is not None else pool).fetchval(
+        return await _fetch_rendered_tile(
+            conn if conn is not None else pool,
             query,
             z,
             x,
@@ -849,8 +885,3 @@ async def get_cluster_tile(
 
             refuse_type_fault(exc)
         raise
-
-    if result is None or len(result) == 0:
-        return None
-
-    return result

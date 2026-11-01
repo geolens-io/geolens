@@ -126,6 +126,8 @@ export interface LegendFacts {
 /** What the map drew a layer as, when the caller knows. */
 export interface DrawnLayer {
   drawsAs: LayerAdapter['type'];
+  /** A tile in view held more features than the server's cap, so it sent a sample. */
+  sampled?: boolean;
 }
 
 function nonBlank(value: unknown): string | null {

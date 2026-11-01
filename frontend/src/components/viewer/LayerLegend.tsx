@@ -196,6 +196,11 @@ export function LayerLegend({
                         : t('viewer.legend.cluster.fallback')}
                   </div>
                 )}
+                {isVisible && drawn?.get(key)?.sampled && (
+                  <p className="mt-1 ms-6 text-mini text-muted-foreground">
+                    {t('viewer.legend.sampled')}
+                  </p>
+                )}
 
                 {/* Data-driven legend entries */}
                 {isVisible && (

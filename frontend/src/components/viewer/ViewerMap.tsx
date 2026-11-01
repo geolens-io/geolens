@@ -26,6 +26,7 @@ import { useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { isSessionRenewalPending, useTileAuthRecovery, useVisibleTileTokenRefresh } from '@/hooks/use-tile-auth-recovery';
 import { useViewerTokens } from '@/components/viewer/hooks/use-viewer-tokens';
 import { isViewerTerrainExpected, useViewerTerrain } from '@/components/viewer/hooks/use-viewer-terrain';
+import { useSampledTileSources } from '@/components/viewer/hooks/use-sampled-tile-sources';
 import { FeaturePopup, type FeatureInfo } from '@/components/map/FeaturePopup';
 import {
   activateClusterFeature,
@@ -43,7 +44,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import { clampMinZoomAfterFit, FIT_BOUNDS_OPTIONS, getVisibleLayerBounds } from '@/components/builder/builder-bounds';
-import { adapterInputFor, describeLayers } from '@/components/builder/layer-description';
+import { adapterInputFor, describeLayers, getSourceIdForLayer } from '@/components/builder/layer-description';
 import { prefixed, isDemTerrainVisualSuppressed, registerBasemapStyleGeneration, syncRenderContext } from '@/components/builder/map-sync';
 import { applyMapBasemapAppearance, syncMapComposition } from '@/components/builder/map-composition-sync';
 import type { SyncLayerInput } from '@/components/builder/map-sync';
@@ -436,6 +437,13 @@ export const ViewerMap = memo(function ViewerMap({
     if (map && mapReady) map.triggerRepaint();
   }, [geojsonVersion, mapReady]);
 
+  const layerSourceIds = useMemo(
+    () => new Set(layerEntries.map(({ layer, key }) =>
+      getSourceIdForLayer(toViewerSyncInput(layer, key, visibleLayers), VIEWER_PREFIX))),
+    [layerEntries, visibleLayers],
+  );
+  const sampledSources = useSampledTileSources(mapRef, mapReady, layerSourceIds);
+
   // A cluster draws single points while its GeoJSON loads, so reporting waits
   // for the fetch to settle and reports a fallback only when it stays.
   const onDrawnChangeRef = useRef(onDrawnChange);
@@ -455,11 +463,14 @@ export const ViewerMap = memo(function ViewerMap({
     const drawn = new Map<string, DrawnLayer>();
     for (const { layer, key } of layerEntries) {
       const [described] = describeLayers([toViewerSyncInput(layer, key, visibleLayers)], context).layers;
-      if (described) drawn.set(key, { drawsAs: described.drawsAs });
+      if (!described) continue;
+      drawn.set(key, sampledSources.has(described.sourceId)
+        ? { drawsAs: described.drawsAs, sampled: true }
+        : { drawsAs: described.drawsAs });
     }
     onDrawnChangeRef.current?.(drawn);
     hasReportedRef.current = drawn.size > 0;
-  }, [layerEntries, visibleLayers, geojsonVersion, tileConfigReady, boundedGeoJsonReady, tileConfig?.mvt_source_layer_prefix]);
+  }, [layerEntries, visibleLayers, geojsonVersion, tileConfigReady, boundedGeoJsonReady, tileConfig?.mvt_source_layer_prefix, sampledSources]);
 
   const handleLoad = useCallback(
     (e: MapLibreEvent) => {

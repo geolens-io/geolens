@@ -22,6 +22,7 @@ from app.processing.tiles.router import (
 )
 from app.processing.tiles.service import (
     _NO_SIMPLIFY_AT_OR_ABOVE_ZOOM,
+    _SAMPLE_ORDER,
     _build_cluster_tile_query,
     _build_tile_query,
     _simplify_tolerance_degrees,
@@ -88,10 +89,10 @@ def test_tile_query_uses_single_continuous_simplify_basis():
 async def test_get_tile_layer_name_is_schema_qualified():
     """get_tile passes ``{schema}.{table}`` — "data.table" in single_tenant."""
     conn = AsyncMock()
-    conn.fetchval.return_value = b"\x1a"  # non-empty MVT bytes
+    conn.fetchrow.return_value = (b"\x1a", False)  # non-empty MVT bytes
     await get_tile(None, "places", 5, 1, 1, [{"name": "gid"}], conn=conn, schema="data")
-    # fetchval(query, z, x, y, layer_name) — single_tenant matches the client.
-    assert conn.fetchval.call_args.args[4] == "data.places"
+    # fetchrow(query, z, x, y, layer_name) — single_tenant matches the client.
+    assert conn.fetchrow.call_args.args[4] == "data.places"
 
 
 def test_tile_query_from_clause_is_schema_qualified():
@@ -215,7 +216,7 @@ def test_cluster_query_buckets_on_absolute_3857_grid():
     # deterministic membership under the cap, and cell-ORIGIN anchor
     # ownership (pure grid geometry, never dependent on the scanned subset).
     assert "ST_Expand(" in query
-    assert "ORDER BY t.gid" in query
+    assert f"ORDER BY {_SAMPLE_ORDER}" in query
     assert "anchored.anchor_x >= ST_XMin(bounds.geom)" in query
     # #872: the grid anchors to the WORLD MINIMUM, so every
     # in-world point yields an in-world cell origin (a 0-anchored grid lost
@@ -324,7 +325,7 @@ async def test_get_cluster_tile_resolves_columns_like_get_tile():
     cols= opt-in projects at ANY zoom, and the low-zoom default projects
     nothing without an opt-in."""
     conn = AsyncMock()
-    conn.fetchval.return_value = b"\x1a"
+    conn.fetchrow.return_value = (b"\x1a", False)
     columns = [{"name": "mag"}, {"name": "place"}]
 
     # z=3 (< z10 default) with an explicit cols= opt-in for one column.
@@ -339,11 +340,11 @@ async def test_get_cluster_tile_resolves_columns_like_get_tile():
         conn=conn,
         schema="data",
     )
-    query = conn.fetchval.call_args.args[0]
+    query = conn.fetchrow.call_args.args[0]
     assert 'src."mag" AS "mag"' in query
     assert 'src."place"' not in query
 
     # Same zoom, no opt-in -> no projection at all.
     await get_cluster_tile(None, "places", 3, 1, 1, columns, conn=conn, schema="data")
-    query = conn.fetchval.call_args.args[0]
+    query = conn.fetchrow.call_args.args[0]
     assert "src." not in query
