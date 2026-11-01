@@ -178,6 +178,12 @@ def test_seed_refuses_without_its_prerequisites(seed):
 BUILDINGS_LAYER = "44444444-4444-4444-8444-444444444444"
 SUBWAY_LAYER = "55555555-5555-4555-8555-555555555555"
 PHOTO = b"a pinned skyline photo"
+# Two unnamed towers finished the same year share the title "Built 2016".
+TALLEST = [
+    {"title": "Built 2016", "height_roof": 1400.0},
+    {"title": "Built 2016", "height_roof": 1396.0},
+    {"title": "Empire State Building", "height_roof": 1250.0},
+]
 
 
 class SkylineFakeApi(FakeApi):
@@ -211,16 +217,12 @@ class SkylineFakeApi(FakeApi):
             return {
                 "values": [{"value": v, "count": 3} for v in values[body["column"]]]
             }
-        if body["op"] == "group_by":
-            return {
-                "groups": [
-                    {"key": "Empire State Building", "value": 1250.0},
-                    {"key": "Built 2020", "value": 1100.0},
-                ]
-            }
         if body["op"] == "stats":
             return {"max": 1550.0}
         return super().aggregate(dataset_id, **body)
+
+    def rows(self, dataset_id, cql2, sort, limit):
+        return sorted(TALLEST, key=lambda row: -row[sort])[:limit]
 
     def upload_story_asset(self, story_id, filename, data):
         self.uploads += 1
@@ -264,5 +266,4 @@ def test_skyline_story_flies_one_map_and_reruns_reuse_everything(monkeypatch):
         for block in chapter.blocks
         if block.type == "markdown"
     )
-    assert "Empire State Building (1,250 ft)" in text
-    assert "a tower completed in 2020" in text
+    assert "followed by a tower completed in 2016 at 1,396 ft" in text

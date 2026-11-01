@@ -1004,17 +1004,38 @@ class Api:
         """One exact aggregate over a dataset - the call the widgets make."""
         # The endpoint is rate limited per second, and a story's figures come
         # from back-to-back aggregates.
-        for _ in range(5):
+        for attempt in range(5):
             r = self.client.post(
                 f"{self.base}/api/datasets/{dataset_id}/aggregate/",
                 headers=self.h,
                 json=body,
             )
-            if r.status_code != 429:
+            if r.status_code != 429 or attempt == 4:
                 break
-            time.sleep(float(r.headers.get("Retry-After", 0.2)))
+            try:
+                wait = float(r.headers.get("Retry-After", ""))
+            except ValueError:  # absent, or an HTTP date
+                wait = 0.2
+            time.sleep(min(max(wait, 0.2), 5.0))
         r.raise_for_status()
         return r.json()["result"]
+
+    def rows(
+        self, dataset_id: str, cql2: dict, sort: str, limit: int
+    ) -> list[dict]:
+        """The dataset rows matching a CQL2-JSON filter, highest *sort* first."""
+        r = self.client.get(
+            f"{self.base}/api/datasets/{dataset_id}/rows/",
+            headers=self.h,
+            params={
+                "filter": json.dumps(cql2),
+                "sort": sort,
+                "order": "desc",
+                "limit": limit,
+            },
+        )
+        r.raise_for_status()
+        return r.json()["rows"]
 
     def attributes(self, dataset_id: str) -> list[dict]:
         r = self.client.get(
@@ -4978,26 +4999,35 @@ def seed_skyline_dashboard(
 def _skyline_tallest(
     api: Api, dataset_id: str, bbox: list[float], eras: list[str], limit: int = 2
 ) -> list[tuple[str, float]]:
-    """The tallest roofs, in feet, of the given eras inside bbox, as (label, height)."""
-    groups = api.aggregate(
+    """The tallest roofs, in feet, of the given eras inside bbox, as (label, height).
+
+    Ranked by row, because unnamed footprints share a "Built <year>" title.
+    """
+    rows = api.rows(
         dataset_id,
-        op="group_by",
-        group_column="title",
-        stat="max",
-        column="height_roof",
+        {
+            "op": "and",
+            "args": [
+                {"op": "in", "args": [{"property": "era"}, eras]},
+                {
+                    "op": "s_intersects",
+                    "args": [{"property": "geometry"}, {"bbox": bbox}],
+                },
+            ],
+        },
+        sort="height_roof",
         limit=limit,
-        bbox=bbox,
-        filter={"op": "in", "args": [{"property": "era"}, eras]},
-    )["groups"]
-    # An unnamed footprint is titled "Built <year>".
+    )
+    if len(rows) < limit:
+        raise RuntimeError(f"fewer than {limit} buildings of {eras} inside {bbox}")
     return [
         (
-            f"a tower completed in {g['key'].removeprefix('Built ')}"
-            if g["key"].startswith("Built ")
-            else g["key"],
-            g["value"],
+            f"a tower completed in {row['title'].removeprefix('Built ')}"
+            if row["title"].startswith("Built ")
+            else row["title"],
+            row["height_roof"],
         )
-        for g in groups
+        for row in rows
     ]
 
 
@@ -5026,7 +5056,8 @@ def seed_skyline_story(
     buildings_ds = by_title.get(SKYLINE_BUILDINGS_TITLE)
     map_id = maps.get(SKYLINE_MAP)
     dashboard_id = maps.get(SKYLINE_DASHBOARD_MAP)
-    if not (buildings_ds and map_id and dashboard_id):
+    stations_ds = by_title.get("NYC Subway Stations (MTA)")
+    if not (buildings_ds and stations_ds and map_id and dashboard_id):
         raise RuntimeError(
             f"{SKYLINE_MAP!r} or {SKYLINE_DASHBOARD_MAP!r} is not seeded yet - "
             "run --only manhattan and --only skyline-dashboard first"
@@ -5036,7 +5067,6 @@ def seed_skyline_story(
     subway = [
         lay["id"] for lay in manhattan["layers"] if lay["dataset_id"] != buildings_ds
     ]
-    stations_ds = by_title["NYC Subway Stations (MTA)"]
 
     total = api.aggregate(buildings_ds, op="count")["count"]
     by_era = {
