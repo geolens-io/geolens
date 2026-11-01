@@ -187,7 +187,7 @@ TALLEST = [
 
 
 class SkylineFakeApi(FakeApi):
-    base = "https://geolens.example"
+    base = "http://localhost:8001"
 
     def __init__(self):
         super().__init__()
@@ -220,6 +220,9 @@ class SkylineFakeApi(FakeApi):
         if body["op"] == "stats":
             return {"max": 1550.0}
         return super().aggregate(dataset_id, **body)
+
+    def public_app_url(self):
+        return "https://geolens.example"
 
     def rows(self, dataset_id, cql2, sort, limit):
         return sorted(TALLEST, key=lambda row: -row[sort])[:limit]

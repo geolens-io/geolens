@@ -1052,6 +1052,17 @@ class Api:
         )
         r.raise_for_status()
 
+    def public_app_url(self) -> str:
+        """The address readers open the app at, as share links use it.
+
+        The seed may reach the API through localhost or an internal name, which
+        a published link must not carry. Falls back to the API base when the
+        deployment has no public app URL configured.
+        """
+        r = self.client.get(f"{self.base}/api/settings/tile-config/", headers=self.h)
+        r.raise_for_status()
+        return (r.json().get("public_app_url") or self.base).rstrip("/")
+
     def story_document(self, story_id: str) -> dict:
         """The story's current draft document."""
         r = self.client.get(f"{self.base}/api/stories/{story_id}/draft", headers=self.h)
@@ -5063,6 +5074,7 @@ def seed_skyline_story(
             "run --only manhattan and --only skyline-dashboard first"
         )
     print("\n[skyline-story] " + SKYLINE_STORY_TITLE)
+    app_url = api.public_app_url()
     manhattan = api.get_map(map_id)
     subway = [
         lay["id"] for lay in manhattan["layers"] if lay["dataset_id"] != buildings_ds
@@ -5232,7 +5244,7 @@ def seed_skyline_story(
                         "v": 1,
                         "config": {
                             "label": "Open the skyline dashboard",
-                            "url": f"{api.base}/maps/{dashboard_id}",
+                            "url": f"{app_url}/maps/{dashboard_id}",
                         },
                     }
                 ],
