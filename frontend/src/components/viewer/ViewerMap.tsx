@@ -437,10 +437,13 @@ export const ViewerMap = memo(function ViewerMap({
     if (map && mapReady) map.triggerRepaint();
   }, [geojsonVersion, mapReady]);
 
+  // A string key, so a visibility toggle that keeps the same sources doesn't resubscribe the hook.
+  const layerSourceIdKey = layerEntries
+    .map(({ layer, key }) => getSourceIdForLayer(toViewerSyncInput(layer, key, visibleLayers), VIEWER_PREFIX))
+    .join('\n');
   const layerSourceIds = useMemo(
-    () => new Set(layerEntries.map(({ layer, key }) =>
-      getSourceIdForLayer(toViewerSyncInput(layer, key, visibleLayers), VIEWER_PREFIX))),
-    [layerEntries, visibleLayers],
+    () => new Set(layerSourceIdKey.split('\n').filter(Boolean)),
+    [layerSourceIdKey],
   );
   const sampledSources = useSampledTileSources(mapRef, mapReady, layerSourceIds);
 
