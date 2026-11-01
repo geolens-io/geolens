@@ -193,6 +193,8 @@ class SkylineFakeApi(FakeApi):
         super().__init__()
         self.maps = {seeder.SKYLINE_MAP: "map-manhattan"}
         self.uploads = 0
+        self.layer_popup = None
+        self.layer_updates: list[dict] = []
 
     def datasets_by_title(self):
         return {
@@ -208,8 +210,23 @@ class SkylineFakeApi(FakeApi):
                 {"id": SUBWAY_LAYER, "dataset_id": "ds-subway"},
             ]
         if map_id == "map-dashboard" and self.layers_added:
-            doc["layers"] = [{"id": BUILDINGS_LAYER, "dataset_id": "ds-buildings"}]
+            doc["layers"] = [
+                {
+                    "id": BUILDINGS_LAYER,
+                    "dataset_id": "ds-buildings",
+                    "popup_config": self.layer_popup,
+                }
+            ]
         return doc
+
+    def add_layer(self, map_id, body):
+        super().add_layer(map_id, body)
+        self.layer_popup = body["popup_config"]
+        return {"id": BUILDINGS_LAYER}
+
+    def update_layer(self, map_id, body):
+        self.layer_updates.append(body)
+        self.layer_popup = body["popup_config"]
 
     def aggregate(self, dataset_id, **body):
         if body["op"] == "value_counts":
@@ -270,3 +287,25 @@ def test_skyline_story_flies_one_map_and_reruns_reuse_everything(monkeypatch):
         if block.type == "markdown"
     )
     assert "followed by a tower completed in 2016 at 1,396 ft" in text
+
+
+def test_skyline_dashboard_table_leads_with_the_building():
+    fields = ["title", "height_roof", "construction_year", "era"]
+    api = SkylineFakeApi()
+    seeder.seed_skyline_dashboard(api)
+    seeder.seed_skyline_dashboard(api)
+    assert api.layer_popup["visible_fields"] == fields
+    assert api.layer_updates == []
+
+    # A layer an earlier seed made keeps its other popup settings.
+    api.layer_popup = {"enabled": False, "visible_fields": ["construction_year"]}
+    seeder.seed_skyline_dashboard(api)
+    assert api.layer_updates[-1]["popup_config"]["enabled"] is False
+    assert api.layer_updates[-1]["popup_config"]["visible_fields"] == fields
+
+    # A layer saved without a popup still gets the fields the API requires.
+    api.layer_popup = None
+    seeder.seed_skyline_dashboard(api)
+    assert api.layer_updates[-1]["popup_config"]["enabled"] is True
+    assert api.layer_updates[-1]["popup_config"]["visible_fields"] == fields
+    assert len(api.layer_updates) == 2
