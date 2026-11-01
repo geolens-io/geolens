@@ -184,6 +184,7 @@
     "layerOpacity": "图层不透明度",
     "pointOpacityHelp": "每个点填充的不透明度。下方的图层不透明度会在此基础上相乘。",
     "layerOpacityHelp": "与上方的不透明度设置相结合。",
+    "tileCapHint": "地图瓦片最多容纳 {{limit}} 个要素，而此图层有 {{count}} 个。缩小时，读者只会看到抽样结果。请对点进行聚合，或设置最小缩放级别以显示全部点。",
     "color": "颜色",
     "hexValueFor": "{{label}} 的十六进制值",
     "hexColorValue": "十六进制颜色值",

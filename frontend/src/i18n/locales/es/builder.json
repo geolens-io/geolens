@@ -184,6 +184,7 @@
     "layerOpacity": "Opacidad de la capa",
     "pointOpacityHelp": "Opacidad del relleno de cada punto. La opacidad de la capa, más abajo, se multiplica sobre este valor.",
     "layerOpacityHelp": "Se combina con los ajustes de opacidad anteriores.",
+    "tileCapHint": "Las teselas del mapa admiten hasta {{limit}} entidades y esta capa tiene {{count}}. Al alejar el zoom, los lectores ven una muestra. Agrupa los puntos o define un zoom mínimo para mostrarlos todos.",
     "color": "Color",
     "hexValueFor": "Valor hexadecimal de {{label}}",
     "hexColorValue": "Valor de color hexadecimal",

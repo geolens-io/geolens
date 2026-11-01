@@ -184,6 +184,7 @@
     "layerOpacity": "Opacité de la couche",
     "pointOpacityHelp": "Opacité du remplissage de chaque point. L'opacité de la couche, ci-dessous, s'y multiplie.",
     "layerOpacityHelp": "Se combine avec les réglages d'opacité ci-dessus.",
+    "tileCapHint": "Les tuiles de la carte contiennent au plus {{limit}} entités, et cette couche en compte {{count}}. En dézoomant, les lecteurs voient un échantillon. Regroupez les points ou définissez un zoom minimal pour tous les afficher.",
     "color": "Couleur",
     "hexValueFor": "Valeur hexadécimale de {{label}}",
     "hexColorValue": "Valeur de couleur hexadécimale",
