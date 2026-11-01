@@ -7988,11 +7988,16 @@ def main() -> int:
         else:
             print(outcome)
 
+    if not args.expected_state:
+        try:
+            set_attribute_titles(api)
+        except httpx.HTTPError as e:
+            print(f"\nERROR in [attribute titles]: {e}", file=sys.stderr)
+            failed["attribute titles"] = str(e)
+
     # Backfill license + keywords on whatever showcase datasets now exist (the
     # ingest flow leaves them "proprietary" with no keywords). Isolated per
     # dataset; a guarded update fails on any it could not write.
-    if not args.expected_state:
-        set_attribute_titles(api)
     print("\nEnriching catalog metadata (license + keywords)...")
     unenriched = enrich_showcase_metadata(api)
     if unenriched and args.expected_state:

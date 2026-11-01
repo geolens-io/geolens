@@ -6,6 +6,7 @@ checked against the server's own request schemas.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 
 import pytest
@@ -172,3 +173,96 @@ def test_seed_refuses_without_its_prerequisites(seed):
     api.datasets_by_title = lambda: {}
     with pytest.raises(RuntimeError, match="not seeded"):
         getattr(seeder, seed)(api)
+
+
+BUILDINGS_LAYER = "44444444-4444-4444-8444-444444444444"
+SUBWAY_LAYER = "55555555-5555-4555-8555-555555555555"
+PHOTO = b"a pinned skyline photo"
+
+
+class SkylineFakeApi(FakeApi):
+    base = "https://geolens.example"
+
+    def __init__(self):
+        super().__init__()
+        self.maps = {seeder.SKYLINE_MAP: "map-manhattan"}
+        self.uploads = 0
+
+    def datasets_by_title(self):
+        return {
+            seeder.SKYLINE_BUILDINGS_TITLE: "ds-buildings",
+            "NYC Subway Stations (MTA)": "ds-stations",
+        }
+
+    def get_map(self, map_id):
+        doc = super().get_map(map_id)
+        if map_id == "map-manhattan":
+            doc["layers"] = [
+                {"id": BUILDINGS_LAYER, "dataset_id": "ds-buildings"},
+                {"id": SUBWAY_LAYER, "dataset_id": "ds-subway"},
+            ]
+        if map_id == "map-dashboard" and self.layers_added:
+            doc["layers"] = [{"id": BUILDINGS_LAYER, "dataset_id": "ds-buildings"}]
+        return doc
+
+    def aggregate(self, dataset_id, **body):
+        if body["op"] == "value_counts":
+            values = {"era": ["Pre-1900", "1900-1929", "2015+"], "ada": ["1"]}
+            return {
+                "values": [{"value": v, "count": 3} for v in values[body["column"]]]
+            }
+        if body["op"] == "group_by":
+            return {
+                "groups": [
+                    {"key": "Empire State Building", "value": 1250.0},
+                    {"key": "Built 2020", "value": 1100.0},
+                ]
+            }
+        if body["op"] == "stats":
+            return {"max": 1550.0}
+        return super().aggregate(dataset_id, **body)
+
+    def upload_story_asset(self, story_id, filename, data):
+        self.uploads += 1
+        return "66666666-6666-4666-8666-666666666666"
+
+    def story_document(self, story_id):
+        return self.published[-1] if self.published else {}
+
+
+def test_skyline_story_flies_one_map_and_reruns_reuse_everything(monkeypatch):
+    monkeypatch.setattr(seeder, "fetch", lambda _url: PHOTO)
+    monkeypatch.setattr(
+        seeder, "SKYLINE_PHOTO_SHA256", hashlib.sha256(PHOTO).hexdigest()
+    )
+    api = SkylineFakeApi()
+    for _ in range(2):
+        seeder.seed_skyline_dashboard(api)
+        seeder.seed_skyline_story(api)
+
+    assert (api.maps_created, api.layers_added, api.stories_created) == (1, 1, 1)
+    assert api.uploads == 1
+    for config in api.dashboards:
+        DashboardConfigInput.model_validate(config)
+    first, second = api.published
+    assert first == second
+
+    document = StoryDocumentInput.model_validate(first)
+    scenes = [chapter.scene for chapter in document.chapters]
+    # One map for every chapter is what makes the reader fly instead of remount.
+    assert len({scene.map_id for scene in scenes}) == 1
+    subway = [
+        scene.layer_visibility[seeder.uuid.UUID(SUBWAY_LAYER)] for scene in scenes
+    ]
+    assert subway == [False, False, False, False, True]
+    assert document.chapters[-1].blocks[-1].config.url == (
+        "https://geolens.example/maps/map-dashboard"
+    )
+    text = " ".join(
+        block.config.text
+        for chapter in document.chapters
+        for block in chapter.blocks
+        if block.type == "markdown"
+    )
+    assert "Empire State Building (1,250 ft)" in text
+    assert "a tower completed in 2020" in text
