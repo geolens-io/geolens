@@ -427,9 +427,15 @@ async def _activate(client, admin, session, path: str, user_id: str):
         return await client.post(
             f"{url}/approve/", json={"role": "viewer"}, headers=admin
         )
+    from app.core.persistent_config import REGISTRATION_ENABLED
+
     token = await issue_verification_token(session, uuid.UUID(user_id))
-    await session.commit()
-    return await client.post("/auth/verify-email", json={"token": token})
+    await REGISTRATION_ENABLED.set(session, True)
+    try:
+        return await client.post("/auth/verify-email", json={"token": token})
+    finally:
+        await session.rollback()
+        await REGISTRATION_ENABLED.reset(session)
 
 
 async def _inactive_member_of_a_vrt_group(

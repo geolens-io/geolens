@@ -25,6 +25,10 @@ Covers the eight-case behaviour matrix:
     → POST /auth/resend-verification returns SAME 200 body for known unverified
       email AND for unknown email; known one triggers a second send.
 
+(5b) admin-approval mode, or sign-ups closed
+    → resend sends nothing and answers with the same body; a link still held
+      confirms the address but leaves the account pending with no role.
+
 (6) pre-verification user blocked from protected endpoint
     → GET /auth/me with invalid/pre-verify creds rejected.
 
@@ -618,6 +622,133 @@ async def test_resend_verification_enumeration_safe(
         f"Expected exactly {expected_total} total send_email calls (unknown email must not send), "
         f"got {calls_after}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Case (5b): a verification link never stands in for admin approval
+# ---------------------------------------------------------------------------
+
+
+async def _pending_signup(client: AsyncClient) -> tuple[str, str]:
+    username = _unique_username()
+    email = _unique_email()
+    resp = await client.post(
+        "/auth/register/",
+        json={"username": username, "password": _STRONG_PASSWORD, "email": email},
+    )
+    assert resp.status_code == 201, resp.text
+    return username, email
+
+
+async def _assert_still_awaiting_approval(
+    client: AsyncClient, test_db_session, username: str
+) -> None:
+    from app.modules.auth.models import User, UserRole
+
+    test_db_session.expire_all()
+    user = (
+        await test_db_session.execute(select(User).where(User.username == username))
+    ).scalar_one()
+    assert user.email_verified is True
+    assert (user.status, user.is_active) == ("pending", False)
+    roles = await test_db_session.scalar(
+        select(UserRole.role_id).where(UserRole.user_id == user.id)
+    )
+    assert roles is None
+    login = await client.post(
+        "/auth/login", data={"username": username, "password": _STRONG_PASSWORD}
+    )
+    assert login.status_code == 403, login.text
+
+
+@pytest.mark.anyio
+async def test_resend_sends_nothing_in_admin_approval_mode(
+    client: AsyncClient,
+    captured_send_email: list,
+    set_persistent_config,
+) -> None:
+    """With verification off, resend mails no link and keeps the generic body."""
+    from app.core.persistent_config import (
+        EMAIL_VERIFICATION_REQUIRED,
+        REGISTRATION_ENABLED,
+    )
+
+    await set_persistent_config(REGISTRATION_ENABLED, True)
+    await set_persistent_config(EMAIL_VERIFICATION_REQUIRED, False)
+    _, email = await _pending_signup(client)
+    assert captured_send_email == []
+
+    known = await client.post("/auth/resend-verification/", json={"email": email})
+    unknown = await client.post(
+        "/auth/resend-verification/", json={"email": _unique_email()}
+    )
+
+    assert known.status_code == unknown.status_code == 200
+    assert known.content == unknown.content
+    assert captured_send_email == []
+
+
+@pytest.mark.anyio
+async def test_verify_email_in_admin_approval_mode_does_not_activate(
+    client: AsyncClient,
+    captured_send_email: list,
+    test_db_session,
+    set_persistent_config,
+) -> None:
+    """A link redeemed with verification off confirms the address only."""
+    from app.core.persistent_config import (
+        EMAIL_VERIFICATION_REQUIRED,
+        REGISTRATION_ENABLED,
+    )
+    from app.modules.auth.models import User
+    from app.modules.auth.verification import issue_verification_token
+
+    await set_persistent_config(REGISTRATION_ENABLED, True)
+    await set_persistent_config(EMAIL_VERIFICATION_REQUIRED, False)
+    username, _ = await _pending_signup(client)
+    user_id = await test_db_session.scalar(
+        select(User.id).where(User.username == username)
+    )
+    raw_token = await issue_verification_token(test_db_session, user_id)
+    await test_db_session.commit()
+
+    verify = await client.post("/auth/verify-email/", json={"token": raw_token})
+
+    assert verify.status_code == 200, verify.text
+    assert verify.json()["next_step"] == "await_approval"
+    await _assert_still_awaiting_approval(client, test_db_session, username)
+
+
+@pytest.mark.anyio
+async def test_verify_email_after_signups_close_does_not_activate(
+    client: AsyncClient,
+    captured_send_email: list,
+    test_db_session,
+    set_persistent_config,
+) -> None:
+    """A link mailed while sign-ups were open no longer activates once they close."""
+    from app.core.persistent_config import (
+        EMAIL_VERIFICATION_REQUIRED,
+        REGISTRATION_ENABLED,
+    )
+
+    await set_persistent_config(REGISTRATION_ENABLED, True)
+    await set_persistent_config(EMAIL_VERIFICATION_REQUIRED, True)
+    username, email = await _pending_signup(client)
+    token_match = re.search(r"token=([A-Za-z0-9_\-]+)", captured_send_email[0].body)
+    assert token_match
+    await set_persistent_config(REGISTRATION_ENABLED, False)
+
+    resend = await client.post("/auth/resend-verification/", json={"email": email})
+    verify = await client.post(
+        "/auth/verify-email/", json={"token": token_match.group(1)}
+    )
+
+    assert resend.status_code == 200
+    assert len(captured_send_email) == 1
+    assert verify.status_code == 200, verify.text
+    assert verify.json()["next_step"] == "await_approval"
+    await _assert_still_awaiting_approval(client, test_db_session, username)
 
 
 # ---------------------------------------------------------------------------

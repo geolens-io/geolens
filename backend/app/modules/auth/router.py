@@ -712,6 +712,19 @@ async def _grant_registration_role(db: AsyncSession, user_id: uuid.UUID) -> None
         db.add(UserRole(user_id=user_id, role_id=role_id))
 
 
+async def _email_link_activates(db: AsyncSession) -> bool:
+    """Whether following a verification link may activate a pending sign-up.
+
+    Only while sign-ups are open and verification is how they activate;
+    otherwise a pending account waits for an administrator, whatever link
+    its owner holds.
+    """
+    return bool(
+        await EMAIL_VERIFICATION_REQUIRED.get_uncached(db)
+        and await REGISTRATION_ENABLED.get_uncached(db)
+    )
+
+
 @router.post(
     "/verify-email",
     response_model=RegisterResponse,
@@ -730,11 +743,13 @@ async def verify_email(
     body: VerifyEmailRequest,
     db: AsyncSession = Depends(get_db),
 ) -> RegisterResponse:
-    """Redeem a verification token to activate the account.
+    """Redeem a verification token, confirming the address.
 
-    A valid single-use expiring token flips email_verified=True,
-    is_active=True, and status="active" so the user can log in via the
-    existing auth gate in dependencies.py.
+    A valid single-use expiring token sets email_verified=True. While
+    self-registration is on and requires email verification, it also
+    activates a pending account with the default self-registration role.
+    Otherwise a pending account stays pending and the response carries
+    ``next_step="await_approval"``.
 
     Expired, unknown, and already-consumed tokens all return the same
     "Invalid or expired" error (enumeration-safe).
@@ -778,15 +793,19 @@ async def verify_email(
 
     from app.modules.catalog.group_access import reactivate_member_access
 
-    try:
-        await reactivate_member_access(db, user_id, activate)
-    except HTTPException as exc:
-        # The refusal names datasets; this caller is not signed in.
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This account can't be activated yet. Contact an administrator.",
-        ) from exc
+    if await _email_link_activates(db):
+        try:
+            await reactivate_member_access(db, user_id, activate)
+        except HTTPException as exc:
+            # The refusal names datasets; this caller is not signed in.
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This account can't be activated yet. Contact an administrator.",
+            ) from exc
 
+    awaiting_approval = (
+        await db.scalar(select(User.status).where(User.id == user_id))
+    ) == "pending"
     await audit_emit(
         db,
         AuditEvent(
@@ -794,11 +813,16 @@ async def verify_email(
             action="user.verify_email",
             resource_type="user",
             resource_id=user_id,
-            details={"method": "email_link"},
+            details={"method": "email_link", "awaiting_approval": awaiting_approval},
             ip_address=get_client_ip(request),
         ),
     )
     await db.commit()
+    if awaiting_approval:
+        return RegisterResponse(
+            message="Email verified. Your account is awaiting admin approval.",
+            next_step="await_approval",
+        )
     return RegisterResponse(message="Email verified successfully. You can now log in.")
 
 
@@ -815,6 +839,9 @@ async def resend_verification(
     db: AsyncSession = Depends(get_db),
 ) -> RegisterResponse:
     """Re-issue and re-send a verification email.
+
+    Sends nothing unless self-registration is on and requires email
+    verification, since only then can the link activate an account.
 
     Enumeration-safe: ALWAYS returns the same 200 body
     regardless of whether the email exists, is unknown, or is already verified.
@@ -848,7 +875,7 @@ async def resend_verification(
     )
     user = result.scalar_one_or_none()
 
-    if user is not None:
+    if user is not None and await _email_link_activates(db):
         # Swallow send errors so the response stays identical to the
         # unknown-email path (enumeration-safe); log at WARNING so operators
         # can diagnose SMTP misconfiguration without surfacing it to clients.
