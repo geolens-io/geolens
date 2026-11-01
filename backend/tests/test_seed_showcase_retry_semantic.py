@@ -279,6 +279,7 @@ def _main_with_failed_builder(
         raise RuntimeError("upstream down")
 
     for name in (
+        "set_attribute_titles",
         "enrich_showcase_metadata",
         "apply_globe_projection",
         "apply_showcase_styling",

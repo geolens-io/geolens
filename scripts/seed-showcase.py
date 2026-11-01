@@ -6,9 +6,10 @@ collections, and a private embed demo. ``--showcase-121`` also builds City in
 Shade, a real COPC sample, and a real 3D Tiles sample. GeoLens serves the 3D
 assets to external clients; its map viewer does not render them natively.
 
-A published story over the two hurricane maps and a dashboard map over the USGS
-earthquake layer are seeded too, found by title and updated in place on a rerun.
-``--story-and-dashboard`` runs just those two on an instance that already has
+A published story over the two hurricane maps, a dashboard map over the USGS
+earthquake layer, and a skyline story and dashboard map over the Manhattan
+buildings are seeded too, found by title and updated in place on a rerun.
+``--story-and-dashboard`` runs just those four on an instance that already has
 the maps and datasets.
 
 Existing showcase maps are updated in place through the metadata and styling
@@ -274,6 +275,33 @@ HURRICANE_MAP = "Hurricane Alley - Major Atlantic Storms Since 1950"
 HURRICANE_MAP_LEGACY = "Hurricane Alley - 75 Years of Major Atlantic Storms"
 
 STORY_TITLE = "Where the Atlantic's Major Hurricanes Go"
+SKYLINE_MAP = "Manhattan - A Century of Skyline"
+SKYLINE_BUILDINGS_TITLE = "Manhattan Building Heights"
+SKYLINE_STORY_TITLE = "A Century of Manhattan's Skyline"
+SKYLINE_DASHBOARD_MAP = "Manhattan Skyline Dashboard"
+SKYLINE_DASHBOARD_DESCRIPTION = (
+    "A dashboard over the Manhattan building footprints, extruded to surveyed "
+    "roof height and colored by construction era: how many buildings are in "
+    "view, the tallest roof, how the buildings split by era and how their "
+    "heights spread. Click an era to filter the map. The dashboard follows the "
+    "map view, so pan and zoom to ask about a block. Source: NYC Open Data."
+)
+SKYLINE_PHOTO_URL = (
+    "https://cdn.loc.gov/service/pnp/fsa/8b16000/8b16200/8b16269v.jpg"
+)
+SKYLINE_PHOTO_SHA256 = "42696910409373efc0b2f5c6a1b4db8336c201cec38e1465b37e1756f776b844"
+# west, south, east, north
+SKYLINE_FIDI_BBOX = [-74.020, 40.700, -73.995, 40.718]
+SKYLINE_MIDTOWN_BBOX = [-73.995, 40.740, -73.960, 40.765]
+SKYLINE_57TH_BBOX = [-73.992, 40.760, -73.968, 40.772]
+SKYLINE_CAMERAS = {
+    "overview": {"center": [-73.985, 40.736], "zoom": 13.0, "pitch": 55, "bearing": -30},
+    "downtown": {"center": [-74.008, 40.7105], "zoom": 15.4, "pitch": 60, "bearing": 160},
+    "midtown": {"center": [-73.9806, 40.750], "zoom": 15.3, "pitch": 62, "bearing": -23},
+    "supertalls": {"center": [-73.979, 40.7672], "zoom": 15.1, "pitch": 62, "bearing": 15},
+    "method": {"center": [-73.99, 40.735], "zoom": 13.6, "pitch": 40, "bearing": 0},
+    "dashboard": {"center": [-74.0, 40.718], "zoom": 14.2, "pitch": 55, "bearing": -20},
+}
 DASHBOARD_MAP = "Earthquake Dashboard - USGS M2.5+ Snapshot"
 DASHBOARD_MAP_DESCRIPTION = (
     "A dashboard over the USGS M2.5+ earthquake service: how many quakes are "
@@ -936,6 +964,16 @@ class Api:
         r.raise_for_status()
         return r.json()["id"]
 
+    def upload_story_asset(self, story_id: str, filename: str, data: bytes) -> str:
+        """Upload an image to the story; return its asset id."""
+        r = self.client.post(
+            f"{self.base}/api/stories/{story_id}/assets",
+            headers=self.h,
+            files={"file": (filename, data, "image/jpeg")},
+        )
+        r.raise_for_status()
+        return r.json()["id"]
+
     def publish_story(
         self, story_id: str, title: str, summary: str, document: dict
     ) -> None:
@@ -964,13 +1002,72 @@ class Api:
 
     def aggregate(self, dataset_id: str, **body) -> dict:
         """One exact aggregate over a dataset - the call the widgets make."""
-        r = self.client.post(
-            f"{self.base}/api/datasets/{dataset_id}/aggregate/",
-            headers=self.h,
-            json=body,
-        )
+        # The endpoint is rate limited per second, and a story's figures come
+        # from back-to-back aggregates.
+        for attempt in range(5):
+            r = self.client.post(
+                f"{self.base}/api/datasets/{dataset_id}/aggregate/",
+                headers=self.h,
+                json=body,
+            )
+            if r.status_code != 429 or attempt == 4:
+                break
+            try:
+                wait = float(r.headers.get("Retry-After", ""))
+            except ValueError:  # absent, or an HTTP date
+                wait = 0.2
+            time.sleep(min(max(wait, 0.2), 5.0))
         r.raise_for_status()
         return r.json()["result"]
+
+    def rows(
+        self, dataset_id: str, cql2: dict, sort: str, limit: int
+    ) -> list[dict]:
+        """The dataset rows matching a CQL2-JSON filter, highest *sort* first."""
+        r = self.client.get(
+            f"{self.base}/api/datasets/{dataset_id}/rows/",
+            headers=self.h,
+            params={
+                "filter": json.dumps(cql2),
+                "sort": sort,
+                "order": "desc",
+                "limit": limit,
+            },
+        )
+        r.raise_for_status()
+        return r.json()["rows"]
+
+    def attributes(self, dataset_id: str) -> list[dict]:
+        r = self.client.get(
+            f"{self.base}/api/datasets/{dataset_id}/attributes/", headers=self.h
+        )
+        r.raise_for_status()
+        return r.json()["attributes"]
+
+    def set_attribute_title(self, dataset_id: str, attr_id: str, title: str) -> None:
+        r = self.client.patch(
+            f"{self.base}/api/datasets/{dataset_id}/attributes/{attr_id}/",
+            headers=self.h,
+            json={"title": title},
+        )
+        r.raise_for_status()
+
+    def public_app_url(self) -> str:
+        """The address readers open the app at, as share links use it.
+
+        The seed may reach the API through localhost or an internal name, which
+        a published link must not carry. Falls back to the API base when the
+        deployment has no public app URL configured.
+        """
+        r = self.client.get(f"{self.base}/api/settings/tile-config/", headers=self.h)
+        r.raise_for_status()
+        return (r.json().get("public_app_url") or self.base).rstrip("/")
+
+    def story_document(self, story_id: str) -> dict:
+        """The story's current draft document."""
+        r = self.client.get(f"{self.base}/api/stories/{story_id}/draft", headers=self.h)
+        r.raise_for_status()
+        return r.json()["document"]
 
     def delete_map(self, map_id: str) -> None:
         r = self.client.delete(f"{self.base}/api/maps/{map_id}", headers=self.h)
@@ -2481,6 +2578,7 @@ def _showcase_map_names() -> set[str]:
         HURRICANE_MAP_LEGACY,
         EXPOSURE_MAP,
         DASHBOARD_MAP,
+        SKYLINE_DASHBOARD_MAP,
         "Everything That Fell From the Sky",
         "The Matterhorn in 3D",
         "New York From Orbit - Sentinel-2, by Reference",
@@ -3469,6 +3567,69 @@ def build_restless_earth(
     return map_id
 
 
+def manhattan_buildings_layer(buildings_ds: str, sort_order: int) -> dict:
+    """The 3D buildings layer: extruded to surveyed roof height, colored by era.
+
+    Shared by the Manhattan map and the skyline dashboard map.
+    """
+    # Era color: brick -> deco amber -> midcentury steel -> glass. The
+    # extrusion companion takes its color from paint.fill-color, so the era
+    # ramp carries into 3D automatically. Categorical era STRINGS (not year
+    # breaks): the graduated legend abbreviates numbers (1900 -> "1.9K").
+    eras = [
+        ("Pre-1900", "#7c2d12"),  # brick
+        ("1900-1929", "#b45309"),
+        ("1930-1949", "#d97706"),  # deco
+        ("1950-1979", "#94a3b8"),  # steel
+        ("1980-1999", "#60a5fa"),  # blue glass
+        ("2000-2014", "#22d3ee"),
+        ("2015+", "#a5f3fc"),  # ice glass
+    ]
+    era_match: list = ["match", ["get", "era"]]
+    for era_value, era_color in eras:
+        era_match += [era_value, era_color]
+    era_match.append("#334155")  # Unknown
+    return {
+        "dataset_id": buildings_ds,
+        "sort_order": sort_order,
+        "opacity": 1.0,
+        "display_name": "Buildings (3D height, colored by era)",
+        "layout": {"_minzoom": 12},
+        "paint": {
+            "fill-color": [
+                "case",
+                ["==", ["get", "era"], None],
+                "#334155",
+                era_match,
+            ],
+            "fill-opacity": 0.92,
+        },
+        "style_config": {
+            "mode": "categorical",
+            "column": "era",
+            "ramp": "Plasma",
+            "categories": [{"value": v, "color": c, "label": v} for v, c in eras],
+            "builder": {
+                "height_column": "height_roof",
+                "height_scale": 0.3048,  # feet -> meters
+                "extrusion_min_zoom": 13,
+                "extrusion_opacity": 0.92,
+                "stroke_disabled": True,
+            },
+        },
+        "popup_config": {
+            "enabled": True,
+            "expression": "{title}",
+            "visible_fields": [
+                "construction_year",
+                "height_roof",
+                "ground_elevation",
+                "feature_code",
+            ],
+        },
+    }
+
+
 def build_manhattan(api: Api, force: bool = False, force_pinned: bool = False) -> str:
     """The city hero: 3D extrusion at TRUE surveyed height, colored by
     construction ERA (height carries the form, color carries the story), over
@@ -3633,65 +3794,7 @@ def build_manhattan(api: Api, force: bool = False, force_pinned: bool = False) -
         "stations. Ask AI: what share of stations are wheelchair-accessible? "
         "Which decade built the tallest towers? Sources: NYC Open Data, MTA.",
     )
-    # Era color: brick -> deco amber -> midcentury steel -> glass. The
-    # extrusion companion takes its color from paint.fill-color, so the era
-    # ramp carries into 3D automatically. Categorical era STRINGS (not year
-    # breaks): the graduated legend abbreviates numbers (1900 -> "1.9K").
-    eras = [
-        ("Pre-1900", "#7c2d12"),  # brick
-        ("1900-1929", "#b45309"),
-        ("1930-1949", "#d97706"),  # deco
-        ("1950-1979", "#94a3b8"),  # steel
-        ("1980-1999", "#60a5fa"),  # blue glass
-        ("2000-2014", "#22d3ee"),
-        ("2015+", "#a5f3fc"),  # ice glass
-    ]
-    era_match: list = ["match", ["get", "era"]]
-    for era_value, era_color in eras:
-        era_match += [era_value, era_color]
-    era_match.append("#334155")  # Unknown
-    api.add_layer(
-        map_id,
-        {
-            "dataset_id": buildings_ds,
-            "sort_order": 2,
-            "opacity": 1.0,
-            "display_name": "Buildings (3D height, colored by era)",
-            "layout": {"_minzoom": 12},
-            "paint": {
-                "fill-color": [
-                    "case",
-                    ["==", ["get", "era"], None],
-                    "#334155",
-                    era_match,
-                ],
-                "fill-opacity": 0.92,
-            },
-            "style_config": {
-                "mode": "categorical",
-                "column": "era",
-                "ramp": "Plasma",
-                "categories": [{"value": v, "color": c, "label": v} for v, c in eras],
-                "builder": {
-                    "height_column": "height_roof",
-                    "height_scale": 0.3048,  # feet -> meters
-                    "extrusion_min_zoom": 13,
-                    "extrusion_opacity": 0.92,
-                    "stroke_disabled": True,
-                },
-            },
-            "popup_config": {
-                "enabled": True,
-                "expression": "{title}",
-                "visible_fields": [
-                    "construction_year",
-                    "height_roof",
-                    "ground_elevation",
-                    "feature_code",
-                ],
-            },
-        },
-    )
+    api.add_layer(map_id, manhattan_buildings_layer(buildings_ds, sort_order=2))
     # The route palette comes from the MTA standard, not the source feed.
     # Keep its many entries out of the legend so the building eras stay visible.
     service_match: list = ["match", ["get", "service"]]
@@ -4532,11 +4635,14 @@ def _seed_id(*parts: str) -> str:
 
 
 def _story_scene(
-    map_doc: dict, layer_visibility: dict[str, bool] | None = None
+    map_doc: dict,
+    layer_visibility: dict[str, bool] | None = None,
+    camera: dict | None = None,
 ) -> dict:
     return {
         "map_id": map_doc["id"],
-        "camera": {
+        "camera": camera
+        or {
             "center": [map_doc["center_lng"], map_doc["center_lat"]],
             "zoom": map_doc["zoom"],
             "bearing": map_doc.get("bearing") or 0,
@@ -4546,7 +4652,13 @@ def _story_scene(
     }
 
 
-def _story_chapter(key: str, title: str, scene: dict, text: str) -> dict:
+def _story_chapter(
+    key: str,
+    title: str,
+    scene: dict,
+    text: str,
+    extra_blocks: list[dict] | None = None,
+) -> dict:
     return {
         "id": _seed_id("story", key),
         "title": title,
@@ -4557,7 +4669,8 @@ def _story_chapter(key: str, title: str, scene: dict, text: str) -> dict:
                 "type": "markdown",
                 "v": 1,
                 "config": {"text": text},
-            }
+            },
+            *(extra_blocks or []),
         ],
     }
 
@@ -4681,14 +4794,54 @@ def seed_hurricane_story(
     return story_id
 
 
+def _dashboard_map(
+    api: Api, name: str, description: str, layer: dict
+) -> tuple[str, dict, bool, str]:
+    """Find or create the named map and its layer over ``layer["dataset_id"]``.
+
+    Returns the map id, the map as found, whether it was created, and the
+    layer id.
+    """
+    map_id = api.list_maps().get(name)
+    created = map_id is None
+    if created:
+        map_id = api.create_map(name, description)
+    current = api.get_map(map_id)
+    found = next(
+        (
+            lay
+            for lay in current["layers"]
+            if lay["dataset_id"] == layer["dataset_id"]
+        ),
+        None,
+    )
+    if found is None:
+        found = api.add_layer(map_id, layer)
+    return map_id, current, created, found["id"]
+
+
+def _dashboard_widget(
+    prefix: str, layer_id: str, key: str, kind: str, title: str, config: dict
+) -> dict:
+    """A data widget scoped to the map view, with an id stable across reruns."""
+    return {
+        "id": _seed_id(prefix, key),
+        "type": kind,
+        "v": 1,
+        "title": title,
+        "layer_id": layer_id,
+        "scope": "view",
+        "config": config,
+    }
+
+
 def seed_quake_dashboard(
     api: Api, force: bool = False, force_pinned: bool = False
 ) -> str:
     """A public map whose dashboard summarizes the USGS earthquake layer.
 
     Its own map, found by name, so the pinned Restless Earth map stays as it
-    is. A dashboard has no text widget, so the snapshot note lives in the map
-    description.
+    is. The snapshot note lives in the map description.
     """
     quakes_ds = api.datasets_by_title().get(QUAKES_TITLE)
     if not quakes_ds:
@@ -4696,48 +4849,31 @@ def seed_quake_dashboard(
             f"{QUAKES_TITLE!r} is not seeded yet - run --only restless first"
         )
     print("\n[dashboard] " + DASHBOARD_MAP)
-    map_id = api.list_maps().get(DASHBOARD_MAP)
-    created = map_id is None
-    if created:
-        map_id = api.create_map(DASHBOARD_MAP, DASHBOARD_MAP_DESCRIPTION)
-    current = api.get_map(map_id)
-    layer = next(
-        (lay for lay in current["layers"] if lay["dataset_id"] == quakes_ds),
-        None,
-    )
-    if layer is None:
-        edges = [5.0, 6.0, 7.0]
-        layer = api.add_layer(
-            map_id,
-            {
-                "dataset_id": quakes_ds,
-                "sort_order": 0,
-                "opacity": 1.0,
-                "display_name": "Earthquakes (last 30 days, by magnitude)",
-                "paint": {
-                    "circle-radius": step_expr("mag", edges, [3, 5, 8, 12]),
-                    "circle-color": step_expr(
-                        "mag", edges, ["#fecc5c", "#fd8d3c", "#f03b20", "#bd0026"]
-                    ),
-                    "circle-opacity": 0.85,
-                    "circle-stroke-color": "#7f1d1d",
-                    "circle-stroke-width": 0.5,
-                },
-                "popup_config": QUAKE_POPUP_CONFIG,
+    edges = [5.0, 6.0, 7.0]
+    map_id, current, created, layer_id = _dashboard_map(
+        api,
+        DASHBOARD_MAP,
+        DASHBOARD_MAP_DESCRIPTION,
+        {
+            "dataset_id": quakes_ds,
+            "sort_order": 0,
+            "opacity": 1.0,
+            "display_name": "Earthquakes (last 30 days, by magnitude)",
+            "paint": {
+                "circle-radius": step_expr("mag", edges, [3, 5, 8, 12]),
+                "circle-color": step_expr(
+                    "mag", edges, ["#fecc5c", "#fd8d3c", "#f03b20", "#bd0026"]
+                ),
+                "circle-opacity": 0.85,
+                "circle-stroke-color": "#7f1d1d",
+                "circle-stroke-width": 0.5,
             },
-        )
-    layer_id = layer["id"]
+            "popup_config": QUAKE_POPUP_CONFIG,
+        },
+    )
 
     def widget(key: str, kind: str, title: str, config: dict) -> dict:
-        return {
-            "id": _seed_id("dashboard", key),
-            "type": kind,
-            "v": 1,
-            "title": title,
-            "layer_id": layer_id,
-            "scope": "view",
-            "config": config,
-        }
+        return _dashboard_widget("dashboard", layer_id, key, kind, title, config)
 
     camera = (
         {
@@ -4793,6 +4929,375 @@ def seed_quake_dashboard(
     return map_id
 
 
+def seed_skyline_dashboard(
+    api: Api, force: bool = False, force_pinned: bool = False
+) -> str:
+    """A public map whose dashboard summarizes the Manhattan buildings layer.
+
+    Its own map, found by name, so the Manhattan map stays as it is.
+    """
+    buildings_ds = api.datasets_by_title().get(SKYLINE_BUILDINGS_TITLE)
+    if not buildings_ds:
+        raise RuntimeError(
+            f"{SKYLINE_BUILDINGS_TITLE!r} is not seeded yet - run "
+            "--only manhattan first"
+        )
+    print("\n[skyline-dashboard] " + SKYLINE_DASHBOARD_MAP)
+    map_id, _, created, layer_id = _dashboard_map(
+        api,
+        SKYLINE_DASHBOARD_MAP,
+        SKYLINE_DASHBOARD_DESCRIPTION,
+        manhattan_buildings_layer(buildings_ds, 0),
+    )
+
+    def widget(key: str, kind: str, title: str, config: dict) -> dict:
+        return _dashboard_widget(
+            "skyline-dashboard", layer_id, key, kind, title, config
+        )
+
+    camera = SKYLINE_CAMERAS["dashboard"]
+    api.set_view(
+        map_id,
+        center_lng=camera["center"][0],
+        center_lat=camera["center"][1],
+        zoom=camera["zoom"],
+        pitch=camera["pitch"],
+        bearing=camera["bearing"],
+        basemap_style="openfreemap-dark",
+        show_basemap_labels=False,
+        description=SKYLINE_DASHBOARD_DESCRIPTION,
+        visibility="public",
+        dashboard_config={
+            "version": 1,
+            "widgets": [
+                widget("count", "indicator", "Buildings in view", {"stat": "count"}),
+                widget(
+                    "tallest",
+                    "indicator",
+                    "Tallest roof in view (ft)",
+                    {"stat": "max", "column": "height_roof"},
+                ),
+                widget(
+                    "eras",
+                    "bar_chart",
+                    "Buildings by era",
+                    {"column": "era", "stat": "count", "limit": 8},
+                ),
+                widget(
+                    "heights",
+                    "histogram",
+                    "Roof heights (ft)",
+                    {"column": "height_roof", "bins": 20},
+                ),
+                {
+                    "id": _seed_id("skyline-dashboard", "howto"),
+                    "type": "markdown",
+                    "v": 1,
+                    "title": None,
+                    "config": {
+                        "text": "Move the map to change what the panel counts. "
+                        "Click an era to filter the buildings.\n\n"
+                        "Building footprints and heights: NYC Open Data."
+                    },
+                },
+            ],
+        },
+    )
+    print(f"  -> map {map_id} ({'created' if created else 'updated'}, public)")
+    return map_id
+
+
+def _skyline_tallest(
+    api: Api, dataset_id: str, bbox: list[float], eras: list[str], limit: int = 2
+) -> list[tuple[str, float]]:
+    """The tallest roofs, in feet, of the given eras inside bbox, as (label, height).
+
+    Ranked by row, because unnamed footprints share a "Built <year>" title.
+    """
+    rows = api.rows(
+        dataset_id,
+        {
+            "op": "and",
+            "args": [
+                {"op": "in", "args": [{"property": "era"}, eras]},
+                {
+                    "op": "s_intersects",
+                    "args": [{"property": "geometry"}, {"bbox": bbox}],
+                },
+            ],
+        },
+        sort="height_roof",
+        limit=limit,
+    )
+    if len(rows) < limit:
+        raise RuntimeError(f"fewer than {limit} buildings of {eras} inside {bbox}")
+    return [
+        (
+            f"a tower completed in {row['title'].removeprefix('Built ')}"
+            if row["title"].startswith("Built ")
+            else row["title"],
+            row["height_roof"],
+        )
+        for row in rows
+    ]
+
+
+def _skyline_count(
+    api: Api, dataset_id: str, bbox: list[float], eras: list[str]
+) -> int:
+    return api.aggregate(
+        dataset_id,
+        op="count",
+        bbox=bbox,
+        filter={"op": "in", "args": [{"property": "era"}, eras]},
+    )["count"]
+
+
+def seed_skyline_story(
+    api: Api, force: bool = False, force_pinned: bool = False
+) -> str:
+    """The published skyline story over the Manhattan map, found by title.
+
+    Every chapter flies the one Manhattan map to its own camera. Updated in
+    place on a rerun, and every figure in the text is read from the buildings
+    dataset when this runs. The map is not touched.
+    """
+    maps = api.list_maps()
+    by_title = api.datasets_by_title()
+    buildings_ds = by_title.get(SKYLINE_BUILDINGS_TITLE)
+    map_id = maps.get(SKYLINE_MAP)
+    dashboard_id = maps.get(SKYLINE_DASHBOARD_MAP)
+    stations_ds = by_title.get("NYC Subway Stations (MTA)")
+    if not (buildings_ds and stations_ds and map_id and dashboard_id):
+        raise RuntimeError(
+            f"{SKYLINE_MAP!r} or {SKYLINE_DASHBOARD_MAP!r} is not seeded yet - "
+            "run --only manhattan and --only skyline-dashboard first"
+        )
+    print("\n[skyline-story] " + SKYLINE_STORY_TITLE)
+    app_url = api.public_app_url()
+    manhattan = api.get_map(map_id)
+    subway = [
+        lay["id"] for lay in manhattan["layers"] if lay["dataset_id"] != buildings_ds
+    ]
+
+    total = api.aggregate(buildings_ds, op="count")["count"]
+    by_era = {
+        row["value"]: row["count"]
+        for row in api.aggregate(
+            buildings_ds, op="value_counts", column="era", limit=10
+        )["values"]
+    }
+    tallest_all = api.aggregate(
+        buildings_ds, op="stats", column="height_roof", stats=["max"]
+    )["max"]
+    pre_1930 = ["Pre-1900", "1900-1929"]
+    downtown_n = _skyline_count(api, buildings_ds, SKYLINE_FIDI_BBOX, pre_1930)
+    downtown_top = _skyline_tallest(
+        api, buildings_ds, SKYLINE_FIDI_BBOX, pre_1930, limit=1
+    )[0]
+    midtown_n = _skyline_count(api, buildings_ds, SKYLINE_MIDTOWN_BBOX, ["1930-1949"])
+    midtown_top = _skyline_tallest(
+        api, buildings_ds, SKYLINE_MIDTOWN_BBOX, ["1930-1949"]
+    )
+    super_n = _skyline_count(api, buildings_ds, SKYLINE_57TH_BBOX, ["2015+"])
+    super_top = _skyline_tallest(api, buildings_ds, SKYLINE_57TH_BBOX, ["2015+"])
+    stations = api.aggregate(stations_ds, op="count")["count"]
+    accessible = {
+        str(row["value"]): row["count"]
+        for row in api.aggregate(stations_ds, op="value_counts", column="ada", limit=5)[
+            "values"
+        ]
+    }
+
+    overview_text = (
+        f"The map holds {total:,} building footprints in Lower and Midtown "
+        "Manhattan. Each is raised to its surveyed roof height and colored by "
+        "the decade it was built.\n\n"
+        f"{by_era['1900-1929']:,} date from 1900 to 1929 and {by_era['Pre-1900']:,} "
+        f"from before 1900. Only {by_era['2015+']:,} are from 2015 or later. The "
+        f"tallest roof in the data is {tallest_all:,.0f} ft."
+    )
+    downtown_text = (
+        f"The Financial District has {downtown_n:,} buildings from before 1930, "
+        "packed into the narrow street grid at the island's tip.\n\n"
+        f"The tallest of them is {downtown_top[0]}, with a roof at "
+        f"{downtown_top[1]:,.0f} ft."
+    )
+    midtown_text = (
+        f"In Midtown, {midtown_n:,} buildings date from 1930 to 1949. The tallest "
+        f"are {midtown_top[0][0]} ({midtown_top[0][1]:,.0f} ft) and "
+        f"{midtown_top[1][0]} ({midtown_top[1][1]:,.0f} ft).\n\n"
+        "Heights are surveyed roof heights, so antennas and spires are not "
+        "counted."
+    )
+    supertall_text = (
+        f"Around 57th Street, {super_n:,} buildings went up in 2015 or later. "
+        f"The tallest is {super_top[0][0]}, with a roof at {super_top[0][1]:,.0f} "
+        f"ft, followed by {super_top[1][0]} at {super_top[1][1]:,.0f} ft.\n\n"
+        f"That is {super_top[0][1] - midtown_top[0][1]:,.0f} ft above the "
+        f"{midtown_top[0][0]}, the tallest of the 1930s towers."
+    )
+    method_text = (
+        "- **Buildings:** NYC Open Data building footprints, with roof height "
+        "in feet and construction year. The era is derived from the year; "
+        f"{by_era.get('Unknown', 0):,} footprints have none and show as "
+        "Unknown.\n"
+        f"- **Subway:** {stations} MTA stations, {accessible.get('1', 0)} of "
+        "them fully ADA accessible, with the lines in official route "
+        "colors.\n"
+        "- **Method:** the figures in this story are counts and maxima "
+        "computed from the dataset when it was written."
+    )
+
+    summary = (
+        "Manhattan's buildings extruded to their roof heights and colored by "
+        "construction era, from the Financial District to 57th Street."
+    )
+    story_id = api.list_stories().get(SKYLINE_STORY_TITLE)
+    verb = "updated"
+    if story_id is None:
+        story_id = api.create_story(SKYLINE_STORY_TITLE, summary)
+        verb = "created"
+
+    # Keyed on the pin, so a rerun reuses the uploaded photo and a new pin
+    # uploads a new one.
+    photo_block_id = _seed_id(
+        "story", "skyline-midtown", "photo", SKYLINE_PHOTO_SHA256
+    )
+    asset_id = None
+    if verb == "updated":
+        asset_id = next(
+            (
+                block.get("asset_id")
+                for chapter in api.story_document(story_id).get("chapters", [])
+                for block in chapter.get("blocks", [])
+                if block.get("id") == photo_block_id
+            ),
+            None,
+        )
+    if asset_id is None:
+        photo = fetch(SKYLINE_PHOTO_URL)
+        if hashlib.sha256(photo).hexdigest() != SKYLINE_PHOTO_SHA256:
+            raise RuntimeError(
+                "skyline photo checksum differs from the pinned value"
+            )
+        asset_id = api.upload_story_asset(story_id, "midtown-1941.jpg", photo)
+
+    def scene(camera: str, show_subway: bool = False) -> dict:
+        visibility = {layer_id: show_subway for layer_id in subway}
+        return _story_scene(manhattan, visibility, SKYLINE_CAMERAS[camera])
+
+    document = {
+        "version": 1,
+        "chapters": [
+            _story_chapter(
+                "skyline-overview",
+                "Manhattan, building by building",
+                scene("overview"),
+                overview_text,
+            ),
+            _story_chapter(
+                "skyline-downtown",
+                "Downtown before 1930",
+                scene("downtown"),
+                downtown_text,
+            ),
+            _story_chapter(
+                "skyline-midtown",
+                "Midtown in the 1930s",
+                scene("midtown"),
+                midtown_text,
+                [
+                    {
+                        "id": photo_block_id,
+                        "type": "image",
+                        "v": 1,
+                        "asset_id": asset_id,
+                        "config": {
+                            "alt": "Black-and-white photograph of Midtown "
+                            "Manhattan in haze, with a slender tower topped by a "
+                            "mast at left and the flank of a larger tower at "
+                            "right.",
+                            "caption": "Midtown Manhattan, December 1941. Library "
+                            "of Congress, Prints & Photographs Division, FSA/OWI "
+                            "Collection, LC-DIG-fsa-8b16269. No known "
+                            "restrictions on publication.",
+                        },
+                    }
+                ],
+            ),
+            _story_chapter(
+                "skyline-supertalls",
+                "57th Street since 2015",
+                scene("supertalls"),
+                supertall_text,
+            ),
+            _story_chapter(
+                "skyline-method",
+                "Where the data comes from",
+                scene("method", show_subway=True),
+                method_text,
+                [
+                    {
+                        "id": _seed_id("story", "skyline-method", "dashboard"),
+                        "type": "button",
+                        "v": 1,
+                        "config": {
+                            "label": "Open the skyline dashboard",
+                            "url": f"{app_url}/maps/{dashboard_id}",
+                        },
+                    }
+                ],
+            ),
+        ],
+    }
+    api.publish_story(story_id, SKYLINE_STORY_TITLE, summary, document)
+    print(f"  -> story {story_id} ({verb}, published, public)")
+    return story_id
+
+
+ATTRIBUTE_TITLES = {
+    SKYLINE_BUILDINGS_TITLE: {
+        "height_roof": "Roof height (ft)",
+        "construction_year": "Year built",
+        "era": "Era",
+        "name": "Name",
+        "title": "Building",
+    },
+    QUAKES_TITLE: {
+        "place": "Place",
+        "mag": "Magnitude",
+        "event_time_utc_date_fmt": "Time (UTC)",
+        "depth_num": "Depth (km)",
+        "felt": "Felt reports",
+        "tsunami": "Tsunami flag",
+        "sig": "Significance",
+        "magtype": "Magnitude type",
+        "net": "Network",
+    },
+}
+
+
+def set_attribute_titles(api: Api) -> None:
+    """Give the dashboard datasets readable column titles; a rerun changes nothing.
+
+    Widgets and the Map data table label a column by its attribute title.
+    """
+    by_title = api.datasets_by_title()
+    for dataset_title, titles in ATTRIBUTE_TITLES.items():
+        dataset_id = by_title.get(dataset_title)
+        if dataset_id is None:
+            continue
+        changed = 0
+        for attr in api.attributes(dataset_id):
+            title = titles.get(attr["field_name"])
+            if title is None or attr["title"] == title:
+                continue
+            api.set_attribute_title(dataset_id, attr["id"], title)
+            changed += 1
+        print(f"  attribute titles: {dataset_title} ({changed} set)")
+
+
 def run_story_and_dashboard(api: Api) -> int:
     """Seed only the story and the dashboard map, then exit.
 
@@ -4800,7 +5305,17 @@ def run_story_and_dashboard(api: Api) -> int:
     full seed it runs none of the metadata, styling or thumbnail passes.
     """
     failed = False
-    for seed in (seed_hurricane_story, seed_quake_dashboard):
+    try:
+        set_attribute_titles(api)
+    except httpx.HTTPError as e:
+        print(f"\nERROR in [set_attribute_titles]: {e}", file=sys.stderr)
+        failed = True
+    for seed in (
+        seed_hurricane_story,
+        seed_quake_dashboard,
+        seed_skyline_dashboard,
+        seed_skyline_story,
+    ):
         try:
             seed(api)
         except (httpx.HTTPError, RuntimeError, TimeoutError) as e:
@@ -7276,6 +7791,8 @@ def main() -> int:
             "embed",
             "story",
             "dashboard",
+            "skyline-dashboard",
+            "skyline-story",
         ],
         help="build only one showcase item",
     )
@@ -7324,8 +7841,8 @@ def main() -> int:
     ap.add_argument(
         "--story-and-dashboard",
         action="store_true",
-        help="seed (or update in place) the hurricane story and the earthquake "
-        "dashboard map on an instance that already has the showcase maps, then "
+        help="seed (or update in place) the hurricane and skyline stories and "
+        "the earthquake and skyline dashboard maps on an instance that already has the showcase maps, then "
         "exit. A full seed does this too",
     )
     ap.add_argument(
@@ -7363,7 +7880,8 @@ def main() -> int:
         or args.refresh_quakes
         or args.refresh_hurdat2
         or args.story_and_dashboard
-        or args.only in ("embed", "story", "dashboard")
+        or args.only
+        in ("embed", "story", "dashboard", "skyline-dashboard", "skyline-story")
     ):
         ap.error(
             "--expected-state cannot be combined with force, prune, refresh, "
@@ -7443,6 +7961,8 @@ def main() -> int:
         "embed": build_embed_demo,
         "story": seed_hurricane_story,
         "dashboard": seed_quake_dashboard,
+        "skyline-dashboard": seed_skyline_dashboard,
+        "skyline-story": seed_skyline_story,
     }
 
     built = {}
@@ -7470,12 +7990,18 @@ def main() -> int:
                     ("tiles3d", fns["tiles3d"]),
                 ]
             )
-        # The story reads the hurricane maps and the dashboard the quake layer.
+        # The stories read the hurricane and Manhattan maps, the dashboards the
+        # quake and building layers.
         # A guarded update skips both: a new story and map are outside the
         # snapshot, so a rollback could not withdraw them.
         if not args.expected_state:
             builders.extend(
-                [("story", fns["story"]), ("dashboard", fns["dashboard"])]
+                [
+                    ("story", fns["story"]),
+                    ("dashboard", fns["dashboard"]),
+                    ("skyline-dashboard", fns["skyline-dashboard"]),
+                    ("skyline-story", fns["skyline-story"]),
+                ]
             )
         # collections + embed LAST: they reference the datasets above.
         builders.append(("collections", fns["collections"]))
@@ -7503,6 +8029,13 @@ def main() -> int:
             built[bname] = result
         else:
             print(outcome)
+
+    if not args.expected_state:
+        try:
+            set_attribute_titles(api)
+        except httpx.HTTPError as e:
+            print(f"\nERROR in [attribute titles]: {e}", file=sys.stderr)
+            failed["attribute titles"] = str(e)
 
     # Backfill license + keywords on whatever showcase datasets now exist (the
     # ingest flow leaves them "proprietary" with no keywords). Isolated per
@@ -7550,7 +8083,7 @@ def main() -> int:
             "collections"
             if bname == "collections"
             else "api/stories"
-            if bname == "story"
+            if bname in ("story", "skyline-story")
             else "datasets"
             if bname in ("copc", "tiles3d")
             else "maps"

@@ -1076,7 +1076,7 @@ def test_sentinel2_layers_on_one_date_are_named_by_tile(monkeypatch):
 
 def test_manhattan_buildings_start_at_zoom_12():
     """Below z12 the building tiles are large and the footprints unreadable."""
-    body = _function_node(SOURCE, "build_manhattan")
+    body = _function_node(SOURCE, "manhattan_buildings_layer")
     buildings = next(
         node
         for node in ast.walk(body)
