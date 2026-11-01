@@ -434,7 +434,7 @@ class TestTheValidatorRefusesAStaleGeneration:
                 AsyncMock(return_value=generation),
             ),
             patch.object(
-                embed_service, "map_contains_dataset", AsyncMock(return_value=True)
+                embed_service, "map_embeds_dataset", AsyncMock(return_value=True)
             ),
             patch.object(
                 embed_service,

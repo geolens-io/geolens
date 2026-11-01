@@ -367,7 +367,7 @@ async def test_embed_token_negative_cache_cannot_poison_another_tenant(
     service = importlib.import_module("app.modules.embed_tokens.service")
     cache = _MemoryCache()
     monkeypatch.setattr(service, "get_cache", lambda: cache)
-    monkeypatch.setattr(service, "map_contains_dataset", AsyncMock(return_value=True))
+    monkeypatch.setattr(service, "map_embeds_dataset", AsyncMock(return_value=True))
     monkeypatch.setattr(
         service,
         "datasets_account_can_read",

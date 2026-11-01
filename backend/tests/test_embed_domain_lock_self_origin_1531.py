@@ -214,7 +214,7 @@ async def _validate(request, allowed_origins: list[str] | None, monkeypatch) -> 
         AsyncMock(return_value=_TEST_GENERATION),
     )
     monkeypatch.setattr(
-        embed_service, "map_contains_dataset", AsyncMock(return_value=True)
+        embed_service, "map_embeds_dataset", AsyncMock(return_value=True)
     )
     return await embed_service.validate_embed_token_access(
         RAW_TOKEN, DATASET_ID, AsyncMock(), request
@@ -236,7 +236,7 @@ async def _validate_cache_miss(
         AsyncMock(return_value=_TEST_GENERATION),
     )
     monkeypatch.setattr(
-        embed_service, "map_contains_dataset", AsyncMock(return_value=True)
+        embed_service, "map_embeds_dataset", AsyncMock(return_value=True)
     )
     monkeypatch.setattr(
         embed_service, "_bump_embed_token_usage_detached", AsyncMock(return_value=None)
