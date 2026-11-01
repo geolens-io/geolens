@@ -242,6 +242,56 @@ def _id_token_claims_options(
     return None
 
 
+async def _oidc_identity_claims(client, provider, token) -> dict:
+    """The sign-in's identity claims, from the ID token or, without one, UserInfo.
+
+    A generic OIDC provider may return ``email_verified`` or the group claim
+    only from UserInfo (Okta does, in the code flow). When the ID token lacks
+    either, UserInfo fills only the missing keys, and only when its ``sub``
+    matches the ID token's (OIDC Core 5.3.2). ``email_verified`` is kept only
+    when it came with the same address as the merged ``email``. A failed
+    fetch keeps the ID token's claims alone.
+    """
+    id_claims = token.get("userinfo")
+    if id_claims is None:
+        return dict(await client.userinfo(token=token))
+    claims = dict(id_claims)
+    wanted = {"email_verified", provider.group_claim} - {None, ""}
+    if provider.provider_type != "oidc" or wanted <= claims.keys():
+        return claims
+    try:
+        extra = await client.userinfo(token=token)
+    except Exception as exc:  # broad: the ID token alone still identifies the user
+        logger.warning(
+            "OIDC UserInfo fetch failed; using ID token claims only",
+            provider=provider.slug,
+            error=type(exc).__name__,
+        )
+        return claims
+    sub = claims.get("sub")
+    if not isinstance(extra, dict) or not sub or extra.get("sub") != sub:
+        logger.warning(
+            "OIDC UserInfo ignored: no subject matching the ID token",
+            provider=provider.slug,
+        )
+        return claims
+    merged = {**extra, **claims}
+    # Verification belongs to an address: a flag from one source never vouches
+    # for the other source's email.
+    email_src = claims if "email" in claims else extra
+    verified_src = claims if "email_verified" in claims else extra
+    if email_src is not verified_src:
+        email = _casefold_email(email_src)
+        if email is None or email != _casefold_email(verified_src):
+            merged.pop("email_verified", None)
+    return merged
+
+
+def _casefold_email(claims: dict) -> str | None:
+    email = claims.get("email")
+    return email.casefold() if isinstance(email, str) else None
+
+
 async def build_oauth_client(provider_slug: str, db: AsyncSession) -> tuple:
     """Build an authlib OAuth client for the given provider slug.
 
@@ -439,10 +489,7 @@ async def oauth_callback(
                 dict(token), userinfo_url=provider.userinfo_url
             )
         else:
-            userinfo = token.get("userinfo")
-            if userinfo is None:
-                userinfo = await client.userinfo(token=token)
-            userinfo = dict(userinfo)
+            userinfo = await _oidc_identity_claims(client, provider, token)
 
         # Azure multitenant: the templated-issuer pin was relaxed at parse
         # time, so re-assert the resolved per-tenant issuer before the identity
