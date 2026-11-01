@@ -387,7 +387,7 @@
     "scopeFull": "Accès complet",
     "scopeReadOnly": "Lecture seule",
     "scopePublish": "Publication",
-    "scopePublishDescription": "Ajoute vos propres données et cartes, modifie les informations de vos jeux de données et remplace les jeux de données téléversés en conservant une version précédente. Elle ne peut rien rendre public ni élargir la visibilité d'un jeu de données, mettre à jour une carte existante, remplacer les jeux de données raster ou liés à un service, un élément STAC ou une table, écrire des entités ni rien supprimer.",
+    "scopePublishDescription": "Ajoute vos propres données et cartes, modifie les informations de vos jeux de données et remplace les jeux de données téléversés en conservant leurs versions précédentes. Elle ne peut rien rendre public ni élargir la visibilité d'un jeu de données, mettre à jour une carte existante, remplacer les jeux de données raster ou liés à un service, un élément STAC ou une table, écrire des entités ni rien supprimer.",
     "scopeDatasetWrite": "Un jeu de données",
     "scopeDatasetAppend": "Un jeu de données, ajout uniquement",
     "expiry": "Expiration",
