@@ -14,6 +14,66 @@ and releases use semantic versioning.
   field, deprecated in 1.27.0, now stay until at least 2027-01-22. Use the
   `previous-versions` routes and field instead.
 
+## [1.29.2] - 2026-11-01
+
+An instance on 1.29.1 moves to 1.29.2 with no migration.
+
+### Security
+
+- The bundled nginx refuses a path that repeats the `/api` prefix, so every
+  edge rule for `/api/...` (the `/metrics` and internal-route blocks, the
+  anonymous tile rate limits) also covers that spelling. `/metrics` answers 404
+  to a request that came through a proxy (`Forwarded`, `X-Forwarded-For` or
+  `X-Real-IP`); scrape the API directly, as the bundled Prometheus does.
+- A verification link activates a pending sign-up only while self-registration
+  is on and requires email verification. In admin-approval mode the link
+  confirms the address and the account waits for an administrator; the
+  verify-email page says so. Resend sends nothing in that mode.
+- Creating an embed token follows the map's audience. With public visibility
+  restricted to admins, a non-admin can't create one for a map that isn't
+  public. A map shared with groups refuses new embed tokens (`409`), and a
+  token on a map that becomes shared with groups stops working.
+- `geolens apply` acts on a manifest key's existing dataset only for that
+  dataset's owner, admins included. To re-apply over another user's dataset,
+  transfer it first. A refused entry reads the same whether or not you can see
+  the dataset.
+- With a daily AI token cap set, a user can have two AI requests in flight; a
+  third gets `429`. Concurrent requests could otherwise each spend past the cap.
+
+### Changed
+
+- A vector tile over its 50,000-feature limit keeps a sample spread across
+  the tile, in a stable order, instead of the lowest feature ids, and carries
+  `X-GeoLens-Tile-Sampled: true`. The viewer's Layers panel says "Showing a
+  sample at this zoom" while such a tile is in view. Tiles under the limit are
+  unchanged. (#3576)
+- The Builder's style editor notes when a point layer has more features than a
+  tile holds and isn't clustered or zoom-limited, so readers see a sample
+  zoomed out. (#3577)
+- Each signed-in caller (JWT or API key) gets their own 10-a-second budget on
+  the aggregate route that dashboard widgets call, instead of sharing one per
+  client address. Anonymous and embed callers are still counted per address.
+  (#3574)
+- `scripts/seed-showcase.py` adds a Manhattan skyline story and dashboard map.
+  (#3570, #3575)
+
+### Fixed
+
+- Okta and other OIDC providers that return `email_verified` or the group
+  claim only from UserInfo: sign-in reads the missing claims from UserInfo when
+  its `sub` matches the ID token, so allowed-domain checks, linking by email
+  and group-role mapping work. ID token values still win. (#3579)
+- A dashboard widget whose view is too wide shows only "zoom in", without a
+  Retry button or an empty value, and screen readers hear the same instead of
+  a failure. (#3571)
+- The committed OpenAPI document and the STAC `service-desc` carry the
+  `servers: [{"url": "/api"}]` entry the live `/api/openapi.json` has, so
+  request samples generated from them include the `/api` prefix. The
+  TypeScript SDK's generated client defaults to that base URL;
+  `createGeolensClient()` still sets its own. (#3588)
+- The Publish API key scope says a replacement keeps the dataset's previous
+  versions, not one previous version. (#3587)
+
 ## [1.29.1] - 2026-10-31
 
 An instance on 1.29.0 moves to 1.29.1 with no migration.
@@ -7138,7 +7198,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.29.1...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.29.2...HEAD
+[1.29.2]: https://github.com/geolens-io/geolens/compare/v1.29.1...v1.29.2
 [1.29.1]: https://github.com/geolens-io/geolens/compare/v1.29.0...v1.29.1
 [1.29.0]: https://github.com/geolens-io/geolens/compare/v1.28.0...v1.29.0
 [1.28.0]: https://github.com/geolens-io/geolens/compare/v1.27.1...v1.28.0
