@@ -346,8 +346,11 @@ sizes and options.
 - One organization per deployment.
 - Terrain rendering assumes elevation in meters; other vertical units render exaggerated.
 - GeoLens's own REST API can change between minor releases (the standards endpoints follow their
-  specifications). The [CHANGELOG](CHANGELOG.md) lists contract changes, and a breaking change
-  keeps the old form working for one more minor release.
+  specifications). The [CHANGELOG](CHANGELOG.md) lists contract changes. When a change breaks
+  callers, the old form keeps working for the later of the next minor release and 90 days, and
+  the CHANGELOG records its removal date. That covers REST routes and fields, the map and
+  dashboard JSON clients write, and CLI commands and flags; the SDKs follow the API, and MCP
+  tool names and arguments aren't covered.
 
 ## Contributing
 
