@@ -10,8 +10,8 @@ and releases use semantic versioning.
 ## [1.29.2] - 2026-11-01
 
 An instance on 1.29.1 moves to 1.29.2 with no migration. The vector and
-cluster tile caches start empty after the upgrade, and after a rollback to
-1.29.1, because their key format changed.
+cluster tile caches start empty after the upgrade because their key format
+changed.
 
 ### Security
 
