@@ -49,10 +49,14 @@ export function useSampledTileSources(
       setSampled((prev) => (sameMembers(prev, next) ? prev : next));
     };
     update();
+    // A tile already recorded as sampled (a reopened map, a cached tile) notifies
+    // no one when it loads again, so recheck once sources and tiles have settled.
     map.on('moveend', update);
+    map.on('idle', update);
     const unsubscribe = subscribeTileSampling(update);
     return () => {
       map.off('moveend', update);
+      map.off('idle', update);
       unsubscribe();
     };
   }, [mapRef, mapReady, sourceIds]);
