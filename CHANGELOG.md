@@ -7,6 +7,13 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Deprecated
+
+- `POST /datasets/{id}/previous-version/restore`, `DELETE
+  /datasets/{id}/previous-version` and the dataset detail's `previous_version`
+  field, deprecated in 1.27.0, now stay until at least 2027-01-22. Use the
+  `previous-versions` routes and field instead.
+
 ## [1.29.1] - 2026-10-31
 
 An instance on 1.29.0 moves to 1.29.1 with no migration.
