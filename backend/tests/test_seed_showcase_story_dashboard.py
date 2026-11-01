@@ -298,11 +298,14 @@ def test_skyline_dashboard_table_leads_with_the_building():
     assert api.layer_updates == []
 
     # A layer an earlier seed made keeps its other popup settings.
-    api.layer_popup = {"enabled": True, "visible_fields": ["construction_year"]}
+    api.layer_popup = {"enabled": False, "visible_fields": ["construction_year"]}
     seeder.seed_skyline_dashboard(api)
-    assert api.layer_updates == [
-        {
-            "id": BUILDINGS_LAYER,
-            "popup_config": {"enabled": True, "visible_fields": fields},
-        }
-    ]
+    assert api.layer_updates[-1]["popup_config"]["enabled"] is False
+    assert api.layer_updates[-1]["popup_config"]["visible_fields"] == fields
+
+    # A layer saved without a popup still gets the fields the API requires.
+    api.layer_popup = None
+    seeder.seed_skyline_dashboard(api)
+    assert api.layer_updates[-1]["popup_config"]["enabled"] is True
+    assert api.layer_updates[-1]["popup_config"]["visible_fields"] == fields
+    assert len(api.layer_updates) == 2

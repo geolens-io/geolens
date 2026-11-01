@@ -4952,12 +4952,11 @@ def seed_skyline_dashboard(
         api, SKYLINE_DASHBOARD_MAP, SKYLINE_DASHBOARD_DESCRIPTION, layer
     )
     existing = next((lay for lay in current["layers"] if lay["id"] == layer_id), None)
-    popup = (existing or {}).get("popup_config") or {}
-    if existing and popup.get("visible_fields") != fields:
-        api.update_layer(
-            map_id,
-            {"id": layer_id, "popup_config": {**popup, "visible_fields": fields}},
-        )
+    current_popup = (existing or {}).get("popup_config") or {}
+    if existing and current_popup.get("visible_fields") != fields:
+        # Over the seed's popup, so a layer saved without one still sends `enabled`.
+        popup = {**layer["popup_config"], **current_popup, "visible_fields": fields}
+        api.update_layer(map_id, {"id": layer_id, "popup_config": popup})
 
     def widget(key: str, kind: str, title: str, config: dict) -> dict:
         return _dashboard_widget(
