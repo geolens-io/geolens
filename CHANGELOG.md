@@ -7,16 +7,11 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
-### Deprecated
-
-- `POST /datasets/{id}/previous-version/restore`, `DELETE
-  /datasets/{id}/previous-version` and the dataset detail's `previous_version`
-  field, deprecated in 1.27.0, now stay until at least 2027-01-22. Use the
-  `previous-versions` routes and field instead.
-
 ## [1.29.2] - 2026-11-01
 
-An instance on 1.29.1 moves to 1.29.2 with no migration.
+An instance on 1.29.1 moves to 1.29.2 with no migration. The vector and
+cluster tile caches start empty after the upgrade because their key format
+changed.
 
 ### Security
 
@@ -32,7 +27,9 @@ An instance on 1.29.1 moves to 1.29.2 with no migration.
 - Creating an embed token follows the map's audience. With public visibility
   restricted to admins, a non-admin can't create one for a map that isn't
   public. A map shared with groups refuses new embed tokens (`409`), and a
-  token on a map that becomes shared with groups stops working.
+  token on a map that becomes shared with groups stops working. Tokens a
+  non-admin created before the restriction was turned on keep working; if you
+  use that setting, review the embed tokens on maps that aren't public.
 - `geolens apply` acts on a manifest key's existing dataset only for that
   dataset's owner, admins included. To re-apply over another user's dataset,
   transfer it first. A refused entry reads the same whether or not you can see
@@ -46,7 +43,8 @@ An instance on 1.29.1 moves to 1.29.2 with no migration.
   the tile, in a stable order, instead of the lowest feature ids, and carries
   `X-GeoLens-Tile-Sampled: true`. The viewer's Layers panel says "Showing a
   sample at this zoom" while such a tile is in view. Tiles under the limit are
-  unchanged. (#3576)
+  unchanged. Choosing the sample reads every row the tile covers, so a crowded
+  tile's first render is slower than before. (#3576)
 - The Builder's style editor notes when a point layer has more features than a
   tile holds and isn't clustered or zoom-limited, so readers see a sample
   zoomed out. (#3577)
@@ -56,6 +54,16 @@ An instance on 1.29.1 moves to 1.29.2 with no migration.
   (#3574)
 - `scripts/seed-showcase.py` adds a Manhattan skyline story and dashboard map.
   (#3570, #3575)
+- A breaking change to the REST API, the map and dashboard JSON that clients
+  write, or a CLI command or flag now keeps the old form working for the later
+  of the next minor release and 90 days. (#3573)
+
+### Deprecated
+
+- `POST /datasets/{id}/previous-version/restore`, `DELETE
+  /datasets/{id}/previous-version` and the dataset detail's `previous_version`
+  field, deprecated in 1.27.0, now stay until at least 2027-01-22. Use the
+  `previous-versions` routes and field instead.
 
 ### Fixed
 
