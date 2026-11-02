@@ -193,6 +193,10 @@ services:
     # over-commit an 8 GB host; there, set DB_MEM_LIMIT=1.5g API_MEM_LIMIT=1g
     # WORKER_MEM_LIMIT=2g.
     mem_limit: "${DB_MEM_LIMIT:-2g}"
+    # Parallel queries allocate in /dev/shm, and Docker's 64 MB default runs out
+    # under concurrent dashboard load. The tmpfs counts toward mem_limit, so keep
+    # it plus shared_buffers inside DB_MEM_LIMIT.
+    shm_size: "${DB_SHM_SIZE:-512m}"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s

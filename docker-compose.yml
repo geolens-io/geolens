@@ -176,6 +176,10 @@ services:
       - ./db/postgresql.conf:/etc/postgresql/custom.conf:ro
     # 2g covers shared_buffers (512 MB) plus work_mem headroom.
     mem_limit: "${DB_MEM_LIMIT:-2g}"
+    # Parallel queries allocate in /dev/shm, and Docker's 64 MB default runs out
+    # under concurrent dashboard load. The tmpfs counts toward mem_limit, so keep
+    # it plus shared_buffers inside DB_MEM_LIMIT.
+    shm_size: "${DB_SHM_SIZE:-512m}"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
