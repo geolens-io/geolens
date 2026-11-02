@@ -39,7 +39,7 @@ export class ApiError extends Error {
   /** A 401 the client could NOT confirm — the refresh behind it
    * failed transiently, so nothing here says the credential was rejected. */
   unconfirmed?: boolean;
-  /** How long the server asked the caller to wait, from a 429's Retry-After. */
+  /** How long the server asked the caller to wait, from a 429's or 503's Retry-After. */
   retryAfterMs?: number;
 
   constructor(message: string, status: number, body?: unknown) {
@@ -442,7 +442,7 @@ async function apiFetchResponse(
       response.status,
       detailRaw,
     );
-    if (response.status === 429) error.retryAfterMs = retryAfterMs(response);
+    if (response.status === 429 || response.status === 503) error.retryAfterMs = retryAfterMs(response);
     throw error;
   }
 

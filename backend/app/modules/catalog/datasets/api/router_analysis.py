@@ -82,9 +82,10 @@ ANALYSIS_JOB_PRIORITY = -10
 # Sandbox error categories -> HTTP status. Everything else is a sanitized
 # 500. query_data_error (SQLSTATE class 22 / GEOS internal errors) is a
 # 422 since all SQL here is server-built from validated params, so
-# failures are data-driven (e.g. degenerate geometries). Generic
-# query_failed stays a 500 -- also covers connection loss and role-binding
-# failures, server faults rather than bad requests.
+# failures are data-driven (e.g. degenerate geometries). query_unavailable
+# (an operational SQLSTATE: resources, connection loss) is a retryable 503.
+# Generic query_failed stays a 500 -- role-binding failures and other server
+# faults rather than bad requests.
 SANDBOX_STATUS = {
     "query_busy": status.HTTP_429_TOO_MANY_REQUESTS,
     # Server-at-capacity is also a 429, but a distinct
@@ -93,6 +94,7 @@ SANDBOX_STATUS = {
     "query_timeout": status.HTTP_422_UNPROCESSABLE_CONTENT,
     "query_data_error": status.HTTP_422_UNPROCESSABLE_CONTENT,
     "result_too_large": status.HTTP_422_UNPROCESSABLE_CONTENT,
+    "query_unavailable": status.HTTP_503_SERVICE_UNAVAILABLE,
 }
 
 
@@ -354,6 +356,7 @@ async def analysis_preview_endpoint(
                 exc.category, status.HTTP_500_INTERNAL_SERVER_ERROR
             ),
             detail=exc.user_message,
+            headers=exc.headers,
         ) from exc
 
 

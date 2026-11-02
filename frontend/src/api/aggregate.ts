@@ -52,13 +52,16 @@ function bookStart(): number {
 }
 
 /**
- * What a 429 means: the rate limit (a plain detail), or this caller
- * already having its share of running aggregates (`query_busy`,
- * `query_at_capacity`).
+ * What a refusal means: the rate limit (a 429 with a plain detail), or this
+ * request alone waiting its turn: the caller already has its share of running
+ * aggregates (`query_busy`, `query_at_capacity`), or the database was too
+ * loaded to answer (a 503 `query_unavailable`).
  */
 function refusal(error: unknown): 'rate' | 'busy' | null {
-  if (!(error instanceof ApiError) || error.status !== 429) return null;
+  if (!(error instanceof ApiError)) return null;
   const code = typeof error.body === 'object' && error.body !== null ? (error.body as { code?: unknown }).code : null;
+  if (error.status === 503) return code === 'query_unavailable' ? 'busy' : null;
+  if (error.status !== 429) return null;
   return code === 'query_busy' || code === 'query_at_capacity' ? 'busy' : 'rate';
 }
 
@@ -95,7 +98,7 @@ export async function fetchAggregate(
         const wait = (error as ApiError).retryAfterMs ?? RATE_COOLDOWN_MS;
         cooldownUntil = Math.max(cooldownUntil, Date.now() + wait);
       } else {
-        busyWait = 200 + Math.random() * 200;
+        busyWait = (error as ApiError).retryAfterMs ?? 200 + Math.random() * 200;
       }
     } finally {
       release();

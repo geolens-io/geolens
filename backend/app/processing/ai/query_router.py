@@ -185,6 +185,7 @@ _SANDBOX_STATUS = {
     "result_too_large": status.HTTP_422_UNPROCESSABLE_CONTENT,
     "query_busy": status.HTTP_429_TOO_MANY_REQUESTS,
     "query_at_capacity": status.HTTP_429_TOO_MANY_REQUESTS,
+    "query_unavailable": status.HTTP_503_SERVICE_UNAVAILABLE,
 }
 
 _require_ai_chat = require_permission("use_ai_chat")
@@ -357,6 +358,7 @@ async def sandbox_query_endpoint(
                 exc.category, status.HTTP_500_INTERNAL_SERVER_ERROR
             ),
             detail=exc.user_message,
+            headers=exc.headers,
         ) from exc
     await _audit_query(
         request, user, body, row_count=result.row_count, truncated=result.truncated

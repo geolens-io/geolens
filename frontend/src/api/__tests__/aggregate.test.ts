@@ -138,6 +138,36 @@ describe('fetchAggregate', () => {
     expect(starts[2] - starts[0]).toBeLessThan(1000);
   });
 
+  it('retries a database too loaded to answer after its Retry-After, without pausing the page', async () => {
+    vi.useFakeTimers({ now: 10_000 });
+    const starts: number[] = [];
+    let refused = false;
+    apiFetchMock.mockImplementation(async () => {
+      starts.push(Date.now());
+      if (!refused) {
+        refused = true;
+        const error = new ApiError('busy', 503, { code: 'query_unavailable', message: 'busy' });
+        error.retryAfterMs = 2000;
+        throw error;
+      }
+      return 'ok' as never;
+    });
+
+    const all = Promise.all([1, 2].map(() => fetchAggregate('ds-1', { op: 'count' })));
+    await vi.advanceTimersByTimeAsync(5000);
+    await expect(all).resolves.toEqual(['ok', 'ok']);
+    expect(starts[1] - starts[0]).toBeLessThan(1000);
+    expect(starts[2] - starts[0]).toBeGreaterThanOrEqual(2000);
+  });
+
+  it('does not retry any other 503', async () => {
+    apiFetchMock.mockImplementation(async () => {
+      throw new ApiError('down', 503, 'Dataset table is temporarily unavailable');
+    });
+    await expect(fetchAggregate('ds-1', { op: 'count' })).rejects.toMatchObject({ status: 503 });
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('gives up after a few refusals', async () => {
     vi.useFakeTimers({ now: 10_000 });
     apiFetchMock.mockImplementation(async () => {

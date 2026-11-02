@@ -767,9 +767,10 @@ class TestAnalysisPreviewEndpoint:
             ("query_timeout", 422),
             ("query_data_error", 422),
             ("result_too_large", 422),
+            ("query_unavailable", 503),
             # Anything unmapped falls through the .get default. query_failed
-            # also covers connection loss and role-binding failures, which are
-            # server faults rather than bad requests.
+            # covers role-binding failures and other server faults rather than
+            # bad requests.
             ("query_failed", 500),
         ],
     )
@@ -803,6 +804,7 @@ class TestAnalysisPreviewEndpoint:
                 headers=admin_auth_header,
             )
         assert resp.status_code == expected_status, resp.text
+        assert ("Retry-After" in resp.headers) == (category == "query_unavailable")
         # user_message is the sandbox's already-sanitized text, so it is what
         # the caller reads on every branch including the 500 fallback.
         assert resp.json()["detail"] == message
@@ -818,6 +820,7 @@ class TestAnalysisPreviewEndpoint:
             "query_timeout",
             "query_data_error",
             "result_too_large",
+            "query_unavailable",
         }
 
     async def test_truncation_at_feature_cap(

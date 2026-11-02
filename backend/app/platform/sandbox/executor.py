@@ -14,9 +14,10 @@ import structlog
 import sqlglot
 from sqlglot import exp
 from sqlalchemy import BindParameter, text
-from sqlalchemy.exc import DataError, InternalError
+from sqlalchemy.exc import DataError, DBAPIError, InternalError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 
+from app.core.db.sqlstate import is_operational
 from app.core.db.tenant_schema import tenant_data_schema, tenant_reader_role
 from app.core.db.tenant_session import current_tenant_var
 from app.core.tenancy import is_multi_tenant
@@ -479,4 +480,13 @@ def _handle_execution_error(exc: Exception, sql: str, token: str | None = None) 
             "query_data_error", "The query failed while processing this data"
         ) from exc
 
+    raise_if_unavailable(exc)
     raise SandboxError("query_failed", "Query failed") from exc
+
+
+def raise_if_unavailable(exc: Exception) -> None:
+    """Raise ``query_unavailable`` when the database, not the query, failed."""
+    if isinstance(exc, DBAPIError) and is_operational(exc):
+        raise SandboxError(
+            "query_unavailable", "The database is busy. Try again in a moment."
+        ) from exc

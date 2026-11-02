@@ -95,10 +95,12 @@ async def aggregate_endpoint(
     Refusals carry a ``code`` in ``detail``: ``too_wide``, ``invalid_column``,
     ``invalid_filter``, ``no_geometry``, ``query_timeout``,
     ``query_data_error``, ``result_too_large``, and with 429 ``query_busy``
-    (this caller already has two aggregates running) or ``query_at_capacity``.
+    (this caller already has two aggregates running) or ``query_at_capacity``,
+    and with 503 ``query_unavailable`` when the database could not serve the
+    query, for example under memory pressure.
 
     Clients should keep at most two requests in flight per caller and retry a
-    429 after 200-400 ms with jitter.
+    429 after 200-400 ms with jitter, and a 503 after its ``Retry-After``.
     """
     # The embed capability is checked first; a supplied credential that does
     # not resolve gets 401 only when the capability did not authorize.
@@ -144,6 +146,7 @@ async def aggregate_endpoint(
                 exc.category, status.HTTP_500_INTERNAL_SERVER_ERROR
             ),
             detail={"code": exc.category, "message": exc.user_message},
+            headers=exc.headers,
         ) from exc
     except (ProgrammingError, OperationalError, TableUnavailable) as exc:
         raise HTTPException(
