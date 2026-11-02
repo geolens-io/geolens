@@ -120,6 +120,7 @@ def test_error_message_mapping():
         # the chat surface maps categories to its own wording, so folding them
         # together would tell a user their first request was a duplicate.
         "query_at_capacity",
+        "query_unavailable",
         "table_not_accessible",
         "invalid_query",
         "result_too_large",

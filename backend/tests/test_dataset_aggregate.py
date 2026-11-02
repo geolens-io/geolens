@@ -12,10 +12,12 @@ import pytest
 import sqlalchemy
 from httpx import AsyncClient
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.modules.catalog.datasets.domain import aggregate
+from app.platform.sandbox.executor import _handle_execution_error
 from tests.factories import (
     create_dataset,
     create_raster_dataset,
@@ -849,6 +851,45 @@ class TestConcurrency:
 
         assert resp.status_code == 422, resp.text
         assert resp.json()["detail"]["code"] == "query_timeout"
+
+    async def test_a_database_out_of_resources_is_a_retryable_503(
+        self, client: AsyncClient, points, monkeypatch
+    ):
+        class _ShmExhausted(Exception):
+            sqlstate = "53100"
+
+        async def _no_shared_memory(_db, sql, **_kwargs):
+            _handle_execution_error(
+                DBAPIError(sql, None, _ShmExhausted("could not resize shared memory")),
+                sql,
+            )
+
+        monkeypatch.setattr(aggregate, "execute_safe", _no_shared_memory)
+
+        resp = await _aggregate(client, points.id, {"op": "count", "filter": KEEP})
+
+        assert resp.status_code == 503, resp.text
+        assert resp.headers["Retry-After"] == "2"
+        assert resp.json()["detail"]["code"] == "query_unavailable"
+
+    async def test_planning_without_resources_is_a_retryable_503(
+        self, client: AsyncClient, points, monkeypatch
+    ):
+        class _OutOfMemory(Exception):
+            sqlstate = "53200"
+
+        async def _no_memory(*_args, **_kwargs):
+            raise DBAPIError("EXPLAIN", None, _OutOfMemory("out of memory"))
+
+        monkeypatch.setattr(aggregate, "planner_row_estimate", _no_memory)
+
+        resp = await _aggregate(
+            client, points.id, {"op": "count", "filter": KEEP, "bbox": FIRST_THREE}
+        )
+
+        assert resp.status_code == 503, resp.text
+        assert resp.headers["Retry-After"] == "2"
+        assert resp.json()["detail"]["code"] == "query_unavailable"
 
 
 class TestCachePolicy:

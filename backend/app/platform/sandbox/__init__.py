@@ -22,6 +22,7 @@ from app.platform.sandbox.executor import (
     DEFAULT_MAX_RESULT_BYTES,
     DEFAULT_TIMEOUT_MS,
     execute_safe,
+    raise_if_unavailable,
 )
 from app.platform.sandbox.schemas import SandboxError, SandboxResult
 from app.platform.sandbox.validator import (
@@ -198,4 +199,5 @@ async def validate_and_execute(
             error=str(exc),
             error_type=type(exc).__name__,
         )
+        raise_if_unavailable(exc)
         raise SandboxError("query_failed", "Query failed") from exc

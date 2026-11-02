@@ -2207,10 +2207,12 @@ export const updateDatasetMetadataDatasetsDatasetIdPatch = <ThrowOnError extends
  * Refusals carry a ``code`` in ``detail``: ``too_wide``, ``invalid_column``,
  * ``invalid_filter``, ``no_geometry``, ``query_timeout``,
  * ``query_data_error``, ``result_too_large``, and with 429 ``query_busy``
- * (this caller already has two aggregates running) or ``query_at_capacity``.
+ * (this caller already has two aggregates running) or ``query_at_capacity``,
+ * and with 503 ``query_unavailable`` when the database could not serve the
+ * query, for example under memory pressure.
  *
  * Clients should keep at most two requests in flight per caller and retry a
- * 429 after 200-400 ms with jitter.
+ * 429 after 200-400 ms with jitter, and a 503 after its ``Retry-After``.
  */
 export const aggregateEndpointDatasetsDatasetIdAggregatePost = <ThrowOnError extends boolean = false>(options: Options<AggregateEndpointDatasetsDatasetIdAggregatePostData, ThrowOnError>): RequestResult<AggregateEndpointDatasetsDatasetIdAggregatePostResponses, AggregateEndpointDatasetsDatasetIdAggregatePostErrors, ThrowOnError> => (options.client ?? client).post<AggregateEndpointDatasetsDatasetIdAggregatePostResponses, AggregateEndpointDatasetsDatasetIdAggregatePostErrors, ThrowOnError>({
     security: [

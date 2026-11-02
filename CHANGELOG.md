@@ -7,6 +7,14 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Dashboard aggregates, analysis previews and the SQL query endpoint answer
+  `503` with `Retry-After` and the code `query_unavailable` when the database
+  can't serve the query, for example when it runs out of memory or shared
+  memory or loses a connection. They answered `500` before. Dashboard widgets
+  retry after the `Retry-After`.
+
 ### Fixed
 
 - The bundled database gets a 512 MB `/dev/shm` (`DB_SHM_SIZE`). Docker's
