@@ -485,8 +485,14 @@ def _handle_execution_error(exc: Exception, sql: str, token: str | None = None) 
 
 
 def raise_if_unavailable(exc: Exception) -> None:
-    """Raise ``query_unavailable`` when the database, not the query, failed."""
-    if isinstance(exc, DBAPIError) and is_operational(exc):
+    """Raise ``query_unavailable`` when the database, not the query, failed.
+
+    asyncpg raises a refused or reset connection as a bare ``ConnectionError``,
+    outside SQLAlchemy's ``DBAPIError`` wrapping.
+    """
+    if isinstance(exc, ConnectionError) or (
+        isinstance(exc, DBAPIError) and is_operational(exc)
+    ):
         raise SandboxError(
             "query_unavailable", "The database is busy. Try again in a moment."
         ) from exc

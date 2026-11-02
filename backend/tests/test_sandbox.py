@@ -846,6 +846,13 @@ class TestExecutionErrorClassification:
         assert exc_info.value.category == "query_unavailable"
         assert exc_info.value.headers == {"Retry-After": "2"}
 
+    def test_a_refused_connection_is_unavailable(self):
+        from app.platform.sandbox.executor import _handle_execution_error
+
+        with pytest.raises(SandboxError) as exc_info:
+            _handle_execution_error(ConnectionRefusedError(111, "refused"), "SELECT 1")
+        assert exc_info.value.category == "query_unavailable"
+
     def test_other_database_errors_stay_generic(self):
         from sqlalchemy.exc import DBAPIError
 

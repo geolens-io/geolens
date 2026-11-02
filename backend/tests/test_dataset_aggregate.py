@@ -872,6 +872,25 @@ class TestConcurrency:
         assert resp.headers["Retry-After"] == "2"
         assert resp.json()["detail"]["code"] == "query_unavailable"
 
+    async def test_planning_without_resources_is_a_retryable_503(
+        self, client: AsyncClient, points, monkeypatch
+    ):
+        class _OutOfMemory(Exception):
+            sqlstate = "53200"
+
+        async def _no_memory(*_args, **_kwargs):
+            raise DBAPIError("EXPLAIN", None, _OutOfMemory("out of memory"))
+
+        monkeypatch.setattr(aggregate, "planner_row_estimate", _no_memory)
+
+        resp = await _aggregate(
+            client, points.id, {"op": "count", "filter": KEEP, "bbox": FIRST_THREE}
+        )
+
+        assert resp.status_code == 503, resp.text
+        assert resp.headers["Retry-After"] == "2"
+        assert resp.json()["detail"]["code"] == "query_unavailable"
+
 
 class TestCachePolicy:
     async def test_only_an_unfiltered_whole_layer_result_is_kept_long(

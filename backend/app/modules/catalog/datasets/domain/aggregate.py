@@ -50,7 +50,7 @@ from app.platform.cache import (
     tenant_cache_key,
 )
 from app.platform.extensions import get_catalog_port
-from app.platform.sandbox.executor import execute_safe
+from app.platform.sandbox.executor import execute_safe, raise_if_unavailable
 from app.platform.sandbox.schemas import SandboxError
 from app.platform.timestamptz_text import utc_timestamptz_text
 
@@ -630,6 +630,7 @@ async def _planned_rows(
     except DBAPIError as exc:
         if sqlstate(exc) == _QUERY_CANCELED:
             raise SandboxError("query_timeout", "Query timed out") from exc
+        raise_if_unavailable(exc)
         raise
 
 
