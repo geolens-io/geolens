@@ -6,7 +6,8 @@ operational layers to the datasets the run imported for the services they
 point at, fills in the renderer of each layer the web map leaves to its source,
 and has GeoLens translate it into a map. The layer-to-map-layer ids
 GeoLens returns are kept in the item's state, and the loss report is written
-next to the state file.
+next to the state file. A rerun translates a web map the portal changed again,
+into the same map, while the map is as this command left it.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from .arcgis_migrate_session import (
     ItemResult,
     MigrationContext,
     StopRun,
+    WriteRaced,
 )
 from .arcgis_plan import IMPORT_MAP
 from .arcgis_migrate_state import DONE, EXISTS, FINISHED, ItemState, whole_number
@@ -55,6 +57,10 @@ _THUMBNAIL_TYPES = {b"\x89PNG\r\n\x1a\n": "image/png", b"\xff\xd8\xff": "image/j
 # max_length of 100,000 characters.
 _THUMBNAIL_MAX_BYTES = (100_000 - len("data:image/jpeg;base64,")) // 4 * 3
 _THUMBNAIL_NOTE = "the web map's thumbnail was not carried over"
+# The notes _finish_loss writes, which a new translation replaces.
+_LOSS_NOTE = re.compile(
+    r"\d+ (layer\(s\) not imported|part\(s\) of the web map were not carried over)"
+)
 
 
 def _walk(layers: Any) -> list[Mapping[str, Any]]:
@@ -411,11 +417,11 @@ def _map_problem(
 def refresh_map(
     ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
 ) -> list[str]:
-    """Why a migrated web map may not match its portal item: gone from
+    """Translate a web map the portal changed since it was last read into its
+    GeoLens map again; why the map may not match its portal item: gone from
     GeoLens, shared differently than the plan says in a way its groups can't
-    settle, changed in the portal since it was read for the import, or with no
-    way to tell. A web map isn't translated again; the operator updates the
-    GeoLens map. A map with no thumbnail gets the item's."""
+    settle, changed in GeoLens, or with no way to tell. A map with no
+    thumbnail gets the item's."""
     problem, found = _map_problem(ctx, item, entry)
     if problem:
         return [problem]
@@ -447,11 +453,101 @@ def refresh_map(
             "a change since can't be ruled out; compare the GeoLens map by hand"
         ]
     if modified > recorded:
-        return [
-            "the web map changed in the portal since it was migrated; web maps "
-            "aren't translated again, so update the GeoLens map by hand"
-        ]
+        problem = _translate_again(ctx, item, entry, found, modified)
+        return [problem] if problem else []
     return []
+
+
+def _translate_again(
+    ctx: MigrationContext,
+    item: Mapping[str, Any],
+    entry: ItemState,
+    found: Any,
+    modified: int,
+) -> str | None:
+    """Translate the changed web map into its GeoLens map in place; why it
+    wasn't, or None.
+
+    Only a map as this command last left it is written, and the save names the
+    ``updated_at`` recorded then, so GeoLens refuses it after any edit made
+    since. A translated layer keeps the map layer made for its operational
+    layer.
+    """
+    from geolens.api.maps import (
+        import_arcgis_webmap_endpoint_maps_import_arcgis_webmap_post as import_webmap,
+    )
+    from geolens.api.maps import update_map_endpoint_maps_map_id_put as put_map
+    from geolens.models.arcgis_translated_view import ArcgisTranslatedView
+    from geolens.models.map_update import MapUpdate
+
+    seen = entry.map_snapshot
+    if seen is None:
+        return (
+            "the web map changed in the portal, and the state doesn't record how "
+            "this command left its GeoLens map; update the map by hand"
+        )
+    if map_state(found) != seen:
+        return (
+            "the web map changed in the portal, and its GeoLens map was changed "
+            "in GeoLens since the last run; it was left as it is"
+        )
+    try:
+        body = _import_body(ctx, item, _fetch(ctx, item["id"]), dry_run=True)
+        with long_request_timeout(ctx.geolens.client):
+            result = ctx.geolens.call(
+                import_webmap.sync_detailed, expected=201, body=body
+            )
+    except (ItemFailed, GeoLensError) as exc:
+        return f"translating the changed web map again failed, {exc}"
+    if not isinstance(result.view, ArcgisTranslatedView) or not isinstance(
+        result.notes, str
+    ):
+        return (
+            "the web map changed in the portal, and this GeoLens can't translate "
+            "it again; upgrade GeoLens or update the map by hand"
+        )
+    sources = list(result.layer_sources)
+    layers = [
+        {
+            **layer.to_dict(),
+            **({"id": entry.layer_ids[s]} if s in entry.layer_ids else {}),
+        }
+        for layer, s in zip(result.layers, sources)
+    ]
+    try:
+        saved = ctx.geolens.write(
+            put_map.sync_detailed,
+            during="the web map was translated again",
+            map_id=UUID(entry.map_id or ""),
+            body=MapUpdate.from_dict(
+                {
+                    **result.view.to_dict(),
+                    "notes": result.notes,
+                    "layers": layers,
+                    "expected_updated_at": seen["updated_at"],
+                }
+            ),
+        )
+    except WriteRaced as exc:
+        return str(exc)
+    except GeoLensError as exc:
+        return f"saving the web map's new translation failed, {exc}"
+    entry.map_snapshot = map_state(saved)
+    entry.layer_ids = {
+        sources[layer.sort_order]: str(layer.id)
+        for layer in saved.layers
+        if layer.sort_order < len(sources)
+    }
+    entry.portal_modified = modified
+    entry.pending_loss = {
+        "loss_report": result.loss_report.to_dict(),
+        "unmatched_layers": [layer.to_dict() for layer in result.unmatched_layers],
+    }
+    entry.loss_report_path = None
+    ctx.save()
+    notes = _finish_loss(ctx, item["id"], entry).notes
+    entry.notes = [*(n for n in entry.notes if not _LOSS_NOTE.match(n)), *notes]
+    return None
 
 
 def _write_loss(ctx: MigrationContext, item_id: str, report: Any) -> str:
@@ -470,6 +566,48 @@ def _write_loss(ctx: MigrationContext, item_id: str, report: Any) -> str:
     return path.as_posix()
 
 
+def _import_body(
+    ctx: MigrationContext,
+    item: Mapping[str, Any],
+    webmap: dict[str, Any],
+    *,
+    dry_run: bool = False,
+) -> Any:
+    """The import request for *webmap*, its layers matched to the run's
+    datasets and their source styling filled in."""
+    from geolens.models.arcgis_webmap_import_request import ArcgisWebmapImportRequest
+    from geolens.models.arcgis_webmap_import_request_basemap_map import (
+        ArcgisWebmapImportRequestBasemapMap,
+    )
+    from geolens.models.arcgis_webmap_import_request_dataset_matches import (
+        ArcgisWebmapImportRequestDatasetMatches,
+    )
+    from geolens.models.arcgis_webmap_import_request_webmap import (
+        ArcgisWebmapImportRequestWebmap,
+    )
+    from geolens.models.map_visibility import check_map_visibility
+
+    matches = match_datasets(ctx, webmap)
+    fill_source_styling(ctx, webmap, matches)
+    title = item["target"]["title"] or item["title"]
+    visibility = item["target"]["visibility"]
+    return ArcgisWebmapImportRequest(
+        webmap=ArcgisWebmapImportRequestWebmap.from_dict(webmap),
+        name=title[:255],
+        title=item["title"][:255],
+        # A new map can't be restricted before it has groups; sharing it
+        # with them afterwards makes it restricted.
+        visibility=check_map_visibility(
+            "private" if visibility == "restricted" else visibility
+        ),
+        basemap_map=ArcgisWebmapImportRequestBasemapMap.from_dict(
+            _basemap_entries(ctx, webmap)
+        ),
+        dataset_matches=ArcgisWebmapImportRequestDatasetMatches.from_dict(matches),
+        dry_run=dry_run,
+    )
+
+
 def import_map(
     ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
 ) -> ItemResult:
@@ -485,38 +623,9 @@ def import_map(
     from geolens.api.maps import (
         import_arcgis_webmap_endpoint_maps_import_arcgis_webmap_post as import_webmap,
     )
-    from geolens.models.arcgis_webmap_import_request import ArcgisWebmapImportRequest
-    from geolens.models.arcgis_webmap_import_request_basemap_map import (
-        ArcgisWebmapImportRequestBasemapMap,
-    )
-    from geolens.models.arcgis_webmap_import_request_dataset_matches import (
-        ArcgisWebmapImportRequestDatasetMatches,
-    )
-    from geolens.models.arcgis_webmap_import_request_webmap import (
-        ArcgisWebmapImportRequestWebmap,
-    )
-    from geolens.models.map_visibility import check_map_visibility
 
     info = _read_item(ctx, item["id"])
-    webmap = _fetch(ctx, item["id"])
-    matches = match_datasets(ctx, webmap)
-    fill_source_styling(ctx, webmap, matches)
-    title = item["target"]["title"] or item["title"]
-    visibility = item["target"]["visibility"]
-    body = ArcgisWebmapImportRequest(
-        webmap=ArcgisWebmapImportRequestWebmap.from_dict(webmap),
-        name=title[:255],
-        title=item["title"][:255],
-        # A new map can't be restricted before it has groups; sharing it
-        # with them afterwards makes it restricted.
-        visibility=check_map_visibility(
-            "private" if visibility == "restricted" else visibility
-        ),
-        basemap_map=ArcgisWebmapImportRequestBasemapMap.from_dict(
-            _basemap_entries(ctx, webmap)
-        ),
-        dataset_matches=ArcgisWebmapImportRequestDatasetMatches.from_dict(matches),
-    )
+    body = _import_body(ctx, item, _fetch(ctx, item["id"]))
     try:
         with long_request_timeout(ctx.geolens.client):
             result = ctx.geolens.call(

@@ -16,6 +16,16 @@ and releases use semantic versioning.
   `manage_collections`, and an item shared only with ArcGIS groups goes to the
   matching groups the editor belongs to, or lands private. The report lists
   each. A plan that names another owner still needs an admin.
+- `PUT /maps/{map_id}` takes an optional `expected_updated_at`. When the map
+  changed since that value, nothing is written and the answer is `409` with
+  `detail.code` `stale_write`, as on `PATCH /maps/{map_id}`. Without it the
+  save is unconditional, as before.
+- `POST /maps/import/arcgis-webmap/` also returns `layer_sources` (the
+  operational layer each translated layer came from), `view` (initial view and
+  basemap) and `notes` (the loss report as the import writes it), on a dry run
+  too. `geolens arcgis migrate` uses them to translate a web map the portal
+  changed again into the same GeoLens map on a rerun, keeping its layer ids,
+  unless the map was changed in GeoLens since the last run.
 
 ### Changed
 
