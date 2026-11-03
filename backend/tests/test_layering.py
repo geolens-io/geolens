@@ -1335,13 +1335,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ArcGIS requests, lifecycle context, the quicklook draw that ingest and
     # replacement share, and the swap that keeps the replaced table as a previous
     # version and drops the oldest past the instance's limit.
-    "backend/app/processing/ingest/tasks_common.py": 1882,
+    "backend/app/processing/ingest/tasks_common.py": 1886,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, a service re-upload's
     # review of the changes its preview showed, and the live-table comparison
     # that lets a refresh or file re-upload of unchanged data publish nothing.
-    "backend/app/processing/ingest/tasks_reupload.py": 1857,
+    "backend/app/processing/ingest/tasks_reupload.py": 1863,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection and accepting a held run
     # by the door it came through, which records the capability it admitted under.
@@ -1375,10 +1375,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_raster_replace.py": 608,
     # File and remote-source imports own publication fencing, heartbeat phases
     # and failure settlement.
-    "backend/app/processing/ingest/tasks_vector.py": 1202,
+    "backend/app/processing/ingest/tasks_vector.py": 1243,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
-    "backend/app/processing/ingest/ogr.py": 1623,
+    "backend/app/processing/ingest/ogr.py": 1627,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
     "backend/app/processing/ingest/validation.py": 1206,

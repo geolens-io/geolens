@@ -444,6 +444,41 @@ async def _fetch_arcgis_column_casts(
         return None
 
 
+async def _fetch_arcgis_has_z(
+    source_url: str, layer_id: int | str | None, token: str | None
+) -> bool:
+    """True when the ArcGIS layer stores Z, so the fetch must ask for it.
+
+    An unreadable layer JSON reads as 2D: the import still runs, and the
+    page-info fetch before it has already surfaced a dead service.
+    """
+    if layer_id is None:
+        return False
+    from app.modules.catalog.sources.adapters.arcgis import (
+        ArcGISTokenError,
+        fetch_arcgis_layer_meta,
+    )
+    from app.core.url_redaction import redact_exception_text
+    from app.platform.security import CredentialRedirectError, make_safe_client
+
+    try:
+        async with make_safe_client(timeout=30.0) as client:
+            meta = await fetch_arcgis_layer_meta(
+                source_url.rstrip("/"), str(layer_id).strip("/"), client, token
+            )
+        return meta.get("hasZ") is True
+    except (ArcGISTokenError, CredentialRedirectError):
+        raise
+    except Exception as exc:  # broad: Z is an optional enrichment; fall back to 2D
+        structlog.get_logger().warning(
+            "arcgis_has_z_fetch_failed",
+            source_url=source_url,
+            layer_id=str(layer_id),
+            error=redact_exception_text(exc),
+        )
+        return False
+
+
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.ingest_file"])
 @tenant_task
 async def ingest_file(
@@ -972,6 +1007,9 @@ async def ingest_service(
             page_size = _ARCGIS_SERVICE_IMPORT_CHUNK_SIZE
             supports_pagination = False
             pagination_order_field = None
+            return_z = service_type == "arcgis_featureserver" and (
+                await _fetch_arcgis_has_z(source_url, layer_id, token)
+            )
             if service_type == "arcgis_featureserver":
                 (
                     feature_count,
@@ -1023,6 +1061,7 @@ async def ingest_service(
                     order_field=pagination_order_field,
                     is_non_spatial=is_non_spatial,
                     on_page=_publish_page_progress,
+                    return_z=return_z,
                 )
                 return
 
@@ -1040,6 +1079,7 @@ async def ingest_service(
                 layer_id,
                 token=token,
                 order_field=pagination_order_field,
+                return_z=return_z,
             )
             await run_ogr2ogr_service(
                 _src,
@@ -1050,6 +1090,7 @@ async def ingest_service(
                 token=token,
                 is_non_spatial=is_non_spatial,
                 schema=_current_tenant_schema(),
+                keep_z=return_z,
             )
 
         service_progress_task = asyncio.create_task(

@@ -997,6 +997,7 @@ async def _fetch_service_layer_with_paging_guard(
     page_size = _tv._ARCGIS_SERVICE_IMPORT_CHUNK_SIZE
     feature_count = max_record_count = None
     supports_pagination = False
+    return_z = False
     pagination_order_field = None
     id_plan = None
     if service_type == "arcgis_featureserver":
@@ -1015,6 +1016,7 @@ async def _fetch_service_layer_with_paging_guard(
         )
         if max_record_count is not None:
             page_size = max(1, min(page_size, max_record_count))
+        return_z = await _tv._fetch_arcgis_has_z(source_url, layer_id, token)
         if verification_policy == "arcgis_id_set_v1":
             try:
                 async with make_safe_client(timeout=30.0) as client:
@@ -1045,6 +1047,7 @@ async def _fetch_service_layer_with_paging_guard(
                     order_field=id_plan.oid_field,
                     on_spawn=on_spawn,
                     planned_ids=id_plan.ids,
+                    return_z=return_z,
                 )
                 return feature_count, id_plan, id_plan.oid_field
     if (
@@ -1068,6 +1071,7 @@ async def _fetch_service_layer_with_paging_guard(
             page_size=page_size,
             order_field=pagination_order_field,
             on_spawn=on_spawn,
+            return_z=return_z,
         )
         return feature_count, id_plan, pagination_order_field
 
@@ -1085,6 +1089,7 @@ async def _fetch_service_layer_with_paging_guard(
         layer_id,
         token=token,
         order_field=pagination_order_field,
+        return_z=return_z,
     )
     await run_ogr2ogr_service(
         gdal_source,
@@ -1095,6 +1100,7 @@ async def _fetch_service_layer_with_paging_guard(
         token=token,
         schema=schema,
         on_spawn=on_spawn,
+        keep_z=return_z,
     )
     return feature_count, id_plan, pagination_order_field
 

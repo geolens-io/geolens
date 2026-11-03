@@ -397,6 +397,7 @@ class ProcessingPort(Protocol):
         result_offset: int | None = None,
         object_ids: list[int] | tuple[int, ...] | None = None,
         force_arcgis_geojson: bool = False,
+        return_z: bool = False,
     ) -> tuple[str, str]: ...
 
     async def fetch_arcgis_id_plan(

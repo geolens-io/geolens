@@ -194,6 +194,7 @@ def build_gdal_source(
     result_offset: int | None = None,
     object_ids: list[int] | tuple[int, ...] | None = None,
     force_arcgis_geojson: bool = False,
+    return_z: bool = False,
 ) -> tuple[str, str]:
     """Construct a GDAL-prefixed source string for a remote service.
 
@@ -215,6 +216,8 @@ def build_gdal_source(
             "f": "json",
             "where": "1=1",
             "outFields": "*",
+            # A layer with hasZ answers without Z unless asked.
+            **({"returnZ": "true"} if return_z else {}),
         }
         if order_field:
             params["orderByFields"] = f"{order_field} ASC"
