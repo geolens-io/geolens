@@ -7314,6 +7314,34 @@ export interface components {
                 [key: string]: number;
             };
         };
+        /** ArcgisTranslatedView */
+        ArcgisTranslatedView: {
+            /**
+             * Basemap Style
+             * @description The GeoLens basemap id.
+             */
+            basemap_style: string | null;
+            /**
+             * Center Lng
+             * @description Initial center longitude.
+             */
+            center_lng: number | null;
+            /**
+             * Center Lat
+             * @description Initial center latitude.
+             */
+            center_lat: number | null;
+            /**
+             * Zoom
+             * @description Initial zoom level.
+             */
+            zoom: number | null;
+            /**
+             * Bearing
+             * @description Initial rotation in degrees.
+             */
+            bearing: number | null;
+        };
         /** ArcgisUnmatchedLayer */
         ArcgisUnmatchedLayer: {
             /** Layer Id */
@@ -7392,6 +7420,18 @@ export interface components {
             loss_report: components["schemas"]["ArcgisLossReport"];
             /** Unmatched Layers */
             unmatched_layers: components["schemas"]["ArcgisUnmatchedLayer"][];
+            /**
+             * Layer Sources
+             * @description The operational layer id each entry of `layers` was translated from, in the same order.
+             */
+            layer_sources?: string[];
+            /** @description The initial view and basemap the map gets. */
+            view?: components["schemas"]["ArcgisTranslatedView"] | null;
+            /**
+             * Notes
+             * @description The loss report as the import writes it to the map's notes.
+             */
+            notes?: string | null;
         };
         /** AttributeMetadataListResponse */
         AttributeMetadataListResponse: {
@@ -12861,6 +12901,11 @@ export interface components {
              * @description Custom map-level legend title. Null or empty leaves the legend without a heading override. At most 120 characters.
              */
             legend_title?: string | null;
+            /**
+             * Expected Updated At
+             * @description The map's `updated_at` the caller read. When set and the map has changed since, nothing is written and the answer is 409 with `detail.code` `stale_write`. Omit it to write unconditionally.
+             */
+            expected_updated_at?: string | null;
         };
         /**
          * MapVisibility

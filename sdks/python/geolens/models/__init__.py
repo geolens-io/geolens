@@ -66,6 +66,7 @@ from .arc_gis_sign_in_response import ArcGISSignInResponse
 from .arcgis_loss_item import ArcgisLossItem
 from .arcgis_loss_report import ArcgisLossReport
 from .arcgis_loss_report_summary import ArcgisLossReportSummary
+from .arcgis_translated_view import ArcgisTranslatedView
 from .arcgis_unmatched_layer import ArcgisUnmatchedLayer
 from .arcgis_webmap_import_request import ArcgisWebmapImportRequest
 from .arcgis_webmap_import_request_basemap_map import (
@@ -1131,6 +1132,7 @@ __all__ = (
     "ArcgisLossReportSummary",
     "ArcGISSignInRequest",
     "ArcGISSignInResponse",
+    "ArcgisTranslatedView",
     "ArcgisUnmatchedLayer",
     "ArcgisWebmapImportRequest",
     "ArcgisWebmapImportRequestBasemapMap",

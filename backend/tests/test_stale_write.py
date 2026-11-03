@@ -200,7 +200,9 @@ async def _wait_for_a_blocked_writer(session) -> None:
     pytest.fail("the write never waited on the locked row")
 
 
-async def _race(session, client: AsyncClient, path: str, body: dict, headers, row):
+async def _race(
+    session, client: AsyncClient, path: str, body: dict, headers, row, method="PATCH"
+):
     """Send the write while *session* holds an uncommitted edit of *row*, then
     commit the edit once the write waits on it."""
     model, row_id = row
@@ -209,7 +211,9 @@ async def _race(session, client: AsyncClient, path: str, body: dict, headers, ro
         .where(model.id == row_id)
         .values(updated_at=func.clock_timestamp())
     )
-    write = asyncio.create_task(client.patch(path, json=body, headers=headers))
+    write = asyncio.create_task(
+        client.request(method, path, json=body, headers=headers)
+    )
     try:
         await _wait_for_a_blocked_writer(session)
         await session.commit()
@@ -257,3 +261,78 @@ async def test_an_edit_committed_while_a_map_transfer_waits_is_seen(
     assert resp.json()["detail"]["code"] == "stale_write"
     after = await client.get(f"/maps/{created['id']}", headers=admin_auth_header)
     assert after.json()["created_by"] == owner_id
+
+
+async def test_a_map_save_naming_the_current_version_is_applied(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+) -> None:
+    created, owner_headers, _, _ = await _map(client, admin_auth_header)
+
+    resp = await client.put(
+        f"/maps/{created['id']}",
+        json={"name": "Written", "expected_updated_at": created["updated_at"]},
+        headers=owner_headers,
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["name"] == "Written"
+    details = (
+        await test_db_session.execute(
+            select(AuditLog.details).where(
+                AuditLog.resource_id == uuid.UUID(created["id"]),
+                AuditLog.action == "map.update",
+            )
+        )
+    ).scalar_one()
+    assert details == {"changed_fields": ["name"]}
+
+
+@pytest.mark.parametrize("expected", ["older", "absent"])
+async def test_a_map_save_after_an_edit(
+    client: AsyncClient, admin_auth_header: dict, expected: str
+) -> None:
+    created, owner_headers, _, _ = await _map(client, admin_auth_header)
+    edit = await client.put(
+        f"/maps/{created['id']}", json={"name": "Edited"}, headers=owner_headers
+    )
+    assert edit.status_code == 200, edit.text
+    body = {"name": "From the portal", "layers": []}
+    if expected == "older":
+        body["expected_updated_at"] = created["updated_at"]
+
+    resp = await client.put(
+        f"/maps/{created['id']}", json=body, headers=admin_auth_header
+    )
+
+    after = await client.get(f"/maps/{created['id']}", headers=admin_auth_header)
+    if expected == "older":
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["detail"]["code"] == "stale_write"
+        assert after.json()["name"] == "Edited"
+    else:
+        assert resp.status_code == 200, resp.text
+        assert after.json()["name"] == "From the portal"
+
+
+async def test_an_edit_committed_while_a_map_save_waits_is_seen(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "app.modules.catalog.maps.service_layers._LAYER_LOCK_TIMEOUT", "30s"
+    )
+    created, _, _, _ = await _map(client, admin_auth_header)
+
+    resp = await _race(
+        test_db_session,
+        client,
+        f"/maps/{created['id']}",
+        {"name": "From the portal", "expected_updated_at": created["updated_at"]},
+        admin_auth_header,
+        (Map, uuid.UUID(created["id"])),
+        method="PUT",
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "stale_write"
+    after = await client.get(f"/maps/{created['id']}", headers=admin_auth_header)
+    assert after.json()["name"] != "From the portal"

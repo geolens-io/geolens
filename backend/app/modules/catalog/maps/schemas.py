@@ -943,6 +943,16 @@ class MapUpdate(BaseModel):
             "without a heading override. At most 120 characters."
         ),
     )
+    # Excluded from model_dump: a precondition, not a field the save writes.
+    expected_updated_at: datetime | None = Field(
+        default=None,
+        exclude=True,
+        description=(
+            "The map's `updated_at` the caller read. When set and the map has "
+            "changed since, nothing is written and the answer is 409 with "
+            "`detail.code` `stale_write`. Omit it to write unconditionally."
+        ),
+    )
 
     @field_validator("legend_title", mode="before")
     @classmethod
