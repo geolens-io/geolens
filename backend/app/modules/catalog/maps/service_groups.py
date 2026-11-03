@@ -41,7 +41,7 @@ from app.modules.catalog.maps.service_group_gaps import (
     share_layer_datasets,
 )
 from app.modules.catalog.maps.service_history import record_map_history_event
-from app.modules.catalog.maps.service_layers import lock_map_layers
+from app.modules.catalog.maps.service_layers import lock_map_layers, touch_map
 from app.modules.catalog.maps.service_public import revoke_share_token_by_map
 from app.modules.catalog.write_recheck import refuse_stale_write
 from app.modules.embed_tokens.service import revoke_embed_tokens_by_map
@@ -259,6 +259,8 @@ async def set_map_groups(
         removed=removed,
         actor=actor,
     )
+    if added or removed:
+        await touch_map(session, map_obj.id)
     map_obj.visibility = visibility
     await session.flush()
     # Last: an embed token's revocation is cached outside this transaction.

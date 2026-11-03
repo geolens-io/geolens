@@ -34,8 +34,8 @@ class MapGroupsResponse:
         shared_dataset_ids (list[UUID] | Unset): Datasets this request shared with the map's new groups.
         hidden_layers (list[MapLayerAccessGap] | Unset): Layers that some of the map's new groups still can't read; the
             same shape a 409 lists under `detail.layers`.
-        updated_at (datetime.datetime | None | Unset): The map's `updated_at` after the change. A grant change moves it
-            only when the map's visibility changes.
+        updated_at (datetime.datetime | None | Unset): The map's `updated_at` after the change, which any change to its
+            groups moves.
     """
 
     visibility: MapVisibility

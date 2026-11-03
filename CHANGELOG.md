@@ -32,6 +32,11 @@ and releases use semantic versioning.
 
 ### Changed
 
+- A map's `updated_at` now moves when only its layers or its groups change
+  (a layer added, edited, reordered or removed, or a group shared or
+  unshared), so the gallery's "last updated" order and an
+  `expected_updated_at` see those edits. Thumbnail and preview captures
+  still leave it alone.
 - An ArcGIS layer that stores Z values keeps them on import and refresh: the
   query asks for `returnZ=true` and the staged table is 3D, while the map
   display copy stays 2D. A feature without Z in such a layer gets Z 0. Layers

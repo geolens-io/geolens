@@ -7550,7 +7550,7 @@ export type MapGroupsResponse = {
     /**
      * Updated At
      *
-     * The map's `updated_at` after the change. A grant change moves it only when the map's visibility changes.
+     * The map's `updated_at` after the change, which any change to its groups moves.
      */
     updated_at?: string | null;
 };
@@ -7574,7 +7574,7 @@ export type MapGroupsUpdate = {
     /**
      * Expected Updated At
      *
-     * The map's `updated_at` the caller read. When set and the map has changed since, nothing is written and the answer is 409 with `detail.code` `stale_write`. Omit it to write unconditionally.
+     * The map's `updated_at` the caller read. When set and the map has changed since, its groups included, nothing is written and the answer is 409 with `detail.code` `stale_write`. Omit it to write unconditionally.
      */
     expected_updated_at?: string | null;
 };

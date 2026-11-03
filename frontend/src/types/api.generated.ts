@@ -12178,7 +12178,7 @@ export interface components {
             hidden_layers?: components["schemas"]["MapLayerAccessGap"][];
             /**
              * Updated At
-             * @description The map's `updated_at` after the change. A grant change moves it only when the map's visibility changes.
+             * @description The map's `updated_at` after the change, which any change to its groups moves.
              */
             updated_at?: string | null;
         };
@@ -12196,7 +12196,7 @@ export interface components {
             confirm?: ("share_datasets" | "map_only") | null;
             /**
              * Expected Updated At
-             * @description The map's `updated_at` the caller read. When set and the map has changed since, nothing is written and the answer is 409 with `detail.code` `stale_write`. Omit it to write unconditionally.
+             * @description The map's `updated_at` the caller read. When set and the map has changed since, its groups included, nothing is written and the answer is 409 with `detail.code` `stale_write`. Omit it to write unconditionally.
              */
             expected_updated_at?: string | null;
         };

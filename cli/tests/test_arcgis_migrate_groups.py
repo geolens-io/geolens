@@ -1356,10 +1356,8 @@ def _map_ctx(monkeypatch, found, after=None, *, answers=True):
             raise WriteRaced(f"changed in GeoLens while {during}")
         ids = body["group_ids"]
         puts.append(ids)
-        # A grant change moves the timestamp only when it flips visibility.
-        written = _map_read("restricted" if ids else "private", ids, FLIPPED_AT)
-        if written.visibility == before.visibility:
-            written.updated_at = before.updated_at
+        # Any change to the map's groups moves its timestamp.
+        written = _map_read("restricted" if ids else "private", ids, WRITTEN_AT)
         reads["map"] = written if after is None else after(ids, before)
         return SimpleNamespace(updated_at=written.updated_at) if answers else None
 
@@ -1374,7 +1372,7 @@ def _map_ctx(monkeypatch, found, after=None, *, answers=True):
 
 
 SEEN = {"owner": OPERATOR, "updated_at": LEFT_AT}
-FLIPPED_AT = "2026-10-02T12:00:00+00:00"
+WRITTEN_AT = "2026-10-02T12:00:00+00:00"
 
 
 @pytest.mark.parametrize(
@@ -1576,8 +1574,7 @@ def test_a_rerun_share_records_only_the_version_its_write_was_answered_with(
     share(ctx, item, entry, with_map=False)
 
     assert puts
-    written = LEFT_AT if found[0] == "restricted" else FLIPPED_AT
-    assert entry.map_snapshot == {**SEEN, "updated_at": written}
+    assert entry.map_snapshot == {**SEEN, "updated_at": WRITTEN_AT}
 
 
 def test_a_share_geolens_refuses_as_stale_keeps_the_snapshot(monkeypatch):

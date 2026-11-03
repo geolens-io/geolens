@@ -649,3 +649,39 @@ async def test_a_share_naming_the_current_version_answers_the_new_one(
     assert resp.json()["visibility"] == "restricted"
     assert resp.json()["updated_at"] == after["updated_at"]
     assert after["updated_at"] > read["updated_at"]
+
+
+async def test_a_second_share_from_the_same_version_is_refused(
+    client: AsyncClient, admin_auth_header: dict, owned, test_db_session
+):
+    map_id, url = owned["map"], f"/maps/{owned['map']}"
+    headers = {**owned["owner"], **OPT_IN}
+    first = await _share(client, map_id, [owned["mine"]], headers)
+    assert first.status_code == 200, first.text
+    read = first.json()["updated_at"]
+    # Two writers read the restricted map at the same version.
+    added = await client.put(
+        f"/maps/{map_id}/groups/",
+        json={
+            "group_ids": [owned["mine"], owned["other"]],
+            "expected_updated_at": read,
+        },
+        headers={**admin_auth_header, **OPT_IN},
+    )
+    assert added.status_code == 200, added.text
+    assert added.json()["updated_at"] > read
+
+    stale = await client.put(
+        f"/maps/{map_id}/groups/",
+        json={"group_ids": [owned["mine"]], "expected_updated_at": read},
+        headers=headers,
+    )
+
+    assert stale.status_code == 409, stale.text
+    assert stale.json()["detail"]["code"] == "stale_write"
+    granted = await test_db_session.scalars(
+        select(MapGroupGrant.group_id).where(MapGroupGrant.map_id == uuid.UUID(map_id))
+    )
+    assert {str(g) for g in granted.all()} == {owned["mine"], owned["other"]}
+    after = (await client.get(url, headers=headers)).json()
+    assert after["updated_at"] == added.json()["updated_at"]

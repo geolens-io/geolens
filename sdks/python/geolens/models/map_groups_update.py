@@ -32,8 +32,8 @@ class MapGroupsUpdate:
             shares each such dataset the caller may share with the groups that lack it; `map_only` leaves those layers
             hidden from them.
         expected_updated_at (datetime.datetime | None | Unset): The map's `updated_at` the caller read. When set and the
-            map has changed since, nothing is written and the answer is 409 with `detail.code` `stale_write`. Omit it to
-            write unconditionally.
+            map has changed since, its groups included, nothing is written and the answer is 409 with `detail.code`
+            `stale_write`. Omit it to write unconditionally.
     """
 
     group_ids: list[UUID]

@@ -1127,8 +1127,9 @@ class MapGroupsUpdate(BaseModel):
         default=None,
         description=(
             "The map's `updated_at` the caller read. When set and the map has "
-            "changed since, nothing is written and the answer is 409 with "
-            "`detail.code` `stale_write`. Omit it to write unconditionally."
+            "changed since, its groups included, nothing is written and the "
+            "answer is 409 with `detail.code` `stale_write`. Omit it to write "
+            "unconditionally."
         ),
     )
 
@@ -1174,8 +1175,8 @@ class MapGroupsResponse(BaseModel):
     updated_at: datetime | None = Field(
         default=None,
         description=(
-            "The map's `updated_at` after the change. A grant change moves it "
-            "only when the map's visibility changes."
+            "The map's `updated_at` after the change, which any change to its "
+            "groups moves."
         ),
     )
 
