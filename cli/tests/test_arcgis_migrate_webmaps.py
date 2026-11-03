@@ -1238,6 +1238,7 @@ def test_a_layer_whose_dataset_the_account_cant_read_is_left_as_it_is(
     recorded = _state(plan_file)["items"][B1]["layer_ids"]
     # The dataset now belongs to someone the run's account can't read for.
     unreadable.add(parcels)
+    readable = geolens.routes.get(f"GET /datasets/{parcels}")
     geolens.routes[f"GET /datasets/{parcels}"] = (
         404,
         {"title": "Not Found", "status": 404, "detail": "Dataset not found"},
@@ -1259,6 +1260,25 @@ def test_a_layer_whose_dataset_the_account_cant_read_is_left_as_it_is(
     assert any(
         n.endswith(": parcels_0, view_0") and "can't read" in n for n in entry["notes"]
     )
+    assert entry["skipped_layers"] == ["parcels_0", "view_0"]
+
+    # Access comes back; the portal hasn't changed since.
+    unreadable.clear()
+    geolens.routes[f"GET /datasets/{parcels}"] = readable
+    read = geolens.routes["GET /maps/" + MAP_ID]
+    geolens.routes["GET /maps/" + MAP_ID] = lambda seen: {
+        **read(seen),
+        "updated_at": EDITED_AT,
+    }
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    matched = [s.json()["dataset_matches"] for s in _sent(geolens)][-1]
+    assert set(matched) == {"parcels_0", "view_0"}
+    entry = _state(plan_file)["items"][B1]
+    assert entry["skipped_layers"] == []
+    assert not [n for n in entry["notes"] if "can't read" in n]
 
 
 def test_a_layer_repointed_to_a_dataset_the_account_cant_read_keeps_its_row(

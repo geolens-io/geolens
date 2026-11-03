@@ -475,7 +475,8 @@ def _check_map(
             "the state doesn't record when the web map was read for its import, so "
             "a change since can't be ruled out; compare the GeoLens map by hand"
         ]
-    if modified > recorded:
+    # A translation that left layers out is tried again until none is.
+    if modified > recorded or entry.skipped_layers:
         problem = _translate_again(ctx, item, entry, found, modified)
         return [problem] if problem else []
     return []
@@ -585,6 +586,7 @@ def _translate_again(
         return f"saving the web map's new translation failed, {exc}"
     entry.map_snapshot = map_state(saved)
     skipped = sorted(set(matches) - set(readable))
+    entry.skipped_layers = skipped
     entry.notes = [
         *(
             n

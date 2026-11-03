@@ -228,6 +228,9 @@ class ItemState:
     # Dataset or map id -> groups left on it that the plan no longer names and
     # that no write of this command is known to have added, already reported.
     kept: dict[str, list[str]] = field(default_factory=dict)
+    # Operational layers the last translation of a web map left out because
+    # their datasets couldn't be read, which a later run translates again.
+    skipped_layers: list[str] = field(default_factory=list)
     # Why the last rerun couldn't bring the item up to date.
     stale: list[str] = field(default_factory=list)
     started_at: str | None = None
