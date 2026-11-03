@@ -557,7 +557,7 @@ def _translate_again(
     sources, layers = _with_kept_rows(
         list(zip(sources, translated)),
         _kept_rows(entry, found, set(matches) - set(readable)),
-        [layer.get("id") for layer in _walk(webmap.get("operationalLayers"))],
+        _layer_order(webmap),
     )
     # A save skips a null center or zoom, since clients send null for a camera
     # they didn't read, so the map keeps its last view and the notes say so.
@@ -652,22 +652,32 @@ def _kept_rows(
     }
 
 
+def _layer_order(webmap: Mapping[str, Any]) -> dict[str, int]:
+    """Operational layer id -> its place in the web map, keyed as the
+    translator keys layers: the string id of a layer it translates, at its
+    first such occurrence."""
+    place: dict[str, int] = {}
+    for n, layer in enumerate(_walk(webmap.get("operationalLayers"))):
+        layer_id = layer.get("id")
+        if isinstance(layer_id, str) and _translatable(layer):
+            place.setdefault(layer_id, n)
+    return place
+
+
 def _with_kept_rows(
     translated: list[tuple[str, dict[str, Any]]],
     kept: Mapping[str, dict[str, Any]],
-    order: list[Any],
+    place: Mapping[str, int],
 ) -> tuple[list[str], list[dict[str, Any]]]:
     """The layers a save sends and their operational layers: the translated
     ones in their order, each *kept* row placed where its operational layer
-    stands in the web map's *order*, numbered in turn."""
-    place = {source: n for n, source in enumerate(order)}
+    stands in the web map (*place*), numbered in turn."""
+    end = max(place.values(), default=0) + 1
     pairs = list(translated)
-    for source, layer in sorted(
-        kept.items(), key=lambda k: place.get(k[0], len(order))
-    ):
-        at = place.get(source, len(order))
+    for source, layer in sorted(kept.items(), key=lambda k: place.get(k[0], end)):
+        at = place.get(source, end)
         index = next(
-            (n for n, (s, _) in enumerate(pairs) if place.get(s, len(order)) > at),
+            (n for n, (s, _) in enumerate(pairs) if place.get(s, end) > at),
             len(pairs),
         )
         pairs.insert(index, (source, layer))

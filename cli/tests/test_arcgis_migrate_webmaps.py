@@ -1282,10 +1282,22 @@ def test_a_layer_whose_dataset_the_account_cant_read_is_left_as_it_is(
     assert not [n for n in entry["notes"] if "can't read" in n]
 
 
+@pytest.mark.parametrize(
+    "odd_ids", [False, True], ids=["plain", "object-and-array-ids"]
+)
 def test_a_layer_repointed_to_a_dataset_the_account_cant_read_keeps_its_row(
-    runner, plan_file, geolens, portal, monkeypatch
+    runner, plan_file, geolens, portal, monkeypatch, odd_ids
 ):
     _services(geolens)
+    if odd_ids:
+        # Layers the translator reports as losses, with ids that aren't text.
+        data = f"content/items/{B1}/data"
+        webmap = copy.deepcopy(portal.routes[data])
+        webmap["operationalLayers"] += [
+            {"id": {"x": 1}, "layerType": "ArcGISFeatureLayer", "title": "Object"},
+            {"id": ["y"], "layerType": "ArcGISFeatureLayer", "title": "Array"},
+        ]
+        portal.routes[data] = webmap
     parcels = dataset_id("Parcels")
     elsewhere = "00000000-0000-0000-0009-000000000001"
 
@@ -1354,6 +1366,47 @@ def test_a_layer_repointed_to_a_dataset_the_account_cant_read_keeps_its_row(
     kept = next(layer for layer in sent["layers"] if layer.get("id") == parcels_row)
     assert (kept["dataset_id"], kept["opacity"]) == (parcels, 1)
     assert _state(plan_file)["items"][B1]["layer_ids"]["parcels_0"] == parcels_row
+
+
+@pytest.mark.parametrize(
+    ("layers", "expected"),
+    [
+        # A repeated id keeps its first translated place.
+        (
+            [
+                ("a", "ArcGISFeatureLayer"),
+                ("b", "ArcGISFeatureLayer"),
+                ("a", "ArcGISFeatureLayer"),
+            ],
+            ["a", "b"],
+        ),
+        # An unsupported layer doesn't take the id's place.
+        (
+            [
+                ("a", "VectorTileLayer"),
+                ("b", "ArcGISFeatureLayer"),
+                ("a", "ArcGISFeatureLayer"),
+            ],
+            ["b", "a"],
+        ),
+    ],
+    ids=["supported-duplicate", "unsupported-duplicate"],
+)
+def test_a_kept_row_takes_its_layers_first_translated_place(layers, expected):
+    webmap = {
+        "operationalLayers": [
+            {"id": layer_id, "layerType": kind} for layer_id, kind in layers
+        ]
+    }
+
+    sources, sent = webmaps._with_kept_rows(
+        [("b", {"dataset_id": "d"})],
+        {"a": {"id": "row-a", "dataset_id": "d"}},
+        webmaps._layer_order(webmap),
+    )
+
+    assert sources == expected
+    assert [layer["sort_order"] for layer in sent] == [0, 1]
 
 
 def test_a_web_map_that_lost_its_initial_view_keeps_the_maps_and_says_so(
