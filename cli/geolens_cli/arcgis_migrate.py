@@ -966,7 +966,9 @@ def _migrate_one(
             # Even to the operator: a run that failed part way may have handed
             # some of the item's objects to another owner already.
             if ctx.own_content:
-                # The baseline a rerun's sharing changes compare the map to.
+                # The baselines a rerun's sharing changes compare GeoLens to.
+                for dataset_id in fresh:
+                    record(entry, dataset_id, get_dataset(ctx, dataset_id))
                 if entry.map_id:
                     entry.map_snapshot = map_state(get_map(ctx.geolens, entry.map_id))
             else:

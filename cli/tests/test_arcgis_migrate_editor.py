@@ -19,6 +19,7 @@ from .test_arcgis_migrate import (  # noqa: F401
     PORTAL,
     READ_AT,
     _allow_transfers,
+    _dataset,
     _created_id,
     _item,
     _plan,
@@ -331,3 +332,41 @@ def test_an_editor_run_keeps_the_group_record_an_admin_run_made(
 
     assert result.exit_code == 0, result.output
     assert _state(tmp_path)["groups"]["g1"] == ADMIN_GROUP
+
+
+def test_a_rerun_leaves_a_dataset_edited_in_geolens_alone(
+    runner, tmp_path, editor, ran, monkeypatch
+):
+    editor.routes["GET /groups/mine/"] = {
+        "groups": [{"id": TEAM, "name": "Roads Team"}],
+        "total": 1,
+    }
+    monkeypatch.setattr(
+        migrate,
+        "_inventory_rows",
+        lambda *args: ({}, None, {"g1": {"id": "g1", "title": "Roads Team"}}),
+    )
+    dataset_id = _created_id(L1)
+    _allow_transfers(editor, dataset_id)
+    editor.routes[f"PUT /datasets/{dataset_id}/groups/"] = {}
+    plan = {**_plan([_item(L1)], OWN), "schema_version": "2"}
+    plan["group_map"] = {
+        "g1": {
+            "collection": "Roads Team",
+            "visibility": "private",
+            "geolens_group": None,
+        }
+    }
+
+    result, _ = _run(runner, tmp_path, plan)
+
+    assert result.exit_code == 0, result.output
+    assert list(_state(tmp_path)["items"][L1]["last_update"]) == [dataset_id]
+
+    edited = {**_dataset(dataset_id, ERIN), "updated_at": "2026-10-02T00:00:00Z"}
+    editor.routes[f"GET /datasets/{dataset_id}"] = edited
+    plan["items"] = [_restricted(L1, "g1")]
+    _run(runner, tmp_path, plan)
+
+    assert [s for s in editor.seen if s.method == "PUT"] == []
+    assert "changed in GeoLens" in " ".join(_state(tmp_path)["items"][L1]["stale"])
