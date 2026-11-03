@@ -320,6 +320,23 @@ def test_a_merge_keeps_operator_edits_and_takes_changed_defaults():
     assert out[A3]["defaults"]["target"]["title"] == "Roads"
 
 
+def test_a_sharing_change_in_the_portal_keeps_the_groups_the_operator_set():
+    plan = _plan()
+    _items(plan)[A3]["target"]["groups"] = ["g1"]
+    report = inventory_report()
+    _row(report, A3)["groups"] = [*GIS_TEAM, *PRIVATE_TEAM, *EXTRA_TEAM]
+
+    merged, changes = _merge(plan, report)
+
+    assert _items(merged)[A3]["target"]["groups"] == ["g1"]
+    assert {
+        "item": A3,
+        "field": "target.groups",
+        "plan": ["g1"],
+        "inventory": ["g1", "g2", "g3"],
+    } in changes["conflicts"]
+
+
 def test_a_merge_of_the_same_inventory_changes_nothing():
     plan = _plan()
     _items(plan)[A1]["target"]["tags"] = ["mine"]
