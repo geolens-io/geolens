@@ -24,6 +24,7 @@ from geolens_cli.arcgis_migrate_state import ItemState
 from geolens_cli.arcgis_portal import PortalClient
 from geolens_cli.arcgis_migrate_webmaps import _translatable, match_datasets
 
+from .conftest import GEOLENS_INSTANCE
 from .arcgis_fake import (
     A1,
     A2,
@@ -1630,6 +1631,55 @@ def test_a_group_only_web_map_is_imported_private_then_shared(
         }
     ]
     assert _state(plan_file)["items"][B1]["groups"] == {MAP_ID: [group]}
+
+
+def test_a_retried_import_without_a_baseline_shares_nothing(runner, plan_file, geolens):
+    _services(geolens)
+    geolens.routes[IMPORT] = (201, _response())
+    group = "00000000-0000-0000-0005-000000000002"
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == B1:
+            item["target"]["visibility"] = "restricted"
+            item["target"]["groups"] = ["g1"]
+    plan["group_map"]["g1"] = {
+        "collection": "Planning",
+        "visibility": "internal",
+        "geolens_group": "Planning",
+    }
+    plan_file.write_text(json.dumps(plan))
+    geolens.routes["GET /admin/groups/"] = {
+        "groups": [
+            {
+                "id": group,
+                "name": "Planning",
+                "member_count": 0,
+                "created_at": NOW,
+                "updated_at": NOW,
+            }
+        ],
+        "total": 1,
+    }
+    geolens.routes[f"GET /admin/groups/{group}/members/"] = {"members": [], "total": 0}
+    # An earlier version's import made the map and stopped before recording it.
+    path = plan_file.parent / "arcgis-migration-state.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "4",
+                "portal_url": plan["portal"]["url"],
+                "geolens_instance": GEOLENS_INSTANCE,
+                "items": {B1: {"status": "failed", "error": "boom", "map_id": MAP_ID}},
+            }
+        )
+    )
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 1
+    assert [s for s in geolens.seen if s.url.endswith(f"/maps/{MAP_ID}/groups/")] == []
+    error = _state(plan_file)["items"][B1]["error"]
+    assert f"map {MAP_ID} has no recorded baseline" in error
 
 
 def test_a_new_maps_first_group_is_taken_as_the_imports_own_change(

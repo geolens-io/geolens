@@ -84,6 +84,7 @@ from .arcgis_migrate_webmaps import (
     get_map,
     import_map,
     map_state,
+    no_baseline,
     refresh_map,
     thumbnail_dry_run_notes,
 )
@@ -961,7 +962,7 @@ def _transfer_map(geolens: GeoLens, entry: ItemState, owner: Owner) -> None:
     read = get_map(geolens, map_id)
     seen = entry.map_snapshot
     if seen is None:
-        raise ItemFailed(_no_baseline(map_id))
+        raise ItemFailed(no_baseline(map_id))
     untouched = map_state(read) == seen
     if untouched:
         read = _handover(
@@ -1087,19 +1088,12 @@ def _keep_own(
         if str(read.created_by) != owner.id:
             raise ItemFailed(_not_yours(f"map {entry.map_id}"))
         if entry.map_snapshot is None:
-            raise ItemFailed(_no_baseline(entry.map_id))
+            raise ItemFailed(no_baseline(entry.map_id))
         if map_state(read) != entry.map_snapshot:
             raise ItemFailed(
                 f"map {entry.map_id} was changed in GeoLens since it was "
                 "imported; it was left as it is"
             )
-
-
-def _no_baseline(map_id: str) -> str:
-    return (
-        f"map {map_id} has no recorded baseline, so a change made in GeoLens "
-        "can't be ruled out; update it by hand, or rerun after checking it"
-    )
 
 
 def _not_yours(what: str) -> str:

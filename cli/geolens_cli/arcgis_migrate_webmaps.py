@@ -388,6 +388,13 @@ def map_state(found: Any) -> dict[str, str]:
     return {"owner": str(found.created_by), "updated_at": found.updated_at.isoformat()}
 
 
+def no_baseline(map_id: str) -> str:
+    return (
+        f"map {map_id} has no recorded baseline, so a change made in GeoLens "
+        "can't be ruled out; update it by hand, or rerun after checking it"
+    )
+
+
 def map_visibility(found: Any) -> str:
     return str(getattr(found.visibility, "value", found.visibility))
 

@@ -954,7 +954,11 @@ def _share_new_map(
 ) -> None:
     """Give the map the import made its groups while it is as the import left
     it, recording the version GeoLens answered the write with."""
+    from .arcgis_migrate_webmaps import no_baseline
+
     left = entry.map_snapshot
+    if left is None:
+        raise ItemFailed(no_baseline(map_id))
     shared = _share_map(ctx, map_id, new, set(), left)
     if shared is None:
         raise ItemFailed(
@@ -963,8 +967,7 @@ def _share_new_map(
         )
     added, stamp = shared
     _shared(entry, map_id, new, set(), added=added)
-    if left is not None:
-        _take_map_version(entry, left, stamp)
+    _take_map_version(entry, left, stamp)
     ctx.save()
 
 
@@ -990,12 +993,12 @@ def _share_map(
     map_id: str,
     new: set[str],
     gone: set[str],
-    left: Mapping[str, Any] | None = None,
+    left: Mapping[str, Any],
 ) -> tuple[set[str], str | None] | None:
-    """Share the map with its current groups plus *new* minus *gone*: the
-    groups the write added, and the map's ``updated_at`` as GeoLens answered
-    it (None when it didn't say). With *left*, the map as this command left
-    it, the write names that ``updated_at``, and nothing is written and None
+    """Share the map with its current groups plus *new* minus *gone* while it
+    is as this command left it (*left*): the groups the write added, and the
+    map's ``updated_at`` as GeoLens answered it (None when it didn't say).
+    The write names *left*'s ``updated_at``; nothing is written and None
     returned once the map no longer matches."""
     from geolens.api.maps import set_map_groups_endpoint_maps_map_id_groups_put as put
     from geolens.models.map_groups_update import MapGroupsUpdate
@@ -1003,7 +1006,7 @@ def _share_map(
     from .arcgis_migrate_webmaps import get_map, map_state
 
     read = get_map(ctx.geolens, map_id)
-    if left is not None and map_state(read) != left:
+    if map_state(read) != left:
         return None
     current = _dataset_groups(read)
     groups = (current | new) - gone
@@ -1011,9 +1014,11 @@ def _share_map(
         return set(), read.updated_at.isoformat()
     # Each layer's dataset is shared as its own plan item says, so layers
     # a group can't read stay hidden from it rather than being widened.
-    body = {"group_ids": sorted(groups), "confirm": "map_only"}
-    if left is not None:
-        body["expected_updated_at"] = left["updated_at"]
+    body = {
+        "group_ids": sorted(groups),
+        "confirm": "map_only",
+        "expected_updated_at": left["updated_at"],
+    }
     try:
         answer = ctx.geolens.write(
             put.sync_detailed,

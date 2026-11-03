@@ -957,3 +957,26 @@ def test_an_editors_map_without_a_recorded_baseline_is_reported_not_adopted(
     assert entry["status"] == "failed"
     assert f"map {map_id} has no recorded baseline" in entry["error"]
     assert entry.get("map_snapshot") is None
+
+
+def test_a_retried_import_without_a_baseline_shares_nothing(
+    runner, tmp_path, editor, ran, monkeypatch
+):
+    map_id = _created_id(M1)
+    _allow_transfers(editor, map_ids=(map_id,))
+    editor.routes["GET /groups/mine/"] = {
+        "groups": [{"id": TEAM, "name": "Roads Team"}],
+        "total": 1,
+    }
+    _team_inventory(monkeypatch)
+    item = {**_restricted(M1, "g1"), "action": "import_map", "type": "Web Map"}
+    _write_state(
+        tmp_path, {M1: {"status": "failed", "error": "boom", "map_id": map_id}}
+    )
+
+    result, _ = _run(runner, tmp_path, _group_plan(item))
+
+    assert result.exit_code == 1
+    assert [s for s in editor.seen if s.method == "PUT"] == []
+    entry = _state(tmp_path)["items"][M1]
+    assert f"map {map_id} has no recorded baseline" in entry["error"]
