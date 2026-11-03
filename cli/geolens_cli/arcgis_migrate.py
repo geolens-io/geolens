@@ -691,7 +691,7 @@ def _finished_owners(
             if (
                 target is not None
                 and directory.inactive(target) is None
-                and str(target.id) != entry.owner_id
+                and (str(target.id) != entry.owner_id or entry.handing_to)
             ):
                 owners.handovers[item["id"]] = Owner(
                     str(target.id), target.username, item["owner"]
@@ -720,11 +720,16 @@ def _follow_portal_owner(
     """Queue a handover to *user* when only the item's ArcGIS owner moved;
     report a new owner from a ``target.owner`` or ``owner_map`` edit. An entry
     without a recorded ArcGIS owner adopts the current one while *user* owns
-    the item."""
+    the item. An item a handover left split between two owners goes to
+    *user* when *user* is one of them, and is reported otherwise."""
     portal_owner = item["owner"]
     moved = entry.portal_owner is not None and portal_owner != entry.portal_owner
     pinned = item["target"]["owner"] is not None
-    if str(user.id) == entry.owner_id:
+    if entry.handing_to:
+        if str(user.id) not in (entry.owner_id, entry.handing_to):
+            owners.changed.append({"item": item["id"], "owner": user.username})
+            return
+    elif str(user.id) == entry.owner_id:
         if moved and pinned:
             owners.conflicts.append(
                 {
@@ -736,7 +741,7 @@ def _follow_portal_owner(
         elif entry.portal_owner != portal_owner:
             entry.portal_owner = portal_owner
         return
-    if not moved or pinned:
+    elif not moved or pinned:
         owners.changed.append({"item": item["id"], "owner": user.username})
         return
     inactive = directory.inactive(user)
@@ -841,6 +846,15 @@ def mark_cutover(
             "been given it",
         }
         for change in owners.changed
+    ]
+    listed = {row["item"] for row in [*owners.unresolved, *moved]}
+    moved += [
+        {
+            "item": item_id,
+            "reason": "a handover stopped part way, so its objects have two owners",
+        }
+        for item_id, entry in state.items.items()
+        if entry.handing_to and item_id not in listed
     ]
     failing = failing_checks(
         plan,
@@ -1120,6 +1134,7 @@ def _hand_over_one(ctx: MigrationContext, entry: ItemState, owner: Owner) -> Non
     way or by someone in GeoLens, is left as it is. Each transfer is recorded
     as this command's own write, so a rerun resumes with the rest.
     """
+    entry.handing_to = owner.id
     for dataset_id in entry.dataset_ids:
         dataset = get_dataset(ctx, dataset_id)
         if str(dataset.created_by) == owner.id:
@@ -1134,6 +1149,7 @@ def _hand_over_one(ctx: MigrationContext, entry: ItemState, owner: Owner) -> Non
     if entry.map_id:
         _transfer_map(ctx.geolens, entry, owner, handover=True)
     entry.owner_id = owner.id
+    entry.handing_to = None
 
 
 def hand_over(

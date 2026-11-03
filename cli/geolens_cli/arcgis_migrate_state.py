@@ -204,6 +204,9 @@ class ItemState:
     # The ArcGIS owner the item's GeoLens owner was last decided from, so a
     # rerun can tell a portal owner change from an owner_map edit.
     portal_owner: str | None = None
+    # The GeoLens owner a handover started moving the item to and didn't
+    # finish, so its objects may be split between two owners.
+    handing_to: str | None = None
     # What of the item GeoLens doesn't import, such as a service's raster
     # layers; cutover counts each as a loss.
     left_behind: list[str] = field(default_factory=list)
