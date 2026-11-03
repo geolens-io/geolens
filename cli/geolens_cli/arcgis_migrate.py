@@ -669,6 +669,7 @@ def _finished_owners(
         if (
             item["id"] in running
             or item.get("removed")
+            or item.get("unlisted")
             or permission is None
             or entry is None
             or entry.status not in FINISHED
@@ -680,6 +681,7 @@ def _finished_owners(
             user = directory.find(name) if name else None
         except UsageError as exc:
             owners.unresolved.append({"item": item["id"], "reason": str(exc)})
+            _note_portal_owner(item, entry, owners, None)
             continue
         if entry.owner_pending:
             owners.waiting.append(item["id"])
@@ -687,6 +689,7 @@ def _finished_owners(
                 directory, user, permission
             )
             target = user if reason is None else fallback
+            _note_portal_owner(item, entry, owners, None if reason else str(user.id))
             if reason is not None:
                 owners.pending[item["id"]] = reason
             if (
@@ -706,6 +709,7 @@ def _finished_owners(
                     else "its plan owner is empty",
                 }
             )
+            _note_portal_owner(item, entry, owners, None)
         else:
             _follow_portal_owner(directory, item, entry, user, permission, owners)
 
@@ -726,19 +730,10 @@ def _follow_portal_owner(
     portal_owner = item["owner"]
     moved = entry.portal_owner is not None and portal_owner != entry.portal_owner
     pinned = item["target"]["owner"] is not None
+    _note_portal_owner(item, entry, owners, str(user.id))
     if entry.handover_incomplete:
         pass
     elif str(user.id) == entry.owner_id:
-        if moved and pinned:
-            owners.conflicts.append(
-                {
-                    "item": item["id"],
-                    "portal_owner": portal_owner,
-                    "owner": user.username,
-                }
-            )
-        elif entry.portal_owner != portal_owner:
-            entry.portal_owner = portal_owner
         return
     elif not moved or pinned:
         owners.changed.append({"item": item["id"], "owner": user.username})
@@ -752,6 +747,31 @@ def _follow_portal_owner(
         owners.warnings.append(f"{item['id']}: {grant}")
     owners.waiting.append(item["id"])
     owners.handovers[item["id"]] = Owner(str(user.id), user.username, portal_owner)
+
+
+def _note_portal_owner(
+    item: Mapping[str, Any],
+    entry: ItemState,
+    owners: Owners,
+    resolved: str | None,
+) -> None:
+    """Report an ArcGIS owner change the plan's ``target.owner`` overrides;
+    otherwise take the current ArcGIS owner as the one the item follows once
+    the item has the owner the plan resolves to (*resolved*, a user id), so a
+    later ``owner_map`` edit isn't taken for a portal change."""
+    portal_owner = item["owner"]
+    if entry.portal_owner == portal_owner:
+        return
+    if entry.portal_owner is not None and item["target"]["owner"] is not None:
+        owners.conflicts.append(
+            {
+                "item": item["id"],
+                "portal_owner": portal_owner,
+                "owner": item["target"]["owner"],
+            }
+        )
+    elif resolved == entry.owner_id and not entry.handover_incomplete:
+        entry.portal_owner = portal_owner
 
 
 def _operator(geolens: GeoLens) -> Any:
@@ -797,7 +817,7 @@ def _own_content_owners(
         and entry.owner_id == owner.id
         and entry.owner_pending
     ]
-    return Owners(
+    owners = Owners(
         by_item={
             item["id"]: owner
             for item in to_run
@@ -810,6 +830,20 @@ def _own_content_owners(
         unresolved=unresolved,
         waiting=waiting,
     )
+    # The plan maps every item to the operator, so that is who each resolves to.
+    for item in plan["items"]:
+        entry = state.items.get(item["id"])
+        if (
+            item["id"] not in running
+            and not item.get("removed")
+            and not item.get("unlisted")
+            and item["action"] in TRANSFER_PERMISSION
+            and entry is not None
+            and entry.status in FINISHED
+            and entry.owner_id
+        ):
+            _note_portal_owner(item, entry, owners, owner.id)
+    return owners
 
 
 def _check_cutover(opts: MigrateOptions) -> None:
@@ -849,12 +883,14 @@ def mark_cutover(
     listed = {row["item"] for row in [*owners.unresolved, *moved]}
     moved += [
         {
-            "item": item_id,
+            "item": item["id"],
             "reason": "a handover stopped part way, so its objects may have "
             "different owners",
         }
-        for item_id, entry in state.items.items()
-        if entry.handover_incomplete and item_id not in listed
+        for item in plan["items"]
+        if not item.get("removed")
+        and item["id"] not in listed
+        and state.items.get(item["id"], ItemState()).handover_incomplete
     ]
     failing = failing_checks(
         plan,
@@ -949,9 +985,9 @@ def _transfer_map(
             map_id=UUID(map_id),
             body=MapPatch(owner_id=UUID(owner.id), expected_updated_at=read.updated_at),
         )
+        entry.map_snapshot = map_state(read)
     elif str(read.created_by) != owner.id:
         raise ItemFailed(f"map {map_id} was changed in GeoLens since the last run")
-    entry.map_snapshot = map_state(read)
 
 
 def _import_revisions(ctx: MigrationContext, dataset_ids: list[str]) -> dict:
@@ -1299,6 +1335,7 @@ def _report_files(
             runnable=HANDLERS,
             owner_changes=owners.changed,
             owner_unresolved=owners.unresolved,
+            owner_conflicts=owners.conflicts,
             stopped=stopped,
             cutover=cutover,
             members_removed=groups.removed if groups else None,
@@ -1377,6 +1414,7 @@ def _report(
         "owner_unresolved": owners.unresolved,
         "owner_roles_checked": owners.roles_checked,
         "owner_warnings": owners.warnings,
+        "handovers": _planned_handovers(owners, opts.only),
         "handed_over": summary.handed_over,
         "handover_failed": summary.handover_failed,
         "not_available": summary.unavailable,
@@ -1411,6 +1449,9 @@ def _report(
                 # Failed before, left out of this run: the exit code counts it.
                 fmt.error(f"{item_id}: {state.item(item_id).error or 'failed'}")
         _print_owners(fmt, owners, summary)
+        if opts.dry_run:
+            for planned in _planned_handovers(owners, opts.only):
+                fmt.info(f"{planned['item']} would be handed to {planned['owner']}")
         _print_groups(fmt, groups, opts.dry_run)
         verb = "Would bring" if opts.dry_run else "Brought"
         brought = len(summary.refreshed)
@@ -1461,6 +1502,15 @@ def _report(
     accepted = cutover is not None and not cutover["refused"] and not summary.stopped
     unaccepted = not accepted and (failed or left)
     return EXIT_GENERIC if unaccepted or groups.failures or report_failed else EXIT_OK
+
+
+def _planned_handovers(owners: Owners, only: Sequence[str]) -> list[dict[str, str]]:
+    """The handovers ``hand_over`` makes, as it selects them."""
+    return [
+        {"item": item_id, "owner": owners.handovers[item_id].username}
+        for item_id in owners.waiting
+        if item_id in owners.handovers and (not only or item_id in only)
+    ]
 
 
 def _print_owners(fmt: _output.Formatter, owners: Owners, summary: RunSummary) -> None:

@@ -35,7 +35,9 @@ and releases use semantic versioning.
   sets the item's `target.owner`, that owner stays and the change is listed
   under `owner_conflicts`. An object transferred or changed in GeoLens since
   the last run keeps its owner and is reported, and `--cutover` refuses until
-  `--accept-unresolved-users`.
+  `--accept-unresolved-users`. `--dry-run` lists the handovers a run would
+  make. The migration state file is now version 5, which older CLIs refuse
+  to read rather than rewrite without the owner it follows.
 
 ### Fixed
 

@@ -24,11 +24,12 @@ STATE_FILENAME = "arcgis-migration-state.json"
 # v2 adds what a rerun compares and waits on, v3 the GeoLens groups made for
 # ArcGIS groups, and v4 what this command's own writes added, which a rerun may
 # take away again: a made group's members (``joined``) and each object's
-# groups (``granted``). An older CLI refuses the file rather than rewriting it
-# without them. A v3 file records neither, so a rerun removes nothing it
-# added before.
-STATE_VERSION = "4"
-_READABLE_VERSIONS = ("1", "2", "3", STATE_VERSION)
+# groups (``granted``), and v5 the ArcGIS owner each item's owner follows and
+# a handover left incomplete. An older CLI refuses the file rather than
+# rewriting it without them. A v3 file records neither, so a rerun removes
+# nothing it added before.
+STATE_VERSION = "5"
+_READABLE_VERSIONS = ("1", "2", "3", "4", STATE_VERSION)
 
 PENDING = "pending"
 RUNNING = "running"

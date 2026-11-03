@@ -54,6 +54,7 @@ def _follow_ups(
     runnable: Container[str],
     owner_changes: Sequence[Mapping[str, str]],
     owner_unresolved: Sequence[Mapping[str, str]] = (),
+    owner_conflicts: Sequence[Mapping[str, str]] = (),
 ) -> list[dict[str, str]]:
     """What the operator still has to do, one entry per item and reason."""
     items = {item["id"]: item for item in plan["items"]}
@@ -188,6 +189,13 @@ def _follow_ups(
             f"migrated before its owner changed to {change['owner']}; "
             "it was not imported again, so transfer it by hand",
         )
+    for conflict in owner_conflicts:
+        add(
+            conflict["item"],
+            "owner_conflict",
+            f"its ArcGIS owner is now {conflict['portal_owner']}, but the plan's "
+            f"target.owner keeps it with {conflict['owner']}",
+        )
     for item in plan["items"]:
         if (
             state.status(item["id"]) != PENDING
@@ -313,6 +321,7 @@ def build_run_report(
     runnable: Container[str] = (),
     owner_changes: Sequence[Mapping[str, str]] = (),
     owner_unresolved: Sequence[Mapping[str, str]] = (),
+    owner_conflicts: Sequence[Mapping[str, str]] = (),
     stopped: str | None = None,
     cutover: Mapping[str, Any] | None = None,
     generated_at: str | None = None,
@@ -369,7 +378,7 @@ def build_run_report(
         ],
         "sharing_changes": [dict(row) for row in sharing_changes or []],
         "follow_ups": _follow_ups(
-            plan, state, runnable, owner_changes, owner_unresolved
+            plan, state, runnable, owner_changes, owner_unresolved, owner_conflicts
         ),
         "loss_reports": sorted(
             {row["loss_report"] for row in rows if row["loss_report"]}
