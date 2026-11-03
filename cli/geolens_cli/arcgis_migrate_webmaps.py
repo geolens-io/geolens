@@ -70,6 +70,8 @@ _UNREADABLE_NOTE = (
     "layers not translated again because this account can't read their "
     "datasets, so their map layers were left as they are"
 )
+# How many layers a map may hold, as PUT /maps/{id} caps them.
+_MAX_LAYERS = 200
 # What a map's notes may hold, as PUT /maps/{id} caps them.
 _MAP_NOTES_MAX = 50_000
 _NOTES_CUT = "... more entries in the CLI report"
@@ -554,11 +556,21 @@ def _translate_again(
         }
         for layer, s in zip(result.layers, sources)
     ]
-    sources, layers = _with_kept_rows(
-        list(zip(sources, translated)),
-        _kept_rows(entry, found, set(matches) - set(readable)),
-        _layer_order(webmap),
-    )
+    kept = _kept_rows(entry, found, set(matches) - set(readable))
+    pairs = list(zip(sources, translated))
+    # A save holds every layer it names and the rows it keeps hidden from the
+    # saver, within the map's cap; the translation gives up its last layers.
+    room = max(_MAX_LAYERS - len(kept) - _hidden_rows(entry, found, sources), 0)
+    pairs, capped = pairs[:room], pairs[room:]
+    capped_losses = [
+        {
+            "path": f"operationalLayers[id={source}]",
+            "kind": "layer_cap",
+            "detail": layer.get("display_name") or source,
+        }
+        for source, layer in capped
+    ]
+    sources, layers = _with_kept_rows(pairs, kept, _layer_order(webmap))
     # A save skips a null center or zoom, since clients send null for a camera
     # they didn't read, so the map keeps its last view and the notes say so.
     kept_view = None in (
@@ -566,7 +578,13 @@ def _translate_again(
         result.view.center_lat,
         result.view.zoom,
     )
-    notes = _with_view_note(result.notes) if kept_view else result.notes
+    notes = _fit_notes(
+        result.notes
+        + "".join(
+            f"\n- {c['path']}: {c['kind']} ({c['detail']})" for c in capped_losses
+        ),
+        f"\n- {_NO_VIEW_NOTE}" if kept_view else "",
+    )
     try:
         saved = ctx.geolens.write(
             put_map.sync_detailed,
@@ -607,7 +625,7 @@ def _translate_again(
         entry.layer_ids, layers, sources, found, saved.layers
     )
     entry.portal_modified = modified
-    entry.pending_loss = _pending_loss(result)
+    entry.pending_loss = _pending_loss(result, capped_losses)
     entry.loss_report_path = None
     ctx.save()
     return _resume_loss(ctx, item["id"], entry)
@@ -632,6 +650,17 @@ _LAYER_INPUT_KEYS = frozenset(
         "show_in_legend",
     }
 )
+
+
+def _hidden_rows(entry: ItemState, before: Any, sending: Sequence[str]) -> int:
+    """How many recorded map layers the saver couldn't read *before* the save
+    and the save doesn't name, which it keeps."""
+    readable = {str(row.id) for row in getattr(before, "layers", None) or []}
+    return sum(
+        1
+        for source, layer_id in entry.layer_ids.items()
+        if layer_id not in readable and source not in sending
+    )
 
 
 def _kept_rows(
@@ -705,10 +734,9 @@ def _readable_matches(
     return {layer: d for layer, d in matches.items() if readable[d]}
 
 
-def _with_view_note(notes: str) -> str:
-    """*notes* with the missing-view line after them, the loss lines cut to
-    whole lines when both don't fit."""
-    tail = f"\n- {_NO_VIEW_NOTE}"
+def _fit_notes(notes: str, tail: str) -> str:
+    """*notes* with *tail* after them, the loss lines cut to whole lines when
+    both don't fit in a map's notes."""
     if len(notes) + len(tail) > _MAP_NOTES_MAX:
         cut = f"\n{_NOTES_CUT}"
         notes = notes[: _MAP_NOTES_MAX - len(tail) - len(cut)].rsplit("\n", 1)[0] + cut
@@ -895,9 +923,18 @@ def import_map(
     return finished
 
 
-def _pending_loss(result: Any) -> dict[str, Any]:
+def _pending_loss(
+    result: Any, extra: Sequence[Mapping[str, str]] = ()
+) -> dict[str, Any]:
+    """The translation's loss report, with *extra* losses added to it."""
+    report = result.loss_report.to_dict()
+    report["items"] = [*report.get("items", []), *extra]
+    summary = dict(report.get("summary") or {})
+    for loss in extra:
+        summary[loss["kind"]] = summary.get(loss["kind"], 0) + 1
+    report["summary"] = summary
     return {
-        "loss_report": result.loss_report.to_dict(),
+        "loss_report": report,
         "unmatched_layers": [layer.to_dict() for layer in result.unmatched_layers],
     }
 

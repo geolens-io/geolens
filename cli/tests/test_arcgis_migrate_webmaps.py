@@ -1217,6 +1217,49 @@ def test_a_map_edited_after_a_partial_import_is_never_overwritten(
     assert _state(plan_file)["items"][B1]["map_snapshot"] == imported
 
 
+def test_hidden_rows_count_against_the_map_layer_cap(
+    runner, plan_file, geolens, portal
+):
+    _services(geolens)
+    parcels = dataset_id("Parcels")
+    full = [f"y{n}" for n in range(200)]
+
+    def translate(seen):
+        body = seen.json()
+        if not body.get("dry_run"):
+            return (201, _response())
+        layer = {"dataset_id": parcels, "sort_order": 0, "opacity": 1}
+        return (
+            201,
+            {
+                **_translated(parcels),
+                "layers": [{**layer, "display_name": y} for y in full],
+                "layer_sources": full,
+            },
+        )
+
+    geolens.routes[IMPORT] = translate
+    geolens.routes["PUT /maps/" + MAP_ID] = lambda seen: _saved(seen.json())
+    assert _run(runner, plan_file)[0].exit_code == 0
+    # The map's two recorded layers are now hidden from the run's account.
+    geolens.routes[f"GET /datasets/{parcels}"] = (
+        404,
+        {"title": "Not Found", "status": 404, "detail": "Dataset not found"},
+    )
+    listed = portal.routes[f"content/items/{B1}"]
+    portal.routes[f"content/items/{B1}"] = {
+        **listed,
+        "modified": listed["modified"] + 60_000,
+    }
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    [sent] = _puts(geolens)
+    assert len(sent["layers"]) == 198
+    assert "- operationalLayers[id=y199]: layer_cap (y199)" in sent["notes"]
+
+
 def test_a_layer_whose_dataset_the_account_cant_read_is_left_as_it_is(
     runner, plan_file, geolens, portal
 ):
@@ -1282,14 +1325,12 @@ def test_a_layer_whose_dataset_the_account_cant_read_is_left_as_it_is(
     assert not [n for n in entry["notes"] if "can't read" in n]
 
 
-@pytest.mark.parametrize(
-    "odd_ids", [False, True], ids=["plain", "object-and-array-ids"]
-)
+@pytest.mark.parametrize("variant", ["plain", "object-and-array-ids", "at-the-cap"])
 def test_a_layer_repointed_to_a_dataset_the_account_cant_read_keeps_its_row(
-    runner, plan_file, geolens, portal, monkeypatch, odd_ids
+    runner, plan_file, geolens, portal, monkeypatch, variant
 ):
     _services(geolens)
-    if odd_ids:
+    if variant == "object-and-array-ids":
         # Layers the translator reports as losses, with ids that aren't text.
         data = f"content/items/{B1}/data"
         webmap = copy.deepcopy(portal.routes[data])
@@ -1308,9 +1349,15 @@ def test_a_layer_repointed_to_a_dataset_the_account_cant_read_keeps_its_row(
         if not body.get("dry_run"):
             return (201, _response())
         view = {"dataset_id": parcels, "sort_order": 0, "opacity": 0.5}
+        # At the cap, the translation already fills the map.
+        extra = [f"x{n}" for n in range(199)] if variant == "at-the-cap" else []
         return (
             201,
-            {**_translated(parcels), "layers": [view], "layer_sources": ["view_0"]},
+            {
+                **_translated(parcels),
+                "layers": [view, *({**view, "display_name": x} for x in extra)],
+                "layer_sources": ["view_0", *extra],
+            },
         )
 
     geolens.routes[IMPORT] = translate
@@ -1365,7 +1412,14 @@ def test_a_layer_repointed_to_a_dataset_the_account_cant_read_keeps_its_row(
     [sent] = _puts(geolens)
     kept = next(layer for layer in sent["layers"] if layer.get("id") == parcels_row)
     assert (kept["dataset_id"], kept["opacity"]) == (parcels, 1)
-    assert _state(plan_file)["items"][B1]["layer_ids"]["parcels_0"] == parcels_row
+    entry = _state(plan_file)["items"][B1]
+    assert entry["layer_ids"]["parcels_0"] == parcels_row
+    if variant == "at-the-cap":
+        # The kept row takes the place of the translation's last layer.
+        assert len(sent["layers"]) == 200
+        assert "- operationalLayers[id=x198]: layer_cap (x198)" in sent["notes"]
+        loss = json.loads((plan_file.parent / entry["loss_report_path"]).read_text())
+        assert loss["loss_report"]["summary"]["layer_cap"] == 1
 
 
 @pytest.mark.parametrize(
