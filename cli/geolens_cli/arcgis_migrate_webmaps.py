@@ -560,7 +560,15 @@ def _translate_again(
     pairs = list(zip(sources, translated))
     # A save holds every layer it names and the rows it keeps hidden from the
     # saver, within the map's cap; the translation gives up its last layers.
-    room = max(_MAX_LAYERS - len(kept) - _hidden_rows(entry, found, sources), 0)
+    # Leaving out a layer with a hidden row keeps that row, so each cut is
+    # counted again.
+    room = len(pairs)
+    while (
+        room
+        and room + len(kept) + _hidden_rows(entry, found, [s for s, _ in pairs[:room]])
+        > _MAX_LAYERS
+    ):
+        room -= 1
     pairs, capped = pairs[:room], pairs[room:]
     capped_losses = [
         {

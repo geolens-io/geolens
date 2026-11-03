@@ -1260,6 +1260,47 @@ def test_hidden_rows_count_against_the_map_layer_cap(
     assert "- operationalLayers[id=y199]: layer_cap (y199)" in sent["notes"]
 
 
+def test_a_hidden_layer_cut_at_the_cap_counts_as_kept(
+    runner, plan_file, geolens, portal
+):
+    _services(geolens)
+    parcels = dataset_id("Parcels")
+    # parcels_0 is gone from the portal and view_0 comes last; both of their
+    # map layers are hidden from the run's account.
+    full = [*(f"y{n}" for n in range(199)), "view_0"]
+
+    def translate(seen):
+        body = seen.json()
+        if not body.get("dry_run"):
+            return (201, _response())
+        layer = {"dataset_id": parcels, "sort_order": 0, "opacity": 1}
+        return (
+            201,
+            {
+                **_translated(parcels),
+                "layers": [{**layer, "display_name": y} for y in full],
+                "layer_sources": full,
+            },
+        )
+
+    geolens.routes[IMPORT] = translate
+    geolens.routes["PUT /maps/" + MAP_ID] = lambda seen: _saved(seen.json())
+    assert _run(runner, plan_file)[0].exit_code == 0
+    listed = portal.routes[f"content/items/{B1}"]
+    portal.routes[f"content/items/{B1}"] = {
+        **listed,
+        "modified": listed["modified"] + 60_000,
+    }
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    [sent] = _puts(geolens)
+    # 198 sent and the two hidden rows GeoLens keeps make 200.
+    assert len(sent["layers"]) == 198
+    assert "- operationalLayers[id=view_0]: layer_cap (view_0)" in sent["notes"]
+
+
 def test_a_layer_whose_dataset_the_account_cant_read_is_left_as_it_is(
     runner, plan_file, geolens, portal
 ):
