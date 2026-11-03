@@ -59,6 +59,7 @@ from .arcgis_migrate_export import (
 from .arcgis_migrate_cutover import failing_checks, inventory_changes
 from .arcgis_migrate_groups import (
     GroupPlan,
+    NO_GROUP,
     NOT_A_USER,
     SHARING_LABELS,
     GroupUsageError,
@@ -707,9 +708,30 @@ def _operator(geolens: GeoLens) -> Any:
     return geolens.call(me_auth_me_get.sync_detailed)
 
 
-def _own_content_owners(me: Any, to_run: list[Mapping[str, Any]]) -> Owners:
-    """Every importing item goes to the operator, who keeps it."""
+def _own_content_owners(
+    me: Any,
+    plan: Mapping[str, Any],
+    to_run: list[Mapping[str, Any]],
+    state: MigrationState,
+) -> Owners:
+    """Every importing item goes to the operator, who keeps it. A migrated
+    item some other user owns is unresolved, so the cutover refuses it."""
     owner = Owner(str(me.id), me.username)
+    running = {item["id"] for item in to_run}
+    unresolved = [
+        {
+            "item": item["id"],
+            "reason": "it belongs to another GeoLens user; an admin must finish it",
+        }
+        for item in plan["items"]
+        if item["id"] not in running
+        and not item.get("removed")
+        and item["action"] in TRANSFER_PERMISSION
+        and (entry := state.items.get(item["id"])) is not None
+        and entry.status in FINISHED
+        and entry.owner_id
+        and entry.owner_id != owner.id
+    ]
     return Owners(
         by_item={
             item["id"]: owner
@@ -720,6 +742,7 @@ def _own_content_owners(me: Any, to_run: list[Mapping[str, Any]]) -> Owners:
         changed=[],
         roles_checked=True,
         warnings=[],
+        unresolved=unresolved,
     )
 
 
@@ -1080,7 +1103,11 @@ def refresh_finished(
         summary.refreshed.append(item["id"])
         item, notes = _sharing_target(ctx, item, entry.owner_id)
         # A rerun can narrow an item the portal still shares, so it says why.
-        entry.notes.extend(n for n in map(state.clean, notes) if n not in entry.notes)
+        cleaned = [state.clean(n) for n in notes]
+        entry.notes.extend(n for n in cleaned if n not in entry.notes)
+        # Only the group note can lapse: a rerun that maps the group removes it.
+        if NO_GROUP in entry.notes and NO_GROUP not in cleaned:
+            entry.notes.remove(NO_GROUP)
         try:
             reasons = REFRESHERS[item["action"]](ctx, item, entry)
             if reasons:
@@ -1703,7 +1730,7 @@ def _run(
             if row.get("owner") and row.get("owner_email")
         }
         owners = (
-            _own_content_owners(me, to_run)
+            _own_content_owners(me, plan, to_run, state)
             if editor
             else resolve_owners(
                 geolens, plan, to_run, state, opts.unmapped_owner, emails

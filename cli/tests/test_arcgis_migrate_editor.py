@@ -26,6 +26,7 @@ from .test_arcgis_migrate import (  # noqa: F401
     _run,
     _state,
     _user,
+    _write_state,
     geolens,
     handled,
     no_inventory,
@@ -404,3 +405,96 @@ def test_an_item_an_admin_run_handed_to_someone_else_is_left_for_an_admin(
     assert result.exit_code == 1
     assert entry["status"] == "failed" and "an admin must finish" in entry["error"]
     assert not entry.get("owner_id")
+
+
+def _group_plan(visibility_item: dict[str, Any]) -> dict[str, Any]:
+    plan = {**_plan([visibility_item], OWN), "schema_version": "2"}
+    plan["group_map"] = {
+        "g1": {
+            "collection": "Roads Team",
+            "visibility": "private",
+            "geolens_group": None,
+        }
+    }
+    return plan
+
+
+def _team_inventory(monkeypatch, **extra: Any) -> None:
+    monkeypatch.setattr(
+        migrate,
+        "_inventory_rows",
+        lambda *args: ({}, None, {"g1": {"id": "g1", "title": "Roads Team", **extra}}),
+    )
+
+
+@pytest.mark.parametrize(
+    ("inventory", "mentions"),
+    [({}, ()), ({"members_unread": "no access"}, ("no access",))],
+    ids=["read", "inventory-unread"],
+)
+def test_a_matched_group_is_flagged_because_its_members_cant_be_compared(
+    runner, tmp_path, editor, ran, monkeypatch, inventory, mentions
+):
+    editor.routes["GET /groups/mine/"] = {
+        "groups": [{"id": TEAM, "name": "Roads Team"}],
+        "total": 1,
+    }
+    _team_inventory(monkeypatch, **inventory)
+    _sharing_targets(monkeypatch)
+    _allow_transfers(editor, _created_id(L1))
+
+    result, _ = _run(runner, tmp_path, _group_plan(_restricted(L1, "g1")))
+
+    assert result.exit_code == 0, result.output
+    record = _state(tmp_path)["groups"]["g1"]
+    assert "can't read the GeoLens group's members" in record["members_unread"]
+    assert all(text in record["members_unread"] for text in mentions)
+    report = json.loads((tmp_path / "arcgis-migration-report.json").read_text())
+    rows = [r for r in report["follow_ups"] if r["kind"] == "under_shared"]
+    assert any(r["item"] == L1 and "can't read" in r["text"] for r in rows)
+
+
+def test_cutover_refuses_a_migrated_item_another_user_owns(
+    runner, tmp_path, editor, ran
+):
+    _write_state(
+        tmp_path,
+        {L1: {"status": "done", "dataset_ids": [_created_id(L1)], "owner_id": ALICE}},
+    )
+
+    result, payload = _run(
+        runner,
+        tmp_path,
+        _plan([_item(L1)], OWN),
+        "--cutover",
+        "--accept-incomplete-inventory",
+    )
+
+    assert payload["cutover"]["refused"] == ["unresolved-users"]
+    assert payload["cutover"]["marked"] is False
+    assert [u["item"] for u in payload["owner_unresolved"]] == [L1]
+
+
+def test_a_rerun_that_maps_the_group_drops_the_private_note(
+    runner, tmp_path, editor, ran, monkeypatch
+):
+    dataset_id = _created_id(L1)
+    _team_inventory(monkeypatch)
+    _allow_transfers(editor, dataset_id)
+    editor.routes[f"PUT /datasets/{dataset_id}/groups/"] = {}
+    plan = _group_plan(_restricted(L1, "g1"))
+
+    result, _ = _run(runner, tmp_path, plan)
+
+    assert result.exit_code == 0, result.output
+    assert _follow_ups(tmp_path)["private_no_matching_group"] == L1
+    assert any("made private" in n for n in _state(tmp_path)["items"][L1]["notes"])
+
+    editor.routes["GET /groups/mine/"] = {
+        "groups": [{"id": TEAM, "name": "Roads Team"}],
+        "total": 1,
+    }
+    result, _ = _run(runner, tmp_path, plan)
+
+    assert not any("made private" in n for n in _state(tmp_path)["items"][L1]["notes"])
+    assert _state(tmp_path)["groups"]["g1"]["id"] == TEAM

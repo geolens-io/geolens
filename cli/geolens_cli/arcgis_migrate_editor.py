@@ -125,17 +125,25 @@ def my_groups_plan(
                     "to, so the items shared only with it become private"
                 )
             else:
+                # Only an admin can list a group's members, so a name match
+                # and the editor's own membership don't show who else is in it.
+                unread = "an editor run can't read the GeoLens group's members"
+                theirs = (inventory_groups.get(arcgis_id) or {}).get("members_unread")
                 record |= {
                     "id": str(found.id),
                     "name": found.name,
+                    "editor": True,
                     "members": {},
                     "unsynced": [],
+                    "members_unread": f"{unread}; {theirs}" if theirs else unread,
                 }
         out.groups[arcgis_id] = record
         if not dry_run:
             # A record an admin run made keeps the history that run needs to
             # recognise the group it created; this run only resolves a target.
             kept = state.groups.get(arcgis_id)
+            if kept and (kept.get("editor") or not kept.get("id")):
+                kept = None
             if named == "":
                 state.groups[arcgis_id] = {**(kept or record), "unmapped": True}
             elif kept:
