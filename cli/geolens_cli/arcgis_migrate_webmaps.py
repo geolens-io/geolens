@@ -647,19 +647,25 @@ def _resume_loss(ctx: MigrationContext, item_id: str, entry: ItemState) -> str |
     """Write the pending loss report and give the item its notes in place of
     the earlier translation's; why it wasn't written, or None."""
     try:
-        notes = _finish_loss(ctx, item_id, entry).notes
+        _finish_loss(ctx, item_id, entry, replace_notes=True)
     except ItemFailed as exc:
-        return f"{exc}; a rerun writes it"
-    if entry.loss_report_path is None and ctx.export_dir is not None:
-        # A translation with no losses leaves no report, so an earlier one goes.
-        try:
-            (ctx.export_dir.parent / LOSS_DIRNAME / f"{item_id}.json").unlink(
-                missing_ok=True
-            )
-        except OSError as exc:
-            return f"removing the earlier loss report failed: {exc.strerror or exc}"
-    entry.notes = [*(n for n in entry.notes if not _LOSS_NOTE.match(n)), *notes]
+        return f"{exc}; a rerun tries again"
     return None
+
+
+def _remove_loss(ctx: MigrationContext, item_id: str) -> None:
+    """Remove an earlier loss report, which a translation with no losses
+    leaves out of date."""
+    if ctx.export_dir is None:
+        return
+    try:
+        (ctx.export_dir.parent / LOSS_DIRNAME / f"{item_id}.json").unlink(
+            missing_ok=True
+        )
+    except OSError as exc:
+        raise ItemFailed(
+            f"removing the earlier loss report failed: {exc.strerror or exc}"
+        ) from None
 
 
 def _write_loss(ctx: MigrationContext, item_id: str, report: Any) -> str:
@@ -770,7 +776,17 @@ def _pending_loss(result: Any) -> dict[str, Any]:
     }
 
 
-def _finish_loss(ctx: MigrationContext, item_id: str, entry: ItemState) -> ItemResult:
+def _finish_loss(
+    ctx: MigrationContext,
+    item_id: str,
+    entry: ItemState,
+    *,
+    replace_notes: bool = False,
+) -> ItemResult:
+    """Write the pending loss report, or remove an earlier one when nothing
+    was lost, and with *replace_notes* give the item the report's notes in
+    place of an earlier translation's. The report stays pending until all of
+    that is done, so a rerun finishes what a failure or interruption left."""
     payload = entry.pending_loss or {}
     notes: list[str] = []
     unmatched = [
@@ -789,6 +805,10 @@ def _finish_loss(ctx: MigrationContext, item_id: str, entry: ItemState) -> ItemR
         notes.append(f"{len(lost)} {_LOST_NOTE}")
     if lost or unmatched:
         entry.loss_report_path = _write_loss(ctx, item_id, payload)
+    else:
+        _remove_loss(ctx, item_id)
+    if replace_notes:
+        entry.notes = [*(n for n in entry.notes if not _LOSS_NOTE.match(n)), *notes]
     entry.pending_loss = None
     ctx.save()
     return ItemResult(status=DONE, notes=notes)

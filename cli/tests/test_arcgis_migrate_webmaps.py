@@ -948,7 +948,7 @@ def test_a_loss_report_a_rerun_couldnt_write_is_written_by_the_next_one(
 
     assert result.exit_code == 1
     assert payload["not_up_to_date"][B1] == [
-        "writing the loss report failed: disk full; a rerun writes it"
+        "writing the loss report failed: disk full; a rerun tries again"
     ]
     assert _state(plan_file)["items"][B1]["pending_loss"] is not None
     monkeypatch.setattr(webmaps, "_write_loss", write)
@@ -1134,6 +1134,40 @@ def test_a_translation_without_losses_removes_the_earlier_report(
     assert result.exit_code == 0, result.output
     assert _state(plan_file)["items"][B1]["loss_report_path"] is None
     assert not report.exists()
+
+
+def test_an_earlier_loss_report_a_rerun_couldnt_remove_is_removed_by_the_next(
+    runner, plan_file, geolens, portal, monkeypatch
+):
+    token = _changed_in_the_portal(runner, plan_file, geolens, portal)
+    report = plan_file.parent / _state(plan_file)["items"][B1]["loss_report_path"]
+    translated = _translated(dataset_id("Parcels"))
+    translated["loss_report"] = {"items": [], "summary": {}}
+    geolens.routes[IMPORT] = (201, translated)
+    remove = webmaps._remove_loss
+
+    def refuse(*args):
+        raise webmaps.ItemFailed("removing the earlier loss report failed: busy")
+
+    monkeypatch.setattr(webmaps, "_remove_loss", refuse)
+    result, payload = _migrate(runner, plan_file, "--token", token)
+
+    assert result.exit_code == 1
+    assert payload["not_up_to_date"][B1] == [
+        "removing the earlier loss report failed: busy; a rerun tries again"
+    ]
+    assert report.exists()
+    monkeypatch.setattr(webmaps, "_remove_loss", remove)
+
+    # The portal is unchanged, so only the pending removal is left to do.
+    result, _ = _migrate(runner, plan_file, "--token", token)
+
+    assert result.exit_code == 0, result.output
+    assert len(_puts(geolens)) == 1
+    assert not report.exists()
+    entry = _state(plan_file)["items"][B1]
+    assert entry["pending_loss"] is None
+    assert not [n for n in entry["notes"] if "part(s)" in n]
 
 
 def test_a_web_map_that_lost_its_initial_view_keeps_the_maps_and_says_so(
