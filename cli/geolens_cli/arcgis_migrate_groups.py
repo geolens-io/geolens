@@ -542,6 +542,7 @@ def prepare_groups(
         if recorded and recorded.get("created") and recorded.get("id"):
             record = dict(recorded)
             record.pop("unmapped", None)
+            record.pop("effective", None)
             if record.get("deleted") or not _exists(geolens, record["id"]):
                 out.warnings.append(
                     f"the GeoLens group {record['name']} this command created for "

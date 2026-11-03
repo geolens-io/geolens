@@ -23,6 +23,7 @@ from . import arcgis_report as _report
 from .arcgis_migrate_collections import DENIED
 from .arcgis_migrate_cutover import (
     attachment_losses,
+    current,
     groups_in_use,
     in_use,
     sharing_losses,
@@ -171,8 +172,9 @@ def _follow_ups(
         add(unresolved["item"], "owner_unresolved", unresolved["reason"])
     needed = groups_in_use(plan, state)
     for group_id, group in sorted(state.groups.items()):
-        current = in_use(group) and group_id in needed
-        for pending in (group.get("pending") or []) if current else []:
+        group = current(group)
+        is_current = in_use(group) and group_id in needed
+        for pending in (group.get("pending") or []) if is_current else []:
             add(
                 f"group {group_id}",
                 "member_pending",
@@ -361,7 +363,9 @@ def build_run_report(
                 "members_unread": group.get("members_unread"),
                 "members_removed": list((members_removed or {}).get(group_id, [])),
             }
-            for group_id, group in sorted(state.groups.items())
+            for group_id, group in sorted(
+                (g, current(r)) for g, r in state.groups.items()
+            )
         ],
         "sharing_changes": [dict(row) for row in sharing_changes or []],
         "follow_ups": _follow_ups(

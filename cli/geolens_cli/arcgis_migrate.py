@@ -56,7 +56,7 @@ from .arcgis_migrate_export import (
     refresh_export,
     write_index,
 )
-from .arcgis_migrate_cutover import failing_checks, inventory_changes
+from .arcgis_migrate_cutover import current, failing_checks, inventory_changes
 from .arcgis_migrate_groups import (
     GroupPlan,
     NO_GROUP,
@@ -1768,7 +1768,7 @@ def _run(
             admins=frozenset() if editor else owners.directory.admins,
             names={
                 g["id"]: g["name"]
-                for g in state.groups.values()
+                for g in map(current, state.groups.values())
                 if g.get("id") and g.get("name")
             }
             | {g["id"]: g["name"] for g in groups.groups.values() if g["id"]},

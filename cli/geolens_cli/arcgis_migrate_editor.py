@@ -148,7 +148,8 @@ def my_groups_plan(
                 state.groups[arcgis_id] = {**(kept or record), "unmapped": True}
             elif kept:
                 state.groups[arcgis_id] = {
-                    k: v for k, v in kept.items() if k != "unmapped"
+                    **{k: v for k, v in kept.items() if k != "unmapped"},
+                    "effective": record,
                 }
             else:
                 state.groups[arcgis_id] = dict(record)

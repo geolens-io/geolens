@@ -25,6 +25,9 @@ from .test_arcgis_migrate import (  # noqa: F401
     _plan,
     _run,
     _state,
+    DEFAULT_ROLES,
+    OPERATOR,
+    _settings,
     _user,
     _write_state,
     geolens,
@@ -345,7 +348,8 @@ def test_an_editor_run_keeps_the_group_record_an_admin_run_made(
     result, _ = _run(runner, tmp_path, plan)
 
     assert result.exit_code == 0, result.output
-    assert _state(tmp_path)["groups"]["g1"] == ADMIN_GROUP
+    record = _state(tmp_path)["groups"]["g1"]
+    assert {k: v for k, v in record.items() if k != "effective"} == ADMIN_GROUP
 
 
 def test_a_rerun_leaves_a_dataset_edited_in_geolens_alone(
@@ -520,3 +524,89 @@ def test_a_dataset_somebody_else_wrote_is_not_given_the_items_metadata(
     assert result.exit_code == 1 and entry["status"] == "failed"
     assert "changed in GeoLens" in entry["error"]
     assert [s for s in editor.seen if s.method in ("PATCH", "PUT", "POST")] == []
+
+
+def _admin_made_group_state(tmp_path) -> None:
+    (tmp_path / "arcgis-migration-state.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "1",
+                "portal_url": PORTAL,
+                "geolens_instance": GEOLENS_INSTANCE,
+                "items": {},
+                "groups": {"g1": ADMIN_GROUP},
+            }
+        )
+    )
+
+
+def test_an_editor_that_cant_match_an_admins_group_reports_the_lost_audience(
+    runner, tmp_path, editor, ran, monkeypatch
+):
+    _team_inventory(monkeypatch)
+    _sharing_targets(monkeypatch)
+    _allow_transfers(editor, _created_id(L1))
+    _admin_made_group_state(tmp_path)
+
+    result, payload = _run(
+        runner,
+        tmp_path,
+        _group_plan(_restricted(L1, "g1")),
+        "--cutover",
+        "--accept-incomplete-inventory",
+    )
+
+    report = json.loads((tmp_path / "arcgis-migration-report.json").read_text())
+    assert any(
+        r["kind"] == "under_shared" and "maps to no GeoLens group" in r["text"]
+        for r in report["follow_ups"]
+    )
+    assert report["groups"][0]["name"] is None
+    assert "under-sharing" in payload["cutover"]["refused"]
+    assert payload["cutover"]["marked"] is False
+
+
+def test_an_admin_run_after_an_editor_run_recognises_the_group_it_made(
+    runner, tmp_path, editor, ran, monkeypatch
+):
+    dataset_id = _created_id(L1)
+    _team_inventory(monkeypatch, members=[])
+    _allow_transfers(editor, dataset_id)
+    _admin_made_group_state(tmp_path)
+    plan = _group_plan(_restricted(L1, "g1"))
+    result, _ = _run(runner, tmp_path, plan)
+    assert result.exit_code == 0, result.output
+    assert "effective" in _state(tmp_path)["groups"]["g1"]
+
+    users = [_user(OPERATOR, "operator", ["admin"]), _user(ERIN, "erin", ["editor"])]
+    group = {
+        "id": TEAM,
+        "name": "Roads Team",
+        "member_count": 0,
+        "created_at": "2026-10-01T00:00:00Z",
+        "updated_at": "2026-10-01T00:00:00Z",
+    }
+    editor.routes.update(
+        {
+            "GET /auth/me/": users[0],
+            "GET /admin/users/": {"users": users, "total": 2},
+            "GET /settings/all/": _settings(DEFAULT_ROLES),
+            "GET /admin/groups/": {"groups": [group], "total": 1},
+            f"GET /admin/groups/{TEAM}": group,
+            f"GET /admin/groups/{TEAM}/members/": {"members": [], "total": 0},
+            f"PUT /datasets/{dataset_id}/groups/": {
+                "visibility": "restricted",
+                "groups": [{"id": TEAM, "name": "Roads Team"}],
+            },
+        }
+    )
+
+    result, _ = _run(runner, tmp_path, plan)
+
+    record = _state(tmp_path)["groups"]["g1"]
+    assert result.exit_code == 0, result.output
+    assert "effective" not in record
+    assert record["id"] == TEAM and record["created"] is True
+    assert [
+        s for s in editor.seen if s.method == "POST" and "/admin/groups" in s.url
+    ] == []

@@ -91,6 +91,15 @@ def _attachments(
     ]
 
 
+def current(made: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
+    """The record to read for a state group: what an editor run resolved over
+    an admin run's record, else the record itself. The admin record keeps the
+    history that run needs; this is the audience items are shared with now."""
+    if made and not made.get("unmapped") and "effective" in made:
+        return made["effective"]
+    return made
+
+
 def in_use(made: Mapping[str, Any] | None) -> bool:
     """Whether a state group record names a GeoLens group items are shared
     with now: not unmapped in the plan and not deleted in GeoLens."""
@@ -133,7 +142,7 @@ def sharing_losses(
     plan_reason = _plan.possibly_under_shared(plan, item)
     out = [plan_reason] if plan_reason else []
     for group in item["target"]["groups"] or []:
-        made = state.groups.get(group)
+        made = current(state.groups.get(group))
         if not in_use(made):
             out.append(f"ArcGIS group {group} maps to no GeoLens group")
         elif made.get("members_unread"):
@@ -172,7 +181,7 @@ def _users(
     out += [{"item": u["item"], "reason": u["reason"]} for u in unresolved]
     needed = groups_in_use(plan, state)
     for group_id in sorted(needed):
-        recorded = state.groups.get(group_id)
+        recorded = current(state.groups.get(group_id))
         if not in_use(recorded):
             recorded = None
         planned = (prepared or {}).get(group_id)
