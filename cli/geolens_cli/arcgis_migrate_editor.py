@@ -17,7 +17,6 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from . import arcgis_plan as _plan
 from .arcgis_migrate_groups import (
     GROUP_PAGE,
     GroupPlan,
@@ -27,9 +26,6 @@ from .arcgis_migrate_groups import (
 )
 from .arcgis_migrate_session import GeoLens, GeoLensError
 from .arcgis_migrate_state import MigrationState
-
-# The plan actions that create what an owner then holds.
-_OWNED_ACTIONS = (_plan.IMPORT_LAYERS, _plan.IMPORT_FILE, _plan.IMPORT_MAP)
 
 
 def is_admin(me: Any) -> bool:
@@ -41,15 +37,17 @@ def own_content_refusal(
 ) -> str | None:
     """Why the plan needs an admin, or None when every item it imports is
     mapped to the operator *me*."""
+    from .arcgis_migrate import IMPORTING, _target_name
+
     names = {n.lower() for n in (me.username, me.email) if n}
     others = sorted(
         {
             name or f"(none; ArcGIS user {item['owner']})"
             for item in plan["items"]
-            if item["action"] in _OWNED_ACTIONS
+            if item["action"] in IMPORTING
             and not item.get("removed")
             and not item.get("unlisted")
-            for name in [_owner(item, plan)]
+            for name in [_target_name(item, plan)]
             if name.lower() not in names
         }
     )
@@ -64,13 +62,6 @@ def own_content_refusal(
         f"{', '.join(others)}. Run `geolens login` as an admin, or map every "
         f"owner to {me.username} in owner_map."
     )
-
-
-def _owner(item: Mapping[str, Any], plan: Mapping[str, Any]) -> str:
-    override = item["target"]["owner"]
-    if override is not None:
-        return str(override)
-    return str(plan["owner_map"].get(item["owner"], ""))
 
 
 def cannot_import(geolens: GeoLens) -> str | None:
@@ -123,28 +114,24 @@ def my_groups_plan(
     for arcgis_id in wanted:
         entry = plan["group_map"].get(arcgis_id) or {}
         named = entry.get("geolens_group")
-        none = {"id": None, "name": None, "created": False}
+        record: dict[str, Any] = {"id": None, "name": None, "created": False}
         if named == "":
-            record = {**none, "unmapped": True}
-            out.groups[arcgis_id] = dict(none)
+            record["unmapped"] = True
         else:
             found = _find(mine, named or _title(arcgis_id, entry, inventory_groups))
             if found is None:
-                record = dict(none)
-                out.groups[arcgis_id] = dict(none)
                 out.warnings.append(
                     f"ArcGIS group {arcgis_id} matches no GeoLens group you belong "
                     "to, so the items shared only with it become private"
                 )
             else:
-                record = {
+                record |= {
                     "id": str(found.id),
                     "name": found.name,
-                    "created": False,
                     "members": {},
                     "unsynced": [],
                 }
-                out.groups[arcgis_id] = dict(record)
+        out.groups[arcgis_id] = record
         if not dry_run:
             state.groups[arcgis_id] = record
             state.save()

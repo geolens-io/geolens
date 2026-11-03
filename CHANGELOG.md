@@ -7,6 +7,16 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- `geolens arcgis migrate` runs as a GeoLens editor when the plan maps every
+  item to that editor, so one ArcGIS user can move their own content without
+  an admin. Nothing is transferred. A public item under
+  `restrict_public_visibility` lands internal, collections are skipped without
+  `manage_collections`, and an item shared only with ArcGIS groups goes to the
+  matching groups the editor belongs to, or lands private. The report lists
+  each. A plan that names another owner still needs an admin.
+
 ### Changed
 
 - Vector and cluster tiles are cached for an hour by default

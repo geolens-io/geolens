@@ -1667,8 +1667,9 @@ def _run(
         operator_id = str(me.id)
         editor = not is_admin(me)
         if editor:
-            refusal = own_content_refusal(me, plan, opts.unmapped_owner)
-            refusal = refusal or cannot_import(geolens)
+            refusal = own_content_refusal(
+                me, plan, opts.unmapped_owner
+            ) or cannot_import(geolens)
             if refusal:
                 raise UsageError(refusal)
         emails = {
