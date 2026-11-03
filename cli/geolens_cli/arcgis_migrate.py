@@ -184,6 +184,8 @@ REFRESHERS: dict[str, Refresher] = {
 class Owner:
     id: str
     username: str
+    # The ArcGIS owner a handover to this owner follows.
+    portal_owner: str | None = None
 
 
 @dataclass
@@ -552,8 +554,6 @@ class Owners:
     # Finished items that wait for their owner, and who to hand some to now.
     waiting: list[str] = field(default_factory=list)
     handovers: dict[str, Owner] = field(default_factory=dict)
-    # Item -> the ArcGIS owner its handover follows.
-    portal_owners: dict[str, str] = field(default_factory=dict)
     # Finished items whose ArcGIS owner changed while the plan's target.owner
     # keeps the owner the operator chose.
     conflicts: list[dict[str, str]] = field(default_factory=list)
@@ -693,8 +693,9 @@ def _finished_owners(
                 and directory.inactive(target) is None
                 and str(target.id) != entry.owner_id
             ):
-                owners.handovers[item["id"]] = Owner(str(target.id), target.username)
-                owners.portal_owners[item["id"]] = item["owner"]
+                owners.handovers[item["id"]] = Owner(
+                    str(target.id), target.username, item["owner"]
+                )
         elif user is None:
             owners.unresolved.append(
                 {
@@ -716,15 +717,10 @@ def _follow_portal_owner(
     permission: str,
     owners: Owners,
 ) -> None:
-    """Sort a migrated item whose plan owner names *user*.
-
-    When the portal owner changed since the item's owner was decided and the
-    plan sets no ``target.owner``, the item is handed to *user*. A
-    ``target.owner`` the operator set stays, and the change is reported. Any
-    other new owner, such as an ``owner_map`` edit, is reported, not applied.
-    An entry that doesn't record its portal owner adopts the current one
-    while *user* still owns the item.
-    """
+    """Queue a handover to *user* when only the item's ArcGIS owner moved;
+    report a new owner from a ``target.owner`` or ``owner_map`` edit. An entry
+    without a recorded ArcGIS owner adopts the current one while *user* owns
+    the item."""
     portal_owner = item["owner"]
     moved = entry.portal_owner is not None and portal_owner != entry.portal_owner
     pinned = item["target"]["owner"] is not None
@@ -737,7 +733,7 @@ def _follow_portal_owner(
                     "owner": user.username,
                 }
             )
-        elif entry.portal_owner is None or moved:
+        elif entry.portal_owner != portal_owner:
             entry.portal_owner = portal_owner
         return
     if not moved or pinned:
@@ -751,8 +747,7 @@ def _follow_portal_owner(
     if grant:
         owners.warnings.append(f"{item['id']}: {grant}")
     owners.waiting.append(item["id"])
-    owners.handovers[item["id"]] = Owner(str(user.id), user.username)
-    owners.portal_owners[item["id"]] = portal_owner
+    owners.handovers[item["id"]] = Owner(str(user.id), user.username, portal_owner)
 
 
 def _operator(geolens: GeoLens) -> Any:
@@ -1146,8 +1141,7 @@ def hand_over(
 ) -> None:
     """Hand each migrated item that waits for its owner, or whose ArcGIS owner
     changed, to the owner it can go to now, unless GeoLens changed one of its
-    objects since the last run. An owner change that can't be handed over
-    stays listed as one."""
+    objects since the last run."""
     for item_id in owners.waiting:
         entry = state.items[item_id]
         owner = owners.handovers.get(item_id)
@@ -1162,7 +1156,7 @@ def hand_over(
                     owners.changed.append({"item": item_id, "owner": owner.username})
                 continue
             summary.handed_over.append({"item": item_id, "owner": owner.username})
-            entry.portal_owner = owners.portal_owners.get(item_id, entry.portal_owner)
+            entry.portal_owner = owner.portal_owner
         elif entry.owner_pending == owners.pending.get(item_id):
             continue
         entry.owner_pending = owners.pending.get(item_id)

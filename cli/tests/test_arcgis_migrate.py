@@ -1445,21 +1445,26 @@ BOB_OWNERS = {"agol_alice": "alice", "agol_bob": "newbie"}
 
 
 def _owned(fake, *, datasets: tuple[str, ...] = (), maps: tuple[str, ...] = ()):
-    """GeoLens objects whose owner and updated_at follow each transfer."""
-    objects = {d: ["datasets", OPERATOR, NOW] for d in datasets}
-    objects.update({m: ["maps", OPERATOR, NOW] for m in maps})
-    tick = iter(f"2026-10-0{n}T00:00:00Z" for n in range(2, 10))
+    """GeoLens objects (id -> created_by and updated_at) that each transfer
+    gives a new owner and a later timestamp."""
+    kinds = dict.fromkeys(datasets, "datasets") | dict.fromkeys(maps, "maps")
+    objects = {o: {"created_by": OPERATOR, "updated_at": NOW} for o in kinds}
+    transfers = 0
 
     def read(seen, object_id):
-        kind, owner, updated = objects[object_id]
-        make = _dataset if kind == "datasets" else _map
-        return {**make(object_id, owner), "updated_at": updated}
+        make = _dataset if kinds[object_id] == "datasets" else _map
+        return {**make(object_id, OPERATOR), **objects[object_id]}
 
     def transfer(seen, object_id):
-        objects[object_id][1:] = [seen.json()["owner_id"], next(tick)]
+        nonlocal transfers
+        transfers += 1
+        objects[object_id] = {
+            "created_by": seen.json()["owner_id"],
+            "updated_at": f"2026-10-0{transfers + 1}T00:00:00Z",
+        }
         return read(seen, object_id)
 
-    for object_id, (kind, _owner, _at) in objects.items():
+    for object_id, kind in kinds.items():
         fake.routes[f"GET /{kind}/{object_id}"] = partial(read, object_id=object_id)
         fake.routes[f"PATCH /{kind}/{object_id}"] = partial(
             transfer, object_id=object_id
@@ -1487,7 +1492,7 @@ def test_an_arcgis_owner_change_hands_the_migrated_item_to_the_new_owner(
     assert result.exit_code == 0, result.output
     assert handled == [L1, M1]
     assert _owner_patches(geolens) == [ALICE, ALICE, NEW, NEW]
-    assert {o[1] for o in objects.values()} == {NEW}
+    assert {o["created_by"] for o in objects.values()} == {NEW}
     assert payload["handed_over"] == [
         {"item": L1, "owner": "newbie"},
         {"item": M1, "owner": "newbie"},
@@ -1504,37 +1509,22 @@ def test_an_arcgis_owner_change_hands_the_migrated_item_to_the_new_owner(
 def test_an_entry_without_a_recorded_arcgis_owner_adopts_it_then_follows_changes(
     runner, tmp_path, geolens, handled
 ):
-    dataset_id = _created_id(L1)
-    objects = _owned(geolens, datasets=(dataset_id,))
-    objects[dataset_id][1:] = [ALICE, "2026-10-02T00:00:00Z"]
-    _write_state(
-        tmp_path,
-        {
-            L1: {
-                "status": "done",
-                "dataset_ids": [dataset_id],
-                "owner_id": ALICE,
-                "last_update": {
-                    dataset_id: {
-                        "updated_at": "2026-10-02T00:00:00+00:00",
-                        "feature_count": 0,
-                        "data_revision": None,
-                    }
-                },
-            }
-        },
-    )
+    _owned(geolens, datasets=(_created_id(L1),))
     _users(geolens, _user(NEW, "newbie", ["editor"]))
-    assert _run(runner, tmp_path, _plan([_item(L1)], BOB_OWNERS))[0].exit_code == 0
+    plan = _plan([_item(L1)], BOB_OWNERS)
+    assert _run(runner, tmp_path, plan)[0].exit_code == 0
+    state = _state(tmp_path)
+    del state["items"][L1]["portal_owner"]
+    (tmp_path / "arcgis-migration-state.json").write_text(json.dumps(state))
+    assert _run(runner, tmp_path, plan)[0].exit_code == 0
     assert _state(tmp_path)["items"][L1]["portal_owner"] == "agol_alice"
-    assert _owner_patches(geolens) == []
 
     result, payload = _run(
         runner, tmp_path, _plan([_moved_to_bob(_item(L1))], BOB_OWNERS)
     )
 
     assert result.exit_code == 0, result.output
-    assert _owner_patches(geolens) == [NEW]
+    assert _owner_patches(geolens) == [ALICE, NEW]
     assert payload["handed_over"] == [{"item": L1, "owner": "newbie"}]
 
 
@@ -1548,7 +1538,7 @@ def test_an_object_transferred_in_geolens_keeps_its_owner_after_an_arcgis_change
     _users(geolens, _user(NEW, "newbie", ["editor"]))
     assert _run(runner, tmp_path, _plan([item], BOB_OWNERS))[0].exit_code == 0
     # An admin gives it to vic in GeoLens.
-    objects[object_id][1:] = [VIC, "2026-10-08T00:00:00Z"]
+    objects[object_id] = {"created_by": VIC, "updated_at": "2026-10-08T00:00:00Z"}
 
     result, payload = _run(
         runner, tmp_path, _plan([_moved_to_bob(item)], BOB_OWNERS), "--cutover"
@@ -1556,7 +1546,7 @@ def test_an_object_transferred_in_geolens_keeps_its_owner_after_an_arcgis_change
 
     assert result.exit_code == 1
     assert _owner_patches(geolens) == [ALICE]
-    assert objects[object_id][1] == VIC
+    assert objects[object_id]["created_by"] == VIC
     [failed] = payload["handover_failed"]
     assert "changed in GeoLens since the last run" in failed
     assert payload["owner_changed"] == [{"item": item["id"], "owner": "newbie"}]
