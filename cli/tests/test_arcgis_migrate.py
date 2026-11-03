@@ -1506,6 +1506,25 @@ def test_an_arcgis_owner_change_hands_the_migrated_item_to_the_new_owner(
     assert len(_owner_patches(geolens)) == 4
 
 
+def test_only_hands_over_just_the_items_it_names_after_an_arcgis_owner_change(
+    runner, tmp_path, geolens, handled
+):
+    dataset_id, map_id = _created_id(L1), _created_id(M1)
+    objects = _owned(geolens, datasets=(dataset_id,), maps=(map_id,))
+    _users(geolens, _user(NEW, "newbie", ["editor"]))
+    items = [_item(L1), _item(M1, "import_map")]
+    assert _run(runner, tmp_path, _plan(items, BOB_OWNERS))[0].exit_code == 0
+    plan = _plan([_moved_to_bob(item) for item in items], BOB_OWNERS)
+
+    result, payload = _run(runner, tmp_path, plan, "--only", L1)
+
+    assert result.exit_code == 0, result.output
+    assert payload["handed_over"] == [{"item": L1, "owner": "newbie"}]
+    assert objects[dataset_id]["created_by"] == NEW
+    assert objects[map_id]["created_by"] == ALICE
+    assert _state(tmp_path)["items"][M1]["owner_id"] == ALICE
+
+
 def test_an_entry_without_a_recorded_arcgis_owner_adopts_it_then_follows_changes(
     runner, tmp_path, geolens, handled
 ):

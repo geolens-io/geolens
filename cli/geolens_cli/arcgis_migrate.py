@@ -1137,12 +1137,18 @@ def _hand_over_one(ctx: MigrationContext, entry: ItemState, owner: Owner) -> Non
 
 
 def hand_over(
-    ctx: MigrationContext, state: MigrationState, owners: Owners, summary: RunSummary
+    ctx: MigrationContext,
+    state: MigrationState,
+    owners: Owners,
+    summary: RunSummary,
+    only: Sequence[str] = (),
 ) -> None:
     """Hand each migrated item that waits for its owner, or whose ArcGIS owner
     changed, to the owner it can go to now, unless GeoLens changed one of its
-    objects since the last run."""
+    objects since the last run. With *only*, just the items it names."""
     for item_id in owners.waiting:
+        if only and item_id not in only:
+            continue
         entry = state.items[item_id]
         owner = owners.handovers.get(item_id)
         if owner is not None:
@@ -1938,7 +1944,7 @@ def _run(
     stopped: str | None = "stopped by an unexpected error"
     try:
         summary = RunSummary()
-        hand_over(ctx, state, owners, summary)
+        hand_over(ctx, state, owners, summary, opts.only)
         run_items(
             ctx, plan, state, to_run, owners.by_item, refresh, owners.pending, summary
         )
