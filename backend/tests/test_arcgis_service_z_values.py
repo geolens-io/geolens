@@ -225,3 +225,45 @@ class TestRealGdalStagesZ:
             kept, flat = staged[(capture, True)], staged[(capture, False)]
             assert kept[0] == 3 and kept[1] == 4326 and kept[2] is not None
             assert flat[0] == 2
+
+
+class TestReuploadPreview:
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("has_z", [True, False])
+    async def test_preview_reads_z_like_the_worker_stages_it(
+        self, client, admin_auth_header, test_db_session, has_z
+    ) -> None:
+        from app.modules.catalog.datasets.api import router_reupload
+        from tests.factories import create_dataset, get_user_id
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(test_db_session, created_by=admin_id)
+        meta = {"name": "X", "type": "Feature Layer", "hasZ": has_z}
+        reported = {
+            "srid": 4326,
+            "geometry_type": "Point",
+            "layer_name": "0",
+            "feature_count": 1,
+            "columns": [],
+            "sample_rows": [],
+        }
+        preview = AsyncMock(return_value=reported)
+        with (
+            patch.object(router_reupload, "validate_url_for_ssrf", AsyncMock()),
+            patch.object(
+                router_reupload, "fetch_arcgis_layer_meta", AsyncMock(return_value=meta)
+            ),
+            patch.object(router_reupload, "run_service_preview", preview),
+        ):
+            resp = await client.post(
+                f"/datasets/{dataset.id}/reupload/service/preview",
+                json={
+                    "url": _BASE,
+                    "service_type": "ArcGIS FeatureServer",
+                    "layer_name": "0",
+                    "layer_id": 0,
+                },
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 200, resp.text
+        assert ("returnZ" in _query(preview.await_args.args[0])) is has_z

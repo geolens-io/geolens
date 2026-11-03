@@ -622,6 +622,9 @@ async def reupload_service_preview(
             token=url_query_token(credential),
             order_field=None,
             result_limit=5,
+            # The worker stages Z for a layer that stores it; previewing flat
+            # would report a dimension change the import never makes.
+            return_z=bool(layer_meta and layer_meta.get("hasZ") is True),
         )
     except ValueError as exc:
         raise HTTPException(

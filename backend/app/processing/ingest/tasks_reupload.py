@@ -1383,6 +1383,7 @@ class _ServiceReupload(_LiveComparison):
         self.dataset_id = dataset.id
         self.live_feature_count = dataset.feature_count
         self.live_has_geometry = dataset.geometry_type is not None
+        self.live_is_3d = bool(dataset.is_3d)
         # A failure's contact stamp lands only while the dataset keeps the
         # origin this attempt fetched from.
         self.bound = bound_pointer(dataset)
@@ -1473,11 +1474,12 @@ class _ServiceReupload(_LiveComparison):
             # The layer JSON read is the first request to the origin, so a
             # token rejection from it still counts as contact.
             _arm_contact()
-            self.column_casts, return_z = _tv.arcgis_meta_import_facts(
-                await _tv._fetch_arcgis_layer_meta_or_none(
-                    self.source_url_value, self.layer_id, self.token
-                )
+            layer_meta = await _tv._fetch_arcgis_layer_meta_or_none(
+                self.source_url_value, self.layer_id, self.token
             )
+            self.column_casts, return_z = _tv.arcgis_meta_import_facts(layer_meta)
+            # Staging a 3D dataset flat would be judged a lost Z.
+            return_z = return_z or (layer_meta is None and self.live_is_3d)
         try:
             await _run_service_import_with_wfs_fallback(
                 _run_service_import,
