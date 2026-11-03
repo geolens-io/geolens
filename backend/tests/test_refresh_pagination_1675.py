@@ -84,6 +84,7 @@ def _fake_ogr2ogr(
         *,
         schema: str,
         on_spawn=None,
+        keep_z: bool = False,
     ) -> None:
         if on_spawn is not None:
             on_spawn()
@@ -1029,6 +1030,7 @@ def _fake_ogr2ogr_with_source_oids(calls: list[dict], staged_ids: list[int]):
         *,
         schema: str,
         on_spawn=None,
+        keep_z: bool = False,
     ) -> None:
         if on_spawn is not None:
             on_spawn()

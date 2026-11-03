@@ -203,6 +203,7 @@ class TestServiceReuploadWorker:
             *,
             schema: str,
             on_spawn=None,
+            keep_z: bool = False,
         ) -> None:
             # Mirrors the real runner: a successful spawn fires on_spawn
             # (fix #1271 review — the contact-stamp signal).
