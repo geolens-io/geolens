@@ -1216,6 +1216,51 @@ def test_a_map_edited_after_a_partial_import_is_never_overwritten(
     assert _state(plan_file)["items"][B1]["map_snapshot"] == imported
 
 
+def test_a_layer_whose_dataset_the_account_cant_read_is_left_as_it_is(
+    runner, plan_file, geolens, portal
+):
+    _services(geolens)
+    parcels = dataset_id("Parcels")
+    unreadable: set[str] = set()
+
+    def translate(seen):
+        body = seen.json()
+        # GeoLens refuses a match the caller can't read.
+        if set(body["dataset_matches"].values()) & unreadable:
+            return (404, {"title": "Not Found", "status": 404, "detail": "nope"})
+        if not body.get("dry_run"):
+            return (201, _response())
+        return (201, {**_translated(parcels), "layers": [], "layer_sources": []})
+
+    geolens.routes[IMPORT] = translate
+    geolens.routes["PUT /maps/" + MAP_ID] = lambda seen: _saved(seen.json())
+    assert _run(runner, plan_file)[0].exit_code == 0
+    recorded = _state(plan_file)["items"][B1]["layer_ids"]
+    # The dataset now belongs to someone the run's account can't read for.
+    unreadable.add(parcels)
+    geolens.routes[f"GET /datasets/{parcels}"] = (
+        404,
+        {"title": "Not Found", "status": 404, "detail": "Dataset not found"},
+    )
+    listed = portal.routes[f"content/items/{B1}"]
+    portal.routes[f"content/items/{B1}"] = {
+        **listed,
+        "modified": listed["modified"] + 60_000,
+    }
+
+    result, payload = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert [s.json()["dataset_matches"] for s in _sent(geolens)][-1] == {}
+    [sent] = _puts(geolens)
+    assert sent["layers"] == []
+    entry = _state(plan_file)["items"][B1]
+    assert entry["layer_ids"] == recorded
+    assert any(
+        n.endswith(": parcels_0, view_0") and "can't read" in n for n in entry["notes"]
+    )
+
+
 def test_a_web_map_that_lost_its_initial_view_keeps_the_maps_and_says_so(
     runner, plan_file, geolens, portal
 ):

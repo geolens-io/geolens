@@ -66,6 +66,10 @@ _NEEDS_NEWER = (
     "the web map changed in the portal, and re-translating needs GeoLens and the "
     "geolens package 1.30 or newer; upgrade them or update the map by hand"
 )
+_UNREADABLE_NOTE = (
+    "layers not translated again because this account can't read their "
+    "datasets, so their map layers were left as they are"
+)
 # What a map's notes may hold, as PUT /maps/{id} caps them.
 _MAP_NOTES_MAX = 50_000
 _NOTES_CUT = "... more entries in the CLI report"
@@ -514,7 +518,12 @@ def _translate_again(
             "in GeoLens since the last run; it was left as it is"
         )
     try:
-        body = _import_body(ctx, item, _fetch(ctx, item["id"]), dry_run=True)
+        webmap = _fetch(ctx, item["id"])
+        matches = match_datasets(ctx, webmap)
+        # GeoLens refuses a translation naming a dataset the caller can't
+        # read, and keeps the map layers it hides from the caller.
+        readable = _readable_matches(ctx, matches)
+        body = _import_body(ctx, item, webmap, dry_run=True, matches=readable)
         with long_request_timeout(ctx.geolens.client):
             result = ctx.geolens.call(
                 import_webmap.sync_detailed, expected=201, body=body
@@ -570,9 +579,15 @@ def _translate_again(
     except GeoLensError as exc:
         return f"saving the web map's new translation failed, {exc}"
     entry.map_snapshot = map_state(saved)
+    skipped = sorted(set(matches) - set(readable))
     entry.notes = [
-        *(n for n in entry.notes if n != _NO_VIEW_NOTE),
+        *(
+            n
+            for n in entry.notes
+            if n != _NO_VIEW_NOTE and not n.startswith(_UNREADABLE_NOTE)
+        ),
         *([_NO_VIEW_NOTE] if kept_view else []),
+        *([f"{_UNREADABLE_NOTE}: {', '.join(skipped)}"] if skipped else []),
     ]
     entry.layer_ids = _saved_layer_ids(
         entry.layer_ids, layers, sources, found, saved.layers
@@ -582,6 +597,25 @@ def _translate_again(
     entry.loss_report_path = None
     ctx.save()
     return _resume_loss(ctx, item["id"], entry)
+
+
+def _readable_matches(
+    ctx: MigrationContext, matches: Mapping[str, str]
+) -> dict[str, str]:
+    """The *matches* whose dataset the run's account can read."""
+    from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get as get
+
+    readable: dict[str, bool] = {}
+    for dataset_id in set(matches.values()):
+        try:
+            ctx.geolens.call(get.sync_detailed, dataset_id=UUID(dataset_id))
+        except GeoLensError as exc:
+            if exc.status != 404:
+                raise
+            readable[dataset_id] = False
+        else:
+            readable[dataset_id] = True
+    return {layer: d for layer, d in matches.items() if readable[d]}
 
 
 def _with_view_note(notes: str) -> str:
@@ -690,9 +724,10 @@ def _import_body(
     webmap: dict[str, Any],
     *,
     dry_run: bool = False,
+    matches: Mapping[str, str] | None = None,
 ) -> Any:
     """The import request for *webmap*, its layers matched to the run's
-    datasets and their source styling filled in."""
+    datasets (or to *matches*) and their source styling filled in."""
     from geolens.models.arcgis_webmap_import_request import ArcgisWebmapImportRequest
     from geolens.models.arcgis_webmap_import_request_basemap_map import (
         ArcgisWebmapImportRequestBasemapMap,
@@ -705,7 +740,8 @@ def _import_body(
     )
     from geolens.models.map_visibility import check_map_visibility
 
-    matches = match_datasets(ctx, webmap)
+    if matches is None:
+        matches = match_datasets(ctx, webmap)
     fill_source_styling(ctx, webmap, matches)
     title = item["target"]["title"] or item["title"]
     visibility = item["target"]["visibility"]
