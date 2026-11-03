@@ -755,6 +755,9 @@ def import_map(
         raise ItemFailed(f"the web map import failed, {exc}") from None
 
     entry.map_id = str(result.map_.id)
+    # Recorded with the map, so a retry after a later step fails compares the
+    # map with the import's, never with what someone made of it meanwhile.
+    entry.map_snapshot = map_state(result.map_)
     entry.portal_modified = _modified(info)
     entry.layer_ids = {
         k: str(v) for k, v in result.layer_ids.additional_properties.items()

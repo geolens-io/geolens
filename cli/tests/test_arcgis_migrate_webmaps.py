@@ -1170,6 +1170,52 @@ def test_an_earlier_loss_report_a_rerun_couldnt_remove_is_removed_by_the_next(
     assert not [n for n in entry["notes"] if "part(s)" in n]
 
 
+def test_a_map_edited_after_a_partial_import_is_never_overwritten(
+    runner, plan_file, geolens, portal, monkeypatch
+):
+    _services(geolens)
+    geolens.routes[IMPORT] = lambda seen: (
+        (201, _translated(dataset_id("Parcels")))
+        if seen.json().get("dry_run")
+        else (201, _response(lost=2))
+    )
+    geolens.routes["PUT /maps/" + MAP_ID] = lambda seen: _saved(seen.json())
+    _only_the_map(plan_file)
+    token = secrets.token_urlsafe(16)
+    write = webmaps._write_loss
+
+    def refuse(*args):
+        raise webmaps.ItemFailed("writing the loss report failed: disk full")
+
+    monkeypatch.setattr(webmaps, "_write_loss", refuse)
+    assert _migrate(runner, plan_file, "--token", token)[0].exit_code == 1
+    entry = _state(plan_file)["items"][B1]
+    assert entry["status"] == "failed" and entry["map_id"] == MAP_ID
+    imported = entry["map_snapshot"]
+    assert imported["updated_at"] == "2026-10-01T00:00:00+00:00"
+    monkeypatch.setattr(webmaps, "_write_loss", write)
+    # Someone edits the map in GeoLens before the import is retried.
+    read = geolens.routes["GET /maps/" + MAP_ID]
+    geolens.routes["GET /maps/" + MAP_ID] = lambda seen: {
+        **read(seen),
+        "updated_at": EDITED_AT,
+    }
+    _migrate(runner, plan_file, "--token", token)
+    assert _state(plan_file)["items"][B1]["map_snapshot"] == imported
+    listed = portal.routes[f"content/items/{B1}"]
+    portal.routes[f"content/items/{B1}"] = {
+        **listed,
+        "modified": listed["modified"] + 60_000,
+    }
+
+    result, payload = _migrate(runner, plan_file, "--token", token)
+
+    assert result.exit_code == 1
+    assert _puts(geolens) == []
+    assert len(_sent(geolens)) == 1
+    assert _state(plan_file)["items"][B1]["map_snapshot"] == imported
+
+
 def test_a_web_map_that_lost_its_initial_view_keeps_the_maps_and_says_so(
     runner, plan_file, geolens, portal
 ):
@@ -1437,6 +1483,67 @@ def test_a_group_only_web_map_is_imported_private_then_shared(
     # Layers stay as their own items share them, not widened to the group.
     assert shares == [{"group_ids": [group], "confirm": "map_only"}]
     assert _state(plan_file)["items"][B1]["groups"] == {MAP_ID: [group]}
+
+
+def test_a_new_maps_first_group_is_taken_as_the_imports_own_change(
+    runner, plan_file, geolens
+):
+    _services(geolens)
+    geolens.routes[IMPORT] = (201, _response())
+    group = "00000000-0000-0000-0005-000000000002"
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == B1:
+            item["target"]["visibility"] = "restricted"
+            item["target"]["groups"] = ["g1"]
+    plan["group_map"]["g1"] = {
+        "collection": "Planning",
+        "visibility": "internal",
+        "geolens_group": "Planning",
+    }
+    plan_file.write_text(json.dumps(plan))
+    geolens.routes["GET /admin/groups/"] = {
+        "groups": [
+            {
+                "id": group,
+                "name": "Planning",
+                "member_count": 0,
+                "created_at": NOW,
+                "updated_at": NOW,
+            }
+        ],
+        "total": 1,
+    }
+    geolens.routes[f"GET /admin/groups/{group}/members/"] = {"members": [], "total": 0}
+    shared = {}
+    read = geolens.routes["GET /maps/" + MAP_ID]
+
+    def share(seen):
+        # A private map's first group makes it restricted, which moves its
+        # timestamp.
+        shared["at"] = EDITED_AT
+        return {
+            "visibility": "restricted",
+            "groups": [{"id": group, "name": "Planning"}],
+            "shared_dataset_ids": [],
+            "hidden_layers": [],
+        }
+
+    geolens.routes[f"PUT /maps/{MAP_ID}/groups/"] = share
+    geolens.routes["GET /maps/" + MAP_ID] = lambda seen: {
+        **read(seen),
+        **({"updated_at": shared["at"], "visibility": "restricted"} if shared else {}),
+    }
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert _state(plan_file)["items"][B1]["status"] == "done"
+    # The map is handed over as the share left it.
+    [handover] = [
+        s.json() for s in geolens.seen if s.method == "PATCH" and MAP_ID in s.url
+    ]
+    assert handover["expected_updated_at"] == "2026-10-03T00:00:00+00:00"
 
 
 @pytest.mark.parametrize(

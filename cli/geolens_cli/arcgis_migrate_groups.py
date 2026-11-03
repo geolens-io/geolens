@@ -791,9 +791,7 @@ def share(
         new, gone = _changes(target, entry, map_id)
         if with_map:
             if new:
-                added = _share_map(ctx, map_id, new, set())
-                _shared(entry, map_id, new, set(), added=added)
-                ctx.save()
+                _share_new_map(ctx, entry, map_id, new)
             return []
         return _merge_map(ctx, item["id"], target, entry, map_id, new, gone)
     except GeoLensError as exc:
@@ -952,6 +950,33 @@ def _record_share(
             "its new groups; it was left as it is"
         )
     record(entry, dataset_id, after)
+
+
+def _share_new_map(
+    ctx: MigrationContext, entry: ItemState, map_id: str, new: set[str]
+) -> None:
+    """Give the map the import made its groups while it is as the import left
+    it, and record it as the share left it when the share was the one change:
+    the same owner, and the same timestamp or the restricted visibility a
+    private map's first group gives it."""
+    from .arcgis_migrate_webmaps import get_map, map_state, map_visibility
+
+    left = entry.map_snapshot
+    added = _share_map(ctx, map_id, new, set(), left)
+    if added is None:
+        raise ItemFailed(
+            f"map {map_id} was changed in GeoLens since it was imported; it was "
+            "left as it is"
+        )
+    _shared(entry, map_id, new, set(), added=added)
+    if left is not None and added:
+        after = get_map(ctx.geolens, map_id)
+        if str(after.created_by) == left["owner"] and (
+            after.updated_at.isoformat() == left["updated_at"]
+            or map_visibility(after) == RESTRICTED
+        ):
+            entry.map_snapshot = map_state(after)
+    ctx.save()
 
 
 def _share_map(

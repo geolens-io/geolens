@@ -1099,7 +1099,13 @@ def _keep_own(
         read = get_map(ctx.geolens, entry.map_id)
         if str(read.created_by) != owner.id:
             raise ItemFailed(_not_yours(f"map {entry.map_id}"))
-        entry.map_snapshot = map_state(read)
+        if entry.map_snapshot is None:
+            entry.map_snapshot = map_state(read)
+        elif map_state(read) != entry.map_snapshot:
+            raise ItemFailed(
+                f"map {entry.map_id} was changed in GeoLens since it was "
+                "imported; it was left as it is"
+            )
 
 
 def _not_yours(what: str) -> str:
