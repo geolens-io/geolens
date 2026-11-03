@@ -18,7 +18,7 @@ from .test_arcgis_migrate import (  # noqa: F401
     _map,
     PORTAL,
     READ_AT,
-    _allow_transfers,
+    _allow_transfers as _allow_any,
     _dataset,
     _created_id,
     _item,
@@ -36,6 +36,15 @@ ERIN = "00000000-0000-0000-0000-0000000000e1"
 TEAM = "00000000-0000-0000-0000-0000000000f1"
 OTHER = "00000000-0000-0000-0000-0000000000f2"
 OWN = {"agol_alice": "erin"}
+
+
+def _allow_transfers(fake, *ids, map_ids=()):
+    """Routes for datasets and maps the editor owns."""
+    _allow_any(fake, *ids, map_ids=map_ids)
+    for dataset_id in ids:
+        fake.routes[f"GET /datasets/{dataset_id}"] = _dataset(dataset_id, ERIN)
+    for map_id in map_ids:
+        fake.routes[f"GET /maps/{map_id}"] = _map(map_id, ERIN)
 
 
 @pytest.fixture
@@ -370,3 +379,28 @@ def test_a_rerun_leaves_a_dataset_edited_in_geolens_alone(
 
     assert [s for s in editor.seen if s.method == "PUT"] == []
     assert "changed in GeoLens" in " ".join(_state(tmp_path)["items"][L1]["stale"])
+
+
+@pytest.mark.parametrize("kind", ["dataset", "map"])
+def test_an_item_an_admin_run_handed_to_someone_else_is_left_for_an_admin(
+    runner, tmp_path, editor, ran, kind
+):
+    created = _created_id(L1 if kind == "dataset" else M1)
+    _allow_transfers(
+        editor,
+        *([created] if kind == "dataset" else []),
+        map_ids=((created,) if kind == "map" else ()),
+    )
+    if kind == "dataset":
+        editor.routes[f"GET /datasets/{created}"] = _dataset(created, ALICE)
+        item = _item(L1)
+    else:
+        editor.routes[f"GET /maps/{created}"] = _map(created, ALICE)
+        item = _item(M1, "import_map")
+
+    result, _ = _run(runner, tmp_path, _plan([item], OWN))
+
+    entry = _state(tmp_path)["items"][item["id"]]
+    assert result.exit_code == 1
+    assert entry["status"] == "failed" and "an admin must finish" in entry["error"]
+    assert not entry.get("owner_id")

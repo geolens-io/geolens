@@ -937,6 +937,29 @@ def _sharing_target(
     return ctx.sharing.target(item, owner_id)
 
 
+def _keep_own(
+    ctx: MigrationContext, entry: ItemState, owner: Owner, fresh: list[str]
+) -> None:
+    """An editor's item stays with the operator: refuse one an earlier admin
+    run already handed to someone else, and record the baselines a rerun's
+    sharing changes compare GeoLens to."""
+    for dataset_id in entry.dataset_ids:
+        read = get_dataset(ctx, dataset_id)
+        if str(read.created_by) != owner.id:
+            raise ItemFailed(_not_yours(f"dataset {dataset_id}"))
+        if dataset_id in fresh:
+            record(entry, dataset_id, read)
+    if entry.map_id:
+        read = get_map(ctx.geolens, entry.map_id)
+        if str(read.created_by) != owner.id:
+            raise ItemFailed(_not_yours(f"map {entry.map_id}"))
+        entry.map_snapshot = map_state(read)
+
+
+def _not_yours(what: str) -> str:
+    return f"{what} belongs to someone else in GeoLens; an admin must finish this item"
+
+
 def _migrate_one(
     ctx: MigrationContext,
     state: MigrationState,
@@ -966,11 +989,7 @@ def _migrate_one(
             # Even to the operator: a run that failed part way may have handed
             # some of the item's objects to another owner already.
             if ctx.own_content:
-                # The baselines a rerun's sharing changes compare GeoLens to.
-                for dataset_id in fresh:
-                    record(entry, dataset_id, get_dataset(ctx, dataset_id))
-                if entry.map_id:
-                    entry.map_snapshot = map_state(get_map(ctx.geolens, entry.map_id))
+                _keep_own(ctx, entry, owner, fresh)
             else:
                 transfer(ctx, entry, owner, revisions)
             entry.owner_id = owner.id
