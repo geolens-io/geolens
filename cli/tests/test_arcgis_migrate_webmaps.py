@@ -828,7 +828,8 @@ def _translated(dataset: str) -> dict[str, Any]:
             "center_lng": -74.0,
             "center_lat": 40.5,
             "zoom": 9.0,
-            "bearing": 0.0,
+            # An unrotated web map leaves it unset.
+            "bearing": None,
         },
         "notes": NOTES,
         "loss_report": {
@@ -905,6 +906,7 @@ def test_a_web_map_changed_in_the_portal_is_translated_again_into_the_same_map(
     assert sent["expected_updated_at"] == "2026-10-01T00:00:00+00:00"
     assert sent["notes"] == NOTES
     assert (sent["basemap_style"], sent["center_lng"]) == ("dark", -74.0)
+    assert sent["bearing"] == 0.0
     assert [layer.get("id") for layer in sent["layers"]] == [
         LAYER_ID.format(2),
         LAYER_ID.format(1),
@@ -929,6 +931,38 @@ def test_a_web_map_changed_in_the_portal_is_translated_again_into_the_same_map(
     result, _ = _migrate(runner, plan_file, "--token", token)
     assert result.exit_code == 0, result.output
     assert len(_puts(geolens)) == 1
+
+
+def test_a_loss_report_a_rerun_couldnt_write_is_written_by_the_next_one(
+    runner, plan_file, geolens, portal, monkeypatch
+):
+    token = _changed_in_the_portal(runner, plan_file, geolens, portal)
+    write = webmaps._write_loss
+
+    def refuse(*args):
+        raise webmaps.ItemFailed("writing the loss report failed: disk full")
+
+    monkeypatch.setattr(webmaps, "_write_loss", refuse)
+    result, payload = _migrate(runner, plan_file, "--token", token)
+
+    assert result.exit_code == 1
+    assert payload["not_up_to_date"][B1] == [
+        "writing the loss report failed: disk full; a rerun writes it"
+    ]
+    assert _state(plan_file)["items"][B1]["pending_loss"] is not None
+    monkeypatch.setattr(webmaps, "_write_loss", write)
+
+    result, _ = _migrate(runner, plan_file, "--token", token)
+
+    assert result.exit_code == 0, result.output
+    assert len(_puts(geolens)) == 1
+    entry = _state(plan_file)["items"][B1]
+    assert entry["pending_loss"] is None
+    assert [n for n in entry["notes"] if "part(s)" in n] == [
+        "1 part(s) of the web map were not carried over"
+    ]
+    loss = json.loads((plan_file.parent / entry["loss_report_path"]).read_text())
+    assert loss["loss_report"]["summary"] == {"popup_expression": 1}
 
 
 @pytest.mark.parametrize("edit", ["updated_at", "snapshot"])

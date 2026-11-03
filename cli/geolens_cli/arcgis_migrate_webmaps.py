@@ -417,12 +417,20 @@ def _map_problem(
 def refresh_map(
     ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
 ) -> list[str]:
-    """Translate a web map the portal changed since it was last read into its
-    GeoLens map again, and give a map with no thumbnail the item's.
+    """Write a loss report an earlier run left pending, translate a web map
+    the portal changed since it was last read into its GeoLens map again, and
+    give a map with no thumbnail the item's.
 
     Returns why the map may not match its portal item: gone from GeoLens,
     shared differently than the plan says in a way its groups can't settle,
-    changed in GeoLens, or with no way to tell."""
+    changed in GeoLens, with no way to tell, or its loss report unwritten."""
+    unwritten = _resume_loss(ctx, item["id"], entry) if entry.pending_loss else None
+    return [*([unwritten] if unwritten else []), *_check_map(ctx, item, entry)]
+
+
+def _check_map(
+    ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
+) -> list[str]:
     problem, found = _map_problem(ctx, item, entry)
     if problem:
         return [problem]
@@ -526,6 +534,9 @@ def _translate_again(
             body=MapUpdate.from_dict(
                 {
                     **result.view.to_dict(),
+                    # An unrotated web map leaves the bearing unset, which the
+                    # save would skip and so keep an earlier rotation.
+                    "bearing": result.view.bearing or 0.0,
                     "notes": result.notes,
                     "layers": layers,
                     "expected_updated_at": seen["updated_at"],
@@ -546,7 +557,16 @@ def _translate_again(
     entry.pending_loss = _pending_loss(result)
     entry.loss_report_path = None
     ctx.save()
-    notes = _finish_loss(ctx, item["id"], entry).notes
+    return _resume_loss(ctx, item["id"], entry)
+
+
+def _resume_loss(ctx: MigrationContext, item_id: str, entry: ItemState) -> str | None:
+    """Write the pending loss report and give the item its notes in place of
+    the earlier translation's; why it wasn't written, or None."""
+    try:
+        notes = _finish_loss(ctx, item_id, entry).notes
+    except ItemFailed as exc:
+        return f"{exc}; a rerun writes it"
     entry.notes = [*(n for n in entry.notes if not _LOSS_NOTE.match(n)), *notes]
     return None
 
