@@ -133,6 +133,16 @@ def my_groups_plan(
                 }
         out.groups[arcgis_id] = record
         if not dry_run:
-            state.groups[arcgis_id] = record
+            # A record an admin run made keeps the history that run needs to
+            # recognise the group it created; this run only resolves a target.
+            kept = state.groups.get(arcgis_id)
+            if named == "":
+                state.groups[arcgis_id] = {**(kept or record), "unmapped": True}
+            elif kept:
+                state.groups[arcgis_id] = {
+                    k: v for k, v in kept.items() if k != "unmapped"
+                }
+            else:
+                state.groups[arcgis_id] = dict(record)
             state.save()
     return out

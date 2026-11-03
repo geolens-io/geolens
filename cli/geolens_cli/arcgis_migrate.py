@@ -965,7 +965,11 @@ def _migrate_one(
             share(ctx, item, entry)
             # Even to the operator: a run that failed part way may have handed
             # some of the item's objects to another owner already.
-            if not ctx.own_content:
+            if ctx.own_content:
+                # The baseline a rerun's sharing changes compare the map to.
+                if entry.map_id:
+                    entry.map_snapshot = map_state(get_map(ctx.geolens, entry.map_id))
+            else:
                 transfer(ctx, entry, owner, revisions)
             entry.owner_id = owner.id
             entry.owner_pending = pending

@@ -9,10 +9,15 @@ import pytest
 
 from geolens_cli import arcgis_migrate as migrate
 
+from .conftest import GEOLENS_INSTANCE
 from .test_arcgis_migrate import (  # noqa: F401
     L1,
     L2,
     M1,
+    ALICE,
+    _map,
+    PORTAL,
+    READ_AT,
     _allow_transfers,
     _created_id,
     _item,
@@ -251,3 +256,78 @@ def test_unmapped_owner_naming_someone_else_needs_an_admin(
     )
 
     assert result.exit_code == 2 and ran == []
+
+
+def test_an_editors_map_is_recorded_as_left_so_a_rerun_can_change_its_groups(
+    runner, tmp_path, editor, ran
+):
+    _allow_transfers(editor, map_ids=(_created_id(M1),))
+    editor.routes[f"GET /maps/{_created_id(M1)}"] = _map(_created_id(M1), ERIN)
+
+    result, _ = _run(runner, tmp_path, _plan([_item(M1, "import_map")], OWN))
+
+    assert result.exit_code == 0, result.output
+    assert _state(tmp_path)["items"][M1]["map_snapshot"] == {
+        "owner": ERIN,
+        "updated_at": READ_AT,
+    }
+    assert [s for s in editor.seen if s.method == "PATCH"] == []
+
+
+ADMIN_GROUP = {
+    "id": TEAM,
+    "name": "Roads Team",
+    "created": True,
+    "added": [ALICE],
+    "joined": {ALICE: ["agol_alice"]},
+}
+
+
+@pytest.mark.parametrize(
+    ("mine", "named"),
+    [
+        ([("Roads Team", OTHER)], None),
+        ([], None),
+        ([("Roads Team", TEAM)], "Roads Team"),
+    ],
+    ids=["other-match", "no-match", "same-group"],
+)
+def test_an_editor_run_keeps_the_group_record_an_admin_run_made(
+    runner, tmp_path, editor, ran, monkeypatch, mine, named
+):
+    editor.routes["GET /groups/mine/"] = {
+        "groups": [{"id": gid, "name": name} for name, gid in mine],
+        "total": len(mine),
+    }
+    monkeypatch.setattr(
+        migrate,
+        "_inventory_rows",
+        lambda *args: ({}, None, {"g1": {"id": "g1", "title": "Roads Team"}}),
+    )
+    _sharing_targets(monkeypatch)
+    _allow_transfers(editor, _created_id(L1))
+    path = tmp_path / "arcgis-migration-state.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": "1",
+                "portal_url": PORTAL,
+                "geolens_instance": GEOLENS_INSTANCE,
+                "items": {},
+                "groups": {"g1": ADMIN_GROUP},
+            }
+        )
+    )
+    plan = {**_plan([_restricted(L1, "g1")], OWN), "schema_version": "2"}
+    plan["group_map"] = {
+        "g1": {
+            "collection": "Roads Team",
+            "visibility": "private",
+            "geolens_group": named,
+        }
+    }
+
+    result, _ = _run(runner, tmp_path, plan)
+
+    assert result.exit_code == 0, result.output
+    assert _state(tmp_path)["groups"]["g1"] == ADMIN_GROUP
