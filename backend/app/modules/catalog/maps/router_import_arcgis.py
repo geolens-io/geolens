@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -126,17 +125,13 @@ async def import_arcgis_webmap_endpoint(
         for item in translation.unmatched
     ]
     notes = translation.loss.render_text(datetime.now(UTC).date().isoformat())
-    translated: dict[str, Any] = {
-        "layer_sources": translation.layer_sources,
-        "view": ArcgisTranslatedView(
-            basemap_style=translation.basemap_style,
-            center_lng=translation.center_lng,
-            center_lat=translation.center_lat,
-            zoom=translation.zoom,
-            bearing=translation.bearing,
-        ),
-        "notes": notes,
-    }
+    view = ArcgisTranslatedView(
+        basemap_style=translation.basemap_style,
+        center_lng=translation.center_lng,
+        center_lat=translation.center_lat,
+        zoom=translation.zoom,
+        bearing=translation.bearing,
+    )
     if body.dry_run:
         if visibility == "public":
             _refuse_non_public(
@@ -150,7 +145,9 @@ async def import_arcgis_webmap_endpoint(
             layers=translation.layers,
             loss_report=loss_report,
             unmatched_layers=unmatched,
-            **translated,
+            layer_sources=translation.layer_sources,
+            view=view,
+            notes=notes,
         )
 
     map_obj = await create_map(db, translation.name, None, user.id, notes=notes)
@@ -161,12 +158,8 @@ async def import_arcgis_webmap_endpoint(
         map_obj.id,
         user=user,
         visibility=visibility,
-        basemap_style=translation.basemap_style,
-        center_lng=translation.center_lng,
-        center_lat=translation.center_lat,
-        zoom=translation.zoom,
-        bearing=translation.bearing,
         layers=[layer.model_dump() for layer in translation.layers],
+        **view.model_dump(),
     )
     if visibility == "public":
         _refuse_non_public(await validate_public_visibility(db, map_obj.id, user))
@@ -232,5 +225,7 @@ async def import_arcgis_webmap_endpoint(
         layers=translation.layers,
         loss_report=loss_report,
         unmatched_layers=unmatched,
-        **translated,
+        layer_sources=translation.layer_sources,
+        view=view,
+        notes=notes,
     )

@@ -988,14 +988,18 @@ def test_a_web_map_save_geolens_refuses_as_stale_is_reported_not_recorded(
         assert entry[key] == before[key]
 
 
-def test_a_geolens_that_cant_translate_again_is_reported(
-    runner, plan_file, geolens, portal
+@pytest.mark.parametrize("answer", ["older", "unpaired"])
+def test_a_translation_the_cli_cant_save_is_reported(
+    runner, plan_file, geolens, portal, answer
 ):
     token = _changed_in_the_portal(runner, plan_file, geolens, portal)
-    older = _translated(dataset_id("Parcels"))
-    for key in ("layer_sources", "view", "notes"):
-        del older[key]
-    geolens.routes[IMPORT] = (201, older)
+    translated = _translated(dataset_id("Parcels"))
+    if answer == "older":
+        for key in ("layer_sources", "view", "notes"):
+            del translated[key]
+    else:
+        translated["layer_sources"] = translated["layer_sources"][:2]
+    geolens.routes[IMPORT] = (201, translated)
 
     result, payload = _migrate(runner, plan_file, "--token", token)
 

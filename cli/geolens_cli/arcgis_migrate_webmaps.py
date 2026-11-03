@@ -57,10 +57,10 @@ _THUMBNAIL_TYPES = {b"\x89PNG\r\n\x1a\n": "image/png", b"\xff\xd8\xff": "image/j
 # max_length of 100,000 characters.
 _THUMBNAIL_MAX_BYTES = (100_000 - len("data:image/jpeg;base64,")) // 4 * 3
 _THUMBNAIL_NOTE = "the web map's thumbnail was not carried over"
+_UNMATCHED_NOTE = "layer(s) not imported"
+_LOST_NOTE = "part(s) of the web map were not carried over"
 # The notes _finish_loss writes, which a new translation replaces.
-_LOSS_NOTE = re.compile(
-    r"\d+ (layer\(s\) not imported|part\(s\) of the web map were not carried over)"
-)
+_LOSS_NOTE = re.compile(rf"\d+ ({re.escape(_UNMATCHED_NOTE)}|{re.escape(_LOST_NOTE)})")
 
 
 def _walk(layers: Any) -> list[Mapping[str, Any]]:
@@ -418,10 +418,11 @@ def refresh_map(
     ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
 ) -> list[str]:
     """Translate a web map the portal changed since it was last read into its
-    GeoLens map again; why the map may not match its portal item: gone from
-    GeoLens, shared differently than the plan says in a way its groups can't
-    settle, changed in GeoLens, or with no way to tell. A map with no
-    thumbnail gets the item's."""
+    GeoLens map again, and give a map with no thumbnail the item's.
+
+    Returns why the map may not match its portal item: gone from GeoLens,
+    shared differently than the plan says in a way its groups can't settle,
+    changed in GeoLens, or with no way to tell."""
     problem, found = _map_problem(ctx, item, entry)
     if problem:
         return [problem]
@@ -475,8 +476,8 @@ def _translate_again(
     """
     from geolens.api.maps import (
         import_arcgis_webmap_endpoint_maps_import_arcgis_webmap_post as import_webmap,
+        update_map_endpoint_maps_map_id_put as put_map,
     )
-    from geolens.api.maps import update_map_endpoint_maps_map_id_put as put_map
     from geolens.models.arcgis_translated_view import ArcgisTranslatedView
     from geolens.models.map_update import MapUpdate
 
@@ -499,14 +500,17 @@ def _translate_again(
             )
     except (ItemFailed, GeoLensError) as exc:
         return f"translating the changed web map again failed, {exc}"
-    if not isinstance(result.view, ArcgisTranslatedView) or not isinstance(
-        result.notes, str
+    sources = result.layer_sources
+    if (
+        not isinstance(result.view, ArcgisTranslatedView)
+        or not isinstance(result.notes, str)
+        or not isinstance(sources, list)
+        or len(sources) != len(result.layers)
     ):
         return (
             "the web map changed in the portal, and this GeoLens can't translate "
             "it again; upgrade GeoLens or update the map by hand"
         )
-    sources = list(result.layer_sources)
     layers = [
         {
             **layer.to_dict(),
@@ -539,10 +543,7 @@ def _translate_again(
         if layer.sort_order < len(sources)
     }
     entry.portal_modified = modified
-    entry.pending_loss = {
-        "loss_report": result.loss_report.to_dict(),
-        "unmatched_layers": [layer.to_dict() for layer in result.unmatched_layers],
-    }
+    entry.pending_loss = _pending_loss(result)
     entry.loss_report_path = None
     ctx.save()
     notes = _finish_loss(ctx, item["id"], entry).notes
@@ -643,15 +644,19 @@ def import_map(
     }
     # Kept in the state until the loss report file is written, so a failed
     # write is finished on the rerun instead of dropping the losses.
-    entry.pending_loss = {
-        "loss_report": result.loss_report.to_dict(),
-        "unmatched_layers": [layer.to_dict() for layer in result.unmatched_layers],
-    }
+    entry.pending_loss = _pending_loss(result)
     ctx.save()
     thumbnail_notes = carry_thumbnail(ctx, item["id"], info, entry.map_id)
     finished = _finish_loss(ctx, item["id"], entry)
     finished.notes.extend(thumbnail_notes)
     return finished
+
+
+def _pending_loss(result: Any) -> dict[str, Any]:
+    return {
+        "loss_report": result.loss_report.to_dict(),
+        "unmatched_layers": [layer.to_dict() for layer in result.unmatched_layers],
+    }
 
 
 def _finish_loss(ctx: MigrationContext, item_id: str, entry: ItemState) -> ItemResult:
@@ -665,12 +670,12 @@ def _finish_loss(ctx: MigrationContext, item_id: str, entry: ItemState) -> ItemR
         shown = ", ".join(unmatched[:_MAX_NOTE_LAYERS])
         more = len(unmatched) - _MAX_NOTE_LAYERS
         notes.append(
-            f"{len(unmatched)} layer(s) not imported: {shown}"
+            f"{len(unmatched)} {_UNMATCHED_NOTE}: {shown}"
             + (f" and {more} more" if more > 0 else "")
         )
     lost = payload.get("loss_report", {}).get("items", [])
     if lost:
-        notes.append(f"{len(lost)} part(s) of the web map were not carried over")
+        notes.append(f"{len(lost)} {_LOST_NOTE}")
     if lost or unmatched:
         entry.loss_report_path = _write_loss(ctx, item_id, payload)
     entry.pending_loss = None
