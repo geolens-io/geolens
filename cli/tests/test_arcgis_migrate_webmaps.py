@@ -1261,6 +1261,80 @@ def test_a_layer_whose_dataset_the_account_cant_read_is_left_as_it_is(
     )
 
 
+def test_a_layer_repointed_to_a_dataset_the_account_cant_read_keeps_its_row(
+    runner, plan_file, geolens, portal, monkeypatch
+):
+    _services(geolens)
+    parcels = dataset_id("Parcels")
+    elsewhere = "00000000-0000-0000-0009-000000000001"
+
+    def translate(seen):
+        body = seen.json()
+        if elsewhere in body["dataset_matches"].values():
+            return (404, {"title": "Not Found", "status": 404, "detail": "nope"})
+        if not body.get("dry_run"):
+            return (201, _response())
+        view = {"dataset_id": parcels, "sort_order": 0, "opacity": 0.5}
+        return (
+            201,
+            {**_translated(parcels), "layers": [view], "layer_sources": ["view_0"]},
+        )
+
+    geolens.routes[IMPORT] = translate
+    geolens.routes["PUT /maps/" + MAP_ID] = lambda seen: _saved(seen.json())
+    assert _run(runner, plan_file)[0].exit_code == 0
+    parcels_row = _state(plan_file)["items"][B1]["layer_ids"]["parcels_0"]
+    # Both layers read the parcels dataset in GeoLens.
+    stored = _saved(
+        {
+            "layers": [
+                {
+                    "id": parcels_row,
+                    "dataset_id": parcels,
+                    "sort_order": 0,
+                    "opacity": 1,
+                },
+                {
+                    "id": LAYER_ID.format(2),
+                    "dataset_id": parcels,
+                    "sort_order": 1,
+                    "opacity": 1,
+                },
+            ]
+        }
+    )["layers"]
+    read = geolens.routes["GET /maps/" + MAP_ID]
+    geolens.routes["GET /maps/" + MAP_ID] = lambda seen: {
+        **read(seen),
+        "layers": stored,
+        "layer_count": len(stored),
+    }
+    # The portal repoints parcels_0 to a dataset the account can't read.
+    real = webmaps.match_datasets
+    monkeypatch.setattr(
+        webmaps,
+        "match_datasets",
+        lambda ctx, webmap: {**real(ctx, webmap), "parcels_0": elsewhere},
+    )
+    geolens.routes[f"GET /datasets/{elsewhere}"] = (
+        404,
+        {"title": "Not Found", "status": 404, "detail": "Dataset not found"},
+    )
+    listed = portal.routes[f"content/items/{B1}"]
+    portal.routes[f"content/items/{B1}"] = {
+        **listed,
+        "modified": listed["modified"] + 60_000,
+    }
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    [sent] = _puts(geolens)
+    kept = next(layer for layer in sent["layers"] if layer.get("id") == parcels_row)
+    assert (kept["dataset_id"], kept["opacity"]) == (parcels, 1)
+    assert _state(plan_file)["items"][B1]["layer_ids"]["parcels_0"] == parcels_row
+
+
 def test_a_web_map_that_lost_its_initial_view_keeps_the_maps_and_says_so(
     runner, plan_file, geolens, portal
 ):
@@ -1515,6 +1589,7 @@ def test_a_group_only_web_map_is_imported_private_then_shared(
             "groups": [{"id": group, "name": "Planning"}],
             "shared_dataset_ids": [],
             "hidden_layers": [],
+            "updated_at": NOW,
         }
 
     geolens.routes[f"PUT /maps/{MAP_ID}/groups/"] = share
@@ -1526,7 +1601,14 @@ def test_a_group_only_web_map_is_imported_private_then_shared(
     [request] = [s.json() for s in _sent(geolens)]
     assert request["visibility"] == "private"
     # Layers stay as their own items share them, not widened to the group.
-    assert shares == [{"group_ids": [group], "confirm": "map_only"}]
+    assert shares == [
+        {
+            "group_ids": [group],
+            "confirm": "map_only",
+            # Only as the import left it.
+            "expected_updated_at": "2026-10-01T00:00:00+00:00",
+        }
+    ]
     assert _state(plan_file)["items"][B1]["groups"] == {MAP_ID: [group]}
 
 
@@ -1572,6 +1654,7 @@ def test_a_new_maps_first_group_is_taken_as_the_imports_own_change(
             "groups": [{"id": group, "name": "Planning"}],
             "shared_dataset_ids": [],
             "hidden_layers": [],
+            "updated_at": EDITED_AT,
         }
 
     geolens.routes[f"PUT /maps/{MAP_ID}/groups/"] = share
@@ -1642,7 +1725,12 @@ def test_a_rerun_shares_a_migrated_map_with_a_group_the_portal_added(
             visibility="restricted" if ids else "private",
             groups=[{"id": g, "name": g} for g in ids],
         )
-        return {**held, "shared_dataset_ids": [], "hidden_layers": []}
+        return {
+            **held,
+            "shared_dataset_ids": [],
+            "hidden_layers": [],
+            "updated_at": NOW,
+        }
 
     geolens.routes[f"PUT /maps/{MAP_ID}/groups/"] = share
     geolens.routes["GET /maps/" + MAP_ID] = lambda seen: {**_map(), **held}

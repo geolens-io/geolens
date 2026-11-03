@@ -16,6 +16,9 @@ and releases use semantic versioning.
   `manage_collections`, and an item shared only with ArcGIS groups goes to the
   matching groups the editor belongs to, or lands private. The report lists
   each. A plan that names another owner still needs an admin.
+- `PUT /maps/{map_id}/groups/` takes an optional `expected_updated_at`; a map
+  changed since that value answers `409` `stale_write` and nothing is written.
+  The answer also carries the map's `updated_at` after the change.
 - `PUT /maps/{map_id}` takes an optional `expected_updated_at`. When the map
   changed since that value, nothing is written and the answer is `409` with
   `detail.code` `stale_write`, as on `PATCH /maps/{map_id}`. Without it the

@@ -1334,28 +1334,38 @@ def _map_read(visibility: str, groups: list[str], updated_at: str = LEFT_AT):
     )
 
 
-def _map_ctx(monkeypatch, found, after=None):
+def _map_ctx(monkeypatch, found, after=None, *, answers=True):
     """A ctx whose map reads *found* until a group write, then what *after*
-    makes of the ids written (by default, what GeoLens would leave)."""
+    makes of the ids written (by default, what GeoLens would leave). The
+    write is refused as stale when it names another ``updated_at``, and
+    answers the map's ``updated_at`` as the write left it unless not
+    *answers* (an older GeoLens)."""
+    from datetime import datetime
+
     from geolens_cli import arcgis_migrate_webmaps as webmaps
+    from geolens_cli.arcgis_migrate_session import WriteRaced
 
     reads = {"map": found}
     puts: list[list[str]] = []
 
-    def put(fn, **kwargs):
-        ids = kwargs["body"].to_dict()["group_ids"]
-        puts.append(ids)
+    def write(fn, *, during="", **kwargs):
+        body = kwargs["body"].to_dict()
+        expected = body.get("expected_updated_at")
         before = reads["map"]
-        if after is not None:
-            reads["map"] = after(ids, before)
-            return
-        reads["map"] = _map_read("restricted" if ids else "private", ids)
-        if reads["map"].visibility == before.visibility:
-            reads["map"].updated_at = before.updated_at
+        if expected and datetime.fromisoformat(expected) != before.updated_at:
+            raise WriteRaced(f"changed in GeoLens while {during}")
+        ids = body["group_ids"]
+        puts.append(ids)
+        # A grant change moves the timestamp only when it flips visibility.
+        written = _map_read("restricted" if ids else "private", ids, FLIPPED_AT)
+        if written.visibility == before.visibility:
+            written.updated_at = before.updated_at
+        reads["map"] = written if after is None else after(ids, before)
+        return SimpleNamespace(updated_at=written.updated_at) if answers else None
 
     monkeypatch.setattr(webmaps, "get_map", lambda geolens, map_id: reads["map"])
     ctx = SimpleNamespace(
-        geolens=SimpleNamespace(call=put),
+        geolens=SimpleNamespace(write=write, call=write),
         save=lambda: None,
         operator_id=OPERATOR,
         sharing=None,
@@ -1364,6 +1374,7 @@ def _map_ctx(monkeypatch, found, after=None):
 
 
 SEEN = {"owner": OPERATOR, "updated_at": LEFT_AT}
+FLIPPED_AT = "2026-10-02T12:00:00+00:00"
 
 
 @pytest.mark.parametrize(
@@ -1539,20 +1550,18 @@ def _flipped_by_someone_else(ids, before):
 
 
 @pytest.mark.parametrize(
-    ("found", "after", "adopted"),
+    ("found", "after"),
     [
-        (("private", []), None, True),
-        (("restricted", [C]), None, True),
-        (("restricted", [C]), _changed_meanwhile, False),
-        (("private", []), _flipped_by_someone_else, False),
+        (("private", []), None),
+        (("restricted", [C]), None),
+        (("restricted", [C]), _changed_meanwhile),
+        (("private", []), _flipped_by_someone_else),
     ],
     ids=["flip-to-restricted", "no-flip", "edited-after-the-write", "other-visibility"],
 )
-def test_the_map_after_a_rerun_share_is_adopted_only_as_the_write_left_it(
-    monkeypatch, found, after, adopted
+def test_a_rerun_share_records_only_the_version_its_write_was_answered_with(
+    monkeypatch, found, after
 ):
-    from geolens_cli import arcgis_migrate_webmaps as webmaps
-
     ctx, puts, reads = _map_ctx(monkeypatch, _map_read(*found), after)
     entry = ItemState(map_id=MAP, map_snapshot=dict(SEEN), groups={}, granted={})
     item = {
@@ -1567,8 +1576,51 @@ def test_the_map_after_a_rerun_share_is_adopted_only_as_the_write_left_it(
     share(ctx, item, entry, with_map=False)
 
     assert puts
-    expected = webmaps.map_state(reads["map"]) if adopted else SEEN
-    assert entry.map_snapshot == expected
+    written = LEFT_AT if found[0] == "restricted" else FLIPPED_AT
+    assert entry.map_snapshot == {**SEEN, "updated_at": written}
+
+
+def test_a_share_geolens_refuses_as_stale_keeps_the_snapshot(monkeypatch):
+    from datetime import datetime
+
+    ctx, puts, reads = _map_ctx(monkeypatch, _map_read("restricted", [C]))
+    write = ctx.geolens.write
+
+    def edited_first(fn, **kwargs):
+        # An edit lands between the check and the write.
+        reads["map"].updated_at = datetime.fromisoformat(LATER)
+        return write(fn, **kwargs)
+
+    ctx.geolens.write = edited_first
+    entry = ItemState(map_id=MAP, map_snapshot=dict(SEEN), groups={MAP: [C]})
+    item = {
+        "id": "i1",
+        "target": {
+            "visibility": "restricted",
+            "geolens_groups": [C, E],
+            "groups": ["g1"],
+        },
+    }
+
+    [reason] = share(ctx, item, entry, with_map=False)
+
+    assert "changed in GeoLens while its groups were written" in reason
+    assert puts == [] and entry.map_snapshot == SEEN and entry.groups == {MAP: [C]}
+
+
+def test_a_share_an_older_geolens_doesnt_date_keeps_the_snapshot(monkeypatch):
+    ctx, puts, _reads = _map_ctx(monkeypatch, _map_read("private", []), answers=False)
+    entry = ItemState(map_id=MAP, map_snapshot=dict(SEEN), groups={}, granted={})
+    item = {
+        "id": "i1",
+        "target": {"visibility": "restricted", "geolens_groups": [C], "groups": ["g1"]},
+    }
+
+    [reason] = share(ctx, item, entry, with_map=False)
+
+    assert puts == [[C]]
+    assert "upgrade GeoLens to 1.30 or newer" in reason
+    assert entry.map_snapshot == SEEN
 
 
 def test_a_map_changed_after_the_check_isnt_written(monkeypatch):
@@ -1593,7 +1645,7 @@ def test_a_map_changed_after_the_check_isnt_written(monkeypatch):
 
     [reason] = share(ctx, item, entry, with_map=False)
 
-    assert "changed in GeoLens while its groups were read" in reason
+    assert "changed in GeoLens while its groups were written" in reason
     assert puts == [] and entry.groups == {MAP: [C]}
 
 

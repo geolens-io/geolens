@@ -539,13 +539,18 @@ def _translate_again(
         or len(sources) != len(result.layers)
     ):
         return _NEEDS_NEWER
-    layers = [
+    translated = [
         {
             **layer.to_dict(),
             **({"id": entry.layer_ids[s]} if s in entry.layer_ids else {}),
         }
         for layer, s in zip(result.layers, sources)
     ]
+    sources, layers = _with_kept_rows(
+        list(zip(sources, translated)),
+        _kept_rows(entry, found, set(matches) - set(readable)),
+        [layer.get("id") for layer in _walk(webmap.get("operationalLayers"))],
+    )
     # A save skips a null center or zoom, since clients send null for a camera
     # they didn't read, so the map keeps its last view and the notes say so.
     kept_view = None in (
@@ -597,6 +602,69 @@ def _translate_again(
     entry.loss_report_path = None
     ctx.save()
     return _resume_loss(ctx, item["id"], entry)
+
+
+# What PUT /maps/{id} takes of a map layer.
+_LAYER_INPUT_KEYS = frozenset(
+    {
+        "id",
+        "dataset_id",
+        "sort_order",
+        "visible",
+        "opacity",
+        "paint",
+        "layout",
+        "layer_type",
+        "display_name",
+        "filter",
+        "label_config",
+        "popup_config",
+        "style_config",
+        "show_in_legend",
+    }
+)
+
+
+def _kept_rows(
+    entry: ItemState, before: Any, skipped: set[str]
+) -> dict[str, dict[str, Any]]:
+    """The map layers recorded for the *skipped* operational layers that the
+    saver could read *before* the save, as a save sends them unchanged; a
+    full save deletes a readable row it doesn't name."""
+    rows = {str(row.id): row for row in getattr(before, "layers", None) or []}
+    return {
+        source: {
+            key: value
+            for key, value in rows[entry.layer_ids[source]].to_dict().items()
+            if key in _LAYER_INPUT_KEYS
+        }
+        for source in skipped
+        if entry.layer_ids.get(source) in rows
+    }
+
+
+def _with_kept_rows(
+    translated: list[tuple[str, dict[str, Any]]],
+    kept: Mapping[str, dict[str, Any]],
+    order: list[Any],
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """The layers a save sends and their operational layers: the translated
+    ones in their order, each *kept* row placed where its operational layer
+    stands in the web map's *order*, numbered in turn."""
+    place = {source: n for n, source in enumerate(order)}
+    pairs = list(translated)
+    for source, layer in sorted(
+        kept.items(), key=lambda k: place.get(k[0], len(order))
+    ):
+        at = place.get(source, len(order))
+        index = next(
+            (n for n, (s, _) in enumerate(pairs) if place.get(s, len(order)) > at),
+            len(pairs),
+        )
+        pairs.insert(index, (source, layer))
+    return [source for source, _ in pairs], [
+        {**layer, "sort_order": n} for n, (_, layer) in enumerate(pairs)
+    ]
 
 
 def _readable_matches(
