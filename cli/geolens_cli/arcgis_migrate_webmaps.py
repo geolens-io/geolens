@@ -59,6 +59,11 @@ _THUMBNAIL_MAX_BYTES = (100_000 - len("data:image/jpeg;base64,")) // 4 * 3
 _THUMBNAIL_NOTE = "the web map's thumbnail was not carried over"
 _UNMATCHED_NOTE = "layer(s) not imported"
 _LOST_NOTE = "part(s) of the web map were not carried over"
+_NO_VIEW_NOTE = (
+    "the web map no longer has an initial view; the GeoLens map keeps its view"
+)
+# What a map's notes may hold, as PUT /maps/{id} caps them.
+_MAP_NOTES_MAX = 50_000
 # The notes _finish_loss writes, which a new translation replaces.
 _LOSS_NOTE = re.compile(rf"\d+ ({re.escape(_UNMATCHED_NOTE)}|{re.escape(_LOST_NOTE)})")
 
@@ -526,6 +531,16 @@ def _translate_again(
         }
         for layer, s in zip(result.layers, sources)
     ]
+    # A save skips a null center or zoom, since clients send null for a camera
+    # they didn't read, so the map keeps its last view and the notes say so.
+    kept_view = None in (
+        result.view.center_lng,
+        result.view.center_lat,
+        result.view.zoom,
+    )
+    notes = result.notes
+    if kept_view and len(notes) + len(_NO_VIEW_NOTE) + 3 <= _MAP_NOTES_MAX:
+        notes = f"{notes}\n- {_NO_VIEW_NOTE}"
     try:
         saved = ctx.geolens.write(
             put_map.sync_detailed,
@@ -537,7 +552,7 @@ def _translate_again(
                     # An unrotated web map leaves the bearing unset, which the
                     # save would skip and so keep an earlier rotation.
                     "bearing": result.view.bearing or 0.0,
-                    "notes": result.notes,
+                    "notes": notes,
                     "layers": layers,
                     "expected_updated_at": seen["updated_at"],
                 }
@@ -548,6 +563,10 @@ def _translate_again(
     except GeoLensError as exc:
         return f"saving the web map's new translation failed, {exc}"
     entry.map_snapshot = map_state(saved)
+    entry.notes = [
+        *(n for n in entry.notes if n != _NO_VIEW_NOTE),
+        *([_NO_VIEW_NOTE] if kept_view else []),
+    ]
     entry.layer_ids = {
         sources[layer.sort_order]: str(layer.id)
         for layer in saved.layers

@@ -965,6 +965,44 @@ def test_a_loss_report_a_rerun_couldnt_write_is_written_by_the_next_one(
     assert loss["loss_report"]["summary"] == {"popup_expression": 1}
 
 
+def test_a_web_map_that_lost_its_initial_view_keeps_the_maps_and_says_so(
+    runner, plan_file, geolens, portal
+):
+    token = _changed_in_the_portal(runner, plan_file, geolens, portal)
+    translated = _translated(dataset_id("Parcels"))
+    no_view = {"center_lng": None, "center_lat": None, "zoom": None}
+    geolens.routes[IMPORT] = (
+        201,
+        {**translated, "view": {**translated["view"], **no_view}},
+    )
+    note = "the web map no longer has an initial view; the GeoLens map keeps its view"
+
+    result, _ = _migrate(runner, plan_file, "--token", token)
+
+    assert result.exit_code == 0, result.output
+    [sent] = _puts(geolens)
+    assert sent["notes"] == f"{NOTES}\n- {note}"
+    assert note in _state(plan_file)["items"][B1]["notes"]
+
+    # The view comes back in the portal: the note goes.
+    listed = portal.routes[f"content/items/{B1}"]
+    portal.routes[f"content/items/{B1}"] = {
+        **listed,
+        "modified": listed["modified"] + 60_000,
+    }
+    geolens.routes[IMPORT] = (201, translated)
+    read = geolens.routes["GET /maps/" + MAP_ID]
+    geolens.routes["GET /maps/" + MAP_ID] = lambda seen: {
+        **read(seen),
+        "updated_at": EDITED_AT,
+    }
+    result, _ = _migrate(runner, plan_file, "--token", token)
+
+    assert result.exit_code == 0, result.output
+    assert _puts(geolens)[-1]["notes"] == NOTES
+    assert note not in _state(plan_file)["items"][B1]["notes"]
+
+
 @pytest.mark.parametrize("edit", ["updated_at", "snapshot"])
 def test_a_changed_web_map_whose_geolens_map_was_edited_is_reported_not_written(
     runner, plan_file, geolens, portal, edit
