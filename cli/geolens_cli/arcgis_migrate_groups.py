@@ -40,6 +40,16 @@ from .arcgis_migrate_state import ItemState, MigrationState
 
 RESTRICTED = "restricted"
 NOT_A_USER = " is not a GeoLens user yet"
+# The notes ``Sharing.target`` leaves on an item it narrows; the report lists
+# each as a loss.
+PUBLIC_BLOCKED = (
+    "made internal, not public: restrict_public_visibility is on and "
+    "its owner isn't a GeoLens admin"
+)
+NO_GROUP = (
+    "made private: it is shared only with ArcGIS groups, and none "
+    "of them maps to a GeoLens group"
+)
 # What a rerun did to an item's groups, and how the output and report say it.
 SHARING_LABELS = {
     "shared": "shared with",
@@ -92,18 +102,12 @@ class Sharing:
                 target["geolens_groups"] = ids
             else:
                 target["visibility"] = "private"
-                notes.append(
-                    "made private: it is shared only with ArcGIS groups, and none "
-                    "of them maps to a GeoLens group"
-                )
+                notes.append(NO_GROUP)
         elif (
             wanted == "public" and self.restrict_public and owner_id not in self.admins
         ):
             target["visibility"] = "internal"
-            notes.append(
-                "made internal, not public: restrict_public_visibility is on and "
-                "its owner isn't a GeoLens admin"
-            )
+            notes.append(PUBLIC_BLOCKED)
         return {**item, "target": target}, notes
 
 
@@ -538,6 +542,7 @@ def prepare_groups(
         if recorded and recorded.get("created") and recorded.get("id"):
             record = dict(recorded)
             record.pop("unmapped", None)
+            record.pop("effective", None)
             if record.get("deleted") or not _exists(geolens, record["id"]):
                 out.warnings.append(
                     f"the GeoLens group {record['name']} this command created for "

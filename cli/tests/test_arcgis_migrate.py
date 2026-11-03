@@ -1373,10 +1373,11 @@ def test_unreadable_role_permissions_check_the_account_only(
     assert result.exit_code == 2 and "not an active" in result.output
 
 
-def test_a_non_admin_operator_is_refused(runner, tmp_path, geolens, handled):
-    geolens.routes["GET /auth/me/"] = _user(ALICE, "alice", ["editor"])
-    result, _ = _run(runner, tmp_path, _plan([_item(L1)]))
-    assert result.exit_code == 2 and "admin" in result.output
+def test_a_viewer_operator_is_refused(runner, tmp_path, geolens, handled):
+    geolens.routes["GET /auth/me/"] = _user(VIC, "vic", ["viewer"])
+    geolens.routes["GET /auth/me/permissions/"] = {"permissions": {"upload": False}}
+    result, _ = _run(runner, tmp_path, _plan([_item(L1)], {"agol_alice": "vic"}))
+    assert result.exit_code == 2 and "editor or admin" in result.output
     assert handled == []
 
 

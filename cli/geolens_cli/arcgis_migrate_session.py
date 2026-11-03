@@ -230,6 +230,8 @@ class MigrationContext:
     redact: Callable[[str], str] = str
     # The GeoLens operator's user id, whose writes a rerun recognises as its own.
     operator_id: str | None = None
+    # An editor migrating their own content: items stay with the operator.
+    own_content: bool = False
     # The instance's upload_max_size_mb in bytes, read once from its settings.
     upload_limit: int | None = None
     # How the plan's sharing becomes GeoLens sharing (arcgis_migrate_groups.Sharing).
