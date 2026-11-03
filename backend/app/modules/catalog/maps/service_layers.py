@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -183,6 +183,18 @@ async def _admit_layer(session: AsyncSession, map_id: uuid.UUID) -> None:
         )
 
 
+async def touch_map(session: AsyncSession, map_id: uuid.UUID) -> None:
+    """Advance the map's ``updated_at`` for a change to its layers, which
+    leaves the map row as it was, so a reader comparing ``updated_at`` and a
+    write naming ``expected_updated_at`` both see the change."""
+    await session.execute(
+        update(Map)
+        .where(Map.id == map_id)
+        .values(updated_at=func.now())
+        .execution_options(synchronize_session=False)
+    )
+
+
 async def add_layer(
     session: AsyncSession,
     map_id: uuid.UUID,
@@ -255,6 +267,7 @@ async def add_layer(
         show_in_legend=body.show_in_legend,
     )
     session.add(layer)
+    await touch_map(session, map_id)
     await session.flush()
     return layer
 
@@ -272,7 +285,10 @@ async def remove_layer(
     )
     # SQLAlchemy CursorResult exposes rowcount for DML; the async Result
     # type stub is less specific so mypy can't narrow it here.
-    return result.rowcount > 0  # type: ignore[attr-defined]
+    removed = result.rowcount > 0  # type: ignore[attr-defined]
+    if removed:
+        await touch_map(session, map_id)
+    return removed
 
 
 async def remove_layers_bulk(
@@ -312,6 +328,7 @@ async def remove_layers_bulk(
             MapLayer.id.in_(existing_ids),
         )
     )
+    await touch_map(session, map_id)
 
     deleted_ids = [str(lid) for lid in layer_ids if lid in existing_ids]
     return deleted_ids, failed_pairs

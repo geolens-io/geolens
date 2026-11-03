@@ -42,6 +42,7 @@ from app.modules.catalog.maps.service_layers import (
     lock_map_layers,
     recheck_map_ownership,
     terrain_dataset_ids_visible_to,
+    touch_map,
 )
 from app.modules.catalog.write_recheck import admit_writer, refuse_stale_write
 from app.core.text import escape_ilike
@@ -549,6 +550,7 @@ async def update_map(
         if map_obj.dashboard_config is not None:
             datasets_before = await _layer_datasets(session, map_id)
         created_ids = await _replace_layers(session, map_id, layers, user)
+        await touch_map(session, map_id)
         dashboard_config = _with_created_layer_ids(dashboard_config, created_ids)
     if dashboard_config is not _UNSET or datasets_before:
         map_obj.dashboard_config = await _saved_dashboard(

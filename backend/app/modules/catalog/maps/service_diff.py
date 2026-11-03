@@ -23,6 +23,7 @@ from app.modules.catalog.maps.schemas import (
 from app.modules.catalog.maps.service_layers import (
     bulk_check_dataset_access,
     lock_map_layers,
+    touch_map,
 )
 from app.modules.catalog.maps.service_shared import (
     LayerRow,
@@ -279,6 +280,8 @@ async def apply_layer_diff(
             [layer for layer in listed + unlisted if layer.id not in hidden_ids],
         )
 
+    if removed_ids or updated or added or order is not None:
+        await touch_map(session, map_id)
     await session.flush()
     layer_rows = await _fetch_layer_rows_ordered(session, map_obj.id)
     forked_name, owner_username, db_updated_at = await _resolve_save_response_metadata(

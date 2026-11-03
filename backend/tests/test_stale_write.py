@@ -336,3 +336,58 @@ async def test_an_edit_committed_while_a_map_save_waits_is_seen(
     assert resp.json()["detail"]["code"] == "stale_write"
     after = await client.get(f"/maps/{created['id']}", headers=admin_auth_header)
     assert after.json()["name"] != "From the portal"
+
+
+async def _layer_edit(client, headers, map_id: str, layer_id: str, dataset_id, edit):
+    if edit == "add":
+        return await client.post(
+            f"/maps/{map_id}/layers", json={"dataset_id": dataset_id}, headers=headers
+        )
+    if edit == "diff":
+        body = {"updated": [{"id": layer_id, "opacity": 0.5}]}
+        return await client.patch(f"/maps/{map_id}/layers", json=body, headers=headers)
+    if edit == "remove":
+        return await client.delete(f"/maps/{map_id}/layers/{layer_id}", headers=headers)
+    if edit == "bulk_remove":
+        return await client.post(
+            f"/maps/{map_id}/layers/bulk-delete",
+            json={"layer_ids": [layer_id]},
+            headers=headers,
+        )
+    return await client.put(
+        f"/maps/{map_id}",
+        json={"layers": [{"id": layer_id, "dataset_id": dataset_id, "opacity": 0.5}]},
+        headers=headers,
+    )
+
+
+@pytest.mark.parametrize("edit", ["add", "diff", "remove", "bulk_remove", "replace"])
+async def test_a_layer_only_edit_moves_the_map_version(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, edit: str
+) -> None:
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _create_dataset(test_db_session, created_by=admin_id)
+    created = await create_map_via_api(client, admin_auth_header)
+    map_id = created["id"]
+    added = await client.post(
+        f"/maps/{map_id}/layers",
+        json={"dataset_id": str(dataset.id)},
+        headers=admin_auth_header,
+    )
+    assert added.status_code == 201, added.text
+    before = (await client.get(f"/maps/{map_id}", headers=admin_auth_header)).json()
+
+    resp = await _layer_edit(
+        client, admin_auth_header, map_id, added.json()["id"], str(dataset.id), edit
+    )
+
+    assert resp.status_code < 300, resp.text
+    after = (await client.get(f"/maps/{map_id}", headers=admin_auth_header)).json()
+    assert after["updated_at"] > before["updated_at"]
+    stale = await client.put(
+        f"/maps/{map_id}",
+        json={"name": "From the portal", "expected_updated_at": before["updated_at"]},
+        headers=admin_auth_header,
+    )
+    assert stale.status_code == 409, stale.text
+    assert stale.json()["detail"]["code"] == "stale_write"
