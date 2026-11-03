@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import uuid
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 from urllib.parse import parse_qs, urlsplit
 
@@ -149,6 +150,9 @@ _LAYER = {
 }
 
 
+_CAPTURES = Path(__file__).parent / "fixtures" / "arcgis_z"
+
+
 @needs_ogr
 class TestRealGdalStagesZ:
     @pytest.mark.anyio
@@ -157,34 +161,45 @@ class TestRealGdalStagesZ:
         from app.core.db import async_session
         from app.processing.ingest.ogr import run_ogr2ogr_service
 
-        layer_file = tmp_path / "layer.json"
-        layer_file.write_text(json.dumps(_LAYER))
-        staged: dict[bool, list] = {}
+        layers = {"synthetic": _LAYER}
+        for capture in ("polyline_z", "point_zm"):
+            layers[capture] = json.loads((_CAPTURES / f"{capture}.json").read_text())
+        staged: dict[tuple[str, bool], list] = {}
         # One test, not a parametrisation: the pooled connection cannot move
         # between the event loops of two tests.
-        for keep_z in (True, False):
-            table = f"f3_z_{uuid.uuid4().hex[:8]}"
-            try:
-                await run_ogr2ogr_service(
-                    f"ESRIJSON:{layer_file}",
-                    "",
-                    table,
-                    settings.ogr_connection_string,
-                    "arcgis_featureserver",
-                    schema="data",
-                    keep_z=keep_z,
-                )
-                async with async_session() as session:
-                    result = await session.execute(
-                        text(
-                            f'SELECT ST_Z(_geolens_geom) FROM "data"."{table}" ORDER BY gid'
+        for name, layer in layers.items():
+            layer_file = tmp_path / f"{name}.json"
+            layer_file.write_text(json.dumps(layer))
+            for keep_z in (True, False):
+                table = f"f3_z_{uuid.uuid4().hex[:8]}"
+                try:
+                    await run_ogr2ogr_service(
+                        f"ESRIJSON:{layer_file}",
+                        "",
+                        table,
+                        settings.ogr_connection_string,
+                        "arcgis_featureserver",
+                        schema="data",
+                        keep_z=keep_z,
+                    )
+                    async with async_session() as session:
+                        result = await session.execute(
+                            text(
+                                "SELECT ST_NDims(_geolens_geom), "
+                                "ST_SRID(_geolens_geom), ST_ZMax(_geolens_geom) "
+                                f'FROM "data"."{table}" ORDER BY gid LIMIT 1'
+                            )
                         )
-                    )
-                    staged[keep_z] = list(result.scalars().all())
-            finally:
-                async with async_session() as session:
-                    await session.execute(
-                        text(f'DROP TABLE IF EXISTS "data"."{table}"')
-                    )
-                    await session.commit()
-        assert staged == {True: [12.5, 30.0], False: [None, None]}
+                        staged[(name, keep_z)] = list(result.one())
+                finally:
+                    async with async_session() as session:
+                        await session.execute(
+                            text(f'DROP TABLE IF EXISTS "data"."{table}"')
+                        )
+                        await session.commit()
+        assert staged[("synthetic", True)] == [3, 4326, 12.5]
+        assert staged[("synthetic", False)][0] == 2
+        for capture in ("polyline_z", "point_zm"):
+            kept, flat = staged[(capture, True)], staged[(capture, False)]
+            assert kept[0] == 3 and kept[1] == 4326 and kept[2] is not None
+            assert flat[0] == 2
