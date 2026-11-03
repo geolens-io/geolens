@@ -819,6 +819,28 @@ async def test_probe_failure_still_stamps_origin_contact(
 
 
 @pytest.mark.anyio
+async def test_layer_json_token_rejection_still_stamps_origin_contact(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    """The layer JSON is read before the page-info probe, and a 498 from it
+    still contacted the origin."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+    assert dataset.last_checked_at is None
+
+    monkeypatch.setattr(
+        "app.modules.catalog.sources.adapters.arcgis.fetch_arcgis_layer_meta",
+        AsyncMock(side_effect=ArcGISTokenError(498, "Token rejected")),
+    )
+    task_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset.id)
+    with pytest.raises(ArcGISTokenError, match="498"):
+        await _execute_with_fake(task_kwargs, _fake_ogr2ogr([], 1))
+
+    await test_db_session.refresh(dataset)
+    assert dataset.last_checked_at is not None
+
+
+@pytest.mark.anyio
 async def test_first_arcgis_page_info_token_rejection_preserves_typed_failure(
     client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
 ):

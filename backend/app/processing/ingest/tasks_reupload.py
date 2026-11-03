@@ -1470,6 +1470,9 @@ class _ServiceReupload(_LiveComparison):
 
         return_z = False
         if self.service_type == "arcgis_featureserver":
+            # The layer JSON read is the first request to the origin, so a
+            # token rejection from it still counts as contact.
+            _arm_contact()
             self.column_casts, return_z = _tv.arcgis_meta_import_facts(
                 await _tv._fetch_arcgis_layer_meta_or_none(
                     self.source_url_value, self.layer_id, self.token
