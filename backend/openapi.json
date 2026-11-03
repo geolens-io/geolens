@@ -12851,6 +12851,19 @@
             },
             "title": "Hidden Layers",
             "type": "array"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The map's `updated_at` after the change. A grant change moves it only when the map's visibility changes.",
+            "title": "Updated At"
           }
         },
         "required": [
@@ -12887,6 +12900,19 @@
             ],
             "description": "Required when the map would become restricted with layers some of its new groups can't read; without it the request answers 409 and lists them. `share_datasets` also shares each such dataset the caller may share with the groups that lack it; `map_only` leaves those layers hidden from them.",
             "title": "Confirm"
+          },
+          "expected_updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The map's `updated_at` the caller read. When set and the map has changed since, nothing is written and the answer is 409 with `detail.code` `stale_write`. Omit it to write unconditionally.",
+            "title": "Expected Updated At"
           }
         },
         "required": [
@@ -59288,7 +59314,7 @@
     },
     "/maps/{map_id}/groups/": {
       "put": {
-        "description": "Share a map with exactly these sharing groups (owner or admin).\n\nAn owner may add only groups they belong to (403); an admin may add any.\nA private map shared with a group becomes restricted and its members can\nread it; a restricted one left with no group becomes private. Internal\nand public maps keep their audience. Becoming restricted revokes the\nmap's share link and embed tokens. 404 for an unknown group.\n\n409 (`detail.code` `layers_hidden_from_groups`, the layers under\n`detail.layers`) when new groups can't read some layers; see `confirm`.\nA lock wait that times out also answers 409, without `detail.code`.",
+        "description": "Share a map with exactly these sharing groups (owner or admin).\n\nAn owner may add only groups they belong to (403); an admin may add any.\nA private map shared with a group becomes restricted and its members can\nread it; a restricted one left with no group becomes private. Internal\nand public maps keep their audience. Becoming restricted revokes the\nmap's share link and embed tokens. 404 for an unknown group.\n\n409 (`detail.code` `layers_hidden_from_groups`, the layers under\n`detail.layers`) when new groups can't read some layers; see `confirm`.\nA lock wait that times out also answers 409, without `detail.code`.\nWith `expected_updated_at`, a map changed since that value answers 409\nwith `detail.code` `stale_write` and nothing is written.",
         "operationId": "set_map_groups_endpoint_maps__map_id__groups__put",
         "parameters": [
           {

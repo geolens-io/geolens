@@ -1123,6 +1123,14 @@ class MapGroupsUpdate(BaseModel):
             "leaves those layers hidden from them."
         ),
     )
+    expected_updated_at: datetime | None = Field(
+        default=None,
+        description=(
+            "The map's `updated_at` the caller read. When set and the map has "
+            "changed since, nothing is written and the answer is 409 with "
+            "`detail.code` `stale_write`. Omit it to write unconditionally."
+        ),
+    )
 
 
 class MapLayerAccessGap(BaseModel):
@@ -1161,6 +1169,13 @@ class MapGroupsResponse(BaseModel):
         description=(
             "Layers that some of the map's new groups still can't read; the "
             "same shape a 409 lists under `detail.layers`."
+        ),
+    )
+    updated_at: datetime | None = Field(
+        default=None,
+        description=(
+            "The map's `updated_at` after the change. A grant change moves it "
+            "only when the map's visibility changes."
         ),
     )
 

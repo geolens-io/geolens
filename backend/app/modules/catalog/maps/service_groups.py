@@ -12,6 +12,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Literal
 
 from sqlalchemy import exists, select
@@ -42,6 +43,7 @@ from app.modules.catalog.maps.service_group_gaps import (
 from app.modules.catalog.maps.service_history import record_map_history_event
 from app.modules.catalog.maps.service_layers import lock_map_layers
 from app.modules.catalog.maps.service_public import revoke_share_token_by_map
+from app.modules.catalog.write_recheck import refuse_stale_write
 from app.modules.embed_tokens.service import revoke_embed_tokens_by_map
 from app.platform.extensions import get_permission_extension
 
@@ -193,6 +195,7 @@ async def set_map_groups(
     is_admin: bool,
     confirm: Literal["share_datasets", "map_only"] | None = None,
     keep_current: bool = False,
+    expected_updated_at: datetime | None = None,
 ) -> MapShareResult:
     """Share ``map_obj`` with exactly ``group_ids``, or with them besides its
     current groups when ``keep_current``.
@@ -203,7 +206,9 @@ async def set_map_groups(
     groups lacking it, ``map_only`` leaves those layers hidden.
 
     The result's ``previous`` is the map's visibility before, or None when
-    nothing changed. Call after ``check_map_ownership``. Raises
+    nothing changed. With ``expected_updated_at``, a map changed since that
+    value raises 409 ``stale_write`` before anything is written. Call after
+    ``check_map_ownership``. Raises
     ``UnknownGroupsError`` for a group that doesn't exist or belongs to
     another tenant, ``GroupNotJoinedError`` when a non-admin adds a group
     they aren't in, and ``LayersHiddenFromGroupsError`` for an unconfirmed
@@ -214,7 +219,8 @@ async def set_map_groups(
     await lock_share_groups(session, wanted, granted, map_obj.tenant_id)
     await lock_map_layers(session, map_obj.id)
     # Loaded before the lock: judge the row as committed, not as first read.
-    await session.refresh(map_obj, ["visibility", "created_by"])
+    await session.refresh(map_obj, ["visibility", "created_by", "updated_at"])
+    refuse_stale_write(map_obj.updated_at, expected_updated_at)
     current = set(await session.scalars(granted))
     if keep_current:
         wanted |= current

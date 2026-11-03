@@ -90,6 +90,7 @@ async def test_sharing_a_private_map_makes_it_restricted_and_back(
         "groups": [],
         "shared_dataset_ids": [],
         "hidden_layers": [],
+        "updated_at": unshared.json()["updated_at"],
     }
     assert await _stored(test_db_session, map_id) == "private"
     assert (await client.get(url, headers=owned["member"])).status_code == 404
@@ -606,3 +607,45 @@ async def test_managing_a_map_the_caller_cannot_read_answers_404(
 
     assert await status(owned["map"]) == 404
     assert await status(uuid.uuid4()) == 404
+
+
+async def test_a_share_naming_an_older_version_is_refused_and_writes_nothing(
+    client: AsyncClient, owned, test_db_session
+):
+    map_id, url = owned["map"], f"/maps/{owned['map']}"
+    read = (await client.get(url, headers=owned["owner"])).json()
+    edit = await client.put(url, json={"name": "Edited"}, headers=owned["owner"])
+    assert edit.status_code == 200, edit.text
+
+    resp = await client.put(
+        f"/maps/{map_id}/groups/",
+        json={"group_ids": [owned["mine"]], "expected_updated_at": read["updated_at"]},
+        headers={**owned["owner"], **OPT_IN},
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "stale_write"
+    assert await _stored(test_db_session, map_id) == "private"
+    granted = await test_db_session.scalars(
+        select(MapGroupGrant).where(MapGroupGrant.map_id == uuid.UUID(map_id))
+    )
+    assert granted.all() == []
+
+
+async def test_a_share_naming_the_current_version_answers_the_new_one(
+    client: AsyncClient, owned
+):
+    map_id, url = owned["map"], f"/maps/{owned['map']}"
+    read = (await client.get(url, headers=owned["owner"])).json()
+
+    resp = await client.put(
+        f"/maps/{map_id}/groups/",
+        json={"group_ids": [owned["mine"]], "expected_updated_at": read["updated_at"]},
+        headers={**owned["owner"], **OPT_IN},
+    )
+
+    assert resp.status_code == 200, resp.text
+    after = (await client.get(url, headers={**owned["owner"], **OPT_IN})).json()
+    assert resp.json()["visibility"] == "restricted"
+    assert resp.json()["updated_at"] == after["updated_at"]
+    assert after["updated_at"] > read["updated_at"]

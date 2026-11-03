@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_client_ip, get_db
@@ -12,6 +13,7 @@ from app.core.identity import Identity
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.auth.dependencies import require_permission
 from app.modules.catalog.group_sharing import GroupNotJoinedError, UnknownGroupsError
+from app.modules.catalog.maps.models import Map
 from app.modules.catalog.maps.schemas import MapGroupsResponse, MapGroupsUpdate
 from app.modules.catalog.maps.service import (
     DatasetGroupNotJoinedError,
@@ -63,6 +65,8 @@ async def set_map_groups_endpoint(
     409 (`detail.code` `layers_hidden_from_groups`, the layers under
     `detail.layers`) when new groups can't read some layers; see `confirm`.
     A lock wait that times out also answers 409, without `detail.code`.
+    With `expected_updated_at`, a map changed since that value answers 409
+    with `detail.code` `stale_write` and nothing is written.
     """
     map_obj = await get_map(db, map_id)
     if map_obj is None:
@@ -78,6 +82,7 @@ async def set_map_groups_endpoint(
             actor=user,
             is_admin="admin" in roles,
             confirm=body.confirm,
+            expected_updated_at=body.expected_updated_at,
         )
     except LayersHiddenFromGroupsError as exc:
         raise HTTPException(
@@ -139,6 +144,7 @@ async def set_map_groups_endpoint(
             ip_address=get_client_ip(request),
         )
     groups = await map_groups(db, map_id)
+    updated_at = await db.scalar(select(Map.updated_at).where(Map.id == map_id))
     await db.commit()
     if result.shared_datasets:
         await invalidate_catalog_cache()
@@ -147,4 +153,5 @@ async def set_map_groups_endpoint(
         groups=groups,
         shared_dataset_ids=list(result.shared_datasets),
         hidden_layers=result.hidden_layers,
+        updated_at=updated_at,
     )

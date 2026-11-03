@@ -7547,6 +7547,12 @@ export type MapGroupsResponse = {
      * Layers that some of the map's new groups still can't read; the same shape a 409 lists under `detail.layers`.
      */
     hidden_layers?: Array<MapLayerAccessGap>;
+    /**
+     * Updated At
+     *
+     * The map's `updated_at` after the change. A grant change moves it only when the map's visibility changes.
+     */
+    updated_at?: string | null;
 };
 
 /**
@@ -7565,6 +7571,12 @@ export type MapGroupsUpdate = {
      * Required when the map would become restricted with layers some of its new groups can't read; without it the request answers 409 and lists them. `share_datasets` also shares each such dataset the caller may share with the groups that lack it; `map_only` leaves those layers hidden from them.
      */
     confirm?: 'share_datasets' | 'map_only' | null;
+    /**
+     * Expected Updated At
+     *
+     * The map's `updated_at` the caller read. When set and the map has changed since, nothing is written and the answer is 409 with `detail.code` `stale_write`. Omit it to write unconditionally.
+     */
+    expected_updated_at?: string | null;
 };
 
 /**

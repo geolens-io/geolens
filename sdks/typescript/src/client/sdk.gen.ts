@@ -4944,6 +4944,8 @@ export const updateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatch = <ThrowOn
  * 409 (`detail.code` `layers_hidden_from_groups`, the layers under
  * `detail.layers`) when new groups can't read some layers; see `confirm`.
  * A lock wait that times out also answers 409, without `detail.code`.
+ * With `expected_updated_at`, a map changed since that value answers 409
+ * with `detail.code` `stale_write` and nothing is written.
  */
 export const setMapGroupsEndpointMapsMapIdGroupsPut = <ThrowOnError extends boolean = false>(options: Options<SetMapGroupsEndpointMapsMapIdGroupsPutData, ThrowOnError>): RequestResult<SetMapGroupsEndpointMapsMapIdGroupsPutResponses, SetMapGroupsEndpointMapsMapIdGroupsPutErrors, ThrowOnError> => (options.client ?? client).put<SetMapGroupsEndpointMapsMapIdGroupsPutResponses, SetMapGroupsEndpointMapsMapIdGroupsPutErrors, ThrowOnError>({
     security: [
