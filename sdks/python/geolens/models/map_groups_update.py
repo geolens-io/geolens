@@ -12,8 +12,10 @@ from ..models.map_groups_update_confirm_type_0 import (
     check_map_groups_update_confirm_type_0,
 )
 from ..models.map_groups_update_confirm_type_0 import MapGroupsUpdateConfirmType0
+from dateutil.parser import isoparse
 from typing import cast
 from uuid import UUID
+import datetime
 
 
 T = TypeVar("T", bound="MapGroupsUpdate")
@@ -29,10 +31,14 @@ class MapGroupsUpdate:
             some of its new groups can't read; without it the request answers 409 and lists them. `share_datasets` also
             shares each such dataset the caller may share with the groups that lack it; `map_only` leaves those layers
             hidden from them.
+        expected_updated_at (datetime.datetime | None | Unset): The map's `updated_at` the caller read. When set and the
+            map has changed since, its groups included, nothing is written and the answer is 409 with `detail.code`
+            `stale_write`. Omit it to write unconditionally.
     """
 
     group_ids: list[UUID]
     confirm: MapGroupsUpdateConfirmType0 | None | Unset = UNSET
+    expected_updated_at: datetime.datetime | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -49,6 +55,14 @@ class MapGroupsUpdate:
         else:
             confirm = self.confirm
 
+        expected_updated_at: None | str | Unset
+        if isinstance(self.expected_updated_at, Unset):
+            expected_updated_at = UNSET
+        elif isinstance(self.expected_updated_at, datetime.datetime):
+            expected_updated_at = self.expected_updated_at.isoformat()
+        else:
+            expected_updated_at = self.expected_updated_at
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -58,6 +72,8 @@ class MapGroupsUpdate:
         )
         if confirm is not UNSET:
             field_dict["confirm"] = confirm
+        if expected_updated_at is not UNSET:
+            field_dict["expected_updated_at"] = expected_updated_at
 
         return field_dict
 
@@ -88,9 +104,31 @@ class MapGroupsUpdate:
 
         confirm = _parse_confirm(d.pop("confirm", UNSET))
 
+        def _parse_expected_updated_at(
+            data: object,
+        ) -> datetime.datetime | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                expected_updated_at_type_0 = isoparse(data)
+
+                return expected_updated_at_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.datetime | None | Unset, data)
+
+        expected_updated_at = _parse_expected_updated_at(
+            d.pop("expected_updated_at", UNSET)
+        )
+
         map_groups_update = cls(
             group_ids=group_ids,
             confirm=confirm,
+            expected_updated_at=expected_updated_at,
         )
 
         map_groups_update.additional_properties = d

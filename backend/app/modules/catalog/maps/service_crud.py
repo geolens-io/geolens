@@ -3,6 +3,7 @@
 import re
 import uuid
 from collections.abc import Iterable, Sequence
+from datetime import datetime
 from typing import cast
 
 import structlog
@@ -41,8 +42,9 @@ from app.modules.catalog.maps.service_layers import (
     lock_map_layers,
     recheck_map_ownership,
     terrain_dataset_ids_visible_to,
+    touch_map,
 )
-from app.modules.catalog.write_recheck import admit_writer
+from app.modules.catalog.write_recheck import admit_writer, refuse_stale_write
 from app.core.text import escape_ilike
 from app.modules.catalog.maps.style_json import project_terrain_config
 from app.modules.catalog.maps.service_shared import (
@@ -464,6 +466,7 @@ async def update_map(
     legend_title: str | None | object = _UNSET,
     layers: list[dict] | None = None,
     user: Identity | None = None,
+    expected_updated_at: datetime | None = None,
 ) -> tuple[Map, list[LayerRow], str | None, str | None]:
     """Update map fields. If 'layers' key present, replace all layers.
 
@@ -476,6 +479,9 @@ async def update_map(
     A ``visibility`` goes through ``prepare_map_visibility``, which may make it
     restricted, revoke the map's links, or raise ``RestrictedWithoutGroupsError``.
 
+    With ``expected_updated_at``, the map is locked first and a map changed
+    since that value raises 409 ``stale_write`` before anything is written.
+
     Raises ValueError if not found. Flushes but does NOT commit --
     callers must own the commit lifecycle.
 
@@ -483,7 +489,11 @@ async def update_map(
     ``(Map, layer_rows, forked_from_name, owner_username)``. Built from
     in-session ORM state so callers don't need a post-save re-fetch.
     """
-    if layers is not None or dashboard_config is not _UNSET:
+    if (
+        layers is not None
+        or dashboard_config is not _UNSET
+        or expected_updated_at is not None
+    ):
         await lock_map_layers(session, map_id)
     # The caller loaded this map before any lock; the merges below need the
     # stored values as they are now, not the identity map's copy.
@@ -493,6 +503,7 @@ async def update_map(
     map_obj = result.scalar_one_or_none()
     if map_obj is None:
         raise ValueError(f"Map {map_id} not found")
+    refuse_stale_write(map_obj.updated_at, expected_updated_at)
     if visibility is not None:
         from app.modules.catalog.maps.service_groups import prepare_map_visibility
 
@@ -539,6 +550,7 @@ async def update_map(
         if map_obj.dashboard_config is not None:
             datasets_before = await _layer_datasets(session, map_id)
         created_ids = await _replace_layers(session, map_id, layers, user)
+        await touch_map(session, map_id)
         dashboard_config = _with_created_layer_ids(dashboard_config, created_ids)
     if dashboard_config is not _UNSET or datasets_before:
         map_obj.dashboard_config = await _saved_dashboard(

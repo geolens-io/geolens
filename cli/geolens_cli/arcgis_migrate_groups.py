@@ -32,10 +32,16 @@ from __future__ import annotations
 import unicodedata
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from .arcgis_migrate_session import GeoLensError, ItemFailed, MigrationContext
+from .arcgis_migrate_session import (
+    GeoLensError,
+    ItemFailed,
+    MigrationContext,
+    WriteRaced,
+)
 from .arcgis_migrate_state import ItemState, MigrationState
 
 RESTRICTED = "restricted"
@@ -791,9 +797,7 @@ def share(
         new, gone = _changes(target, entry, map_id)
         if with_map:
             if new:
-                added = _share_map(ctx, map_id, new, set())
-                _shared(entry, map_id, new, set(), added=added)
-                ctx.save()
+                _share_new_map(ctx, entry, map_id, new)
             return []
         return _merge_map(ctx, item["id"], target, entry, map_id, new, gone)
     except GeoLensError as exc:
@@ -891,31 +895,22 @@ def _merge_map(
                 "plan doesn't say; its groups were left as they are"
             ]
         if {map_visibility(found), wanted} <= {"private", RESTRICTED}:
-            added = _share_map(ctx, map_id, new, gone, entry.map_snapshot)
-            if added is None:
+            left = entry.map_snapshot
+            shared = _share_map(ctx, map_id, new, gone, left)
+            if shared is None:
                 return [
                     "its GeoLens map changed in GeoLens while its groups were "
-                    "read, so they were left as they are; share it by hand"
+                    "written, so they were left as they are; share it by hand"
                 ]
+            added, stamp = shared
             _log(ctx, item_id, "shared", added)
             _log(ctx, item_id, "removed", _dataset_groups(found) & gone)
-            after = get_map(ctx.geolens, map_id)
-            # A grant change moves the map's timestamp only when it flips the
-            # map between private and restricted; any other move is someone
-            # else's edit, which a later run reports.
-            made = RESTRICTED if groups else "private"
-            if (
-                str(after.created_by) == str(found.created_by)
-                and map_visibility(after) == made
-                and (
-                    after.updated_at == found.updated_at
-                    or map_visibility(found) != made
-                )
-            ):
-                entry.map_snapshot = map_state(after)
+            unsure = _take_map_version(entry, left, stamp)
             _shared(entry, map_id, new, gone, added=added)
             ctx.save()
-            found = after
+            if unsure:
+                return [unsure]
+            found = get_map(ctx.geolens, map_id)
     current = map_visibility(found)
     if current != wanted:
         return [
@@ -954,35 +949,84 @@ def _record_share(
     record(entry, dataset_id, after)
 
 
+def _share_new_map(
+    ctx: MigrationContext, entry: ItemState, map_id: str, new: set[str]
+) -> None:
+    """Give the map the import made its groups while it is as the import left
+    it, recording the version GeoLens answered the write with."""
+    from .arcgis_migrate_webmaps import no_baseline
+
+    left = entry.map_snapshot
+    if left is None:
+        raise ItemFailed(no_baseline(map_id))
+    shared = _share_map(ctx, map_id, new, set(), left)
+    if shared is None:
+        raise ItemFailed(
+            f"map {map_id} was changed in GeoLens since it was imported; it was "
+            "left as it is"
+        )
+    added, stamp = shared
+    _shared(entry, map_id, new, set(), added=added)
+    _take_map_version(entry, left, stamp)
+    ctx.save()
+
+
+def _take_map_version(
+    entry: ItemState, left: Mapping[str, Any], stamp: str | None
+) -> str | None:
+    """Record the map at *stamp*, the ``updated_at`` GeoLens answered this
+    command's conditional write with; with none, keep *left* and say why."""
+    if stamp is None:
+        note = (
+            "GeoLens didn't say how sharing left its map, so a later change to "
+            "the map can't be told from this one; upgrade GeoLens to 1.30 or newer"
+        )
+        if note not in entry.notes:
+            entry.notes.append(note)
+        return note
+    entry.map_snapshot = {**left, "updated_at": stamp}
+    return None
+
+
 def _share_map(
     ctx: MigrationContext,
     map_id: str,
     new: set[str],
     gone: set[str],
-    left: Mapping[str, Any] | None = None,
-) -> set[str] | None:
-    """Share the map with its current groups plus *new* minus *gone*; the
-    groups the write added. With *left*, the map as this command left it,
-    nothing is written and None returned once the map no longer matches."""
+    left: Mapping[str, Any],
+) -> tuple[set[str], str | None] | None:
+    """Share the map with its current groups plus *new* minus *gone* while it
+    is as this command left it (*left*): the groups the write added, and the
+    map's ``updated_at`` as GeoLens answered it (None when it didn't say).
+    The write names *left*'s ``updated_at``; nothing is written and None
+    returned once the map no longer matches."""
     from geolens.api.maps import set_map_groups_endpoint_maps_map_id_groups_put as put
     from geolens.models.map_groups_update import MapGroupsUpdate
 
     from .arcgis_migrate_webmaps import get_map, map_state
 
     read = get_map(ctx.geolens, map_id)
-    if left is not None and map_state(read) != left:
+    if map_state(read) != left:
         return None
     current = _dataset_groups(read)
     groups = (current | new) - gone
     if groups == current:
-        return set()
+        return set(), read.updated_at.isoformat()
     # Each layer's dataset is shared as its own plan item says, so layers
     # a group can't read stay hidden from it rather than being widened.
-    ctx.geolens.call(
-        put.sync_detailed,
-        map_id=UUID(map_id),
-        body=MapGroupsUpdate(
-            group_ids=[UUID(g) for g in sorted(groups)], confirm="map_only"
-        ),
-    )
-    return groups - current
+    body = {
+        "group_ids": sorted(groups),
+        "confirm": "map_only",
+        "expected_updated_at": left["updated_at"],
+    }
+    try:
+        answer = ctx.geolens.write(
+            put.sync_detailed,
+            during="its groups were written",
+            map_id=UUID(map_id),
+            body=MapGroupsUpdate.from_dict(body),
+        )
+    except WriteRaced:
+        return None
+    stamp = getattr(answer, "updated_at", None)
+    return groups - current, stamp.isoformat() if isinstance(stamp, datetime) else None

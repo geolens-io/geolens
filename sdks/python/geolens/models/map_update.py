@@ -10,7 +10,9 @@ from ..types import UNSET, Unset
 
 from ..models.map_visibility import check_map_visibility
 from ..models.map_visibility import MapVisibility
+from dateutil.parser import isoparse
 from typing import cast
+import datetime
 
 if TYPE_CHECKING:
     from ..models.basemap_config import BasemapConfig
@@ -50,6 +52,9 @@ class MapUpdate:
         plugins (list[str] | None | Unset): Enabled plugin IDs, e.g. ['measurement']
         legend_title (None | str | Unset): Custom map-level legend title. Null or empty leaves the legend without a
             heading override. At most 120 characters.
+        expected_updated_at (datetime.datetime | None | Unset): The map's `updated_at` the caller read. When set and the
+            map has changed since, nothing is written and the answer is 409 with `detail.code` `stale_write`. Omit it to
+            write unconditionally.
     """
 
     name: None | str | Unset = UNSET
@@ -70,6 +75,7 @@ class MapUpdate:
     layers: list[MapLayerInput] | None | Unset = UNSET
     plugins: list[str] | None | Unset = UNSET
     legend_title: None | str | Unset = UNSET
+    expected_updated_at: datetime.datetime | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -202,6 +208,14 @@ class MapUpdate:
         else:
             legend_title = self.legend_title
 
+        expected_updated_at: None | str | Unset
+        if isinstance(self.expected_updated_at, Unset):
+            expected_updated_at = UNSET
+        elif isinstance(self.expected_updated_at, datetime.datetime):
+            expected_updated_at = self.expected_updated_at.isoformat()
+        else:
+            expected_updated_at = self.expected_updated_at
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
@@ -241,6 +255,8 @@ class MapUpdate:
             field_dict["plugins"] = plugins
         if legend_title is not UNSET:
             field_dict["legend_title"] = legend_title
+        if expected_updated_at is not UNSET:
+            field_dict["expected_updated_at"] = expected_updated_at
 
         return field_dict
 
@@ -476,6 +492,27 @@ class MapUpdate:
 
         legend_title = _parse_legend_title(d.pop("legend_title", UNSET))
 
+        def _parse_expected_updated_at(
+            data: object,
+        ) -> datetime.datetime | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                expected_updated_at_type_0 = isoparse(data)
+
+                return expected_updated_at_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.datetime | None | Unset, data)
+
+        expected_updated_at = _parse_expected_updated_at(
+            d.pop("expected_updated_at", UNSET)
+        )
+
         map_update = cls(
             name=name,
             description=description,
@@ -495,6 +532,7 @@ class MapUpdate:
             layers=layers,
             plugins=plugins,
             legend_title=legend_title,
+            expected_updated_at=expected_updated_at,
         )
 
         map_update.additional_properties = d

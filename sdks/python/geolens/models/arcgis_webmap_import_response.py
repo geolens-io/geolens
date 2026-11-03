@@ -12,6 +12,7 @@ from typing import cast
 
 if TYPE_CHECKING:
     from ..models.arcgis_loss_report import ArcgisLossReport
+    from ..models.arcgis_translated_view import ArcgisTranslatedView
     from ..models.arcgis_unmatched_layer import ArcgisUnmatchedLayer
     from ..models.arcgis_webmap_import_response_layer_ids import (
         ArcgisWebmapImportResponseLayerIds,
@@ -33,6 +34,10 @@ class ArcgisWebmapImportResponse:
         unmatched_layers (list[ArcgisUnmatchedLayer]):
         layer_ids (ArcgisWebmapImportResponseLayerIds | Unset): Operational layer id to the id of the map layer created
             for it. Layers that were not imported are absent; see `loss_report`. Empty on a dry run.
+        layer_sources (list[str] | Unset): The operational layer id each entry of `layers` was translated from, in the
+            same order.
+        view (ArcgisTranslatedView | None | Unset): The initial view and basemap the map gets.
+        notes (None | str | Unset): The loss report as the import writes it to the map's notes.
     """
 
     map_: MapResponse | None
@@ -40,9 +45,13 @@ class ArcgisWebmapImportResponse:
     loss_report: ArcgisLossReport
     unmatched_layers: list[ArcgisUnmatchedLayer]
     layer_ids: ArcgisWebmapImportResponseLayerIds | Unset = UNSET
+    layer_sources: list[str] | Unset = UNSET
+    view: ArcgisTranslatedView | None | Unset = UNSET
+    notes: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.arcgis_translated_view import ArcgisTranslatedView
         from ..models.map_response import MapResponse
 
         map_: dict[str, Any] | None
@@ -67,6 +76,24 @@ class ArcgisWebmapImportResponse:
         if not isinstance(self.layer_ids, Unset):
             layer_ids = self.layer_ids.to_dict()
 
+        layer_sources: list[str] | Unset = UNSET
+        if not isinstance(self.layer_sources, Unset):
+            layer_sources = self.layer_sources
+
+        view: dict[str, Any] | None | Unset
+        if isinstance(self.view, Unset):
+            view = UNSET
+        elif isinstance(self.view, ArcgisTranslatedView):
+            view = self.view.to_dict()
+        else:
+            view = self.view
+
+        notes: None | str | Unset
+        if isinstance(self.notes, Unset):
+            notes = UNSET
+        else:
+            notes = self.notes
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -79,12 +106,19 @@ class ArcgisWebmapImportResponse:
         )
         if layer_ids is not UNSET:
             field_dict["layer_ids"] = layer_ids
+        if layer_sources is not UNSET:
+            field_dict["layer_sources"] = layer_sources
+        if view is not UNSET:
+            field_dict["view"] = view
+        if notes is not UNSET:
+            field_dict["notes"] = notes
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.arcgis_loss_report import ArcgisLossReport
+        from ..models.arcgis_translated_view import ArcgisTranslatedView
         from ..models.arcgis_unmatched_layer import ArcgisUnmatchedLayer
         from ..models.arcgis_webmap_import_response_layer_ids import (
             ArcgisWebmapImportResponseLayerIds,
@@ -134,12 +168,43 @@ class ArcgisWebmapImportResponse:
         else:
             layer_ids = ArcgisWebmapImportResponseLayerIds.from_dict(_layer_ids)
 
+        layer_sources = cast(list[str], d.pop("layer_sources", UNSET))
+
+        def _parse_view(data: object) -> ArcgisTranslatedView | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                view_type_0 = ArcgisTranslatedView.from_dict(data)
+
+                return view_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(ArcgisTranslatedView | None | Unset, data)
+
+        view = _parse_view(d.pop("view", UNSET))
+
+        def _parse_notes(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        notes = _parse_notes(d.pop("notes", UNSET))
+
         arcgis_webmap_import_response = cls(
             map_=map_,
             layers=layers,
             loss_report=loss_report,
             unmatched_layers=unmatched_layers,
             layer_ids=layer_ids,
+            layer_sources=layer_sources,
+            view=view,
+            notes=notes,
         )
 
         arcgis_webmap_import_response.additional_properties = d

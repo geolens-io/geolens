@@ -904,3 +904,79 @@ def test_an_editor_rerun_reports_an_arcgis_change_its_target_owner_overrides(
         {"item": L1, "portal_owner": "agol_bob", "owner": "erin"}
     ]
     assert _state(tmp_path)["items"][L1]["portal_owner"] == "agol_alice"
+
+
+def test_an_editors_map_edited_after_a_partial_import_is_not_taken_as_theirs(
+    runner, tmp_path, editor, monkeypatch
+):
+    map_id = _created_id(M1)
+    _allow_transfers(editor, map_ids=(map_id,))
+    imported = {"owner": ERIN, "updated_at": READ_AT}
+    attempts = []
+
+    def import_map(ctx, item, entry):
+        # The map is made and recorded, then its loss report can't be written.
+        entry.map_id = map_id
+        entry.map_snapshot = imported
+        attempts.append(item["id"])
+        if len(attempts) == 1:
+            raise migrate.ItemFailed("writing the loss report failed: disk full")
+        return migrate.ItemResult()
+
+    monkeypatch.setitem(migrate.HANDLERS, "import_map", import_map)
+    plan = _plan([_item(M1, "import_map")], OWN)
+    assert _run(runner, tmp_path, plan)[0].exit_code == 1
+    editor.routes[f"GET /maps/{map_id}"] = {
+        **_map(map_id, ERIN),
+        "updated_at": "2026-10-05T00:00:00Z",
+    }
+
+    result, _ = _run(runner, tmp_path, plan)
+
+    entry = _state(tmp_path)["items"][M1]
+    assert result.exit_code == 1
+    assert entry["status"] == "failed"
+    assert "changed in GeoLens since it was imported" in entry["error"]
+    assert entry["map_snapshot"] == imported
+
+
+def test_an_editors_map_without_a_recorded_baseline_is_reported_not_adopted(
+    runner, tmp_path, editor, ran
+):
+    map_id = _created_id(M1)
+    _allow_transfers(editor, map_ids=(map_id,))
+    _write_state(
+        tmp_path,
+        {M1: {"status": "failed", "error": "boom", "map_id": map_id}},
+    )
+
+    result, _ = _run(runner, tmp_path, _plan([_item(M1, "import_map")], OWN))
+
+    entry = _state(tmp_path)["items"][M1]
+    assert result.exit_code == 1
+    assert entry["status"] == "failed"
+    assert f"map {map_id} has no recorded baseline" in entry["error"]
+    assert entry.get("map_snapshot") is None
+
+
+def test_a_retried_import_without_a_baseline_shares_nothing(
+    runner, tmp_path, editor, ran, monkeypatch
+):
+    map_id = _created_id(M1)
+    _allow_transfers(editor, map_ids=(map_id,))
+    editor.routes["GET /groups/mine/"] = {
+        "groups": [{"id": TEAM, "name": "Roads Team"}],
+        "total": 1,
+    }
+    _team_inventory(monkeypatch)
+    item = {**_restricted(M1, "g1"), "action": "import_map", "type": "Web Map"}
+    _write_state(
+        tmp_path, {M1: {"status": "failed", "error": "boom", "map_id": map_id}}
+    )
+
+    result, _ = _run(runner, tmp_path, _group_plan(item))
+
+    assert result.exit_code == 1
+    assert [s for s in editor.seen if s.method == "PUT"] == []
+    entry = _state(tmp_path)["items"][M1]
+    assert f"map {map_id} has no recorded baseline" in entry["error"]

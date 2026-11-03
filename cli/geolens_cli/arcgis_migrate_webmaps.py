@@ -6,7 +6,8 @@ operational layers to the datasets the run imported for the services they
 point at, fills in the renderer of each layer the web map leaves to its source,
 and has GeoLens translate it into a map. The layer-to-map-layer ids
 GeoLens returns are kept in the item's state, and the loss report is written
-next to the state file.
+next to the state file. A rerun translates a web map the portal changed again,
+into the same map, while the map is as this command left it.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ from .arcgis_migrate_session import (
     ItemResult,
     MigrationContext,
     StopRun,
+    WriteRaced,
 )
 from .arcgis_plan import IMPORT_MAP
 from .arcgis_migrate_state import DONE, EXISTS, FINISHED, ItemState, whole_number
@@ -55,6 +57,26 @@ _THUMBNAIL_TYPES = {b"\x89PNG\r\n\x1a\n": "image/png", b"\xff\xd8\xff": "image/j
 # max_length of 100,000 characters.
 _THUMBNAIL_MAX_BYTES = (100_000 - len("data:image/jpeg;base64,")) // 4 * 3
 _THUMBNAIL_NOTE = "the web map's thumbnail was not carried over"
+_UNMATCHED_NOTE = "layer(s) not imported"
+_LOST_NOTE = "part(s) of the web map were not carried over"
+_NO_VIEW_NOTE = (
+    "the web map no longer has an initial view; the GeoLens map keeps its view"
+)
+_NEEDS_NEWER = (
+    "the web map changed in the portal, and re-translating needs GeoLens and the "
+    "geolens package 1.30 or newer; upgrade them or update the map by hand"
+)
+_UNREADABLE_NOTE = (
+    "layers not translated again because this account can't read their "
+    "datasets, so their map layers were left as they are"
+)
+# How many layers a map may hold, as PUT /maps/{id} caps them.
+_MAX_LAYERS = 200
+# What a map's notes may hold, as PUT /maps/{id} caps them.
+_MAP_NOTES_MAX = 50_000
+_NOTES_CUT = "... more entries in the CLI report"
+# The notes _finish_loss writes, which a new translation replaces.
+_LOSS_NOTE = re.compile(rf"\d+ ({re.escape(_UNMATCHED_NOTE)}|{re.escape(_LOST_NOTE)})")
 
 
 def _walk(layers: Any) -> list[Mapping[str, Any]]:
@@ -368,6 +390,13 @@ def map_state(found: Any) -> dict[str, str]:
     return {"owner": str(found.created_by), "updated_at": found.updated_at.isoformat()}
 
 
+def no_baseline(map_id: str) -> str:
+    return (
+        f"map {map_id} has no recorded baseline, so a change made in GeoLens "
+        "can't be ruled out; update it by hand, or rerun after checking it"
+    )
+
+
 def map_visibility(found: Any) -> str:
     return str(getattr(found.visibility, "value", found.visibility))
 
@@ -411,11 +440,20 @@ def _map_problem(
 def refresh_map(
     ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
 ) -> list[str]:
-    """Why a migrated web map may not match its portal item: gone from
-    GeoLens, shared differently than the plan says in a way its groups can't
-    settle, changed in the portal since it was read for the import, or with no
-    way to tell. A web map isn't translated again; the operator updates the
-    GeoLens map. A map with no thumbnail gets the item's."""
+    """Write a loss report an earlier run left pending, translate a web map
+    the portal changed since it was last read into its GeoLens map again, and
+    give a map with no thumbnail the item's.
+
+    Returns why the map may not match its portal item: gone from GeoLens,
+    shared differently than the plan says in a way its groups can't settle,
+    changed in GeoLens, with no way to tell, or its loss report unwritten."""
+    unwritten = _resume_loss(ctx, item["id"], entry) if entry.pending_loss else None
+    return [*([unwritten] if unwritten else []), *_check_map(ctx, item, entry)]
+
+
+def _check_map(
+    ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
+) -> list[str]:
     problem, found = _map_problem(ctx, item, entry)
     if problem:
         return [problem]
@@ -446,12 +484,345 @@ def refresh_map(
             "the state doesn't record when the web map was read for its import, so "
             "a change since can't be ruled out; compare the GeoLens map by hand"
         ]
-    if modified > recorded:
-        return [
-            "the web map changed in the portal since it was migrated; web maps "
-            "aren't translated again, so update the GeoLens map by hand"
-        ]
+    # A translation that left layers out is tried again until none is.
+    if modified > recorded or entry.skipped_layers:
+        problem = _translate_again(ctx, item, entry, found, modified)
+        return [problem] if problem else []
     return []
+
+
+def _translate_again(
+    ctx: MigrationContext,
+    item: Mapping[str, Any],
+    entry: ItemState,
+    found: Any,
+    modified: int,
+) -> str | None:
+    """Translate the changed web map into its GeoLens map in place; why it
+    wasn't, or None.
+
+    Only a map as this command last left it is written, and the save names the
+    ``updated_at`` recorded then, so GeoLens refuses it after any edit made
+    since. A translated layer keeps the map layer made for its operational
+    layer.
+    """
+    from geolens.api.maps import (
+        import_arcgis_webmap_endpoint_maps_import_arcgis_webmap_post as import_webmap,
+        update_map_endpoint_maps_map_id_put as put_map,
+    )
+    from geolens.models.map_update import MapUpdate
+
+    try:
+        from geolens.models.arcgis_translated_view import ArcgisTranslatedView
+    except ImportError:
+        return _NEEDS_NEWER
+    seen = entry.map_snapshot
+    if seen is None:
+        return (
+            "the web map changed in the portal, and the state doesn't record how "
+            "this command left its GeoLens map; update the map by hand"
+        )
+    if map_state(found) != seen:
+        return (
+            "the web map changed in the portal, and its GeoLens map was changed "
+            "in GeoLens since the last run; it was left as it is"
+        )
+    try:
+        webmap = _fetch(ctx, item["id"])
+        matches = match_datasets(ctx, webmap)
+        # GeoLens refuses a translation naming a dataset the caller can't
+        # read, and keeps the map layers it hides from the caller.
+        readable = _readable_matches(ctx, matches)
+        body = _import_body(ctx, item, webmap, dry_run=True, matches=readable)
+        with long_request_timeout(ctx.geolens.client):
+            result = ctx.geolens.call(
+                import_webmap.sync_detailed, expected=201, body=body
+            )
+    except (ItemFailed, GeoLensError) as exc:
+        return f"translating the changed web map again failed, {exc}"
+    # An older SDK leaves fields it doesn't know out of the model.
+    sources = getattr(result, "layer_sources", None)
+    if (
+        not isinstance(getattr(result, "view", None), ArcgisTranslatedView)
+        or not isinstance(getattr(result, "notes", None), str)
+        or not isinstance(sources, list)
+        or len(sources) != len(result.layers)
+    ):
+        return _NEEDS_NEWER
+    translated = [
+        {
+            **layer.to_dict(),
+            **({"id": entry.layer_ids[s]} if s in entry.layer_ids else {}),
+        }
+        for layer, s in zip(result.layers, sources)
+    ]
+    kept = _kept_rows(entry, found, set(matches) - set(readable))
+    pairs = list(zip(sources, translated))
+    # A save holds every layer it names and the rows it keeps hidden from the
+    # saver, within the map's cap; the translation gives up its last layers.
+    # Leaving out a layer with a hidden row keeps that row, so each cut is
+    # counted again.
+    room = len(pairs)
+    while (
+        room
+        and room + len(kept) + _hidden_rows(entry, found, [s for s, _ in pairs[:room]])
+        > _MAX_LAYERS
+    ):
+        room -= 1
+    pairs, capped = pairs[:room], pairs[room:]
+    capped_losses = [
+        {
+            "path": f"operationalLayers[id={source}]",
+            "kind": "layer_cap",
+            "detail": layer.get("display_name") or source,
+        }
+        for source, layer in capped
+    ]
+    sources, layers = _with_kept_rows(pairs, kept, _layer_order(webmap))
+    # A save skips a null center or zoom, since clients send null for a camera
+    # they didn't read, so the map keeps its last view and the notes say so.
+    kept_view = None in (
+        result.view.center_lng,
+        result.view.center_lat,
+        result.view.zoom,
+    )
+    notes = _fit_notes(
+        result.notes
+        + "".join(
+            f"\n- {c['path']}: {c['kind']} ({c['detail']})" for c in capped_losses
+        ),
+        f"\n- {_NO_VIEW_NOTE}" if kept_view else "",
+    )
+    try:
+        saved = ctx.geolens.write(
+            put_map.sync_detailed,
+            during="the web map was translated again",
+            map_id=UUID(entry.map_id or ""),
+            body=MapUpdate.from_dict(
+                {
+                    **result.view.to_dict(),
+                    # An unrotated web map leaves the bearing unset, which the
+                    # save would skip and so keep an earlier rotation; without
+                    # a view at all the map keeps its rotation with its view.
+                    "bearing": result.view.bearing
+                    if kept_view
+                    else result.view.bearing or 0.0,
+                    "notes": notes,
+                    "layers": layers,
+                    "expected_updated_at": seen["updated_at"],
+                }
+            ),
+        )
+    except WriteRaced as exc:
+        return str(exc)
+    except GeoLensError as exc:
+        return f"saving the web map's new translation failed, {exc}"
+    entry.map_snapshot = map_state(saved)
+    skipped = sorted(set(matches) - set(readable))
+    entry.skipped_layers = skipped
+    entry.notes = [
+        *(
+            n
+            for n in entry.notes
+            if n != _NO_VIEW_NOTE and not n.startswith(_UNREADABLE_NOTE)
+        ),
+        *([_NO_VIEW_NOTE] if kept_view else []),
+        *([f"{_UNREADABLE_NOTE}: {', '.join(skipped)}"] if skipped else []),
+    ]
+    entry.layer_ids = _saved_layer_ids(
+        entry.layer_ids, layers, sources, found, saved.layers
+    )
+    entry.portal_modified = modified
+    entry.pending_loss = _pending_loss(result, capped_losses)
+    entry.loss_report_path = None
+    ctx.save()
+    return _resume_loss(ctx, item["id"], entry)
+
+
+# What PUT /maps/{id} takes of a map layer.
+_LAYER_INPUT_KEYS = frozenset(
+    {
+        "id",
+        "dataset_id",
+        "sort_order",
+        "visible",
+        "opacity",
+        "paint",
+        "layout",
+        "layer_type",
+        "display_name",
+        "filter",
+        "label_config",
+        "popup_config",
+        "style_config",
+        "show_in_legend",
+    }
+)
+
+
+def _hidden_rows(entry: ItemState, before: Any, sending: Sequence[str]) -> int:
+    """How many recorded map layers the saver couldn't read *before* the save
+    and the save doesn't name, which it keeps."""
+    readable = {str(row.id) for row in getattr(before, "layers", None) or []}
+    return sum(
+        1
+        for source, layer_id in entry.layer_ids.items()
+        if layer_id not in readable and source not in sending
+    )
+
+
+def _kept_rows(
+    entry: ItemState, before: Any, skipped: set[str]
+) -> dict[str, dict[str, Any]]:
+    """The map layers recorded for the *skipped* operational layers that the
+    saver could read *before* the save, as a save sends them unchanged; a
+    full save deletes a readable row it doesn't name."""
+    rows = {str(row.id): row for row in getattr(before, "layers", None) or []}
+    return {
+        source: {
+            key: value
+            for key, value in rows[entry.layer_ids[source]].to_dict().items()
+            if key in _LAYER_INPUT_KEYS
+        }
+        for source in skipped
+        if entry.layer_ids.get(source) in rows
+    }
+
+
+def _layer_order(webmap: Mapping[str, Any]) -> dict[str, int]:
+    """Operational layer id -> its place in the web map, keyed as the
+    translator keys layers: the string id of a layer it translates, at its
+    first such occurrence."""
+    place: dict[str, int] = {}
+    for n, layer in enumerate(_walk(webmap.get("operationalLayers"))):
+        layer_id = layer.get("id")
+        if isinstance(layer_id, str) and _translatable(layer):
+            place.setdefault(layer_id, n)
+    return place
+
+
+def _with_kept_rows(
+    translated: list[tuple[str, dict[str, Any]]],
+    kept: Mapping[str, dict[str, Any]],
+    place: Mapping[str, int],
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """The layers a save sends and their operational layers: the translated
+    ones in their order, each *kept* row placed where its operational layer
+    stands in the web map (*place*), numbered in turn."""
+    end = max(place.values(), default=0) + 1
+    pairs = list(translated)
+    for source, layer in sorted(kept.items(), key=lambda k: place.get(k[0], end)):
+        at = place.get(source, end)
+        index = next(
+            (n for n, (s, _) in enumerate(pairs) if place.get(s, end) > at),
+            len(pairs),
+        )
+        pairs.insert(index, (source, layer))
+    return [source for source, _ in pairs], [
+        {**layer, "sort_order": n} for n, (_, layer) in enumerate(pairs)
+    ]
+
+
+def _readable_matches(
+    ctx: MigrationContext, matches: Mapping[str, str]
+) -> dict[str, str]:
+    """The *matches* whose dataset the run's account can read."""
+    from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get as get
+
+    readable: dict[str, bool] = {}
+    for dataset_id in set(matches.values()):
+        try:
+            ctx.geolens.call(get.sync_detailed, dataset_id=UUID(dataset_id))
+        except GeoLensError as exc:
+            if exc.status != 404:
+                raise
+            readable[dataset_id] = False
+        else:
+            readable[dataset_id] = True
+    return {layer: d for layer, d in matches.items() if readable[d]}
+
+
+def _fit_notes(notes: str, tail: str) -> str:
+    """*notes* with *tail* after them, the loss lines cut to whole lines when
+    both don't fit in a map's notes."""
+    if len(notes) + len(tail) > _MAP_NOTES_MAX:
+        cut = f"\n{_NOTES_CUT}"
+        notes = notes[: _MAP_NOTES_MAX - len(tail) - len(cut)].rsplit("\n", 1)[0] + cut
+    return notes + tail
+
+
+def _saved_layer_ids(
+    recorded: Mapping[str, str],
+    sent: Sequence[Mapping[str, Any]],
+    sources: Sequence[str],
+    before: Any,
+    saved: Sequence[Any],
+) -> dict[str, str]:
+    """Operational layer id -> the map layer the save left for it.
+
+    A layer sent with an id the answer lists keeps it. Every other row the
+    answer lists is one the save created: for each layer sent without an id,
+    and for each sent with one that no longer named a row when the counts say
+    so; otherwise a sent id the answer leaves out names a row hidden from the
+    saver, which keeps it. Created rows pair by position, and none is
+    recorded when the counts fit neither case. A recorded layer this save
+    didn't send keeps its entry only while the saver couldn't read it in the
+    map *before* the save, since the save keeps such a row and deletes the
+    rest.
+    """
+    listed = [str(layer.id) for layer in saved]
+    readable = {str(layer.id) for layer in getattr(before, "layers", None) or []}
+    ids = {
+        source: layer_id
+        for source, layer_id in recorded.items()
+        if source not in sources and layer_id not in readable
+    }
+    updated = {
+        source: layer["id"]
+        for layer, source in zip(sent, sources)
+        if layer.get("id") in listed
+    }
+    ids.update(updated)
+    created = [i for i in listed if i not in updated.values()]
+    unpaired = [source for source in sources if source not in updated]
+    idless = [s for layer, s in zip(sent, sources) if not layer.get("id")]
+    if len(created) == len(unpaired):
+        ids.update(zip(unpaired, created))
+    elif len(created) == len(idless):
+        # Every id the answer left out still names its row, hidden from the
+        # saver; only the layers sent without one were created.
+        ids.update(
+            (s, layer["id"])
+            for layer, s in zip(sent, sources)
+            if layer.get("id") and s not in updated
+        )
+        ids.update(zip(idless, created))
+    return ids
+
+
+def _resume_loss(ctx: MigrationContext, item_id: str, entry: ItemState) -> str | None:
+    """Write the pending loss report and give the item its notes in place of
+    the earlier translation's; why it wasn't written, or None."""
+    try:
+        _finish_loss(ctx, item_id, entry, replace_notes=True)
+    except ItemFailed as exc:
+        return f"{exc}; a rerun tries again"
+    return None
+
+
+def _remove_loss(ctx: MigrationContext, item_id: str) -> None:
+    """Remove an earlier loss report, which a translation with no losses
+    leaves out of date."""
+    if ctx.export_dir is None:
+        return
+    try:
+        (ctx.export_dir.parent / LOSS_DIRNAME / f"{item_id}.json").unlink(
+            missing_ok=True
+        )
+    except OSError as exc:
+        raise ItemFailed(
+            f"removing the earlier loss report failed: {exc.strerror or exc}"
+        ) from None
 
 
 def _write_loss(ctx: MigrationContext, item_id: str, report: Any) -> str:
@@ -470,6 +841,50 @@ def _write_loss(ctx: MigrationContext, item_id: str, report: Any) -> str:
     return path.as_posix()
 
 
+def _import_body(
+    ctx: MigrationContext,
+    item: Mapping[str, Any],
+    webmap: dict[str, Any],
+    *,
+    dry_run: bool = False,
+    matches: Mapping[str, str] | None = None,
+) -> Any:
+    """The import request for *webmap*, its layers matched to the run's
+    datasets (or to *matches*) and their source styling filled in."""
+    from geolens.models.arcgis_webmap_import_request import ArcgisWebmapImportRequest
+    from geolens.models.arcgis_webmap_import_request_basemap_map import (
+        ArcgisWebmapImportRequestBasemapMap,
+    )
+    from geolens.models.arcgis_webmap_import_request_dataset_matches import (
+        ArcgisWebmapImportRequestDatasetMatches,
+    )
+    from geolens.models.arcgis_webmap_import_request_webmap import (
+        ArcgisWebmapImportRequestWebmap,
+    )
+    from geolens.models.map_visibility import check_map_visibility
+
+    if matches is None:
+        matches = match_datasets(ctx, webmap)
+    fill_source_styling(ctx, webmap, matches)
+    title = item["target"]["title"] or item["title"]
+    visibility = item["target"]["visibility"]
+    return ArcgisWebmapImportRequest(
+        webmap=ArcgisWebmapImportRequestWebmap.from_dict(webmap),
+        name=title[:255],
+        title=item["title"][:255],
+        # A new map can't be restricted before it has groups; sharing it
+        # with them afterwards makes it restricted.
+        visibility=check_map_visibility(
+            "private" if visibility == "restricted" else visibility
+        ),
+        basemap_map=ArcgisWebmapImportRequestBasemapMap.from_dict(
+            _basemap_entries(ctx, webmap)
+        ),
+        dataset_matches=ArcgisWebmapImportRequestDatasetMatches.from_dict(matches),
+        dry_run=dry_run,
+    )
+
+
 def import_map(
     ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
 ) -> ItemResult:
@@ -485,38 +900,9 @@ def import_map(
     from geolens.api.maps import (
         import_arcgis_webmap_endpoint_maps_import_arcgis_webmap_post as import_webmap,
     )
-    from geolens.models.arcgis_webmap_import_request import ArcgisWebmapImportRequest
-    from geolens.models.arcgis_webmap_import_request_basemap_map import (
-        ArcgisWebmapImportRequestBasemapMap,
-    )
-    from geolens.models.arcgis_webmap_import_request_dataset_matches import (
-        ArcgisWebmapImportRequestDatasetMatches,
-    )
-    from geolens.models.arcgis_webmap_import_request_webmap import (
-        ArcgisWebmapImportRequestWebmap,
-    )
-    from geolens.models.map_visibility import check_map_visibility
 
     info = _read_item(ctx, item["id"])
-    webmap = _fetch(ctx, item["id"])
-    matches = match_datasets(ctx, webmap)
-    fill_source_styling(ctx, webmap, matches)
-    title = item["target"]["title"] or item["title"]
-    visibility = item["target"]["visibility"]
-    body = ArcgisWebmapImportRequest(
-        webmap=ArcgisWebmapImportRequestWebmap.from_dict(webmap),
-        name=title[:255],
-        title=item["title"][:255],
-        # A new map can't be restricted before it has groups; sharing it
-        # with them afterwards makes it restricted.
-        visibility=check_map_visibility(
-            "private" if visibility == "restricted" else visibility
-        ),
-        basemap_map=ArcgisWebmapImportRequestBasemapMap.from_dict(
-            _basemap_entries(ctx, webmap)
-        ),
-        dataset_matches=ArcgisWebmapImportRequestDatasetMatches.from_dict(matches),
-    )
+    body = _import_body(ctx, item, _fetch(ctx, item["id"]))
     try:
         with long_request_timeout(ctx.geolens.client):
             result = ctx.geolens.call(
@@ -528,16 +914,16 @@ def import_map(
         raise ItemFailed(f"the web map import failed, {exc}") from None
 
     entry.map_id = str(result.map_.id)
+    # Recorded with the map, so a retry after a later step fails compares the
+    # map with the import's, never with what someone made of it meanwhile.
+    entry.map_snapshot = map_state(result.map_)
     entry.portal_modified = _modified(info)
     entry.layer_ids = {
         k: str(v) for k, v in result.layer_ids.additional_properties.items()
     }
     # Kept in the state until the loss report file is written, so a failed
     # write is finished on the rerun instead of dropping the losses.
-    entry.pending_loss = {
-        "loss_report": result.loss_report.to_dict(),
-        "unmatched_layers": [layer.to_dict() for layer in result.unmatched_layers],
-    }
+    entry.pending_loss = _pending_loss(result)
     ctx.save()
     thumbnail_notes = carry_thumbnail(ctx, item["id"], info, entry.map_id)
     finished = _finish_loss(ctx, item["id"], entry)
@@ -545,7 +931,33 @@ def import_map(
     return finished
 
 
-def _finish_loss(ctx: MigrationContext, item_id: str, entry: ItemState) -> ItemResult:
+def _pending_loss(
+    result: Any, extra: Sequence[Mapping[str, str]] = ()
+) -> dict[str, Any]:
+    """The translation's loss report, with *extra* losses added to it."""
+    report = result.loss_report.to_dict()
+    report["items"] = [*report.get("items", []), *extra]
+    summary = dict(report.get("summary") or {})
+    for loss in extra:
+        summary[loss["kind"]] = summary.get(loss["kind"], 0) + 1
+    report["summary"] = summary
+    return {
+        "loss_report": report,
+        "unmatched_layers": [layer.to_dict() for layer in result.unmatched_layers],
+    }
+
+
+def _finish_loss(
+    ctx: MigrationContext,
+    item_id: str,
+    entry: ItemState,
+    *,
+    replace_notes: bool = False,
+) -> ItemResult:
+    """Write the pending loss report, or remove an earlier one when nothing
+    was lost, and with *replace_notes* give the item the report's notes in
+    place of an earlier translation's. The report stays pending until all of
+    that is done, so a rerun finishes what a failure or interruption left."""
     payload = entry.pending_loss or {}
     notes: list[str] = []
     unmatched = [
@@ -556,14 +968,18 @@ def _finish_loss(ctx: MigrationContext, item_id: str, entry: ItemState) -> ItemR
         shown = ", ".join(unmatched[:_MAX_NOTE_LAYERS])
         more = len(unmatched) - _MAX_NOTE_LAYERS
         notes.append(
-            f"{len(unmatched)} layer(s) not imported: {shown}"
+            f"{len(unmatched)} {_UNMATCHED_NOTE}: {shown}"
             + (f" and {more} more" if more > 0 else "")
         )
     lost = payload.get("loss_report", {}).get("items", [])
     if lost:
-        notes.append(f"{len(lost)} part(s) of the web map were not carried over")
+        notes.append(f"{len(lost)} {_LOST_NOTE}")
     if lost or unmatched:
         entry.loss_report_path = _write_loss(ctx, item_id, payload)
+    else:
+        _remove_loss(ctx, item_id)
+    if replace_notes:
+        entry.notes = [*(n for n in entry.notes if not _LOSS_NOTE.match(n)), *notes]
     entry.pending_loss = None
     ctx.save()
     return ItemResult(status=DONE, notes=notes)

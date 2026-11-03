@@ -10,7 +10,10 @@ from ..types import UNSET, Unset
 
 from ..models.map_visibility import check_map_visibility
 from ..models.map_visibility import MapVisibility
+from dateutil.parser import isoparse
+from typing import cast
 from uuid import UUID
+import datetime
 
 if TYPE_CHECKING:
     from ..models.group_ref import GroupRef
@@ -31,12 +34,15 @@ class MapGroupsResponse:
         shared_dataset_ids (list[UUID] | Unset): Datasets this request shared with the map's new groups.
         hidden_layers (list[MapLayerAccessGap] | Unset): Layers that some of the map's new groups still can't read; the
             same shape a 409 lists under `detail.layers`.
+        updated_at (datetime.datetime | None | Unset): The map's `updated_at` after the change, which any change to its
+            groups moves.
     """
 
     visibility: MapVisibility
     groups: list[GroupRef]
     shared_dataset_ids: list[UUID] | Unset = UNSET
     hidden_layers: list[MapLayerAccessGap] | Unset = UNSET
+    updated_at: datetime.datetime | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -61,6 +67,14 @@ class MapGroupsResponse:
                 hidden_layers_item = hidden_layers_item_data.to_dict()
                 hidden_layers.append(hidden_layers_item)
 
+        updated_at: None | str | Unset
+        if isinstance(self.updated_at, Unset):
+            updated_at = UNSET
+        elif isinstance(self.updated_at, datetime.datetime):
+            updated_at = self.updated_at.isoformat()
+        else:
+            updated_at = self.updated_at
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -73,6 +87,8 @@ class MapGroupsResponse:
             field_dict["shared_dataset_ids"] = shared_dataset_ids
         if hidden_layers is not UNSET:
             field_dict["hidden_layers"] = hidden_layers
+        if updated_at is not UNSET:
+            field_dict["updated_at"] = updated_at
 
         return field_dict
 
@@ -111,11 +127,29 @@ class MapGroupsResponse:
 
                 hidden_layers.append(hidden_layers_item)
 
+        def _parse_updated_at(data: object) -> datetime.datetime | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                updated_at_type_0 = isoparse(data)
+
+                return updated_at_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.datetime | None | Unset, data)
+
+        updated_at = _parse_updated_at(d.pop("updated_at", UNSET))
+
         map_groups_response = cls(
             visibility=visibility,
             groups=groups,
             shared_dataset_ids=shared_dataset_ids,
             hidden_layers=hidden_layers,
+            updated_at=updated_at,
         )
 
         map_groups_response.additional_properties = d

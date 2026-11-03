@@ -16,9 +16,27 @@ and releases use semantic versioning.
   `manage_collections`, and an item shared only with ArcGIS groups goes to the
   matching groups the editor belongs to, or lands private. The report lists
   each. A plan that names another owner still needs an admin.
+- `PUT /maps/{map_id}/groups/` takes an optional `expected_updated_at`; a map
+  changed since that value answers `409` `stale_write` and nothing is written.
+  The answer also carries the map's `updated_at` after the change.
+- `PUT /maps/{map_id}` takes an optional `expected_updated_at`. When the map
+  changed since that value, nothing is written and the answer is `409` with
+  `detail.code` `stale_write`, as on `PATCH /maps/{map_id}`. Without it the
+  save is unconditional, as before.
+- `POST /maps/import/arcgis-webmap/` also returns `layer_sources` (the
+  operational layer each translated layer came from), `view` (initial view and
+  basemap) and `notes` (the loss report as the import writes it), on a dry run
+  too. `geolens arcgis migrate` uses them to translate a web map the portal
+  changed again into the same GeoLens map on a rerun, keeping its layer ids,
+  unless the map was changed in GeoLens since the last run.
 
 ### Changed
 
+- A map's `updated_at` now moves when only its layers or its groups change
+  (a layer added, edited, reordered or removed, or a group shared or
+  unshared), so the gallery's "last updated" order and an
+  `expected_updated_at` see those edits. Thumbnail and preview captures
+  still leave it alone.
 - An ArcGIS layer that stores Z values keeps them on import and refresh: the
   query asks for `returnZ=true` and the staged table is 3D, while the map
   display copy stays 2D. A feature without Z in such a layer gets Z 0. Layers

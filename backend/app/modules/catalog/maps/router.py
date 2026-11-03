@@ -540,6 +540,7 @@ async def update_map_endpoint(
         kwargs["basemap_config"] = body.basemap_config.model_dump(mode="json")
     if "layers" in kwargs and body.layers is not None:
         kwargs["layers"] = [layer.model_dump() for layer in body.layers]
+    kwargs["expected_updated_at"] = body.expected_updated_at
 
     try:
         map_obj, layer_tuples, forked_name, owner_username = await update_map(

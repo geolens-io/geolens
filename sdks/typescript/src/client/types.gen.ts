@@ -1045,6 +1045,42 @@ export type ArcgisLossReport = {
 };
 
 /**
+ * ArcgisTranslatedView
+ */
+export type ArcgisTranslatedView = {
+    /**
+     * Basemap Style
+     *
+     * The GeoLens basemap id.
+     */
+    basemap_style: string | null;
+    /**
+     * Center Lng
+     *
+     * Initial center longitude.
+     */
+    center_lng: number | null;
+    /**
+     * Center Lat
+     *
+     * Initial center latitude.
+     */
+    center_lat: number | null;
+    /**
+     * Zoom
+     *
+     * Initial zoom level.
+     */
+    zoom: number | null;
+    /**
+     * Bearing
+     *
+     * Initial rotation in degrees.
+     */
+    bearing: number | null;
+};
+
+/**
  * ArcgisUnmatchedLayer
  */
 export type ArcgisUnmatchedLayer = {
@@ -1147,6 +1183,22 @@ export type ArcgisWebmapImportResponse = {
      * Unmatched Layers
      */
     unmatched_layers: Array<ArcgisUnmatchedLayer>;
+    /**
+     * Layer Sources
+     *
+     * The operational layer id each entry of `layers` was translated from, in the same order.
+     */
+    layer_sources?: Array<string>;
+    /**
+     * The initial view and basemap the map gets.
+     */
+    view?: ArcgisTranslatedView | null;
+    /**
+     * Notes
+     *
+     * The loss report as the import writes it to the map's notes.
+     */
+    notes?: string | null;
 };
 
 /**
@@ -7495,6 +7547,12 @@ export type MapGroupsResponse = {
      * Layers that some of the map's new groups still can't read; the same shape a 409 lists under `detail.layers`.
      */
     hidden_layers?: Array<MapLayerAccessGap>;
+    /**
+     * Updated At
+     *
+     * The map's `updated_at` after the change, which any change to its groups moves.
+     */
+    updated_at?: string | null;
 };
 
 /**
@@ -7513,6 +7571,12 @@ export type MapGroupsUpdate = {
      * Required when the map would become restricted with layers some of its new groups can't read; without it the request answers 409 and lists them. `share_datasets` also shares each such dataset the caller may share with the groups that lack it; `map_only` leaves those layers hidden from them.
      */
     confirm?: 'share_datasets' | 'map_only' | null;
+    /**
+     * Expected Updated At
+     *
+     * The map's `updated_at` the caller read. When set and the map has changed since, its groups included, nothing is written and the answer is 409 with `detail.code` `stale_write`. Omit it to write unconditionally.
+     */
+    expected_updated_at?: string | null;
 };
 
 /**
@@ -8513,6 +8577,12 @@ export type MapUpdate = {
      * Custom map-level legend title. Null or empty leaves the legend without a heading override. At most 120 characters.
      */
     legend_title?: string | null;
+    /**
+     * Expected Updated At
+     *
+     * The map's `updated_at` the caller read. When set and the map has changed since, nothing is written and the answer is 409 with `detail.code` `stale_write`. Omit it to write unconditionally.
+     */
+    expected_updated_at?: string | null;
 };
 
 /**

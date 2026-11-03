@@ -160,7 +160,69 @@ class TestDryRun:
         assert data["map"] is None
         assert data["layer_ids"] == {}
         assert data["layers"][0]["dataset_id"] == str(ds.id)
+        assert data["layer_sources"] == ["a"]
+        assert data["view"]["basemap_style"] == "openfreemap-positron"
+        assert data["notes"].startswith("ArcGIS migration notes (")
         assert await _owned_maps(client, headers) == before
+
+    async def test_a_dry_run_gives_a_save_what_re_translates_the_map_in_place(
+        self, client: AsyncClient, test_db_session, editor
+    ) -> None:
+        headers, editor_id = editor
+        first = await create_dataset(test_db_session, created_by=editor_id)
+        second = await create_dataset(test_db_session, created_by=editor_id)
+        matches = {"a": first.id, "b": second.id}
+        imported = await client.post(
+            URL, json=_body(_webmap("a", "b"), matches), headers=headers
+        )
+        assert imported.status_code == 201, imported.text
+        created = imported.json()["map"]
+        layer_ids = imported.json()["layer_ids"]
+
+        changed = _webmap("b", "a", title="Renamed")
+        changed["initialState"] = {
+            "viewpoint": {
+                "targetGeometry": {
+                    "xmin": -75,
+                    "ymin": 40,
+                    "xmax": -73,
+                    "ymax": 41,
+                    "spatialReference": {"wkid": 4326},
+                }
+            }
+        }
+        resp = await client.post(
+            URL, json=_body(changed, matches, dry_run=True), headers=headers
+        )
+
+        assert resp.status_code == 201, resp.text
+        data = resp.json()
+        assert data["layer_sources"] == ["b", "a"]
+        assert data["notes"] == created["notes"]
+        assert data["view"]["basemap_style"] == created["basemap_style"]
+        assert data["view"]["center_lng"] == pytest.approx(-74)
+        layers = [
+            {**layer, "id": layer_ids[source]}
+            for layer, source in zip(data["layers"], data["layer_sources"])
+        ]
+        saved = await client.put(
+            f"/maps/{created['id']}",
+            json={
+                **data["view"],
+                "notes": data["notes"],
+                "layers": layers,
+                "expected_updated_at": created["updated_at"],
+            },
+            headers=headers,
+        )
+        assert saved.status_code == 200, saved.text
+        result = saved.json()
+        assert [layer["id"] for layer in result["layers"]] == [
+            layer_ids["b"],
+            layer_ids["a"],
+        ]
+        assert result["layers"][0]["display_name"] == "Renamed b"
+        assert result["center_lng"] == pytest.approx(-74)
 
 
 class TestCategoryTyping:

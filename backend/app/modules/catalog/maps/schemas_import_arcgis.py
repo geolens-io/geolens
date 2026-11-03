@@ -131,6 +131,14 @@ class ArcgisUnmatchedLayer(BaseModel):
     reason: str = Field(description="`no_match` or `invalid`.")
 
 
+class ArcgisTranslatedView(BaseModel):
+    basemap_style: str | None = Field(description="The GeoLens basemap id.")
+    center_lng: float | None = Field(description="Initial center longitude.")
+    center_lat: float | None = Field(description="Initial center latitude.")
+    zoom: float | None = Field(description="Initial zoom level.")
+    bearing: float | None = Field(description="Initial rotation in degrees.")
+
+
 class ArcgisWebmapImportResponse(BaseModel):
     map: MapResponse | None = Field(description="The new map; null on a dry run.")
     layers: list[MapLayerInput] = Field(
@@ -146,3 +154,18 @@ class ArcgisWebmapImportResponse(BaseModel):
     )
     loss_report: ArcgisLossReport
     unmatched_layers: list[ArcgisUnmatchedLayer]
+    # Optional, so a generated client still reads an older server's answer.
+    layer_sources: list[str] = Field(
+        default_factory=list,
+        description=(
+            "The operational layer id each entry of `layers` was translated "
+            "from, in the same order."
+        ),
+    )
+    view: ArcgisTranslatedView | None = Field(
+        default=None, description="The initial view and basemap the map gets."
+    )
+    notes: str | None = Field(
+        default=None,
+        description="The loss report as the import writes it to the map's notes.",
+    )
