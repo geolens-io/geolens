@@ -732,6 +732,19 @@ def _own_content_owners(
         and entry.owner_id
         and entry.owner_id != owner.id
     ]
+    # An admin run that held an item for an owner it couldn't reach: the plan
+    # now names the operator, who already has it, so the hold lapses.
+    waiting = [
+        item["id"]
+        for item in plan["items"]
+        if item["id"] not in running
+        and not item.get("removed")
+        and item["action"] in TRANSFER_PERMISSION
+        and (entry := state.items.get(item["id"])) is not None
+        and entry.status in FINISHED
+        and entry.owner_id == owner.id
+        and entry.owner_pending
+    ]
     return Owners(
         by_item={
             item["id"]: owner
@@ -743,6 +756,7 @@ def _own_content_owners(
         roles_checked=True,
         warnings=[],
         unresolved=unresolved,
+        waiting=waiting,
     )
 
 
@@ -961,16 +975,27 @@ def _sharing_target(
 
 
 def _keep_own(
-    ctx: MigrationContext, entry: ItemState, owner: Owner, fresh: list[str]
+    ctx: MigrationContext,
+    entry: ItemState,
+    owner: Owner,
+    revisions: Mapping[str, Any],
 ) -> None:
     """An editor's item stays with the operator: refuse one an earlier admin
     run already handed to someone else, and record the baselines a rerun's
-    sharing changes compare GeoLens to."""
+    sharing changes compare GeoLens to. A dataset *revisions* names, one this
+    import wrote, gets its baseline only while the operator or nobody wrote it
+    last and its data revision is the one captured before the writes, so a
+    concurrent edit is never taken as the import's."""
     for dataset_id in entry.dataset_ids:
         read = get_dataset(ctx, dataset_id)
         if str(read.created_by) != owner.id:
             raise ItemFailed(_not_yours(f"dataset {dataset_id}"))
-        if dataset_id in fresh:
+        if dataset_id in revisions:
+            if (
+                not operator_or_nobody_wrote_last(ctx, read)
+                or snapshot(read)["data_revision"] != revisions[dataset_id]
+            ):
+                raise changed_before_handover(dataset_id)
             record(entry, dataset_id, read)
     if entry.map_id:
         read = get_map(ctx.geolens, entry.map_id)
@@ -1012,7 +1037,7 @@ def _migrate_one(
             # Even to the operator: a run that failed part way may have handed
             # some of the item's objects to another owner already.
             if ctx.own_content:
-                _keep_own(ctx, entry, owner, fresh)
+                _keep_own(ctx, entry, owner, revisions)
             else:
                 transfer(ctx, entry, owner, revisions)
             entry.owner_id = owner.id
@@ -1721,7 +1746,7 @@ def _run(
         if editor:
             refusal = own_content_refusal(
                 me, plan, opts.unmapped_owner
-            ) or cannot_import(geolens)
+            ) or cannot_import(geolens, to_run)
             if refusal:
                 raise UsageError(refusal)
         emails = {

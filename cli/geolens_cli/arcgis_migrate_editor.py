@@ -64,21 +64,33 @@ def own_content_refusal(
     )
 
 
-def cannot_import(geolens: GeoLens) -> str | None:
-    """Why the operator's role can't import, or None. An unreadable role
-    matrix passes, since the server decides on every write."""
+def cannot_import(geolens: GeoLens, to_run: Iterable[Mapping[str, Any]]) -> str | None:
+    """Why the operator's role can't make what *to_run* imports, or None.
+    Each action needs its own permission; an export or a skip needs none. An
+    unreadable role matrix passes, since the server decides on every write."""
     from geolens.api.auth import me_permissions_auth_me_permissions_get as get
 
+    from .arcgis_migrate import TRANSFER_PERMISSION
+
+    needed = sorted(
+        {
+            TRANSFER_PERMISSION[item["action"]]
+            for item in to_run
+            if item["action"] in TRANSFER_PERMISSION and not item.get("unlisted")
+        }
+    )
     try:
         granted = geolens.call(get.sync_detailed).permissions.to_dict()
     except GeoLensError:
         return None
-    if granted.get("upload") is False:
-        return (
-            "migrate needs a GeoLens editor or admin session: this account's "
-            "role can't upload. Run `geolens login` as an editor or admin."
-        )
-    return None
+    missing = [p for p in needed if granted.get(p) is False]
+    if not missing:
+        return None
+    return (
+        "migrate needs a GeoLens editor or admin session: this account's role "
+        f"doesn't grant {', '.join(missing)}. Run `geolens login` as an editor "
+        "or admin."
+    )
 
 
 def _my_groups(geolens: GeoLens) -> list[Any]:

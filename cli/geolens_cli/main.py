@@ -2293,10 +2293,17 @@ def arcgis_migrate(
 ) -> None:
     """Migrate the items of a plan into GeoLens, resuming from the state file.
 
-    Needs a GeoLens admin session. Items are imported as you, in depends_on
-    order, then transferred to the owner the plan maps them to. A rerun also
-    brings the items migrated before up to date. Items that aren't public need
-    an ArcGIS token or a built-in account.
+    Needs a GeoLens admin session, except when the plan maps every item to
+    you: an editor then migrates their own content, with nothing transferred.
+    Items are imported as you, in depends_on order, then transferred to the
+    owner the plan maps them to. A rerun also brings the items migrated before
+    up to date. Items that aren't public need an ArcGIS token or a built-in
+    account.
+
+    As an editor, a public item under restrict_public_visibility becomes
+    internal, collections are skipped without manage_collections, and an item
+    shared only with ArcGIS groups goes to the matching GeoLens groups you
+    belong to, or becomes private. The report lists each.
     """
     state: AppState = ctx.obj
     accepted = {

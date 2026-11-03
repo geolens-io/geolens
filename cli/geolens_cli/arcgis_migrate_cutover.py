@@ -127,10 +127,14 @@ def groups_in_use(plan: Mapping[str, Any], state: MigrationState) -> set[str]:
 
 
 def sharing_losses(
-    plan: Mapping[str, Any], state: MigrationState, item: Mapping[str, Any]
+    plan: Mapping[str, Any],
+    state: MigrationState,
+    item: Mapping[str, Any],
+    prepared: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> list[str]:
     """Why a migrated item shared only with ArcGIS groups may reach fewer
-    people in GeoLens than in the portal."""
+    people in GeoLens than in the portal. *prepared* holds what this run
+    resolved for its groups, which a dry run doesn't record in the state."""
     entry = state.items.get(item["id"])
     if (
         item.get("removed")
@@ -142,8 +146,13 @@ def sharing_losses(
     plan_reason = _plan.possibly_under_shared(plan, item)
     out = [plan_reason] if plan_reason else []
     for group in item["target"]["groups"] or []:
-        made = current(state.groups.get(group))
-        if not in_use(made):
+        if prepared is not None and group in prepared:
+            made = prepared[group]
+            usable = bool(made.get("name"))
+        else:
+            made = current(state.groups.get(group))
+            usable = in_use(made)
+        if not usable:
             out.append(f"ArcGIS group {group} maps to no GeoLens group")
         elif made.get("members_unread"):
             out.append(
@@ -159,11 +168,15 @@ def sharing_losses(
     return out
 
 
-def _sharing(plan: Mapping[str, Any], state: MigrationState) -> list[dict[str, str]]:
+def _sharing(
+    plan: Mapping[str, Any],
+    state: MigrationState,
+    prepared: Mapping[str, Mapping[str, Any]] | None = None,
+) -> list[dict[str, str]]:
     return [
         {"item": item["id"], "reason": reason}
         for item in plan["items"]
-        for reason in sharing_losses(plan, state, item)
+        for reason in sharing_losses(plan, state, item, prepared)
     ]
 
 
@@ -315,6 +328,6 @@ def failing_checks(
         INVENTORY: _inventory(plan, inventory_changed),
         ATTACHMENTS: _attachments(plan, state),
         USERS: _users(plan, state, unresolved, prepared_groups),
-        SHARING: _sharing(plan, state),
+        SHARING: _sharing(plan, state, prepared_groups),
     }
     return [{"check": name, "items": found[name]} for name in CHECKS if found[name]]

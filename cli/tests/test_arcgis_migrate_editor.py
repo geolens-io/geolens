@@ -19,6 +19,7 @@ from .test_arcgis_migrate import (  # noqa: F401
     PORTAL,
     READ_AT,
     _allow_transfers as _allow_any,
+    _install,
     _dataset,
     _created_id,
     _item,
@@ -566,18 +567,8 @@ def test_an_editor_that_cant_match_an_admins_group_reports_the_lost_audience(
     assert payload["cutover"]["marked"] is False
 
 
-def test_an_admin_run_after_an_editor_run_recognises_the_group_it_made(
-    runner, tmp_path, editor, ran, monkeypatch
-):
-    dataset_id = _created_id(L1)
-    _team_inventory(monkeypatch, members=[])
-    _allow_transfers(editor, dataset_id)
-    _admin_made_group_state(tmp_path)
-    plan = _group_plan(_restricted(L1, "g1"))
-    result, _ = _run(runner, tmp_path, plan)
-    assert result.exit_code == 0, result.output
-    assert "effective" in _state(tmp_path)["groups"]["g1"]
-
+def _admin_routes(editor, dataset_id: str) -> None:
+    """Turn the fake instance into one an admin operator is signed in to."""
     users = [_user(OPERATOR, "operator", ["admin"]), _user(ERIN, "erin", ["editor"])]
     group = {
         "id": TEAM,
@@ -601,6 +592,21 @@ def test_an_admin_run_after_an_editor_run_recognises_the_group_it_made(
         }
     )
 
+
+def test_an_admin_run_after_an_editor_run_recognises_the_group_it_made(
+    runner, tmp_path, editor, ran, monkeypatch
+):
+    dataset_id = _created_id(L1)
+    _team_inventory(monkeypatch, members=[])
+    _allow_transfers(editor, dataset_id)
+    _admin_made_group_state(tmp_path)
+    plan = _group_plan(_restricted(L1, "g1"))
+    result, _ = _run(runner, tmp_path, plan)
+    assert result.exit_code == 0, result.output
+    assert "effective" in _state(tmp_path)["groups"]["g1"]
+
+    _admin_routes(editor, dataset_id)
+
     result, _ = _run(runner, tmp_path, plan)
 
     record = _state(tmp_path)["groups"]["g1"]
@@ -610,3 +616,194 @@ def test_an_admin_run_after_an_editor_run_recognises_the_group_it_made(
     assert [
         s for s in editor.seen if s.method == "POST" and "/admin/groups" in s.url
     ] == []
+
+
+def _sharing_reasons(payload: dict[str, Any]) -> str:
+    [check] = [c for c in payload["cutover"]["checks"] if c["check"] == "under-sharing"]
+    return " ".join(row["reason"] for row in check["items"])
+
+
+def _unchanged(path, run):
+    before = path.read_bytes()
+    result = run()
+    assert path.read_bytes() == before
+    return result
+
+
+def _state_with_group(tmp_path, group: dict[str, Any]) -> None:
+    (tmp_path / "arcgis-migration-state.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "1",
+                "portal_url": PORTAL,
+                "geolens_instance": GEOLENS_INSTANCE,
+                "items": {
+                    L1: {
+                        "status": "done",
+                        "dataset_ids": [_created_id(L1)],
+                        "owner_id": ERIN,
+                    }
+                },
+                "groups": {"g1": group},
+            }
+        )
+    )
+
+
+def test_an_editors_dry_run_cutover_sees_the_lost_audience_it_persists_nowhere(
+    runner, tmp_path, editor, ran, monkeypatch
+):
+    _team_inventory(monkeypatch)
+    _state_with_group(tmp_path, ADMIN_GROUP)
+    state_file = tmp_path / "arcgis-migration-state.json"
+
+    result, payload = _unchanged(
+        state_file,
+        lambda: _run(
+            runner,
+            tmp_path,
+            _group_plan(_restricted(L1, "g1")),
+            "--dry-run",
+            "--cutover",
+            "--accept-incomplete-inventory",
+        ),
+    )
+
+    assert "maps to no GeoLens group" in _sharing_reasons(payload)
+
+
+def test_an_admins_dry_run_cutover_ignores_an_editors_stale_resolution(
+    runner, tmp_path, editor, ran, monkeypatch
+):
+    _team_inventory(monkeypatch, members=[])
+    lost = {"id": None, "name": None, "created": False}
+    _state_with_group(tmp_path, {**ADMIN_GROUP, "effective": lost})
+    _admin_routes(editor, _created_id(L1))
+    editor.routes[f"GET /datasets/{_created_id(L1)}"] = _editors_dataset(
+        _created_id(L1)
+    )
+    state_file = tmp_path / "arcgis-migration-state.json"
+
+    result, payload = _unchanged(
+        state_file,
+        lambda: _run(
+            runner,
+            tmp_path,
+            _group_plan(_restricted(L1, "g1")),
+            "--dry-run",
+            "--cutover",
+            "--accept-incomplete-inventory",
+        ),
+    )
+
+    assert "maps to no GeoLens group" not in _sharing_reasons(payload)
+
+
+def test_an_item_held_for_an_owner_the_operator_now_is_released(
+    runner, tmp_path, editor, ran
+):
+    _write_state(
+        tmp_path,
+        {
+            L1: {
+                "status": "done",
+                "dataset_ids": [_created_id(L1)],
+                "owner_id": ERIN,
+                "owner_pending": "newbie is not a GeoLens user yet",
+            }
+        },
+    )
+
+    result, payload = _run(runner, tmp_path, _plan([_item(L1)], OWN))
+
+    assert result.exit_code == 0, result.output
+    assert _state(tmp_path)["items"][L1].get("owner_pending") is None
+    assert [s for s in editor.seen if s.method == "PATCH"] == []
+
+
+@pytest.mark.parametrize("action", ["import_layers", "import_file"])
+@pytest.mark.parametrize(
+    ("change", "failed"),
+    [
+        (None, False),
+        ({"data_revision": 2}, True),
+        ({"updated_by": ALICE}, True),
+    ],
+    ids=["undisturbed", "revision", "other-writer"],
+)
+@pytest.mark.parametrize("count", [1, 2])
+def test_a_concurrent_edit_is_never_recorded_as_the_imports_baseline(
+    runner, tmp_path, editor, monkeypatch, action, change, failed, count
+):
+    ids = [_created_id(L1), _created_id(L2)][:count]
+
+    def handler(ctx, item, entry):
+        entry.dataset_ids = list(ids)
+        return migrate.ItemResult()
+
+    _install(monkeypatch, handler)
+    _allow_transfers(editor, *ids)
+    editor.routes[f"PUT /datasets/{ids[-1]}/groups/"] = {}
+
+    def share(ctx, item, entry, **kwargs):
+        if change:
+            editor.routes[f"GET /datasets/{ids[-1]}"] = {
+                **_editors_dataset(ids[-1]),
+                **change,
+            }
+        return []
+
+    monkeypatch.setattr(migrate, "share", share)
+
+    result, _ = _run(runner, tmp_path, _plan([_item(L1, action)], OWN))
+
+    entry = _state(tmp_path)["items"][L1]
+    assert (entry["status"] == "failed") is failed
+    assert (ids[-1] in entry["last_update"]) is not failed
+    assert all(d in entry["last_update"] for d in ids[:-1])
+    if failed:
+        assert "changed in GeoLens" in entry["error"]
+
+    if change == {"data_revision": 2}:
+        # The retry has no saved baseline for it; it reads the revision anew.
+        result, _ = _run(runner, tmp_path, _plan([_item(L1, action)], OWN))
+        retried = _state(tmp_path)["items"][L1]
+        assert retried["status"] == "done" and ids[-1] in retried["last_update"]
+
+
+def test_an_export_only_selection_needs_no_permission(runner, tmp_path, editor, ran):
+    editor.routes["GET /auth/me/permissions/"] = {
+        "permissions": {"upload": False, "edit_metadata": False}
+    }
+    plan = _plan([_item(L1), _item(L2, "skip")], OWN)
+
+    result, _ = _run(runner, tmp_path, plan, "--only", L2)
+
+    assert result.exit_code == 0, result.output
+    assert _state(tmp_path)["items"][L2]["status"] == "skipped"
+    assert ran == []
+
+
+@pytest.mark.parametrize(
+    ("granted", "action", "refused"),
+    [
+        ({"upload": True, "edit_metadata": False}, "import_map", True),
+        ({"upload": False, "edit_metadata": True}, "import_map", False),
+        ({"upload": False, "edit_metadata": True}, "import_layers", True),
+    ],
+    ids=["map-needs-edit-metadata", "map-needs-no-upload", "layers-need-upload"],
+)
+def test_each_selected_action_needs_its_own_permission(
+    runner, tmp_path, editor, ran, granted, action, refused
+):
+    editor.routes["GET /auth/me/permissions/"] = {"permissions": granted}
+    _allow_transfers(editor, _created_id(L1), map_ids=(_created_id(M1),))
+
+    result, _ = _run(
+        runner,
+        tmp_path,
+        _plan([_item(M1 if action == "import_map" else L1, action)], OWN),
+    )
+
+    assert (result.exit_code == 2) is refused
+    assert (ran == []) is refused
