@@ -9,6 +9,7 @@ import base64
 import copy
 import json
 import secrets
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -1060,25 +1061,30 @@ def test_a_web_map_save_geolens_refuses_as_stale_is_reported_not_recorded(
         assert entry[key] == before[key]
 
 
-@pytest.mark.parametrize("answer", ["older", "unpaired"])
+@pytest.mark.parametrize("answer", ["older", "unpaired", "older_sdk"])
 def test_a_translation_the_cli_cant_save_is_reported(
-    runner, plan_file, geolens, portal, answer
+    runner, plan_file, geolens, portal, monkeypatch, answer
 ):
     token = _changed_in_the_portal(runner, plan_file, geolens, portal)
     translated = _translated(dataset_id("Parcels"))
     if answer == "older":
         for key in ("layer_sources", "view", "notes"):
             del translated[key]
-    else:
+    elif answer == "unpaired":
         translated["layer_sources"] = translated["layer_sources"][:2]
+    else:
+        # A geolens package from before the model existed.
+        monkeypatch.setitem(sys.modules, "geolens.models.arcgis_translated_view", None)
     geolens.routes[IMPORT] = (201, translated)
 
     result, payload = _migrate(runner, plan_file, "--token", token)
 
     assert result.exit_code == 1
     assert _puts(geolens) == []
+    assert len(_sent(geolens)) == (1 if answer == "older_sdk" else 2)
+    assert payload["refreshed"] == [B1]
     [reason] = payload["not_up_to_date"][B1]
-    assert "can't translate it again; upgrade GeoLens" in reason
+    assert "needs GeoLens and the geolens package 1.30 or newer" in reason
 
 
 @pytest.mark.parametrize("gone", ["deleted", "no_id"])

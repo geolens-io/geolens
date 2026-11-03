@@ -62,6 +62,10 @@ _LOST_NOTE = "part(s) of the web map were not carried over"
 _NO_VIEW_NOTE = (
     "the web map no longer has an initial view; the GeoLens map keeps its view"
 )
+_NEEDS_NEWER = (
+    "the web map changed in the portal, and re-translating needs GeoLens and the "
+    "geolens package 1.30 or newer; upgrade them or update the map by hand"
+)
 # What a map's notes may hold, as PUT /maps/{id} caps them.
 _MAP_NOTES_MAX = 50_000
 # The notes _finish_loss writes, which a new translation replaces.
@@ -491,9 +495,12 @@ def _translate_again(
         import_arcgis_webmap_endpoint_maps_import_arcgis_webmap_post as import_webmap,
         update_map_endpoint_maps_map_id_put as put_map,
     )
-    from geolens.models.arcgis_translated_view import ArcgisTranslatedView
     from geolens.models.map_update import MapUpdate
 
+    try:
+        from geolens.models.arcgis_translated_view import ArcgisTranslatedView
+    except ImportError:
+        return _NEEDS_NEWER
     seen = entry.map_snapshot
     if seen is None:
         return (
@@ -513,17 +520,15 @@ def _translate_again(
             )
     except (ItemFailed, GeoLensError) as exc:
         return f"translating the changed web map again failed, {exc}"
-    sources = result.layer_sources
+    # An older SDK leaves fields it doesn't know out of the model.
+    sources = getattr(result, "layer_sources", None)
     if (
-        not isinstance(result.view, ArcgisTranslatedView)
-        or not isinstance(result.notes, str)
+        not isinstance(getattr(result, "view", None), ArcgisTranslatedView)
+        or not isinstance(getattr(result, "notes", None), str)
         or not isinstance(sources, list)
         or len(sources) != len(result.layers)
     ):
-        return (
-            "the web map changed in the portal, and this GeoLens can't translate "
-            "it again; upgrade GeoLens or update the map by hand"
-        )
+        return _NEEDS_NEWER
     layers = [
         {
             **layer.to_dict(),
