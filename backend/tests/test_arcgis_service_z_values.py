@@ -229,16 +229,37 @@ class TestRealGdalStagesZ:
 
 class TestReuploadPreview:
     @pytest.mark.anyio
-    @pytest.mark.parametrize("has_z", [True, False])
+    @pytest.mark.parametrize(
+        ("meta_has_z", "live_is_3d", "expected"),
+        [
+            (True, False, True),
+            (False, True, False),
+            (None, True, True),
+            (None, False, False),
+        ],
+    )
     async def test_preview_reads_z_like_the_worker_stages_it(
-        self, client, admin_auth_header, test_db_session, has_z
+        self,
+        client,
+        admin_auth_header,
+        test_db_session,
+        meta_has_z,
+        live_is_3d,
+        expected,
     ) -> None:
         from app.modules.catalog.datasets.api import router_reupload
         from tests.factories import create_dataset, get_user_id
 
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await create_dataset(test_db_session, created_by=admin_id)
-        meta = {"name": "X", "type": "Feature Layer", "hasZ": has_z}
+        dataset.is_3d = live_is_3d
+        await test_db_session.commit()
+        # None stands for layer JSON the preview could not read.
+        meta = (
+            None
+            if meta_has_z is None
+            else {"name": "X", "type": "Feature Layer", "hasZ": meta_has_z}
+        )
         reported = {
             "srid": 4326,
             "geometry_type": "Point",
@@ -266,4 +287,4 @@ class TestReuploadPreview:
                 headers=admin_auth_header,
             )
         assert resp.status_code == 200, resp.text
-        assert ("returnZ" in _query(preview.await_args.args[0])) is has_z
+        assert ("returnZ" in _query(preview.await_args.args[0])) is expected
