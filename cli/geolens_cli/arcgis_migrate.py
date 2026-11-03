@@ -1000,7 +1000,7 @@ def _migrate_one(
         if owner is not None:
             # Datasets an earlier attempt handed over are no longer written.
             fresh = [d for d in entry.dataset_ids if d not in entry.last_update]
-            revisions = {} if ctx.own_content else _import_revisions(ctx, fresh)
+            revisions = _import_revisions(ctx, fresh)
             entry.visibility = dict.fromkeys(
                 entry.dataset_ids, item["target"]["visibility"]
             )

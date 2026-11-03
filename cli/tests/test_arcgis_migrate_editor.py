@@ -39,11 +39,15 @@ OTHER = "00000000-0000-0000-0000-0000000000f2"
 OWN = {"agol_alice": "erin"}
 
 
+def _editors_dataset(dataset_id: str, owner: str = ERIN) -> dict[str, Any]:
+    return {**_dataset(dataset_id, owner), "updated_by": ERIN}
+
+
 def _allow_transfers(fake, *ids, map_ids=()):
     """Routes for datasets and maps the editor owns."""
     _allow_any(fake, *ids, map_ids=map_ids)
     for dataset_id in ids:
-        fake.routes[f"GET /datasets/{dataset_id}"] = _dataset(dataset_id, ERIN)
+        fake.routes[f"GET /datasets/{dataset_id}"] = _editors_dataset(dataset_id)
     for map_id in map_ids:
         fake.routes[f"GET /maps/{map_id}"] = _map(map_id, ERIN)
 
@@ -373,7 +377,7 @@ def test_a_rerun_leaves_a_dataset_edited_in_geolens_alone(
     assert result.exit_code == 0, result.output
     assert list(_state(tmp_path)["items"][L1]["last_update"]) == [dataset_id]
 
-    edited = {**_dataset(dataset_id, ERIN), "updated_at": "2026-10-02T00:00:00Z"}
+    edited = {**_editors_dataset(dataset_id), "updated_at": "2026-10-02T00:00:00Z"}
     editor.routes[f"GET /datasets/{dataset_id}"] = edited
     plan["items"] = [_restricted(L1, "g1")]
     _run(runner, tmp_path, plan)
@@ -393,7 +397,7 @@ def test_an_item_an_admin_run_handed_to_someone_else_is_left_for_an_admin(
         map_ids=((created,) if kind == "map" else ()),
     )
     if kind == "dataset":
-        editor.routes[f"GET /datasets/{created}"] = _dataset(created, ALICE)
+        editor.routes[f"GET /datasets/{created}"] = _editors_dataset(created, ALICE)
         item = _item(L1)
     else:
         editor.routes[f"GET /maps/{created}"] = _map(created, ALICE)
@@ -498,3 +502,21 @@ def test_a_rerun_that_maps_the_group_drops_the_private_note(
 
     assert not any("made private" in n for n in _state(tmp_path)["items"][L1]["notes"])
     assert _state(tmp_path)["groups"]["g1"]["id"] == TEAM
+
+
+def test_a_dataset_somebody_else_wrote_is_not_given_the_items_metadata(
+    runner, tmp_path, editor, ran
+):
+    created = _created_id(L1)
+    _allow_transfers(editor, created)
+    editor.routes[f"GET /datasets/{created}"] = {
+        **_editors_dataset(created),
+        "updated_by": ALICE,
+    }
+
+    result, _ = _run(runner, tmp_path, _plan([_item(L1)], OWN))
+
+    entry = _state(tmp_path)["items"][L1]
+    assert result.exit_code == 1 and entry["status"] == "failed"
+    assert "changed in GeoLens" in entry["error"]
+    assert [s for s in editor.seen if s.method in ("PATCH", "PUT", "POST")] == []
