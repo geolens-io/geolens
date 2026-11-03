@@ -574,7 +574,7 @@ def _translate_again(
         *(n for n in entry.notes if n != _NO_VIEW_NOTE),
         *([_NO_VIEW_NOTE] if kept_view else []),
     ]
-    entry.layer_ids = _saved_layer_ids(layers, sources, saved.layers)
+    entry.layer_ids = _saved_layer_ids(entry.layer_ids, layers, sources, saved.layers)
     entry.portal_modified = modified
     entry.pending_loss = _pending_loss(result)
     entry.loss_report_path = None
@@ -593,26 +593,32 @@ def _with_view_note(notes: str) -> str:
 
 
 def _saved_layer_ids(
-    sent: Sequence[Mapping[str, Any]], sources: Sequence[str], saved: Sequence[Any]
+    recorded: Mapping[str, str],
+    sent: Sequence[Mapping[str, Any]],
+    sources: Sequence[str],
+    saved: Sequence[Any],
 ) -> dict[str, str]:
-    """Operational layer id -> the map layer the save left for it. A layer
-    sent with its id keeps it; the rest are the rows the save created, in the
-    order they were sent, and are left out when their count doesn't add up."""
-    ids = {str(layer.id) for layer in saved}
-    kept = {
-        source: layer["id"]
+    """Operational layer id -> the map layer the save left for it.
+
+    A layer sent with an id the answer lists keeps it. The rows the save
+    created are the ones the answer lists under ids nobody sent; they go to
+    the layers sent without an id by position, and to none when the counts
+    differ. A *recorded* layer the answer leaves out, one hidden from the
+    saver, keeps its entry, since the save leaves such a row in place.
+    """
+    listed = [str(layer.id) for layer in saved]
+    sent_ids = {layer["id"] for layer in sent if layer.get("id")}
+    ids = {s: i for s, i in recorded.items() if i not in listed}
+    ids.update(
+        (source, layer["id"])
         for layer, source in zip(sent, sources)
-        if layer.get("id") in ids
-    }
-    taken = set(kept.values())
-    created = sorted(
-        (layer for layer in saved if str(layer.id) not in taken),
-        key=lambda layer: layer.sort_order,
+        if layer.get("id") in listed
     )
+    created = [i for i in listed if i not in sent_ids]
     unsent = [source for layer, source in zip(sent, sources) if not layer.get("id")]
     if len(created) == len(unsent):
-        kept.update((s, str(layer.id)) for s, layer in zip(unsent, created))
-    return kept
+        ids.update(zip(unsent, created))
+    return ids
 
 
 def _resume_loss(ctx: MigrationContext, item_id: str, entry: ItemState) -> str | None:
@@ -622,6 +628,14 @@ def _resume_loss(ctx: MigrationContext, item_id: str, entry: ItemState) -> str |
         notes = _finish_loss(ctx, item_id, entry).notes
     except ItemFailed as exc:
         return f"{exc}; a rerun writes it"
+    if entry.loss_report_path is None and ctx.export_dir is not None:
+        # A translation with no losses leaves no report, so an earlier one goes.
+        try:
+            (ctx.export_dir.parent / LOSS_DIRNAME / f"{item_id}.json").unlink(
+                missing_ok=True
+            )
+        except OSError as exc:
+            return f"removing the earlier loss report failed: {exc.strerror or exc}"
     entry.notes = [*(n for n in entry.notes if not _LOSS_NOTE.match(n)), *notes]
     return None
 

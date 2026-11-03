@@ -1016,6 +1016,49 @@ def test_a_saved_layer_is_paired_with_its_source_despite_gaps_in_sort_order(
     }
 
 
+def test_a_layer_hidden_from_the_saver_keeps_its_recorded_map_layer(
+    runner, plan_file, geolens, portal
+):
+    token = _changed_in_the_portal(runner, plan_file, geolens, portal)
+
+    def hiding_the_first(seen):
+        saved = _saved(seen.json())
+        # The view layer's dataset is hidden from the saver: its row stays, in
+        # its slot, and the answer leaves it out.
+        saved["layers"] = saved["layers"][1:]
+        for position, layer in enumerate(saved["layers"], start=1):
+            layer["sort_order"] = 2 * position + 1
+        return saved
+
+    geolens.routes["PUT /maps/" + MAP_ID] = hiding_the_first
+
+    result, _ = _migrate(runner, plan_file, "--token", token)
+
+    assert result.exit_code == 0, result.output
+    assert _state(plan_file)["items"][B1]["layer_ids"] == {
+        "view_0": LAYER_ID.format(2),
+        "parcels_0": LAYER_ID.format(1),
+        "new_0": LAYER_ID.format(9),
+    }
+
+
+def test_a_translation_without_losses_removes_the_earlier_report(
+    runner, plan_file, geolens, portal
+):
+    token = _changed_in_the_portal(runner, plan_file, geolens, portal)
+    report = plan_file.parent / _state(plan_file)["items"][B1]["loss_report_path"]
+    assert report.exists()
+    translated = _translated(dataset_id("Parcels"))
+    translated["loss_report"] = {"items": [], "summary": {}}
+    geolens.routes[IMPORT] = (201, translated)
+
+    result, _ = _migrate(runner, plan_file, "--token", token)
+
+    assert result.exit_code == 0, result.output
+    assert _state(plan_file)["items"][B1]["loss_report_path"] is None
+    assert not report.exists()
+
+
 def test_a_web_map_that_lost_its_initial_view_keeps_the_maps_and_says_so(
     runner, plan_file, geolens, portal
 ):
