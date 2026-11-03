@@ -1042,6 +1042,83 @@ def test_a_layer_hidden_from_the_saver_keeps_its_recorded_map_layer(
     }
 
 
+@pytest.mark.parametrize("stale", [False, True], ids=["dropped", "stale-id-kept"])
+def test_a_layer_removed_and_added_back_in_the_portal_keeps_one_map_layer(
+    runner, plan_file, geolens, portal, stale
+):
+    token = _changed_in_the_portal(runner, plan_file, geolens, portal)
+    full = _translated(dataset_id("Parcels"))
+    rows = {"parcels_0": LAYER_ID.format(1), "view_0": LAYER_ID.format(2)}
+    stored: list[dict[str, Any]] = [
+        {"id": i, "dataset_id": dataset_id("Parcels"), "sort_order": n, "opacity": 1}
+        for n, i in enumerate(rows.values())
+    ]
+    made = iter(LAYER_ID.format(n) for n in range(5, 9))
+    state = {"updated_at": "2026-10-01T00:00:00Z"}
+    read = geolens.routes["GET /maps/" + MAP_ID]
+
+    def get(seen):
+        layers = _saved({"layers": stored})["layers"]
+        return {**read(seen), "layers": layers, "layer_count": len(layers), **state}
+
+    def put(seen):
+        # A replacement: rows named by an existing id are kept, the rest made.
+        existing = {row["id"] for row in stored}
+        stored[:] = [
+            {
+                **layer,
+                "id": layer["id"] if layer.get("id") in existing else next(made),
+            }
+            for layer in seen.json()["layers"]
+        ]
+        state["updated_at"] = f"2026-10-0{len(puts) + 3}T00:00:00Z"
+        puts.append(seen.json())
+        return get(seen)
+
+    puts: list[dict[str, Any]] = []
+    geolens.routes["GET /maps/" + MAP_ID] = get
+    geolens.routes["PUT /maps/" + MAP_ID] = put
+
+    def rerun(translated):
+        listed = portal.routes[f"content/items/{B1}"]
+        portal.routes[f"content/items/{B1}"] = {
+            **listed,
+            "modified": listed["modified"] + 60_000,
+        }
+        geolens.routes[IMPORT] = (201, translated)
+        result, _ = _migrate(runner, plan_file, "--token", token)
+        assert result.exit_code == 0, result.output
+
+    without_view = {
+        **full,
+        "layers": full["layers"][1:2],
+        "layer_sources": ["parcels_0"],
+    }
+    rerun(without_view)
+    assert "view_0" not in _state(plan_file)["items"][B1]["layer_ids"]
+    if stale:
+        # As an earlier version left it: the deleted row's id still recorded.
+        path = plan_file.parent / "arcgis-migration-state.json"
+        saved = json.loads(path.read_text())
+        saved["items"][B1]["layer_ids"]["view_0"] = LAYER_ID.format(2)
+        path.write_text(json.dumps(saved))
+    with_view = {
+        **full,
+        "layers": full["layers"][:2],
+        "layer_sources": full["layer_sources"][:2],
+    }
+    rerun(with_view)
+    view_row = _state(plan_file)["items"][B1]["layer_ids"]["view_0"]
+
+    rerun(with_view)
+
+    assert [layer.get("id") for layer in puts[-1]["layers"]] == [
+        view_row,
+        LAYER_ID.format(1),
+    ]
+    assert {row["id"] for row in stored} == {view_row, LAYER_ID.format(1)}
+
+
 def test_a_translation_without_losses_removes_the_earlier_report(
     runner, plan_file, geolens, portal
 ):

@@ -574,7 +574,9 @@ def _translate_again(
         *(n for n in entry.notes if n != _NO_VIEW_NOTE),
         *([_NO_VIEW_NOTE] if kept_view else []),
     ]
-    entry.layer_ids = _saved_layer_ids(entry.layer_ids, layers, sources, saved.layers)
+    entry.layer_ids = _saved_layer_ids(
+        entry.layer_ids, layers, sources, found, saved.layers
+    )
     entry.portal_modified = modified
     entry.pending_loss = _pending_loss(result)
     entry.loss_report_path = None
@@ -596,28 +598,48 @@ def _saved_layer_ids(
     recorded: Mapping[str, str],
     sent: Sequence[Mapping[str, Any]],
     sources: Sequence[str],
+    before: Any,
     saved: Sequence[Any],
 ) -> dict[str, str]:
     """Operational layer id -> the map layer the save left for it.
 
-    A layer sent with an id the answer lists keeps it. The rows the save
-    created are the ones the answer lists under ids nobody sent; they go to
-    the layers sent without an id by position, and to none when the counts
-    differ. A *recorded* layer the answer leaves out, one hidden from the
-    saver, keeps its entry, since the save leaves such a row in place.
+    A layer sent with an id the answer lists keeps it. Every other row the
+    answer lists is one the save created: for each layer sent without an id,
+    and for each sent with one that no longer named a row when the counts say
+    so; otherwise a sent id the answer leaves out names a row hidden from the
+    saver, which keeps it. Created rows pair by position, and none is
+    recorded when the counts fit neither case. A recorded layer this save
+    didn't send keeps its entry only while the saver couldn't read it in the
+    map *before* the save, since the save keeps such a row and deletes the
+    rest.
     """
     listed = [str(layer.id) for layer in saved]
-    sent_ids = {layer["id"] for layer in sent if layer.get("id")}
-    ids = {s: i for s, i in recorded.items() if i not in listed}
-    ids.update(
-        (source, layer["id"])
+    readable = {str(layer.id) for layer in getattr(before, "layers", None) or []}
+    ids = {
+        source: layer_id
+        for source, layer_id in recorded.items()
+        if source not in sources and layer_id not in readable
+    }
+    updated = {
+        source: layer["id"]
         for layer, source in zip(sent, sources)
         if layer.get("id") in listed
-    )
-    created = [i for i in listed if i not in sent_ids]
-    unsent = [source for layer, source in zip(sent, sources) if not layer.get("id")]
-    if len(created) == len(unsent):
-        ids.update(zip(unsent, created))
+    }
+    ids.update(updated)
+    created = [i for i in listed if i not in updated.values()]
+    unpaired = [source for source in sources if source not in updated]
+    idless = [s for layer, s in zip(sent, sources) if not layer.get("id")]
+    if len(created) == len(unpaired):
+        ids.update(zip(unpaired, created))
+    elif len(created) == len(idless):
+        # Every id the answer left out still names its row, hidden from the
+        # saver; only the layers sent without one were created.
+        ids.update(
+            (s, layer["id"])
+            for layer, s in zip(sent, sources)
+            if layer.get("id") and s not in updated
+        )
+        ids.update(zip(idless, created))
     return ids
 
 
