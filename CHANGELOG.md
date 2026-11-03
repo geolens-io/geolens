@@ -63,8 +63,11 @@ changed.
   the tile, in a stable order, instead of the lowest feature ids, and carries
   `X-GeoLens-Tile-Sampled: true`. The viewer's Layers panel says "Showing a
   sample at this zoom" while such a tile is in view. Tiles under the limit are
-  unchanged. Choosing the sample reads every row the tile covers, so a crowded
-  tile's first render is slower than before. (#3576)
+  unchanged. Choosing the sample reads every row the tile covers, so drawing
+  a crowded tile is slower than before. That happens whenever the tile isn't
+  in the tile cache: on first view, after its cache entry expires
+  (`TILE_CACHE_TTL`), after the dataset changes, and for each column set a map
+  asks for. (#3576)
 - The Builder's style editor notes when a point layer has more features than a
   tile holds and isn't clustered or zoom-limited, so readers see a sample
   zoomed out. (#3577)
