@@ -4,10 +4,10 @@
 
 | Version | Supported |
 |---------|-----------|
-| 1.x     | Yes       |
-| < 1.0   | No        |
+| Latest release | Yes |
+| Earlier releases | No |
 
-We only patch the latest release. If you're running an older version, please upgrade before reporting.
+We only patch the latest release; there is no long-term support line. If you're running an older version, please upgrade before reporting.
 
 ## Reporting a Vulnerability
 
