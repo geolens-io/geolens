@@ -938,3 +938,22 @@ def test_an_editors_map_edited_after_a_partial_import_is_not_taken_as_theirs(
     assert entry["status"] == "failed"
     assert "changed in GeoLens since it was imported" in entry["error"]
     assert entry["map_snapshot"] == imported
+
+
+def test_an_editors_map_without_a_recorded_baseline_is_reported_not_adopted(
+    runner, tmp_path, editor, ran
+):
+    map_id = _created_id(M1)
+    _allow_transfers(editor, map_ids=(map_id,))
+    _write_state(
+        tmp_path,
+        {M1: {"status": "failed", "error": "boom", "map_id": map_id}},
+    )
+
+    result, _ = _run(runner, tmp_path, _plan([_item(M1, "import_map")], OWN))
+
+    entry = _state(tmp_path)["items"][M1]
+    assert result.exit_code == 1
+    assert entry["status"] == "failed"
+    assert f"map {map_id} has no recorded baseline" in entry["error"]
+    assert entry.get("map_snapshot") is None

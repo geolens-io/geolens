@@ -215,7 +215,10 @@ def handled(monkeypatch):
     def handler(ctx, item, entry):
         calls.append(item["id"])
         if item["action"] == "import_map":
-            entry.map_id = _created_id(item["id"])
+            if not entry.map_id:
+                # As the import records the map it made.
+                entry.map_id = _created_id(item["id"])
+                entry.map_snapshot = {"owner": ctx.operator_id, "updated_at": READ_AT}
         else:
             entry.dataset_ids = [_created_id(item["id"])]
         return migrate.ItemResult()
@@ -892,16 +895,16 @@ def test_a_transfer_to_a_role_that_cant_own_it_asks_for_a_promotion(
 
 
 @pytest.mark.parametrize(
-    ("owner", "updated_at", "handed"),
+    ("owner", "updated_at"),
     [
-        (OPERATOR, "2026-10-01T00:00:00Z", True),
-        (OPERATOR, "2026-10-05T00:00:00Z", False),
-        (ALICE, "2026-10-01T00:00:00Z", False),
+        (OPERATOR, "2026-10-01T00:00:00Z"),
+        (OPERATOR, "2026-10-05T00:00:00Z"),
+        (ALICE, "2026-10-01T00:00:00Z"),
     ],
     ids=["untouched", "edited-after-the-run", "given-away"],
 )
-def test_a_waiting_map_without_a_snapshot_moves_only_as_the_run_left_it(
-    runner, tmp_path, geolens, handled, owner, updated_at, handed
+def test_a_waiting_map_without_a_snapshot_is_reported_not_handed_over(
+    runner, tmp_path, geolens, handled, owner, updated_at
 ):
     map_id = _created_id(M1)
     _allow_transfers(geolens, map_ids=(map_id,))
@@ -926,12 +929,12 @@ def test_a_waiting_map_without_a_snapshot_moves_only_as_the_run_left_it(
 
     result, payload = _run(runner, tmp_path, plan)
 
-    assert _owner_patches(geolens) == ([NEW] if handed else [])
-    assert (result.exit_code == 0) is handed, result.output
-    if not handed:
-        [failed] = payload["handover_failed"]
-        assert f"map {map_id} was changed in GeoLens since the last run" in failed
-        assert _state(tmp_path)["items"][M1]["owner_pending"]
+    assert result.exit_code == 1
+    assert _owner_patches(geolens) == []
+    [failed] = payload["handover_failed"]
+    assert f"map {map_id} has no recorded baseline" in failed
+    entry = _state(tmp_path)["items"][M1]
+    assert entry["owner_pending"] and entry["map_snapshot"] is None
 
 
 STALE = (

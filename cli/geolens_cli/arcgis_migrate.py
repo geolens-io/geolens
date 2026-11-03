@@ -108,7 +108,6 @@ from .arcgis_migrate_state import (
     MigrationState,
     StateError,
     _now,
-    aware_time,
     release_locks,
 )
 from .publish import _web_origin
@@ -951,31 +950,19 @@ def transfer_dataset(
     )
 
 
-def _transfer_map(
-    geolens: GeoLens, entry: ItemState, owner: Owner, *, handover: bool = False
-) -> None:
+def _transfer_map(geolens: GeoLens, entry: ItemState, owner: Owner) -> None:
     """Hand the item's map to *owner*, unless somebody changed it in GeoLens
     since this command left it; the map as the transfer left it is recorded.
-
-    A *handover* of a finished item whose state records no map snapshot moves
-    the map only while it still has the owner this command gave it and wasn't
-    changed after the item finished.
-    """
+    A map whose state records no snapshot is reported, never moved."""
     from geolens.api.maps import patch_map_endpoint_maps_map_id_patch as patch_map
     from geolens.models.map_patch import MapPatch
 
     map_id = entry.map_id or ""
     read = get_map(geolens, map_id)
     seen = entry.map_snapshot
-    if seen is None and handover:
-        finished = aware_time(entry.finished_at)
-        untouched = (
-            finished is not None
-            and str(read.created_by) == entry.owner_id
-            and read.updated_at <= finished
-        )
-    else:
-        untouched = seen is None or map_state(read) == seen
+    if seen is None:
+        raise ItemFailed(_no_baseline(map_id))
+    untouched = map_state(read) == seen
     if untouched:
         read = _handover(
             geolens,
@@ -1100,12 +1087,19 @@ def _keep_own(
         if str(read.created_by) != owner.id:
             raise ItemFailed(_not_yours(f"map {entry.map_id}"))
         if entry.map_snapshot is None:
-            entry.map_snapshot = map_state(read)
-        elif map_state(read) != entry.map_snapshot:
+            raise ItemFailed(_no_baseline(entry.map_id))
+        if map_state(read) != entry.map_snapshot:
             raise ItemFailed(
                 f"map {entry.map_id} was changed in GeoLens since it was "
                 "imported; it was left as it is"
             )
+
+
+def _no_baseline(map_id: str) -> str:
+    return (
+        f"map {map_id} has no recorded baseline, so a change made in GeoLens "
+        "can't be ruled out; update it by hand, or rerun after checking it"
+    )
 
 
 def _not_yours(what: str) -> str:
@@ -1189,7 +1183,7 @@ def _hand_over_one(ctx: MigrationContext, entry: ItemState, owner: Owner) -> Non
         )
         ctx.save()
     if entry.map_id:
-        _transfer_map(ctx.geolens, entry, owner, handover=True)
+        _transfer_map(ctx.geolens, entry, owner)
     entry.owner_id = owner.id
     entry.handover_incomplete = False
 
