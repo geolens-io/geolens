@@ -408,13 +408,14 @@ async def _fetch_arcgis_field_labels(
         return None
 
 
-async def _fetch_arcgis_column_casts(
+async def _fetch_arcgis_layer_meta_or_none(
     source_url: str, layer_id: int | str | None, token: str | None
-) -> dict[str, str] | None:
-    """Esri types for the columns GDAL loads as text, or None when unreadable.
+) -> dict | None:
+    """The ArcGIS layer JSON, or None when unreadable.
 
-    None leaves those columns as text: the data is still imported, so a failed
-    metadata read must not fail the import.
+    Column casts and the Z flag are optional enrichments: None leaves text
+    columns as text and imports 2D, so a failed metadata read must not fail
+    the import.
     """
     if layer_id is None:
         return None
@@ -427,14 +428,15 @@ async def _fetch_arcgis_column_casts(
 
     try:
         async with make_safe_client(timeout=30.0) as client:
-            meta = await fetch_arcgis_layer_meta(
+            return await fetch_arcgis_layer_meta(
                 source_url.rstrip("/"), str(layer_id).strip("/"), client, token
             )
-        return column_casts_from_meta(meta)
     except (ArcGISTokenError, CredentialRedirectError):
         # GDAL would follow the same redirect with the token in its URL.
         raise
-    except Exception as exc:  # broad: a cast is optional; the import falls back to text
+    except (
+        Exception
+    ) as exc:  # broad: casts and Z are optional; the import falls back to text and 2D
         structlog.get_logger().warning(
             "arcgis_column_casts_fetch_failed",
             source_url=source_url,
@@ -444,39 +446,13 @@ async def _fetch_arcgis_column_casts(
         return None
 
 
-async def _fetch_arcgis_has_z(
-    source_url: str, layer_id: int | str | None, token: str | None
-) -> bool:
-    """True when the ArcGIS layer stores Z, so the fetch must ask for it.
-
-    An unreadable layer JSON reads as 2D: the import still runs, and the
-    page-info fetch before it has already surfaced a dead service.
-    """
-    if layer_id is None:
-        return False
-    from app.modules.catalog.sources.adapters.arcgis import (
-        ArcGISTokenError,
-        fetch_arcgis_layer_meta,
-    )
-    from app.core.url_redaction import redact_exception_text
-    from app.platform.security import CredentialRedirectError, make_safe_client
-
-    try:
-        async with make_safe_client(timeout=30.0) as client:
-            meta = await fetch_arcgis_layer_meta(
-                source_url.rstrip("/"), str(layer_id).strip("/"), client, token
-            )
-        return meta.get("hasZ") is True
-    except (ArcGISTokenError, CredentialRedirectError):
-        raise
-    except Exception as exc:  # broad: Z is an optional enrichment; fall back to 2D
-        structlog.get_logger().warning(
-            "arcgis_has_z_fetch_failed",
-            source_url=source_url,
-            layer_id=str(layer_id),
-            error=redact_exception_text(exc),
-        )
-        return False
+def arcgis_meta_import_facts(
+    meta: dict | None,
+) -> tuple[dict[str, str] | None, bool]:
+    """Column casts and whether the fetch must ask for Z, from the layer JSON."""
+    if meta is None:
+        return None, False
+    return column_casts_from_meta(meta), meta.get("hasZ") is True
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.ingest_file"])
@@ -999,6 +975,11 @@ async def ingest_service(
                 await _progress_session.commit()
 
         arcgis_order_field: str | None = None
+        column_casts, return_z = None, False
+        if service_type == "arcgis_featureserver":
+            column_casts, return_z = arcgis_meta_import_facts(
+                await _fetch_arcgis_layer_meta_or_none(source_url, layer_id, token)
+            )
 
         # Retry WFS namespaces through the shared helper.
         async def _do_import(layer_name: str) -> None:
@@ -1007,9 +988,6 @@ async def ingest_service(
             page_size = _ARCGIS_SERVICE_IMPORT_CHUNK_SIZE
             supports_pagination = False
             pagination_order_field = None
-            return_z = service_type == "arcgis_featureserver" and (
-                await _fetch_arcgis_has_z(source_url, layer_id, token)
-            )
             if service_type == "arcgis_featureserver":
                 (
                     feature_count,
@@ -1105,12 +1083,6 @@ async def ingest_service(
                 service_progress_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await service_progress_task
-
-        column_casts = (
-            await _fetch_arcgis_column_casts(source_url, layer_id, token)
-            if service_type == "arcgis_featureserver"
-            else None
-        )
 
         # Requiring running status fences finalization against a failed attempt.
         async with _job_phase_session(

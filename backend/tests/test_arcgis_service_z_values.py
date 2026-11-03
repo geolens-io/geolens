@@ -70,31 +70,55 @@ class TestLayerJson:
         )
 
 
-class TestHasZLookup:
-    @pytest.mark.anyio
-    async def test_reads_the_flag_from_the_layer_json(self) -> None:
-        with patch(
-            "app.modules.catalog.sources.adapters.arcgis.fetch_arcgis_layer_meta",
-            new=AsyncMock(return_value={"hasZ": True}),
-        ):
-            assert await tasks_vector._fetch_arcgis_has_z(_BASE, 0, None) is True
-
-    @pytest.mark.anyio
+class TestImportFacts:
     @pytest.mark.parametrize("flag", [False, "true", None])
-    async def test_only_a_true_flag_counts(self, flag) -> None:
-        with patch(
-            "app.modules.catalog.sources.adapters.arcgis.fetch_arcgis_layer_meta",
-            new=AsyncMock(return_value={"hasZ": flag}),
-        ):
-            assert await tasks_vector._fetch_arcgis_has_z(_BASE, 0, None) is False
+    def test_only_a_true_flag_asks_for_z(self, flag) -> None:
+        _, return_z = tasks_vector.arcgis_meta_import_facts({"hasZ": flag})
+        assert return_z is False
+
+    def test_a_true_flag_asks_for_z(self) -> None:
+        assert tasks_vector.arcgis_meta_import_facts({"hasZ": True})[1] is True
+
+    def test_unreadable_layer_json_means_flat_and_no_casts(self) -> None:
+        assert tasks_vector.arcgis_meta_import_facts(None) == (None, False)
 
     @pytest.mark.anyio
-    async def test_unreadable_layer_reads_as_flat(self) -> None:
+    async def test_unreadable_layer_json_is_none(self) -> None:
         with patch(
             "app.modules.catalog.sources.adapters.arcgis.fetch_arcgis_layer_meta",
             new=AsyncMock(side_effect=ValueError("boom")),
         ):
-            assert await tasks_vector._fetch_arcgis_has_z(_BASE, 0, None) is False
+            assert (
+                await tasks_vector._fetch_arcgis_layer_meta_or_none(_BASE, 0, None)
+                is None
+            )
+
+
+class TestImportPlumbing:
+    @pytest.mark.anyio
+    async def test_import_asks_for_z_and_stages_3d(
+        self, test_db_session, monkeypatch
+    ) -> None:
+        from tests import test_arcgis_column_types as column_types
+
+        monkeypatch.setitem(column_types._META, "hasZ", True)
+        calls: list = []
+        original = column_types._fake_fetch
+
+        def _recording():
+            inner = original()
+
+            async def _fetch(source, *args, **kw):
+                calls.append((source, kw))
+                await inner(source, *args, **kw)
+
+            return _fetch
+
+        monkeypatch.setattr(column_types, "_fake_fetch", _recording)
+        await column_types._ingest(test_db_session, monkeypatch)
+        [(source, kw)] = calls
+        assert _query(source)["returnZ"] == ["true"]
+        assert kw["keep_z"] is True
 
 
 class TestRefreshPlumbing:
@@ -104,9 +128,6 @@ class TestRefreshPlumbing:
             return 3, 1000, False, "OBJECTID"
 
         monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _page_info)
-        monkeypatch.setattr(
-            tasks_vector, "_fetch_arcgis_has_z", AsyncMock(return_value=True)
-        )
         run = AsyncMock()
         with patch("app.processing.ingest.ogr.run_ogr2ogr_service", new=run):
             await tasks_reupload._fetch_service_layer_with_paging_guard(
@@ -122,6 +143,7 @@ class TestRefreshPlumbing:
                 fallback_order_field="OBJECTID",
                 on_spawn=None,
                 reviews_unknown_count=False,
+                return_z=True,
             )
         source = run.await_args.args[0]
         assert _query(source)["returnZ"] == ["true"]

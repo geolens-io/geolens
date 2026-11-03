@@ -975,6 +975,7 @@ async def _fetch_service_layer_with_paging_guard(
     on_spawn,
     reviews_unknown_count: bool,
     verification_policy: str | None = None,
+    return_z: bool = False,
 ) -> tuple[int | None, object | None, str | None]:
     """Fetch a service layer into staging, paging large ArcGIS layers.
 
@@ -997,7 +998,6 @@ async def _fetch_service_layer_with_paging_guard(
     page_size = _tv._ARCGIS_SERVICE_IMPORT_CHUNK_SIZE
     feature_count = max_record_count = None
     supports_pagination = False
-    return_z = False
     pagination_order_field = None
     id_plan = None
     if service_type == "arcgis_featureserver":
@@ -1016,7 +1016,6 @@ async def _fetch_service_layer_with_paging_guard(
         )
         if max_record_count is not None:
             page_size = max(1, min(page_size, max_record_count))
-        return_z = await _tv._fetch_arcgis_has_z(source_url, layer_id, token)
         if verification_policy == "arcgis_id_set_v1":
             try:
                 async with make_safe_client(timeout=30.0) as client:
@@ -1466,8 +1465,16 @@ class _ServiceReupload(_LiveComparison):
                 on_spawn=_arm_contact,
                 reviews_unknown_count=self.is_refresh,
                 verification_policy=self.verification_policy,
+                return_z=return_z,
             )
 
+        return_z = False
+        if self.service_type == "arcgis_featureserver":
+            self.column_casts, return_z = _tv.arcgis_meta_import_facts(
+                await _tv._fetch_arcgis_layer_meta_or_none(
+                    self.source_url_value, self.layer_id, self.token
+                )
+            )
         try:
             await _run_service_import_with_wfs_fallback(
                 _run_service_import,
@@ -1497,10 +1504,6 @@ class _ServiceReupload(_LiveComparison):
             if self.service_type == "arcgis_featureserver"
             else {}
         )
-        if self.service_type == "arcgis_featureserver":
-            self.column_casts = await _tv._fetch_arcgis_column_casts(
-                self.source_url_value, self.layer_id, self.token
-            )
         # Read while no publication session holds a pooled connection.
         self.live_scan = await _live_geometry_types(
             self.live_table, schema=_current_tenant_schema(), dataset_id=self.dataset_id
