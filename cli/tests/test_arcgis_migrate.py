@@ -6,6 +6,7 @@ import json
 import os
 import secrets
 import stat
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -1258,7 +1259,7 @@ def test_a_state_file_is_written_as_v4_and_v1_still_loads(
     result, _ = _run(runner, tmp_path, _plan([_item(L1), _item(L2)]))
 
     assert result.exit_code == 0, result.output
-    assert _state(tmp_path)["schema_version"] == "4"
+    assert _state(tmp_path)["schema_version"] == "5"
 
 
 def test_cutover_counts_an_item_whose_plan_owner_moved_to_another_user(
@@ -1436,6 +1437,499 @@ def test_an_owner_changed_after_import_is_reported_not_reimported(
     assert handled == []
     assert payload["owner_changed"] == [{"item": L1, "owner": "operator"}]
     assert [s for s in geolens.seen if s.method == "PATCH"] == []
+
+
+# Following an ArcGIS owner change on a rerun
+
+BOB_OWNERS = {"agol_alice": "alice", "agol_bob": "newbie"}
+
+
+def _owned(fake, *, datasets: tuple[str, ...] = (), maps: tuple[str, ...] = ()):
+    """GeoLens objects (id -> created_by and updated_at) that each transfer
+    gives a new owner and a later timestamp."""
+    kinds = dict.fromkeys(datasets, "datasets") | dict.fromkeys(maps, "maps")
+    objects = {o: {"created_by": OPERATOR, "updated_at": NOW} for o in kinds}
+    transfers = 0
+
+    def read(seen, object_id):
+        make = _dataset if kinds[object_id] == "datasets" else _map
+        return {**make(object_id, OPERATOR), **objects[object_id]}
+
+    def transfer(seen, object_id):
+        nonlocal transfers
+        transfers += 1
+        objects[object_id] = {
+            "created_by": seen.json()["owner_id"],
+            "updated_at": f"2026-10-0{transfers + 1}T00:00:00Z",
+        }
+        return read(seen, object_id)
+
+    for object_id, kind in kinds.items():
+        fake.routes[f"GET /{kind}/{object_id}"] = partial(read, object_id=object_id)
+        fake.routes[f"PATCH /{kind}/{object_id}"] = partial(
+            transfer, object_id=object_id
+        )
+    return objects
+
+
+def _moved_to_bob(item: dict) -> dict:
+    return {**item, "owner": "agol_bob"}
+
+
+def test_an_arcgis_owner_change_hands_the_migrated_item_to_the_new_owner(
+    runner, tmp_path, geolens, handled
+):
+    dataset_id, map_id = _created_id(L1), _created_id(M1)
+    objects = _owned(geolens, datasets=(dataset_id,), maps=(map_id,))
+    _users(geolens, _user(NEW, "newbie", ["editor"]))
+    items = [_item(L1), _item(M1, "import_map", depends_on=[L1])]
+    assert _run(runner, tmp_path, _plan(items, BOB_OWNERS))[0].exit_code == 0
+    assert _state(tmp_path)["items"][L1]["portal_owner"] == "agol_alice"
+
+    plan = _plan([_moved_to_bob(item) for item in items], BOB_OWNERS)
+    result, payload = _run(runner, tmp_path, plan)
+
+    assert result.exit_code == 0, result.output
+    assert handled == [L1, M1]
+    assert _owner_patches(geolens) == [ALICE, ALICE, NEW, NEW]
+    assert {o["created_by"] for o in objects.values()} == {NEW}
+    assert payload["handed_over"] == [
+        {"item": L1, "owner": "newbie"},
+        {"item": M1, "owner": "newbie"},
+    ]
+    assert payload["owner_changed"] == []
+    for item_id in (L1, M1):
+        entry = _state(tmp_path)["items"][item_id]
+        assert (entry["owner_id"], entry["portal_owner"]) == (NEW, "agol_bob")
+
+    _run(runner, tmp_path, plan)
+    assert len(_owner_patches(geolens)) == 4
+
+
+def test_only_hands_over_just_the_items_it_names_after_an_arcgis_owner_change(
+    runner, tmp_path, geolens, handled
+):
+    dataset_id, map_id = _created_id(L1), _created_id(M1)
+    objects = _owned(geolens, datasets=(dataset_id,), maps=(map_id,))
+    _users(geolens, _user(NEW, "newbie", ["editor"]))
+    items = [_item(L1), _item(M1, "import_map")]
+    assert _run(runner, tmp_path, _plan(items, BOB_OWNERS))[0].exit_code == 0
+    plan = _plan([_moved_to_bob(item) for item in items], BOB_OWNERS)
+
+    result, payload = _run(runner, tmp_path, plan, "--only", L1)
+
+    assert result.exit_code == 0, result.output
+    assert payload["handed_over"] == [{"item": L1, "owner": "newbie"}]
+    assert objects[dataset_id]["created_by"] == NEW
+    assert objects[map_id]["created_by"] == ALICE
+    assert _state(tmp_path)["items"][M1]["owner_id"] == ALICE
+
+
+def test_an_item_a_handover_left_split_is_finished_after_the_arcgis_owner_reverts(
+    runner, tmp_path, geolens, handled
+):
+    first, second = _created_id(L1), _created_id(L2)
+    objects = _owned(geolens, datasets=(first, second))
+    for dataset_id in (first, second):
+        objects[dataset_id]["created_by"] = ALICE
+    snapshot = {"updated_at": READ_AT, "feature_count": 0, "data_revision": None}
+    _write_state(
+        tmp_path,
+        {
+            L1: {
+                "status": "done",
+                "dataset_ids": [first, second],
+                "owner_id": ALICE,
+                "portal_owner": "agol_alice",
+                "last_update": {first: snapshot, second: snapshot},
+            }
+        },
+    )
+    _users(geolens, _user(NEW, "newbie", ["editor"]))
+    transfer = geolens.routes[f"PATCH /datasets/{second}"]
+    geolens.routes[f"PATCH /datasets/{second}"] = (
+        500,
+        {"title": "Error", "status": 500, "detail": "boom"},
+    )
+    result, payload = _run(
+        runner, tmp_path, _plan([_moved_to_bob(_item(L1))], BOB_OWNERS)
+    )
+    assert result.exit_code == 1 and payload["handover_failed"]
+    assert (objects[first]["created_by"], objects[second]["created_by"]) == (
+        NEW,
+        ALICE,
+    )
+    geolens.routes[f"PATCH /datasets/{second}"] = transfer
+    plan = _plan([_item(L1)], BOB_OWNERS)
+
+    _dry, preview = _run(runner, tmp_path, plan, "--dry-run", "--cutover")
+    result, payload = _run(runner, tmp_path, plan)
+
+    assert "unresolved-users" in preview["cutover"]["refused"]
+    assert result.exit_code == 0, result.output
+    assert payload["handed_over"] == [{"item": L1, "owner": "alice"}]
+    assert {o["created_by"] for o in objects.values()} == {ALICE}
+    entry = _state(tmp_path)["items"][L1]
+    assert (entry["owner_id"], entry["handover_incomplete"]) == (ALICE, False)
+
+
+def test_a_waiting_item_a_handover_left_split_goes_back_when_its_owner_is_gone(
+    runner, tmp_path, geolens, handled
+):
+    first, second = _created_id(L1), _created_id(L2)
+    objects = _owned(geolens, datasets=(first, second))
+    snapshot = {"updated_at": READ_AT, "feature_count": 0, "data_revision": None}
+    _write_state(
+        tmp_path,
+        {
+            L1: {
+                "status": "done",
+                "dataset_ids": [first, second],
+                "owner_id": OPERATOR,
+                "owner_pending": "newbie is not a GeoLens user yet",
+                "last_update": {first: snapshot, second: snapshot},
+            }
+        },
+    )
+    plan = _plan([_item(L1)], owner_map={"agol_alice": "newbie"})
+    _users(geolens, _user(NEW, "newbie", ["editor"]))
+    transfer = geolens.routes[f"PATCH /datasets/{second}"]
+    geolens.routes[f"PATCH /datasets/{second}"] = (
+        500,
+        {"title": "Error", "status": 500, "detail": "boom"},
+    )
+    assert _run(runner, tmp_path, plan)[0].exit_code == 1
+    assert objects[first]["created_by"] == NEW
+    geolens.routes[f"PATCH /datasets/{second}"] = transfer
+    # newbie's account is gone again, so the item stays with --unmapped-owner.
+    geolens.routes["GET /admin/users/"]["users"].pop()
+    geolens.routes["GET /admin/users/"]["total"] -= 1
+
+    result, _ = _run(runner, tmp_path, plan, "--unmapped-owner", "operator")
+
+    assert result.exit_code == 0, result.output
+    assert {o["created_by"] for o in objects.values()} == {OPERATOR}
+    assert _state(tmp_path)["items"][L1]["handover_incomplete"] is False
+
+
+BOOM = (500, {"title": "Error", "status": 500, "detail": "boom"})
+
+
+def test_an_incomplete_handover_goes_to_whoever_the_plan_names_now(
+    runner, tmp_path, geolens, handled
+):
+    ids = [_created_id(i) for i in (L1, L2, S1)]
+    objects = _owned(geolens, datasets=tuple(ids))
+    transfers = {d: geolens.routes[f"PATCH /datasets/{d}"] for d in ids}
+    for dataset_id in ids:
+        objects[dataset_id]["created_by"] = ALICE
+    snapshot = {"updated_at": READ_AT, "feature_count": 0, "data_revision": None}
+    _write_state(
+        tmp_path,
+        {
+            L1: {
+                "status": "done",
+                "dataset_ids": ids,
+                "owner_id": ALICE,
+                "portal_owner": "agol_alice",
+                "last_update": dict.fromkeys(ids, snapshot),
+            }
+        },
+    )
+    _users(geolens, _user(NEW, "newbie", ["editor"]))
+
+    def run(portal_owner: str, failing: str):
+        for dataset_id in ids:
+            geolens.routes[f"PATCH /datasets/{dataset_id}"] = (
+                BOOM if dataset_id == failing else transfers[dataset_id]
+            )
+        item = {**_item(L1), "owner": portal_owner}
+        return _run(runner, tmp_path, _plan([item], BOB_OWNERS))[0]
+
+    def owners() -> list[str]:
+        return [objects[d]["created_by"] for d in ids]
+
+    assert run("agol_bob", failing=ids[2]).exit_code == 1
+    assert owners() == [NEW, NEW, ALICE]
+    # The ArcGIS owner goes back, and the way back stops part way too.
+    assert run("agol_alice", failing=ids[1]).exit_code == 1
+    assert owners() == [ALICE, NEW, ALICE]
+    assert _state(tmp_path)["items"][L1]["handover_incomplete"] is True
+
+    result = run("agol_bob", failing="")
+
+    assert result.exit_code == 0, result.output
+    assert owners() == [NEW, NEW, NEW]
+    entry = _state(tmp_path)["items"][L1]
+    assert (entry["owner_id"], entry["handover_incomplete"]) == (NEW, False)
+
+
+def test_handovers_run_in_dependency_order(runner, tmp_path, geolens, handled):
+    dataset_id, map_id = _created_id(L1), _created_id(M1)
+    objects = _owned(geolens, datasets=(dataset_id,), maps=(map_id,))
+    transfer_map = geolens.routes[f"PATCH /maps/{map_id}"]
+
+    def refuse_while_hidden(seen):
+        # GeoLens refuses a map whose new owner can't read one of its datasets.
+        if objects[dataset_id]["created_by"] != seen.json()["owner_id"]:
+            return (409, {"title": "Conflict", "status": 409, "detail": "hidden"})
+        return transfer_map(seen)
+
+    geolens.routes[f"PATCH /maps/{map_id}"] = refuse_while_hidden
+    _users(geolens, _user(NEW, "newbie", ["editor"]))
+    items = [_item(M1, "import_map", depends_on=[L1]), _item(L1)]
+    assert _run(runner, tmp_path, _plan(items, BOB_OWNERS))[0].exit_code == 0
+
+    result, payload = _run(
+        runner, tmp_path, _plan([_moved_to_bob(item) for item in items], BOB_OWNERS)
+    )
+
+    assert result.exit_code == 0, result.output
+    assert [h["item"] for h in payload["handed_over"]] == [L1, M1]
+    assert {o["created_by"] for o in objects.values()} == {NEW}
+
+
+def test_an_entry_without_a_recorded_arcgis_owner_adopts_it_then_follows_changes(
+    runner, tmp_path, geolens, handled
+):
+    _owned(geolens, datasets=(_created_id(L1),))
+    _users(geolens, _user(NEW, "newbie", ["editor"]))
+    plan = _plan([_item(L1)], BOB_OWNERS)
+    assert _run(runner, tmp_path, plan)[0].exit_code == 0
+    state = _state(tmp_path)
+    del state["items"][L1]["portal_owner"]
+    (tmp_path / "arcgis-migration-state.json").write_text(json.dumps(state))
+    assert _run(runner, tmp_path, plan)[0].exit_code == 0
+    assert _state(tmp_path)["items"][L1]["portal_owner"] == "agol_alice"
+
+    result, payload = _run(
+        runner, tmp_path, _plan([_moved_to_bob(_item(L1))], BOB_OWNERS)
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _owner_patches(geolens) == [ALICE, NEW]
+    assert payload["handed_over"] == [{"item": L1, "owner": "newbie"}]
+
+
+@pytest.mark.parametrize("kind", ["datasets", "maps"])
+def test_an_object_transferred_in_geolens_keeps_its_owner_after_an_arcgis_change(
+    runner, tmp_path, geolens, handled, kind
+):
+    item = _item(L1) if kind == "datasets" else _item(M1, "import_map")
+    object_id = _created_id(item["id"])
+    objects = _owned(geolens, **{kind: (object_id,)})
+    _users(geolens, _user(NEW, "newbie", ["editor"]))
+    assert _run(runner, tmp_path, _plan([item], BOB_OWNERS))[0].exit_code == 0
+    # An admin gives it to vic in GeoLens.
+    objects[object_id] = {"created_by": VIC, "updated_at": "2026-10-08T00:00:00Z"}
+
+    result, payload = _run(
+        runner, tmp_path, _plan([_moved_to_bob(item)], BOB_OWNERS), "--cutover"
+    )
+
+    assert result.exit_code == 1
+    assert _owner_patches(geolens) == [ALICE]
+    assert objects[object_id]["created_by"] == VIC
+    [failed] = payload["handover_failed"]
+    assert "changed in GeoLens since the last run" in failed
+    assert payload["owner_changed"] == [{"item": item["id"], "owner": "newbie"}]
+    assert "unresolved-users" in payload["cutover"]["refused"]
+    entry = _state(tmp_path)["items"][item["id"]]
+    assert (entry["owner_id"], entry["portal_owner"]) == (ALICE, "agol_alice")
+
+
+def test_an_arcgis_owner_change_keeps_the_target_owner_the_operator_set(
+    runner, tmp_path, geolens, handled
+):
+    _owned(geolens, datasets=(_created_id(L1),))
+    _users(geolens, _user(NEW, "newbie", ["editor"]))
+    item = _item(L1, target_owner="alice")
+    assert _run(runner, tmp_path, _plan([item], BOB_OWNERS))[0].exit_code == 0
+
+    result, payload = _run(runner, tmp_path, _plan([_moved_to_bob(item)], BOB_OWNERS))
+
+    assert result.exit_code == 0, result.output
+    assert _owner_patches(geolens) == [ALICE]
+    assert payload["owner_conflicts"] == [
+        {"item": L1, "portal_owner": "agol_bob", "owner": "alice"}
+    ]
+    assert payload["owner_changed"] == []
+    assert _state(tmp_path)["items"][L1]["portal_owner"] == "agol_alice"
+    report = json.loads((tmp_path / "arcgis-migration-report.json").read_text())
+    assert {
+        "item": L1,
+        "kind": "owner_conflict",
+        "text": "its ArcGIS owner is now agol_bob, but the plan's target.owner "
+        "keeps it with alice",
+    } in report["follow_ups"]
+
+
+def test_a_map_given_away_in_geolens_keeps_its_baseline_after_a_matching_arcgis_change(
+    runner, tmp_path, geolens, handled
+):
+    map_id = _created_id(M1)
+    objects = _owned(geolens, maps=(map_id,))
+    _users(geolens, _user(NEW, "newbie", ["editor"]))
+    owner_map = {**BOB_OWNERS, "agol_carol": "operator"}
+    item = _item(M1, "import_map")
+    assert _run(runner, tmp_path, _plan([item], owner_map))[0].exit_code == 0
+    # An admin gives the map to newbie in GeoLens.
+    objects[map_id] = {"created_by": NEW, "updated_at": "2026-10-08T00:00:00Z"}
+
+    result, _ = _run(runner, tmp_path, _plan([_moved_to_bob(item)], owner_map))
+    assert result.exit_code == 0, result.output
+    assert _state(tmp_path)["items"][M1]["owner_id"] == NEW
+
+    result, payload = _run(
+        runner, tmp_path, _plan([{**item, "owner": "agol_carol"}], owner_map)
+    )
+
+    assert result.exit_code == 1
+    assert _owner_patches(geolens) == [ALICE]
+    assert objects[map_id]["created_by"] == NEW
+    [failed] = payload["handover_failed"]
+    assert "changed in GeoLens since the last run" in failed
+
+
+@pytest.mark.parametrize("name", ["operator", "OPERATOR", "operator@example.org"])
+def test_a_waiting_item_whose_owner_it_already_has_follows_the_arcgis_owner(
+    runner, tmp_path, geolens, handled, name
+):
+    _owned(geolens, datasets=(_created_id(L1),))
+    _write_state(
+        tmp_path,
+        {
+            L1: {
+                "status": "done",
+                "dataset_ids": [_created_id(L1)],
+                "owner_id": OPERATOR,
+                "owner_pending": "newbie is not a GeoLens user yet",
+                "portal_owner": "agol_alice",
+            }
+        },
+    )
+    moved = _moved_to_bob(_item(L1))
+    assert _run(runner, tmp_path, _plan([moved], {"agol_bob": name}))[0].exit_code == 0
+    entry = _state(tmp_path)["items"][L1]
+    assert (entry["portal_owner"], entry["owner_pending"]) == ("agol_bob", None)
+
+    # An owner_map edit isn't an ArcGIS change, so it isn't applied.
+    result, payload = _run(runner, tmp_path, _plan([moved], {"agol_bob": "alice"}))
+
+    assert result.exit_code == 0, result.output
+    assert _owner_patches(geolens) == []
+    assert payload["owner_changed"] == [{"item": L1, "owner": "alice"}]
+
+
+def test_an_unlisted_item_doesnt_follow_an_arcgis_owner_change(
+    runner, tmp_path, geolens, handled
+):
+    _owned(geolens, datasets=(_created_id(L1),))
+    _users(geolens, _user(NEW, "newbie", ["editor"]))
+    assert _run(runner, tmp_path, _plan([_item(L1)], BOB_OWNERS))[0].exit_code == 0
+    unlisted = {**_moved_to_bob(_item(L1)), "unlisted": True}
+
+    plan = {**_plan([unlisted], BOB_OWNERS), "schema_version": "2"}
+
+    result, payload = _run(runner, tmp_path, plan)
+
+    assert payload is not None, result.output
+    assert _owner_patches(geolens) == [ALICE]
+    assert payload["handovers"] == []
+    assert _state(tmp_path)["items"][L1]["portal_owner"] == "agol_alice"
+
+
+def test_an_incomplete_handover_of_a_removed_item_doesnt_hold_cutover(
+    runner, tmp_path, geolens, handled
+):
+    _write_state(
+        tmp_path,
+        {
+            L1: {
+                "status": "done",
+                "dataset_ids": [_created_id(L1)],
+                "owner_id": ALICE,
+                "handover_incomplete": True,
+            }
+        },
+    )
+
+    plan = {**_plan([_item(L1, removed=True)]), "schema_version": "2"}
+
+    _result, payload = _run(runner, tmp_path, plan, "--cutover")
+
+    assert "unresolved-users" not in payload["cutover"]["refused"]
+    assert _state(tmp_path)["items"][L1]["handover_incomplete"] is True
+
+
+def test_a_dry_run_lists_the_handovers_the_run_would_make(
+    runner, tmp_path, geolens, handled
+):
+    _owned(geolens, datasets=(_created_id(L1),), maps=(_created_id(M1),))
+    _users(geolens, _user(NEW, "newbie", ["editor"]))
+    items = [_item(L1), _item(M1, "import_map")]
+    assert _run(runner, tmp_path, _plan(items, BOB_OWNERS))[0].exit_code == 0
+    plan = _plan([_moved_to_bob(item) for item in items], BOB_OWNERS)
+
+    _result, payload = _run(runner, tmp_path, plan, "--dry-run")
+    _result, only = _run(runner, tmp_path, plan, "--dry-run", "--only", M1)
+    path = tmp_path / "arcgis-migration-plan.json"
+    text = runner.invoke(app, ["arcgis", "migrate", str(path), "--dry-run"])
+
+    assert payload["handovers"] == [
+        {"item": L1, "owner": "newbie"},
+        {"item": M1, "owner": "newbie"},
+    ]
+    assert only["handovers"] == [{"item": M1, "owner": "newbie"}]
+    assert f"{L1} would be handed to newbie" in text.output
+    assert _owner_patches(geolens) == [ALICE, ALICE]
+
+
+def test_a_target_owner_set_after_migration_stays_unapplied_after_an_arcgis_change(
+    runner, tmp_path, geolens, handled
+):
+    _owned(geolens, datasets=(_created_id(L1),))
+    _users(geolens, _user(NEW, "newbie", ["editor"]))
+    assert _run(runner, tmp_path, _plan([_item(L1)], BOB_OWNERS))[0].exit_code == 0
+    item = _moved_to_bob(_item(L1, target_owner="newbie"))
+
+    result, payload = _run(runner, tmp_path, _plan([item], BOB_OWNERS))
+
+    assert result.exit_code == 0, result.output
+    assert _owner_patches(geolens) == [ALICE]
+    assert payload["owner_changed"] == [{"item": L1, "owner": "newbie"}]
+
+
+def test_an_owner_map_edit_after_migration_is_reported_not_applied(
+    runner, tmp_path, geolens, handled
+):
+    _owned(geolens, datasets=(_created_id(L1),))
+    _users(geolens, _user(NEW, "newbie", ["editor"]))
+    assert _run(runner, tmp_path, _plan([_item(L1)]))[0].exit_code == 0
+
+    result, payload = _run(
+        runner, tmp_path, _plan([_item(L1)], owner_map={"agol_alice": "newbie"})
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _owner_patches(geolens) == [ALICE]
+    assert payload["owner_changed"] == [{"item": L1, "owner": "newbie"}]
+
+
+def test_an_arcgis_owner_change_to_an_inactive_user_is_reported(
+    runner, tmp_path, geolens, handled
+):
+    _owned(geolens, datasets=(_created_id(L1),))
+    owners = {**BOB_OWNERS, "agol_bob": "gone"}
+    assert _run(runner, tmp_path, _plan([_item(L1)], owners))[0].exit_code == 0
+
+    result, payload = _run(runner, tmp_path, _plan([_moved_to_bob(_item(L1))], owners))
+
+    assert _owner_patches(geolens) == [ALICE]
+    assert payload["owner_unresolved"] == [
+        {"item": L1, "reason": "gone is not an active GeoLens user"}
+    ]
+    assert _state(tmp_path)["items"][L1]["owner_id"] == ALICE
 
 
 @pytest.mark.parametrize("version", ["1", "2"])

@@ -184,6 +184,8 @@ REFRESHERS: dict[str, Refresher] = {
 class Owner:
     id: str
     username: str
+    # The ArcGIS owner a handover to this owner follows.
+    portal_owner: str | None = None
 
 
 @dataclass
@@ -552,6 +554,9 @@ class Owners:
     # Finished items that wait for their owner, and who to hand some to now.
     waiting: list[str] = field(default_factory=list)
     handovers: dict[str, Owner] = field(default_factory=dict)
+    # Finished items whose ArcGIS owner changed while the plan's target.owner
+    # keeps the owner the operator chose.
+    conflicts: list[dict[str, str]] = field(default_factory=list)
     directory: Any = None
 
 
@@ -655,14 +660,16 @@ def _finished_owners(
 ) -> None:
     """Sort the migrated items this run doesn't import by how their owner
     stands: a pending one to hand over, one whose plan now names another or
-    no single GeoLens user."""
+    no single GeoLens user. Handovers queue in dependency order, so a
+    dataset moves before a map that shows it."""
     running = {item["id"] for item in to_run}
-    for item in plan["items"]:
+    for item in order_items(plan["items"]):
         entry = state.items.get(item["id"])
         permission = TRANSFER_PERMISSION.get(item["action"])
         if (
             item["id"] in running
             or item.get("removed")
+            or item.get("unlisted")
             or permission is None
             or entry is None
             or entry.status not in FINISHED
@@ -674,6 +681,7 @@ def _finished_owners(
             user = directory.find(name) if name else None
         except UsageError as exc:
             owners.unresolved.append({"item": item["id"], "reason": str(exc)})
+            _note_portal_owner(item, entry, owners, None)
             continue
         if entry.owner_pending:
             owners.waiting.append(item["id"])
@@ -681,14 +689,17 @@ def _finished_owners(
                 directory, user, permission
             )
             target = user if reason is None else fallback
+            _note_portal_owner(item, entry, owners, None if reason else str(user.id))
             if reason is not None:
                 owners.pending[item["id"]] = reason
             if (
                 target is not None
                 and directory.inactive(target) is None
-                and str(target.id) != entry.owner_id
+                and (str(target.id) != entry.owner_id or entry.handover_incomplete)
             ):
-                owners.handovers[item["id"]] = Owner(str(target.id), target.username)
+                owners.handovers[item["id"]] = Owner(
+                    str(target.id), target.username, item["owner"]
+                )
         elif user is None:
             owners.unresolved.append(
                 {
@@ -698,8 +709,69 @@ def _finished_owners(
                     else "its plan owner is empty",
                 }
             )
-        elif str(user.id) != entry.owner_id:
-            owners.changed.append({"item": item["id"], "owner": user.username})
+            _note_portal_owner(item, entry, owners, None)
+        else:
+            _follow_portal_owner(directory, item, entry, user, permission, owners)
+
+
+def _follow_portal_owner(
+    directory: _Directory,
+    item: Mapping[str, Any],
+    entry: ItemState,
+    user: Any,
+    permission: str,
+    owners: Owners,
+) -> None:
+    """Queue a handover to *user* when only the item's ArcGIS owner moved;
+    report a new owner from a ``target.owner`` or ``owner_map`` edit. An entry
+    without a recorded ArcGIS owner adopts the current one while *user* owns
+    the item. An item a handover left incomplete goes to *user*, whoever owns
+    each of its objects now."""
+    portal_owner = item["owner"]
+    moved = entry.portal_owner is not None and portal_owner != entry.portal_owner
+    pinned = item["target"]["owner"] is not None
+    _note_portal_owner(item, entry, owners, str(user.id))
+    if entry.handover_incomplete:
+        pass
+    elif str(user.id) == entry.owner_id:
+        return
+    elif not moved or pinned:
+        owners.changed.append({"item": item["id"], "owner": user.username})
+        return
+    inactive = directory.inactive(user)
+    if inactive:
+        owners.unresolved.append({"item": item["id"], "reason": inactive})
+        return
+    grant = directory.missing_grant(user, permission)
+    if grant:
+        owners.warnings.append(f"{item['id']}: {grant}")
+    owners.waiting.append(item["id"])
+    owners.handovers[item["id"]] = Owner(str(user.id), user.username, portal_owner)
+
+
+def _note_portal_owner(
+    item: Mapping[str, Any],
+    entry: ItemState,
+    owners: Owners,
+    resolved: str | None,
+) -> None:
+    """Report an ArcGIS owner change the plan's ``target.owner`` overrides;
+    otherwise take the current ArcGIS owner as the one the item follows once
+    the item has the owner the plan resolves to (*resolved*, a user id), so a
+    later ``owner_map`` edit isn't taken for a portal change."""
+    portal_owner = item["owner"]
+    if entry.portal_owner == portal_owner:
+        return
+    if entry.portal_owner is not None and item["target"]["owner"] is not None:
+        owners.conflicts.append(
+            {
+                "item": item["id"],
+                "portal_owner": portal_owner,
+                "owner": item["target"]["owner"],
+            }
+        )
+    elif resolved == entry.owner_id and not entry.handover_incomplete:
+        entry.portal_owner = portal_owner
 
 
 def _operator(geolens: GeoLens) -> Any:
@@ -745,7 +817,7 @@ def _own_content_owners(
         and entry.owner_id == owner.id
         and entry.owner_pending
     ]
-    return Owners(
+    owners = Owners(
         by_item={
             item["id"]: owner
             for item in to_run
@@ -758,6 +830,20 @@ def _own_content_owners(
         unresolved=unresolved,
         waiting=waiting,
     )
+    # The plan maps every item to the operator, so that is who each resolves to.
+    for item in plan["items"]:
+        entry = state.items.get(item["id"])
+        if (
+            item["id"] not in running
+            and not item.get("removed")
+            and not item.get("unlisted")
+            and item["action"] in TRANSFER_PERMISSION
+            and entry is not None
+            and entry.status in FINISHED
+            and entry.owner_id
+        ):
+            _note_portal_owner(item, entry, owners, owner.id)
+    return owners
 
 
 def _check_cutover(opts: MigrateOptions) -> None:
@@ -793,6 +879,18 @@ def mark_cutover(
             "been given it",
         }
         for change in owners.changed
+    ]
+    listed = {row["item"] for row in [*owners.unresolved, *moved]}
+    moved += [
+        {
+            "item": item["id"],
+            "reason": "a handover stopped part way, so its objects may have "
+            "different owners",
+        }
+        for item in plan["items"]
+        if not item.get("removed")
+        and item["id"] not in listed
+        and state.items.get(item["id"], ItemState()).handover_incomplete
     ]
     failing = failing_checks(
         plan,
@@ -887,9 +985,9 @@ def _transfer_map(
             map_id=UUID(map_id),
             body=MapPatch(owner_id=UUID(owner.id), expected_updated_at=read.updated_at),
         )
+        entry.map_snapshot = map_state(read)
     elif str(read.created_by) != owner.id:
         raise ItemFailed(f"map {map_id} was changed in GeoLens since the last run")
-    entry.map_snapshot = map_state(read)
 
 
 def _import_revisions(ctx: MigrationContext, dataset_ids: list[str]) -> dict:
@@ -1042,6 +1140,7 @@ def _migrate_one(
                 transfer(ctx, entry, owner, revisions)
             entry.owner_id = owner.id
             entry.owner_pending = pending
+            entry.portal_owner = item["owner"]
             ctx.save()
     except (ItemFailed, GeoLensError) as exc:
         state.finish(item["id"], FAILED, str(exc))
@@ -1071,6 +1170,7 @@ def _hand_over_one(ctx: MigrationContext, entry: ItemState, owner: Owner) -> Non
     way or by someone in GeoLens, is left as it is. Each transfer is recorded
     as this command's own write, so a rerun resumes with the rest.
     """
+    entry.handover_incomplete = True
     for dataset_id in entry.dataset_ids:
         dataset = get_dataset(ctx, dataset_id)
         if str(dataset.created_by) == owner.id:
@@ -1085,14 +1185,22 @@ def _hand_over_one(ctx: MigrationContext, entry: ItemState, owner: Owner) -> Non
     if entry.map_id:
         _transfer_map(ctx.geolens, entry, owner, handover=True)
     entry.owner_id = owner.id
+    entry.handover_incomplete = False
 
 
 def hand_over(
-    ctx: MigrationContext, state: MigrationState, owners: Owners, summary: RunSummary
+    ctx: MigrationContext,
+    state: MigrationState,
+    owners: Owners,
+    summary: RunSummary,
+    only: Sequence[str] = (),
 ) -> None:
-    """Hand each migrated item that waits for its owner to the owner it can go
-    to now, unless GeoLens changed one of its datasets since the last run."""
+    """Hand each migrated item that waits for its owner, or whose ArcGIS owner
+    changed, to the owner it can go to now, unless GeoLens changed one of its
+    objects since the last run. With *only*, just the items it names."""
     for item_id in owners.waiting:
+        if only and item_id not in only:
+            continue
         entry = state.items[item_id]
         owner = owners.handovers.get(item_id)
         if owner is not None:
@@ -1102,8 +1210,11 @@ def hand_over(
                 summary.handover_failed.append(
                     state.clean(f"{item_id}: not handed to {owner.username}, {exc}")
                 )
+                if not entry.owner_pending:
+                    owners.changed.append({"item": item_id, "owner": owner.username})
                 continue
             summary.handed_over.append({"item": item_id, "owner": owner.username})
+            entry.portal_owner = owner.portal_owner
         elif entry.owner_pending == owners.pending.get(item_id):
             continue
         entry.owner_pending = owners.pending.get(item_id)
@@ -1224,6 +1335,7 @@ def _report_files(
             runnable=HANDLERS,
             owner_changes=owners.changed,
             owner_unresolved=owners.unresolved,
+            owner_conflicts=owners.conflicts,
             stopped=stopped,
             cutover=cutover,
             members_removed=groups.removed if groups else None,
@@ -1297,10 +1409,12 @@ def _report(
         "counts": dict(sorted(counts.items())),
         "owner_reassigned": owners.reassigned,
         "owner_changed": owners.changed,
+        "owner_conflicts": owners.conflicts,
         "owner_pending": owners.pending,
         "owner_unresolved": owners.unresolved,
         "owner_roles_checked": owners.roles_checked,
         "owner_warnings": owners.warnings,
+        "handovers": _planned_handovers(owners, opts.only),
         "handed_over": summary.handed_over,
         "handover_failed": summary.handover_failed,
         "not_available": summary.unavailable,
@@ -1335,6 +1449,9 @@ def _report(
                 # Failed before, left out of this run: the exit code counts it.
                 fmt.error(f"{item_id}: {state.item(item_id).error or 'failed'}")
         _print_owners(fmt, owners, summary)
+        if opts.dry_run:
+            for planned in _planned_handovers(owners, opts.only):
+                fmt.info(f"{planned['item']} would be handed to {planned['owner']}")
         _print_groups(fmt, groups, opts.dry_run)
         verb = "Would bring" if opts.dry_run else "Brought"
         brought = len(summary.refreshed)
@@ -1387,6 +1504,15 @@ def _report(
     return EXIT_GENERIC if unaccepted or groups.failures or report_failed else EXIT_OK
 
 
+def _planned_handovers(owners: Owners, only: Sequence[str]) -> list[dict[str, str]]:
+    """The handovers ``hand_over`` makes, as it selects them."""
+    return [
+        {"item": item_id, "owner": owners.handovers[item_id].username}
+        for item_id in owners.waiting
+        if item_id in owners.handovers and (not only or item_id in only)
+    ]
+
+
 def _print_owners(fmt: _output.Formatter, owners: Owners, summary: RunSummary) -> None:
     for line in owners.reassigned:
         fmt.warn(f"owner fell back to --unmapped-owner for {line}")
@@ -1396,6 +1522,11 @@ def _print_owners(fmt: _output.Formatter, owners: Owners, summary: RunSummary) -
         fmt.warn(
             f"{change['item']} was migrated before its owner changed to "
             f"{change['owner']}; it was not imported again. Transfer it by hand."
+        )
+    for conflict in owners.conflicts:
+        fmt.warn(
+            f"{conflict['item']}: its ArcGIS owner is now {conflict['portal_owner']}, "
+            f"but the plan's target.owner keeps it with {conflict['owner']}"
         )
     for unresolved in owners.unresolved:
         fmt.warn(f"{unresolved['item']}: {unresolved['reason']}")
@@ -1879,7 +2010,7 @@ def _run(
     stopped: str | None = "stopped by an unexpected error"
     try:
         summary = RunSummary()
-        hand_over(ctx, state, owners, summary)
+        hand_over(ctx, state, owners, summary, opts.only)
         run_items(
             ctx, plan, state, to_run, owners.by_item, refresh, owners.pending, summary
         )

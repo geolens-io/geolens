@@ -807,3 +807,100 @@ def test_each_selected_action_needs_its_own_permission(
 
     assert (result.exit_code == 2) is refused
     assert (ran == []) is refused
+
+
+def test_an_editor_rerun_after_an_arcgis_owner_change_needs_an_admin(
+    runner, tmp_path, editor, ran
+):
+    _allow_transfers(editor, _created_id(L1))
+    assert _run(runner, tmp_path, _plan([_item(L1)], OWN))[0].exit_code == 0
+    moved = {**_item(L1), "owner": "agol_bob"}
+
+    result, _ = _run(
+        runner, tmp_path, _plan([moved], {**OWN, "agol_bob": "bob"}), "--dry-run"
+    )
+
+    assert result.exit_code == 2
+    assert "Owners other than erin: bob" in result.output
+    assert [s for s in editor.seen if s.method == "PATCH"] == []
+
+
+def test_an_editor_run_leaves_an_incomplete_admin_handover_and_cutover_refuses(
+    runner, tmp_path, editor, ran
+):
+    _allow_transfers(editor, _created_id(L1))
+    _write_state(
+        tmp_path,
+        {
+            L1: {
+                "status": "done",
+                "dataset_ids": [_created_id(L1)],
+                "owner_id": ERIN,
+                "portal_owner": "agol_alice",
+                "handover_incomplete": True,
+            }
+        },
+    )
+
+    result, payload = _run(
+        runner,
+        tmp_path,
+        _plan([_item(L1)], OWN),
+        "--cutover",
+        "--accept-incomplete-inventory",
+    )
+
+    assert [s for s in editor.seen if s.method == "PATCH"] == []
+    assert payload["cutover"]["refused"] == ["unresolved-users"]
+    assert _state(tmp_path)["items"][L1]["handover_incomplete"] is True
+
+
+@pytest.mark.parametrize("recorded", ["agol_alice", None], ids=["recorded", "legacy"])
+@pytest.mark.parametrize("name", ["erin", "ERIN", "erin@example.org"])
+def test_an_editor_rerun_follows_an_arcgis_owner_change_that_maps_to_them(
+    runner, tmp_path, editor, ran, recorded, name
+):
+    _allow_transfers(editor, _created_id(L1))
+    _write_state(
+        tmp_path,
+        {
+            L1: {
+                "status": "done",
+                "dataset_ids": [_created_id(L1)],
+                "owner_id": ERIN,
+                "portal_owner": recorded,
+            }
+        },
+    )
+    moved = {**_item(L1), "owner": "agol_bob"}
+
+    result, _ = _run(runner, tmp_path, _plan([moved], {**OWN, "agol_bob": name}))
+
+    assert result.exit_code == 0, result.output
+    assert _state(tmp_path)["items"][L1]["portal_owner"] == "agol_bob"
+
+
+def test_an_editor_rerun_reports_an_arcgis_change_its_target_owner_overrides(
+    runner, tmp_path, editor, ran
+):
+    _allow_transfers(editor, _created_id(L1))
+    _write_state(
+        tmp_path,
+        {
+            L1: {
+                "status": "done",
+                "dataset_ids": [_created_id(L1)],
+                "owner_id": ERIN,
+                "portal_owner": "agol_alice",
+            }
+        },
+    )
+    moved = {**_item(L1, target_owner="erin"), "owner": "agol_bob"}
+
+    result, payload = _run(runner, tmp_path, _plan([moved], OWN))
+
+    assert result.exit_code == 0, result.output
+    assert payload["owner_conflicts"] == [
+        {"item": L1, "portal_owner": "agol_bob", "owner": "erin"}
+    ]
+    assert _state(tmp_path)["items"][L1]["portal_owner"] == "agol_alice"

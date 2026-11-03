@@ -24,11 +24,12 @@ STATE_FILENAME = "arcgis-migration-state.json"
 # v2 adds what a rerun compares and waits on, v3 the GeoLens groups made for
 # ArcGIS groups, and v4 what this command's own writes added, which a rerun may
 # take away again: a made group's members (``joined``) and each object's
-# groups (``granted``). An older CLI refuses the file rather than rewriting it
-# without them. A v3 file records neither, so a rerun removes nothing it
-# added before.
-STATE_VERSION = "4"
-_READABLE_VERSIONS = ("1", "2", "3", STATE_VERSION)
+# groups (``granted``), and v5 the ArcGIS owner each item's owner follows and
+# a handover left incomplete. An older CLI refuses the file rather than
+# rewriting it without them. A v3 file records neither, so a rerun removes
+# nothing it added before.
+STATE_VERSION = "5"
+_READABLE_VERSIONS = ("1", "2", "3", "4", STATE_VERSION)
 
 PENDING = "pending"
 RUNNING = "running"
@@ -201,6 +202,12 @@ class ItemState:
     relationships: dict[str, list[dict[str, Any]]] | None = None
     # Why the item sits with --unmapped-owner instead of its plan owner.
     owner_pending: str | None = None
+    # The ArcGIS owner the item's GeoLens owner was last decided from, so a
+    # rerun can tell a portal owner change from an owner_map edit.
+    portal_owner: str | None = None
+    # A handover started and didn't finish, so the item's objects may have
+    # different owners until a later handover moves the rest.
+    handover_incomplete: bool = False
     # What of the item GeoLens doesn't import, such as a service's raster
     # layers; cutover counts each as a loss.
     left_behind: list[str] = field(default_factory=list)
