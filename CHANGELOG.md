@@ -9,6 +9,12 @@ and releases use semantic versioning.
 
 ### Changed
 
+- Vector and cluster tiles are cached for an hour by default
+  (`TILE_CACHE_TTL=3600`, was 300 seconds), so crowded tiles are redrawn from
+  the database a twelfth as often. Browsers get the same `max-age`. A
+  replacement or feature edit still rolls the tile URLs and cache keys, and
+  shared caches stay capped at 60 seconds. A value saved in Admin → Settings
+  keeps applying; set `TILE_CACHE_TTL=300` for the old default.
 - Dashboard aggregates, analysis previews and the SQL query endpoint answer
   `503` with `Retry-After` and the code `query_unavailable` when the database
   can't serve the query, for example when it runs out of memory or shared
@@ -57,8 +63,11 @@ changed.
   the tile, in a stable order, instead of the lowest feature ids, and carries
   `X-GeoLens-Tile-Sampled: true`. The viewer's Layers panel says "Showing a
   sample at this zoom" while such a tile is in view. Tiles under the limit are
-  unchanged. Choosing the sample reads every row the tile covers, so a crowded
-  tile's first render is slower than before. (#3576)
+  unchanged. Choosing the sample reads every row the tile covers, so drawing
+  a crowded tile is slower than before. That happens whenever the tile isn't
+  in the tile cache: on first view, after its cache entry expires
+  (`TILE_CACHE_TTL`), after the dataset changes, and for each column set a map
+  asks for. (#3576)
 - The Builder's style editor notes when a point layer has more features than a
   tile holds and isn't clustered or zoom-limited, so readers see a sample
   zoomed out. (#3577)
