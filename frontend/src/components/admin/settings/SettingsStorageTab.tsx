@@ -32,7 +32,7 @@ const FIELDS = [
     // narrower list than the server enforces.
     defaultValue: '.zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls,.parquet,.fgb,.kml,.kmz,.3tz,.laz',
   },
-  { key: 'tile_cache_ttl', defaultValue: 300 },
+  { key: 'tile_cache_ttl', defaultValue: 3600 },
   { key: 'max_storage_bytes_per_user', defaultValue: 0 },
   { key: 'max_datasets_per_user', defaultValue: 0 },
   { key: 'max_story_image_mb_per_user', defaultValue: 0 },

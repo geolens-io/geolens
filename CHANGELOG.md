@@ -9,6 +9,12 @@ and releases use semantic versioning.
 
 ### Changed
 
+- Vector and cluster tiles are cached for an hour by default
+  (`TILE_CACHE_TTL=3600`, was 300 seconds), so crowded tiles are redrawn from
+  the database a twelfth as often. Browsers get the same `max-age`. A
+  replacement or feature edit still rolls the tile URLs and cache keys, and
+  shared caches stay capped at 60 seconds. A value saved in Admin → Settings
+  keeps applying; set `TILE_CACHE_TTL=300` for the old default.
 - Dashboard aggregates, analysis previews and the SQL query endpoint answer
   `503` with `Retry-After` and the code `query_unavailable` when the database
   can't serve the query, for example when it runs out of memory or shared

@@ -491,7 +491,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     redis_url: str | None = None  # unset refuses token-protected service dispatch
     cdn_base_url: str | None = None
     tile_signing_secret: SecretStr | None = None
-    tile_cache_ttl: int = Field(default=300, ge=0)
+    tile_cache_ttl: int = Field(default=3600, ge=0)
 
     database_url_override: str | None = None
     # Opt-in single-tenant runtime login. Empty preserves the legacy connection;
