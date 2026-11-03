@@ -30,6 +30,12 @@ and releases use semantic versioning.
   can't serve the query, for example when it runs out of memory or shared
   memory or loses a connection. They answered `500` before. Dashboard widgets
   retry after the `Retry-After`.
+- A rerun of `geolens arcgis migrate` follows an ArcGIS owner change: the
+  item's datasets and map go to the newly mapped GeoLens owner. When the plan
+  sets the item's `target.owner`, that owner stays and the change is listed
+  under `owner_conflicts`. An object transferred or changed in GeoLens since
+  the last run keeps its owner and is reported, and `--cutover` refuses until
+  `--accept-unresolved-users`.
 
 ### Fixed
 
