@@ -6,7 +6,8 @@ items one at a time in ``depends_on`` order, and records progress in a state
 file so a rerun resumes where the last one stopped. Items are imported as
 the operator, who must be a GeoLens admin, then handed to the owner the plan
 maps them to through the admin ownership transfer on ``PATCH /datasets/{id}``
-and ``PATCH /maps/{id}``. No credential is minted for the owners.
+and ``PATCH /maps/{id}``. No credential is minted for the owners. An editor
+may run a plan whose owners are all themselves; see ``arcgis_migrate_editor``.
 
 GeoLens is reached only through the SDK client for the configured instance;
 see ``arcgis_portal`` for the portal side of the egress contract.
@@ -37,7 +38,17 @@ from ._sdk_helpers import (
     EXIT_USAGE,
 )
 from .arcgis_item_metadata import apply_item_metadata
-from .arcgis_migrate_collections import file_into_collections, taken_collections
+from .arcgis_migrate_collections import (
+    _may_manage,
+    file_into_collections,
+    taken_collections,
+)
+from .arcgis_migrate_editor import (
+    cannot_import,
+    is_admin,
+    my_groups_plan,
+    own_content_refusal,
+)
 from .arcgis_migrate_export import (
     DEFAULT_CAP_MB,
     EXPORT_DIRNAME,
@@ -690,17 +701,26 @@ def _finished_owners(
             owners.changed.append({"item": item["id"], "owner": user.username})
 
 
-def _require_admin(geolens: GeoLens) -> str:
-    """The admin operator's user id; ``UsageError`` for anyone else."""
+def _operator(geolens: GeoLens) -> Any:
     from geolens.api.auth import me_auth_me_get
 
-    me = geolens.call(me_auth_me_get.sync_detailed)
-    if "admin" not in (me.roles or []):
-        raise UsageError(
-            "migrate needs a GeoLens admin session: it reads the user list and "
-            "transfers ownership. Run `geolens login` as an admin."
-        )
-    return str(me.id)
+    return geolens.call(me_auth_me_get.sync_detailed)
+
+
+def _own_content_owners(me: Any, to_run: list[Mapping[str, Any]]) -> Owners:
+    """Every importing item goes to the operator, who keeps it."""
+    owner = Owner(str(me.id), me.username)
+    return Owners(
+        by_item={
+            item["id"]: owner
+            for item in to_run
+            if item["action"] in TRANSFER_PERMISSION and not item.get("unlisted")
+        },
+        reassigned=[],
+        changed=[],
+        roles_checked=True,
+        warnings=[],
+    )
 
 
 def _check_cutover(opts: MigrateOptions) -> None:
@@ -934,7 +954,7 @@ def _migrate_one(
         if owner is not None:
             # Datasets an earlier attempt handed over are no longer written.
             fresh = [d for d in entry.dataset_ids if d not in entry.last_update]
-            revisions = _import_revisions(ctx, fresh)
+            revisions = {} if ctx.own_content else _import_revisions(ctx, fresh)
             entry.visibility = dict.fromkeys(
                 entry.dataset_ids, item["target"]["visibility"]
             )
@@ -945,7 +965,8 @@ def _migrate_one(
             share(ctx, item, entry)
             # Even to the operator: a run that failed part way may have handed
             # some of the item's objects to another owner already.
-            transfer(ctx, entry, owner, revisions)
+            if not ctx.own_content:
+                transfer(ctx, entry, owner, revisions)
             entry.owner_id = owner.id
             entry.owner_pending = pending
             ctx.save()
@@ -1642,14 +1663,25 @@ def _run(
     sdk = sdk_factory()
     geolens = GeoLens(sdk, instance, redact)
     try:
-        operator_id = _require_admin(geolens)
+        me = _operator(geolens)
+        operator_id = str(me.id)
+        editor = not is_admin(me)
+        if editor:
+            refusal = own_content_refusal(me, plan, opts.unmapped_owner)
+            refusal = refusal or cannot_import(geolens)
+            if refusal:
+                raise UsageError(refusal)
         emails = {
             row["owner"]: row["owner_email"]
             for row in rows.values()
             if row.get("owner") and row.get("owner_email")
         }
-        owners = resolve_owners(
-            geolens, plan, to_run, state, opts.unmapped_owner, emails
+        owners = (
+            _own_content_owners(me, to_run)
+            if editor
+            else resolve_owners(
+                geolens, plan, to_run, state, opts.unmapped_owner, emails
+            )
         )
         # Read before any group is made, so a run it stops changes nothing.
         restrict_public = _restrict_public(geolens, touched)
@@ -1662,20 +1694,25 @@ def _run(
         )
         if refusal:
             raise UsageError(refusal)
-        groups = prepare_groups(
-            geolens,
-            plan,
-            inventory_groups,
-            state,
-            owners.directory,
-            touched,
-            dry_run=opts.dry_run,
-            emails=emails,
-        )
+        if editor:
+            groups = my_groups_plan(
+                geolens, plan, inventory_groups, state, touched, dry_run=opts.dry_run
+            )
+        else:
+            groups = prepare_groups(
+                geolens,
+                plan,
+                inventory_groups,
+                state,
+                owners.directory,
+                touched,
+                dry_run=opts.dry_run,
+                emails=emails,
+            )
         sharing = Sharing(
             groups={a: g["id"] for a, g in groups.groups.items()},
             restrict_public=restrict_public,
-            admins=owners.directory.admins,
+            admins=frozenset() if editor else owners.directory.admins,
             names={
                 g["id"]: g["name"]
                 for g in state.groups.values()
@@ -1756,6 +1793,8 @@ def _run(
         redact=redact,
         operator_id=operator_id,
         sharing=sharing,
+        own_content=editor,
+        collections_denied=editor and not _may_manage(geolens),
     )
     # Any way out of the loop but a normal return leaves the report to the
     # finally block, so it is never stale.

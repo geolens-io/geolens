@@ -28,7 +28,7 @@ from .arcgis_migrate_cutover import (
     sharing_losses,
 )
 from .arcgis_migrate_export import item_replacement
-from .arcgis_migrate_groups import SHARING_LABELS
+from .arcgis_migrate_groups import NO_GROUP, PUBLIC_BLOCKED, SHARING_LABELS
 from . import arcgis_plan as _plan
 from .arcgis_migrate_state import (
     DONE,
@@ -73,6 +73,18 @@ def _follow_ups(
                 add(item["id"], "skipped_layer", note)
             elif note.startswith("skipped"):
                 add(item["id"], "skipped", note)
+            elif note == PUBLIC_BLOCKED:
+                add(
+                    item["id"],
+                    "public_blocked_by_policy",
+                    note + "; make it public in GeoLens once the policy allows it",
+                )
+            elif note == NO_GROUP:
+                add(
+                    item["id"],
+                    "private_no_matching_group",
+                    note + "; share it with a group in GeoLens",
+                )
             elif note == DENIED:
                 add(
                     item["id"],
