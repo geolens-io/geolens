@@ -84,6 +84,7 @@ def _fake_ogr2ogr(
         *,
         schema: str,
         on_spawn=None,
+        keep_z: bool = False,
     ) -> None:
         if on_spawn is not None:
             on_spawn()
@@ -819,6 +820,60 @@ async def test_probe_failure_still_stamps_origin_contact(
 
 
 @pytest.mark.anyio
+async def test_unreadable_layer_json_keeps_a_3d_dataset_3d(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    """A refresh that cannot read hasZ must not stage a 3D dataset flat."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+    dataset.is_3d = True
+    await test_db_session.commit()
+
+    async def _page_info(source_url, layer_id, token, **_):
+        return 1, 1000, False, None
+
+    monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _page_info)
+    monkeypatch.setattr(
+        tasks_vector, "_fetch_arcgis_layer_meta_or_none", AsyncMock(return_value=None)
+    )
+    seen: list[tuple[str, bool]] = []
+    inner = _fake_ogr2ogr([], lambda i: 1)
+
+    async def _recording(source, *args, **kw):
+        seen.append((source, kw["keep_z"]))
+        await inner(source, *args, **kw)
+
+    task_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset.id)
+    await _execute_with_fake(task_kwargs, _recording)
+
+    [(source, keep_z)] = seen
+    assert keep_z is True
+    assert "returnZ=true" in source
+
+
+@pytest.mark.anyio
+async def test_layer_json_token_rejection_still_stamps_origin_contact(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    """The layer JSON is read before the page-info probe, and a 498 from it
+    still contacted the origin."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+    assert dataset.last_checked_at is None
+
+    monkeypatch.setattr(
+        "app.modules.catalog.sources.adapters.arcgis.fetch_arcgis_layer_meta",
+        AsyncMock(side_effect=ArcGISTokenError(498, "Token rejected")),
+    )
+    task_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset.id)
+    with pytest.raises(ArcGISTokenError, match="498"):
+        await _execute_with_fake(task_kwargs, _fake_ogr2ogr([], 1))
+
+    await test_db_session.refresh(dataset)
+    assert dataset.last_checked_at is not None
+
+
+@pytest.mark.anyio
 async def test_first_arcgis_page_info_token_rejection_preserves_typed_failure(
     client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
 ):
@@ -1007,6 +1062,7 @@ def _fake_ogr2ogr_with_source_oids(calls: list[dict], staged_ids: list[int]):
         *,
         schema: str,
         on_spawn=None,
+        keep_z: bool = False,
     ) -> None:
         if on_spawn is not None:
             on_spawn()

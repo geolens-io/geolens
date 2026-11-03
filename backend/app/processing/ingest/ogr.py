@@ -1339,6 +1339,7 @@ async def run_ogr2ogr_service(
     *,
     schema: str,
     on_spawn: "Callable[[], None] | None" = None,
+    keep_z: bool = False,
 ) -> None:
     """Run ogr2ogr to load a remote service layer into PostGIS.
 
@@ -1361,6 +1362,9 @@ async def run_ogr2ogr_service(
             subprocess exists. Callers date origin contacts off it rather
             than guessing from exception types, since every local check
             happens before it fires.
+        keep_z: When True, stage a 3D geometry column. ``-nlt GEOMETRY``
+            drops Z; ``GEOMETRYZ`` keeps it and gives a feature without Z a
+            zero.
     """
     from app.processing.ingest.metadata import _validate_table_name
 
@@ -1449,7 +1453,7 @@ async def run_ogr2ogr_service(
         # `rename_reserved_columns` moves any source attribute to `src_<name>`.
         cmd += [
             "-nlt",
-            "GEOMETRY",
+            "GEOMETRYZ" if keep_z else "GEOMETRY",
             "-lco",
             "GEOMETRY_NAME=_geolens_geom",
             "-lco",

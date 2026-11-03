@@ -1182,6 +1182,7 @@ class TestServiceReuploadPreview:
             token="secret-token",
             order_field=None,
             result_limit=5,
+            return_z=False,
         )
         mock_run_preview.assert_awaited_once_with(
             "WFS:https://example.com/wfs",

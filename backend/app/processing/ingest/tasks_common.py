@@ -750,6 +750,7 @@ async def run_paged_arcgis_service_fetch(
     on_spawn: Any = None,
     on_page: Any = None,
     planned_ids: tuple[int, ...] | None = None,
+    return_z: bool = False,
 ) -> None:
     """Guarded ArcGIS paging shared by initial import and refresh/reupload.
 
@@ -789,6 +790,7 @@ async def run_paged_arcgis_service_fetch(
                 result_offset=None,
                 object_ids=object_ids,
                 force_arcgis_geojson=force_arcgis_geojson,
+                return_z=return_z,
             )
             return len(page_source.encode("utf-8")) <= _ARCGIS_GDAL_GET_URL_MAX_BYTES
 
@@ -834,6 +836,7 @@ async def run_paged_arcgis_service_fetch(
             result_offset=offset,
             object_ids=object_ids,
             force_arcgis_geojson=force_arcgis_geojson,
+            return_z=return_z,
         )
         await ogr.run_ogr2ogr_service(
             page_source,
@@ -846,6 +849,7 @@ async def run_paged_arcgis_service_fetch(
             append=append,
             schema=schema,
             on_spawn=on_spawn,
+            keep_z=return_z,
         )
         async with async_session() as session:
             result = await session.execute(

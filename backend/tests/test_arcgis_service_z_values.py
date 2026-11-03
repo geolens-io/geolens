@@ -1,0 +1,290 @@
+"""An ArcGIS layer that stores Z keeps it in the staged table; multipatch is refused."""
+
+from __future__ import annotations
+
+import json
+import shutil
+import uuid
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
+from urllib.parse import parse_qs, urlsplit
+
+import pytest
+from fastapi import HTTPException
+from sqlalchemy import text
+
+from app.modules.catalog.sources.layer_types import (
+    reject_unsupported_arcgis_type,
+)
+from app.modules.catalog.sources.preview import build_gdal_source
+from app.processing.ingest import tasks_reupload, tasks_vector
+
+_BASE = "https://services.example.com/arcgis/rest/services/Wells/FeatureServer"
+
+needs_ogr = pytest.mark.skipif(
+    shutil.which("ogr2ogr") is None,
+    reason="needs a GDAL command line to measure what the PostgreSQL driver stores",
+)
+
+
+def _query(source: str) -> dict[str, list[str]]:
+    return parse_qs(urlsplit(source.partition(":")[2]).query)
+
+
+class TestBuildGdalSource:
+    def test_return_z_asks_the_server_for_z(self) -> None:
+        source, _ = build_gdal_source(
+            "ArcGIS FeatureServer", _BASE, "", 0, return_z=True
+        )
+        assert _query(source)["returnZ"] == ["true"]
+
+    def test_default_does_not_ask(self) -> None:
+        source, _ = build_gdal_source("ArcGIS FeatureServer", _BASE, "", 0)
+        assert "returnZ" not in _query(source)
+
+    @pytest.mark.parametrize("ids", [[1, 2], [1, (1 << 31) + 5]])
+    def test_object_id_chunks_carry_z_in_both_drivers(self, ids) -> None:
+        source, _ = build_gdal_source(
+            "ArcGIS FeatureServer",
+            _BASE,
+            "",
+            0,
+            object_ids=ids,
+            return_z=True,
+        )
+        assert _query(source)["returnZ"] == ["true"]
+
+
+class TestLayerJson:
+    def test_multipatch_is_refused_with_a_coded_422(self) -> None:
+        with pytest.raises(HTTPException) as caught:
+            reject_unsupported_arcgis_type(
+                {"type": "Feature Layer", "geometryType": "esriGeometryMultiPatch"}
+            )
+        assert caught.value.status_code == 422
+        assert caught.value.detail["code"] == "unsupported_geometry"
+
+    def test_other_geometry_passes(self) -> None:
+        reject_unsupported_arcgis_type(
+            {"type": "Feature Layer", "geometryType": "esriGeometryPoint"}
+        )
+
+
+class TestImportFacts:
+    @pytest.mark.parametrize("flag", [False, "true", None])
+    def test_only_a_true_flag_asks_for_z(self, flag) -> None:
+        _, return_z = tasks_vector.arcgis_meta_import_facts({"hasZ": flag})
+        assert return_z is False
+
+    def test_a_true_flag_asks_for_z(self) -> None:
+        assert tasks_vector.arcgis_meta_import_facts({"hasZ": True})[1] is True
+
+    def test_unreadable_layer_json_means_flat_and_no_casts(self) -> None:
+        assert tasks_vector.arcgis_meta_import_facts(None) == (None, False)
+
+    @pytest.mark.anyio
+    async def test_unreadable_layer_json_is_none(self) -> None:
+        with patch(
+            "app.modules.catalog.sources.adapters.arcgis.fetch_arcgis_layer_meta",
+            new=AsyncMock(side_effect=ValueError("boom")),
+        ):
+            assert (
+                await tasks_vector._fetch_arcgis_layer_meta_or_none(_BASE, 0, None)
+                is None
+            )
+
+
+class TestImportPlumbing:
+    @pytest.mark.anyio
+    async def test_import_asks_for_z_and_stages_3d(
+        self, test_db_session, monkeypatch
+    ) -> None:
+        from tests import test_arcgis_column_types as column_types
+
+        monkeypatch.setitem(column_types._META, "hasZ", True)
+        calls: list = []
+        original = column_types._fake_fetch
+
+        def _recording():
+            inner = original()
+
+            async def _fetch(source, *args, **kw):
+                calls.append((source, kw))
+                await inner(source, *args, **kw)
+
+            return _fetch
+
+        monkeypatch.setattr(column_types, "_fake_fetch", _recording)
+        await column_types._ingest(test_db_session, monkeypatch)
+        [(source, kw)] = calls
+        assert _query(source)["returnZ"] == ["true"]
+        assert kw["keep_z"] is True
+
+
+class TestRefreshPlumbing:
+    @pytest.mark.anyio
+    async def test_refresh_fetch_asks_for_z_and_stages_3d(self, monkeypatch) -> None:
+        async def _page_info(*_a, **_k):
+            return 3, 1000, False, "OBJECTID"
+
+        monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _page_info)
+        run = AsyncMock()
+        with patch("app.processing.ingest.ogr.run_ogr2ogr_service", new=run):
+            await tasks_reupload._fetch_service_layer_with_paging_guard(
+                service_type_raw="ArcGIS FeatureServer",
+                service_type="arcgis_featureserver",
+                source_url=_BASE,
+                layer_name="Wells",
+                layer_id=0,
+                token=None,
+                staging_table="f3_plumbing",
+                db_conn_str="PG:",
+                schema="data",
+                fallback_order_field="OBJECTID",
+                on_spawn=None,
+                reviews_unknown_count=False,
+                return_z=True,
+            )
+        source = run.await_args.args[0]
+        assert _query(source)["returnZ"] == ["true"]
+        assert run.await_args.kwargs["keep_z"] is True
+
+
+_LAYER = {
+    "objectIdFieldName": "OBJECTID",
+    "geometryType": "esriGeometryPoint",
+    "hasZ": True,
+    "spatialReference": {"wkid": 4326},
+    "fields": [
+        {"name": "OBJECTID", "type": "esriFieldTypeOID"},
+        {"name": "label", "type": "esriFieldTypeString", "length": 10},
+    ],
+    "features": [
+        {
+            "attributes": {"OBJECTID": 1, "label": "a"},
+            "geometry": {"x": -73.9, "y": 40.7, "z": 12.5},
+        },
+        {
+            "attributes": {"OBJECTID": 2, "label": "b"},
+            "geometry": {"x": -74.0, "y": 40.8, "z": 30.0},
+        },
+    ],
+}
+
+
+_CAPTURES = Path(__file__).parent / "fixtures" / "arcgis_z"
+
+
+@needs_ogr
+class TestRealGdalStagesZ:
+    @pytest.mark.anyio
+    async def test_staged_table_keeps_z_only_when_asked(self, tmp_path) -> None:
+        from app.core.config import settings
+        from app.core.db import async_session
+        from app.processing.ingest.ogr import run_ogr2ogr_service
+
+        layers = {"synthetic": _LAYER}
+        for capture in ("polyline_z", "point_zm"):
+            layers[capture] = json.loads((_CAPTURES / f"{capture}.json").read_text())
+        staged: dict[tuple[str, bool], list] = {}
+        # One test, not a parametrisation: the pooled connection cannot move
+        # between the event loops of two tests.
+        for name, layer in layers.items():
+            layer_file = tmp_path / f"{name}.json"
+            layer_file.write_text(json.dumps(layer))
+            for keep_z in (True, False):
+                table = f"f3_z_{uuid.uuid4().hex[:8]}"
+                try:
+                    await run_ogr2ogr_service(
+                        f"ESRIJSON:{layer_file}",
+                        "",
+                        table,
+                        settings.ogr_connection_string,
+                        "arcgis_featureserver",
+                        schema="data",
+                        keep_z=keep_z,
+                    )
+                    async with async_session() as session:
+                        result = await session.execute(
+                            text(
+                                "SELECT ST_NDims(_geolens_geom), "
+                                "ST_SRID(_geolens_geom), ST_ZMax(_geolens_geom) "
+                                f'FROM "data"."{table}" ORDER BY gid LIMIT 1'
+                            )
+                        )
+                        staged[(name, keep_z)] = list(result.one())
+                finally:
+                    async with async_session() as session:
+                        await session.execute(
+                            text(f'DROP TABLE IF EXISTS "data"."{table}"')
+                        )
+                        await session.commit()
+        assert staged[("synthetic", True)] == [3, 4326, 12.5]
+        assert staged[("synthetic", False)][0] == 2
+        for capture in ("polyline_z", "point_zm"):
+            kept, flat = staged[(capture, True)], staged[(capture, False)]
+            assert kept[0] == 3 and kept[1] == 4326 and kept[2] is not None
+            assert flat[0] == 2
+
+
+class TestReuploadPreview:
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("meta_has_z", "live_is_3d", "expected"),
+        [
+            (True, False, True),
+            (False, True, False),
+            (None, True, True),
+            (None, False, False),
+        ],
+    )
+    async def test_preview_reads_z_like_the_worker_stages_it(
+        self,
+        client,
+        admin_auth_header,
+        test_db_session,
+        meta_has_z,
+        live_is_3d,
+        expected,
+    ) -> None:
+        from app.modules.catalog.datasets.api import router_reupload
+        from tests.factories import create_dataset, get_user_id
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(test_db_session, created_by=admin_id)
+        dataset.is_3d = live_is_3d
+        await test_db_session.commit()
+        # None stands for layer JSON the preview could not read.
+        meta = (
+            None
+            if meta_has_z is None
+            else {"name": "X", "type": "Feature Layer", "hasZ": meta_has_z}
+        )
+        reported = {
+            "srid": 4326,
+            "geometry_type": "Point",
+            "layer_name": "0",
+            "feature_count": 1,
+            "columns": [],
+            "sample_rows": [],
+        }
+        preview = AsyncMock(return_value=reported)
+        with (
+            patch.object(router_reupload, "validate_url_for_ssrf", AsyncMock()),
+            patch.object(
+                router_reupload, "fetch_arcgis_layer_meta", AsyncMock(return_value=meta)
+            ),
+            patch.object(router_reupload, "run_service_preview", preview),
+        ):
+            resp = await client.post(
+                f"/datasets/{dataset.id}/reupload/service/preview",
+                json={
+                    "url": _BASE,
+                    "service_type": "ArcGIS FeatureServer",
+                    "layer_name": "0",
+                    "layer_id": 0,
+                },
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 200, resp.text
+        assert ("returnZ" in _query(preview.await_args.args[0])) is expected

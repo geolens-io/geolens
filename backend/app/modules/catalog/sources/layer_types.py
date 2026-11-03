@@ -37,8 +37,12 @@ def is_importable_arcgis_layer(layer: dict) -> bool:
 
 
 def reject_unsupported_arcgis_type(meta: dict) -> None:
-    """Raise a coded 422 when the layer JSON describes a layer without rows."""
+    """Raise a coded 422 when the layer JSON describes a layer that cannot import.
+
+    Covers layers without rows and multipatch geometry.
+    """
     if is_importable_arcgis_layer(meta):
+        reject_unsupported_arcgis_geometry(meta)
         return
     layer_type = meta.get("type")
     raise HTTPException(
@@ -50,6 +54,27 @@ def reject_unsupported_arcgis_type(meta: dict) -> None:
                 "Import one of its feature layers or tables instead."
             ),
             "layer_type": layer_type,
+        },
+    )
+
+
+def reject_unsupported_arcgis_geometry(meta: dict) -> None:
+    """Raise a coded 422 for a multipatch layer.
+
+    GDAL has no multipatch reader for the REST JSON, so it would guess a
+    geometry type and store wrong shapes.
+    """
+    if meta.get("geometryType") != "esriGeometryMultiPatch":
+        return
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        detail={
+            "code": "unsupported_geometry",
+            "message": (
+                "This layer holds multipatch geometry, which cannot be imported. "
+                "Publish it as a feature layer with another geometry type."
+            ),
+            "geometry_type": "esriGeometryMultiPatch",
         },
     )
 

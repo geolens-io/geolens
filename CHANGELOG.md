@@ -19,6 +19,11 @@ and releases use semantic versioning.
 
 ### Changed
 
+- An ArcGIS layer that stores Z values keeps them on import and refresh: the
+  query asks for `returnZ=true` and the staged table is 3D, while the map
+  display copy stays 2D. A feature without Z in such a layer gets Z 0. Layers
+  of geometry type multipatch are refused at preview with the 422 code
+  `unsupported_geometry` instead of importing with guessed shapes.
 - Vector and cluster tiles are cached for an hour by default
   (`TILE_CACHE_TTL=3600`, was 300 seconds), so crowded tiles are redrawn from
   the database a twelfth as often. Browsers get the same `max-age`. A

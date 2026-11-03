@@ -139,11 +139,15 @@ class TestExtensionApiVersionConstant:
         provider without them fails on its first token-conditional health-alert
         claim.
 
+        v21 makes ``ProcessingPort.build_gdal_source`` take the optional
+        ``return_z`` keyword. An overlay that replaces the ``processing_port``
+        key without it gets a TypeError on ArcGIS imports.
+
         Update this pin, and the note above it, whenever the constant moves.
         """
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
-        assert EXTENSION_API_VERSION == 20
+        assert EXTENSION_API_VERSION == 21
 
 
 class TestCheckExtensionApiVersion:

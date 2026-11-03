@@ -22,6 +22,15 @@ describe('API error localization boundary', () => {
     expect(translateApiErrorDetail(detail, 422)).toContain(text);
   });
 
+  it.each([
+    ['unsupported_layer_type', 'errors.serviceLayerNoFeatures', 'holds no features'],
+    ['unsupported_geometry', 'errors.serviceGeometryUnsupported', 'multipatch'],
+  ])('maps the service preview refusal %s to its own message', (code, key, text) => {
+    const detail = { code, message: 'English diagnostic' };
+    expect(classifyApiError(detail, 422).key).toBe(key);
+    expect(translateApiErrorDetail(detail, 422)).toContain(text);
+  });
+
   it('maps known backend details to stable keys', () => {
     expect(classifyApiError('Dataset not found', 404)).toEqual({
       key: 'errors.datasetNotFound',

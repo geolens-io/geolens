@@ -228,6 +228,9 @@ _DISPOSE_SHARED_ENGINE_MODULES = {
     # longer traceable to one deterministic source module.
     "test_embed_tokens",
     "test_embed_token_expiry_cache",
+    # Its real-GDAL test reads the staged table through the shared engine, so
+    # a connection pooled by an earlier module's loop would fail it.
+    "test_arcgis_service_z_values",
 }
 
 

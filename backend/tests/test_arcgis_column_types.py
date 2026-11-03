@@ -202,7 +202,7 @@ async def test_a_text_typed_dataset_is_held_once_then_publishes_native_types(
     client, admin_auth_header, test_db_session, monkeypatch
 ):
     with patch.object(
-        tasks_vector, "_fetch_arcgis_column_casts", AsyncMock(return_value=None)
+        tasks_vector, "_fetch_arcgis_layer_meta_or_none", AsyncMock(return_value=None)
     ):
         dataset_id = await _ingest(test_db_session, monkeypatch)
     await _post_refresh(client, admin_auth_header, monkeypatch, dataset_id)
@@ -232,7 +232,7 @@ async def test_the_reupload_preview_names_the_type_changes_a_refresh_reports(
     from app.modules.catalog.datasets.api import router_reupload
 
     with patch.object(
-        tasks_vector, "_fetch_arcgis_column_casts", AsyncMock(return_value=None)
+        tasks_vector, "_fetch_arcgis_layer_meta_or_none", AsyncMock(return_value=None)
     ):
         dataset_id = await _ingest(test_db_session, monkeypatch)
 

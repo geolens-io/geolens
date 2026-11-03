@@ -166,6 +166,7 @@ async def test_service_worker_refuses_to_de_spatialize_a_vector_dataset(
         *,
         schema: str,
         on_spawn=None,
+        keep_z: bool = False,
     ) -> None:
         """Land the attribute table the service actually served: no geometry."""
         if on_spawn is not None:

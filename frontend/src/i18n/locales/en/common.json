@@ -371,6 +371,8 @@
     "refreshServiceTokenRequired": "This dataset's source needs a service credential to refresh. Provide one below to continue.",
     "refreshSourceUrlBlocked": "This dataset's stored source URL failed a safety check and can't be refreshed automatically. Contact an administrator.",
     "reuploadGeometryLoss": "This replacement has no geometry and this dataset stores geometry, so nothing was changed. Import the file as a new dataset instead.",
+    "serviceLayerNoFeatures": "This layer holds no features (a group, raster, annotation, topology or utility network layer). Import one of its feature layers or tables instead.",
+    "serviceGeometryUnsupported": "This layer holds multipatch geometry, which can't be imported. Publish it as a feature layer with another geometry type.",
     "reuploadOriginChanged": "This dataset's source changed while the replacement was being prepared, so nothing was queued. Check the dataset's source before replacing its data.",
     "reuploadPointCloudUnsupported": "Point cloud datasets don't support re-upload. Upload the new point cloud as a new dataset instead.",
     "reuploadTilesetUnsupported": "3D Tiles datasets don't support re-upload. Upload the new tileset as a new dataset instead.",

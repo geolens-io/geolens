@@ -262,6 +262,7 @@ async def _execute_service(task_kwargs: dict, *, expected_token: str | None) -> 
         *,
         schema: str,
         on_spawn=None,
+        keep_z: bool = False,
     ) -> None:
         if token != expected_token:
             raise AssertionError(

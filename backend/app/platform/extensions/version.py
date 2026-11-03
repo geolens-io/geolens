@@ -158,7 +158,9 @@ logger = logging.getLogger(__name__)
 # 19 -> 20: CacheProvider gained required ``compare_and_set`` and
 # ``compare_and_delete`` methods for atomic, token-guarded health-alert claims.
 # Cache implementations supplied by overlays must implement both operations.
-EXTENSION_API_VERSION: int = 20
+# 20 -> 21: ProcessingPort.build_gdal_source gained the optional ``return_z``
+# keyword so an ArcGIS layer that stores Z is queried with ``returnZ=true``.
+EXTENSION_API_VERSION: int = 21
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:

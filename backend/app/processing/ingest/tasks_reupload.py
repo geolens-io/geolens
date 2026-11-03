@@ -975,6 +975,7 @@ async def _fetch_service_layer_with_paging_guard(
     on_spawn,
     reviews_unknown_count: bool,
     verification_policy: str | None = None,
+    return_z: bool = False,
 ) -> tuple[int | None, object | None, str | None]:
     """Fetch a service layer into staging, paging large ArcGIS layers.
 
@@ -1045,6 +1046,7 @@ async def _fetch_service_layer_with_paging_guard(
                     order_field=id_plan.oid_field,
                     on_spawn=on_spawn,
                     planned_ids=id_plan.ids,
+                    return_z=return_z,
                 )
                 return feature_count, id_plan, id_plan.oid_field
     if (
@@ -1068,6 +1070,7 @@ async def _fetch_service_layer_with_paging_guard(
             page_size=page_size,
             order_field=pagination_order_field,
             on_spawn=on_spawn,
+            return_z=return_z,
         )
         return feature_count, id_plan, pagination_order_field
 
@@ -1085,6 +1088,7 @@ async def _fetch_service_layer_with_paging_guard(
         layer_id,
         token=token,
         order_field=pagination_order_field,
+        return_z=return_z,
     )
     await run_ogr2ogr_service(
         gdal_source,
@@ -1095,6 +1099,7 @@ async def _fetch_service_layer_with_paging_guard(
         token=token,
         schema=schema,
         on_spawn=on_spawn,
+        keep_z=return_z,
     )
     return feature_count, id_plan, pagination_order_field
 
@@ -1378,6 +1383,7 @@ class _ServiceReupload(_LiveComparison):
         self.dataset_id = dataset.id
         self.live_feature_count = dataset.feature_count
         self.live_has_geometry = dataset.geometry_type is not None
+        self.live_is_3d = bool(dataset.is_3d)
         # A failure's contact stamp lands only while the dataset keeps the
         # origin this attempt fetched from.
         self.bound = bound_pointer(dataset)
@@ -1460,8 +1466,20 @@ class _ServiceReupload(_LiveComparison):
                 on_spawn=_arm_contact,
                 reviews_unknown_count=self.is_refresh,
                 verification_policy=self.verification_policy,
+                return_z=return_z,
             )
 
+        return_z = False
+        if self.service_type == "arcgis_featureserver":
+            # The layer JSON read is the first request to the origin, so a
+            # token rejection from it still counts as contact.
+            _arm_contact()
+            layer_meta = await _tv._fetch_arcgis_layer_meta_or_none(
+                self.source_url_value, self.layer_id, self.token
+            )
+            self.column_casts, return_z = _tv.arcgis_meta_import_facts(layer_meta)
+            # Staging a 3D dataset flat would be judged a lost Z.
+            return_z = return_z or (layer_meta is None and self.live_is_3d)
         try:
             await _run_service_import_with_wfs_fallback(
                 _run_service_import,
@@ -1491,10 +1509,6 @@ class _ServiceReupload(_LiveComparison):
             if self.service_type == "arcgis_featureserver"
             else {}
         )
-        if self.service_type == "arcgis_featureserver":
-            self.column_casts = await _tv._fetch_arcgis_column_casts(
-                self.source_url_value, self.layer_id, self.token
-            )
         # Read while no publication session holds a pooled connection.
         self.live_scan = await _live_geometry_types(
             self.live_table, schema=_current_tenant_schema(), dataset_id=self.dataset_id
