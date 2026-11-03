@@ -672,6 +672,13 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
       return { key: 'errors.reuploadGeometryLoss' };
     }
 
+    if (value.code === 'unsupported_layer_type') {
+      return { key: 'errors.serviceLayerNoFeatures' };
+    }
+    if (value.code === 'unsupported_geometry') {
+      return { key: 'errors.serviceGeometryUnsupported' };
+    }
+
     // service_token_required's body is an English diagnostic for API clients.
     // SourceRefreshAction.tsx intercepts the code first; this keeps the mapping
     // correct for any other caller of `classifyApiError`.

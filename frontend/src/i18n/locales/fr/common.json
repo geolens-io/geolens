@@ -217,6 +217,8 @@
     "refreshServiceTokenRequired": "La source de ce jeu de données nécessite un identifiant de service pour être actualisée. Fournissez-en un ci-dessous pour continuer.",
     "refreshSourceUrlBlocked": "L'URL source enregistrée de ce jeu de données a échoué à un contrôle de sécurité et ne peut pas être actualisée automatiquement. Contactez un administrateur.",
     "reuploadGeometryLoss": "Ce remplacement n'a pas de géométrie alors que ce jeu de données en stocke, rien n'a donc été modifié. Importez le fichier comme un nouveau jeu de données.",
+    "serviceLayerNoFeatures": "Cette couche ne contient aucune entité (couche de groupe, raster, annotation, topologie ou réseau de services). Importez plutôt l'une de ses couches d'entités ou tables.",
+    "serviceGeometryUnsupported": "Cette couche contient une géométrie multipatch, qui ne peut pas être importée. Publiez-la comme couche d'entités avec un autre type de géométrie.",
     "reuploadOriginChanged": "La source de ce jeu de données a changé pendant la préparation du remplacement, rien n'a donc été mis en file d'attente. Vérifiez la source du jeu de données avant de remplacer ses données.",
     "reuploadPointCloudUnsupported": "Les jeux de données de nuage de points ne peuvent pas être remplacés par un rechargement. Téléversez le nouveau nuage de points comme un nouveau jeu de données.",
     "reuploadTilesetUnsupported": "Les jeux de données 3D Tiles ne peuvent pas être remplacés par un rechargement. Téléversez le nouveau jeu de tuiles comme un nouveau jeu de données.",
