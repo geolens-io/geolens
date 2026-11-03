@@ -68,6 +68,7 @@ _NEEDS_NEWER = (
 )
 # What a map's notes may hold, as PUT /maps/{id} caps them.
 _MAP_NOTES_MAX = 50_000
+_NOTES_CUT = "... more entries in the CLI report"
 # The notes _finish_loss writes, which a new translation replaces.
 _LOSS_NOTE = re.compile(rf"\d+ ({re.escape(_UNMATCHED_NOTE)}|{re.escape(_LOST_NOTE)})")
 
@@ -543,9 +544,7 @@ def _translate_again(
         result.view.center_lat,
         result.view.zoom,
     )
-    notes = result.notes
-    if kept_view and len(notes) + len(_NO_VIEW_NOTE) + 3 <= _MAP_NOTES_MAX:
-        notes = f"{notes}\n- {_NO_VIEW_NOTE}"
+    notes = _with_view_note(result.notes) if kept_view else result.notes
     try:
         saved = ctx.geolens.write(
             put_map.sync_detailed,
@@ -555,8 +554,11 @@ def _translate_again(
                 {
                     **result.view.to_dict(),
                     # An unrotated web map leaves the bearing unset, which the
-                    # save would skip and so keep an earlier rotation.
-                    "bearing": result.view.bearing or 0.0,
+                    # save would skip and so keep an earlier rotation; without
+                    # a view at all the map keeps its rotation with its view.
+                    "bearing": result.view.bearing
+                    if kept_view
+                    else result.view.bearing or 0.0,
                     "notes": notes,
                     "layers": layers,
                     "expected_updated_at": seen["updated_at"],
@@ -572,16 +574,45 @@ def _translate_again(
         *(n for n in entry.notes if n != _NO_VIEW_NOTE),
         *([_NO_VIEW_NOTE] if kept_view else []),
     ]
-    entry.layer_ids = {
-        sources[layer.sort_order]: str(layer.id)
-        for layer in saved.layers
-        if layer.sort_order < len(sources)
-    }
+    entry.layer_ids = _saved_layer_ids(layers, sources, saved.layers)
     entry.portal_modified = modified
     entry.pending_loss = _pending_loss(result)
     entry.loss_report_path = None
     ctx.save()
     return _resume_loss(ctx, item["id"], entry)
+
+
+def _with_view_note(notes: str) -> str:
+    """*notes* with the missing-view line after them, the loss lines cut to
+    whole lines when both don't fit."""
+    tail = f"\n- {_NO_VIEW_NOTE}"
+    if len(notes) + len(tail) > _MAP_NOTES_MAX:
+        cut = f"\n{_NOTES_CUT}"
+        notes = notes[: _MAP_NOTES_MAX - len(tail) - len(cut)].rsplit("\n", 1)[0] + cut
+    return notes + tail
+
+
+def _saved_layer_ids(
+    sent: Sequence[Mapping[str, Any]], sources: Sequence[str], saved: Sequence[Any]
+) -> dict[str, str]:
+    """Operational layer id -> the map layer the save left for it. A layer
+    sent with its id keeps it; the rest are the rows the save created, in the
+    order they were sent, and are left out when their count doesn't add up."""
+    ids = {str(layer.id) for layer in saved}
+    kept = {
+        source: layer["id"]
+        for layer, source in zip(sent, sources)
+        if layer.get("id") in ids
+    }
+    taken = set(kept.values())
+    created = sorted(
+        (layer for layer in saved if str(layer.id) not in taken),
+        key=lambda layer: layer.sort_order,
+    )
+    unsent = [source for layer, source in zip(sent, sources) if not layer.get("id")]
+    if len(created) == len(unsent):
+        kept.update((s, str(layer.id)) for s, layer in zip(unsent, created))
+    return kept
 
 
 def _resume_loss(ctx: MigrationContext, item_id: str, entry: ItemState) -> str | None:

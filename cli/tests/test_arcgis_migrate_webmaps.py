@@ -966,6 +966,56 @@ def test_a_loss_report_a_rerun_couldnt_write_is_written_by_the_next_one(
     assert loss["loss_report"]["summary"] == {"popup_expression": 1}
 
 
+def test_a_lost_view_note_fits_notes_near_their_limit(
+    runner, plan_file, geolens, portal
+):
+    token = _changed_in_the_portal(runner, plan_file, geolens, portal)
+    translated = _translated(dataset_id("Parcels"))
+    lines = [f"- $.p{n}: popup_expression ({'x' * 80})" for n in range(455)]
+    long_notes = "\n".join(["ArcGIS migration notes (2026-10-03)", *lines])
+    assert 49_900 < len(long_notes) <= 50_000
+    no_view = {"center_lng": None, "center_lat": None, "zoom": None}
+    geolens.routes[IMPORT] = (
+        201,
+        {**translated, "notes": long_notes, "view": {**translated["view"], **no_view}},
+    )
+
+    result, _ = _migrate(runner, plan_file, "--token", token)
+
+    assert result.exit_code == 0, result.output
+    [sent] = _puts(geolens)
+    assert len(sent["notes"]) <= 50_000
+    assert sent["notes"].endswith(
+        "\n... more entries in the CLI report\n- the web map no longer has an "
+        "initial view; the GeoLens map keeps its view"
+    )
+    assert sent["notes"].startswith("ArcGIS migration notes (2026-10-03)\n- $.p0")
+
+
+def test_a_saved_layer_is_paired_with_its_source_despite_gaps_in_sort_order(
+    runner, plan_file, geolens, portal
+):
+    token = _changed_in_the_portal(runner, plan_file, geolens, portal)
+
+    def gapped(seen):
+        saved = _saved(seen.json())
+        # A layer the caller can't read keeps its place, so the rest skip it.
+        for position, layer in enumerate(saved["layers"]):
+            layer["sort_order"] = 2 * position + 1
+        return saved
+
+    geolens.routes["PUT /maps/" + MAP_ID] = gapped
+
+    result, _ = _migrate(runner, plan_file, "--token", token)
+
+    assert result.exit_code == 0, result.output
+    assert _state(plan_file)["items"][B1]["layer_ids"] == {
+        "view_0": LAYER_ID.format(2),
+        "parcels_0": LAYER_ID.format(1),
+        "new_0": LAYER_ID.format(9),
+    }
+
+
 def test_a_web_map_that_lost_its_initial_view_keeps_the_maps_and_says_so(
     runner, plan_file, geolens, portal
 ):
@@ -983,6 +1033,8 @@ def test_a_web_map_that_lost_its_initial_view_keeps_the_maps_and_says_so(
     assert result.exit_code == 0, result.output
     [sent] = _puts(geolens)
     assert sent["notes"] == f"{NOTES}\n- {note}"
+    # The map keeps its rotation along with its view.
+    assert sent.get("bearing") is None
     assert note in _state(plan_file)["items"][B1]["notes"]
 
     # The view comes back in the portal: the note goes.
