@@ -58,7 +58,7 @@ _LEGACY_READABLE = frozenset(
     {"markdown:1", "indicator:1", "bar_chart:1", "histogram:1", "category_selector:1"}
 )
 ReadableType = Annotated[
-    str, StringConstraints(pattern=r"^[a-z][a-z_]{0,39}:[0-9]{1,3}$")
+    str, StringConstraints(pattern=r"^[a-z][a-z_]{0,39}:[1-9][0-9]{0,2}$")
 ]
 AcceptedWidget = Annotated[
     _Registered,

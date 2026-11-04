@@ -6422,7 +6422,7 @@
             "anyOf": [
               {
                 "items": {
-                  "pattern": "^[a-z][a-z_]{0,39}:[0-9]{1,3}$",
+                  "pattern": "^[a-z][a-z_]{0,39}:[1-9][0-9]{0,2}$",
                   "type": "string"
                 },
                 "maxItems": 100,

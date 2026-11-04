@@ -285,9 +285,10 @@ class TestMergeDashboard:
         )
         assert _ids(partial["widgets"]) == _ids(new[1:])
 
-    def test_a_malformed_readable_pair_is_refused(self):
+    @pytest.mark.parametrize("pair", ["bar_chart", "pie_chart:01", "pie_chart:0"])
+    def test_a_malformed_readable_pair_is_refused(self, pair):
         with pytest.raises(ValidationError):
-            DashboardConfigInput.model_validate({"readable": ["bar_chart"]})
+            DashboardConfigInput.model_validate({"readable": [pair]})
 
     def test_a_server_without_a_new_kind_keeps_it_unseen(self, monkeypatch):
         shown = uuid.uuid4()
