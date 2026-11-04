@@ -58,7 +58,13 @@ describe('useBuilderLayers — clean-state recheck', () => {
     };
     const { result } = render({
       ...makeBuilderMap([layer]),
-      dashboard_config: { version: 1, panel: 'right', widgets: [widget] },
+      dashboard_config: {
+        version: 1,
+        panel: 'right',
+        map_hidden: false,
+        theme: 'follow',
+        widgets: [widget],
+      },
     });
 
     act(() => result.current.handleDashboardChange({ panel: 'bottom', widgets: [widget] }));

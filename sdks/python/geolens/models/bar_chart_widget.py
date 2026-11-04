@@ -9,6 +9,8 @@ from ..types import UNSET, Unset
 
 from ..models.bar_chart_widget_scope import BarChartWidgetScope
 from ..models.bar_chart_widget_scope import check_bar_chart_widget_scope
+from ..models.bar_chart_widget_v import BarChartWidgetV
+from ..models.bar_chart_widget_v import check_bar_chart_widget_v
 from typing import cast
 from typing import Literal
 from uuid import UUID
@@ -27,7 +29,7 @@ class BarChartWidget:
         id (UUID): Made by the client and stable across saves.
         layer_id (UUID): A layer of the host's map.
         type_ (Literal['bar_chart']):
-        v (Literal[1]):
+        v (BarChartWidgetV):
         config (BarChartConfig):
         title (None | str | Unset):
         scope (BarChartWidgetScope | Unset): Summarize the whole layer, or only what the map view shows. Default:
@@ -37,7 +39,7 @@ class BarChartWidget:
     id: UUID
     layer_id: UUID
     type_: Literal["bar_chart"]
-    v: Literal[1]
+    v: BarChartWidgetV
     config: BarChartConfig
     title: None | str | Unset = UNSET
     scope: BarChartWidgetScope | Unset = "layer"
@@ -49,7 +51,7 @@ class BarChartWidget:
 
         type_ = self.type_
 
-        v = self.v
+        v: int = self.v
 
         config = self.config.to_dict()
 
@@ -94,9 +96,7 @@ class BarChartWidget:
         if type_ != "bar_chart":
             raise ValueError(f"type must match const 'bar_chart', got '{type_}'")
 
-        v = cast(Literal[1], d.pop("v"))
-        if v != 1:
-            raise ValueError(f"v must match const 1, got '{v}'")
+        v = check_bar_chart_widget_v(d.pop("v"))
 
         config = BarChartConfig.from_dict(d.pop("config"))
 

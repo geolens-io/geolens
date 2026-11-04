@@ -10,6 +10,9 @@ and releases use semantic versioning.
 ### Added
 
 - Stories: scene transitions and reader settings (navigation bar, layout, theme) in the story document; the reader applies them in 1.30.
+- The dashboard API accepts feature list, table and pie chart widgets, bar
+  charts by feature, by fields or by date, and per-dashboard settings to hide
+  the map and set a light or dark theme.
 - `geolens arcgis migrate` runs as a GeoLens editor when the plan maps every
   item to that editor, so one ArcGIS user can move their own content without
   an admin. Nothing is transferred. A public item under

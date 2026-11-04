@@ -1576,11 +1576,17 @@ export type BackfillTenantRun = {
  */
 export type BarChartConfig = {
     /**
+     * Mode
+     *
+     * `category`: one bar per value of `column`. `by_feature`: one bar per feature, labelled by `label_column`, sized by `value_column`. `by_fields`: one bar per name in `fields`, each showing `stat` of that field. `date`: `column` grouped by `date_bucket`.
+     */
+    mode?: 'category' | 'by_feature' | 'by_fields' | 'date';
+    /**
      * Column
      *
-     * The column whose values become bars.
+     * The column whose values become bars (`category` and `date`).
      */
-    column: string;
+    column?: string | null;
     /**
      * Stat
      */
@@ -1593,6 +1599,42 @@ export type BarChartConfig = {
      * Limit
      */
     limit?: number;
+    /**
+     * Label Column
+     *
+     * `by_feature`: the field that labels each bar.
+     */
+    label_column?: string | null;
+    /**
+     * Value Column
+     *
+     * `by_feature`: the numeric field that sizes each bar.
+     */
+    value_column?: string | null;
+    /**
+     * Sort
+     *
+     * `by_feature`: bar order by value.
+     */
+    sort?: 'asc' | 'desc';
+    /**
+     * Fields
+     *
+     * `by_fields`: the numeric fields to chart, one bar each.
+     */
+    fields?: Array<string>;
+    /**
+     * Date Bucket
+     *
+     * `date`: the span each bar covers.
+     */
+    date_bucket?: 'day' | 'week' | 'month' | 'year' | null;
+    /**
+     * Use Layer Colors
+     *
+     * `category`: colour bars as the layer does when `column` is its style column.
+     */
+    use_layer_colors?: boolean;
 };
 
 /**
@@ -1628,7 +1670,7 @@ export type BarChartWidget = {
     /**
      * V
      */
-    v: 1;
+    v: 1 | 2;
     config: BarChartConfig;
 };
 
@@ -3771,11 +3813,23 @@ export type DashboardConfig = {
      */
     panel?: 'right' | 'bottom';
     /**
+     * Map Hidden
+     *
+     * Show the widgets across the full page and don't mount the map. Widgets scoped to the map view fall back to the whole layer.
+     */
+    map_hidden?: boolean;
+    /**
+     * Theme
+     *
+     * The page's colours: `light`, `dark`, or `follow` the reader's setting.
+     */
+    theme?: 'follow' | 'light' | 'dark';
+    /**
      * Widgets
      *
      * The widgets on layers this response shows, in panel order.
      */
-    widgets: Array<MarkdownWidget | IndicatorWidget | BarChartWidget | HistogramWidget | CategorySelectorWidget>;
+    widgets: Array<MarkdownWidget | IndicatorWidget | BarChartWidget | PieChartWidget | FeatureListWidget | TableWidget | HistogramWidget | CategorySelectorWidget>;
 };
 
 /**
@@ -3793,11 +3847,29 @@ export type DashboardConfigInput = {
      */
     panel?: 'right' | 'bottom' | null;
     /**
+     * Map Hidden
+     *
+     * Show the widgets across the full page and don't mount the map. Widgets scoped to the map view fall back to the whole layer. Leave it out to keep the stored value.
+     */
+    map_hidden?: boolean | null;
+    /**
+     * Theme
+     *
+     * The page's colours: `light`, `dark`, or `follow` the reader's setting. Leave it out to keep the stored theme.
+     */
+    theme?: 'follow' | 'light' | 'dark' | null;
+    /**
+     * Readable
+     *
+     * The widget `type:v` pairs this client can parse, such as `bar_chart:1`. Stored widgets outside the list are kept in place. Leave it out for the widgets of earlier releases.
+     */
+    readable?: Array<string> | null;
+    /**
      * Widgets
      *
      * Widgets in panel order. Each, except a text widget, names a layer of this map that you can read. Stored widgets you can't see are kept in place.
      */
-    widgets?: Array<MarkdownWidget | IndicatorWidget | BarChartWidget | HistogramWidget | CategorySelectorWidget>;
+    widgets?: Array<MarkdownWidget | IndicatorWidget | BarChartWidget | PieChartWidget | FeatureListWidget | TableWidget | HistogramWidget | CategorySelectorWidget>;
 };
 
 /**
@@ -5940,6 +6012,69 @@ export type FeatureFlagsResponse = {
      * Restrict Public Visibility
      */
     restrict_public_visibility?: boolean;
+};
+
+/**
+ * FeatureListConfig
+ */
+export type FeatureListConfig = {
+    /**
+     * Title Column
+     */
+    title_column: string;
+    /**
+     * Subtitle Column
+     */
+    subtitle_column?: string | null;
+    /**
+     * Sort Column
+     */
+    sort_column?: string | null;
+    /**
+     * Sort
+     */
+    sort?: 'asc' | 'desc';
+    /**
+     * Page Size
+     */
+    page_size?: number;
+};
+
+/**
+ * FeatureListWidget
+ */
+export type FeatureListWidget = {
+    /**
+     * Id
+     *
+     * Made by the client and stable across saves.
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Layer Id
+     *
+     * A layer of the host's map.
+     */
+    layer_id: string;
+    /**
+     * Scope
+     *
+     * Summarize the whole layer, or only what the map view shows.
+     */
+    scope?: 'layer' | 'view';
+    /**
+     * Type
+     */
+    type: 'feature_list';
+    /**
+     * V
+     */
+    v: 1;
+    config: FeatureListConfig;
 };
 
 /**
@@ -9759,6 +9894,75 @@ export type PermissionsResponse = {
     permissions: {
         [key: string]: boolean;
     };
+};
+
+/**
+ * PieChartConfig
+ */
+export type PieChartConfig = {
+    /**
+     * Column
+     *
+     * The column whose values become slices.
+     */
+    column: string;
+    /**
+     * Stat
+     */
+    stat?: 'count' | 'sum' | 'mean' | 'min' | 'max';
+    /**
+     * Stat Column
+     */
+    stat_column?: string | null;
+    /**
+     * Limit
+     *
+     * Slices beyond this many are merged into Other.
+     */
+    limit?: number;
+    /**
+     * Use Layer Colors
+     *
+     * Colour slices as the layer does when `column` is its style column.
+     */
+    use_layer_colors?: boolean;
+};
+
+/**
+ * PieChartWidget
+ */
+export type PieChartWidget = {
+    /**
+     * Id
+     *
+     * Made by the client and stable across saves.
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Layer Id
+     *
+     * A layer of the host's map.
+     */
+    layer_id: string;
+    /**
+     * Scope
+     *
+     * Summarize the whole layer, or only what the map view shows.
+     */
+    scope?: 'layer' | 'view';
+    /**
+     * Type
+     */
+    type: 'pie_chart';
+    /**
+     * V
+     */
+    v: 1;
+    config: PieChartConfig;
 };
 
 /**
@@ -13800,6 +14004,34 @@ export type SummaryDraftResponse = {
 };
 
 /**
+ * TableConfig
+ */
+export type TableConfig = {
+    /**
+     * Group Column
+     */
+    group_column: string;
+    /**
+     * Stats
+     */
+    stats: Array<TableStat>;
+    /**
+     * Sort By
+     *
+     * The index in `stats` of the statistic to sort by; leave it out to sort by the group value.
+     */
+    sort_by?: number | null;
+    /**
+     * Sort
+     */
+    sort?: 'asc' | 'desc';
+    /**
+     * Limit
+     */
+    limit?: number;
+};
+
+/**
  * TableRegisterResponse
  */
 export type TableRegisterResponse = {
@@ -13821,6 +14053,57 @@ export type TableRegisterResponse = {
      * Source PostgreSQL table that was registered.
      */
     table_name: string;
+};
+
+/**
+ * TableStat
+ */
+export type TableStat = {
+    /**
+     * Stat
+     */
+    stat: 'count' | 'sum' | 'mean' | 'min' | 'max';
+    /**
+     * Column
+     */
+    column?: string | null;
+};
+
+/**
+ * TableWidget
+ */
+export type TableWidget = {
+    /**
+     * Id
+     *
+     * Made by the client and stable across saves.
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Layer Id
+     *
+     * A layer of the host's map.
+     */
+    layer_id: string;
+    /**
+     * Scope
+     *
+     * Summarize the whole layer, or only what the map view shows.
+     */
+    scope?: 'layer' | 'view';
+    /**
+     * Type
+     */
+    type: 'table';
+    /**
+     * V
+     */
+    v: 1;
+    config: TableConfig;
 };
 
 /**

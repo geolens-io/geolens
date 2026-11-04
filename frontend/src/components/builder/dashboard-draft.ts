@@ -1,7 +1,12 @@
 import { deepEqual } from '@/lib/deep-equal';
 import { dashboardPanelPosition, type PanelPosition } from '@/components/viewer/DashboardPanel';
 import type { WidgetInstance } from '@/components/widgets/contract';
-import { getWidgetDefinition, isLayerBound, parseStoredWidget } from '@/components/widgets/registry';
+import {
+  dashboardReadableTypes,
+  getWidgetDefinition,
+  isLayerBound,
+  parseStoredWidget,
+} from '@/components/widgets/registry';
 import { isAggregateNumeric } from '@/lib/column-utils';
 import { canOpenAttributeTable } from '@/lib/layer-capabilities';
 import type { DashboardConfig, MapLayerResponse } from '@/types/api';
@@ -113,6 +118,20 @@ export function firstWidgetProblem(
   return null;
 }
 
+/** What a server takes a save to read when it names nothing: the dashboard widgets of earlier releases. */
+const LEGACY_READABLE = ['markdown:1', 'indicator:1', 'bar_chart:1', 'histogram:1', 'category_selector:1'];
+
+/**
+ * The `type:v` pairs this build parses, or undefined when they are the ones a
+ * server assumes. An earlier server refuses the key, so it goes only when it
+ * says something. A stored widget outside the list is kept in place by the server.
+ */
+function readableToSend(): string[] | undefined {
+  const reads = dashboardReadableTypes();
+  const same = reads.length === LEGACY_READABLE.length && LEGACY_READABLE.every((pair) => reads.includes(pair));
+  return same ? undefined : reads;
+}
+
 /**
  * The `dashboard_config` a save sends: the draft without the widgets whose
  * layer is gone, or null when none are left. `panel` is sent only when the
@@ -126,9 +145,11 @@ export function dashboardPayload(
 ): DashboardConfigInput | null {
   const { panel, widgets } = canonicalDashboard(draft, layers);
   if (widgets.length === 0) return null;
+  const readable = readableToSend();
   return {
     version: 1,
     ...(panel === 'bottom' || savedPanel === 'bottom' ? { panel } : {}),
+    ...(readable ? { readable } : {}),
     widgets: widgets as DashboardConfigInput['widgets'],
   } as DashboardConfigInput;
 }

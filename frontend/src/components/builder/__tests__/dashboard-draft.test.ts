@@ -51,7 +51,13 @@ describe('dashboard drafts', () => {
     const draft = toDashboardDraft({ version: 1, widgets: [indicator({})] } as never);
     expect(draft.panel).toBe('right');
     expect(draft.widgets).toHaveLength(1);
-    expect(toDashboardDraft({ version: 1, panel: 'bottom', widgets: [] }).panel).toBe('bottom');
+    expect(toDashboardDraft({
+        version: 1,
+        panel: 'bottom',
+        map_hidden: false,
+        theme: 'follow',
+        widgets: [],
+      }).panel).toBe('bottom');
   });
 
   it('find the columns a widget reads that its layer lacks or holds as text', () => {

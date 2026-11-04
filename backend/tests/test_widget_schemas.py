@@ -25,6 +25,12 @@ LAYER = str(uuid.uuid4())
 SAMPLES: dict[str, dict[str, Any]] = {
     "indicator": {"layer_id": LAYER, "config": {"stat": "sum", "column": "pop"}},
     "bar_chart": {"layer_id": LAYER, "config": {"column": "landuse"}},
+    "pie_chart": {"layer_id": LAYER, "config": {"column": "landuse"}},
+    "feature_list": {"layer_id": LAYER, "config": {"title_column": "name"}},
+    "table": {
+        "layer_id": LAYER,
+        "config": {"group_column": "landuse", "stats": [{"stat": "count"}]},
+    },
     "histogram": {"layer_id": LAYER, "scope": "view", "config": {"column": "pop"}},
     "category_selector": {"layer_id": LAYER, "config": {"column": "landuse"}},
     "markdown": {"config": {"text": "# Chapter one"}},
@@ -418,3 +424,217 @@ class TestOlderInstancesUpgradeOnReadAndOnWrite:
         upgraded = upgrade({"type": "markdown", "v": 1, "text": "hi"})
 
         assert upgraded == {"type": "markdown", "v": 3, "text": "hi"}
+
+
+def _bar(**config: Any) -> dict[str, Any]:
+    return _widget("bar_chart", config=config)
+
+
+class TestBarChartModes:
+    def test_a_category_chart_gets_the_defaults_and_stays_valid(self) -> None:
+        (widget,) = _dashboard([_widget("bar_chart")])
+        config = widget.config
+        assert (config.mode, config.sort, config.fields) == ("category", "desc", [])
+        assert config.use_layer_colors is True
+        assert config.date_bucket is None
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            {"mode": "category", "column": "landuse", "use_layer_colors": False},
+            {
+                "mode": "by_feature",
+                "label_column": "name",
+                "value_column": "pop",
+                "sort": "asc",
+            },
+            {"mode": "by_fields", "fields": ["a", "b"], "stat": "mean"},
+            {"mode": "date", "column": "built", "date_bucket": "month"},
+        ],
+    )
+    def test_each_mode_accepts_its_own_fields(self, config: dict[str, Any]) -> None:
+        (widget,) = _dashboard([_bar(**config)])
+        assert widget.config.mode == config["mode"]
+
+    @pytest.mark.parametrize(
+        ("config", "message"),
+        [
+            ({"mode": "category"}, "column is required when mode is category"),
+            ({"mode": "date", "column": "d"}, "date_bucket is required"),
+            (
+                {"mode": "date", "date_bucket": "day"},
+                "column is required when mode is date",
+            ),
+            ({"mode": "by_feature", "label_column": "n"}, "value_column are required"),
+            ({"mode": "by_fields"}, "fields is required when mode is by_fields"),
+            (
+                {"mode": "by_fields", "fields": ["a", "a"]},
+                "fields must not repeat a name",
+            ),
+            (
+                {"mode": "by_fields", "fields": [f"f{i}" for i in range(21)]},
+                "at most 20",
+            ),
+            (
+                {"mode": "category", "column": "c", "fields": ["a"]},
+                "fields does not apply when mode is category",
+            ),
+            (
+                {"mode": "category", "column": "c", "date_bucket": "day"},
+                "date_bucket does not apply when mode is category",
+            ),
+            (
+                {"mode": "category", "column": "c", "sort": "asc"},
+                "sort does not apply when mode is category",
+            ),
+            (
+                {
+                    "mode": "date",
+                    "column": "c",
+                    "date_bucket": "day",
+                    "use_layer_colors": False,
+                },
+                "use_layer_colors does not apply when mode is date",
+            ),
+            (
+                {
+                    "mode": "by_feature",
+                    "column": "c",
+                    "label_column": "n",
+                    "value_column": "v",
+                },
+                "column does not apply when mode is by_feature",
+            ),
+            (
+                {
+                    "mode": "date",
+                    "column": "c",
+                    "date_bucket": "day",
+                    "label_column": "n",
+                },
+                "label_column does not apply when mode is date",
+            ),
+            (
+                {"mode": "date", "column": "c", "date_bucket": "week", "stat": "sum"},
+                "stat_column is required unless stat is count",
+            ),
+            (
+                {
+                    "mode": "by_fields",
+                    "fields": ["a"],
+                    "stat": "sum",
+                    "stat_column": "x",
+                },
+                "stat_column does not apply when mode is by_fields",
+            ),
+            ({"mode": "weekly", "column": "c"}, "mode"),
+        ],
+    )
+    def test_a_mode_refuses_missing_and_foreign_fields(
+        self, config: dict[str, Any], message: str
+    ) -> None:
+        with pytest.raises(ValidationError, match=message):
+            _dashboard([_bar(**config)])
+
+
+class TestNewWidgetKinds:
+    @pytest.mark.parametrize("kind", ["pie_chart", "feature_list", "table"])
+    def test_defaults_fill_in_and_round_trip(self, kind: str) -> None:
+        (widget,) = _dashboard([_widget(kind)])
+        dumped = widget.model_dump(mode="json")
+        assert _dashboard([dumped])[0].model_dump(mode="json") == dumped
+
+    def test_pie_and_list_and_table_defaults(self) -> None:
+        pie, fl, table = _dashboard(
+            [_widget("pie_chart"), _widget("feature_list"), _widget("table")]
+        )
+        assert (pie.config.limit, pie.config.use_layer_colors) == (10, True)
+        assert (fl.config.sort, fl.config.page_size) == ("asc", 25)
+        assert fl.config.subtitle_column is None and fl.config.sort_column is None
+        assert (table.config.sort_by, table.config.sort, table.config.limit) == (
+            None,
+            "desc",
+            10,
+        )
+
+    @pytest.mark.parametrize(
+        ("kind", "config", "message"),
+        [
+            ("pie_chart", {"column": "c", "limit": 51}, "limit"),
+            ("pie_chart", {"column": "c", "stat": "sum"}, "stat_column is required"),
+            ("feature_list", {"title_column": "n", "page_size": 9}, "page_size"),
+            ("feature_list", {"title_column": "n", "page_size": 101}, "page_size"),
+            ("feature_list", {}, "title_column"),
+            ("table", {"group_column": "g", "stats": []}, "stats"),
+            (
+                "table",
+                {"group_column": "g", "stats": [{"stat": "count"}] * 6},
+                "stats",
+            ),
+            (
+                "table",
+                {"group_column": "g", "stats": [{"stat": "sum"}]},
+                "column is required unless stat is count",
+            ),
+            (
+                "table",
+                {"group_column": "g", "stats": [{"stat": "count", "column": "x"}]},
+                "column must be null when stat is count",
+            ),
+            (
+                "table",
+                {"group_column": "g", "stats": [{"stat": "count"}], "sort_by": 1},
+                "sort_by must be an index into stats",
+            ),
+            (
+                "table",
+                {"group_column": "g", "stats": [{"stat": "count"}], "sort_by": -1},
+                "sort_by must be an index into stats",
+            ),
+        ],
+    )
+    def test_refusals(self, kind: str, config: dict[str, Any], message: str) -> None:
+        with pytest.raises(ValidationError, match=message):
+            _dashboard([_widget(kind, config=config)])
+
+    def test_a_table_sorts_by_a_stat_index(self) -> None:
+        config = {
+            "group_column": "g",
+            "stats": [{"stat": "count"}, {"stat": "sum", "column": "pop"}],
+            "sort_by": 1,
+        }
+        (widget,) = _dashboard([_widget("table", config=config)])
+        assert widget.config.sort_by == 1
+
+
+class TestBarChartVersions:
+    def test_a_plain_category_chart_stays_v1_even_when_sent_as_v2(self) -> None:
+        (widget,) = _dashboard([_widget("bar_chart", v=2)])
+        assert widget.v == 1
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            {"column": "c", "use_layer_colors": False},
+            {"mode": "date", "column": "c", "date_bucket": "year"},
+        ],
+    )
+    def test_a_chart_with_new_options_is_v2_however_it_is_sent(
+        self, config: dict[str, Any]
+    ) -> None:
+        for sent in (1, 2):
+            (widget,) = _dashboard([_widget("bar_chart", v=sent, config=config)])
+            assert widget.v == 2
+            assert widget.model_dump(mode="json")["v"] == 2
+
+    def test_a_stored_v1_chart_reads_back_unchanged(self) -> None:
+        stored = _widget("bar_chart")
+        stored["config"] = {
+            "column": "c",
+            "stat": "count",
+            "stat_column": None,
+            "limit": 10,
+        }
+        read = read_stored([stored], "dashboard").widgets[0].model_dump(mode="json")
+        assert read["v"] == 1
+        assert read["config"] == stored["config"]
