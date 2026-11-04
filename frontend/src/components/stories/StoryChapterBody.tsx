@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { storyAssetPath } from '@/api/stories';
 import { parseStoredWidget } from '@/components/widgets/registry';
 import { WidgetView } from '@/components/widgets/WidgetView';
@@ -7,6 +8,11 @@ import type { StoryChapter } from '@/types/api';
 
 export function chapterHeadingId(chapter: StoryChapter) {
   return `story-chapter-${chapter.id}`;
+}
+
+/** A chapter's title, or its position number when it has none. */
+export function chapterTitle(chapter: Pick<StoryChapter, 'title'>, index: number, t: TFunction<'stories'>): string {
+  return chapter.title || t('reader.untitledChapter', { index: index + 1 });
 }
 
 /**
@@ -26,7 +32,7 @@ export const StoryChapterBody = memo(function StoryChapterBody({
   return (
     <>
       <h2 id={chapterHeadingId(chapter)} className="text-lg font-semibold text-foreground">
-        {chapter.title || t('reader.untitledChapter', { index: index + 1 })}
+        {chapterTitle(chapter, index, t)}
       </h2>
       <div className="space-y-4">
         {chapter.scene_hidden && (

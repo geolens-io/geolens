@@ -36,16 +36,18 @@ interface StoryMapPaneProps {
    * chapter and map.
    */
   resetKey?: number;
+  /** The edge the legend sits on, so a floating chapter panel never covers it. */
+  legendSide?: 'start' | 'end';
   ref?: Ref<StoryMapPaneHandle>;
 }
 
 /** The story's map. A scene on another map remounts it; one on the same map flies there. */
-export const StoryMapPane = memo(function StoryMapPane({ resolved, emptyHint, resetKey, ref }: StoryMapPaneProps) {
+export const StoryMapPane = memo(function StoryMapPane({ resolved, emptyHint, resetKey, legendSide, ref }: StoryMapPaneProps) {
   return (
     // Not a landmark: the page's <main> holds it. MapErrorBoundary targets the id.
     <div id="map-viewport" className="absolute inset-0 overflow-hidden bg-muted">
       {resolved ? (
-        <StoryMap key={resolved.scene.map_id} resolved={resolved} resetKey={resetKey} handleRef={ref} />
+        <StoryMap key={resolved.scene.map_id} resolved={resolved} resetKey={resetKey} legendSide={legendSide} handleRef={ref} />
       ) : (
         emptyHint && (
           <p className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
@@ -60,10 +62,12 @@ export const StoryMapPane = memo(function StoryMapPane({ resolved, emptyHint, re
 function StoryMap({
   resolved,
   resetKey,
+  legendSide,
   handleRef,
 }: {
   resolved: ResolvedScene;
   resetKey?: number;
+  legendSide?: 'start' | 'end';
   handleRef?: Ref<StoryMapPaneHandle>;
 }) {
   const { t } = useTranslation('stories');
@@ -152,6 +156,7 @@ function StoryMap({
         terrainConfig={data.terrain_config ?? null}
         legendTitle={data.legend_title ?? null}
         drawn={drawnLayers}
+        side={legendSide}
       />
     </>
   );

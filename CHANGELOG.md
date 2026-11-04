@@ -8,6 +8,7 @@ and releases use semantic versioning.
 ## [Unreleased]
 
 ### Added
+- Stories: an optional navigation bar listing the chapters, and a floating panel layout that puts the chapter text over a full-bleed map, placed left, right or centre.
 
 - Stories: scene transitions and reader settings (navigation bar, layout, theme) in the story document; the reader applies them in 1.30.
 - The dashboard API accepts feature list, table and pie chart widgets, bar

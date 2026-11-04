@@ -67,6 +67,7 @@ export function StoryPage() {
       chapters={chapters}
       editHref={editHref}
       readerTheme={data.reader_theme}
+      settings={data.document?.settings}
     />
   );
 }

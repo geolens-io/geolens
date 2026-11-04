@@ -267,5 +267,23 @@
     "cannotShareMap": "(you can't share this map)",
     "shareMaps": "Share my maps and save",
     "sharingRevokesLinks": "A private map you share this way stops working through its share link and embed codes, and layers the groups can't read stay hidden from them."
+  },
+  "readerSettings": {
+    "heading": "Reader settings",
+    "description": "How readers see this story. These apply when you publish.",
+    "navigation": "Navigation bar",
+    "navigationHint": "Show the story title and a list of chapters above the story.",
+    "layout": "Layout",
+    "layoutHint": "The floating panel puts the chapter text over a full-screen map. Phones keep the side-by-side layout.",
+    "layouts": {
+      "side": "Side panel",
+      "floating": "Floating panel"
+    },
+    "position": "Panel position",
+    "positions": {
+      "left": "Left",
+      "right": "Right",
+      "center": "Centre"
+    }
   }
 }

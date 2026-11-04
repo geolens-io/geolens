@@ -181,8 +181,8 @@ beforeAll(() => {
 beforeEach(() => {
   vi.mocked(getStoryDraft).mockResolvedValue(draft());
   vi.mocked(getStory).mockResolvedValue(published());
-  vi.mocked(saveStoryDraft).mockImplementation(async (_id, revision, chapters) =>
-    draft({ revision: revision + 1, document: { version: 1, chapters } }),
+  vi.mocked(saveStoryDraft).mockImplementation(async (_id, revision, chapters, settings) =>
+    draft({ revision: revision + 1, document: { version: 1, chapters, settings } }),
   );
   vi.mocked(publishStory).mockReset();
   vi.mocked(discardStoryDraft).mockReset();
@@ -249,6 +249,37 @@ it('sends the draft settings back unchanged on a save', async () => {
   await user.type(title, 'Landfall');
   saveNow();
   await waitFor(() => expect(saveStoryDraft).toHaveBeenCalledWith('s1', 4, expect.any(Array), settings));
+});
+
+it('saves reader settings chosen in the dialog with the draft, keeping the stored theme', async () => {
+  const settings = { navigation: false, layout: 'side', panel_position: 'left', theme: 'dark' } as const;
+  vi.mocked(getStoryDraft).mockResolvedValue(draft({ document: { version: 1, chapters: CHAPTERS, settings } }));
+  const user = userEvent.setup();
+  renderEditor();
+  await ready();
+
+  await user.click(screen.getByRole('button', { name: 'Reader settings' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Reader settings' });
+  expect(within(dialog).queryByRole('combobox', { name: 'Panel position' })).not.toBeInTheDocument();
+  await user.click(within(dialog).getByRole('switch', { name: 'Navigation bar' }));
+  await user.click(within(dialog).getByRole('combobox', { name: 'Layout' }));
+  await user.click(await screen.findByRole('option', { name: 'Floating panel' }));
+  await user.click(within(dialog).getByRole('combobox', { name: 'Panel position' }));
+  await user.click(await screen.findByRole('option', { name: 'Right' }));
+  await user.keyboard('{Escape}');
+  expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
+
+  saveNow();
+  await waitFor(() =>
+    expect(saveStoryDraft).toHaveBeenCalledWith('s1', 4, expect.any(Array), {
+      navigation: true,
+      layout: 'floating',
+      panel_position: 'right',
+      theme: 'dark',
+    }),
+  );
+  expect(await screen.findByText('Draft saved. Readers still see the last published version.')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Publish' })).toBeEnabled();
 });
 
 it('adds, reorders and deletes chapters from the chapter list', async () => {

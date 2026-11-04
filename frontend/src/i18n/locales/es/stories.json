@@ -267,5 +267,23 @@
     "cannotShareMap": "(no puedes compartir este mapa)",
     "shareMaps": "Compartir mis mapas y guardar",
     "sharingRevokesLinks": "Un mapa privado que compartas así deja de funcionar con su enlace para compartir y sus códigos de inserción, y las capas que los grupos no pueden leer siguen ocultas para ellos."
+  },
+  "readerSettings": {
+    "heading": "Ajustes del lector",
+    "description": "Cómo ven los lectores esta historia. Se aplican al publicar.",
+    "navigation": "Barra de navegación",
+    "navigationHint": "Muestra el título de la historia y una lista de capítulos sobre ella.",
+    "layout": "Diseño",
+    "layoutHint": "El panel flotante pone el texto del capítulo sobre un mapa a pantalla completa. Los teléfonos mantienen el diseño en paralelo.",
+    "layouts": {
+      "side": "Panel lateral",
+      "floating": "Panel flotante"
+    },
+    "position": "Posición del panel",
+    "positions": {
+      "left": "Izquierda",
+      "right": "Derecha",
+      "center": "Centro"
+    }
   }
 }

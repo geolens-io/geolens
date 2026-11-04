@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { StoryChapter } from '@/types/api';
+import { chapterTitle } from '../StoryChapterBody';
 import { MAX_CHAPTERS } from './story-draft';
 import { useMoveFocus } from './use-move-focus';
 
@@ -44,7 +45,7 @@ export const ChapterList = memo(function ChapterList({
     <nav aria-label={t('editor.chapters.label')} className="space-y-2">
       <ol ref={listRef} className="space-y-1">
         {chapters.map((chapter, i) => {
-          const name = chapter.title || t('reader.untitledChapter', { index: i + 1 });
+          const name = chapterTitle(chapter, i, t);
           return (
             <li
               key={chapter.id}

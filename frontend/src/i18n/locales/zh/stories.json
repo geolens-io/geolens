@@ -267,5 +267,23 @@
     "cannotShareMap": "（您无法共享此地图）",
     "shareMaps": "共享我的地图并保存",
     "sharingRevokesLinks": "以这种方式共享的私有地图将无法再通过其共享链接和嵌入代码访问，且这些用户组无法读取的图层仍对他们隐藏。"
+  },
+  "readerSettings": {
+    "heading": "阅读设置",
+    "description": "读者看到这个故事的方式。发布时生效。",
+    "navigation": "导航栏",
+    "navigationHint": "在故事上方显示故事标题和章节列表。",
+    "layout": "布局",
+    "layoutHint": "浮动面板把章节文字放在全屏地图上。手机仍使用并排布局。",
+    "layouts": {
+      "side": "侧边面板",
+      "floating": "浮动面板"
+    },
+    "position": "面板位置",
+    "positions": {
+      "left": "左侧",
+      "right": "右侧",
+      "center": "居中"
+    }
   }
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type Ref } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { ChevronLeft, ChevronRight, Pencil } from 'lucide-react';
@@ -12,9 +12,10 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { readerLogoUrl, readerThemeStyle, type ReaderTheme } from '@/lib/reader-theme';
 import { useTheme } from '@/components/theme-provider';
 import { cn } from '@/lib/utils';
-import type { StoryChapter } from '@/types/api';
-import { chapterHeadingId, StoryChapterBody } from './StoryChapterBody';
+import type { StoryChapter, StorySettings } from '@/types/api';
+import { chapterHeadingId, chapterTitle, StoryChapterBody } from './StoryChapterBody';
 import { StoryMapPane } from './StoryMapPane';
+import { StoryNavBar } from './StoryNavBar';
 import { activeChapterFrom, nearestSceneChapter, nextSceneMapId } from './story-scenes';
 
 // A chapter becomes active once its top passes 40% of the panel's height.
@@ -43,14 +44,35 @@ interface StoryReaderProps {
   editHref?: string;
   /** A branding extension's accent, font and logo for this page. */
   readerTheme?: ReaderTheme | null;
+  /** Null or absent means every default. */
+  settings?: StorySettings | null;
 }
 
-interface PanelProps extends StoryReaderProps {
+type PanelPosition = StorySettings['panel_position'];
+
+interface PanelProps extends Omit<StoryReaderProps, 'settings'> {
   active: number;
   onActiveChange: (index: number) => void;
   /** No chapter has a scene, so the text has the page to itself. */
   textOnly: boolean;
+  ref?: Ref<ScrollPanelHandle>;
+  /** Set when the panel floats over a full-bleed map. */
+  floating?: PanelPosition;
 }
+
+interface ScrollPanelHandle {
+  /** Scrolls so the chapter is the one the reader is on. */
+  scrollToChapter(index: number): void;
+}
+
+// Floating panels sit clear of the map's layers button at the top left and its
+// zoom controls at the top right, and stop short of the Map data button.
+const FLOATING_PLACEMENT: Record<PanelPosition, string> = {
+  left: 'left-14',
+  right: 'right-14',
+  center: 'left-1/2 -translate-x-1/2',
+};
+const FLOATING_BASE = 'absolute top-3 z-[5] max-w-[calc(100%-7rem)] rounded-lg border bg-card text-card-foreground shadow-lg';
 
 /**
  * Reads a published story. Wide screens scroll the chapters beside a fixed
@@ -65,6 +87,7 @@ export function StoryReader({
   chapters,
   editHref,
   readerTheme,
+  settings,
 }: StoryReaderProps) {
   const { t } = useTranslation('stories');
   const queryClient = useQueryClient();
@@ -75,6 +98,8 @@ export function StoryReader({
   const sceneChapter = useMemo(() => nearestSceneChapter(chapters, active), [chapters, active]);
   // nearestSceneChapter looks both ways, so null means no chapter has a scene.
   const textOnly = sceneChapter === null;
+  const scroller = useRef<ScrollPanelHandle>(null);
+  const floating = !isNarrow && !textOnly && settings?.layout === 'floating' ? settings.panel_position : undefined;
   const scene = sceneChapter?.scene;
   const sceneChapterId = sceneChapter?.id;
   const resolved = useMemo(
@@ -101,9 +126,14 @@ export function StoryReader({
     ? t('reader.chapterAnnouncement', {
         index: active + 1,
         total: chapters.length,
-        title: chapter.title || t('reader.untitledChapter', { index: active + 1 }),
+        title: chapterTitle(chapter, active, t),
       })
     : '';
+
+  const selectChapter = (index: number) => {
+    changeChapter(index);
+    scroller.current?.scrollToChapter(index);
+  };
 
   const panelProps = {
     storyId,
@@ -118,19 +148,36 @@ export function StoryReader({
     textOnly,
   };
   return (
-    // The map stays the second child in both layouts, so a resize across the
-    // breakpoint doesn't remount it; flex-col-reverse puts it on top when narrow.
-    <div className="flex min-h-0 w-full flex-1 flex-col-reverse md:flex-row" style={readerThemeStyle(readerTheme, resolvedTheme)}>
-      {isNarrow ? <StoryStepper {...panelProps} /> : <StoryScrollPanel {...panelProps} />}
-      {!textOnly && (
-        <div className="relative h-[45vh] shrink-0 md:h-auto md:min-w-0 md:flex-1">
-          <StoryMapPane
-            resolved={resolved}
-            emptyHint={sceneChapter?.scene_hidden ? t('reader.sceneUnavailable') : undefined}
-          />
-        </div>
+    <div
+      className="flex min-h-0 w-full flex-1 flex-col"
+      style={readerThemeStyle(readerTheme, resolvedTheme)}
+    >
+      {settings?.navigation && (
+        <StoryNavBar title={title} chapters={chapters} active={active} onSelect={selectChapter} collapsed={isNarrow} />
       )}
-      <LiveAnnouncement text={announcement} />
+      {/* The map stays the second child in every layout, so a resize across the
+          breakpoint doesn't remount it; flex-col-reverse puts it on top when narrow. */}
+      <div className={cn('flex min-h-0 w-full flex-1 flex-col-reverse md:flex-row', floating && 'relative')}>
+        {isNarrow ? (
+          <StoryStepper {...panelProps} />
+        ) : (
+          <StoryScrollPanel ref={scroller} {...panelProps} floating={floating} />
+        )}
+        {!textOnly && (
+          <div
+            className={cn(
+              floating ? 'absolute inset-0' : 'relative h-[45vh] shrink-0 md:h-auto md:min-w-0 md:flex-1',
+            )}
+          >
+            <StoryMapPane
+              resolved={resolved}
+              emptyHint={sceneChapter?.scene_hidden ? t('reader.sceneUnavailable') : undefined}
+              legendSide={floating && floating !== 'right' ? 'end' : undefined}
+            />
+          </div>
+        )}
+        <LiveAnnouncement text={announcement} />
+      </div>
     </div>
   );
 }
@@ -194,24 +241,35 @@ function StoryScrollPanel({
   active,
   onActiveChange,
   textOnly,
+  ref,
+  floating,
 }: PanelProps) {
   const { t } = useTranslation('stories');
   const panelRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<(HTMLElement | null)[]>([]);
   const frame = useRef<number | null>(null);
-  // The panel's scroll position after it scrolled to the open chapter on mount.
-  const restoredTop = useRef<number | null>(null);
   useEffect(() => () => {
     if (frame.current !== null) cancelAnimationFrame(frame.current);
   }, []);
 
+  // The chapter's top goes to the panel's top, but never so far that the next
+  // chapter crosses the line, which would hand the scene to it.
+  const scrollToChapter = useCallback((index: number) => {
+    const panel = panelRef.current;
+    const section = sectionRefs.current[index];
+    if (!panel || !section) return;
+    const offset = (el: HTMLElement) => el.getBoundingClientRect().top - panel.getBoundingClientRect().top + panel.scrollTop;
+    let top = offset(section);
+    const next = sectionRefs.current[index + 1];
+    if (next) top = Math.min(top, offset(next) - panel.clientHeight * ACTIVE_LINE);
+    panel.scrollTo?.({ top: Math.max(0, top), behavior: 'instant' });
+  }, []);
+  useImperativeHandle(ref, () => ({ scrollToChapter }), [scrollToChapter]);
+
   // Opening this layout on a later chapter (a phone stepper widened past the
   // breakpoint) starts with that chapter in view, so text and scene agree.
   useLayoutEffect(() => {
-    const section = sectionRefs.current[active];
-    if (active === 0 || !section) return;
-    section.scrollIntoView({ block: 'start', behavior: 'instant' });
-    restoredTop.current = panelRef.current?.scrollTop ?? null;
+    if (active !== 0) scrollToChapter(active);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only on mount; afterwards scrolling sets the chapter
   }, []);
 
@@ -223,10 +281,6 @@ function StoryScrollPanel({
       frame.current = null;
       const panel = panelRef.current;
       if (!panel) return;
-      // The scroll from that restore isn't the reader's: a short chapter would
-      // otherwise hand the scene to the one after it.
-      if (restoredTop.current !== null && panel.scrollTop === restoredTop.current) return;
-      restoredTop.current = null;
       const line = panel.getBoundingClientRect().top + panel.clientHeight * ACTIVE_LINE;
       const crossed = sectionRefs.current
         .slice(0, chapters.length)
@@ -244,8 +298,10 @@ function StoryScrollPanel({
       role="region"
       aria-label={t('reader.chaptersLabel')}
       className={cn(
-        'min-h-0 overflow-y-auto bg-background focus-visible:outline-2 focus-visible:outline-ring',
-        textOnly ? 'flex-1' : 'w-[26rem] shrink-0 border-e lg:w-[30rem]',
+        'min-h-0 overflow-y-auto focus-visible:outline-2 focus-visible:outline-ring',
+        floating
+          ? cn(FLOATING_BASE, FLOATING_PLACEMENT[floating], 'h-[min(48rem,calc(100%-5rem))] w-[26rem] lg:w-[30rem]')
+          : cn('bg-background', textOnly ? 'flex-1' : 'w-[26rem] shrink-0 border-e lg:w-[30rem]'),
       )}
     >
       <div className={cn('space-y-10 p-6', textOnly && 'mx-auto max-w-2xl')}>

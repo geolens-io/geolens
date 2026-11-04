@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
-import { ArrowLeft, BookOpen, Settings2 } from 'lucide-react';
+import { ArrowLeft, BookOpen, PanelsTopLeft, Settings2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { ApiError } from '@/api/client';
 import { sharingMapsClears } from '@/api/stories';
@@ -10,13 +10,15 @@ import { EmptyState } from '@/components/layout/EmptyState';
 import { ErrorState } from '@/components/layout/ErrorState';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { StoryMapPane, type StoryMapPaneHandle } from '@/components/stories/StoryMapPane';
+import { chapterTitle } from '@/components/stories/StoryChapterBody';
 import { StoryUnavailableState } from '@/components/stories/StoryUnavailableState';
 import { canEditStory } from '@/components/stories/can-edit-story';
 import { BlockingMapsList, blockedDescriptionKey } from '@/components/stories/editor/BlockingMapsList';
 import { ChapterEditor } from '@/components/stories/editor/ChapterEditor';
 import { ChapterList } from '@/components/stories/editor/ChapterList';
+import { StoryReaderSettingsDialog } from '@/components/stories/editor/StoryReaderSettingsDialog';
 import { StoryDetailsDialog } from '@/components/stories/editor/StoryDetailsDialog';
-import { MAX_CHAPTERS, sameChapters } from '@/components/stories/editor/story-draft';
+import { MAX_CHAPTERS, storyDocumentChanged } from '@/components/stories/editor/story-draft';
 import { useStoryEditor, type EditorBusy } from '@/components/stories/editor/use-story-editor';
 import { resolveScene } from '@/components/stories/story-scenes';
 import { useDocumentTitle } from '@/hooks/use-document-title';
@@ -111,6 +113,7 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
   const { data: published } = useStory(story.id, { enabled: everPublished });
   const [selectedId, setSelectedId] = useState(initial.document.chapters[0]?.id ?? null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [readerOpen, setReaderOpen] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [confirmReload, setConfirmReload] = useState(false);
   const [confirmOverwrite, setConfirmOverwrite] = useState(false);
@@ -156,12 +159,10 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
   // A selection that's gone (a discard or reload replaced the chapters) falls back to the first chapter.
   const current = Math.max(0, chapters.findIndex((c) => c.id === selectedId));
   const chapter = chapters[current];
-  const publishedChapters = published?.document?.chapters;
+  const publishedDocument = published?.document;
   const hasUnpublished = useMemo(
-    () =>
-      !everPublished ||
-      (publishedChapters !== undefined && !sameChapters(publishedChapters, story.document.chapters)),
-    [everPublished, publishedChapters, story.document.chapters],
+    () => !everPublished || (publishedDocument != null && storyDocumentChanged(publishedDocument, story.document)),
+    [everPublished, publishedDocument, story.document],
   );
   const missingMapChapterIds = useMemo(() => {
     const missing = new Set(editor.missingMapIds ?? []);
@@ -251,6 +252,10 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
         <Button variant="ghost" size="sm" onClick={() => setDetailsOpen(true)}>
           <Settings2 className="h-4 w-4" aria-hidden="true" />
           {t('editor.details')}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setReaderOpen(true)}>
+          <PanelsTopLeft className="h-4 w-4" aria-hidden="true" />
+          {t('readerSettings.heading')}
         </Button>
         {(dirty || hasUnpublished) && everPublished && (
           <Button variant="outline" size="sm" onClick={() => setDiscardOpen(true)} disabled={busy !== null}>
@@ -348,6 +353,12 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
         </div>
       </div>
 
+      <StoryReaderSettingsDialog
+        settings={editor.settings}
+        open={readerOpen}
+        onOpenChange={setReaderOpen}
+        onChange={editor.editSettings}
+      />
       <StoryDetailsDialog
         story={story}
         open={detailsOpen}
@@ -363,7 +374,7 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
         description={t('editor.removeChapterDescription', {
           title:
             removing !== null
-              ? chapters[removing]?.title || t('reader.untitledChapter', { index: removing + 1 })
+              ? chapterTitle({ title: chapters[removing]?.title }, removing, t)
               : '',
         })}
         confirm={{ label: t('editor.removeChapter'), onClick: confirmRemove, variant: 'destructive' }}
