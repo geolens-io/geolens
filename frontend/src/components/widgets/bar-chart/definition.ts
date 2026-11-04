@@ -11,10 +11,26 @@ export interface BarChartConfig {
   stat_column: string | null;
   /** How many bars, largest first: 1 to 50. */
   limit: number;
+  /** Kept as stored; a client that doesn't draw layer colours leaves it alone. */
+  use_layer_colors?: boolean;
 }
 
+const MODE_KEYS = [
+  'mode',
+  'label_column',
+  'value_column',
+  'sort',
+  'fields',
+  'date_bucket',
+  'use_layer_colors',
+] as const;
+
 function parseBarChartConfig(config: unknown): BarChartConfig | null {
-  if (!configKeys(config, ['column', 'stat', 'stat_column', 'limit'])) return null;
+  if (!configKeys(config, ['column', 'stat', 'stat_column', 'limit', ...MODE_KEYS])) return null;
+  // Only a plain category chart is drawn; the other forms stay unreadable and are kept as stored.
+  const { mode = 'category', use_layer_colors: layerColors } = config as Record<string, unknown>;
+  if (mode !== 'category') return null;
+  if (layerColors !== undefined && typeof layerColors !== 'boolean') return null;
   const {
     column,
     stat = 'count',
@@ -24,7 +40,13 @@ function parseBarChartConfig(config: unknown): BarChartConfig | null {
   if (!isColumnName(column) || !isStatistic(stat)) return null;
   if (stat === 'count' ? stat_column !== null : !isColumnName(stat_column)) return null;
   if (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > 50) return null;
-  return { column, stat, stat_column: stat_column as string | null, limit: limit as number };
+  return {
+    column,
+    stat,
+    stat_column: stat_column as string | null,
+    limit: limit as number,
+    ...(layerColors === undefined ? {} : { use_layer_colors: layerColors }),
+  };
 }
 
 export const barChartWidget = defineWidget<BarChartConfig>({

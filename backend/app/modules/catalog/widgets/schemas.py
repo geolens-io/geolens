@@ -127,14 +127,146 @@ class IndicatorConfig(_Strict):
 
 
 class BarChartConfig(_Strict):
-    column: ColumnName = Field(description="The column whose values become bars.")
+    # The options added with chart modes are left out while at their defaults,
+    # so a plain category chart keeps the shape older clients read.
+    mode: Literal["category", "by_feature", "by_fields", "date"] = Field(
+        exclude_if=lambda v: v == "category",
+        default="category",
+        description="`category`: one bar per value of `column`. `by_feature`: one "
+        "bar per feature, labelled by `label_column`, sized by `value_column`. "
+        "`by_fields`: one bar per name in `fields`, each showing `stat` of that "
+        "field. `date`: `column` grouped by `date_bucket`.",
+    )
+    column: ColumnName | None = Field(
+        default=None,
+        description="The column whose values become bars (`category` and `date`).",
+    )
     stat: Statistic = "count"
     stat_column: ColumnName | None = None
     limit: int = Field(default=10, ge=1, le=50)
+    label_column: ColumnName | None = Field(
+        exclude_if=lambda v: v is None,
+        default=None,
+        description="`by_feature`: the field that labels each bar.",
+    )
+    value_column: ColumnName | None = Field(
+        exclude_if=lambda v: v is None,
+        default=None,
+        description="`by_feature`: the numeric field that sizes each bar.",
+    )
+    sort: Literal["asc", "desc"] = Field(
+        exclude_if=lambda v: v == "desc",
+        default="desc",
+        description="`by_feature`: bar order by value.",
+    )
+    fields: list[ColumnName] = Field(
+        exclude_if=lambda v: not v,
+        default_factory=list,
+        max_length=20,
+        description="`by_fields`: the numeric fields to chart, one bar each.",
+    )
+    date_bucket: Literal["day", "week", "month", "year"] | None = Field(
+        exclude_if=lambda v: v is None,
+        default=None,
+        description="`date`: the span each bar covers.",
+    )
+    use_layer_colors: bool = Field(
+        exclude_if=lambda v: v is True,
+        default=True,
+        description="`category`: colour bars as the layer does when `column` is its "
+        "style column.",
+    )
 
     @model_validator(mode="after")
-    def _stat_column_matches_stat(self) -> "BarChartConfig":
+    def _fields_match_mode(self) -> "BarChartConfig":
+        if self.mode in ("category", "date") and self.column is None:
+            raise ValueError(f"column is required when mode is {self.mode}")
+        if self.mode == "by_feature":
+            if self.label_column is None or self.value_column is None:
+                raise ValueError(
+                    "label_column and value_column are required when mode is by_feature"
+                )
+        if self.mode == "by_fields":
+            if not self.fields:
+                raise ValueError("fields is required when mode is by_fields")
+            if len(set(self.fields)) != len(self.fields):
+                raise ValueError("fields must not repeat a name")
+        if self.mode == "date" and self.date_bucket is None:
+            raise ValueError("date_bucket is required when mode is date")
+        if self.mode in ("category", "date"):
+            _column_only_for(self.stat, self.stat_column, "stat_column")
+        stray = {
+            "column": self.column is not None
+            and self.mode in ("by_feature", "by_fields"),
+            "label_column": self.label_column is not None and self.mode != "by_feature",
+            "value_column": self.value_column is not None and self.mode != "by_feature",
+            "stat_column": self.stat_column is not None
+            and self.mode in ("by_feature", "by_fields"),
+            "sort": self.sort != "desc" and self.mode != "by_feature",
+            "fields": bool(self.fields) and self.mode != "by_fields",
+            "date_bucket": self.date_bucket is not None and self.mode != "date",
+            "use_layer_colors": not self.use_layer_colors and self.mode != "category",
+        }
+        for name, set_ in stray.items():
+            if set_:
+                raise ValueError(f"{name} does not apply when mode is {self.mode}")
+        return self
+
+
+class PieChartConfig(_Strict):
+    column: ColumnName = Field(description="The column whose values become slices.")
+    stat: Statistic = "count"
+    stat_column: ColumnName | None = None
+    limit: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Slices beyond this many are merged into Other.",
+    )
+    use_layer_colors: bool = Field(
+        default=True,
+        description="Colour slices as the layer does when `column` is its style column.",
+    )
+
+    @model_validator(mode="after")
+    def _stat_column_matches_stat(self) -> "PieChartConfig":
         _column_only_for(self.stat, self.stat_column, "stat_column")
+        return self
+
+
+class FeatureListConfig(_Strict):
+    title_column: ColumnName
+    subtitle_column: ColumnName | None = None
+    sort_column: ColumnName | None = None
+    sort: Literal["asc", "desc"] = "asc"
+    page_size: int = Field(default=25, ge=10, le=100)
+
+
+class TableStat(_Strict):
+    stat: Statistic
+    column: ColumnName | None = None
+
+    @model_validator(mode="after")
+    def _column_matches_stat(self) -> "TableStat":
+        _column_only_for(self.stat, self.column, "column")
+        return self
+
+
+class TableConfig(_Strict):
+    group_column: ColumnName
+    stats: list[TableStat] = Field(min_length=1, max_length=5)
+    sort_by: int | None = Field(
+        default=None,
+        description="The index in `stats` of the statistic to sort by; leave it "
+        "out to sort by the group value.",
+    )
+    sort: Literal["asc", "desc"] = "desc"
+    limit: int = Field(default=10, ge=1, le=50)
+
+    @model_validator(mode="after")
+    def _sort_by_names_a_stat(self) -> "TableConfig":
+        if self.sort_by is not None and not 0 <= self.sort_by < len(self.stats):
+            raise ValueError("sort_by must be an index into stats")
         return self
 
 
@@ -181,8 +313,34 @@ class IndicatorWidget(_LayerWidget):
 
 class BarChartWidget(_LayerWidget):
     type: Literal["bar_chart"]
-    v: Literal[1]
+    # v1 is a plain category chart; any other option is stored as v2, which
+    # older clients and servers set aside instead of misreading.
+    v: Literal[1, 2]
     config: BarChartConfig
+
+    @model_validator(mode="after")
+    def _v2_only_for_new_options(self) -> "BarChartWidget":
+        plain = self.config.mode == "category" and self.config.use_layer_colors
+        self.v = 1 if plain else 2
+        return self
+
+
+class PieChartWidget(_LayerWidget):
+    type: Literal["pie_chart"]
+    v: Literal[1]
+    config: PieChartConfig
+
+
+class FeatureListWidget(_LayerWidget):
+    type: Literal["feature_list"]
+    v: Literal[1]
+    config: FeatureListConfig
+
+
+class TableWidget(_LayerWidget):
+    type: Literal["table"]
+    v: Literal[1]
+    config: TableConfig
 
 
 class HistogramWidget(_LayerWidget):
@@ -199,7 +357,9 @@ class CategorySelectorWidget(_LayerWidget):
 
 # (type, v) -> a function that returns the v + 1 form of a v instance. It gets
 # a private copy, and the loop stamps the new ``v``.
-UPGRADERS: dict[tuple[str, int], Callable[[dict[str, Any]], dict[str, Any]]] = {}
+UPGRADERS: dict[tuple[str, int], Callable[[dict[str, Any]], dict[str, Any]]] = {
+    ("bar_chart", 1): lambda widget: widget,
+}
 
 
 def upgrade(raw: Any) -> Any:
@@ -240,6 +400,9 @@ DashboardWidget = Annotated[
     MarkdownWidget
     | IndicatorWidget
     | BarChartWidget
+    | PieChartWidget
+    | FeatureListWidget
+    | TableWidget
     | HistogramWidget
     | CategorySelectorWidget,
     Field(discriminator="type"),
@@ -267,7 +430,7 @@ def _literal(model: type[BaseModel], field: str) -> Any:
 
 
 CURRENT_VERSIONS: dict[str, int] = {
-    _literal(model, "type"): _literal(model, "v")
+    _literal(model, "type"): max(get_args(model.model_fields["v"].annotation))
     for models in HOST_WIDGET_MODELS.values()
     for model in models
 }

@@ -49,6 +49,15 @@ export function getWidgetDefinition(
   return definition?.surfaces.includes(surface) ? definition : undefined;
 }
 
+/** The `type:v` pairs a dashboard parses, each version up to the definition's own. */
+export function dashboardReadableTypes(): string[] {
+  return widgetDefinitions
+    .filter((definition) => definition.surfaces.includes('dashboard'))
+    .flatMap((definition) =>
+      Array.from({ length: definition.v }, (_, i) => `${definition.type}:${i + 1}`),
+    );
+}
+
 /** Whether a dashboard widget of this type summarizes a layer; text doesn't. */
 export function isLayerBound(type: string): boolean {
   return !byType.get(type)?.layerless;

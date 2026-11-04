@@ -7719,10 +7719,17 @@ export interface components {
         /** BarChartConfig */
         BarChartConfig: {
             /**
-             * Column
-             * @description The column whose values become bars.
+             * Mode
+             * @description `category`: one bar per value of `column`. `by_feature`: one bar per feature, labelled by `label_column`, sized by `value_column`. `by_fields`: one bar per name in `fields`, each showing `stat` of that field. `date`: `column` grouped by `date_bucket`.
+             * @default category
+             * @enum {string}
              */
-            column: string;
+            mode: "category" | "by_feature" | "by_fields" | "date";
+            /**
+             * Column
+             * @description The column whose values become bars (`category` and `date`).
+             */
+            column?: string | null;
             /**
              * Stat
              * @default count
@@ -7736,6 +7743,39 @@ export interface components {
              * @default 10
              */
             limit: number;
+            /**
+             * Label Column
+             * @description `by_feature`: the field that labels each bar.
+             */
+            label_column?: string | null;
+            /**
+             * Value Column
+             * @description `by_feature`: the numeric field that sizes each bar.
+             */
+            value_column?: string | null;
+            /**
+             * Sort
+             * @description `by_feature`: bar order by value.
+             * @default desc
+             * @enum {string}
+             */
+            sort: "asc" | "desc";
+            /**
+             * Fields
+             * @description `by_fields`: the numeric fields to chart, one bar each.
+             */
+            fields?: string[];
+            /**
+             * Date Bucket
+             * @description `date`: the span each bar covers.
+             */
+            date_bucket?: ("day" | "week" | "month" | "year") | null;
+            /**
+             * Use Layer Colors
+             * @description `category`: colour bars as the layer does when `column` is its style column.
+             * @default true
+             */
+            use_layer_colors: boolean;
         };
         /** BarChartWidget */
         BarChartWidget: {
@@ -7767,9 +7807,9 @@ export interface components {
             type: "bar_chart";
             /**
              * V
-             * @constant
+             * @enum {integer}
              */
-            v: 1;
+            v: 1 | 2;
             config: components["schemas"]["BarChartConfig"];
         };
         /** BasemapConfig */
@@ -9320,10 +9360,23 @@ export interface components {
              */
             panel: "right" | "bottom";
             /**
+             * Map Hidden
+             * @description Show the widgets across the full page and don't mount the map. Widgets scoped to the map view fall back to the whole layer.
+             * @default false
+             */
+            map_hidden: boolean;
+            /**
+             * Theme
+             * @description The page's colours: `light`, `dark`, or `follow` the reader's setting.
+             * @default follow
+             * @enum {string}
+             */
+            theme: "follow" | "light" | "dark";
+            /**
              * Widgets
              * @description The widgets on layers this response shows, in panel order.
              */
-            widgets: (components["schemas"]["MarkdownWidget"] | components["schemas"]["IndicatorWidget"] | components["schemas"]["BarChartWidget"] | components["schemas"]["HistogramWidget"] | components["schemas"]["CategorySelectorWidget"])[];
+            widgets: (components["schemas"]["MarkdownWidget"] | components["schemas"]["IndicatorWidget"] | components["schemas"]["BarChartWidget"] | components["schemas"]["PieChartWidget"] | components["schemas"]["FeatureListWidget"] | components["schemas"]["TableWidget"] | components["schemas"]["HistogramWidget"] | components["schemas"]["CategorySelectorWidget"])[];
         };
         /** DashboardConfigInput */
         DashboardConfigInput: {
@@ -9339,10 +9392,25 @@ export interface components {
              */
             panel?: ("right" | "bottom") | null;
             /**
+             * Map Hidden
+             * @description Show the widgets across the full page and don't mount the map. Widgets scoped to the map view fall back to the whole layer. Leave it out to keep the stored value.
+             */
+            map_hidden?: boolean | null;
+            /**
+             * Theme
+             * @description The page's colours: `light`, `dark`, or `follow` the reader's setting. Leave it out to keep the stored theme.
+             */
+            theme?: ("follow" | "light" | "dark") | null;
+            /**
+             * Readable
+             * @description The widget `type:v` pairs this client can parse, such as `bar_chart:1`. Stored widgets outside the list are kept in place. Leave it out for the widgets of earlier releases.
+             */
+            readable?: string[] | null;
+            /**
              * Widgets
              * @description Widgets in panel order. Each, except a text widget, names a layer of this map that you can read. Stored widgets you can't see are kept in place.
              */
-            widgets?: (components["schemas"]["MarkdownWidget"] | components["schemas"]["IndicatorWidget"] | components["schemas"]["BarChartWidget"] | components["schemas"]["HistogramWidget"] | components["schemas"]["CategorySelectorWidget"])[];
+            widgets?: (components["schemas"]["MarkdownWidget"] | components["schemas"]["IndicatorWidget"] | components["schemas"]["BarChartWidget"] | components["schemas"]["PieChartWidget"] | components["schemas"]["FeatureListWidget"] | components["schemas"]["TableWidget"] | components["schemas"]["HistogramWidget"] | components["schemas"]["CategorySelectorWidget"])[];
         };
         /** DatasetApiKeyCreateRequest */
         DatasetApiKeyCreateRequest: {
@@ -10986,6 +11054,61 @@ export interface components {
              * @default false
              */
             restrict_public_visibility: boolean;
+        };
+        /** FeatureListConfig */
+        FeatureListConfig: {
+            /** Title Column */
+            title_column: string;
+            /** Subtitle Column */
+            subtitle_column?: string | null;
+            /** Sort Column */
+            sort_column?: string | null;
+            /**
+             * Sort
+             * @default asc
+             * @enum {string}
+             */
+            sort: "asc" | "desc";
+            /**
+             * Page Size
+             * @default 25
+             */
+            page_size: number;
+        };
+        /** FeatureListWidget */
+        FeatureListWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * Layer Id
+             * Format: uuid
+             * @description A layer of the host's map.
+             */
+            layer_id: string;
+            /**
+             * Scope
+             * @description Summarize the whole layer, or only what the map view shows.
+             * @default layer
+             * @enum {string}
+             */
+            scope: "layer" | "view";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "feature_list";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            config: components["schemas"]["FeatureListConfig"];
         };
         /**
          * FeatureReplace
@@ -13838,6 +13961,69 @@ export interface components {
             permissions: {
                 [key: string]: boolean;
             };
+        };
+        /** PieChartConfig */
+        PieChartConfig: {
+            /**
+             * Column
+             * @description The column whose values become slices.
+             */
+            column: string;
+            /**
+             * Stat
+             * @default count
+             * @enum {string}
+             */
+            stat: "count" | "sum" | "mean" | "min" | "max";
+            /** Stat Column */
+            stat_column?: string | null;
+            /**
+             * Limit
+             * @description Slices beyond this many are merged into Other.
+             * @default 10
+             */
+            limit: number;
+            /**
+             * Use Layer Colors
+             * @description Colour slices as the layer does when `column` is its style column.
+             * @default true
+             */
+            use_layer_colors: boolean;
+        };
+        /** PieChartWidget */
+        PieChartWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * Layer Id
+             * Format: uuid
+             * @description A layer of the host's map.
+             */
+            layer_id: string;
+            /**
+             * Scope
+             * @description Summarize the whole layer, or only what the map view shows.
+             * @default layer
+             * @enum {string}
+             */
+            scope: "layer" | "view";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "pie_chart";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            config: components["schemas"]["PieChartConfig"];
         };
         /**
          * PointCloudMetadata
@@ -16932,6 +17118,29 @@ export interface components {
              */
             draft: string;
         };
+        /** TableConfig */
+        TableConfig: {
+            /** Group Column */
+            group_column: string;
+            /** Stats */
+            stats: components["schemas"]["TableStat"][];
+            /**
+             * Sort By
+             * @description The index in `stats` of the statistic to sort by; leave it out to sort by the group value.
+             */
+            sort_by?: number | null;
+            /**
+             * Sort
+             * @default desc
+             * @enum {string}
+             */
+            sort: "asc" | "desc";
+            /**
+             * Limit
+             * @default 10
+             */
+            limit: number;
+        };
         /** TableRegisterResponse */
         TableRegisterResponse: {
             /**
@@ -16950,6 +17159,51 @@ export interface components {
              * @description Source PostgreSQL table that was registered.
              */
             table_name: string;
+        };
+        /** TableStat */
+        TableStat: {
+            /**
+             * Stat
+             * @enum {string}
+             */
+            stat: "count" | "sum" | "mean" | "min" | "max";
+            /** Column */
+            column?: string | null;
+        };
+        /** TableWidget */
+        TableWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * Layer Id
+             * Format: uuid
+             * @description A layer of the host's map.
+             */
+            layer_id: string;
+            /**
+             * Scope
+             * @description Summarize the whole layer, or only what the map view shows.
+             * @default layer
+             * @enum {string}
+             */
+            scope: "layer" | "view";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "table";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            config: components["schemas"]["TableConfig"];
         };
         /** TerrainConfig */
         TerrainConfig: {

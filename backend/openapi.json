@@ -2593,12 +2593,31 @@
       "BarChartConfig": {
         "additionalProperties": false,
         "properties": {
-          "column": {
-            "description": "The column whose values become bars.",
-            "maxLength": 63,
-            "minLength": 1,
-            "title": "Column",
+          "mode": {
+            "default": "category",
+            "description": "`category`: one bar per value of `column`. `by_feature`: one bar per feature, labelled by `label_column`, sized by `value_column`. `by_fields`: one bar per name in `fields`, each showing `stat` of that field. `date`: `column` grouped by `date_bucket`.",
+            "enum": [
+              "category",
+              "by_feature",
+              "by_fields",
+              "date"
+            ],
+            "title": "Mode",
             "type": "string"
+          },
+          "column": {
+            "anyOf": [
+              {
+                "maxLength": 63,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The column whose values become bars (`category` and `date`).",
+            "title": "Column"
           },
           "stat": {
             "default": "count",
@@ -2631,11 +2650,81 @@
             "minimum": 1.0,
             "title": "Limit",
             "type": "integer"
+          },
+          "label_column": {
+            "anyOf": [
+              {
+                "maxLength": 63,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`by_feature`: the field that labels each bar.",
+            "title": "Label Column"
+          },
+          "value_column": {
+            "anyOf": [
+              {
+                "maxLength": 63,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`by_feature`: the numeric field that sizes each bar.",
+            "title": "Value Column"
+          },
+          "sort": {
+            "default": "desc",
+            "description": "`by_feature`: bar order by value.",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "title": "Sort",
+            "type": "string"
+          },
+          "fields": {
+            "description": "`by_fields`: the numeric fields to chart, one bar each.",
+            "items": {
+              "maxLength": 63,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Fields",
+            "type": "array"
+          },
+          "date_bucket": {
+            "anyOf": [
+              {
+                "enum": [
+                  "day",
+                  "week",
+                  "month",
+                  "year"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`date`: the span each bar covers.",
+            "title": "Date Bucket"
+          },
+          "use_layer_colors": {
+            "default": true,
+            "description": "`category`: colour bars as the layer does when `column` is its style column.",
+            "title": "Use Layer Colors",
+            "type": "boolean"
           }
         },
-        "required": [
-          "column"
-        ],
         "title": "BarChartConfig",
         "type": "object"
       },
@@ -2682,7 +2771,10 @@
             "type": "string"
           },
           "v": {
-            "const": 1,
+            "enum": [
+              1,
+              2
+            ],
             "title": "V",
             "type": "integer"
           },
@@ -6201,6 +6293,23 @@
             "title": "Panel",
             "type": "string"
           },
+          "map_hidden": {
+            "default": false,
+            "description": "Show the widgets across the full page and don't mount the map. Widgets scoped to the map view fall back to the whole layer.",
+            "title": "Map Hidden",
+            "type": "boolean"
+          },
+          "theme": {
+            "default": "follow",
+            "description": "The page's colours: `light`, `dark`, or `follow` the reader's setting.",
+            "enum": [
+              "follow",
+              "light",
+              "dark"
+            ],
+            "title": "Theme",
+            "type": "string"
+          },
           "widgets": {
             "description": "The widgets on layers this response shows, in panel order.",
             "items": {
@@ -6208,9 +6317,12 @@
                 "mapping": {
                   "bar_chart": "#/components/schemas/BarChartWidget",
                   "category_selector": "#/components/schemas/CategorySelectorWidget",
+                  "feature_list": "#/components/schemas/FeatureListWidget",
                   "histogram": "#/components/schemas/HistogramWidget",
                   "indicator": "#/components/schemas/IndicatorWidget",
-                  "markdown": "#/components/schemas/MarkdownWidget"
+                  "markdown": "#/components/schemas/MarkdownWidget",
+                  "pie_chart": "#/components/schemas/PieChartWidget",
+                  "table": "#/components/schemas/TableWidget"
                 },
                 "propertyName": "type"
               },
@@ -6223,6 +6335,15 @@
                 },
                 {
                   "$ref": "#/components/schemas/BarChartWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/PieChartWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/FeatureListWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/TableWidget"
                 },
                 {
                   "$ref": "#/components/schemas/HistogramWidget"
@@ -6268,6 +6389,52 @@
             "description": "Where the panel sits beside the map: `right` or `bottom`. On narrow screens it is always below the map. Leave it out to keep the stored panel.",
             "title": "Panel"
           },
+          "map_hidden": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Show the widgets across the full page and don't mount the map. Widgets scoped to the map view fall back to the whole layer. Leave it out to keep the stored value.",
+            "title": "Map Hidden"
+          },
+          "theme": {
+            "anyOf": [
+              {
+                "enum": [
+                  "follow",
+                  "light",
+                  "dark"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The page's colours: `light`, `dark`, or `follow` the reader's setting. Leave it out to keep the stored theme.",
+            "title": "Theme"
+          },
+          "readable": {
+            "anyOf": [
+              {
+                "items": {
+                  "pattern": "^[a-z][a-z_]{0,39}:[1-9][0-9]{0,2}$",
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The widget `type:v` pairs this client can parse, such as `bar_chart:1`. Stored widgets outside the list are kept in place. Leave it out for the widgets of earlier releases.",
+            "title": "Readable"
+          },
           "widgets": {
             "description": "Widgets in panel order. Each, except a text widget, names a layer of this map that you can read. Stored widgets you can't see are kept in place.",
             "items": {
@@ -6275,9 +6442,12 @@
                 "mapping": {
                   "bar_chart": "#/components/schemas/BarChartWidget",
                   "category_selector": "#/components/schemas/CategorySelectorWidget",
+                  "feature_list": "#/components/schemas/FeatureListWidget",
                   "histogram": "#/components/schemas/HistogramWidget",
                   "indicator": "#/components/schemas/IndicatorWidget",
-                  "markdown": "#/components/schemas/MarkdownWidget"
+                  "markdown": "#/components/schemas/MarkdownWidget",
+                  "pie_chart": "#/components/schemas/PieChartWidget",
+                  "table": "#/components/schemas/TableWidget"
                 },
                 "propertyName": "type"
               },
@@ -6290,6 +6460,15 @@
                 },
                 {
                   "$ref": "#/components/schemas/BarChartWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/PieChartWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/FeatureListWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/TableWidget"
                 },
                 {
                   "$ref": "#/components/schemas/HistogramWidget"
@@ -10112,6 +10291,125 @@
           }
         },
         "title": "FeatureFlagsResponse",
+        "type": "object"
+      },
+      "FeatureListConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "title_column": {
+            "maxLength": 63,
+            "minLength": 1,
+            "title": "Title Column",
+            "type": "string"
+          },
+          "subtitle_column": {
+            "anyOf": [
+              {
+                "maxLength": 63,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subtitle Column"
+          },
+          "sort_column": {
+            "anyOf": [
+              {
+                "maxLength": 63,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sort Column"
+          },
+          "sort": {
+            "default": "asc",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "title": "Sort",
+            "type": "string"
+          },
+          "page_size": {
+            "default": 25,
+            "maximum": 100.0,
+            "minimum": 10.0,
+            "title": "Page Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "title_column"
+        ],
+        "title": "FeatureListConfig",
+        "type": "object"
+      },
+      "FeatureListWidget": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Made by the client and stable across saves.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "layer_id": {
+            "description": "A layer of the host's map.",
+            "format": "uuid",
+            "title": "Layer Id",
+            "type": "string"
+          },
+          "scope": {
+            "default": "layer",
+            "description": "Summarize the whole layer, or only what the map view shows.",
+            "enum": [
+              "layer",
+              "view"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "type": {
+            "const": "feature_list",
+            "title": "Type",
+            "type": "string"
+          },
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "config": {
+            "$ref": "#/components/schemas/FeatureListConfig"
+          }
+        },
+        "required": [
+          "id",
+          "layer_id",
+          "type",
+          "v",
+          "config"
+        ],
+        "title": "FeatureListWidget",
         "type": "object"
       },
       "FeatureReplace": {
@@ -16805,6 +17103,123 @@
           "permissions"
         ],
         "title": "PermissionsResponse",
+        "type": "object"
+      },
+      "PieChartConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "column": {
+            "description": "The column whose values become slices.",
+            "maxLength": 63,
+            "minLength": 1,
+            "title": "Column",
+            "type": "string"
+          },
+          "stat": {
+            "default": "count",
+            "enum": [
+              "count",
+              "sum",
+              "mean",
+              "min",
+              "max"
+            ],
+            "title": "Stat",
+            "type": "string"
+          },
+          "stat_column": {
+            "anyOf": [
+              {
+                "maxLength": 63,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stat Column"
+          },
+          "limit": {
+            "default": 10,
+            "description": "Slices beyond this many are merged into Other.",
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "use_layer_colors": {
+            "default": true,
+            "description": "Colour slices as the layer does when `column` is its style column.",
+            "title": "Use Layer Colors",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "column"
+        ],
+        "title": "PieChartConfig",
+        "type": "object"
+      },
+      "PieChartWidget": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Made by the client and stable across saves.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "layer_id": {
+            "description": "A layer of the host's map.",
+            "format": "uuid",
+            "title": "Layer Id",
+            "type": "string"
+          },
+          "scope": {
+            "default": "layer",
+            "description": "Summarize the whole layer, or only what the map view shows.",
+            "enum": [
+              "layer",
+              "view"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "type": {
+            "const": "pie_chart",
+            "title": "Type",
+            "type": "string"
+          },
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "config": {
+            "$ref": "#/components/schemas/PieChartConfig"
+          }
+        },
+        "required": [
+          "id",
+          "layer_id",
+          "type",
+          "v",
+          "config"
+        ],
+        "title": "PieChartWidget",
         "type": "object"
       },
       "PointCloudMetadata": {
@@ -23733,6 +24148,60 @@
         "title": "SummaryDraftResponse",
         "type": "object"
       },
+      "TableConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "group_column": {
+            "maxLength": 63,
+            "minLength": 1,
+            "title": "Group Column",
+            "type": "string"
+          },
+          "stats": {
+            "items": {
+              "$ref": "#/components/schemas/TableStat"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Stats",
+            "type": "array"
+          },
+          "sort_by": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The index in `stats` of the statistic to sort by; leave it out to sort by the group value.",
+            "title": "Sort By"
+          },
+          "sort": {
+            "default": "desc",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "title": "Sort",
+            "type": "string"
+          },
+          "limit": {
+            "default": 10,
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "group_column",
+          "stats"
+        ],
+        "title": "TableConfig",
+        "type": "object"
+      },
       "TableRegisterResponse": {
         "properties": {
           "dataset_id": {
@@ -23758,6 +24227,101 @@
           "table_name"
         ],
         "title": "TableRegisterResponse",
+        "type": "object"
+      },
+      "TableStat": {
+        "additionalProperties": false,
+        "properties": {
+          "stat": {
+            "enum": [
+              "count",
+              "sum",
+              "mean",
+              "min",
+              "max"
+            ],
+            "title": "Stat",
+            "type": "string"
+          },
+          "column": {
+            "anyOf": [
+              {
+                "maxLength": 63,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Column"
+          }
+        },
+        "required": [
+          "stat"
+        ],
+        "title": "TableStat",
+        "type": "object"
+      },
+      "TableWidget": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Made by the client and stable across saves.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "layer_id": {
+            "description": "A layer of the host's map.",
+            "format": "uuid",
+            "title": "Layer Id",
+            "type": "string"
+          },
+          "scope": {
+            "default": "layer",
+            "description": "Summarize the whole layer, or only what the map view shows.",
+            "enum": [
+              "layer",
+              "view"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "type": {
+            "const": "table",
+            "title": "Type",
+            "type": "string"
+          },
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "config": {
+            "$ref": "#/components/schemas/TableConfig"
+          }
+        },
+        "required": [
+          "id",
+          "layer_id",
+          "type",
+          "v",
+          "config"
+        ],
+        "title": "TableWidget",
         "type": "object"
       },
       "TerrainConfig": {

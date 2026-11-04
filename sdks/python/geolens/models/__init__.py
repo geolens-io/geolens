@@ -103,9 +103,13 @@ from .backfill_run_summary import BackfillRunSummary
 from .backfill_tenant_run import BackfillTenantRun
 from .backfill_tenant_run_status import BackfillTenantRunStatus
 from .bar_chart_config import BarChartConfig
+from .bar_chart_config_date_bucket_type_0 import BarChartConfigDateBucketType0
+from .bar_chart_config_mode import BarChartConfigMode
+from .bar_chart_config_sort import BarChartConfigSort
 from .bar_chart_config_stat import BarChartConfigStat
 from .bar_chart_widget import BarChartWidget
 from .bar_chart_widget_scope import BarChartWidgetScope
+from .bar_chart_widget_v import BarChartWidgetV
 from .basemap_config import BasemapConfig
 from .basemap_config_sublayer_overrides_type_0 import (
     BasemapConfigSublayerOverridesType0,
@@ -291,7 +295,9 @@ from .create_layer_response import CreateLayerResponse
 from .dashboard_config import DashboardConfig
 from .dashboard_config_input import DashboardConfigInput
 from .dashboard_config_input_panel_type_0 import DashboardConfigInputPanelType0
+from .dashboard_config_input_theme_type_0 import DashboardConfigInputThemeType0
 from .dashboard_config_panel import DashboardConfigPanel
+from .dashboard_config_theme import DashboardConfigTheme
 from .dataset_api_key_create_request import DatasetApiKeyCreateRequest
 from .dataset_api_key_create_request_scope import DatasetApiKeyCreateRequestScope
 from .dataset_api_key_list_item import DatasetApiKeyListItem
@@ -417,6 +423,10 @@ from .feature_collection_create import FeatureCollectionCreate
 from .feature_create import FeatureCreate
 from .feature_create_properties_type_0 import FeatureCreatePropertiesType0
 from .feature_flags_response import FeatureFlagsResponse
+from .feature_list_config import FeatureListConfig
+from .feature_list_config_sort import FeatureListConfigSort
+from .feature_list_widget import FeatureListWidget
+from .feature_list_widget_scope import FeatureListWidgetScope
 from .feature_replace import FeatureReplace
 from .feature_replace_properties import FeatureReplaceProperties
 from .feature_update import FeatureUpdate
@@ -775,6 +785,10 @@ from .patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_featu
 )
 from .permissions_response import PermissionsResponse
 from .permissions_response_permissions import PermissionsResponsePermissions
+from .pie_chart_config import PieChartConfig
+from .pie_chart_config_stat import PieChartConfigStat
+from .pie_chart_widget import PieChartWidget
+from .pie_chart_widget_scope import PieChartWidgetScope
 from .point_cloud_metadata import PointCloudMetadata
 from .point_cloud_preview_response import PointCloudPreviewResponse
 from .point_cloud_preview_response_point_format import (
@@ -1017,7 +1031,13 @@ from .story_update import StoryUpdate
 from .story_visibility import StoryVisibility
 from .sublayer_override import SublayerOverride
 from .summary_draft_response import SummaryDraftResponse
+from .table_config import TableConfig
+from .table_config_sort import TableConfigSort
 from .table_register_response import TableRegisterResponse
+from .table_stat import TableStat
+from .table_stat_stat import TableStatStat
+from .table_widget import TableWidget
+from .table_widget_scope import TableWidgetScope
 from .terrain_config import TerrainConfig
 from .thumbnail_upload_request import ThumbnailUploadRequest
 from .tile_config_response import TileConfigResponse
@@ -1162,9 +1182,13 @@ __all__ = (
     "BackfillTenantRun",
     "BackfillTenantRunStatus",
     "BarChartConfig",
+    "BarChartConfigDateBucketType0",
+    "BarChartConfigMode",
+    "BarChartConfigSort",
     "BarChartConfigStat",
     "BarChartWidget",
     "BarChartWidgetScope",
+    "BarChartWidgetV",
     "BasemapConfig",
     "BasemapConfigSublayerOverridesType0",
     "BasemapLabelMode",
@@ -1304,7 +1328,9 @@ __all__ = (
     "DashboardConfig",
     "DashboardConfigInput",
     "DashboardConfigInputPanelType0",
+    "DashboardConfigInputThemeType0",
     "DashboardConfigPanel",
+    "DashboardConfigTheme",
     "DatasetApiKeyCreateRequest",
     "DatasetApiKeyCreateRequestScope",
     "DatasetApiKeyListItem",
@@ -1392,6 +1418,10 @@ __all__ = (
     "FeatureCreate",
     "FeatureCreatePropertiesType0",
     "FeatureFlagsResponse",
+    "FeatureListConfig",
+    "FeatureListConfigSort",
+    "FeatureListWidget",
+    "FeatureListWidgetScope",
     "FeatureReplace",
     "FeatureReplaceProperties",
     "FeatureUpdate",
@@ -1620,6 +1650,10 @@ __all__ = (
     "PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureProperties",
     "PermissionsResponse",
     "PermissionsResponsePermissions",
+    "PieChartConfig",
+    "PieChartConfigStat",
+    "PieChartWidget",
+    "PieChartWidgetScope",
     "PointCloudMetadata",
     "PointCloudPreviewResponse",
     "PointCloudPreviewResponsePointFormat",
@@ -1806,7 +1840,13 @@ __all__ = (
     "StoryVisibility",
     "SublayerOverride",
     "SummaryDraftResponse",
+    "TableConfig",
+    "TableConfigSort",
     "TableRegisterResponse",
+    "TableStat",
+    "TableStatStat",
+    "TableWidget",
+    "TableWidgetScope",
     "TerrainConfig",
     "ThumbnailUploadRequest",
     "TileConfigResponse",

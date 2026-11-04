@@ -5,6 +5,7 @@ import uuid
 from typing import get_args
 
 import pytest
+from pydantic import ValidationError
 from fastapi import HTTPException
 from httpx import AsyncClient
 from sqlalchemy import text
@@ -36,6 +37,15 @@ _WIDGET_DEFAULTS = {
     "bar_chart": {
         "scope": "view",
         "config": {"column": "kind", "stat": "sum", "stat_column": "area"},
+    },
+    "pie_chart": {"config": {"column": "kind"}},
+    "feature_list": {"config": {"title_column": "name", "sort_column": "name"}},
+    "table": {
+        "config": {
+            "group_column": "kind",
+            "stats": [{"stat": "count"}, {"stat": "sum", "column": "area"}],
+            "sort_by": 1,
+        }
     },
     "histogram": {"config": {"column": "height", "bins": 12}},
     "category_selector": {"config": {"column": "kind", "multiple": False}},
@@ -198,17 +208,171 @@ class TestMergeDashboard:
         shown = uuid.uuid4()
         widgets = [
             _widget(kind, shown)
-            for kind in ("indicator", "bar_chart", "histogram", "category_selector")
+            for kind in (
+                "indicator",
+                "bar_chart",
+                "pie_chart",
+                "feature_list",
+                "table",
+                "histogram",
+                "category_selector",
+            )
         ]
         stored = {"version": 1, "widgets": widgets}
 
         rendered = render_dashboard(stored, [shown]).model_dump(mode="json")
         assert _shape(rendered["widgets"]) == _shape(widgets)
-        assert rendered["widgets"][2]["config"] == {"column": "height", "bins": 12}
-        assert rendered["widgets"][3]["config"] == {"column": "kind", "multiple": False}
-        assert shows_widgets({"version": 1, "widgets": widgets[2:]}, [shown])
+        assert rendered["widgets"][5]["config"] == {"column": "height", "bins": 12}
+        assert rendered["widgets"][6]["config"] == {"column": "kind", "multiple": False}
+        assert shows_widgets({"version": 1, "widgets": widgets[5:]}, [shown])
         merged = _merge({"widgets": widgets}, None, readable={shown})
         assert _ids(merged["widgets"]) == _ids(widgets)
+
+    def _new_forms(self, shown):
+        return [
+            _widget("pie_chart", shown),
+            _widget("feature_list", shown),
+            _widget("table", shown),
+            _widget(
+                "bar_chart",
+                shown,
+                v=2,
+                config={"mode": "date", "column": "built", "date_bucket": "month"},
+            ),
+            _widget(
+                "bar_chart",
+                shown,
+                v=2,
+                config={"column": "kind", "use_layer_colors": False},
+            ),
+        ]
+
+    def test_a_save_that_does_not_say_what_it_reads_keeps_the_new_forms_in_place(self):
+        shown = uuid.uuid4()
+        old, new = _widget("indicator", shown), self._new_forms(shown)
+        tail = _widget("histogram", shown)
+        stored = {
+            "version": 1,
+            "widgets": [new[0], old, new[1], new[2], tail, *new[3:]],
+        }
+
+        merged = _merge({"widgets": [old, tail]}, stored, readable={shown})
+        assert _ids(merged["widgets"]) == _ids(stored["widgets"])
+        assert merged["widgets"][5]["v"] == 2
+
+        emptied = _merge({"widgets": []}, stored, readable={shown})
+        assert _ids(emptied["widgets"]) == _ids(new)
+
+    def test_a_save_that_declares_the_forms_can_remove_them(self):
+        shown = uuid.uuid4()
+        new = self._new_forms(shown)
+        stored = {"version": 1, "widgets": new}
+        reads = [
+            "pie_chart:1",
+            "feature_list:1",
+            "table:1",
+            "bar_chart:1",
+            "bar_chart:2",
+        ]
+
+        merged = _merge(
+            {"readable": reads, "widgets": [new[0]]}, stored, readable={shown}
+        )
+        assert _ids(merged["widgets"]) == _ids(new[:1])
+
+        partial = _merge(
+            {"readable": ["pie_chart:1"], "widgets": []}, stored, readable={shown}
+        )
+        assert _ids(partial["widgets"]) == _ids(new[1:])
+
+    @pytest.mark.parametrize("pair", ["bar_chart", "pie_chart:01", "pie_chart:0"])
+    def test_a_malformed_readable_pair_is_refused(self, pair):
+        with pytest.raises(ValidationError):
+            DashboardConfigInput.model_validate({"readable": [pair]})
+
+    def test_a_server_without_a_new_kind_keeps_it_unseen(self, monkeypatch):
+        shown = uuid.uuid4()
+        table = _widget("table", shown)
+        registered = MarkdownWidget | IndicatorWidget | BarChartWidget
+        monkeypatch.setattr(dashboard, "_ACCEPTED", get_args(registered))
+        stored = {"version": 1, "widgets": [table]}
+
+        assert render_dashboard(stored, [shown]) is None
+        merged = _merge({"widgets": []}, stored, readable={shown})
+        assert merged["widgets"] == [table]
+
+    def test_a_plain_category_chart_keeps_its_original_stored_shape(self):
+        shown = uuid.uuid4()
+        legacy = _widget(
+            "bar_chart",
+            shown,
+            title=None,
+            config={
+                "column": "kind",
+                "stat": "count",
+                "stat_column": None,
+                "limit": 10,
+            },
+        )
+        keys = set(legacy["config"])
+        merged = _merge({"widgets": [legacy]}, None, readable={shown})
+        assert merged["widgets"][0] == legacy
+        rendered = render_dashboard(merged, [shown]).model_dump(mode="json")
+        assert rendered["widgets"][0]["config"] == legacy["config"]
+        assert set(rendered["widgets"][0]["config"]) == keys
+
+    def test_a_chart_with_other_options_keeps_all_its_keys(self):
+        shown = uuid.uuid4()
+        chart = _widget(
+            "bar_chart",
+            shown,
+            config={"mode": "by_feature", "label_column": "n", "value_column": "v"},
+        )
+        merged = _merge({"widgets": [chart]}, None, readable={shown})
+        config = merged["widgets"][0]["config"]
+        assert {"mode", "label_column", "value_column"} <= set(config)
+        off = _widget(
+            "bar_chart", shown, config={"column": "k", "use_layer_colors": False}
+        )
+        stored = _merge({"widgets": [off]}, None, readable={shown})
+        assert stored["widgets"][0]["config"]["use_layer_colors"] is False
+
+    def test_map_hidden_and_theme_are_stored_only_when_not_default(self):
+        shown = uuid.uuid4()
+        widget = _widget("indicator", shown)
+        plain = _merge({"widgets": [widget]}, None, readable={shown})
+        assert set(plain) == {"version", "widgets"}
+
+        set_ = _merge(
+            {"map_hidden": True, "theme": "dark", "widgets": [widget]},
+            None,
+            readable={shown},
+        )
+        assert (set_["map_hidden"], set_["theme"]) == (True, "dark")
+        rendered = render_dashboard(set_, [shown])
+        assert (rendered.map_hidden, rendered.theme) == (True, "dark")
+
+        kept = _merge({"widgets": [widget]}, set_, readable={shown})
+        assert (kept["map_hidden"], kept["theme"]) == (True, "dark")
+
+        cleared = _merge(
+            {"map_hidden": False, "theme": "follow", "widgets": [widget]},
+            set_,
+            readable={shown},
+        )
+        assert set(cleared) == {"version", "widgets"}
+
+    def test_an_old_config_without_map_hidden_or_theme_renders_the_defaults(self):
+        shown = uuid.uuid4()
+        stored = {"version": 1, "widgets": [_widget("indicator", shown)]}
+        rendered = render_dashboard(stored, [shown])
+        assert (rendered.map_hidden, rendered.theme) == (False, "follow")
+        assert DashboardConfigInput().theme is None
+
+    @pytest.mark.parametrize("bad", [{"theme": "sepia"}, {"map_hidden": "yes"}])
+    def test_unknown_theme_and_non_boolean_map_hidden_are_refused(self, bad):
+        with pytest.raises(ValidationError):
+            DashboardConfigInput.model_validate(bad)
 
     def test_types_clients_cannot_show_yet_are_kept(self, histogram_unregistered):
         shown = uuid.uuid4()
