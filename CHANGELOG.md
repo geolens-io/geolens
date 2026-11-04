@@ -65,8 +65,9 @@ and releases use semantic versioning.
   under `owner_conflicts`. An object transferred or changed in GeoLens since
   the last run keeps its owner and is reported, and `--cutover` refuses until
   `--accept-unresolved-users`. `--dry-run` lists the handovers a run would
-  make. The migration state file is now version 5, which older CLIs refuse
-  to read rather than rewrite without the owner it follows.
+  make. The migration state file is now version 6, which older CLIs refuse
+  to read rather than rewrite without the owner it follows or a web map's
+  unconfirmed save.
 
 ### Fixed
 
@@ -84,6 +85,12 @@ and releases use semantic versioning.
   64 MB default made parallel queries fail under concurrent dashboard load,
   and widgets answered 500. The space counts toward `DB_MEM_LIMIT`.
 - Auth: a download token can no longer be issued for a session a password reset just revoked.
+- A rerun of `geolens arcgis migrate` adopts a web map save whose answer was
+  lost, or whose state write failed, when the map still holds exactly what the
+  save sent, and reports it as a GeoLens edit otherwise.
+- A rerun translates a web map again while a layer the portal dropped is still
+  held by a map layer the run couldn't read, or while a layer's service isn't
+  imported yet, and clears each once the save applies it.
 
 ### Security
 

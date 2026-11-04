@@ -42,6 +42,8 @@ IMPORT_MAP = "import_map"
 EXPORT_ONLY = "export_only"
 SKIP = "skip"
 ACTIONS = (IMPORT_LAYERS, IMPORT_FILE, IMPORT_MAP, EXPORT_ONLY, SKIP)
+# The actions that put datasets into GeoLens.
+DATASET_ACTIONS = (IMPORT_LAYERS, IMPORT_FILE)
 
 DEFAULTS = {"visibility": "private", "collection_from": "folder"}
 # "shared" is ArcGIS for shared with groups only.

@@ -25,11 +25,12 @@ STATE_FILENAME = "arcgis-migration-state.json"
 # ArcGIS groups, and v4 what this command's own writes added, which a rerun may
 # take away again: a made group's members (``joined``) and each object's
 # groups (``granted``), and v5 the ArcGIS owner each item's owner follows and
-# a handover left incomplete. An older CLI refuses the file rather than
+# a handover left incomplete, and v6 a web map's unconfirmed save and the layers
+# its translation still owes. An older CLI refuses the file rather than
 # rewriting it without them. A v3 file records neither, so a rerun removes
 # nothing it added before.
-STATE_VERSION = "5"
-_READABLE_VERSIONS = ("1", "2", "3", "4", STATE_VERSION)
+STATE_VERSION = "6"
+_READABLE_VERSIONS = ("1", "2", "3", "4", "5", STATE_VERSION)
 
 PENDING = "pending"
 RUNNING = "running"
@@ -231,6 +232,14 @@ class ItemState:
     # Operational layers the last translation of a web map left out because
     # their datasets couldn't be read, which a later run translates again.
     skipped_layers: list[str] = field(default_factory=list)
+    # Operational layers the last translation left unapplied: a dropped layer
+    # whose map layer stayed hidden from the run, and one whose service isn't
+    # imported yet. A rerun translates the map again until none is left.
+    pending_layers: list[str] = field(default_factory=list)
+    # A web map save sent and not yet confirmed: the map, a fingerprint of the
+    # body, and the bookkeeping the save implies. A rerun that finds the map
+    # changed adopts it only when the map still matches the fingerprint.
+    pending_write: dict[str, Any] | None = None
     # Why the last rerun couldn't bring the item up to date.
     stale: list[str] = field(default_factory=list)
     started_at: str | None = None

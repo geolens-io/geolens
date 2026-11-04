@@ -419,8 +419,7 @@ def _earlier_copies(
     wanted = {
         i["id"]
         for i in items
-        if i["action"] in (_plan.IMPORT_LAYERS, _plan.IMPORT_FILE)
-        and not i.get("unlisted")
+        if i["action"] in _plan.DATASET_ACTIONS and not i.get("unlisted")
     }
     if not wanted:
         return None
@@ -1992,6 +1991,13 @@ def _run(
         web_origin=_web_origin(instance),
         basemap_map={u: b for u, b in plan.get("basemap_map", {}).items() if b},
         aliases={i["id"]: i["alias_of"] for i in plan["items"] if i.get("alias_of")},
+        importable=frozenset(
+            i["id"]
+            for i in plan["items"]
+            if i["action"] in _plan.DATASET_ACTIONS
+            and not i.get("removed")
+            and not i.get("unlisted")
+        ),
         portal_root=_portal_base(plan["portal"]["url"]),
         redact=redact,
         operator_id=operator_id,

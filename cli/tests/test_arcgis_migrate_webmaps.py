@@ -18,6 +18,7 @@ import httpx
 import pytest
 
 from geolens_cli import arcgis_migrate as migrate
+from geolens_cli import arcgis_report
 from geolens_cli import arcgis_migrate_webmaps as webmaps
 from geolens_cli.arcgis_migrate_session import StopRun
 from geolens_cli.arcgis_migrate_state import ItemState
@@ -929,7 +930,9 @@ def test_a_web_map_changed_in_the_portal_is_translated_again_into_the_same_map(
     loss = json.loads((plan_file.parent / entry["loss_report_path"]).read_text())
     assert loss["loss_report"]["summary"] == {"popup_expression": 1}
 
-    # Nothing changed since: the next run writes nothing.
+    # Nothing changed since: the next run writes nothing. The web map's
+    # unsupported and external layers are reported, never waited on.
+    assert entry["pending_layers"] == []
     result, _ = _migrate(runner, plan_file, "--token", token)
     assert result.exit_code == 0, result.output
     assert len(_puts(geolens)) == 1
@@ -1599,6 +1602,315 @@ def test_a_web_map_save_geolens_refuses_as_stale_is_reported_not_recorded(
     entry = _state(plan_file)["items"][B1]
     for key in ("map_snapshot", "layer_ids", "portal_modified", "notes"):
         assert entry[key] == before[key]
+
+
+STYLE = {"fill-color": "#336699"}
+
+
+def _styled_translation(geolens) -> None:
+    """The dry run's answer with a paint on each layer, so an edit to a layer's
+    style changes what the save sent."""
+    translated = _translated(dataset_id("Parcels"))
+    for layer in translated["layers"]:
+        layer["paint"] = STYLE
+    geolens.routes[IMPORT] = lambda seen: (
+        (201, translated) if seen.json().get("dry_run") else (201, _response(lost=2))
+    )
+
+
+def _committing_save(geolens, *, commits: bool, failure: Exception | None):
+    """A map save that stores what it is sent when *commits*, then raises
+    *failure* in place of an answer. The returned dict is the stored map's
+    fields, which a test edits to stand for a change made in GeoLens."""
+    stored: dict[str, Any] = {}
+    read = geolens.routes["GET /maps/" + MAP_ID]
+
+    def put(seen):
+        sent = seen.json()
+        saved = _saved(sent)
+        if commits:
+            stored.update(
+                {k: saved[k] for k in ("updated_at", "layers", "layer_count")},
+                **{
+                    k: sent[k]
+                    for k in (
+                        "notes",
+                        "basemap_style",
+                        "center_lng",
+                        "center_lat",
+                        "zoom",
+                        "bearing",
+                    )
+                },
+            )
+        if failure is not None:
+            raise failure
+        return saved
+
+    geolens.routes["PUT /maps/" + MAP_ID] = put
+    geolens.routes["GET /maps/" + MAP_ID] = lambda seen: {**read(seen), **stored}
+    return stored
+
+
+def test_a_save_that_committed_but_lost_its_answer_is_adopted_by_the_next_run(
+    runner, plan_file, geolens, portal
+):
+    token = _changed_in_the_portal(runner, plan_file, geolens, portal)
+    _styled_translation(geolens)
+    _committing_save(geolens, commits=True, failure=httpx.ReadTimeout("slow"))
+    modified = portal.routes[f"content/items/{B1}"]["modified"]
+
+    result, _ = _migrate(runner, plan_file, "--token", token)
+
+    assert result.exit_code != 0
+    entry = _state(plan_file)["items"][B1]
+    assert entry["pending_write"]["fingerprint"]
+    assert entry["map_snapshot"]["updated_at"] == "2026-10-01T00:00:00+00:00"
+
+    result, _ = _migrate(runner, plan_file, "--token", token)
+
+    assert result.exit_code == 0, result.output
+    assert len(_puts(geolens)) == 1
+    assert len(_sent(geolens)) == 2
+    entry = _state(plan_file)["items"][B1]
+    assert entry["pending_write"] is None
+    assert entry["pending_loss"] is None
+    assert entry["portal_modified"] == modified
+    assert entry["map_snapshot"]["updated_at"] == "2026-10-03T00:00:00+00:00"
+    assert entry["layer_ids"] == {
+        "view_0": LAYER_ID.format(2),
+        "parcels_0": LAYER_ID.format(1),
+        "new_0": LAYER_ID.format(9),
+    }
+    assert [n for n in entry["notes"] if "part(s)" in n] == [
+        "1 part(s) of the web map were not carried over"
+    ]
+
+
+def test_a_save_lost_with_a_style_edited_in_geolens_after_it_is_reported(
+    runner, plan_file, geolens, portal
+):
+    token = _changed_in_the_portal(runner, plan_file, geolens, portal)
+    _styled_translation(geolens)
+    stored = _committing_save(geolens, commits=True, failure=httpx.ReadTimeout("slow"))
+    _migrate(runner, plan_file, "--token", token)
+    stored["layers"][0]["paint"] = {"fill-color": "#ff0000"}
+    stored["updated_at"] = "2026-10-04T00:00:00Z"
+
+    result, payload = _migrate(runner, plan_file, "--token", token)
+
+    assert result.exit_code == 1
+    [reason] = payload["not_up_to_date"][B1]
+    assert "changed in GeoLens since the last run" in reason
+    assert len(_puts(geolens)) == 1
+    entry = _state(plan_file)["items"][B1]
+    assert entry["pending_write"] is None
+    assert entry["map_snapshot"]["updated_at"] == "2026-10-01T00:00:00+00:00"
+
+
+def test_a_save_that_never_committed_is_sent_again(runner, plan_file, geolens, portal):
+    token = _changed_in_the_portal(runner, plan_file, geolens, portal)
+    _styled_translation(geolens)
+    _committing_save(geolens, commits=False, failure=httpx.ConnectError("refused"))
+    _migrate(runner, plan_file, "--token", token)
+    assert _state(plan_file)["items"][B1]["pending_write"] is not None
+    _committing_save(geolens, commits=True, failure=None)
+
+    result, _ = _migrate(runner, plan_file, "--token", token)
+
+    assert result.exit_code == 0, result.output
+    assert len(_puts(geolens)) == 2
+    entry = _state(plan_file)["items"][B1]
+    assert entry["pending_write"] is None
+    assert entry["map_snapshot"]["updated_at"] == "2026-10-03T00:00:00+00:00"
+
+
+def test_a_state_save_that_failed_after_the_map_save_is_adopted_by_the_next_run(
+    runner, plan_file, geolens, portal, monkeypatch
+):
+    token = _changed_in_the_portal(runner, plan_file, geolens, portal)
+    _styled_translation(geolens)
+    stored = _committing_save(geolens, commits=True, failure=None)
+    write = arcgis_report.write_private
+    disk_full = {"on": False}
+
+    def put(seen):
+        disk_full["on"] = True
+        return commit(seen)
+
+    commit = geolens.routes["PUT /maps/" + MAP_ID]
+    geolens.routes["PUT /maps/" + MAP_ID] = put
+
+    def write_private(path, data):
+        if disk_full["on"]:
+            raise OSError(28, "No space left on device")
+        write(path, data)
+
+    monkeypatch.setattr(arcgis_report, "write_private", write_private)
+    _migrate(runner, plan_file, "--token", token)
+    monkeypatch.setattr(arcgis_report, "write_private", write)
+    on_disk = _state(plan_file)["items"][B1]
+    assert on_disk["pending_write"] is not None
+    assert on_disk["map_snapshot"]["updated_at"] == "2026-10-01T00:00:00+00:00"
+    assert stored["updated_at"] == EDITED_AT
+
+    result, _ = _migrate(runner, plan_file, "--token", token)
+
+    assert result.exit_code == 0, result.output
+    assert len(_puts(geolens)) == 1
+    entry = _state(plan_file)["items"][B1]
+    assert entry["pending_write"] is None
+    assert entry["map_snapshot"]["updated_at"] == "2026-10-03T00:00:00+00:00"
+
+
+def _edit_json(path: Path, change) -> None:
+    data = json.loads(path.read_text())
+    change(data)
+    path.write_text(json.dumps(data))
+
+
+def _edit_webmap(portal, change) -> None:
+    """Revise the portal's web map data and move its modified time on."""
+    data = copy.deepcopy(portal.routes[item_data_path(B1)])
+    change(data["operationalLayers"])
+    portal.routes[item_data_path(B1)] = data
+    listed = portal.routes[f"content/items/{B1}"]
+    portal.routes[f"content/items/{B1}"] = {
+        **listed,
+        "modified": listed["modified"] + 60_000,
+    }
+
+
+def test_a_hidden_layer_the_portal_dropped_is_removed_once_the_run_can_read_it(
+    runner, plan_file, geolens, portal
+):
+    token = _changed_in_the_portal(runner, plan_file, geolens, portal)
+    full = _translated(dataset_id("Parcels"))
+    parcels = dataset_id("Parcels")
+    stored: list[dict[str, Any]] = [
+        {
+            "id": LAYER_ID.format(i),
+            "dataset_id": parcels,
+            "sort_order": n,
+            "opacity": 1,
+        }
+        for n, i in enumerate((1, 2))
+    ]
+    hidden = {LAYER_ID.format(2)}
+    state = {"updated_at": "2026-10-01T00:00:00Z"}
+    puts: list[dict[str, Any]] = []
+    read = geolens.routes["GET /maps/" + MAP_ID]
+
+    def get(seen):
+        shown = [row for row in stored if row["id"] not in hidden]
+        layers = _saved({"layers": shown})["layers"]
+        return {**read(seen), "layers": layers, "layer_count": len(layers), **state}
+
+    def put(seen):
+        # A replacement keeps the rows it names and the rows hidden from it.
+        named = {row["id"]: row for row in seen.json()["layers"] if row.get("id")}
+        stored[:] = [
+            {**row, **named.get(row["id"], {})}
+            for row in stored
+            if row["id"] in named or row["id"] in hidden
+        ]
+        puts.append(seen.json())
+        state["updated_at"] = f"2026-10-0{len(puts) + 3}T00:00:00Z"
+        return get(seen)
+
+    geolens.routes["GET /maps/" + MAP_ID] = get
+    geolens.routes["PUT /maps/" + MAP_ID] = put
+    geolens.routes[IMPORT] = (
+        201,
+        {**full, "layers": full["layers"][1:2], "layer_sources": ["parcels_0"]},
+    )
+
+    def drop_the_view(layers):
+        for layer in layers:
+            if "layers" in layer:
+                layer["layers"] = [m for m in layer["layers"] if m["id"] != "view_0"]
+
+    _edit_webmap(portal, drop_the_view)
+    result, _ = _migrate(runner, plan_file, "--token", token)
+
+    assert result.exit_code == 0, result.output
+    assert len(puts) == 1
+    entry = _state(plan_file)["items"][B1]
+    assert entry["pending_layers"] == ["view_0"]
+    assert entry["layer_ids"]["view_0"] == LAYER_ID.format(2)
+
+    # Access returns; the portal hasn't changed since.
+    hidden.clear()
+    result, _ = _migrate(runner, plan_file, "--token", token)
+
+    assert result.exit_code == 0, result.output
+    assert len(puts) == 2
+    assert [row["id"] for row in stored] == [LAYER_ID.format(1)]
+    entry = _state(plan_file)["items"][B1]
+    assert entry["pending_layers"] == []
+    assert "view_0" not in entry["layer_ids"]
+
+    result, _ = _migrate(runner, plan_file, "--token", token)
+
+    assert result.exit_code == 0, result.output
+    assert len(puts) == 2
+
+
+def test_a_layer_whose_service_imports_later_is_added_without_a_portal_change(
+    runner, plan_file, geolens, portal
+):
+    token = _changed_in_the_portal(runner, plan_file, geolens, portal)
+    _committing_save(geolens, commits=True, failure=None)
+    FakeImport(geolens, [_layer(0, "Parcels")])._serve_dataset(dataset_id("Parcels"))
+    roads = "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3"
+
+    def import_roads_layers(plan):
+        for item in plan["items"]:
+            if item["id"] == roads:
+                item["action"] = "import_layers"
+
+    def roads_failed(state):
+        state["items"][roads].update(status="failed", error="boom")
+
+    _edit_json(plan_file, import_roads_layers)
+    _edit_json(plan_file.parent / "arcgis-migration-state.json", roads_failed)
+    new_layer = {
+        "id": "roads_new_0",
+        "itemId": roads,
+        "layerType": "ArcGISFeatureLayer",
+        "url": "https://services1.arcgis.com/ExAmPlEoRg0123/arcgis/rest/services/Roads/FeatureServer/0",
+    }
+    _edit_webmap(portal, lambda layers: layers.append(new_layer))
+    result, payload = _migrate(runner, plan_file, "--token", token, "--no-retry")
+
+    assert payload["failed"] == [roads]
+    assert payload["not_up_to_date"] == {}
+    assert len(_puts(geolens)) == 1
+    # The layers of sources that are unsupported or not in the plan are
+    # reported by the import, not waited on.
+    assert _state(plan_file)["items"][B1]["pending_layers"] == ["roads_new_0"]
+
+    def roads_imported(state):
+        state["items"][roads].update(
+            status="done",
+            error=None,
+            dataset_ids=[dataset_id("Parcels")],
+            layer_datasets={"0": dataset_id("Parcels")},
+        )
+
+    _edit_json(plan_file.parent / "arcgis-migration-state.json", roads_imported)
+    _, payload = _migrate(runner, plan_file, "--token", token, "--no-retry")
+
+    assert B1 not in payload["not_up_to_date"]
+    assert len(_puts(geolens)) == 2
+    matched = [s.json()["dataset_matches"] for s in _sent(geolens)][-1]
+    assert matched["roads_new_0"] == dataset_id("Parcels")
+    assert _state(plan_file)["items"][B1]["pending_layers"] == []
+
+    _, payload = _migrate(runner, plan_file, "--token", token, "--no-retry")
+
+    assert B1 not in payload["not_up_to_date"]
+    assert len(_puts(geolens)) == 2
 
 
 @pytest.mark.parametrize("answer", ["older", "unpaired", "older_sdk"])
