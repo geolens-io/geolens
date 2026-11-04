@@ -189,7 +189,7 @@ def test_vrt_reap_retains_old_quicklooks_when_regeneration_has_none():
         replace_quicklook_512=False,
     )
 
-    assert keys == ["rasters/vrt/old/source.vrt"]
+    assert keys == ["rasters/vrt/old/source.vrt", "rasters/vrt/old/source.ovr.tif"]
 
 
 def test_ingest_worker_fails_closed_without_tenant_context(monkeypatch):

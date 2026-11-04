@@ -39,7 +39,12 @@ from app.processing.raster.probe import (
     read_raster_metadata,
     render_quicklook,
 )
-from app.processing.raster.vrt import build_vrt, resolve_vrt_source_path
+from app.processing.raster.vrt import (
+    add_vrt_overview,
+    build_vrt,
+    overview_key_for,
+    resolve_vrt_source_path,
+)
 from app.processing.raster.vrt_members import note_vrt_members
 from app.processing.raster.vrt_rewrite import rewrite_vrt_sources
 from app.platform.storage import get_storage
@@ -189,7 +194,7 @@ def _prior_generation_keys_to_reap(
     replace_quicklook_512: bool,
 ) -> list[str]:
     """The logical keys of the prior objects whose catalog pointers will be replaced."""
-    logical_keys = [vrt_key]
+    logical_keys = [vrt_key, overview_key_for(vrt_key)]
     if replace_quicklook_256 and quicklook_256_key is not None:
         logical_keys.append(quicklook_256_key)
     if replace_quicklook_512 and quicklook_512_key is not None:
@@ -569,6 +574,9 @@ async def ingest_vrt(
         await asyncio.to_thread(
             build_vrt, vrt_type, source_paths, vrt_path, resolution_strategy
         )
+        overview_path = await asyncio.to_thread(
+            add_vrt_overview, vrt_path, source_paths
+        )
 
         # 6. Extract metadata from assembled VRT
         meta = await asyncio.to_thread(read_vrt_metadata, vrt_path)
@@ -592,6 +600,7 @@ async def ingest_vrt(
             attempt_uuid,
             keys=[
                 f"{_vrt_base_key}/source.vrt",
+                *([f"{_vrt_base_key}/source.ovr.tif"] if overview_path else []),
                 f"{_vrt_base_key}/quicklook_256.png",
                 f"{_vrt_base_key}/quicklook_512.png",
             ],
@@ -705,6 +714,13 @@ async def ingest_vrt(
 
                 # Registered before the put: a cancelled put can have completed,
                 # and CancelledError skips every statement below it.
+                # Before the VRT, so a stored VRT never names a missing overview.
+                if overview_path is not None:
+                    _storage_ovr_key = overview_key_for(_storage_vrt_key)
+                    written_storage_keys.append(_storage_ovr_key)
+                    with open(overview_path, "rb") as fobj:
+                        await storage.put(_storage_ovr_key, fobj)
+
                 written_storage_keys.append(_storage_vrt_key)
                 with open(vrt_path, "rb") as fobj:
                     await storage.put(_storage_vrt_key, fobj)
@@ -1098,6 +1114,9 @@ async def regenerate_vrt(
         await asyncio.to_thread(
             build_vrt, vrt_type, source_paths, vrt_path, resolution_strategy
         )
+        overview_path = await asyncio.to_thread(
+            add_vrt_overview, vrt_path, source_paths
+        )
 
         # 6 & 7. Extract metadata (also serves as post-validation)
         meta = await asyncio.to_thread(read_vrt_metadata, vrt_path)
@@ -1135,6 +1154,7 @@ async def regenerate_vrt(
             attempt_uuid,
             keys=[
                 next_vrt_storage_key,
+                *([overview_key_for(next_vrt_storage_key)] if overview_path else []),
                 *([next_ql256_uri] if ql256 is not None else []),
                 *([next_ql512_uri] if ql512 is not None else []),
             ],
@@ -1187,6 +1207,13 @@ async def regenerate_vrt(
 
         # Registered before the put: a cancelled put can have completed, and
         # CancelledError skips every statement below it.
+        # Before the VRT, so a stored VRT never names a missing overview.
+        if overview_path is not None:
+            next_ovr_physical_key = overview_key_for(next_vrt_physical_key)
+            written_storage_keys.append(next_ovr_physical_key)
+            with open(overview_path, "rb") as fobj:
+                await storage.put(next_ovr_physical_key, fobj)
+
         written_storage_keys.append(next_vrt_physical_key)
         with open(vrt_path, "rb") as fobj:
             await storage.put(next_vrt_physical_key, fobj)

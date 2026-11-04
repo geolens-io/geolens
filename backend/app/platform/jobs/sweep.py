@@ -635,6 +635,16 @@ async def _live_referenced_storage_keys(
         select(DatasetAsset.href.label("key")).where(
             DatasetAsset.href == any_(keys_param)
         ),
+        # A VRT's overview image has no column of its own: it sits beside the
+        # VRT and shares its lifetime.
+        select(
+            func.regexp_replace(RasterAsset.asset_uri, r"\.vrt$", ".ovr.tif").label(
+                "key"
+            )
+        ).where(
+            func.regexp_replace(RasterAsset.asset_uri, r"\.vrt$", ".ovr.tif")
+            == any_(keys_param)
+        ),
     ]
     if owed_cogs:
         owed = IngestJob.user_metadata[PUBLISH_FOLLOWUPS_FIELD][SUPERSEDED_COG_ITEM]
@@ -954,7 +964,12 @@ def _stale_generation_storage_keys(
             tenant_id=tenant_id,
         )
         for generation_id, vrt_dataset_id in stale_generations
-        for suffix in ("source.vrt", "quicklook_256.png", "quicklook_512.png")
+        for suffix in (
+            "source.vrt",
+            "source.ovr.tif",
+            "quicklook_256.png",
+            "quicklook_512.png",
+        )
     )
 
 

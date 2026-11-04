@@ -1,7 +1,9 @@
 """VRT build module: gdalbuildvrt subprocess wrappers and source path resolver."""
 
+import logging
 import math
 import os
+import posixpath
 import subprocess
 
 from app.core.geo import LON_EPSILON_DEGREES, wrap_longitude
@@ -12,6 +14,8 @@ from app.platform.gdal_env import (  # noqa: F401
     gdal_service_safe_env,
     gdal_vector_safe_env,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # Clamp the GDAL VSI surface: CPL_VSIL_CURL_ALLOWED_EXTENSIONS gates fetchable
@@ -420,3 +424,91 @@ def build_vrt(
         resolution_strategy,
         separate=(vrt_type == "band_stack"),
     )
+
+
+OVERVIEW_SUFFIX = ".ovr.tif"
+
+
+def overview_key_for(vrt_key: str) -> str:
+    """The object beside a VRT that holds its overview image."""
+    return posixpath.splitext(vrt_key)[0] + OVERVIEW_SUFFIX
+
+
+def members_lack_overviews(source_paths: list[str]) -> bool:
+    """Whether any member has no internal overviews, so a low-zoom read is full-size.
+
+    A member without overviews makes every coarse read decode it at full
+    resolution, so a single such member is enough. Stops at the first one.
+    A member the probe cannot read counts as covered: the build reads it next
+    and reports the failure there.
+    """
+    from app.processing.raster.probe import RasterProbeError, read_raster_metadata
+
+    for path in source_paths:
+        try:
+            if not read_raster_metadata(path).get("overview_levels"):
+                return True
+        except RasterProbeError:
+            return False
+    return False
+
+
+def add_vrt_overview(vrt_path: str, source_paths: list[str]) -> str | None:
+    """Build a half-resolution overview COG beside a VRT and reference it.
+
+    Returns the overview file's path, or None when every member already has
+    overviews or the overview could not be built (the VRT is then left as it
+    was). The image is a nearest-neighbour ``gdal_translate`` of the VRT at 50%
+    with the COG driver's own internal overviews, named by ``overview_key_for``.
+    Each ``VRTRasterBand`` gets an ``<Overview>`` naming it relative to the VRT:
+    TiTiler opens with ``GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR``, so a sidecar
+    ``.vrt.ovr`` would never be found.
+    """
+    from xml.etree.ElementTree import SubElement, parse
+
+    if not members_lack_overviews(source_paths):
+        return None
+    try:
+        tree = parse(vrt_path)
+    except Exception:  # broad: an optimisation must not fail a build gdalbuildvrt reported as successful
+        return None
+    root = tree.getroot()
+    bands = root.findall("VRTRasterBand")
+    if (
+        not bands
+        or int(root.get("rasterXSize", "0")) < 2
+        or int(root.get("rasterYSize", "0")) < 2
+    ):
+        return None
+
+    overview_path = overview_key_for(vrt_path)
+    result = run_gdal(
+        [
+            "gdal_translate",
+            "-q",
+            "-of",
+            "COG",
+            "-outsize",
+            "50%",
+            "50%",
+            "-co",
+            "BIGTIFF=IF_SAFER",
+            vrt_path,
+            overview_path,
+        ],
+        env=gdal_safe_env(),
+        tool="gdal_translate",
+    )
+    if result.returncode != 0:
+        logger.warning("VRT overview build failed: %s", result.stderr)
+        if os.path.exists(overview_path):
+            os.remove(overview_path)
+        return None
+
+    for position, band in enumerate(bands, start=1):
+        overview = SubElement(band, "Overview")
+        name = SubElement(overview, "SourceFilename", relativeToVRT="1")
+        name.text = posixpath.basename(overview_path)
+        SubElement(overview, "SourceBand").text = band.get("band", str(position))
+    tree.write(vrt_path, encoding="utf-8", xml_declaration=True)
+    return overview_path

@@ -37,9 +37,11 @@ class TestRegisterBeforeWrite:
         ("processing/ingest/tasks_raster_replace.py", "_storage_ql256_key"),
         ("processing/ingest/tasks_raster_replace.py", "_storage_ql512_key"),
         ("processing/ingest/tasks_vrt.py", "_storage_vrt_key"),
+        ("processing/ingest/tasks_vrt.py", "_storage_ovr_key"),
         ("processing/ingest/tasks_vrt.py", "_storage_ql256_key"),
         ("processing/ingest/tasks_vrt.py", "_storage_ql512_key"),
         ("processing/ingest/tasks_vrt.py", "next_vrt_physical_key"),
+        ("processing/ingest/tasks_vrt.py", "next_ovr_physical_key"),
         ("processing/ingest/tasks_vrt.py", "next_ql256_physical_key"),
         ("processing/ingest/tasks_vrt.py", "next_ql512_physical_key"),
     ]
