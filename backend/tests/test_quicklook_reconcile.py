@@ -14,7 +14,7 @@ import pytest
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-import app.platform.jobs.staging_reconcile as staging_module
+import app.platform.jobs.orphan_scan as orphan_scan
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.platform.jobs.quicklook_reconcile import (
     QUICKLOOK_ORPHAN_MIN_AGE,
@@ -79,9 +79,9 @@ async def _dataset(session: AsyncSession, *, quicklook: str | None = None) -> uu
 
 @pytest.fixture(autouse=True)
 async def _cleanup(test_db_session: AsyncSession):
-    staging_module._scan_cursors[QUICKLOOK_PREFIX] = None
+    orphan_scan._scan_cursors[QUICKLOOK_PREFIX] = None
     yield
-    staging_module._scan_cursors.clear()
+    orphan_scan._scan_cursors.clear()
     await test_db_session.execute(delete(Record).where(Record.id.in_(_records)))
     await test_db_session.commit()
     _records.clear()

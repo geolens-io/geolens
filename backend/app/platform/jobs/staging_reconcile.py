@@ -44,7 +44,7 @@ from datetime import datetime, timedelta, timezone
 from typing import NamedTuple
 
 import structlog
-from sqlalchemy import and_, or_, select, text
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -56,8 +56,8 @@ from app.platform.jobs.models import (
     IngestJob,
     needs_staged_input,
 )
+from app.platform.jobs.orphan_scan import current_entry, reconcile_orphan_objects
 from app.platform.storage.provider import StoredObject
-from app.platform.storage.titiler_url import resolve_current_storage_key
 
 log = structlog.get_logger()
 
@@ -77,24 +77,6 @@ _MAX_DELETES_PER_PASS = 200
 # Objects examined: bounds the walk when there is no work — without it a
 # million tracked-and-old objects would be paged through every cycle for nothing.
 _MAX_OBJECTS_SCANNED_PER_PASS = 20_000
-
-# Where the next pass resumes, per physical prefix. Without
-# it every pass re-walks the same lexicographically first window and an
-# orphan sorting later would never be reached. Advanced to the last key
-# examined on a budget stop, cleared when a pass completes the whole prefix.
-# CIRCULAR scan (`_reconcile_locked`) makes this an OFFSET, not a window, so
-# process-local state seeded at a random point is safe: the cursor only
-# decides what is looked at first, never what may be deleted.
-_scan_cursors: dict[str, str | None] = {}
-
-
-def _resume_point(physical_prefix: str) -> str | None:
-    """Where this pass starts, seeding a random point on first use."""
-    if physical_prefix not in _scan_cursors:
-        # Same alphabet as the job segment of every staging key, so the seed
-        # lands uniformly inside the keyspace rather than before/after all of it.
-        _scan_cursors[physical_prefix] = f"{physical_prefix}{uuid.uuid4()}"
-    return _scan_cursors[physical_prefix]
 
 
 @dataclass(frozen=True)
@@ -273,20 +255,6 @@ async def _staging_reference_exists(
     return result.first() is not None
 
 
-async def _current_entry(storage, physical_key: str) -> StoredObject | None:
-    """Re-read one object's last-modified time, or None if it is gone.
-
-    Uses ``iter_object_pages`` with a COMPLETE key: the Protocol has no
-    head-with-timestamp call, so a one-key prefix listing is the portable
-    substitute. Filtered for an exact match since a prefix also returns siblings.
-    """
-    async for page in storage.iter_object_pages(physical_key):
-        for entry in page:
-            if entry.key == physical_key:
-                return entry
-    return None
-
-
 async def reconcile_orphaned_staging_objects(
     db: AsyncSession, *, now: datetime | None = None
 ) -> StagingReconcileOutcome:
@@ -320,12 +288,11 @@ async def reconcile_orphaned_staging_objects(
 
 
 async def _reconcile(db: AsyncSession, *, now: datetime) -> StagingReconcileOutcome:
-    """The pass itself. See the wrapper above for the error and lock contract."""
-    from app.core.db import async_session  # late-bound so a test engine applies
-    from app.core.db.tenant_session import current_tenant_var
-    from app.core.tenancy import is_multi_tenant
-    from app.platform.storage import get_storage
+    """The pass itself. See the wrapper above for the error and lock contract.
 
+    Page at a time; both budgets are checked between pages, and a budget stop
+    leaves a cursor so the next pass resumes (see ``orphan_scan``).
+    """
     if settings.storage_provider != "s3":
         # `staging/` is exclusively the upload system's namespace only in a
         # BUCKET. On the local backend the same prefix also holds
@@ -335,130 +302,45 @@ async def _reconcile(db: AsyncSession, *, now: datetime) -> StagingReconcileOutc
         # backends, so this orphan class cannot occur on local or Azure.
         return StagingReconcileOutcome(ran=False)
 
-    if is_multi_tenant() and current_tenant_var.get() is None:
-        # No tenant context to scope the listing. Declining is the only safe
-        # answer — sweeping the whole bucket while RLS shows no rows would
-        # read every tenant's objects as untracked (same posture as
-        # `_stale_generation_storage_keys` in sweep.py).
-        return StagingReconcileOutcome(ran=False)
-
-    # Resolves the ACTIVE tenant's namespace in multi-tenant mode, so the
-    # listing can never cross a tenant boundary.
-    physical_prefix = resolve_current_storage_key(STAGING_PREFIX)
-
-    # A session that exists only to hold the lock; touches no table, so RLS
-    # is irrelevant. Leaving the context ends its transaction and releases
-    # the lock without touching anything the caller's ``db`` owns.
-    async with async_session() as lock_session:
-        locked = await lock_session.execute(
-            text("SELECT pg_try_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
-            {"lock_key": f"staging-orphan-reconcile:{physical_prefix}"},
-        )
-        if not locked.scalar():
-            return StagingReconcileOutcome(ran=False)
-        return await _reconcile_locked(
-            db, now=now, physical_prefix=physical_prefix, storage=get_storage()
-        )
-
-
-async def _reconcile_locked(
-    db: AsyncSession,
-    *,
-    now: datetime,
-    physical_prefix: str,
-    storage,
-) -> StagingReconcileOutcome:
-    """The pass body, entered only with the advisory lock held.
-
-    Page at a time; both budgets are checked between pages. A
-    budget stop leaves a cursor so the next pass resumes rather than
-    re-walking the same window (see ``_scan_cursors``).
-
-    The scan is CIRCULAR: cursor to end, then front to cursor
-    with whatever budget is left. A one-directional scan from a random start
-    is a sample, not a rotation — a recycled worker would only ever see
-    suffixes. With the wrap, one unbudgeted pass covers the whole prefix.
-    """
     # Clock skew is immaterial at a threshold measured in hours.
     cutoff = now - timedelta(seconds=settings.staging_orphan_min_age_seconds)
     tally = _Tally()
-    last_examined: str | None = None
-    stopped_early = False
 
-    resume_point = _resume_point(physical_prefix)
-    # (start_after, stop_at). The second leg is the wrap and is skipped when
-    # the pass already begins at the front, where there is nothing to wrap to.
-    legs: list[tuple[str | None, str | None]] = [(resume_point, None)]
-    if resume_point is not None:
-        legs.append((None, resume_point))
-
-    for start_after, stop_at in legs:
-        async for page in _iter_leg(
-            storage, physical_prefix, start_after=start_after, stop_at=stop_at
-        ):
-            tally.objects_listed += len(page)
-            if page:
-                # Pages arrive in ascending key order, so the last entry is the
-                # high-water mark whether or not this page produced any deletes.
-                last_examined = page[-1].key
-            candidates = _page_candidates(
-                page, physical_prefix=physical_prefix, cutoff=cutoff, tally=tally
+    async def handle_page(storage, physical_prefix, page, previous_end):
+        candidates = _page_candidates(
+            page, physical_prefix=physical_prefix, cutoff=cutoff, tally=tally
+        )
+        # Pages arrive in ascending key order, so the last entry is the
+        # high-water mark whether or not this page produced any deletes.
+        resume_after = page[-1].key
+        if candidates:
+            unfinished_at = await _delete_page_orphans(
+                db, candidates, now=now, cutoff=cutoff, storage=storage, tally=tally
             )
-            if candidates:
-                unfinished_at = await _delete_page_orphans(
-                    db,
-                    candidates,
-                    now=now,
-                    cutoff=cutoff,
-                    storage=storage,
-                    tally=tally,
-                )
-                if unfinished_at is not None:
-                    # Delete budget ran out partway through this page. Resume
-                    # from the last PROCESSED candidate, not the page's end.
-                    last_examined = unfinished_at
-            if (
-                tally.orphans_deleted + tally.delete_failures >= _MAX_DELETES_PER_PASS
-                or tally.objects_listed >= _MAX_OBJECTS_SCANNED_PER_PASS
-            ):
-                stopped_early = True
-                log.info(
-                    "Staging orphan reconciliation stopped at its per-pass budget",
-                    resume_after=last_examined,
-                    **tally.as_log_fields(),
-                )
-                break
-        if stopped_early:
-            break
+            if unfinished_at is not None:
+                # Delete budget ran out partway through this page. Resume
+                # from the last PROCESSED candidate, not the page's end.
+                resume_after = unfinished_at
+        return tally.orphans_deleted + tally.delete_failures < _MAX_DELETES_PER_PASS, (
+            resume_after
+        )
 
-    # A full pass has seen the whole prefix, so the next starts at the front.
-    # Only a budget stop with actual progress carries a resume point — one
-    # with no page yielded would otherwise clear the cursor and undo progress.
-    if stopped_early and last_examined is not None:
-        _scan_cursors[physical_prefix] = last_examined
-    else:
-        _scan_cursors[physical_prefix] = None
-
+    progress = await reconcile_orphan_objects(
+        prefix=STAGING_PREFIX,
+        lock_name="staging-orphan-reconcile",
+        handle_page=handle_page,
+        max_objects=_MAX_OBJECTS_SCANNED_PER_PASS,
+    )
+    if progress is None:
+        return StagingReconcileOutcome(ran=False)
+    tally.objects_listed = progress.objects_listed
+    if progress.stopped_early:
+        log.info(
+            "Staging orphan reconciliation stopped at its per-pass budget",
+            resume_after=progress.resume_after,
+            **tally.as_log_fields(),
+        )
     return tally.freeze()
-
-
-async def _iter_leg(storage, physical_prefix: str, *, start_after, stop_at):
-    """Pages of one leg of the circular scan, bounded above by ``stop_at``.
-
-    The wrap leg must not run past the pass's start, or it would re-examine
-    keys the first leg already covered instead of ending.
-    """
-    async for page in storage.iter_object_pages(
-        physical_prefix, start_after=start_after
-    ):
-        if stop_at is None:
-            yield page
-            continue
-        bounded = [entry for entry in page if entry.key <= stop_at]
-        if bounded:
-            yield bounded
-        if len(bounded) < len(page):
-            return  # this page crossed the boundary, so the leg is done
 
 
 def _page_candidates(
@@ -542,7 +424,7 @@ async def _delete_page_orphans(
             tally.skipped_row_appeared += 1
             continue
         try:
-            entry = await _current_entry(storage, physical_key)
+            entry = await current_entry(storage, physical_key)
             if entry is None or entry.last_modified >= cutoff:
                 # Gone already, or rewritten since the listing. Either way
                 # this pass has nothing it can honestly delete.
