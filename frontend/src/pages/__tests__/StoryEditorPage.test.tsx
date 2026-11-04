@@ -868,6 +868,23 @@ it('makes the chapter panel inert while a discard is replacing the draft', async
   expect(screen.getByLabelText('Chapter title').closest('[inert]')).toBeNull();
 });
 
+it('disables reader settings while a discard is replacing the draft', async () => {
+  vi.mocked(getStory).mockResolvedValue(published([CHAPTERS[0]]));
+  const gate = deferred<StoryDraftResponse>();
+  vi.mocked(discardStoryDraft).mockReturnValueOnce(gate.promise);
+  const user = userEvent.setup();
+  renderEditor();
+  await screen.findByText('Draft saved. Readers still see the last published version.');
+  expect(screen.getByRole('button', { name: 'Reader settings' })).toBeEnabled();
+  await user.click(screen.getByRole('button', { name: 'Discard draft' }));
+  await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard draft' }));
+  expect(screen.getByRole('button', { name: 'Reader settings' })).toBeDisabled();
+
+  gate.resolve(draft({ revision: 5, document: { version: 1, chapters: [CHAPTERS[0]] } }));
+  expect(await screen.findByText('Published. Readers see this version.')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Reader settings' })).toBeEnabled();
+});
+
 it('flags chapters whose map the server could not find and offers to remove the scene', async () => {
   const onMissing: StoryChapter = {
     ...CHAPTERS[0],

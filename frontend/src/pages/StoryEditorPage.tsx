@@ -253,7 +253,7 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
           <Settings2 className="h-4 w-4" aria-hidden="true" />
           {t('editor.details')}
         </Button>
-        <Button variant="ghost" size="sm" onClick={() => setReaderOpen(true)}>
+        <Button variant="ghost" size="sm" onClick={() => setReaderOpen(true)} disabled={replacing || editor.leaving}>
           <PanelsTopLeft className="h-4 w-4" aria-hidden="true" />
           {t('readerSettings.heading')}
         </Button>
@@ -355,7 +355,7 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
 
       <StoryReaderSettingsDialog
         settings={editor.settings}
-        open={readerOpen}
+        open={readerOpen && !replacing}
         onOpenChange={setReaderOpen}
         onChange={editor.editSettings}
       />

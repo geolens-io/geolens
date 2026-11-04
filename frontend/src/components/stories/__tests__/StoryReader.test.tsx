@@ -407,6 +407,7 @@ describe('navigation bar', () => {
 
     await user.click(menu);
     const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('list')).toHaveClass('overflow-y-auto', 'min-h-0');
     await user.click(within(dialog).getByRole('button', { name: 'Gone' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(screen.getByRole('region', { name: 'Gone' })).toBeInTheDocument();

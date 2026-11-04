@@ -22,7 +22,7 @@ export function StoryNavBar({ title, chapters, active, onSelect, collapsed }: St
   const [open, setOpen] = useState(false);
 
   const list = (
-    <ol className={cn(collapsed ? 'space-y-1 px-2' : 'flex min-w-0 flex-1 items-center gap-1 overflow-x-auto')}>
+    <ol className={cn(collapsed ? 'min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-4' : 'flex min-w-0 flex-1 items-center gap-1 overflow-x-auto')}>
       {chapters.map((chapter, i) => (
         <li key={chapter.id} className="shrink-0">
           <Button
