@@ -42,15 +42,10 @@ _WORKER_ID = os.environ.get("PYTEST_XDIST_WORKER", "master")
 def _derive_test_pool_sizing() -> tuple[int, int]:
     """Return (pool_size, max_overflow) sized to live within Postgres max_connections.
 
-    Sequential mode (worker_id == "master") keeps the historical (5, 2) pool that
-    the suite was built against. Under pytest-xdist, returns (1, 0) as a signal
-    value; see _is_xdist_worker() below. The actual engine uses NullPool in xdist
-    mode (no persistent idle connections).
-
-    The (5, 2) sequential default is preserved because request handlers in some
-    tests (e.g., reupload, IDOR) need >1 concurrent conn within a single test.
-    The v1018 sequential baseline (3025/0/38 in 539s) is the regression floor.
-
+    Sequential runs get a (5, 2) pool because some request handlers need more
+    than one concurrent connection within a single test. Under pytest-xdist the
+    return value is a sentinel; the engine uses NullPool so workers hold no idle
+    connections.
     """
     worker_id = os.environ.get("PYTEST_XDIST_WORKER", "master")
     if worker_id == "master":

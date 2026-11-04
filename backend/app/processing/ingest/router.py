@@ -40,6 +40,7 @@ from app.modules.auth.dependencies import (
     require_permission,
 )
 from app.core.config import settings
+from app.core.db import release_connection
 from app.core.db.tenant_session import defer_async_with_tenant
 from app.core.dependencies import get_db
 from app.core.pointcloud import POINTCLOUD_FILE_TYPE
@@ -833,6 +834,8 @@ async def preview_file(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Job has no associated file — upload must complete before preview",
         )
+    # Storage and GDAL can run for a long time; don't pin a pool slot meanwhile.
+    await release_connection(db)
     file_type = (job.user_metadata or {}).get("file_type")
     try:
         if file_type == TILESET_FILE_TYPE:
