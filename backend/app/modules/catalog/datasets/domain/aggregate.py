@@ -16,10 +16,10 @@ import json
 import math
 from decimal import Decimal
 from collections.abc import Sequence
-from typing import Annotated, Any, Literal, NamedTuple
+from typing import Any, NamedTuple
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import text
+from pydantic import BaseModel
+from sqlalchemy import BigInteger, bindparam, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,15 +31,40 @@ from app.modules.catalog.datasets.domain.column_stats import (
     _sql_quote_ident,
     value_expr,
 )
+from app.modules.catalog.datasets.domain.aggregate_rows import (
+    DATE_TYPES,
+    bucket_sql,
+    AFTER_GID_BIND,
+    decode_cursor,
+    encode_cursor,
+    rows_sql,
+)
+from app.modules.catalog.datasets.domain.aggregate_schemas import (
+    AggregateRequest,
+    AggregateResponse,
+    AggregateRow,
+    CountResult,
+    GroupByRequest,
+    GroupByResult,
+    GroupValue,
+    HistogramBin,
+    HistogramResult,
+    RowsRequest,
+    RowsResult,
+    StatsResult,
+    ValueCount,
+    ValueCountsResult,
+    _respond,
+)
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.datasets.domain.service import (
     _safe_table_ref,
     compile_layer_filter,
+    is_sortable_column,
     preview_slot_bound,
 )
 from app.modules.catalog.features.service import (
     feature_table_exists,
-    parse_bbox,
     planner_row_estimate,
 )
 from app.platform.analysis_sql import binds_referenced_by, render_filtered_table_ref
@@ -59,7 +84,6 @@ from app.platform.timestamptz_text import utc_timestamptz_text
 # measurement on the smallest supported deployment (Azure B1ms) allows.
 MAX_VIEW_ROWS = 500_000
 AGGREGATE_TIMEOUT_MS = 4_000
-_MAX_ITEMS = 50
 # Pydantic stops serializing at 255 levels, and the cache key serializes the
 # filter. Filters the builder writes nest a few levels.
 _MAX_FILTER_DEPTH = 64
@@ -86,210 +110,6 @@ _REGISTERED_TTL = 60
 # The same pool-derived size as analysis previews, as a separate pool so
 # anonymous dashboard traffic cannot hold every preview slot.
 _aggregate_slots = asyncio.Semaphore(preview_slot_bound())
-
-StatName = Literal["count", "sum", "avg", "min", "max"]
-ColumnName = Annotated[str, Field(min_length=1, max_length=63)]
-Scalar = str | int | float | bool | None
-
-
-class _AggregateBase(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    filter: dict[str, Any] | None = Field(
-        None,
-        description="CQL2-JSON filter, as the OGC API Features `filter` accepts.",
-    )
-    bbox: list[float] | None = Field(
-        None,
-        min_length=4,
-        max_length=4,
-        description=(
-            "Map view `[west, south, east, north]` in WGS 84; west greater than "
-            "east crosses the antimeridian. Omit for the whole layer."
-        ),
-    )
-
-    @field_validator("bbox")
-    @classmethod
-    def _valid_bbox(cls, value: list[float] | None) -> list[float] | None:
-        return None if value is None else parse_bbox(value)
-
-
-class CountRequest(_AggregateBase):
-    op: Literal["count"]
-
-
-class StatsRequest(_AggregateBase):
-    op: Literal["stats"]
-    column: ColumnName
-    stats: list[StatName] = Field(min_length=1, max_length=5)
-
-    @field_validator("stats")
-    @classmethod
-    def _unique(cls, value: list[str]) -> list[str]:
-        return list(dict.fromkeys(value))
-
-
-class ValueCountsRequest(_AggregateBase):
-    op: Literal["value_counts"]
-    column: ColumnName
-    limit: int = Field(10, ge=1, le=_MAX_ITEMS)
-
-
-class HistogramRequest(_AggregateBase):
-    op: Literal["histogram"]
-    column: ColumnName
-    bins: int = Field(10, ge=1, le=_MAX_ITEMS)
-
-
-class GroupByRequest(_AggregateBase):
-    op: Literal["group_by"]
-    group_column: ColumnName
-    stat: StatName
-    column: ColumnName | None = Field(
-        None, description="The numeric column `stat` reads; omit for `count`."
-    )
-    limit: int = Field(10, ge=1, le=_MAX_ITEMS)
-
-    @model_validator(mode="after")
-    def _column_for_stat(self) -> GroupByRequest:
-        if self.stat != "count" and self.column is None:
-            raise ValueError(f"group_by with stat {self.stat!r} needs a column")
-        return self
-
-
-AggregateRequest = Annotated[
-    CountRequest
-    | StatsRequest
-    | ValueCountsRequest
-    | HistogramRequest
-    | GroupByRequest,
-    Field(discriminator="op"),
-]
-
-
-class CountResult(BaseModel):
-    count: int
-
-
-class StatsResult(BaseModel):
-    """The requested statistics; one over no rows is null.
-
-    ``sum``, ``min`` and ``max`` are exact: a number when JSON can carry it
-    exactly, else text. ``avg`` is a float, or text for NaN and infinity.
-    """
-
-    count: int | None = None
-    sum: int | float | str | None = None
-    avg: float | str | None = None
-    min: int | float | str | None = None
-    max: int | float | str | None = None
-
-
-_EXACT_KEY = (
-    "The column's value. A number JSON cannot carry exactly, such as an integer "
-    "beyond 2^53 or NaN, comes back as text."
-)
-
-
-class ValueCount(BaseModel):
-    value: Scalar = Field(description=_EXACT_KEY)
-    count: int
-
-
-class ValueCountsResult(BaseModel):
-    values: list[ValueCount] = Field(description="Most frequent first.")
-    other_count: int = Field(description="Rows whose value is not listed.")
-
-
-class HistogramBin(BaseModel):
-    lower: float
-    upper: float
-    count: int
-
-
-class HistogramResult(BaseModel):
-    bins: list[HistogramBin] = Field(
-        description=(
-            "Equal-width bins over the finite values, empty with none. Unless"
-            " whole_numbers is true, a bin holds its lower edge but not its upper"
-            " one, and the last bin holds both."
-        )
-    )
-    whole_numbers: bool = Field(
-        False,
-        description=(
-            "Whether each bin holds the whole numbers from its lower edge to one"
-            " below its upper edge. Only an integer column has whole-number bins,"
-            " and only while every edge is a safe JavaScript integer; they may"
-            " then number fewer than requested, and the last may be narrower."
-        ),
-    )
-
-
-class GroupValue(BaseModel):
-    key: Scalar = Field(description=_EXACT_KEY)
-    value: float | int | str | None = Field(
-        description="Exact for count, sum, min and max, as for a key; avg is a float."
-    )
-
-
-class GroupByResult(BaseModel):
-    groups: list[GroupValue] = Field(description="Largest value first.")
-
-
-class _ResponseBase(BaseModel):
-    approximate: Literal[False] = Field(
-        False, description="Always false: a view too wide to count exactly is refused."
-    )
-    cached: bool
-
-
-class CountResponse(_ResponseBase):
-    op: Literal["count"]
-    result: CountResult
-
-
-class StatsResponse(_ResponseBase):
-    op: Literal["stats"]
-    result: StatsResult
-
-
-class ValueCountsResponse(_ResponseBase):
-    op: Literal["value_counts"]
-    result: ValueCountsResult
-
-
-class HistogramResponse(_ResponseBase):
-    op: Literal["histogram"]
-    result: HistogramResult
-
-
-class GroupByResponse(_ResponseBase):
-    op: Literal["group_by"]
-    result: GroupByResult
-
-
-# Keyed on ``op`` so a client's generated parser picks the result by operation.
-AggregateResponse = Annotated[
-    CountResponse
-    | StatsResponse
-    | ValueCountsResponse
-    | HistogramResponse
-    | GroupByResponse,
-    Field(discriminator="op"),
-]
-_RESPONSES: dict[str, type[_ResponseBase]] = {
-    "count": CountResponse,
-    "stats": StatsResponse,
-    "value_counts": ValueCountsResponse,
-    "histogram": HistogramResponse,
-    "group_by": GroupByResponse,
-}
-
-
-def _respond(op: str, result: Any, *, cached: bool) -> AggregateResponse:
-    return _RESPONSES[op].model_validate({"op": op, "result": result, "cached": cached})
 
 
 class TableUnavailable(Exception):
@@ -359,14 +179,21 @@ def _view_predicates(bbox: Sequence[float] | None, *, covered: bool) -> list[str
     return []
 
 
-def _key_sql(column: str, data_type: str) -> tuple[str, str]:
+def _key_sql(column: str, data_type: str, bucket: str | None = None) -> tuple[str, str]:
     """What a category groups on, and its returned key over the grouped ``_g._k``.
 
     A timestamptz groups on its value and is written afterwards in UTC text
     with the full year, since the tile text folds every year past 9999 into
-    ``infinity``. Other types group on their JSON-ready form.
+    ``infinity``. Other types group on their JSON-ready form. A ``bucket``
+    groups a date column by its UTC day, week, month or year.
     """
     quoted = _sql_quote_ident(column)
+    if bucket is not None:
+        if data_type not in DATE_TYPES:
+            raise AggregateError(
+                "invalid_column", f"Column {column!r} is not a date ({data_type})"
+            )
+        return bucket_sql(quoted, data_type, bucket)
     if data_type != "timestamp with time zone":
         return value_expr(quoted, data_type), "_g._k"
     utc = "(_g._k AT TIME ZONE 'UTC')"
@@ -380,7 +207,11 @@ def _key_sql(column: str, data_type: str) -> tuple[str, str]:
     )
 
 
-def _stat_sql(stat: str, column: str, data_type: str) -> str:
+def _stat_sql(stat: str, column: str | None, columns: dict) -> str:
+    """A statistic over ``column``, or a count of rows without one."""
+    if column is None:
+        return "count(*)"
+    data_type = _column_type(columns, column, numeric=stat != "count")
     if stat == "count":
         return f"count({_sql_quote_ident(column)})"
     return f"{stat}({_number_sql(column, data_type)})"
@@ -398,12 +229,18 @@ def _stat_value(stat: str, value: Any) -> Any:
 
 
 def build_aggregate_sql(
-    request: AggregateRequest, source: str, predicates: list[str], columns: dict
+    request: AggregateRequest,
+    source: str,
+    predicates: list[str],
+    columns: dict,
+    *,
+    geometry: bool = False,
 ) -> str:
     """The aggregate SELECT for one request, reading ``source AS _t``.
 
     ``source`` comes from ``_safe_table_ref`` (narrowed by the compiled layer
-    filter) and every column has been checked against the live table.
+    filter) and every column has been checked against the live table. Rows
+    carry their envelope when the dataset has ``geometry``.
     """
 
     def from_where(*extra: str) -> str:
@@ -414,9 +251,9 @@ def build_aggregate_sql(
     if request.op == "count":
         return f"SELECT count(*) AS _n{from_where()}"
     if request.op == "stats":
-        data_type = _column_type(columns, request.column, numeric=True)
+        _column_type(columns, request.column, numeric=True)
         selects = ", ".join(
-            f"{_stat_sql(stat, request.column, data_type)} AS _s{i}"
+            f"{_stat_sql(stat, request.column, columns)} AS _s{i}"
             for i, stat in enumerate(request.stats)
         )
         return f"SELECT {selects}{from_where()}"
@@ -466,20 +303,75 @@ def build_aggregate_sql(
             f" ELSE least(width_bucket(_f.x, _r.lo, _r.hi, {bins}), {bins}) END AS _b,"
             " count(*) AS _n FROM _f CROSS JOIN _r GROUP BY 1, 2, 3 ORDER BY 3"
         )
+    if request.op == "rows":
+        return _rows_sql(request, source, predicates, columns, geometry=geometry)
+    return _group_by_sql(request, columns, from_where())
+
+
+def _group_by_sql(request: GroupByRequest, columns: dict, from_where: str) -> str:
     group, key = _key_sql(
         request.group_column,
         _column_type(columns, request.group_column, numeric=False),
+        request.date_bucket,
     )
-    if request.stat == "count":
-        value = "count(*)"
+    values = [_stat_sql(s.stat, s.column, columns) for s in request.stats]
+    names = [f"_v{i}" for i in range(len(values))]
+    direction = request.sort.upper()
+    # The inner query orders by position (1 is the group), the outer by name.
+    if request.sort_by == "group":
+        inner = f"1 {direction} NULLS LAST"
+        outer = f"_g._k {direction} NULLS LAST"
     else:
-        data_type = _column_type(columns, request.column, numeric=True)
-        value = _stat_sql(request.stat, request.column, data_type)
+        inner = f"{request.sort_by + 2} {direction} NULLS LAST, 1 NULLS LAST"
+        outer = f"_g.{names[request.sort_by]} {direction} NULLS LAST, _g._k NULLS LAST"
+    selects = ", ".join(f"{v} AS {n}" for v, n in zip(values, names))
+    # One group past the limit tells whether any were left out.
     return (
-        f"SELECT {key} AS _k, _g._v FROM ("
-        f"SELECT {group} AS _k, {value} AS _v{from_where()}"
-        f" GROUP BY 1 ORDER BY 2 DESC NULLS LAST, 1 NULLS LAST LIMIT {request.limit}"
-        ") AS _g ORDER BY _g._v DESC NULLS LAST, _g._k NULLS LAST"
+        f"SELECT {key} AS _k, {', '.join(f'_g.{n}' for n in names)}"
+        f" FROM (SELECT {group} AS _k, {selects}{from_where}"
+        f" GROUP BY 1 ORDER BY {inner} LIMIT {request.limit + 1})"
+        f" AS _g ORDER BY {outer}"
+    )
+
+
+def _rows_sql(
+    request: RowsRequest,
+    source: str,
+    predicates: list[str],
+    columns: dict,
+    *,
+    geometry: bool,
+) -> str:
+    def ref(name: str) -> str:
+        return f"_t.{_sql_quote_ident(name)}"
+
+    values = []
+    for name in request.columns:
+        data_type = _column_type(columns, name, numeric=False)
+        # Geometry and other extension types, as the rows endpoint leaves out.
+        if data_type == "user-defined":
+            raise AggregateError(
+                "invalid_column", f"Column {name!r} cannot be listed ({data_type})"
+            )
+        values.append(value_expr(ref(name), data_type))
+    sort = None
+    if request.sort_column is not None:
+        data_type = _column_type(columns, request.sort_column, numeric=False)
+        if not is_sortable_column(request.sort_column, data_type):
+            raise AggregateError(
+                "invalid_column",
+                f"Column {request.sort_column!r} cannot be sorted ({data_type})",
+            )
+        sort = ref(request.sort_column)
+    return rows_sql(
+        source,
+        predicates,
+        values,
+        sort=sort,
+        descending=request.sort == "desc",
+        paged=request.cursor is not None,
+        limit=request.limit,
+        with_bbox=geometry,
     )
 
 
@@ -555,6 +447,33 @@ def _exact(value: Any) -> Any:
     return as_float if Decimal(repr(as_float)) == value else str(value)
 
 
+def _rows_result(request: RowsRequest, rows: Sequence[Sequence[Any]]) -> RowsResult:
+    page = rows[: request.limit]
+    width = 1 + len(request.columns)
+    listed = []
+    for row in page:
+        entry = {
+            "gid": row[0],
+            "values": {
+                name: _exact(value)
+                for name, value in zip(request.columns, row[1:width])
+            },
+        }
+        if len(row) > width:
+            entry["bbox"] = row[width]
+        listed.append(AggregateRow.model_validate(entry))
+    has_more = len(rows) > request.limit
+    return RowsResult(
+        rows=listed,
+        has_more=has_more,
+        next_cursor=(
+            encode_cursor(page[-1][0], request.sort_column, request.sort)
+            if has_more
+            else None
+        ),
+    )
+
+
 def _result(request: AggregateRequest, rows: Sequence[Sequence[Any]]) -> BaseModel:
     if request.op == "count":
         return CountResult(count=int(rows[0][0]))
@@ -573,15 +492,14 @@ def _result(request: AggregateRequest, rows: Sequence[Sequence[Any]]) -> BaseMod
         )
     if request.op == "histogram":
         return _histogram(rows, request.bins)
-    return GroupByResult(
-        groups=[
-            GroupValue(
-                key=_exact(r[0]),
-                value=_stat_value(request.stat, r[1]),
-            )
-            for r in rows
-        ]
-    )
+    if request.op == "rows":
+        return _rows_result(request, rows)
+    groups = []
+    for r in rows[: request.limit]:
+        values = [_stat_value(s.stat, v) for s, v in zip(request.stats, r[1:])]
+        multi = {} if request._single else {"values": values}
+        groups.append(GroupValue(key=_exact(r[0]), value=values[0], **multi))
+    return GroupByResult(groups=groups, truncated=len(rows) > request.limit)
 
 
 async def _sandboxed(
@@ -625,13 +543,21 @@ async def _planned_rows(
             planned_source,
             f"WHERE {_bbox_predicate(bbox, 't')}",
             {},
-            lambda stmt: stmt.bindparams(*binds) if binds else stmt,
+            lambda stmt: stmt.bindparams(*binds_referenced_by(planned_source, binds)),
         )
     except DBAPIError as exc:
         if sqlstate(exc) == _QUERY_CANCELED:
             raise SandboxError("query_timeout", "Query timed out") from exc
         raise_if_unavailable(exc)
         raise
+
+
+def _row_limit(request: AggregateRequest) -> int:
+    """The most rows a request's SQL returns: one past its limit, when it has one."""
+    if request.op == "histogram":
+        return request.bins
+    limit = getattr(request, "limit", None)
+    return 1 if limit is None else limit + 1
 
 
 async def _aggregate_rows(
@@ -641,13 +567,13 @@ async def _aggregate_rows(
     binds: list[Any],
     caller_key: str,
 ) -> list:
-    keyed = request.op in ("value_counts", "group_by")
+    keyed = request.op in ("value_counts", "group_by", "rows")
     result = await _sandboxed(
         db,
         sql,
         binds,
         caller_key,
-        row_limit=_MAX_ITEMS,
+        row_limit=_row_limit(request),
         max_result_bytes=_MAX_KEYED_RESULT_BYTES if keyed else None,
     )
     # Only the byte cap can cut rows here (the SQL LIMIT is within the row
@@ -675,8 +601,8 @@ def _check_filter_depth(cql2: Any) -> None:
 
 
 # Part of each result's cache key, so a server never reads an answer cached in
-# another result format; at 3, a histogram says whether its bins are whole numbers.
-_RESULT_FORMAT = 3
+# another result format; at 4, a group_by says whether it left groups out.
+_RESULT_FORMAT = 4
 
 
 def _cache_key(prefix: str, dataset: Dataset, body: dict) -> str | None:
@@ -688,6 +614,19 @@ def _cache_key(prefix: str, dataset: Dataset, body: dict) -> str | None:
     return tenant_cache_key(
         f"{prefix}:{dataset.id}:{dataset.tile_cache_version}:{digest}"
     )
+
+
+def _cursor_binds(request: AggregateRequest) -> list[Any]:
+    """The gid a page of rows continues after, or none for a first page."""
+    if request.op != "rows" or request.cursor is None:
+        return []
+    try:
+        gid = decode_cursor(request.cursor, request.sort_column, request.sort)
+    except ValueError as exc:
+        raise AggregateError(
+            "invalid_cursor", "This cursor does not continue this list."
+        ) from exc
+    return [bindparam(AFTER_GID_BIND, gid, type_=BigInteger)]
 
 
 class _Compiled(NamedTuple):
@@ -730,9 +669,12 @@ async def _compile(
     planned_source = render_filtered_table_ref(
         get_catalog_port().quote_table(dataset.table_name), where_sql
     )
+    sql = build_aggregate_sql(
+        request, source, predicates, columns, geometry=bool(dataset.geometry_type)
+    )
     return _Compiled(
-        build_aggregate_sql(request, source, predicates, columns),
-        binds,
+        sql,
+        [*binds, *_cursor_binds(request)],
         source,
         planned_source,
         predicates,

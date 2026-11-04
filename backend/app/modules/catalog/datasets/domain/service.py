@@ -57,7 +57,9 @@ from app.modules.catalog.datasets.domain.service_query import (
     get_pointcloud_pointer,
     get_row_bboxes,
     get_tileset_href,
+    is_sortable_column,
     list_datasets,
+    nulls_last_keyset,
     sortable_columns,
 )
 from app.modules.catalog.datasets.domain.service_sharing import (
@@ -115,6 +117,8 @@ __all__ = [
     "list_attributes",
     "list_datasets",
     "preview_slot_bound",
+    "is_sortable_column",
+    "nulls_last_keyset",
     "sortable_columns",
     "list_relationships",
     "list_relationships_with_total",

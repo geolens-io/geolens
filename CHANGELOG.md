@@ -16,6 +16,9 @@ and releases use semantic versioning.
 - A branding extension can set an accent colour, a logo and a font on story
   and dashboard pages, served as `reader_theme` on story and map responses.
   Without one the pages look as before.
+- `POST /datasets/{id}/aggregate/` lists features a page at a time with the new
+  `rows` operation, groups a date column by UTC day, week, month or year, and
+  returns up to five statistics per group.
 - `geolens arcgis migrate` runs as a GeoLens editor when the plan maps every
   item to that editor, so one ArcGIS user can move their own content without
   an admin. Nothing is transferred. A public item under

@@ -18,6 +18,8 @@ from .admin_password_reset import AdminPasswordReset
 from .admin_share_token_list_response import AdminShareTokenListResponse
 from .admin_share_token_response import AdminShareTokenResponse
 from .admin_user_create import AdminUserCreate
+from .aggregate_row import AggregateRow
+from .aggregate_row_values import AggregateRowValues
 from .ai_availability_response import AIAvailabilityResponse
 from .ai_probe_check import AIProbeCheck
 from .ai_probe_report import AIProbeReport
@@ -523,8 +525,10 @@ from .get_story_asset_endpoint_stories_story_id_assets_asset_id_get_variant_type
     GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetVariantType0,
 )
 from .group_by_request import GroupByRequest
+from .group_by_request_date_bucket_type_0 import GroupByRequestDateBucketType0
 from .group_by_request_filter_type_0 import GroupByRequestFilterType0
-from .group_by_request_stat import GroupByRequestStat
+from .group_by_request_sort_type_0 import GroupByRequestSortType0
+from .group_by_request_stat_type_0 import GroupByRequestStatType0
 from .group_by_response import GroupByResponse
 from .group_by_result import GroupByResult
 from .group_list_response import GroupListResponse
@@ -533,6 +537,8 @@ from .group_members_add import GroupMembersAdd
 from .group_ref import GroupRef
 from .group_ref_list_response import GroupRefListResponse
 from .group_response import GroupResponse
+from .group_stat import GroupStat
+from .group_stat_stat import GroupStatStat
 from .group_value import GroupValue
 from .group_write import GroupWrite
 from .health_response import HealthResponse
@@ -894,6 +900,11 @@ from .reupload_preview_response_sample_rows_item import (
 )
 from .reupload_response import ReuploadResponse
 from .reupload_service_preview_request import ReuploadServicePreviewRequest
+from .rows_request import RowsRequest
+from .rows_request_filter_type_0 import RowsRequestFilterType0
+from .rows_request_sort import RowsRequestSort
+from .rows_response import RowsResponse
+from .rows_result import RowsResult
 from .sandbox_query_request import SandboxQueryRequest
 from .sandbox_result import SandboxResult
 from .saved_search_create import SavedSearchCreate
@@ -1124,6 +1135,8 @@ __all__ = (
     "AdminShareTokenListResponse",
     "AdminShareTokenResponse",
     "AdminUserCreate",
+    "AggregateRow",
+    "AggregateRowValues",
     "AIAvailabilityResponse",
     "AIProbeCheck",
     "AIProbeReport",
@@ -1463,8 +1476,10 @@ __all__ = (
     "GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureProperties",
     "GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetVariantType0",
     "GroupByRequest",
+    "GroupByRequestDateBucketType0",
     "GroupByRequestFilterType0",
-    "GroupByRequestStat",
+    "GroupByRequestSortType0",
+    "GroupByRequestStatType0",
     "GroupByResponse",
     "GroupByResult",
     "GroupListResponse",
@@ -1473,6 +1488,8 @@ __all__ = (
     "GroupRef",
     "GroupRefListResponse",
     "GroupResponse",
+    "GroupStat",
+    "GroupStatStat",
     "GroupValue",
     "GroupWrite",
     "HealthResponse",
@@ -1722,6 +1739,11 @@ __all__ = (
     "ReuploadPreviewResponseSampleRowsItem",
     "ReuploadResponse",
     "ReuploadServicePreviewRequest",
+    "RowsRequest",
+    "RowsRequestFilterType0",
+    "RowsRequestSort",
+    "RowsResponse",
+    "RowsResult",
     "SandboxQueryRequest",
     "SandboxResult",
     "SavedSearchCreate",

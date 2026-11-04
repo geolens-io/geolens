@@ -2076,8 +2076,10 @@ export interface paths {
          *     With ``bbox``, a view the planner expects to hold more than 500,000 rows
          *     is refused with 422 and the code ``too_wide`` rather than approximated. A
          *     ``bbox`` that contains the whole dataset is answered as the whole layer.
+         *     The ``rows`` operation lists features a page at a time, with each row's
+         *     ``bbox`` when the dataset has geometry, and never returns a geometry.
          *     Refusals carry a ``code`` in ``detail``: ``too_wide``, ``invalid_column``,
-         *     ``invalid_filter``, ``no_geometry``, ``query_timeout``,
+         *     ``invalid_cursor``, ``invalid_filter``, ``no_geometry``, ``query_timeout``,
          *     ``query_data_error``, ``result_too_large``, and with 429 ``query_busy``
          *     (this caller already has two aggregates running) or ``query_at_capacity``,
          *     and with 503 ``query_unavailable`` when the database could not serve the
@@ -6925,6 +6927,23 @@ export interface components {
              */
             role: string;
         };
+        /** AggregateRow */
+        AggregateRow: {
+            /** Gid */
+            gid: number;
+            /**
+             * Values
+             * @description By column. The column's value. A number JSON cannot carry exactly, such as an integer beyond 2^53 or NaN, comes back as text.
+             */
+            values: {
+                [key: string]: string | number | boolean | null;
+            };
+            /**
+             * Bbox
+             * @description Present only when the dataset has geometry: the feature's `[west, south, east, north]` in WGS 84, or null without a shape.
+             */
+            bbox?: number[] | null;
+        };
         /** AlterColumnTypeRequest */
         AlterColumnTypeRequest: {
             /**
@@ -11230,14 +11249,34 @@ export interface components {
             group_column: string;
             /**
              * Stat
-             * @enum {string}
+             * @description One statistic; or give `stats`.
              */
-            stat: "count" | "sum" | "avg" | "min" | "max";
+            stat?: ("count" | "sum" | "avg" | "min" | "max") | null;
             /**
              * Column
              * @description The numeric column `stat` reads; omit for `count`.
              */
             column?: string | null;
+            /**
+             * Stats
+             * @description Statistics returned as each group's `values`, in this order.
+             */
+            stats?: components["schemas"]["GroupStat"][] | null;
+            /**
+             * Date Bucket
+             * @description Group a date or timestamp column by the UTC day, Monday-first week, month or year it falls in.
+             */
+            date_bucket?: ("day" | "week" | "month" | "year") | null;
+            /**
+             * Sort By
+             * @description Order and keep groups by a statistic's index in `stats` (0 with `stat`) or by `group`. Defaults to the first statistic, or to the group with `date_bucket`.
+             */
+            sort_by?: "group" | number | null;
+            /**
+             * Sort
+             * @description Defaults to `desc`, or `asc` with `date_bucket`.
+             */
+            sort?: ("asc" | "desc") | null;
             /**
              * Limit
              * @default 10
@@ -11266,9 +11305,15 @@ export interface components {
         GroupByResult: {
             /**
              * Groups
-             * @description Largest value first.
+             * @description In the requested order; by default the largest value first.
              */
             groups: components["schemas"]["GroupValue"][];
+            /**
+             * Truncated
+             * @description Whether more groups matched than `limit` lists.
+             * @default false
+             */
+            truncated: boolean;
         };
         /** GroupListResponse */
         GroupListResponse: {
@@ -11362,6 +11407,19 @@ export interface components {
              */
             updated_at: string;
         };
+        /** GroupStat */
+        GroupStat: {
+            /**
+             * Stat
+             * @enum {string}
+             */
+            stat: "count" | "sum" | "avg" | "min" | "max";
+            /**
+             * Column
+             * @description The numeric column `stat` reads. Optional for `count`, which then counts rows, and otherwise counts the column's non-null values.
+             */
+            column?: string | null;
+        };
         /** GroupValue */
         GroupValue: {
             /**
@@ -11371,9 +11429,14 @@ export interface components {
             key: string | number | boolean | null;
             /**
              * Value
-             * @description Exact for count, sum, min and max, as for a key; avg is a float.
+             * @description Exact for count, sum, min and max, as for a key; avg is a float. With `stats`, the first statistic's value.
              */
             value: number | string | null;
+            /**
+             * Values
+             * @description Present with `stats`: each one's value in order. Exact for count, sum, min and max, as for a key; avg is a float.
+             */
+            values?: (number | string | null)[] | null;
         };
         /** GroupWrite */
         GroupWrite: {
@@ -14994,6 +15057,79 @@ export interface components {
             object_id_field?: string | null;
             /** @description Structured credential for a protected service. Mutually exclusive with the token field. */
             auth?: components["schemas"]["ServiceAuthRequest"] | null;
+        };
+        /** RowsRequest */
+        RowsRequest: {
+            /**
+             * Filter
+             * @description CQL2-JSON filter, as the OGC API Features `filter` accepts.
+             */
+            filter?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Bbox
+             * @description Map view `[west, south, east, north]` in WGS 84; west greater than east crosses the antimeridian. Omit for the whole layer.
+             */
+            bbox?: number[] | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "rows";
+            /** Columns */
+            columns: string[];
+            /**
+             * Sort Column
+             * @description Order rows by this column with nulls last, then by gid; omit to order by gid.
+             */
+            sort_column?: string | null;
+            /**
+             * Sort
+             * @default asc
+             * @enum {string}
+             */
+            sort: "asc" | "desc";
+            /**
+             * Limit
+             * @default 25
+             */
+            limit: number;
+            /**
+             * Cursor
+             * @description The previous page's `next_cursor`, under the same sort.
+             */
+            cursor?: string | null;
+        };
+        /** RowsResponse */
+        RowsResponse: {
+            /**
+             * Approximate
+             * @description Always false: a view too wide to count exactly is refused.
+             * @default false
+             * @constant
+             */
+            approximate: false;
+            /** Cached */
+            cached: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "rows";
+            result: components["schemas"]["RowsResult"];
+        };
+        /** RowsResult */
+        RowsResult: {
+            /** Rows */
+            rows: components["schemas"]["AggregateRow"][];
+            /**
+             * Next Cursor
+             * @description Pass as `cursor` for the next page.
+             */
+            next_cursor: string | null;
+            /** Has More */
+            has_more: boolean;
         };
         /**
          * SSEActionsEvent
@@ -28339,7 +28475,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CountRequest"] | components["schemas"]["StatsRequest"] | components["schemas"]["ValueCountsRequest"] | components["schemas"]["HistogramRequest"] | components["schemas"]["GroupByRequest"];
+                "application/json": components["schemas"]["CountRequest"] | components["schemas"]["StatsRequest"] | components["schemas"]["ValueCountsRequest"] | components["schemas"]["HistogramRequest"] | components["schemas"]["GroupByRequest"] | components["schemas"]["RowsRequest"];
             };
         };
         responses: {
@@ -28349,7 +28485,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CountResponse"] | components["schemas"]["StatsResponse"] | components["schemas"]["ValueCountsResponse"] | components["schemas"]["HistogramResponse"] | components["schemas"]["GroupByResponse"];
+                    "application/json": components["schemas"]["CountResponse"] | components["schemas"]["StatsResponse"] | components["schemas"]["ValueCountsResponse"] | components["schemas"]["HistogramResponse"] | components["schemas"]["GroupByResponse"] | components["schemas"]["RowsResponse"];
                 };
             };
             /** @description Bad request — invalid query parameters or payload */

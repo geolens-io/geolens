@@ -15,6 +15,8 @@ from ...models.group_by_response import GroupByResponse
 from ...models.histogram_request import HistogramRequest
 from ...models.histogram_response import HistogramResponse
 from ...models.problem_detail import ProblemDetail
+from ...models.rows_request import RowsRequest
+from ...models.rows_response import RowsResponse
 from ...models.stats_request import StatsRequest
 from ...models.stats_response import StatsResponse
 from ...models.value_counts_request import ValueCountsRequest
@@ -29,6 +31,7 @@ def _get_kwargs(
     body: CountRequest
     | GroupByRequest
     | HistogramRequest
+    | RowsRequest
     | StatsRequest
     | ValueCountsRequest,
     x_embed_token: None | str | Unset = UNSET,
@@ -52,6 +55,8 @@ def _get_kwargs(
         _kwargs["json"] = body.to_dict()
     elif isinstance(body, HistogramRequest):
         _kwargs["json"] = body.to_dict()
+    elif isinstance(body, GroupByRequest):
+        _kwargs["json"] = body.to_dict()
     else:
         _kwargs["json"] = body.to_dict()
 
@@ -67,6 +72,7 @@ def _parse_response(
     CountResponse
     | GroupByResponse
     | HistogramResponse
+    | RowsResponse
     | StatsResponse
     | ValueCountsResponse
     | ProblemDetail
@@ -80,6 +86,7 @@ def _parse_response(
             CountResponse
             | GroupByResponse
             | HistogramResponse
+            | RowsResponse
             | StatsResponse
             | ValueCountsResponse
         ):
@@ -115,11 +122,19 @@ def _parse_response(
                 return response_200_type_3
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                response_200_type_4 = GroupByResponse.from_dict(data)
+
+                return response_200_type_4
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
             if not isinstance(data, dict):
                 raise TypeError()
-            response_200_type_4 = GroupByResponse.from_dict(data)
+            response_200_type_5 = RowsResponse.from_dict(data)
 
-            return response_200_type_4
+            return response_200_type_5
 
         response_200 = _parse_response_200(response.json())
 
@@ -177,6 +192,7 @@ def _build_response(
     CountResponse
     | GroupByResponse
     | HistogramResponse
+    | RowsResponse
     | StatsResponse
     | ValueCountsResponse
     | ProblemDetail
@@ -196,6 +212,7 @@ def sync_detailed(
     body: CountRequest
     | GroupByRequest
     | HistogramRequest
+    | RowsRequest
     | StatsRequest
     | ValueCountsRequest,
     x_embed_token: None | str | Unset = UNSET,
@@ -203,6 +220,7 @@ def sync_detailed(
     CountResponse
     | GroupByResponse
     | HistogramResponse
+    | RowsResponse
     | StatsResponse
     | ValueCountsResponse
     | ProblemDetail
@@ -220,8 +238,10 @@ def sync_detailed(
     With ``bbox``, a view the planner expects to hold more than 500,000 rows
     is refused with 422 and the code ``too_wide`` rather than approximated. A
     ``bbox`` that contains the whole dataset is answered as the whole layer.
+    The ``rows`` operation lists features a page at a time, with each row's
+    ``bbox`` when the dataset has geometry, and never returns a geometry.
     Refusals carry a ``code`` in ``detail``: ``too_wide``, ``invalid_column``,
-    ``invalid_filter``, ``no_geometry``, ``query_timeout``,
+    ``invalid_cursor``, ``invalid_filter``, ``no_geometry``, ``query_timeout``,
     ``query_data_error``, ``result_too_large``, and with 429 ``query_busy``
     (this caller already has two aggregates running) or ``query_at_capacity``,
     and with 503 ``query_unavailable`` when the database could not serve the
@@ -234,7 +254,7 @@ def sync_detailed(
         dataset_id (UUID):
         x_embed_token (None | str | Unset): Optional embed token. Datasets in the token's scope
             are authorized even without user credentials (embed viewers).
-        body (CountRequest | GroupByRequest | HistogramRequest | StatsRequest |
+        body (CountRequest | GroupByRequest | HistogramRequest | RowsRequest | StatsRequest |
             ValueCountsRequest):
 
     Raises:
@@ -242,7 +262,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CountResponse | GroupByResponse | HistogramResponse | StatsResponse | ValueCountsResponse | ProblemDetail]
+        Response[CountResponse | GroupByResponse | HistogramResponse | RowsResponse | StatsResponse | ValueCountsResponse | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -265,6 +285,7 @@ def sync(
     body: CountRequest
     | GroupByRequest
     | HistogramRequest
+    | RowsRequest
     | StatsRequest
     | ValueCountsRequest,
     x_embed_token: None | str | Unset = UNSET,
@@ -272,6 +293,7 @@ def sync(
     CountResponse
     | GroupByResponse
     | HistogramResponse
+    | RowsResponse
     | StatsResponse
     | ValueCountsResponse
     | ProblemDetail
@@ -290,8 +312,10 @@ def sync(
     With ``bbox``, a view the planner expects to hold more than 500,000 rows
     is refused with 422 and the code ``too_wide`` rather than approximated. A
     ``bbox`` that contains the whole dataset is answered as the whole layer.
+    The ``rows`` operation lists features a page at a time, with each row's
+    ``bbox`` when the dataset has geometry, and never returns a geometry.
     Refusals carry a ``code`` in ``detail``: ``too_wide``, ``invalid_column``,
-    ``invalid_filter``, ``no_geometry``, ``query_timeout``,
+    ``invalid_cursor``, ``invalid_filter``, ``no_geometry``, ``query_timeout``,
     ``query_data_error``, ``result_too_large``, and with 429 ``query_busy``
     (this caller already has two aggregates running) or ``query_at_capacity``,
     and with 503 ``query_unavailable`` when the database could not serve the
@@ -304,7 +328,7 @@ def sync(
         dataset_id (UUID):
         x_embed_token (None | str | Unset): Optional embed token. Datasets in the token's scope
             are authorized even without user credentials (embed viewers).
-        body (CountRequest | GroupByRequest | HistogramRequest | StatsRequest |
+        body (CountRequest | GroupByRequest | HistogramRequest | RowsRequest | StatsRequest |
             ValueCountsRequest):
 
     Raises:
@@ -312,7 +336,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CountResponse | GroupByResponse | HistogramResponse | StatsResponse | ValueCountsResponse | ProblemDetail
+        CountResponse | GroupByResponse | HistogramResponse | RowsResponse | StatsResponse | ValueCountsResponse | ProblemDetail
     """
 
     return sync_detailed(
@@ -330,6 +354,7 @@ async def asyncio_detailed(
     body: CountRequest
     | GroupByRequest
     | HistogramRequest
+    | RowsRequest
     | StatsRequest
     | ValueCountsRequest,
     x_embed_token: None | str | Unset = UNSET,
@@ -337,6 +362,7 @@ async def asyncio_detailed(
     CountResponse
     | GroupByResponse
     | HistogramResponse
+    | RowsResponse
     | StatsResponse
     | ValueCountsResponse
     | ProblemDetail
@@ -354,8 +380,10 @@ async def asyncio_detailed(
     With ``bbox``, a view the planner expects to hold more than 500,000 rows
     is refused with 422 and the code ``too_wide`` rather than approximated. A
     ``bbox`` that contains the whole dataset is answered as the whole layer.
+    The ``rows`` operation lists features a page at a time, with each row's
+    ``bbox`` when the dataset has geometry, and never returns a geometry.
     Refusals carry a ``code`` in ``detail``: ``too_wide``, ``invalid_column``,
-    ``invalid_filter``, ``no_geometry``, ``query_timeout``,
+    ``invalid_cursor``, ``invalid_filter``, ``no_geometry``, ``query_timeout``,
     ``query_data_error``, ``result_too_large``, and with 429 ``query_busy``
     (this caller already has two aggregates running) or ``query_at_capacity``,
     and with 503 ``query_unavailable`` when the database could not serve the
@@ -368,7 +396,7 @@ async def asyncio_detailed(
         dataset_id (UUID):
         x_embed_token (None | str | Unset): Optional embed token. Datasets in the token's scope
             are authorized even without user credentials (embed viewers).
-        body (CountRequest | GroupByRequest | HistogramRequest | StatsRequest |
+        body (CountRequest | GroupByRequest | HistogramRequest | RowsRequest | StatsRequest |
             ValueCountsRequest):
 
     Raises:
@@ -376,7 +404,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CountResponse | GroupByResponse | HistogramResponse | StatsResponse | ValueCountsResponse | ProblemDetail]
+        Response[CountResponse | GroupByResponse | HistogramResponse | RowsResponse | StatsResponse | ValueCountsResponse | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -397,6 +425,7 @@ async def asyncio(
     body: CountRequest
     | GroupByRequest
     | HistogramRequest
+    | RowsRequest
     | StatsRequest
     | ValueCountsRequest,
     x_embed_token: None | str | Unset = UNSET,
@@ -404,6 +433,7 @@ async def asyncio(
     CountResponse
     | GroupByResponse
     | HistogramResponse
+    | RowsResponse
     | StatsResponse
     | ValueCountsResponse
     | ProblemDetail
@@ -422,8 +452,10 @@ async def asyncio(
     With ``bbox``, a view the planner expects to hold more than 500,000 rows
     is refused with 422 and the code ``too_wide`` rather than approximated. A
     ``bbox`` that contains the whole dataset is answered as the whole layer.
+    The ``rows`` operation lists features a page at a time, with each row's
+    ``bbox`` when the dataset has geometry, and never returns a geometry.
     Refusals carry a ``code`` in ``detail``: ``too_wide``, ``invalid_column``,
-    ``invalid_filter``, ``no_geometry``, ``query_timeout``,
+    ``invalid_cursor``, ``invalid_filter``, ``no_geometry``, ``query_timeout``,
     ``query_data_error``, ``result_too_large``, and with 429 ``query_busy``
     (this caller already has two aggregates running) or ``query_at_capacity``,
     and with 503 ``query_unavailable`` when the database could not serve the
@@ -436,7 +468,7 @@ async def asyncio(
         dataset_id (UUID):
         x_embed_token (None | str | Unset): Optional embed token. Datasets in the token's scope
             are authorized even without user credentials (embed viewers).
-        body (CountRequest | GroupByRequest | HistogramRequest | StatsRequest |
+        body (CountRequest | GroupByRequest | HistogramRequest | RowsRequest | StatsRequest |
             ValueCountsRequest):
 
     Raises:
@@ -444,7 +476,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CountResponse | GroupByResponse | HistogramResponse | StatsResponse | ValueCountsResponse | ProblemDetail
+        CountResponse | GroupByResponse | HistogramResponse | RowsResponse | StatsResponse | ValueCountsResponse | ProblemDetail
     """
 
     return (

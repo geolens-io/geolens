@@ -16,7 +16,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.modules.catalog.datasets.domain import aggregate
+from app.modules.catalog.datasets.domain import aggregate, aggregate_schemas
 from app.platform.sandbox.executor import _handle_execution_error
 from tests.factories import (
     create_dataset,
@@ -139,7 +139,13 @@ OPERATIONS = [
     ),
     (
         {"op": "group_by", "group_column": "kind", "stat": "sum", "column": "pop"},
-        {"groups": [{"key": "keep", "value": 210.0}, {"key": "drop", "value": 150.0}]},
+        {
+            "groups": [
+                {"key": "keep", "value": 210.0},
+                {"key": "drop", "value": 150.0},
+            ],
+            "truncated": False,
+        },
     ),
 ]
 
@@ -765,7 +771,7 @@ class TestCache:
         self, client: AsyncClient, points
     ):
         body = {"op": "stats", "column": "pop", "stats": ["count"]}
-        request = aggregate.StatsRequest.model_validate(body)
+        request = aggregate_schemas.StatsRequest.model_validate(body)
         old_key = aggregate._cache_key(
             "aggregate",
             points,
