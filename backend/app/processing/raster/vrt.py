@@ -482,6 +482,48 @@ def add_vrt_overview(vrt_path: str, source_paths: list[str]) -> str | None:
         return None
 
     overview_path = overview_key_for(vrt_path)
+    try:
+        result = run_gdal(
+            [
+                "gdal_translate",
+                "-q",
+                "-of",
+                "COG",
+                "-outsize",
+                "50%",
+                "50%",
+                "-co",
+                "BIGTIFF=IF_SAFER",
+                vrt_path,
+                overview_path,
+            ],
+            env=gdal_safe_env(),
+            tool="gdal_translate",
+        )
+        failure = result.stderr if result.returncode != 0 else None
+    except (
+        RuntimeError
+    ) as exc:  # the optional overview timing out must not fail the VRT
+        failure = str(exc)
+    if failure is not None:
+        logger.warning("VRT overview build failed: %s", failure)
+        if os.path.exists(overview_path):
+            os.remove(overview_path)
+        return None
+    try:
+        tree = parse(vrt_path)
+    except Exception:  # broad: an optimisation must not fail a build gdalbuildvrt reported as successful
+        return None
+    root = tree.getroot()
+    bands = root.findall("VRTRasterBand")
+    if (
+        not bands
+        or int(root.get("rasterXSize", "0")) < 2
+        or int(root.get("rasterYSize", "0")) < 2
+    ):
+        return None
+
+    overview_path = overview_key_for(vrt_path)
     result = run_gdal(
         [
             "gdal_translate",

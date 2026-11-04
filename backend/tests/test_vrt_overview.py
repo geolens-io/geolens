@@ -128,6 +128,24 @@ def test_a_failed_overview_build_leaves_the_vrt_as_built(
     assert Path(vrt_path).read_bytes() == before
 
 
+@needs_gdal_cli
+def test_a_timed_out_overview_build_leaves_the_vrt_as_built(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vrt_path, members = _vrt(tmp_path, overviews=False)
+    before = Path(vrt_path).read_bytes()
+
+    def _timeout(*args, **kwargs):
+        (tmp_path / "source.ovr.tif").write_bytes(b"partial")
+        raise RuntimeError("gdal_translate timed out after 3600s")
+
+    monkeypatch.setattr("app.processing.raster.vrt.run_gdal", _timeout)
+
+    assert add_vrt_overview(vrt_path, members) is None
+    assert Path(vrt_path).read_bytes() == before
+    assert not (tmp_path / "source.ovr.tif").exists()
+
+
 def test_the_stale_generation_sweep_names_the_overview() -> None:
     import uuid
 
