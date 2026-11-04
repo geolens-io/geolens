@@ -76,6 +76,11 @@ and releases use semantic versioning.
   64 MB default made parallel queries fail under concurrent dashboard load,
   and widgets answered 500. The space counts toward `DB_MEM_LIMIT`.
 
+### Security
+
+- An API key, dataset key or admin-issued key created while the creator's
+  password was being reset no longer stays usable after the reset.
+
 ## [1.29.2] - 2026-11-01
 
 An instance on 1.29.1 moves to 1.29.2 with no migration. The vector and

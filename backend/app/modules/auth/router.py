@@ -1280,8 +1280,12 @@ async def create_my_api_key(
         AuditEvent,
         audit_emit,
     )
-    from app.modules.auth.service import create_api_key_for_user
+    from app.modules.auth.service import (
+        create_api_key_for_user,
+        lock_current_session_owner,
+    )
 
+    await lock_current_session_owner(db, current_user)
     api_key, raw_key = await create_api_key_for_user(
         db, current_user.id, body.name, expires_at=body.expires_at, scope=body.scope
     )

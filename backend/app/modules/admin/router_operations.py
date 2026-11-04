@@ -83,8 +83,10 @@ async def create_api_key(
         ApiKeyTargetUserInactiveError,
         ApiKeyTargetUserNotFoundError,
         create_api_key_for_user,
+        lock_current_session_owner,
     )
 
+    await lock_current_session_owner(db, current_user)
     try:
         api_key, raw_key = await create_api_key_for_user(
             db,
