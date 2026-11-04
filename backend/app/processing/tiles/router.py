@@ -215,9 +215,26 @@ router = APIRouter(prefix="/tiles", tags=["Tiles"], responses=ERROR_RESPONSES_PU
 # otherwise this must move to `make_safe_client`.
 _titiler_client = httpx.AsyncClient(
     timeout=httpx.Timeout(30.0, connect=10.0),
+    # Idle keep-alive connections count toward Titiler's concurrency cap, so a
+    # process never holds more than its raster slots.
+    limits=httpx.Limits(
+        max_connections=settings.tile_pool_max_size,
+        max_keepalive_connections=settings.tile_pool_max_size,
+    ),
     follow_redirects=True,
 )
 _NOT_SENT_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+
+
+def _is_renderer_saturated(resp: httpx.Response) -> bool:
+    """True for uvicorn's concurrency-limit 503, which has a plain-text body.
+
+    Titiler's own 503s are JSON, so only the former means "busy, don't retry".
+    """
+    return resp.status_code == 503 and not resp.headers.get(
+        "content-type", ""
+    ).lower().startswith("application/json")
+
 
 # In-memory TTL cache for dataset metadata: one DB read per TTL, not per tile.
 _DATASET_CACHE_TTL = 60  # seconds
@@ -1417,6 +1434,8 @@ async def raster_tile_proxy(
             await asyncio.sleep(0.5 * (2**attempt))
             continue
         else:
+            if _is_renderer_saturated(resp):
+                raise tile_busy_error()
             if resp.status_code in (500, 503) and attempt < max_retries:
                 logger.debug(
                     "Raster tile proxy got a retryable status; retrying",

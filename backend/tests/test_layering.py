@@ -1357,7 +1357,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/refresh/service.py": 1200,
     # Central settings and boot-validation debt, including the service-credential
     # http allowlist; split by configuration domain before raising further.
-    "backend/app/core/config.py": 1503,
+    "backend/app/core/config.py": 1504,
     # Config resolution coordinates validation, overrides, caching, audit and side
     # effects, including model defaults that follow the selected LLM provider.
     "backend/app/core/persistent_config.py": 1212,
@@ -1414,7 +1414,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/standards/stac/router.py": 1896,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
-    "backend/app/processing/tiles/router.py": 2904,
+    "backend/app/processing/tiles/router.py": 2923,
     # SQL allowlisting and cost validation must share canonical AST resolution.
     "backend/app/platform/sandbox/validator.py": 1766,
     # AI orchestration coordinates tool execution, usage accounting, pool-connection

@@ -136,3 +136,16 @@ def test_titiler_memory_cap_stays_tunable_alongside_workers(filename: str) -> No
         "per process, so raising TITILER_WORKERS against a pinned memory limit "
         f"reaches OOMKill sooner (#678): {mem_limit!r}"
     )
+
+
+@pytest.mark.parametrize("filename", _COMPOSE_FILES)
+def test_titiler_caps_concurrency_from_the_api_raster_budget(filename: str) -> None:
+    """Uvicorn sheds past a cap derived from TILE_POOL_MAX_SIZE, overridable."""
+    command = _titiler_command(filename)
+    assert '--limit-concurrency "$$limit"' in command, command
+    assert "$${TITILER_LIMIT_CONCURRENCY:-" in command, command
+    assert "$${TILE_POOL_MAX_SIZE:-10} * $${UVICORN_WORKERS:-1}" in command, command
+    env = _titiler_env(filename)
+    assert env.get("TITILER_LIMIT_CONCURRENCY") == "${TITILER_LIMIT_CONCURRENCY:-}"
+    assert env.get("TILE_POOL_MAX_SIZE") == "${TILE_POOL_MAX_SIZE:-10}"
+    assert env.get("UVICORN_WORKERS") == "${UVICORN_WORKERS:-1}"

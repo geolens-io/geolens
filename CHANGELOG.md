@@ -68,6 +68,7 @@ and releases use semantic versioning.
 
 ### Fixed
 
+- Rasters: TiTiler refuses renders past its concurrency cap, and the tile proxy answers busy instead of queueing them.
 - DCAT-US validation now rejects malformed `date-time` and `iri` values instead of accepting them.
 - DCAT-US raster tile distributions now point `accessURL` and the data service `endpointURL` at the dataset and carry the tile URL template in the description, because the template is not a valid IRI.
 - The staged-file preview no longer holds a database connection while it

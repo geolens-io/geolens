@@ -5,6 +5,8 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
+import httpx
+
 from app.core.config import settings
 from app.processing.tiles.responses import tile_busy_error
 
@@ -76,8 +78,35 @@ async def tile_render_slot(tenant_sem: Any = None) -> AsyncIterator[None]:
             tenant_sem.release()
 
 
+_grace_releases: set[asyncio.Task[None]] = set()
+
+
+async def _release_later(budget: _RenderBudget, delay: float) -> None:
+    await asyncio.sleep(delay)
+    budget.slots.release()
+
+
 @asynccontextmanager
 async def raster_render_slot() -> AsyncIterator[None]:
-    """Hold one raster render slot; a full budget queues briefly, then answers 429."""
-    async with _raster_renders.slot():
+    """Hold one raster render slot; a full budget queues briefly, then answers 429.
+
+    When the proxy gives up on Titiler, the render keeps running there, so the
+    slot is released after ``raster_timeout_slot_grace_seconds`` instead of at
+    once. The grace is a bounded estimate of that leftover work, not a wait for
+    Titiler, and the caller's error is raised without delay.
+    """
+    await _raster_renders.acquire()
+    try:
         yield
+    except httpx.TimeoutException:
+        task = asyncio.create_task(
+            _release_later(_raster_renders, settings.raster_timeout_slot_grace_seconds)
+        )
+        _grace_releases.add(task)
+        task.add_done_callback(_grace_releases.discard)
+        raise
+    except BaseException:
+        _raster_renders.slots.release()
+        raise
+    else:
+        _raster_renders.slots.release()
