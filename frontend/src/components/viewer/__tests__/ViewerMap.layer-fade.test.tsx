@@ -155,6 +155,69 @@ describe('ViewerMap layer fades', () => {
     }
   });
 
+  it("fades in with the layer's current paint when it changed while the fade waited for a frame", async () => {
+    const layerWith = (color: string) => ({ ...LAYER, paint: { 'circle-color': color, 'circle-radius': 6 } });
+    const view = (layer: typeof LAYER, visible: Set<string>) => (
+      <ViewerMap
+        layers={[layer]}
+        basemapStyle="openfreemap-positron"
+        initialViewState={{ center_lng: 0, center_lat: 0, zoom: 2, bearing: 0, pitch: 0 }}
+        visibleLayers={visible}
+        fadeLayerChanges
+      />
+    );
+    mapState.fakeMap.isStyleLoaded.mockReturnValue(true);
+    const { rerender } = render(view(layerWith('#ff0000'), new Set(['pt-layer'])));
+    await waitFor(() => expect(mapState.fakeMap.isStyleLoaded).toHaveBeenCalled());
+    vi.useFakeTimers({ toFake: [...FAKE_TIMERS.toFake] });
+    rerender(view(layerWith('#ff0000'), new Set()));
+    vi.advanceTimersByTime(400);
+    rerender(view(layerWith('#ff0000'), new Set(['pt-layer'])));
+
+    // A refetch brings new paint before the frame the fade-in waits for.
+    rerender(view(layerWith('#0000ff'), new Set(['pt-layer'])));
+    act(() => mapState.fakeMap.emit('render'));
+    const colors = mapState.fakeMap.setPaintProperty.mock.calls.filter(([id, property]) => id === LAYER_ID && property === 'circle-color');
+    expect(colors.at(-1)![2]).toBe('#0000ff');
+  });
+
+  it('discards the end of a fade-out for a layer that has gone', async () => {
+    const { rerender } = await renderShown(true);
+    vi.useFakeTimers({ toFake: [...FAKE_TIMERS.toFake] });
+    rerender(viewer(new Set(), true));
+    rerender(
+      <ViewerMap
+        layers={[]}
+        basemapStyle="openfreemap-positron"
+        initialViewState={{ center_lng: 0, center_lat: 0, zoom: 2, bearing: 0, pitch: 0 }}
+        visibleLayers={new Set()}
+        fadeLayerChanges
+      />,
+    );
+    clearWrites();
+    vi.advanceTimersByTime(400);
+    expect(visibilityWrites()).toHaveLength(0);
+    expect(opacityWrites()).toHaveLength(0);
+  });
+
+  it('ends a fade at once when the layer is shown again with motion switched off', async () => {
+    const { rerender } = await renderShown(true);
+    vi.useFakeTimers({ toFake: [...FAKE_TIMERS.toFake] });
+    rerender(viewer(new Set(), true));
+    vi.advanceTimersByTime(100);
+    clearWrites();
+
+    mockReducedMotion(true);
+    rerender(viewer(new Set(['pt-layer']), true));
+    expect(transitionWrites().at(-1)![2]).toBeUndefined();
+    expect(opacityWrites().at(-1)![2]).toBe(1);
+    expect(visibilityWrites().at(-1)![2]).toBe('visible');
+
+    // The abandoned fade-out's timer must not hide the layer.
+    vi.advanceTimersByTime(1000);
+    expect(visibilityWrites().map(([, , value]) => value)).not.toContain('none');
+  });
+
   it('switches at once when the fade is not asked for', async () => {
     const { rerender } = await renderShown(false);
 
@@ -319,7 +382,7 @@ describe('toViewerSyncInput during a fade', () => {
     });
   });
 
-  it('scales the outputs of a label opacity that is a zoom expression, and leaves other expressions alone', () => {
+  it('scales the outputs of a label opacity that is a zoom expression, and wraps other expressions', () => {
     const zoom = (textOpacity: unknown) => ({ ...labelled, label_config: { column: 'name', textOpacity } }) as never;
     const fading = new Map([['k', { factor: 0.5 }]]);
     expect(toViewerSyncInput(zoom(['interpolate', ['linear'], ['zoom'], 5, 0, 8, 0.8]), 'k', new Set(), fading).label_config)
@@ -327,7 +390,7 @@ describe('toViewerSyncInput during a fade', () => {
     expect(toViewerSyncInput(zoom(['step', ['zoom'], 0.2, 6, 1]), 'k', new Set(), fading).label_config)
       .toMatchObject({ textOpacity: ['step', ['zoom'], 0.1, 6, 0.5] });
     const other = ['case', ['has', 'x'], 1, 0];
-    expect(toViewerSyncInput(zoom(other), 'k', new Set(), fading).label_config).toMatchObject({ textOpacity: other });
+    expect(toViewerSyncInput(zoom(other), 'k', new Set(), fading).label_config).toMatchObject({ textOpacity: ['*', other, 0.5] });
   });
 
 });

@@ -1,3 +1,4 @@
+import { Color } from '@maplibre/maplibre-gl-style-spec';
 import type { AdapterLayerInput, LayerAdapter, LayerDrawing, LayerSpec } from './types';
 import { normalizeRasterBounds, paintValueChanged } from './shared';
 import { DEFAULT_HILLSHADE_PAINT } from './builder-defaults';
@@ -62,38 +63,15 @@ function formatAlpha(value: number): string {
   return Number(value.toFixed(4)).toString();
 }
 
-function compoundHexColorAlpha(color: string, opacity: number): string | null {
-  const hex = color.trim().match(/^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i)?.[1];
-  if (!hex) return null;
-
-  const expand = (value: string) => value.length === 1 ? `${value}${value}` : value;
-  const hasShortChannels = hex.length === 3 || hex.length === 4;
-  const red = parseInt(expand(hasShortChannels ? hex[0] : hex.slice(0, 2)), 16);
-  const green = parseInt(expand(hasShortChannels ? hex[1] : hex.slice(2, 4)), 16);
-  const blue = parseInt(expand(hasShortChannels ? hex[2] : hex.slice(4, 6)), 16);
-  const alphaHex = hasShortChannels ? hex[3] : hex.slice(6, 8);
-  const baseAlpha = alphaHex ? parseInt(expand(alphaHex), 16) / 255 : 1;
-  return `rgba(${red}, ${green}, ${blue}, ${formatAlpha(baseAlpha * opacity)})`;
-}
-
-function compoundRgbColorAlpha(color: string, opacity: number): string | null {
-  const match = color.trim().match(/^rgba?\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)(?:\s*,\s*([0-9.]+)\s*)?\)$/i);
-  if (!match) return null;
-  const red = Number(match[1]);
-  const green = Number(match[2]);
-  const blue = Number(match[3]);
-  if (![red, green, blue].every(Number.isFinite)) return null;
-  const baseAlpha = match[4] === undefined ? 1 : Number(match[4]);
-  if (!Number.isFinite(baseAlpha)) return null;
-  return `rgba(${red}, ${green}, ${blue}, ${formatAlpha(Math.min(1, Math.max(0, baseAlpha)) * opacity)})`;
-}
-
+/** The colour with its alpha multiplied by `opacity`, read by the same parser MapLibre paints with. */
 function compoundColorAlpha(color: string, opacity: number): string {
   if (opacity === 1) return color;
-  if (color.trim().toLowerCase() === 'transparent') return MAP_COLORS.transparent;
-  return compoundHexColorAlpha(color, opacity)
-    ?? compoundRgbColorAlpha(color, opacity)
-    ?? color;
+  const parsed = Color.parse(color);
+  if (!parsed) return color;
+  if (parsed.a === 0) return MAP_COLORS.transparent;
+  // Channels come back multiplied by alpha.
+  const channel = (value: number) => Math.round((value / parsed.a) * 255);
+  return `rgba(${channel(parsed.r)}, ${channel(parsed.g)}, ${channel(parsed.b)}, ${formatAlpha(parsed.a * opacity)})`;
 }
 
 function buildHillshadePaint(input: AdapterLayerInput): Record<string, number | string> {

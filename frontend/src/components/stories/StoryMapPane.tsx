@@ -129,7 +129,8 @@ function StoryMap({
   useEffect(() => {
     const sameChapter = shownChapter.current === chapterId;
     shownChapter.current = chapterId;
-    if (sameChapter && mapRef.current) checkAway(mapRef.current);
+    // A move in flight ends with its own comparison against this camera.
+    if (sameChapter && mapRef.current && inFlight.current === 0) checkAway(mapRef.current);
   }, [scene.camera, chapterId, checkAway]);
 
   // Keyed on the chapter and the scene visit rather than the camera object, so a
@@ -164,7 +165,8 @@ function StoryMap({
     const onMoveEnd = (event: { originalEvent?: unknown }) => {
       if (!event.originalEvent && inFlight.current > 0) {
         inFlight.current -= 1;
-        return;
+        // A flight stopped by a press or tap leaves the map between views, with no move after it.
+        if (inFlight.current > 0) return;
       }
       checkAway(readyMap);
     };

@@ -291,11 +291,43 @@ describe('the return button', () => {
     expect(backButton()).toBeInTheDocument();
   });
 
-  it("stays hidden through the chapter's own transition, including the end an interrupted flight fires", async () => {
+  it("stays hidden through the chapter's own transition, and settles when it ends", async () => {
     const { rerender } = await renderReady(resolved('c1', 'map-a', 3));
     rerender(<StoryMapPane resolved={resolved('c2', 'map-a', 6)} />);
     expect(backButton()).toBeNull();
 
+    fakeMap.view = { ...fakeMap.view, zoom: 6 };
+    act(() => fakeMap.emit('moveend', {}));
+    expect(backButton()).toBeNull();
+  });
+
+  it("appears when a press stops the chapter's flight between two views", async () => {
+    const { rerender } = await renderReady(resolved('c1', 'map-a', 3));
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-a', 6)} />);
+    expect(backButton()).toBeNull();
+
+    fakeMap.view = { ...fakeMap.view, zoom: 4.96 };
+    act(() => fakeMap.emit('moveend', {}));
+    expect(backButton()).toBeInTheDocument();
+  });
+
+  it('appears when a press stops the return flight between two views', async () => {
+    await renderReady(resolved('c1', 'map-a', 3));
+    panAway();
+    act(() => backButton()!.click());
+    expect(backButton()).toBeNull();
+
+    fakeMap.view = { ...fakeMap.view, lng: -55 };
+    act(() => fakeMap.emit('moveend', {}));
+    expect(backButton()).toBeInTheDocument();
+  });
+
+  it('stays hidden through an editor reset in the middle of a flight, and settles at its end', async () => {
+    const { rerender } = await renderReady(resolved('c1', 'map-a', 3));
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-a', 6)} resetKey={0} />);
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-a', 6)} resetKey={1} />);
+
+    // The stopped flight ends while its replacement runs.
     fakeMap.view = { ...fakeMap.view, zoom: 4.5 };
     act(() => fakeMap.emit('moveend', {}));
     expect(backButton()).toBeNull();
@@ -303,6 +335,18 @@ describe('the return button', () => {
     fakeMap.view = { ...fakeMap.view, zoom: 6 };
     act(() => fakeMap.emit('moveend', {}));
     expect(backButton()).toBeNull();
+  });
+
+  it('leaves a camera saved during a flight to be compared when the flight ends', async () => {
+    const { rerender } = await renderReady(resolved('c1', 'map-a', 3));
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-a', 6)} />);
+    fakeMap.view = { ...fakeMap.view, zoom: 4.5 };
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-a', 7)} />);
+    expect(backButton()).toBeNull();
+
+    fakeMap.view = { ...fakeMap.view, zoom: 6 };
+    act(() => fakeMap.emit('moveend', {}));
+    expect(backButton()).toBeInTheDocument();
   });
 
   it('appears for a compass drag, whose moveend carries no originalEvent', async () => {

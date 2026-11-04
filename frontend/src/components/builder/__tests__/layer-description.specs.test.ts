@@ -332,7 +332,7 @@ const rows: Row[] = [
     'zoom expressions under a master opacity, which multiplies the stored opacity expression',
     { ...point, opacity: 0.4, paint: { 'circle-color': '#ff0000', 'circle-radius': RADIUS_BY_ZOOM, 'circle-opacity': OPACITY_BY_ZOOM } },
     builder,
-    drawing([circle(point, { 'circle-color': '#ff0000', 'circle-radius': RADIUS_BY_ZOOM, 'circle-opacity': ['*', OPACITY_BY_ZOOM, 0.4] })]),
+    drawing([circle(point, { 'circle-color': '#ff0000', 'circle-radius': RADIUS_BY_ZOOM, 'circle-opacity': ['step', ['zoom'], 0.25 * 0.4, 10, 0.8 * 0.4] })]),
   ],
   [
     'a master opacity over a stored circle opacity, with no layer-opacity key',

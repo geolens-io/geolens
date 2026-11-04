@@ -44,8 +44,8 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import { resolveCirclePaint } from '@/components/builder/layer-adapters/circle-adapter';
-import { getBuilderStyleConfig } from '@/components/builder/layer-adapters/shared';
-import { LAYER_FADE_MS, LayerFades, scaleOpacity } from '@/lib/layer-fade';
+import { getBuilderStyleConfig, resolveAdapterType, scaleOpacity } from '@/components/builder/layer-adapters/shared';
+import { LAYER_FADE_MS, LayerFades } from '@/lib/layer-fade';
 import { motionDuration } from '@/lib/reduced-motion';
 import { clampMinZoomAfterFit, FIT_BOUNDS_OPTIONS, getVisibleLayerBounds } from '@/components/builder/builder-bounds';
 import { adapterInputFor, describeLayers, getSourceIdForLayer } from '@/components/builder/layer-description';
@@ -128,11 +128,14 @@ export function toViewerSyncInput(
   const factor = fades?.get(layerKey)?.factor ?? 1;
   const labelOpacity = factor !== 1 && layer.label_config ? scaleOpacity(layer.label_config.textOpacity ?? 1, factor) : undefined;
   // The adapters fold the opacity into a circle's fill and a polygon's flat fill only: a ring and a configured extrusion opacity fade through their own keys.
+  // Circle keys go in only for a layer already drawn as points, since paint prefixes can decide the type of a layer with no geometry.
+  const drawsPoints = ['circle', 'cluster', 'mixed'].includes(
+    resolveAdapterType(layer.geometry_type, layer.style_config, layer.paint ?? {}),
+  );
   const resolvedCircle = resolveCirclePaint(layer.paint ?? {});
-  const strokeOpacity = resolvedCircle['circle-stroke-opacity'];
   const fadedPaint =
-    factor !== 1 && (strokeOpacity === undefined || typeof strokeOpacity === 'number')
-      ? { ...layer.paint, ...resolvedCircle, 'circle-stroke-opacity': (strokeOpacity ?? 1) * factor }
+    factor !== 1 && drawsPoints
+      ? { ...layer.paint, ...resolvedCircle, 'circle-stroke-opacity': scaleOpacity(resolvedCircle['circle-stroke-opacity'] ?? 1, factor) }
       : (layer.paint ?? {});
   // A DEM's elevation tint has a fixed opacity of its own.
   const paint = factor !== 1 && layer.is_dem ? { ...fadedPaint, '_hypso-fade': factor } : fadedPaint;
@@ -1001,6 +1004,32 @@ export const ViewerMap = memo(function ViewerMap({
   // Null until the opening state is drawn, which has nothing to fade from.
   const prevVisibleRef = useRef<Set<string> | null>(null);
   useEffect(() => () => fades.cancelAll(), [fades]);
+  // A fade's later steps read the layer as it is when they run, not as it was when the fade began.
+  const latestRef = useRef({ layerEntries, visibleLayers, mvtSourceLayerPrefix: tileConfig?.mvt_source_layer_prefix });
+  latestRef.current = { layerEntries, visibleLayers, mvtSourceLayerPrefix: tileConfig?.mvt_source_layer_prefix };
+  const applyLayer = useCallback((key: string, target: MaplibreMap, parts: { paint: boolean; visibility: boolean }) => {
+    const { layerEntries: entries, visibleLayers: visible, mvtSourceLayerPrefix } = latestRef.current;
+    const entry = entries.find((candidate) => candidate.key === key);
+    if (!entry) return;
+    try {
+      // A toggle reads ids and adapters, never sources, so it needs no tokens.
+      const context = syncRenderContext(new Map(), undefined, geojsonDataRef.current, {
+        idPrefix: VIEWER_PREFIX,
+        mvtSourceLayerPrefix,
+      });
+      const input = toViewerSyncInput(entry.layer, key, visible, fades.entries);
+      const [described] = describeLayers([input], context).layers;
+      if (!described) return;
+      const adapter = getAdapter(described.drawsAs);
+      const adapterInput = adapterInputFor(input, described);
+      if (parts.paint) adapter.syncPaint(target, adapterInput);
+      // Carries the label companion's visibility too, per its own spec.
+      if (parts.visibility) adapter.syncVisibility(target, adapterInput);
+    } catch (e) {
+      // An adapter can throw on a saved style it cannot read; the sync pass never drew that layer.
+      if (import.meta.env.DEV) console.warn(`[viewer] setting the visibility of ${key} failed:`, e);
+    }
+  }, [fades]);
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !tileConfigReady) return;
@@ -1008,35 +1037,20 @@ export const ViewerMap = memo(function ViewerMap({
     const applyVisibilityDiff = () => {
       const prev = prevVisibleRef.current ?? new Set<string>();
       const fadeMs = prevVisibleRef.current && fadeLayerChanges ? motionDuration(LAYER_FADE_MS) : 0;
-      // A toggle reads ids and adapters, never sources, so it needs no tokens.
-      const context = syncRenderContext(new Map(), undefined, geojsonDataRef.current, {
-        idPrefix: VIEWER_PREFIX,
-        mvtSourceLayerPrefix: tileConfig?.mvt_source_layer_prefix,
-      });
-      for (const { layer, key } of layerEntries) {
+      for (const { key } of layerEntries) {
         const wasVisible = prev.has(key);
         const isVisible = visibleLayers.has(key);
         if (wasVisible === isVisible) continue;
 
-        // Reads the layer's state when it runs, so a fade's later steps see the fade's factor.
-        const write = (target: MaplibreMap, visibility: boolean) => {
-          try {
-            const input = toViewerSyncInput(layer, key, visibleLayers, fades.entries);
-            const [described] = describeLayers([input], context).layers;
-            if (!described) return;
-            const adapter = getAdapter(described.drawsAs);
-            const adapterInput = adapterInputFor(input, described);
-            if (fadeMs > 0) adapter.syncPaint(target, adapterInput);
-            // Carries the label companion's visibility too, per its own spec.
-            if (visibility) adapter.syncVisibility(target, adapterInput);
-          } catch (e) {
-            // An adapter can throw on a saved style it cannot read; the sync pass never drew that layer.
-            if (import.meta.env.DEV) console.warn(`[viewer] setting the visibility of ${key} failed:`, e);
-          }
-        };
-        if (fadeMs <= 0) write(map, true);
-        else if (isVisible) fades.show(map, key, fadeMs, write);
-        else fades.hide(map, key, fadeMs, write);
+        if (fadeMs <= 0) {
+          // An instant toggle ends a fade the layer was in, and writes its current paint with it.
+          const wasFading = fades.release(map, key);
+          applyLayer(key, map, { paint: wasFading, visibility: true });
+        } else {
+          const write = (target: MaplibreMap, visibility: boolean) => applyLayer(key, target, { paint: true, visibility });
+          if (isVisible) fades.show(map, key, fadeMs, write);
+          else fades.hide(map, key, fadeMs, write);
+        }
       }
       prevVisibleRef.current = new Set(visibleLayers);
     };
@@ -1051,7 +1065,7 @@ export const ViewerMap = memo(function ViewerMap({
       return () => { map.off('idle', applyVisibilityDiff); };
     }
     applyVisibilityDiff();
-  }, [visibleLayers, layerEntries, mapReady, tileConfigReady, tileConfig?.mvt_source_layer_prefix, fadeLayerChanges, fades]);
+  }, [visibleLayers, layerEntries, mapReady, tileConfigReady, tileConfig?.mvt_source_layer_prefix, fadeLayerChanges, fades, applyLayer]);
 
   useEffect(() => {
     const map = mapRef.current;
