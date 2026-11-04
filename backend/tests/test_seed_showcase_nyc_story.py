@@ -361,3 +361,46 @@ def test_stitched_image_is_the_sixteen_tiles_two_zooms_down(monkeypatch):
     uploaded = api.uploaded[0]
     with Image.open(io.BytesIO(uploaded)) as image:
         assert (image.size, image.format) == ((1024, 1024), "JPEG")
+
+
+def _without_orbit_map(api):
+    del api.map_ids[seeder.ORBIT_MAP]
+
+
+def test_default_seed_skips_the_story_when_an_input_is_absent(capsys):
+    api = NycFakeApi()
+    _without_orbit_map(api)
+    result = seeder.seed_nyc_story_if_ready(api)
+    assert result.startswith("(missing: ") and seeder.ORBIT_MAP in result
+    assert api.published == []
+    line = seeder._builder_outcome_line("nyc-story", result)
+    assert line is not None and "skipped" in line and seeder.ORBIT_MAP in line
+
+
+def test_story_and_dashboard_run_continues_past_the_missing_input(monkeypatch, capsys):
+    for name in (
+        "set_attribute_titles",
+        "seed_hurricane_story",
+        "seed_quake_dashboard",
+        "seed_skyline_dashboard",
+        "seed_skyline_story",
+    ):
+        monkeypatch.setattr(seeder, name, lambda api, *a, **k: None)
+    api = NycFakeApi()
+    _without_orbit_map(api)
+    assert seeder.run_story_and_dashboard(api) == 0
+    assert "skipped, not built yet" in capsys.readouterr().out
+    assert api.published == []
+
+
+def test_ready_inputs_build_the_story_through_the_default_path():
+    api = NycFakeApi()
+    assert seeder.seed_nyc_story_if_ready(api) not in (None, "")
+    assert len(api.published) == 1
+
+
+def test_only_nyc_story_still_raises_when_an_input_is_absent():
+    api = NycFakeApi()
+    _without_orbit_map(api)
+    with pytest.raises(RuntimeError, match=r"missing map .*seed those first"):
+        seeder.seed_nyc_story(api)

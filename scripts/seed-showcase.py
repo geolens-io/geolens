@@ -5422,6 +5422,41 @@ def _orbit_crop(api: Api, layers: list[dict], lng: float, lat: float) -> bytes:
     )
 
 
+def _nyc_story_missing(api: Api) -> list[str]:
+    """What the New York story reads that this instance does not have yet."""
+    maps = api.list_maps()
+    by_title = api.datasets_by_title()
+    wanted = [
+        *(
+            (f"map {name!r}", name in maps)
+            for name in (ORBIT_MAP, SKYLINE_MAP, CITY_SHADE_MAP, DASHBOARD_MAP)
+        ),
+        (f"dataset {SKYLINE_BUILDINGS_TITLE!r}", SKYLINE_BUILDINGS_TITLE in by_title),
+        (
+            "dataset 'NYC Subway Stations (MTA)'",
+            "NYC Subway Stations (MTA)" in by_title,
+        ),
+        (f"dataset {CITY_SHADE_RESULT!r}", CITY_SHADE_RESULT in by_title),
+        (f"story {STORY_TITLE!r}", STORY_TITLE in api.list_stories()),
+    ]
+    return [what for what, present in wanted if not present]
+
+
+def seed_nyc_story_if_ready(
+    api: Api, force: bool = False, force_pinned: bool = False
+) -> str:
+    """seed_nyc_story, or a "(missing: ...)" result when its inputs are absent.
+
+    The default seed does not build City in Shade (``--showcase-121``) or the
+    orbit map (``--no-sentinel2``), and a story that cannot be built must not
+    fail the whole run.
+    """
+    missing = _nyc_story_missing(api)
+    if missing:
+        return "(missing: " + ", ".join(missing) + ")"
+    return seed_nyc_story(api, force=force, force_pinned=force_pinned)
+
+
 def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) -> str:
     """The published New York story across four showcase maps, found by title.
 
@@ -5430,23 +5465,19 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
     scene on the orbit map, uploaded as the story's cover and reused on a rerun
     while it stays the same. The maps are not touched.
     """
+    missing = _nyc_story_missing(api)
+    if missing:
+        raise RuntimeError(
+            "the New York story is missing "
+            + ", ".join(missing)
+            + " - seed those first"
+        )
     maps = api.list_maps()
     by_title = api.datasets_by_title()
     stories = api.list_stories()
-    buildings_ds = by_title.get(SKYLINE_BUILDINGS_TITLE)
-    stations_ds = by_title.get("NYC Subway Stations (MTA)")
-    canopy_ds = by_title.get(CITY_SHADE_RESULT)
-    needed = (ORBIT_MAP, SKYLINE_MAP, CITY_SHADE_MAP, DASHBOARD_MAP)
-    if (
-        not all(name in maps for name in needed)
-        or not (buildings_ds and stations_ds and canopy_ds)
-        or STORY_TITLE not in stories
-    ):
-        raise RuntimeError(
-            "the New York story needs the maps "
-            f"{', '.join(repr(n) for n in needed)}, their datasets and the "
-            f"{STORY_TITLE!r} story - seed those first"
-        )
+    buildings_ds = by_title[SKYLINE_BUILDINGS_TITLE]
+    stations_ds = by_title["NYC Subway Stations (MTA)"]
+    canopy_ds = by_title[CITY_SHADE_RESULT]
     print("\n[nyc-story] " + NYC_STORY_TITLE)
     app_url = api.public_app_url()
     orbit = api.get_map(maps[ORBIT_MAP])
@@ -5764,10 +5795,12 @@ def run_story_and_dashboard(api: Api) -> int:
         seed_quake_dashboard,
         seed_skyline_dashboard,
         seed_skyline_story,
-        seed_nyc_story,
+        seed_nyc_story_if_ready,
     ):
         try:
-            seed(api)
+            result = seed(api)
+            if result and result.startswith("(missing: "):
+                print(_builder_outcome_line(seed.__name__, result))
         except (httpx.HTTPError, RuntimeError, TimeoutError) as e:
             print(f"\nERROR in [{seed.__name__}]: {e}", file=sys.stderr)
             if isinstance(e, httpx.HTTPStatusError):
@@ -7976,6 +8009,8 @@ def _builder_outcome_line(bname: str, result: str | None) -> str | None:
             "--force left its id and share links alone; --force-pinned builds "
             "a fresh row beside it"
         )
+    if result and result.startswith("(missing: "):
+        return f"  {bname}: skipped, not built yet: {result[10:-1]}"
     if not result or result == "(skipped)":
         return f"  {bname}: already exists, skipped (use --force to recreate)"
     return None
@@ -8460,7 +8495,7 @@ def main() -> int:
                     ("dashboard", fns["dashboard"]),
                     ("skyline-dashboard", fns["skyline-dashboard"]),
                     ("skyline-story", fns["skyline-story"]),
-                    ("nyc-story", fns["nyc-story"]),
+                    ("nyc-story", seed_nyc_story_if_ready),
                 ]
             )
         # collections + embed LAST: they reference the datasets above.
