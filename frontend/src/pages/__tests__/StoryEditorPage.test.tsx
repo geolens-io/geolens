@@ -232,9 +232,23 @@ it('saves edits to the draft against the revision it loaded', async () => {
   expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
 
   saveNow();
-  await waitFor(() => expect(saveStoryDraft).toHaveBeenCalledWith('s1', 4, expect.any(Array)));
+  await waitFor(() => expect(saveStoryDraft).toHaveBeenCalledWith('s1', 4, expect.any(Array), undefined));
   expect(lastSavedChapters()[0].title).toBe('Landfall');
   expect(await screen.findByText('Draft saved. Readers still see the last published version.')).toBeInTheDocument();
+});
+
+it('sends the draft settings back unchanged on a save', async () => {
+  const settings = { navigation: true, layout: 'floating', panel_position: 'right', theme: 'dark' } as const;
+  vi.mocked(getStoryDraft).mockResolvedValue(draft({ document: { version: 1, chapters: CHAPTERS, settings } }));
+  const user = userEvent.setup();
+  renderEditor();
+  await ready();
+
+  const title = screen.getByLabelText('Chapter title');
+  await user.clear(title);
+  await user.type(title, 'Landfall');
+  saveNow();
+  await waitFor(() => expect(saveStoryDraft).toHaveBeenCalledWith('s1', 4, expect.any(Array), settings));
 });
 
 it('adds, reorders and deletes chapters from the chapter list', async () => {
@@ -289,7 +303,7 @@ it('saves unsaved edits before publishing, then publishes that revision', async 
   await user.type(screen.getByLabelText('Chapter title'), '!');
   await user.click(screen.getByRole('button', { name: 'Publish' }));
   await waitFor(() => expect(publishStory).toHaveBeenCalledWith('s1', 5, undefined));
-  expect(saveStoryDraft).toHaveBeenCalledWith('s1', 4, expect.any(Array));
+  expect(saveStoryDraft).toHaveBeenCalledWith('s1', 4, expect.any(Array), undefined);
   expect(toast.success).toHaveBeenCalledWith('Story published');
 });
 
@@ -398,7 +412,7 @@ it('saves over a draft changed elsewhere at the revision the conflict reported, 
   expect(saveStoryDraft).toHaveBeenCalledTimes(1);
   await user.click(within(confirm).getByRole('button', { name: 'Overwrite with my version' }));
 
-  await waitFor(() => expect(saveStoryDraft).toHaveBeenLastCalledWith('s1', 9, expect.any(Array)));
+  await waitFor(() => expect(saveStoryDraft).toHaveBeenLastCalledWith('s1', 9, expect.any(Array), undefined));
   expect(lastSavedChapters()[0].title).toBe('Opening!');
   await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
 });
@@ -1148,7 +1162,7 @@ describe('autosave', () => {
 
     await advance(1);
     expect(saveStoryDraft).toHaveBeenCalledTimes(1);
-    expect(saveStoryDraft).toHaveBeenCalledWith('s1', 4, expect.any(Array));
+    expect(saveStoryDraft).toHaveBeenCalledWith('s1', 4, expect.any(Array), undefined);
     expect(lastSavedChapters()[0].title).toBe('Landfall 2');
     expect(screen.getByText('Draft saved. Readers still see the last published version.')).toBeInTheDocument();
   });
@@ -1187,7 +1201,7 @@ describe('autosave', () => {
     await advance(0);
     await advance(2000);
     expect(saveStoryDraft).toHaveBeenCalledTimes(2);
-    expect(saveStoryDraft).toHaveBeenLastCalledWith('s1', 5, expect.any(Array));
+    expect(saveStoryDraft).toHaveBeenLastCalledWith('s1', 5, expect.any(Array), undefined);
     expect(lastSavedChapters()[0].title).toBe('Two');
   });
 
@@ -1226,7 +1240,7 @@ describe('autosave', () => {
       within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Overwrite with my version' }),
     );
     await advance(0);
-    expect(saveStoryDraft).toHaveBeenLastCalledWith('s1', 9, expect.any(Array));
+    expect(saveStoryDraft).toHaveBeenLastCalledWith('s1', 9, expect.any(Array), undefined);
   });
 
   it('saves pending edits when the author navigates away, without asking', async () => {
@@ -1234,7 +1248,7 @@ describe('autosave', () => {
     await editTitle('Landfall');
     await act(() => router.navigate('/stories/s1'));
     expect(screen.getByText('reader page')).toBeInTheDocument();
-    expect(saveStoryDraft).toHaveBeenCalledWith('s1', 4, expect.any(Array));
+    expect(saveStoryDraft).toHaveBeenCalledWith('s1', 4, expect.any(Array), undefined);
     expect(lastSavedChapters()[0].title).toBe('Landfall');
   });
 
@@ -1294,7 +1308,7 @@ describe('autosave', () => {
     await advance(0);
     await advance(0);
     expect(saveStoryDraft).toHaveBeenCalledTimes(2);
-    expect(saveStoryDraft).toHaveBeenLastCalledWith('s1', 5, expect.any(Array));
+    expect(saveStoryDraft).toHaveBeenLastCalledWith('s1', 5, expect.any(Array), undefined);
     expect(lastSavedChapters()[0].title).toBe('Landfall 2');
     expect(router.state.location.pathname).toBe('/stories/s1');
   });

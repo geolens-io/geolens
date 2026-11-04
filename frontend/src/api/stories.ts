@@ -82,10 +82,11 @@ export async function saveStoryDraft(
   id: string,
   revision: number,
   chapters: StoryChapter[],
+  settings?: StoryDraftResponse['document']['settings'],
 ): Promise<StoryDraftResponse> {
   return apiFetch<StoryDraftResponse>(`/stories/${encodeURIComponent(id)}/draft`, {
     method: 'PUT',
-    body: JSON.stringify({ revision, document: { version: 1, chapters } }),
+    body: JSON.stringify({ revision, document: { version: 1, chapters, settings } }),
   });
 }
 

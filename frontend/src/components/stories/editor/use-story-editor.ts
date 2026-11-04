@@ -111,7 +111,7 @@ export function useStoryEditor(initial: StoryDraftResponse) {
   async function persist(revision: number, same: () => boolean): Promise<StoryDraftResponse | null> {
     const sent = chapters;
     try {
-      const draft = await saveStoryDraft(id, revision, sent);
+      const draft = await saveStoryDraft(id, revision, sent, saved.document.settings);
       if (!same()) return null;
       adopt(draft, sent);
       setConflict(null);
