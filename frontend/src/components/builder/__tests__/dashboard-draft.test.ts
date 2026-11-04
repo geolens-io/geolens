@@ -99,25 +99,46 @@ describe('dashboard drafts', () => {
     const gone = { ...indicator({}, goneId), id: '9a2b4c6d-1e3f-4a5b-8c7d-0e1f2a3b4c5d' };
     const draft: DashboardDraft = { panel: 'bottom', widgets: [kept, gone] };
 
-    expect(dashboardPayload(draft, [layer()], 'right')).toEqual({
+    expect(dashboardPayload(draft, [layer()], { panel: 'right' })).toEqual({
       version: 1,
       panel: 'bottom',
       widgets: [{ ...kept, title: 'Parcels' }],
     });
-    expect(dashboardPayload({ panel: 'right', widgets: [gone] }, [layer()], 'right')).toBeNull();
+    expect(dashboardPayload({ panel: 'right', widgets: [gone] }, [layer()], { panel: 'right' })).toBeNull();
     const { title: _title, ...untitled } = kept;
     expect(
-      dashboardPayload({ panel: 'right', widgets: [{ ...kept, title: ' ' }] }, [layer()], 'right')?.widgets,
+      dashboardPayload({ panel: 'right', widgets: [{ ...kept, title: ' ' }] }, [layer()], { panel: 'right' })?.widgets,
     ).toEqual([untitled]);
   });
 
   it('send the panel only where a 1.28.0 server is ruled out', () => {
     const widgets = [indicator({})];
     // A right panel on a map that never had a bottom one: a 1.28.0 server would refuse the key.
-    expect(dashboardPayload({ panel: 'right', widgets }, [layer()], 'right')).not.toHaveProperty('panel');
-    expect(dashboardPayload({ panel: 'bottom', widgets }, [layer()], 'right')?.panel).toBe('bottom');
+    expect(dashboardPayload({ panel: 'right', widgets }, [layer()], { panel: 'right' })).not.toHaveProperty('panel');
+    expect(dashboardPayload({ panel: 'bottom', widgets }, [layer()], { panel: 'right' })?.panel).toBe('bottom');
     // Moving a stored bottom panel back must say so.
-    expect(dashboardPayload({ panel: 'right', widgets }, [layer()], 'bottom')?.panel).toBe('right');
+    expect(dashboardPayload({ panel: 'right', widgets }, [layer()], { panel: 'bottom' })?.panel).toBe('right');
+  });
+
+  it('round-trip a hidden map through the draft and the payload, sending it only when it matters', () => {
+    const widgets = [indicator({})];
+    expect(toDashboardDraft({ version: 1, map_hidden: false, widgets } as never)).not.toHaveProperty('mapHidden');
+    const hidden = toDashboardDraft({ version: 1, map_hidden: true, widgets } as never);
+    expect(hidden.mapHidden).toBe(true);
+    expect(dashboardPayload(hidden, [layer()], { panel: 'right' })?.map_hidden).toBe(true);
+    // Off and never stored: a server from before the setting would refuse the key.
+    expect(dashboardPayload({ panel: 'right', widgets }, [layer()], { panel: 'right' })).not.toHaveProperty('map_hidden');
+    // Showing the map again must say so.
+    expect(dashboardPayload({ panel: 'right', widgets }, [layer()], { panel: 'right', mapHidden: true })?.map_hidden).toBe(false);
+    expect(dashboardChanged({ panel: 'right', widgets, mapHidden: true }, { panel: 'right', widgets })).toBe(true);
+    expect(dashboardChanged({ panel: 'right', widgets, mapHidden: undefined }, { panel: 'right', widgets })).toBe(false);
+  });
+
+  it('drop a hidden map along with the last widget', () => {
+    expect(dashboardPayload({ panel: 'right', widgets: [], mapHidden: true }, [layer()], { panel: 'right', mapHidden: true })).toBeNull();
+    expect(
+      dashboardChanged({ panel: 'right', widgets: [], mapHidden: true }, { panel: 'right', widgets: [] }),
+    ).toBe(false);
   });
 
   it('refuse a view scope on a layer with no geometry', () => {
@@ -140,7 +161,7 @@ describe('a widget with no layer', () => {
 
   it('is kept when no layer can host widgets, and saved without a layer', () => {
     expect(widgetLayerGone(text, [])).toBe(false);
-    expect(dashboardPayload({ panel: 'right', widgets: [text] }, [], 'right')).toEqual({
+    expect(dashboardPayload({ panel: 'right', widgets: [text] }, [], { panel: 'right' })).toEqual({
       version: 1,
       widgets: [text],
     });

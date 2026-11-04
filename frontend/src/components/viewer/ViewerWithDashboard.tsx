@@ -5,7 +5,7 @@ import { widgetLayerId } from '@/components/widgets/registry';
 import { readerLogoUrl, readerThemeStyle, type ReaderTheme } from '@/lib/reader-theme';
 import { useTheme } from '@/components/theme-provider';
 import { cn } from '@/lib/utils';
-import { DashboardPanel, dashboardPanelPosition } from './DashboardPanel';
+import { DashboardPanel, dashboardLayout } from './DashboardPanel';
 import { linkMapLayers, type LinkedPick } from './linked-filters';
 
 interface ViewerWithDashboardProps {
@@ -32,7 +32,8 @@ interface ViewerWithDashboardProps {
 
 /**
  * A viewer's map with its dashboard to the right or below, and always below on
- * narrow screens. A pick on a widget filters its layer on the map until the
+ * narrow screens. When the dashboard hides its map, the map is not mounted and
+ * the dashboard fills the page. A pick on a widget filters its layer on the map until the
  * reader clears it; the saved map is unchanged.
  */
 export function ViewerWithDashboard({ children, readerTheme, ...panel }: ViewerWithDashboardProps) {
@@ -57,16 +58,22 @@ export function ViewerWithDashboard({ children, readerTheme, ...panel }: ViewerW
       setPicks((stored) => [...stored.filter((pick) => hiddenLayers?.has(pick.layerId)), ...next]),
     [hiddenLayers],
   );
-  const mapLayers = useMemo(() => linkMapLayers(panel.layers, picks), [panel.layers, picks]);
+  const layout = dashboardLayout(panel.config);
+  // The saved layers still feed the widgets; only the map itself stays unmounted.
+  const mapHidden = layout === 'page';
+  const mapLayers = useMemo(
+    () => (mapHidden ? [] : linkMapLayers(panel.layers, picks)),
+    [mapHidden, panel.layers, picks],
+  );
   return (
     <div
       className={cn(
         'flex w-full min-h-0 flex-1 flex-col',
-        dashboardPanelPosition(panel.config) === 'right' && 'md:flex-row',
+        layout === 'right' && 'md:flex-row',
       )}
       style={readerThemeStyle(readerTheme, resolvedTheme)}
     >
-      {children({ onMapReady: setMap, mapLayers })}
+      {!mapHidden && children({ onMapReady: setMap, mapLayers })}
       <DashboardPanel
         {...panel}
         map={map}

@@ -49,6 +49,25 @@ describe('ViewerWithDashboard', () => {
     expect(layout.className).not.toContain('md:flex-row');
     expect(screen.getByRole('region', { name: 'Dashboard' })).toBeInTheDocument();
   });
+
+  it('fills the page with the dashboard and never renders the map when the author hides it', () => {
+    const children = vi.fn(() => <div data-testid="viewport" />);
+    render(
+      <ViewerWithDashboard
+        config={{ ...config(), map_hidden: true }}
+        layers={[{ id: layerId, dataset_id: 'ds-1', dataset_name: 'Parcels' } as never]}
+        startCollapsed
+      >
+        {children}
+      </ViewerWithDashboard>,
+    );
+    expect(children).not.toHaveBeenCalled();
+    const panel = screen.getByRole('region', { name: 'Dashboard' });
+    expect(panel.className).toContain('flex-1');
+    expect(panel.className).not.toContain('max-h-');
+    // An embed's collapsed start has no meaning without a map to give the room to.
+    expect(screen.getByRole('article')).toBeInTheDocument();
+  });
 });
 
 describe('reader theme', () => {

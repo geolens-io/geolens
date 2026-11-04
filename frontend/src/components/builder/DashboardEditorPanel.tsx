@@ -7,9 +7,11 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import {
   DashboardPanel,
   DashboardTextWidget,
+  dashboardLayout,
   DashboardWidget,
   widgetName, type PanelPosition,
 } from '@/components/viewer/DashboardPanel';
@@ -71,6 +73,7 @@ function LayerScopeFields({
   idPrefix,
   candidates,
   layer,
+  mapHidden,
   onChange,
 }: {
   widget: WidgetInstance;
@@ -78,10 +81,12 @@ function LayerScopeFields({
   idPrefix: string;
   candidates: readonly MapLayerResponse[];
   layer: MapLayerResponse | undefined;
+  mapHidden: boolean;
   onChange: (widget: WidgetInstance) => void;
 }) {
   const { t } = useTranslation('widgets');
-  const canFollowView = layer === undefined || layerFollowsView(layer);
+  // A hidden map has no view to follow.
+  const canFollowView = !mapHidden && (layer === undefined || layerFollowsView(layer));
   return (
     <>
       <SelectField
@@ -133,6 +138,7 @@ interface WidgetCardProps {
   /** The widget's layer, when it is still one a widget can summarize. */
   layer: MapLayerResponse | undefined;
   viewBbox: Bbox | null;
+  mapHidden: boolean;
   onChange: (widget: WidgetInstance) => void;
   onMove: (id: string, by: number) => void;
   onRemove: (id: string) => void;
@@ -146,6 +152,7 @@ const WidgetCard = memo(function WidgetCard({
   candidates,
   layer,
   viewBbox,
+  mapHidden,
   onChange,
   onMove,
   onRemove,
@@ -226,6 +233,7 @@ const WidgetCard = memo(function WidgetCard({
           candidates={candidates}
           layer={layer}
           definition={definition}
+          mapHidden={mapHidden}
           onChange={onChange}
         />
       )}
@@ -253,6 +261,7 @@ const WidgetCard = memo(function WidgetCard({
               parsed={{ ok: true, definition, instance: preview }}
               layer={toSharedLayer(layer)}
               viewBbox={widget.scope === 'view' ? viewBbox : null}
+              mapHidden={mapHidden}
               headingLevel={4}
             />
           ) : (
@@ -283,7 +292,8 @@ function PanelPreview({
   onOpenChange: (open: boolean) => void;
 }) {
   const { t } = useTranslation('widgets');
-  const config = useMemo(() => dashboardPayload(draft, layers, draft.panel), [draft, layers]);
+  const config = useMemo(() => dashboardPayload(draft, layers, draft), [draft, layers]);
+  const layout = dashboardLayout({ panel: draft.panel, map_hidden: draft.mapHidden });
   const shared = useMemo(() => dashboardLayers(layers).map(toSharedLayer), [layers]);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -295,12 +305,14 @@ function PanelPreview({
         <div
           className={cn(
             'flex h-[70dvh] min-h-0 flex-col overflow-hidden rounded-md border',
-            draft.panel === 'right' && 'md:flex-row',
+            layout === 'right' && 'md:flex-row',
           )}
         >
-          <div className="flex min-h-24 flex-1 items-center justify-center bg-muted text-sm text-muted-foreground">
-            {t('editor.previewMap')}
-          </div>
+          {layout !== 'page' && (
+            <div className="flex min-h-24 flex-1 items-center justify-center bg-muted text-sm text-muted-foreground">
+              {t('editor.previewMap')}
+            </div>
+          )}
           <DashboardPanel config={config} layers={shared} map={map} />
         </div>
       </DialogContent>
@@ -333,7 +345,8 @@ export function DashboardEditorPanel({
     () => new Map(candidates.map((candidate) => [candidate.id, candidate])),
     [candidates],
   );
-  const followsView = draft.widgets.some((widget) => widget.scope === 'view');
+  const mapHidden = !!draft.mapHidden;
+  const followsView = !mapHidden && draft.widgets.some((widget) => widget.scope === 'view');
   const viewBbox = useMapViewBbox(map, followsView);
 
   // The card handlers read the latest draft through a ref, so they keep one
@@ -393,6 +406,22 @@ export function DashboardEditorPanel({
         <p className="text-sm text-muted-foreground">{t('editor.empty')}</p>
       ) : (
         <>
+          <div className="flex items-start gap-2">
+            <Switch
+              id={`${positionId}-hide-map`}
+              checked={mapHidden}
+              aria-describedby={`${positionId}-hide-map-help`}
+              onCheckedChange={(checked) => onChange({ ...draft, mapHidden: checked || undefined })}
+            />
+            <div className="space-y-0.5">
+              <Label className="text-xs" htmlFor={`${positionId}-hide-map`}>
+                {t('editor.hideMap')}
+              </Label>
+              <p id={`${positionId}-hide-map-help`} className="text-xs text-muted-foreground">
+                {t('editor.hideMapHelp')}
+              </p>
+            </div>
+          </div>
           <Button type="button" variant="outline" size="sm" className="self-start" onClick={() => setPreviewing(true)}>
             <Eye aria-hidden="true" />
             {t('editor.previewPanel')}
@@ -411,6 +440,7 @@ export function DashboardEditorPanel({
                   candidates={candidates}
                   layer={candidatesById.get(widget.layer_id ?? '')}
                   viewBbox={widget.scope === 'view' ? viewBbox : null}
+                  mapHidden={mapHidden}
                   onChange={changeWidget}
                   onMove={moveWidget}
                   onRemove={removeWidget}

@@ -60,7 +60,8 @@ export function useMapViewBbox(map: MaplibreMap | null, enabled: boolean): Bbox 
 /**
  * Fetches one dashboard widget's aggregate with its layer's saved filter, the
  * reader's picks on the layer's other widgets (`linked`) and, for a
- * view-scoped widget, the map view. A saved filter the endpoint can't take is
+ * view-scoped widget, the map view; with the map hidden a view-scoped
+ * widget reads its whole layer (`viewScopeDropped`). A saved filter the endpoint can't take is
  * left out and reported as `filterIgnored`, so the widget can say so.
  */
 export function useWidgetAggregate({
@@ -70,6 +71,7 @@ export function useWidgetAggregate({
   viewBbox,
   embedToken,
   linked = NO_PICKS,
+  mapHidden = false,
 }: {
   instance: WidgetInstance;
   definition: AnyWidgetDefinition;
@@ -77,10 +79,12 @@ export function useWidgetAggregate({
   viewBbox: Bbox | null;
   embedToken?: string;
   linked?: readonly Cql2Expression[];
+  mapHidden?: boolean;
 }) {
   const { filter, savedIgnored } = useMemo(() => widgetFilter(layer, linked), [layer, linked]);
   // A table has no geometry to bound, so its widgets cover the whole layer.
-  const followsView = instance.scope === 'view' && !!layer.geometry_type;
+  const viewScoped = instance.scope === 'view' && !!layer.geometry_type;
+  const followsView = viewScoped && !mapHidden;
   const body = useMemo(() => {
     const request = definition.dataRequest?.(instance.config);
     if (!request) return null;
@@ -105,6 +109,8 @@ export function useWidgetAggregate({
   return {
     query,
     filterIgnored: savedIgnored,
+    followsView,
+    viewScopeDropped: viewScoped && mapHidden,
     // A view-scoped widget is also pending while it waits for the map to rest.
     loading: body !== null && query.isPending,
   };

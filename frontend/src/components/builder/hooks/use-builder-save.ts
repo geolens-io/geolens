@@ -1311,7 +1311,7 @@ export function useBuilderSave(state: SaveState) {
       legend_title: legendTitle && legendTitle.trim() ? legendTitle.trim() : null,
       ...(showAttributeTable === undefined ? {} : { show_attribute_table: showAttributeTable }),
       ...(sendDashboard
-        ? { dashboard_config: dashboardPayload(dashboard, localLayers, savedDashboard.panel) }
+        ? { dashboard_config: dashboardPayload(dashboard, localLayers, savedDashboard) }
         : {}),
     };
     const persistableLayers = prepareLayersForPersistence(localLayers, groupMeta);

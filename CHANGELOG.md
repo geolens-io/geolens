@@ -11,6 +11,7 @@ and releases use semantic versioning.
 - Stories: an optional navigation bar listing the chapters, and a floating panel layout that puts the chapter text over a full-bleed map, placed left, right or centre.
 
 - Stories: chapters can move the map with Fly, Glide or Cut, timed by the distance of the move, layers fade in and out, and a button returns a reader to the chapter's view.
+- Dashboards can hide their map so the widgets fill the page, in the viewer, share links and embeds; the ArcGIS migration report points a dashboard without a map to this layout and names one with several maps.
 - Stories: scene transitions and reader settings (navigation bar, layout, theme) in the story document; the reader applies them in 1.30.
 - The dashboard API accepts feature list, table and pie chart widgets, bar
   charts by feature, by fields or by date, and per-dashboard settings to hide

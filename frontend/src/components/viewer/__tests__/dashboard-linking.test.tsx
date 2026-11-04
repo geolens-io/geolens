@@ -169,6 +169,61 @@ describe('dashboard linking', () => {
     expect(document.activeElement).toBe(within(panel).getByRole('button', { name: 'Hide dashboard' }));
   });
 
+  it('mounts no map when the dashboard hides it, and picks still filter the other widgets', async () => {
+    const children = vi.fn(() => <div data-testid="viewport" />);
+    render(
+      <ViewerWithDashboard
+        config={{ ...dashboard(), map_hidden: true }}
+        layers={[layer(parcelsId, 'Parcels'), layer(roadsId, 'Roads')]}
+      >
+        {children}
+      </ViewerWithDashboard>,
+    );
+    const panel = screen.getByRole('region', { name: 'Dashboard' });
+    const parcelsCount = within(panel).getByRole('article', { name: 'Parcels' });
+    expect(await within(parcelsCount).findByText('1,234')).toBeInTheDocument();
+    expect(children).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('viewport')).not.toBeInTheDocument();
+    expect(within(panel).queryByRole('button', { name: 'Hide dashboard' })).not.toBeInTheDocument();
+
+    await clickBar('Residential');
+    expect(await within(parcelsCount).findByText('40')).toBeInTheDocument();
+    // With no toggle to take focus, removing the last chip lands it on the panel heading.
+    await userEvent.click(screen.getByRole('button', { name: 'Remove filter land_use: Residential on Parcels' }));
+    await waitFor(() => expect(document.activeElement).toBe(within(panel).getByRole('heading', { name: 'Dashboard' })));
+    await clickBar('Residential');
+    expect(await within(parcelsCount).findByText('40')).toBeInTheDocument();
+    expect(within(within(panel).getByRole('article', { name: 'Roads' })).getByText('1,234')).toBeInTheDocument();
+  });
+
+  it('reads the whole layer for a view-scoped widget when the map is hidden, and says so', async () => {
+    const config = {
+      version: 1,
+      map_hidden: true,
+      widgets: [
+        {
+          id: countId,
+          type: 'indicator',
+          v: 1,
+          title: 'Parcels',
+          layer_id: parcelsId,
+          scope: 'view',
+          config: { stat: 'count' },
+        },
+      ],
+    } as DashboardConfig;
+    render(
+      <ViewerWithDashboard config={config} layers={[layer(parcelsId, 'Parcels')]}>
+        {() => null}
+      </ViewerWithDashboard>,
+    );
+    const widget = screen.getByRole('article', { name: 'Parcels' });
+    expect(await within(widget).findByText('1,234')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.every(([, body]) => !('bbox' in body))).toBe(true);
+    expect(within(widget).getByText(/this dashboard hides its map/)).toBeInTheDocument();
+    expect(within(widget).queryByText('Follows the map view')).not.toBeInTheDocument();
+  });
+
   it('names a pick\'s column by its attribute title in the chip and the announcement', async () => {
     const user = userEvent.setup();
     const parcels = layer(parcelsId, 'Parcels');
