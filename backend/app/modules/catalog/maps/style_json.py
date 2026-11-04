@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import logging
+import math
 import re
 from collections.abc import Iterable
 from typing import Any
@@ -1611,7 +1612,12 @@ def build_maplibre_style(
         style["projection"] = {"type": basemap_config["projection"]}
     # Root `light`/`sky`/`fog`/`transition` are not emitted: the Map model has
     # no column to persist them, so there is nothing to round-trip.
-    if map_obj.center_lng is not None and map_obj.center_lat is not None:
+    if (
+        map_obj.center_lng is not None
+        and map_obj.center_lat is not None
+        and math.isfinite(map_obj.center_lng)
+        and math.isfinite(map_obj.center_lat)
+    ):
         style["center"] = [map_obj.center_lng, map_obj.center_lat]
     if map_obj.zoom is not None:
         style["zoom"] = map_obj.zoom

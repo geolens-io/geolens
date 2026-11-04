@@ -1,6 +1,7 @@
 """Map sharing, public viewer, and dataset-in-use helpers."""
 
 import hashlib
+import math
 import secrets
 import uuid
 from collections.abc import Awaitable, Callable
@@ -513,18 +514,20 @@ async def with_attribute_display(
 def _shared_camera(map_obj: Map) -> dict[str, Any]:
     """The stored center and zoom, or world defaults for a map without them.
 
-    A stored 0 is a real view (the equator, zoom 0), so only None falls back.
+    A stored 0 is a real view (the equator, zoom 0), so only None or a
+    non-finite center falls back.
     """
-    has_saved_view = (
+    center_ok = (
         map_obj.center_lng is not None
         and map_obj.center_lat is not None
-        and map_obj.zoom is not None
+        and math.isfinite(map_obj.center_lng)
+        and math.isfinite(map_obj.center_lat)
     )
     return {
-        "center_lng": 0.0 if map_obj.center_lng is None else map_obj.center_lng,
-        "center_lat": 0.0 if map_obj.center_lat is None else map_obj.center_lat,
+        "center_lng": map_obj.center_lng if center_ok else 0.0,
+        "center_lat": map_obj.center_lat if center_ok else 0.0,
         "zoom": 2.0 if map_obj.zoom is None else map_obj.zoom,
-        "has_saved_view": has_saved_view,
+        "has_saved_view": center_ok and map_obj.zoom is not None,
     }
 
 

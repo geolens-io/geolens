@@ -71,6 +71,7 @@ and releases use semantic versioning.
   connection pool. The audit log and user CSV exports read in bounded batches
   and the audit export caps its query, so a large export no longer loads
   every row into memory before the first one is written.
+- A map update or style import with a NaN or infinite center is now rejected with 422, and style export no longer fails on a map that already stores one.
 - The bundled database gets a 512 MB `/dev/shm` (`DB_SHM_SIZE`). Docker's
   64 MB default made parallel queries fail under concurrent dashboard load,
   and widgets answered 500. The space counts toward `DB_MEM_LIMIT`.
