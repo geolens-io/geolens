@@ -118,3 +118,19 @@ export class LayerFades {
     fade.stopWaiting?.();
   }
 }
+
+/**
+ * An opacity scaled by the fade factor: a number, or the outputs of a `step` or
+ * `interpolate` on zoom (MapLibre allows zoom only at the top of those, so the
+ * expression can't be wrapped). Undefined for any other expression.
+ */
+export function scaleOpacity(value: unknown, factor: number): number | unknown[] | undefined {
+  if (typeof value === 'number') return value * factor;
+  if (!Array.isArray(value)) return undefined;
+  // Outputs sit after the input, at every other index: step has a base output then stop/output pairs.
+  const first = value[0] === 'step' ? 2 : value[0] === 'interpolate' ? 4 : -1;
+  if (first < 0) return undefined;
+  const outputs = value.map((_item, index) => index >= first && (index - first) % 2 === 0);
+  if (!outputs.every((isOutput, index) => !isOutput || typeof value[index] === 'number')) return undefined;
+  return value.map((item, index) => (outputs[index] ? (item as number) * factor : item));
+}

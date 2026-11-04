@@ -145,7 +145,8 @@ function clusterCirclePaint(input: AdapterLayerInput): Record<string, unknown> {
     'circle-opacity': opacity,
     'circle-stroke-color': MAP_COLORS.cluster.stroke,
     'circle-stroke-width': CLUSTER_STROKE_WIDTH,
-    'circle-stroke-opacity': Math.min(opacity + 0.1, 1),
+    // A touch stronger than the fill, but gone when the layer is.
+    'circle-stroke-opacity': opacity === 0 ? 0 : Math.min(opacity + 0.1, 1),
   };
 }
 

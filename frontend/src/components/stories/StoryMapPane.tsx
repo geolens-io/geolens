@@ -105,18 +105,34 @@ function StoryMap({
   }, [scene]);
 
   const [away, setAway] = useState(false);
+  // Our own moves not yet ended by a moveend, so one that ends them isn't taken for the reader's.
+  const inFlight = useRef(0);
+  const tolerance = useRef(0);
+  const checkAway = useCallback((map: MaplibreMap) => {
+    setAway(cameraDiffers(map, sceneRef.current.camera, tolerance.current));
+  }, []);
 
   // Cut is a zero-length move, as is every move under reduced motion.
   const playTransition = useCallback((map: MaplibreMap) => {
     const { camera, transition } = sceneRef.current;
     const duration = transition === 'cut' ? 0 : motionDuration(transitionDuration(cameraGap(map, camera)));
     const options = { ...camera, duration };
+    // Before the call: starting a move first ends the one running, and a zero-length move ends inside the call.
+    inFlight.current += 1;
     if (transition === 'glide' || transition === 'cut') map.easeTo(options);
     else map.flyTo(options);
     setAway(false);
   }, []);
 
-  // Keyed on the chapter and the reset key rather than the camera object, so a
+  // A new camera for the chapter on screen, such as "Use current view" saves, is compared at once. A chapter change plays its own move instead.
+  const shownChapter = useRef(chapterId);
+  useEffect(() => {
+    const sameChapter = shownChapter.current === chapterId;
+    shownChapter.current = chapterId;
+    if (sameChapter && mapRef.current) checkAway(mapRef.current);
+  }, [scene.camera, chapterId, checkAway]);
+
+  // Keyed on the chapter and the scene visit rather than the camera object, so a
   // background refetch of the story doesn't pull a reader back from where they panned.
   useEffect(() => {
     if (mapRef.current) playTransition(mapRef.current);
@@ -137,15 +153,20 @@ function StoryMap({
     map.jumpTo(sceneRef.current.camera);
   }, []);
 
-  // MapLibre marks a move the reader made (drag, wheel, touch, keys, controls) with an originalEvent.
+  // MapLibre marks a reader's drag, wheel, touch, keys and buttons with an originalEvent; the compass sets none.
   useEffect(() => {
     if (!readyMap) return;
-    let tolerance = panTolerancePx(readyMap);
+    tolerance.current = panTolerancePx(readyMap);
+    inFlight.current = 0;
     const onResize = () => {
-      tolerance = panTolerancePx(readyMap);
+      tolerance.current = panTolerancePx(readyMap);
     };
     const onMoveEnd = (event: { originalEvent?: unknown }) => {
-      if (event.originalEvent) setAway(cameraDiffers(readyMap, sceneRef.current.camera, tolerance));
+      if (!event.originalEvent && inFlight.current > 0) {
+        inFlight.current -= 1;
+        return;
+      }
+      checkAway(readyMap);
     };
     readyMap.on('resize', onResize);
     readyMap.on('moveend', onMoveEnd);
@@ -153,7 +174,7 @@ function StoryMap({
       readyMap.off('resize', onResize);
       readyMap.off('moveend', onMoveEnd);
     };
-  }, [readyMap]);
+  }, [readyMap, checkAway]);
 
   const returnToChapterView = () => {
     const map = mapRef.current;

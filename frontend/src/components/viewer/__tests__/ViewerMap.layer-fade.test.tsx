@@ -5,7 +5,7 @@ import { act, render, waitFor } from '@/test/test-utils';
 import { syncMapComposition } from '@/components/builder/map-composition-sync';
 import { toViewerSyncInput, ViewerMap } from '../ViewerMap';
 
-const { mapState } = viewerHarness;
+const { mapState, tokenState } = viewerHarness;
 
 const LAYER_ID = 'viewer-layer-pt-layer';
 
@@ -251,6 +251,46 @@ describe('ViewerMap fading an extruded polygon', () => {
   });
 });
 
+describe('ViewerMap fading a hillshade with an elevation tint', () => {
+  beforeEach(() => mapState.reset());
+  afterEach(() => vi.useRealTimers());
+
+  it('scales the tint opacity with a transition and restores 0.7 when the fade ends', async () => {
+    const dem = {
+      ...LAYER,
+      geometry_type: null,
+      is_dem: true,
+      layer_type: 'raster_geolens',
+      paint: { '_hypso-enabled': true, '_hypso-ramp': 'Viridis' },
+    } as unknown as typeof LAYER;
+    mapState.fakeMap.isStyleLoaded.mockReturnValue(true);
+    tokenState.data = new Map([['dataset-pt', { kind: 'raster' as const, tile_url: '/dem/{z}/{x}/{y}.png' }]]);
+    const view = (visible: Set<string>) => (
+      <ViewerMap
+        layers={[dem]}
+        basemapStyle="openfreemap-positron"
+        initialViewState={{ center_lng: 0, center_lat: 0, zoom: 2, bearing: 0, pitch: 0 }}
+        visibleLayers={visible}
+        fadeLayerChanges
+      />
+    );
+    const { rerender } = render(view(new Set(['pt-layer'])));
+    await waitFor(() => expect(mapState.fakeMap.isStyleLoaded).toHaveBeenCalled());
+    clearWrites();
+    vi.useFakeTimers({ toFake: [...FAKE_TIMERS.toFake] });
+
+    rerender(view(new Set()));
+    const tintWrites = () =>
+      mapState.fakeMap.setPaintProperty.mock.calls.filter(([id, property]) => id.startsWith(LAYER_ID) && property === 'color-relief-opacity');
+    expect(tintWrites().length).toBeGreaterThan(0);
+    expect(tintWrites().at(-1)![2]).toBe(0);
+    expect(mapState.fakeMap.setPaintProperty).toHaveBeenCalledWith(tintWrites().at(-1)![0], 'color-relief-opacity-transition', { duration: 400, delay: 0 });
+
+    vi.advanceTimersByTime(400);
+    expect(tintWrites().at(-1)![2]).toBe(0.7);
+  });
+});
+
 describe('toViewerSyncInput during a fade', () => {
   it('keeps the default circle paint for a point layer with no paint while the ring fades', () => {
     const input = toViewerSyncInput({ ...LAYER, paint: {} }, 'k', new Set(), new Map([['k', { factor: 0 }]]));
@@ -279,9 +319,15 @@ describe('toViewerSyncInput during a fade', () => {
     });
   });
 
-  it('leaves a label opacity that is a zoom expression alone', () => {
-    const expression = { ...labelled, label_config: { column: 'name', textOpacity: { stops: [[5, 0], [8, 1]] } } };
-    const input = toViewerSyncInput(expression as never, 'k', new Set(), new Map([['k', { factor: 0 }]]));
-    expect(input.label_config).toBe(expression.label_config);
+  it('scales the outputs of a label opacity that is a zoom expression, and leaves other expressions alone', () => {
+    const zoom = (textOpacity: unknown) => ({ ...labelled, label_config: { column: 'name', textOpacity } }) as never;
+    const fading = new Map([['k', { factor: 0.5 }]]);
+    expect(toViewerSyncInput(zoom(['interpolate', ['linear'], ['zoom'], 5, 0, 8, 0.8]), 'k', new Set(), fading).label_config)
+      .toMatchObject({ textOpacity: ['interpolate', ['linear'], ['zoom'], 5, 0, 8, 0.4] });
+    expect(toViewerSyncInput(zoom(['step', ['zoom'], 0.2, 6, 1]), 'k', new Set(), fading).label_config)
+      .toMatchObject({ textOpacity: ['step', ['zoom'], 0.1, 6, 0.5] });
+    const other = ['case', ['has', 'x'], 1, 0];
+    expect(toViewerSyncInput(zoom(other), 'k', new Set(), fading).label_config).toMatchObject({ textOpacity: other });
   });
+
 });

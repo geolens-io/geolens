@@ -305,6 +305,33 @@ describe('the return button', () => {
     expect(backButton()).toBeNull();
   });
 
+  it('appears for a compass drag, whose moveend carries no originalEvent', async () => {
+    await renderReady(resolved('c1', 'map-a', 3));
+    fakeMap.view = { ...fakeMap.view, bearing: 40 };
+    act(() => fakeMap.emit('moveend', {}));
+    expect(backButton()).toBeInTheDocument();
+  });
+
+  it('settles when the saved camera for the chapter becomes the map view, and ignores the previous chapter', async () => {
+    const { rerender } = await renderReady(resolved('c1', 'map-a', 3));
+    panAway();
+    expect(backButton()).toBeInTheDocument();
+
+    // "Use current view": the same chapter, with the camera the map is at.
+    const here = resolved('c1', 'map-a', 3);
+    here.scene.camera = { center: [-40, 25], zoom: 3, bearing: 0, pitch: 0 };
+    rerender(<StoryMapPane resolved={here} />);
+    expect(backButton()).toBeNull();
+
+    // Another chapter plays its own move, so the old comparison is dropped.
+    panAway();
+    fakeMap.view = { ...fakeMap.view, lng: -10 };
+    act(() => fakeMap.emit('moveend', READER_MOVE));
+    expect(backButton()).toBeInTheDocument();
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-a', 6)} />);
+    expect(backButton()).toBeNull();
+  });
+
   it("counts a drag that ends the chapter's transition early as a move", async () => {
     const { rerender } = await renderReady(resolved('c1', 'map-a', 3));
     rerender(<StoryMapPane resolved={resolved('c2', 'map-a', 6)} />);

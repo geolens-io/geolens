@@ -121,6 +121,8 @@ export const COLOR_RELIEF_OWNED_PAINT_PROPERTIES = ['color-relief-color', 'color
 function colorReliefSpec(input: AdapterLayerInput): LayerSpec | null {
   if (input.is_dem !== true || input.paint['_hypso-enabled'] !== true) return null;
   const ramp = input.paint['_hypso-ramp'];
+  // A transient factor from a viewer fade; the saved paint never carries it.
+  const fade = input.paint['_hypso-fade'];
   return {
     layer: {
       id: `${input.layerId}${COLOR_RELIEF_SUFFIX}`,
@@ -135,7 +137,7 @@ function colorReliefSpec(input: AdapterLayerInput): LayerSpec | null {
           undefined,
           input.paint['_hypso-reversed'] === true,
         ),
-        'color-relief-opacity': 0.7,
+        'color-relief-opacity': 0.7 * (typeof fade === 'number' ? fade : 1),
       },
     },
     ownedPaint: COLOR_RELIEF_OWNED_PAINT_PROPERTIES,

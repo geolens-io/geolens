@@ -45,7 +45,7 @@ import type { MapBasemapConfig, MapTerrainConfig, SharedLayerResponse } from '@/
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import { resolveCirclePaint } from '@/components/builder/layer-adapters/circle-adapter';
 import { getBuilderStyleConfig } from '@/components/builder/layer-adapters/shared';
-import { LAYER_FADE_MS, LayerFades } from '@/lib/layer-fade';
+import { LAYER_FADE_MS, LayerFades, scaleOpacity } from '@/lib/layer-fade';
 import { motionDuration } from '@/lib/reduced-motion';
 import { clampMinZoomAfterFit, FIT_BOUNDS_OPTIONS, getVisibleLayerBounds } from '@/components/builder/builder-bounds';
 import { adapterInputFor, describeLayers, getSourceIdForLayer } from '@/components/builder/layer-description';
@@ -124,16 +124,18 @@ export function toViewerSyncInput(
   visibleLayers: Set<string>,
   fades?: ReadonlyMap<string, { factor: number }>,
 ): SyncLayerInput {
-  // A layer mid-fade is drawn visible, its opacity scaled; a label's zoom-expression opacity can't be scaled.
+  // A layer mid-fade is drawn visible, its opacity scaled.
   const factor = fades?.get(layerKey)?.factor ?? 1;
-  const labelOpacity = layer.label_config?.textOpacity;
+  const labelOpacity = factor !== 1 && layer.label_config ? scaleOpacity(layer.label_config.textOpacity ?? 1, factor) : undefined;
   // The adapters fold the opacity into a circle's fill and a polygon's flat fill only: a ring and a configured extrusion opacity fade through their own keys.
   const resolvedCircle = resolveCirclePaint(layer.paint ?? {});
   const strokeOpacity = resolvedCircle['circle-stroke-opacity'];
-  const paint =
+  const fadedPaint =
     factor !== 1 && (strokeOpacity === undefined || typeof strokeOpacity === 'number')
       ? { ...layer.paint, ...resolvedCircle, 'circle-stroke-opacity': (strokeOpacity ?? 1) * factor }
       : (layer.paint ?? {});
+  // A DEM's elevation tint has a fixed opacity of its own.
+  const paint = factor !== 1 && layer.is_dem ? { ...fadedPaint, '_hypso-fade': factor } : fadedPaint;
   const extrusionOpacity = getBuilderStyleConfig(layer).extrusionOpacity;
   const styleConfig =
     factor !== 1 && typeof extrusionOpacity === 'number'
@@ -148,10 +150,7 @@ export function toViewerSyncInput(
     paint,
     layout: layer.layout ?? {},
     filter: layer.filter ?? null,
-    label_config:
-      layer.label_config && factor !== 1 && (labelOpacity === undefined || typeof labelOpacity === 'number')
-        ? { ...layer.label_config, textOpacity: (labelOpacity ?? 1) * factor }
-        : layer.label_config,
+    label_config: labelOpacity === undefined ? layer.label_config : { ...layer.label_config!, textOpacity: labelOpacity as never },
     style_config: styleConfig,
     // Carry popup_config so the initial source build requests popup
     // visible_fields / title-template cols=; without it a viewer opened at z<10
