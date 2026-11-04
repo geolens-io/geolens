@@ -180,6 +180,38 @@ describe('ViewerMap layer fades', () => {
   });
 });
 
+describe('ViewerMap fading a point layer with a ring', () => {
+  beforeEach(() => mapState.reset());
+  afterEach(() => vi.useRealTimers());
+
+  it('scales the configured ring opacity by the fade factor, with a transition on the ring key', async () => {
+    const ringed = { ...LAYER, paint: { 'circle-color': '#2255aa', 'circle-stroke-width': 2, 'circle-stroke-opacity': 0.5 } };
+    mapState.fakeMap.isStyleLoaded.mockReturnValue(true);
+    const view = (visible: Set<string>) => (
+      <ViewerMap
+        layers={[ringed]}
+        basemapStyle="openfreemap-positron"
+        initialViewState={{ center_lng: 0, center_lat: 0, zoom: 2, bearing: 0, pitch: 0 }}
+        visibleLayers={visible}
+        fadeLayerChanges
+      />
+    );
+    const { rerender } = render(view(new Set(['pt-layer'])));
+    await waitFor(() => expect(mapState.fakeMap.isStyleLoaded).toHaveBeenCalled());
+    clearWrites();
+    vi.useFakeTimers({ toFake: [...FAKE_TIMERS.toFake] });
+
+    rerender(view(new Set()));
+    expect(mapState.fakeMap.setPaintProperty).toHaveBeenCalledWith(LAYER_ID, 'circle-stroke-opacity-transition', { duration: 400, delay: 0 });
+    const ringWrites = () => mapState.fakeMap.setPaintProperty.mock.calls.filter(([, property]) => property === 'circle-stroke-opacity');
+    expect(ringWrites().at(-1)![2]).toBe(0);
+
+    vi.advanceTimersByTime(400);
+    expect(mapState.fakeMap.setPaintProperty).toHaveBeenCalledWith(LAYER_ID, 'circle-stroke-opacity-transition', undefined);
+    expect(ringWrites().at(-1)![2]).toBe(0.5);
+  });
+});
+
 describe('toViewerSyncInput during a fade', () => {
   const labelled = { ...LAYER, opacity: 0.5, label_config: { column: 'name', textOpacity: 0.8 } };
 

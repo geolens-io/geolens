@@ -125,13 +125,19 @@ export function toViewerSyncInput(
   // A layer mid-fade is drawn visible, its opacity scaled; a label's zoom-expression opacity can't be scaled.
   const factor = fades?.get(layerKey)?.factor ?? 1;
   const labelOpacity = layer.label_config?.textOpacity;
+  // The adapters fold the opacity into the circle fill only; a ring is faded through its own key.
+  const strokeOpacity = layer.paint?.['circle-stroke-opacity'];
+  const paint =
+    factor !== 1 && (strokeOpacity === undefined || typeof strokeOpacity === 'number')
+      ? { ...layer.paint, 'circle-stroke-opacity': (strokeOpacity ?? 1) * factor }
+      : (layer.paint ?? {});
   return {
     id: layerKey,
     dataset_table_name: layer.table_name,
     dataset_geometry_type: layer.geometry_type,
     opacity: (layer.opacity ?? 1) * factor,
     visible: visibleLayers.has(layerKey) || !!fades?.has(layerKey),
-    paint: layer.paint ?? {},
+    paint,
     layout: layer.layout ?? {},
     filter: layer.filter ?? null,
     label_config:
