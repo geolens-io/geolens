@@ -116,6 +116,25 @@ describe('indicator difference', () => {
     expect(indicatorDifference(75, lower)?.tone).toBe('good');
   });
 
+  it('compares an exact value past 2^53 without rounding it', () => {
+    expect(indicatorDifference('9007199254740993', { ...base, reference: 9007199254740992 })).toMatchObject({
+      amount: 1,
+      direction: 'above',
+      tone: 'good',
+    });
+    expect(indicatorDifference('-9007199254740993', { ...base, reference: -9007199254740992 })?.direction).toBe(
+      'below',
+    );
+    expect(indicatorDifference('9007199254740993', { ...base, reference: 1.5 })).toBeNull();
+  });
+
+  it('shows no difference line for an exact value and a fractional reference', () => {
+    const data = { op: 'stats', approximate: false, cached: false, result: { sum: '9007199254740993' } };
+    render(<IndicatorRenderer config={{ stat: 'sum', column: 'id', reference: 2.5 }} data={data} />);
+    expect(screen.getByText('9,007,199,254,740,993')).toBeInTheDocument();
+    expect(screen.queryByText(/above|below|Same as/)).not.toBeInTheDocument();
+  });
+
   it('reads an exact value sent as text, and has none without a number', () => {
     expect(indicatorDifference('9007199254740993', { ...base, reference: 0 })?.direction).toBe('above');
     expect(indicatorDifference(null, { ...base, reference: 1 })).toBeNull();

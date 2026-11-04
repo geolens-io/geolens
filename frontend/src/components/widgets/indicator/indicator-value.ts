@@ -29,14 +29,26 @@ export function indicatorDifference(
   value: number | string | null | undefined,
   config: IndicatorConfig,
 ): Difference | null {
-  const current = numericValue(value);
-  if (config.reference === undefined || current === null) return null;
-  const amount = current - config.reference;
-  const direction: Direction = amount > 0 ? 'above' : amount < 0 ? 'below' : 'same';
+  const { reference } = config;
+  let amount: number;
+  let direction: Direction;
+  if (reference === undefined) return null;
+  if (typeof value === 'string' && /^-?\d+$/.test(value) && !Number.isSafeInteger(Number(value))) {
+    // An exact integer past 2^53: a Number would round it and could report a false tie.
+    if (!Number.isInteger(reference)) return null;
+    const exact = BigInt(value) - BigInt(reference);
+    amount = Number(exact);
+    direction = exact > 0n ? 'above' : exact < 0n ? 'below' : 'same';
+  } else {
+    const current = numericValue(value);
+    if (current === null) return null;
+    amount = current - reference;
+    direction = amount > 0 ? 'above' : amount < 0 ? 'below' : 'same';
+  }
   const higherIsBetter = config.higher_is_better ?? true;
   return {
     amount,
-    percent: config.reference === 0 ? null : amount / Math.abs(config.reference),
+    percent: reference === 0 ? null : amount / Math.abs(reference),
     direction,
     tone: direction === 'same' ? 'neutral' : (direction === 'above') === higherIsBetter ? 'good' : 'bad',
   };
