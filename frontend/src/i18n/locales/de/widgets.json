@@ -98,6 +98,8 @@
     "panelBottom": "Unter der Karte",
     "hideMap": "Karte ausblenden",
     "hideMapHelp": "Leserinnen und Leser sehen die Widgets auf der ganzen Seite, und es wird keine Karte geladen.",
+    "theme": "Design für Leser",
+    "themeFollow": "Wie beim Leser",
     "empty": "Noch keine Widgets.",
     "noLayers": "Fügen Sie der Karte einen Vektor- oder Tabellen-Layer hinzu, um Widgets anzulegen.",
     "add": "{{type}} hinzufügen",

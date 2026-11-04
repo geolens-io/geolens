@@ -223,6 +223,22 @@ describe('DashboardEditorPanel', () => {
     expect(limits).toEqual([10, 25]);
   });
 
+  it('sets the reader theme and returns it to follow', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<Harness onChange={onChange} />);
+
+    const select = screen.getByRole('combobox', { name: 'Reader theme' });
+    expect(select).toHaveTextContent('Follow the reader');
+    await user.click(select);
+    await user.click(await screen.findByRole('option', { name: 'Dark' }));
+    expect(lastDraft(onChange).theme).toBe('dark');
+
+    await user.click(screen.getByRole('combobox', { name: 'Reader theme' }));
+    await user.click(await screen.findByRole('option', { name: 'Follow the reader' }));
+    expect(lastDraft(onChange).theme).toBe('follow');
+  });
+
   it('sets the panel position and orders and removes widgets', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

@@ -2,13 +2,14 @@ import type { ReactNode } from 'react';
 import { Link, Route, Routes } from 'react-router';
 import { act, fireEvent, render, screen, within } from '@/test/test-utils';
 import { PublicViewerPage } from '../PublicViewerPage';
+import { ThemeProvider } from '@/components/theme-provider';
 import { useSharedMap } from '@/hooks/use-maps';
 import { useViewerLayers } from '@/components/viewer/hooks/use-viewer-layers';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { ApiError } from '@/api/client';
 import type { ViewerMap } from '@/components/viewer/ViewerMap';
 import type { LayerLegend } from '@/components/viewer/LayerLegend';
-import type { SharedMapResponse } from '@/types/api';
+import type { DashboardConfig, SharedMapResponse } from '@/types/api';
 
 const viewerMapMock = vi.hoisted(() => ({
   props: null as React.ComponentProps<typeof ViewerMap> | null,
@@ -558,5 +559,27 @@ describe('PublicViewerPage', () => {
       expect(screen.getByTestId('basemap-toggle')).toHaveTextContent('chosen-basemap');
       expect(legendMock.props?.drawn).toBe(drawn);
     });
+  });
+
+  it('shows a dark dashboard dark to a reader on light', async () => {
+    mockedUseSharedMap.mockReturnValue({
+      data: {
+        ...SHARED_MAP,
+        dashboard_config: { version: 1, panel: 'right', map_hidden: false, theme: 'dark', widgets: [] } as DashboardConfig,
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useSharedMap>);
+    render(
+      <ThemeProvider defaultTheme="light">
+        <Routes>
+          <Route path="/m/:token" element={<PublicViewerPage />} />
+        </Routes>
+      </ThemeProvider>,
+      { route: '/m/share-token?embed=true' },
+    );
+    await screen.findByTestId('viewer-map');
+    expect(document.documentElement).toHaveClass('dark');
   });
 });

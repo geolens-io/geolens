@@ -141,6 +141,26 @@ describe('dashboard drafts', () => {
     ).toBe(false);
   });
 
+  it('send the reader theme only when it is, or was, light or dark', () => {
+    const widgets = [indicator({})];
+    // Leaving the key out keeps the stored theme, so resetting to follow must say so.
+    expect(dashboardPayload({ panel: 'right', widgets }, [layer()], { panel: 'right' })).not.toHaveProperty('theme');
+    expect(dashboardPayload({ panel: 'right', theme: 'dark', widgets }, [layer()], { panel: 'right' })?.theme).toBe('dark');
+    expect(dashboardPayload({ panel: 'right', widgets }, [layer()], { panel: 'right', theme: 'dark' })?.theme).toBe('follow');
+    expect(dashboardPayload({ panel: 'right', theme: 'follow', widgets }, [layer()], { panel: 'right' })).not.toHaveProperty(
+      'theme',
+    );
+  });
+
+  it('read the saved theme and count a theme change as a change', () => {
+    const saved = toDashboardDraft({ version: 1, panel: 'right', map_hidden: false, theme: 'light', widgets: [] });
+    expect(saved.theme).toBe('light');
+    expect(toDashboardDraft(null).theme).toBeUndefined();
+    const widgets = [indicator({})];
+    expect(dashboardChanged({ panel: 'right', widgets }, { panel: 'right', theme: 'dark', widgets })).toBe(true);
+    expect(dashboardChanged({ panel: 'right', widgets }, { panel: 'right', theme: 'follow', widgets })).toBe(false);
+  });
+
   it('refuse a view scope on a layer with no geometry', () => {
     const viewWidget = { ...indicator({}), scope: 'view' as const };
     expect(widgetProblem(viewWidget, layer({ dataset_geometry_type: 'POINT' }))).toBeNull();

@@ -98,6 +98,8 @@
     "panelBottom": "Debajo del mapa",
     "hideMap": "Ocultar el mapa",
     "hideMapHelp": "Los lectores ven los widgets en toda la página y no se carga ningún mapa.",
+    "theme": "Tema para los lectores",
+    "themeFollow": "Según el lector",
     "empty": "Aún no hay widgets.",
     "noLayers": "Añade al mapa una capa vectorial o de tabla para darle widgets.",
     "add": "Añadir {{type}}",

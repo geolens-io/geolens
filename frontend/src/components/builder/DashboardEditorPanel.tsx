@@ -32,6 +32,7 @@ import {
   MAX_DASHBOARD_WIDGETS,
   widgetProblem,
   type DashboardDraft,
+  type DashboardTheme,
   type WidgetProblem,
 } from './dashboard-draft';
 
@@ -337,7 +338,9 @@ export function DashboardEditorPanel({
   map: MaplibreMap | null;
 }) {
   const { t } = useTranslation('widgets');
+  const { t: tCommon } = useTranslation('common');
   const positionId = useId();
+  const themeId = useId();
   const [previewing, setPreviewing] = useState(false);
   // Memoized so a title keystroke re-renders only its own card.
   const candidates = useMemo(() => dashboardLayers(layers), [layers]);
@@ -400,6 +403,19 @@ export function DashboardEditorPanel({
           { value: 'bottom', label: t('editor.panelBottom') },
         ]}
         onChange={(panel) => onChange({ ...draft, panel: panel as PanelPosition })}
+      />
+
+      <SelectField
+        id={themeId}
+        label={t('editor.theme')}
+        value={draft.theme ?? null}
+        placeholder={t('editor.themeFollow')}
+        options={[
+          { value: 'follow', label: t('editor.themeFollow') },
+          { value: 'light', label: tCommon('theme.light') },
+          { value: 'dark', label: tCommon('theme.dark') },
+        ]}
+        onChange={(theme) => onChange({ ...draft, theme: theme as DashboardTheme })}
       />
 
       {draft.widgets.length === 0 ? (

@@ -98,6 +98,8 @@
     "panelBottom": "Below the map",
     "hideMap": "Hide the map",
     "hideMapHelp": "Readers see the widgets across the full page and no map loads.",
+    "theme": "Reader theme",
+    "themeFollow": "Follow the reader",
     "empty": "No widgets yet.",
     "noLayers": "Add a vector or table layer to the map to give it widgets.",
     "add": "Add {{type}}",

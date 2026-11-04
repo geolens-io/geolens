@@ -98,6 +98,8 @@
     "panelBottom": "地图下方",
     "hideMap": "隐藏地图",
     "hideMapHelp": "读者可在整页看到这些组件，且不会加载地图。",
+    "theme": "读者主题",
+    "themeFollow": "跟随读者设置",
     "empty": "还没有小组件。",
     "noLayers": "向地图添加矢量或表格图层后即可添加小组件。",
     "add": "添加{{type}}",

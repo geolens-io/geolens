@@ -98,6 +98,8 @@
     "panelBottom": "Sous la carte",
     "hideMap": "Masquer la carte",
     "hideMapHelp": "Les lecteurs voient les widgets sur toute la page et aucune carte n'est chargée.",
+    "theme": "Thème pour les lecteurs",
+    "themeFollow": "Selon le lecteur",
     "empty": "Aucun widget pour l'instant.",
     "noLayers": "Ajoutez à la carte une couche vectorielle ou une table pour lui donner des widgets.",
     "add": "Ajouter : {{type}}",

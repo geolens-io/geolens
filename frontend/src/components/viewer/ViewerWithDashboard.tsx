@@ -3,7 +3,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { DashboardConfig, SharedLayerResponse } from '@/types/api';
 import { widgetLayerId } from '@/components/widgets/registry';
 import { readerLogoUrl, readerThemeStyle, type ReaderTheme } from '@/lib/reader-theme';
-import { useTheme } from '@/components/theme-provider';
+import { useForcedTheme, useTheme } from '@/components/theme-provider';
 import { cn } from '@/lib/utils';
 import { DashboardPanel, dashboardLayout } from './DashboardPanel';
 import { linkMapLayers, type LinkedPick } from './linked-filters';
@@ -39,6 +39,7 @@ interface ViewerWithDashboardProps {
  * reader clears it; the saved map is unchanged.
  */
 export function ViewerWithDashboard({ children, readerTheme, mainLandmark, ...panel }: ViewerWithDashboardProps) {
+  useForcedTheme(panel.config?.theme);
   const [map, setMap] = useState<MaplibreMap | null>(null);
   const { resolvedTheme } = useTheme();
   const [storedPicks, setPicks] = useState<readonly LinkedPick[]>([]);

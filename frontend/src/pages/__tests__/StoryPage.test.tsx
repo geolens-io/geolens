@@ -1,6 +1,7 @@
 import { Route, Routes } from 'react-router';
 import { render, screen } from '@/test/test-utils';
 import { StoryPage } from '../StoryPage';
+import { ThemeProvider } from '@/components/theme-provider';
 import { getStory } from '@/api/stories';
 import { ApiError } from '@/api/client';
 import type { StoryResponse } from '@/types/api';
@@ -105,4 +106,36 @@ it('offers the owner the editor for an unpublished story', async () => {
   vi.mocked(getStory).mockResolvedValue({ ...STORY, can_edit: true, published_at: null, document: null });
   renderPage();
   expect(await screen.findByRole('link', { name: 'Edit' })).toHaveAttribute('href', '/stories/story-1/edit');
+});
+
+describe('reader theme', () => {
+  function renderThemed() {
+    return render(
+      <ThemeProvider defaultTheme="light">
+        <Routes>
+          <Route path="/stories/:id" element={<StoryPage />} />
+        </Routes>
+      </ThemeProvider>,
+      { route: '/stories/story-1' },
+    );
+  }
+
+  afterEach(() => document.documentElement.classList.remove('light', 'dark'));
+
+  it('shows a dark story dark to a reader on light', async () => {
+    vi.mocked(getStory).mockResolvedValue({
+      ...STORY,
+      document: { ...STORY.document!, settings: { navigation: true, layout: 'side', panel_position: 'right', theme: 'dark' } },
+    });
+    renderThemed();
+    await screen.findByTestId('story-reader');
+    expect(document.documentElement).toHaveClass('dark');
+  });
+
+  it('leaves the reader\'s theme alone when the story follows', async () => {
+    vi.mocked(getStory).mockResolvedValue(STORY);
+    renderThemed();
+    await screen.findByTestId('story-reader');
+    expect(document.documentElement).toHaveClass('light');
+  });
 });
