@@ -10,6 +10,7 @@ rebuilds the concrete VSI path from the logical key and the current
 STORAGE_PROVIDER, so a provider swap needs no change to stored VRT XML.
 """
 
+import os
 import time
 import uuid
 from datetime import datetime, timezone
@@ -17,7 +18,7 @@ from datetime import datetime, timezone
 import structlog
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.platform.extensions import RecordAudienceQuery
 from app.platform.jobs import ledger
@@ -44,6 +45,7 @@ from app.processing.raster.vrt import (
     build_vrt,
     overview_key_for,
     resolve_vrt_source_path,
+    strip_vrt_overview,
 )
 from app.processing.raster.vrt_members import note_vrt_members
 from app.processing.raster.vrt_rewrite import rewrite_vrt_sources
@@ -108,6 +110,106 @@ def _log_publish_wait_failure(
         budget=_PUBLISH_CATALOG_TIMEOUT,
         sqlstate=code,
         hint=hint,
+    )
+
+
+VRT_OVERVIEW_ASSET_KEY = "vrt_overview"
+_COG_MEDIA_TYPE = "image/tiff; application=geotiff; profile=cloud-optimized"
+
+
+async def keep_overview_if_it_fits(
+    owner_id: uuid.UUID | None,
+    vrt_path: str,
+    overview_path: str | None,
+    *,
+    credit_bytes: int = 0,
+) -> str | None:
+    """Return ``overview_path`` when its bytes fit the owner's cap, else drop it.
+
+    Dropping deletes the file and strips the ``Overview`` elements, so the VRT
+    publishes without one. ``credit_bytes`` is what the superseded overview
+    already counts. This is advisory and runs before the VRT is hashed; the
+    authoritative reservation is ``record_vrt_overview``.
+    """
+    if overview_path is None:
+        return None
+    from app.core.db import async_session
+    from app.modules.quota.service import get_user_quota_usage
+
+    size = os.path.getsize(overview_path)
+    async with async_session() as session:
+        usage = await get_user_quota_usage(session, owner_id)
+    if usage.storage_cap > 0 and (
+        usage.bytes_used + max(0, size - credit_bytes) > usage.storage_cap
+    ):
+        structlog.get_logger().warning(
+            "VRT overview dropped: it would exceed the owner's storage cap",
+            size_bytes=size,
+        )
+        strip_vrt_overview(vrt_path, overview_path)
+        return None
+    return overview_path
+
+
+async def counted_overview_bytes(session, dataset_id: uuid.UUID) -> int:
+    """The bytes the dataset's current overview row counts toward quota."""
+    return int(
+        await session.scalar(
+            text(
+                "SELECT COALESCE(SUM(size_bytes), 0)::bigint "
+                "FROM catalog.dataset_assets "
+                "WHERE dataset_id = :dataset_id AND key = :key"
+            ),
+            {"dataset_id": dataset_id, "key": VRT_OVERVIEW_ASSET_KEY},
+        )
+    )
+
+
+async def record_vrt_overview(
+    session,
+    *,
+    dataset_id: uuid.UUID,
+    owner_id: uuid.UUID | None,
+    overview_key: str,
+    overview_path: str | None,
+) -> None:
+    """Reserve the overview's net bytes and write, replace or delete its row.
+
+    Runs in the transaction that publishes the VRT. The reservation recounts a
+    sum that still includes the superseded row, so only the increase is asked
+    for. ``StorageQuotaExceededError`` propagates and fails the publish.
+    """
+    from app.modules.quota.service import reserve_storage_bytes
+
+    prior = await counted_overview_bytes(session, dataset_id)
+    if overview_path is None:
+        await session.execute(
+            text(
+                "DELETE FROM catalog.dataset_assets "
+                "WHERE dataset_id = :dataset_id AND key = :key"
+            ),
+            {"dataset_id": dataset_id, "key": VRT_OVERVIEW_ASSET_KEY},
+        )
+        return
+    size = os.path.getsize(overview_path)
+    await reserve_storage_bytes(session, owner_id, max(0, size - prior))
+    await session.execute(
+        text(
+            "INSERT INTO catalog.dataset_assets "
+            "(dataset_id, key, href, media_type, title, roles, size_bytes) "
+            "VALUES (:dataset_id, :key, :href, :media_type, :title, "
+            "ARRAY['overview'], :size) "
+            "ON CONFLICT ON CONSTRAINT uq_dataset_assets_key DO UPDATE SET "
+            "href = EXCLUDED.href, size_bytes = EXCLUDED.size_bytes"
+        ),
+        {
+            "dataset_id": dataset_id,
+            "key": VRT_OVERVIEW_ASSET_KEY,
+            "href": overview_key,
+            "media_type": _COG_MEDIA_TYPE,
+            "title": "VRT overview",
+            "size": size,
+        },
     )
 
 
@@ -577,6 +679,9 @@ async def ingest_vrt(
         overview_path = await asyncio.to_thread(
             add_vrt_overview, vrt_path, source_paths
         )
+        overview_path = await keep_overview_if_it_fits(
+            uuid.UUID(user_id), vrt_path, overview_path
+        )
 
         # 6. Extract metadata from assembled VRT
         meta = await asyncio.to_thread(read_vrt_metadata, vrt_path)
@@ -714,6 +819,14 @@ async def ingest_vrt(
 
                 # Registered before the put: a cancelled put can have completed,
                 # and CancelledError skips every statement below it.
+                await record_vrt_overview(
+                    session,
+                    dataset_id=dataset.id,
+                    owner_id=uuid.UUID(user_id),
+                    overview_key=overview_key_for(vrt_key),
+                    overview_path=overview_path,
+                )
+
                 # Before the VRT, so a stored VRT never names a missing overview.
                 if overview_path is not None:
                     _storage_ovr_key = overview_key_for(_storage_vrt_key)
@@ -1059,6 +1172,7 @@ async def regenerate_vrt(
             )
 
             vrt_record = (await port.get_dataset(session, vrt_id)).record
+            vrt_owner_id = vrt_record.created_by
             vrt_audience = RecordAudienceQuery(
                 dataset_id=vrt_id,
                 record_id=vrt_record.id,
@@ -1116,6 +1230,11 @@ async def regenerate_vrt(
         )
         overview_path = await asyncio.to_thread(
             add_vrt_overview, vrt_path, source_paths
+        )
+        async with async_session() as session:
+            prior_overview_bytes = await counted_overview_bytes(session, vrt_id)
+        overview_path = await keep_overview_if_it_fits(
+            vrt_owner_id, vrt_path, overview_path, credit_bytes=prior_overview_bytes
         )
 
         # 6 & 7. Extract metadata (also serves as post-validation)
@@ -1316,6 +1435,13 @@ async def regenerate_vrt(
                 vrt_asset.width = meta.get("width")
                 vrt_asset.height = meta.get("height")
                 vrt_asset.compression = meta.get("compression")
+                await record_vrt_overview(
+                    session,
+                    dataset_id=vrt_id,
+                    owner_id=vrt_owner_id,
+                    overview_key=overview_key_for(next_vrt_storage_key),
+                    overview_path=overview_path,
+                )
 
                 # 12. Status transitions
                 vrt_asset.status = "ready"

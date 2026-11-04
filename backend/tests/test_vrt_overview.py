@@ -253,3 +253,156 @@ async def test_a_live_vrts_overview_counts_as_referenced(
         assert live == {overview}
     finally:
         await _purge_vrt(test_db_session, ids=ids)
+
+
+async def _overview_rows(session, dataset_id) -> list[int]:
+    from sqlalchemy import text
+
+    result = await session.execute(
+        text(
+            "SELECT size_bytes FROM catalog.dataset_assets "
+            "WHERE dataset_id = :id AND key = 'vrt_overview'"
+        ),
+        {"id": dataset_id},
+    )
+    return [row[0] for row in result.all()]
+
+
+async def _create_vrt(session, storage, admin_id):
+    from tests.test_raster_replace_1221 import _make_live_raster, _run_vrt_creation
+
+    member = await _make_live_raster(session, storage, created_by=admin_id)
+    vrt_id, record_id = await _run_vrt_creation(
+        session, storage, member=member, user_id=admin_id
+    )
+    return member, vrt_id, record_id
+
+
+async def _admin(session):
+    from sqlalchemy import select
+
+    from app.modules.auth.models import User
+
+    return (
+        await session.execute(select(User.id).where(User.username == "admin"))
+    ).scalar_one()
+
+
+async def _cleanup(session, member, vrt_id, record_id) -> None:
+    from tests.test_raster_replace_1221 import _purge_vrt
+
+    await _purge_vrt(
+        session,
+        ids=(vrt_id, record_id, member.dataset.id, member.dataset.record_id),
+    )
+
+
+@pytest.mark.anyio
+@needs_gdal_cli
+async def test_a_vrt_overview_is_recorded_and_counted(
+    client, admin_auth_header, test_db_session, raster_storage, monkeypatch
+) -> None:
+    from app.modules.quota.service import get_user_quota_usage
+
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_vrt.get_storage", lambda: raster_storage
+    )
+    admin_id = await _admin(test_db_session)
+    before = (await get_user_quota_usage(test_db_session, admin_id)).bytes_used
+    member, vrt_id, record_id = await _create_vrt(
+        test_db_session, raster_storage, admin_id
+    )
+    try:
+        sizes = await _overview_rows(test_db_session, vrt_id)
+        assert len(sizes) == 1 and sizes[0] > 0
+        after = (await get_user_quota_usage(test_db_session, admin_id)).bytes_used
+        assert after - before >= sizes[0]
+    finally:
+        await _cleanup(test_db_session, member, vrt_id, record_id)
+
+
+@pytest.mark.anyio
+@needs_gdal_cli
+async def test_an_overview_over_the_cap_is_dropped_and_the_vrt_still_publishes(
+    client, admin_auth_header, test_db_session, raster_storage, monkeypatch
+) -> None:
+    from sqlalchemy import select
+
+    from app.modules.quota.service import get_user_quota_usage
+    from app.processing.raster.models import RasterAsset
+    from tests.test_raster_replace_1221 import _capped, _make_live_raster
+
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_vrt.get_storage", lambda: raster_storage
+    )
+    admin_id = await _admin(test_db_session)
+    member = await _make_live_raster(
+        test_db_session, raster_storage, created_by=admin_id
+    )
+    used = (await get_user_quota_usage(test_db_session, admin_id)).bytes_used
+    from tests.test_raster_replace_1221 import _run_vrt_creation
+
+    vrt_id = record_id = None
+    try:
+        with _capped(storage_cap=used + 10):
+            vrt_id, record_id = await _run_vrt_creation(
+                test_db_session, raster_storage, member=member, user_id=admin_id
+            )
+        asset = (
+            await test_db_session.execute(
+                select(RasterAsset).where(RasterAsset.dataset_id == vrt_id)
+            )
+        ).scalar_one()
+        assert asset.status == "ready"
+        assert await _overview_rows(test_db_session, vrt_id) == []
+        assert not await raster_storage.exists(overview_key_for(asset.asset_uri))
+    finally:
+        if vrt_id is not None:
+            await _cleanup(test_db_session, member, vrt_id, record_id)
+
+
+@pytest.mark.anyio
+@needs_gdal_cli
+async def test_regeneration_replaces_the_overview_row(
+    client, admin_auth_header, test_db_session, raster_storage, monkeypatch
+) -> None:
+    from sqlalchemy import text
+
+    from tests.test_raster_replace_1221 import (
+        _make_live_raster,
+        _make_vrt_parent,
+        _purge_vrt,
+        _run_regeneration,
+    )
+
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_vrt.get_storage", lambda: raster_storage
+    )
+    admin_id = await _admin(test_db_session)
+    member = await _make_live_raster(
+        test_db_session, raster_storage, created_by=admin_id
+    )
+    parent = await _make_vrt_parent(
+        test_db_session, raster_storage, created_by=admin_id, member=member
+    )
+    ids = (
+        parent.dataset.id,
+        parent.dataset.record_id,
+        member.dataset.id,
+        member.dataset.record_id,
+    )
+    await test_db_session.execute(
+        text(
+            "INSERT INTO catalog.dataset_assets (dataset_id, key, href, size_bytes) "
+            "VALUES (:id, 'vrt_overview', 'stale', 1)"
+        ),
+        {"id": ids[0]},
+    )
+    await test_db_session.commit()
+    try:
+        await _run_regeneration(test_db_session, parent=parent, user_id=admin_id)
+        test_db_session.expire_all()
+        sizes = await _overview_rows(test_db_session, ids[0])
+        assert len(sizes) == 1 and sizes[0] > 1
+    finally:
+        await _purge_vrt(test_db_session, ids=ids)

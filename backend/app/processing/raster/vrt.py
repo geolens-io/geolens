@@ -554,3 +554,15 @@ def add_vrt_overview(vrt_path: str, source_paths: list[str]) -> str | None:
         SubElement(overview, "SourceBand").text = band.get("band", str(position))
     tree.write(vrt_path, encoding="utf-8", xml_declaration=True)
     return overview_path
+
+
+def strip_vrt_overview(vrt_path: str, overview_path: str) -> None:
+    """Undo ``add_vrt_overview``: remove the ``Overview`` elements and the file."""
+    from xml.etree.ElementTree import parse
+
+    tree = parse(vrt_path)
+    for band in tree.getroot().findall("VRTRasterBand"):
+        for overview in band.findall("Overview"):
+            band.remove(overview)
+    tree.write(vrt_path, encoding="utf-8", xml_declaration=True)
+    os.remove(overview_path)
