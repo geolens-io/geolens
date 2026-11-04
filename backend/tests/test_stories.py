@@ -1177,3 +1177,18 @@ async def test_scene_transition_round_trips_and_defaults_to_absent(
     bad["scene"]["transition"] = "teleport"
     resp = await _save(client, owner, {**story, "revision": saved["revision"]}, [bad])
     assert resp.status_code == 422, resp.text
+
+
+async def test_settings_this_server_cannot_parse_survive_a_draft_save(
+    client: AsyncClient, people, test_db_session
+):
+    owner = people["owner"]
+    story = await _story(client, owner)
+    future = {"theme": "sepia", "reader_font": "serif"}
+    draft = {"version": 1, "chapters": [], "settings": future}
+    await _store(test_db_session, story["id"], draft=draft)
+
+    read = await client.get(f"/stories/{story['id']}/draft", headers=owner)
+    assert read.json()["document"]["settings"] is None
+    await _saved(client, owner, read.json(), [_chapter()])
+    assert (await _stored_draft(test_db_session, story["id"]))["settings"] == future

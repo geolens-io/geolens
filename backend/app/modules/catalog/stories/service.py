@@ -522,6 +522,10 @@ async def merge_document(
     }
     if sent.settings is not None:
         document["settings"] = sent.settings.model_dump(mode="json")
+    elif isinstance(stored, dict) and stored.get("settings") is not None:
+        # Settings this server can't parse read back as none; keep them stored.
+        if _settings(stored) is None:
+            document["settings"] = stored["settings"]
     return await _without_deleted_maps(db, document), kept_ids
 
 

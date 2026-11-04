@@ -7,7 +7,7 @@ import {
   MAX_CHAPTERS,
   sameChapters,
 } from '../story-draft';
-import type { StoryChapter } from '@/types/api';
+import type { StoryChapter, StorySettings } from '@/types/api';
 
 const camera = { center: [-70, 25] as [number, number], zoom: 3, bearing: 0, pitch: 0 };
 
@@ -140,8 +140,8 @@ describe('document caps', () => {
   });
 
   it('adds up per-chapter sizes to exactly the whole document, and re-measures an edited chapter', () => {
-    const measure = (chapters: StoryChapter[]) => {
-      const json = JSON.stringify({ version: 1, chapters });
+    const measure = (chapters: StoryChapter[], settings: StorySettings | null = null) => {
+      const json = JSON.stringify({ version: 1, chapters, settings });
       return json.length + 5 * [...json].filter((c) => c.charCodeAt(0) > 0x7f).length;
     };
     const three = [chapter('a'), chapter('b', { title: 'caf\u00e9' }), chapter('c')];
@@ -149,6 +149,12 @@ describe('document caps', () => {
     expect(documentBytes(three)).toBe(measure(three));
     const edited = applyDraftEdit(three, { type: 'setTitle', chapterId: 'b', title: 'a much longer title' });
     expect(documentBytes(edited)).toBe(measure(edited));
+  });
+
+  it('counts the settings the save sends, null included', () => {
+    const settings = { navigation: true, layout: 'floating', panel_position: 'right', theme: 'dark' } as const;
+    expect(documentBytes([], settings)).toBe(documentBytes([]) + JSON.stringify(settings).length - 'null'.length);
+    expect(documentBytes([], null)).toBe(documentBytes([]));
   });
 
   it('measures the document as the server does, six bytes per escaped non-ASCII character', () => {
