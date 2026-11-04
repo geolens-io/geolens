@@ -87,6 +87,7 @@ function PublicMapViewer() {
   return (
     <ViewerWithDashboard
       config={data.dashboard_config}
+      readerTheme={data.reader_theme}
       layers={layers}
       hiddenLayers={hiddenByReader}
       mapId={id}

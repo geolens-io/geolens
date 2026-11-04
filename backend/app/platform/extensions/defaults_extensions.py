@@ -8,12 +8,20 @@ connectors, data serving, entitlement). Import via the
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.platform.extensions.reader_theme import ReaderTheme
+
 
 class DefaultBrandingExtension:
     """Default branding: shows community badge."""
 
     def get_branding_defaults(self) -> dict[str, object]:
         return {"show_badge": True}
+
+    def get_reader_theme(self) -> ReaderTheme | None:
+        return None
 
 
 class DefaultAuthExtension:

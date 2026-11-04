@@ -68,6 +68,7 @@ from app.modules.catalog.maps.service import (
 from app.modules.catalog.maps.style_json import build_maplibre_style
 from app.modules.embed_tokens.service import revoke_embed_tokens_by_map
 from app.platform.cache.scope import public_cache_control
+from app.platform.extensions.reader_theme import current_reader_theme
 from app.platform.request_credential import refuse_publish_key
 from app.standards.ogc.errors import FORBIDDEN_RESPONSE, GONE_RESPONSE
 
@@ -196,7 +197,9 @@ async def get_shared_map_endpoint(
     response.headers["Content-Security-Policy"] = _build_frame_ancestors(
         allowed_origins
     )
-    return SharedMapResponse(**map_data, layers=layers)
+    return SharedMapResponse(
+        **map_data, layers=layers, reader_theme=current_reader_theme()
+    )
 
 
 @router.get("/{map_id}/visibility-check/", response_model=VisibilityCheckResponse)

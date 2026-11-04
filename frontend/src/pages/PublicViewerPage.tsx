@@ -188,6 +188,7 @@ function PublicViewer() {
       {!isEmbed && <SiteBanner />}
       <ViewerWithDashboard
         config={data.dashboard_config}
+        readerTheme={data.reader_theme}
         layers={data.layers}
         hiddenLayers={hiddenByReader}
         embedToken={embedToken}

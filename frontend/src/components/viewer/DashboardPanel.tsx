@@ -370,6 +370,8 @@ interface DashboardPanelProps {
   picks?: readonly LinkedPick[];
   /** Given, a pick on a bar, bin or value filters its layer and the layer's other widgets. */
   onPicksChange?: (picks: readonly LinkedPick[]) => void;
+  /** A branding extension's logo, shown in the open panel's header. */
+  logoUrl?: string;
 }
 
 /**
@@ -389,6 +391,7 @@ export function DashboardPanel({
   startCollapsed = false,
   picks = NO_PICKS,
   onPicksChange,
+  logoUrl,
 }: DashboardPanelProps) {
   const { t } = useTranslation('widgets');
   const contentId = useId();
@@ -477,6 +480,10 @@ export function DashboardPanel({
         trigger={String(announcement.count)}
       />
       <div className={cn('flex items-center gap-2 px-3 py-2', !collapsed && 'border-b')}>
+        {!collapsed && logoUrl && (
+          // Decorative: a brand mark beside the heading, not content.
+          <img src={logoUrl} alt="" referrerPolicy="no-referrer" className="h-6 w-auto max-w-32 object-contain" />
+        )}
         {!collapsed && <h2 className="flex-1 text-sm font-semibold">{t('dashboard.title')}</h2>}
         <Button
           ref={toggleRef}

@@ -9,6 +9,7 @@ import { storyAssetPath } from '@/api/stories';
 import { AssetImage } from '@/components/widgets/image/AssetImage';
 import { prefetchMap } from '@/hooks/use-maps';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { readerLogoUrl, readerThemeStyle, type ReaderTheme } from '@/lib/reader-theme';
 import { cn } from '@/lib/utils';
 import type { StoryChapter } from '@/types/api';
 import { chapterHeadingId, StoryChapterBody } from './StoryChapterBody';
@@ -39,6 +40,8 @@ interface StoryReaderProps {
   chapters: StoryChapter[];
   /** The editor, for a reader who may edit the story. */
   editHref?: string;
+  /** A branding extension's accent, font and logo for this page. */
+  readerTheme?: ReaderTheme | null;
 }
 
 interface PanelProps extends StoryReaderProps {
@@ -53,7 +56,15 @@ interface PanelProps extends StoryReaderProps {
  * map, and the chapter in view sets the scene; narrow screens step through
  * one chapter at a time.
  */
-export function StoryReader({ storyId, coverAssetId, title, summary, chapters, editHref }: StoryReaderProps) {
+export function StoryReader({
+  storyId,
+  coverAssetId,
+  title,
+  summary,
+  chapters,
+  editHref,
+  readerTheme,
+}: StoryReaderProps) {
   const { t } = useTranslation('stories');
   const queryClient = useQueryClient();
   const isNarrow = useIsMobile();
@@ -99,6 +110,7 @@ export function StoryReader({ storyId, coverAssetId, title, summary, chapters, e
     summary,
     chapters,
     editHref,
+    readerTheme,
     active,
     onActiveChange: changeChapter,
     textOnly,
@@ -106,7 +118,7 @@ export function StoryReader({ storyId, coverAssetId, title, summary, chapters, e
   return (
     // The map stays the second child in both layouts, so a resize across the
     // breakpoint doesn't remount it; flex-col-reverse puts it on top when narrow.
-    <div className="flex min-h-0 w-full flex-1 flex-col-reverse md:flex-row">
+    <div className="flex min-h-0 w-full flex-1 flex-col-reverse md:flex-row" style={readerThemeStyle(readerTheme)}>
       {isNarrow ? <StoryStepper {...panelProps} /> : <StoryScrollPanel {...panelProps} />}
       {!textOnly && (
         <div className="relative h-[45vh] shrink-0 md:h-auto md:min-w-0 md:flex-1">
@@ -127,16 +139,22 @@ function StoryHeader({
   title,
   summary,
   editHref,
+  logoUrl,
 }: {
   storyId: string;
   coverAssetId?: string | null;
   title: string;
   summary: string | null;
   editHref?: string;
+  logoUrl?: string;
 }) {
   const { t } = useTranslation('stories');
   return (
     <header className="space-y-2">
+      {logoUrl && (
+        // Decorative: a brand mark beside the title, not content.
+        <img src={logoUrl} alt="" referrerPolicy="no-referrer" className="h-6 w-auto max-w-32 object-contain" />
+      )}
       {coverAssetId && (
         // Decorative beside the title.
         <AssetImage
@@ -170,6 +188,7 @@ function StoryScrollPanel({
   summary,
   chapters,
   editHref,
+  readerTheme,
   active,
   onActiveChange,
   textOnly,
@@ -234,6 +253,7 @@ function StoryScrollPanel({
           title={title}
           summary={summary}
           editHref={editHref}
+          logoUrl={readerLogoUrl(readerTheme)}
         />
         {chapters.map((chapter, i) => (
           <section
@@ -262,6 +282,7 @@ function StoryStepper({
   summary,
   chapters,
   editHref,
+  readerTheme,
   active,
   onActiveChange,
   textOnly,
@@ -305,6 +326,7 @@ function StoryStepper({
           title={title}
           summary={isFirst ? summary : null}
           editHref={editHref}
+          logoUrl={readerLogoUrl(readerTheme)}
         />
         <div className="space-y-3">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">

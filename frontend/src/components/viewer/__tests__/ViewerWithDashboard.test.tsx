@@ -1,6 +1,8 @@
 import { screen } from '@testing-library/react';
 import { render } from '@/test/test-utils';
 import type { DashboardConfig } from '@/types/api';
+import type { ReaderTheme } from '@/lib/reader-theme';
+import { DashboardPanel } from '../DashboardPanel';
 import { ViewerWithDashboard } from '../ViewerWithDashboard';
 
 vi.mock('@/api/aggregate', () => ({ fetchAggregate: vi.fn(() => new Promise(() => {})) }));
@@ -24,10 +26,11 @@ function config(panel?: 'right' | 'bottom'): DashboardConfig {
   } as DashboardConfig;
 }
 
-function renderLayout(panel?: 'right' | 'bottom') {
+function renderLayout(panel?: 'right' | 'bottom', readerTheme?: ReaderTheme) {
   render(
     <ViewerWithDashboard
       config={config(panel)}
+      readerTheme={readerTheme}
       layers={[{ id: layerId, dataset_id: 'ds-1', dataset_name: 'Parcels' } as never]}
     >
       {() => <div data-testid="viewport" />}
@@ -45,5 +48,30 @@ describe('ViewerWithDashboard', () => {
     const layout = renderLayout('bottom');
     expect(layout.className).not.toContain('md:flex-row');
     expect(screen.getByRole('region', { name: 'Dashboard' })).toBeInTheDocument();
+  });
+});
+
+describe('reader theme', () => {
+  const theme = { accent: '#0a7f4f', logo_url: 'https://cdn.example.com/logo.svg', font_family: null };
+
+  it('scopes the accent to the viewer and shows the logo in the dashboard header', () => {
+    const layout = renderLayout('right', theme);
+    expect(layout.style.getPropertyValue('--primary')).toBe('#0a7f4f');
+    expect(document.documentElement.style.getPropertyValue('--primary')).toBe('');
+    const panel = screen.getByRole('region', { name: 'Dashboard' });
+    expect(panel.querySelector('img')).toHaveAttribute('src', theme.logo_url);
+  });
+
+  it('renders with the standard tokens and no logo without a theme', () => {
+    const layout = renderLayout('right');
+    expect(layout.getAttribute('style')).toBeNull();
+    expect(screen.getByRole('region', { name: 'Dashboard' }).querySelector('img')).toBeNull();
+  });
+
+  it('leaves the panel the Builder renders unthemed', () => {
+    render(<DashboardPanel config={config('right')} layers={[{ id: layerId } as never]} map={null} />);
+    const panel = screen.getByRole('region', { name: 'Dashboard' });
+    expect(panel.querySelector('img')).toBeNull();
+    expect(panel.closest('[style]')).toBeNull();
   });
 });

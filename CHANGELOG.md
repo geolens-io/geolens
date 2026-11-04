@@ -13,6 +13,9 @@ and releases use semantic versioning.
 - The dashboard API accepts feature list, table and pie chart widgets, bar
   charts by feature, by fields or by date, and per-dashboard settings to hide
   the map and set a light or dark theme.
+- A branding extension can set an accent colour, a logo and a font on story
+  and dashboard pages, served as `reader_theme` on story and map responses.
+  Without one the pages look as before.
 - `geolens arcgis migrate` runs as a GeoLens editor when the plan maps every
   item to that editor, so one ArcGIS user can move their own content without
   an admin. Nothing is transferred. A public item under
@@ -38,6 +41,8 @@ and releases use semantic versioning.
 
 - CI cancels merge-queue runs left behind when a queue entry is rebuilt, so superseded runs no longer hold runners.
 - Jobs: the storage sweeps share one orphan-object scan.
+- Overlay authors: `EXTENSION_API_VERSION` is now 22. `BrandingExtension`
+  gains the required `get_reader_theme()`; return `None` for no theme.
 - A map's `updated_at` now moves when only its layers or its groups change
   (a layer added, edited, reordered or removed, or a group shared or
   unshared), so the gallery's "last updated" order and an

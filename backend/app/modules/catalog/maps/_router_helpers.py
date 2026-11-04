@@ -41,6 +41,7 @@ from app.modules.catalog.maps.sharing import can_read_every_map_dataset
 from app.modules.catalog.maps.dashboard import render_dashboard
 from app.modules.catalog.maps.style_json import project_terrain_config
 from app.platform.extensions import get_permission_extension
+from app.platform.extensions.reader_theme import current_reader_theme
 from app.platform.http.ranges import stored_object_response
 from app.platform.storage.titiler_url import resolve_current_storage_key
 
@@ -396,6 +397,7 @@ def _build_map_response(
         layer_count=len(layers),
         plugins=map_obj.plugins,
         legend_title=map_obj.legend_title,
+        reader_theme=current_reader_theme(),
     )
 
 

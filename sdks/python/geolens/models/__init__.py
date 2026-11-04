@@ -824,6 +824,7 @@ from .raster_tile_proxy_tiles_raster_proxy_dataset_id_zxy_fmt_get_stretch_type_0
     RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetStretchType0,
 )
 from .raster_tile_token import RasterTileToken
+from .reader_theme import ReaderTheme
 from .refresh_request import RefreshRequest
 from .refresh_verification import RefreshVerification
 from .refresh_verification_arcgis_id_coverage_type_0 import (
@@ -1681,6 +1682,7 @@ __all__ = (
     "RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetColormapNameType0",
     "RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetStretchType0",
     "RasterTileToken",
+    "ReaderTheme",
     "RefreshRequest",
     "RefreshVerification",
     "RefreshVerificationArcgisIdCoverageType0",

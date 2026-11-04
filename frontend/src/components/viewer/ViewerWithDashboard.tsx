@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { DashboardConfig, SharedLayerResponse } from '@/types/api';
 import { widgetLayerId } from '@/components/widgets/registry';
+import { readerLogoUrl, readerThemeStyle, type ReaderTheme } from '@/lib/reader-theme';
 import { cn } from '@/lib/utils';
 import { DashboardPanel, dashboardPanelPosition } from './DashboardPanel';
 import { linkMapLayers, type LinkedPick } from './linked-filters';
@@ -18,6 +19,8 @@ interface ViewerWithDashboardProps {
   /** Remembers the reader's collapsed choice; see `DashboardPanel`. */
   mapId?: string;
   startCollapsed?: boolean;
+  /** A branding extension's accent, font and logo for the viewer and its dashboard. */
+  readerTheme?: ReaderTheme | null;
   /**
    * Renders the map viewport, passing `onMapReady` on to the viewer's map and
    * `mapLayers` to it as its layers: `layers` with the reader's dashboard picks
@@ -31,7 +34,7 @@ interface ViewerWithDashboardProps {
  * narrow screens. A pick on a widget filters its layer on the map until the
  * reader clears it; the saved map is unchanged.
  */
-export function ViewerWithDashboard({ children, ...panel }: ViewerWithDashboardProps) {
+export function ViewerWithDashboard({ children, readerTheme, ...panel }: ViewerWithDashboardProps) {
   const [map, setMap] = useState<MaplibreMap | null>(null);
   const [storedPicks, setPicks] = useState<readonly LinkedPick[]>([]);
   const { hiddenLayers } = panel;
@@ -59,9 +62,16 @@ export function ViewerWithDashboard({ children, ...panel }: ViewerWithDashboardP
         'flex w-full min-h-0 flex-1 flex-col',
         dashboardPanelPosition(panel.config) === 'right' && 'md:flex-row',
       )}
+      style={readerThemeStyle(readerTheme)}
     >
       {children({ onMapReady: setMap, mapLayers })}
-      <DashboardPanel {...panel} map={map} picks={picks} onPicksChange={changePicks} />
+      <DashboardPanel
+        {...panel}
+        map={map}
+        picks={picks}
+        onPicksChange={changePicks}
+        logoUrl={readerLogoUrl(readerTheme)}
+      />
     </div>
   );
 }

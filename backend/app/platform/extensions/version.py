@@ -160,7 +160,9 @@ logger = logging.getLogger(__name__)
 # Cache implementations supplied by overlays must implement both operations.
 # 20 -> 21: ProcessingPort.build_gdal_source gained the optional ``return_z``
 # keyword so an ArcGIS layer that stores Z is queried with ``returnZ=true``.
-EXTENSION_API_VERSION: int = 21
+# 21 -> 22: BrandingExtension gained the required ``get_reader_theme`` method;
+# an overlay's branding extension without it serves pages no reader theme.
+EXTENSION_API_VERSION: int = 22
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:

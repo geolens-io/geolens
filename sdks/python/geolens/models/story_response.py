@@ -6,6 +6,7 @@ from typing import Any, TypeVar, TYPE_CHECKING
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..types import UNSET, Unset
 
 from ..models.stored_story_visibility import check_stored_story_visibility
 from ..models.stored_story_visibility import StoredStoryVisibility
@@ -15,6 +16,7 @@ from uuid import UUID
 import datetime
 
 if TYPE_CHECKING:
+    from ..models.reader_theme import ReaderTheme
     from ..models.story_document import StoryDocument
 
 
@@ -38,6 +40,8 @@ class StoryResponse:
         updated_at (datetime.datetime):
         can_edit (bool):
         document (None | StoryDocument): The published document; null until the story is published.
+        reader_theme (None | ReaderTheme | Unset): The theme a branding extension sets for the story's reader; null
+            without one.
     """
 
     id: UUID
@@ -51,9 +55,11 @@ class StoryResponse:
     updated_at: datetime.datetime
     can_edit: bool
     document: None | StoryDocument
+    reader_theme: None | ReaderTheme | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.reader_theme import ReaderTheme
         from ..models.story_document import StoryDocument
 
         id = str(self.id)
@@ -95,6 +101,14 @@ class StoryResponse:
         else:
             document = self.document
 
+        reader_theme: dict[str, Any] | None | Unset
+        if isinstance(self.reader_theme, Unset):
+            reader_theme = UNSET
+        elif isinstance(self.reader_theme, ReaderTheme):
+            reader_theme = self.reader_theme.to_dict()
+        else:
+            reader_theme = self.reader_theme
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -112,11 +126,14 @@ class StoryResponse:
                 "document": document,
             }
         )
+        if reader_theme is not UNSET:
+            field_dict["reader_theme"] = reader_theme
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.reader_theme import ReaderTheme
         from ..models.story_document import StoryDocument
 
         d = dict(src_dict)
@@ -199,6 +216,23 @@ class StoryResponse:
 
         document = _parse_document(d.pop("document"))
 
+        def _parse_reader_theme(data: object) -> None | ReaderTheme | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                reader_theme_type_0 = ReaderTheme.from_dict(data)
+
+                return reader_theme_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | ReaderTheme | Unset, data)
+
+        reader_theme = _parse_reader_theme(d.pop("reader_theme", UNSET))
+
         story_response = cls(
             id=id,
             title=title,
@@ -211,6 +245,7 @@ class StoryResponse:
             updated_at=updated_at,
             can_edit=can_edit,
             document=document,
+            reader_theme=reader_theme,
         )
 
         story_response.additional_properties = d

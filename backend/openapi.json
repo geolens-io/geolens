@@ -9482,6 +9482,17 @@
             "description": "The sharing groups the map is shared with, by name. Set on the detail endpoint for the owner and admins only; null elsewhere.",
             "title": "Groups"
           },
+          "reader_theme": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReaderTheme"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The theme a branding extension sets for the map's viewer and dashboard; null without one. The Builder ignores it."
+          },
           "excluded_layer_count": {
             "default": 0,
             "description": "Layers skipped due to access restrictions",
@@ -14442,6 +14453,17 @@
             ],
             "description": "The sharing groups the map is shared with, by name. Set on the detail endpoint for the owner and admins only; null elsewhere.",
             "title": "Groups"
+          },
+          "reader_theme": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReaderTheme"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The theme a branding extension sets for the map's viewer and dashboard; null without one. The Builder ignores it."
           }
         },
         "required": [
@@ -18516,6 +18538,54 @@
         "title": "RasterTileToken",
         "type": "object"
       },
+      "ReaderTheme": {
+        "additionalProperties": false,
+        "description": "An accent colour, a logo and a font family for reader-facing pages.\n\nThe frontend applies these as theme tokens only. A font is named, never\nfetched: the operator ships the font file, since the CSP allows no remote\nfonts.",
+        "properties": {
+          "accent": {
+            "anyOf": [
+              {
+                "pattern": "^#[0-9a-fA-F]{6}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The accent colour as `#rrggbb`.",
+            "title": "Accent"
+          },
+          "logo_url": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "An https URL of the logo shown in the page header.",
+            "title": "Logo Url"
+          },
+          "font_family": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "pattern": "^[A-Za-z0-9 ,'\"-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A CSS font family list the page's text uses first.",
+            "title": "Font Family"
+          }
+        },
+        "title": "ReaderTheme",
+        "type": "object"
+      },
       "RefreshRequest": {
         "properties": {
           "refresh_token": {
@@ -20917,6 +20987,17 @@
             },
             "title": "Layers",
             "type": "array"
+          },
+          "reader_theme": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReaderTheme"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The theme a branding extension sets for the viewer and its dashboard; null without one."
           }
         },
         "required": [
@@ -23746,6 +23827,17 @@
               }
             ],
             "description": "The published document; null until the story is published."
+          },
+          "reader_theme": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReaderTheme"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The theme a branding extension sets for the story's reader; null without one."
           }
         },
         "required": [

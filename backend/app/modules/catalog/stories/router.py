@@ -77,6 +77,7 @@ from app.modules.catalog.stories.service import (
     render_for,
     save_draft,
 )
+from app.platform.extensions.reader_theme import current_reader_theme
 from app.platform.storage.publication import asset_publication
 from app.standards.ogc.errors import (
     BAD_GATEWAY_RESPONSE,
@@ -231,7 +232,9 @@ async def get_story_endpoint(
         else None
     )
     return StoryResponse(
-        **_summary(story, can_edit_story(story, user, roles)), document=document
+        **_summary(story, can_edit_story(story, user, roles)),
+        document=document,
+        reader_theme=current_reader_theme(),
     )
 
 
@@ -401,7 +404,11 @@ async def update_story_endpoint(
         if story.published is not None
         else None
     )
-    return StoryResponse(**_summary(story, True), document=document)
+    return StoryResponse(
+        **_summary(story, True),
+        document=document,
+        reader_theme=current_reader_theme(),
+    )
 
 
 @router.post(
@@ -463,6 +470,7 @@ async def publish_story_endpoint(
     return StoryResponse(
         **_summary(story, True),
         document=await render_for(db, story.published, user, roles),
+        reader_theme=current_reader_theme(),
     )
 
 
