@@ -37,7 +37,7 @@ dependencies = [
     # In-memory tile cache when REDIS_URL is unset.
     "cachetools>=7.1.7",
     "redis>=7.4.1",
-    "jsonschema>=4.19",
+    "jsonschema[format-nongpl]>=4.19",
     "puremagic>=2.2.0",
     "rasterio>=1.5.1",
     "Pillow>=13.0.0",
