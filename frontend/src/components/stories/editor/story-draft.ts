@@ -3,7 +3,7 @@ import { BUTTON_DEFAULT_CONFIG, buttonNeedsAttention } from '@/components/widget
 import { IMAGE_DEFAULT_CONFIG, imageNeedsAlt } from '@/components/widgets/image/definition';
 import { SEPARATOR_DEFAULT_CONFIG, type SeparatorStyle } from '@/components/widgets/separator/definition';
 import { deepEqual } from '@/lib/deep-equal';
-import type { StoryCamera, StoryChapter, StoryScene } from '@/types/api';
+import type { StoryCamera, StoryChapter, StoryScene, StorySettings } from '@/types/api';
 
 export const STORY_TITLE_MAX_LENGTH = 200;
 export const STORY_SUMMARY_MAX_LENGTH = 2000;
@@ -213,8 +213,9 @@ function jsonBytes(value: unknown): number {
 const chapterBytes = new WeakMap<StoryChapter, number>();
 
 /** The size the server measures a draft at, in bytes. */
-export function documentBytes(chapters: readonly StoryChapter[]): number {
-  let total = '{"version":1,"chapters":[]}'.length + Math.max(0, chapters.length - 1);
+export function documentBytes(chapters: readonly StoryChapter[], settings?: StorySettings | null): number {
+  let total =
+    '{"version":1,"chapters":[],"settings":}'.length + jsonBytes(settings ?? null) + Math.max(0, chapters.length - 1);
   for (const chapter of chapters) {
     let size = chapterBytes.get(chapter);
     if (size === undefined) {

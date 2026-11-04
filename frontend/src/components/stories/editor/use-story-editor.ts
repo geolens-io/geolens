@@ -62,7 +62,7 @@ export function useStoryEditor(initial: StoryDraftResponse) {
 
   const missingAlt = useMemo(() => imagesMissingAlt(chapters), [chapters]);
   const incompleteButtons = useMemo(() => buttonsNeedingAttention(chapters), [chapters]);
-  const tooLarge = useMemo(() => documentBytes(chapters) > MAX_DOCUMENT_BYTES, [chapters]);
+  const tooLarge = useMemo(() => documentBytes(chapters, saved.document.settings) > MAX_DOCUMENT_BYTES, [chapters, saved.document.settings]);
   const unsaveable = tooLarge || missingAlt > 0 || incompleteButtons > 0;
   const stale = conflict?.code === 'stale_revision';
 
@@ -111,7 +111,7 @@ export function useStoryEditor(initial: StoryDraftResponse) {
   async function persist(revision: number, same: () => boolean): Promise<StoryDraftResponse | null> {
     const sent = chapters;
     try {
-      const draft = await saveStoryDraft(id, revision, sent);
+      const draft = await saveStoryDraft(id, revision, sent, saved.document.settings);
       if (!same()) return null;
       adopt(draft, sent);
       setConflict(null);

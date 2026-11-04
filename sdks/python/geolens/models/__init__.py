@@ -1007,6 +1007,11 @@ from .story_response import StoryResponse
 from .story_revision import StoryRevision
 from .story_scene import StoryScene
 from .story_scene_layer_visibility import StorySceneLayerVisibility
+from .story_scene_transition_type_0 import StorySceneTransitionType0
+from .story_settings import StorySettings
+from .story_settings_layout import StorySettingsLayout
+from .story_settings_panel_position import StorySettingsPanelPosition
+from .story_settings_theme import StorySettingsTheme
 from .story_summary import StorySummary
 from .story_update import StoryUpdate
 from .story_visibility import StoryVisibility
@@ -1791,6 +1796,11 @@ __all__ = (
     "StoryRevision",
     "StoryScene",
     "StorySceneLayerVisibility",
+    "StorySceneTransitionType0",
+    "StorySettings",
+    "StorySettingsLayout",
+    "StorySettingsPanelPosition",
+    "StorySettingsTheme",
     "StorySummary",
     "StoryUpdate",
     "StoryVisibility",

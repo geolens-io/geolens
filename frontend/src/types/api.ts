@@ -577,6 +577,7 @@ export type StoryListResponse = components['schemas']['StoryListResponse'];
 export type StoryResponse = components['schemas']['StoryResponse'];
 export type StoryChapter = components['schemas']['StoryChapter'];
 export type StoryScene = components['schemas']['StoryScene'];
+export type StorySettings = components['schemas']['StorySettings'];
 export type StoryCamera = components['schemas']['StoryCamera'];
 export type StoryDraftResponse = components['schemas']['StoryDraftResponse'];
 export type StoryCreate = components['schemas']['StoryCreate'];

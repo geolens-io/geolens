@@ -16595,6 +16595,7 @@ export interface components {
             version: number;
             /** Chapters */
             chapters: components["schemas"]["StoryChapter"][];
+            settings?: components["schemas"]["StorySettings"] | null;
         };
         /** StoryDocumentInput */
         StoryDocumentInput: {
@@ -16606,6 +16607,8 @@ export interface components {
             version: 1;
             /** Chapters */
             chapters?: components["schemas"]["StoryChapterInput"][];
+            /** @description Reader settings; absent means every default. */
+            settings?: components["schemas"]["StorySettings"] | null;
         };
         /** StoryDraftResponse */
         StoryDraftResponse: {
@@ -16771,6 +16774,41 @@ export interface components {
             layer_visibility?: {
                 [key: string]: boolean;
             };
+            /**
+             * Transition
+             * @description How the map moves into this scene; absent plays as fly.
+             */
+            transition?: ("fly" | "glide" | "cut") | null;
+        };
+        /** StorySettings */
+        StorySettings: {
+            /**
+             * Navigation
+             * @description Show the chapter navigation bar.
+             * @default false
+             */
+            navigation: boolean;
+            /**
+             * Layout
+             * @description Chapter panel beside the map or floating over it.
+             * @default side
+             * @enum {string}
+             */
+            layout: "side" | "floating";
+            /**
+             * Panel Position
+             * @description Where a floating panel sits.
+             * @default left
+             * @enum {string}
+             */
+            panel_position: "left" | "right" | "center";
+            /**
+             * Theme
+             * @description Reader page theme; follow uses the reader's.
+             * @default follow
+             * @enum {string}
+             */
+            theme: "follow" | "light" | "dark";
         };
         /** StorySummary */
         StorySummary: {

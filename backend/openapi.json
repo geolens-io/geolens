@@ -22951,6 +22951,16 @@
             },
             "title": "Chapters",
             "type": "array"
+          },
+          "settings": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StorySettings"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -22976,6 +22986,17 @@
             "maxItems": 200,
             "title": "Chapters",
             "type": "array"
+          },
+          "settings": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StorySettings"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Reader settings; absent means every default."
           }
         },
         "title": "StoryDocumentInput",
@@ -23365,6 +23386,23 @@
             },
             "title": "Layer Visibility",
             "type": "object"
+          },
+          "transition": {
+            "anyOf": [
+              {
+                "enum": [
+                  "fly",
+                  "glide",
+                  "cut"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How the map moves into this scene; absent plays as fly.",
+            "title": "Transition"
           }
         },
         "required": [
@@ -23372,6 +23410,51 @@
           "camera"
         ],
         "title": "StoryScene",
+        "type": "object"
+      },
+      "StorySettings": {
+        "additionalProperties": false,
+        "properties": {
+          "navigation": {
+            "default": false,
+            "description": "Show the chapter navigation bar.",
+            "title": "Navigation",
+            "type": "boolean"
+          },
+          "layout": {
+            "default": "side",
+            "description": "Chapter panel beside the map or floating over it.",
+            "enum": [
+              "side",
+              "floating"
+            ],
+            "title": "Layout",
+            "type": "string"
+          },
+          "panel_position": {
+            "default": "left",
+            "description": "Where a floating panel sits.",
+            "enum": [
+              "left",
+              "right",
+              "center"
+            ],
+            "title": "Panel Position",
+            "type": "string"
+          },
+          "theme": {
+            "default": "follow",
+            "description": "Reader page theme; follow uses the reader's.",
+            "enum": [
+              "follow",
+              "light",
+              "dark"
+            ],
+            "title": "Theme",
+            "type": "string"
+          }
+        },
+        "title": "StorySettings",
         "type": "object"
       },
       "StorySummary": {

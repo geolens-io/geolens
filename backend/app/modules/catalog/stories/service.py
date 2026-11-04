@@ -7,6 +7,8 @@ identity, so a scene on a map they can't read is left out rather than shown.
 
 from __future__ import annotations
 
+import json
+
 import copy
 import uuid
 from collections.abc import Iterable, Iterator
@@ -53,11 +55,13 @@ from app.modules.catalog.stories.assets import (
 )
 from app.modules.catalog.stories.models import Story, StoryGroupGrant, StoryMap
 from app.modules.catalog.stories.schemas import (
+    MAX_STORY_DOCUMENT_BYTES,
     STORY_DOCUMENT_VERSION,
     BlockingMap,
     StoryChapter,
     StoryDocument,
     StoryDocumentInput,
+    StorySettings,
     StoryScene,
 )
 from app.modules.catalog.widgets.schemas import ImageWidget, read_stored, to_store
@@ -416,7 +420,16 @@ def render_document(document: Any, readable: set[uuid.UUID]) -> StoryDocument:
     return StoryDocument(
         version=version if isinstance(version, int) else STORY_DOCUMENT_VERSION,
         chapters=chapters,
+        settings=_settings(document),
     )
+
+
+def _settings(document: Any) -> StorySettings | None:
+    raw = document.get("settings") if isinstance(document, dict) else None
+    try:
+        return StorySettings.model_validate(raw) if raw is not None else None
+    except ValidationError:
+        return None
 
 
 async def render_for(
@@ -506,7 +519,16 @@ async def merge_document(
                 "blocks": to_store(chapter.blocks, kept),
             }
         )
-    document = {"version": STORY_DOCUMENT_VERSION, "chapters": chapters}
+    document: dict[str, Any] = {
+        "version": STORY_DOCUMENT_VERSION,
+        "chapters": chapters,
+    }
+    if sent.settings is not None:
+        document["settings"] = sent.settings.model_dump(mode="json")
+    elif isinstance(stored, dict) and stored.get("settings") is not None:
+        # Settings this server can't parse read back as none; keep them stored.
+        if _settings(stored) is None:
+            document["settings"] = stored["settings"]
     return await _without_deleted_maps(db, document), kept_ids
 
 
@@ -813,7 +835,17 @@ async def save_draft(
         if isinstance(block, ImageWidget)
     }
     await require_story_assets(db, story.id, images)
-    story.draft, kept_ids = await merge_document(db, sent, story.draft, editor, roles)
+    merged, kept_ids = await merge_document(db, sent, story.draft, editor, roles)
+    # Kept unreadable settings are not in the size the input model checked.
+    if (
+        len(json.dumps(merged, separators=(",", ":")).encode())
+        > MAX_STORY_DOCUMENT_BYTES
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"document too large (>{MAX_STORY_DOCUMENT_BYTES} bytes serialized)",
+        )
+    story.draft = merged
     story.draft_revision += 1
     await sync_story_maps(db, story)
     return images | kept_ids
