@@ -139,6 +139,7 @@ def record_to_dcat_us3(
                 publisher=result["publisher"],
                 contacts=contacts,
                 license_value=record.license,
+                landing_iri=result["@id"],
             )
             for distribution in distributions
         ]
@@ -264,17 +265,26 @@ def _distribution_to_dcat_us3(
     publisher: dict,
     contacts: list[dict],
     license_value: str | None,
+    landing_iri: str,
 ) -> dict:
     url = distribution.url
+    # A URI template is not an IRI: point at the dataset and keep the template
+    # readable in the description.
+    is_template = "{" in url
+    access_url = landing_iri if is_template else url
+    description = distribution.description
+    if is_template:
+        note = f"Tile URL template: {url}"
+        description = f"{note} {description}" if description else note
     result: dict = {
         "@type": "Distribution",
-        "accessURL": url,
+        "accessURL": access_url,
     }
 
     if distribution.title is not None:
         result["title"] = distribution.title
-    if distribution.description is not None:
-        result["description"] = distribution.description
+    if description is not None:
+        result["description"] = description
     if distribution.distribution_type == "download":
         result["downloadURL"] = url
     if distribution.format is not None:
@@ -289,7 +299,8 @@ def _distribution_to_dcat_us3(
             {
                 "@type": "DataService",
                 "title": distribution.title or "GeoLens data service",
-                "endpointURL": [url],
+                "endpointURL": [access_url],
+                **({"description": description} if is_template else {}),
                 "publisher": publisher,
                 "contactPoint": contacts,
             }
