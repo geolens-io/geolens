@@ -13,6 +13,8 @@ export const MAX_CHAPTERS = 200;
 export const MAX_BLOCKS_PER_CHAPTER = 100;
 export const MAX_DOCUMENT_BYTES = 2 * 1024 * 1024;
 
+export type SceneTransition = NonNullable<StoryScene['transition']>;
+
 type Block = NonNullable<StoryChapter['blocks']>[number];
 
 /**
@@ -29,6 +31,7 @@ export type DraftEdit =
   | { type: 'clearScene'; chapterId: string }
   | { type: 'setCamera'; chapterId: string; camera: StoryCamera }
   | { type: 'setLayerVisible'; chapterId: string; layerId: string; visible: boolean }
+  | { type: 'setTransition'; chapterId: string; transition: SceneTransition }
   | { type: 'addTextBlock'; chapterId: string; blockId: string }
   | { type: 'setBlockText'; chapterId: string; blockId: string; text: string }
   | { type: 'addImageBlock'; chapterId: string; blockId: string; assetId: string }
@@ -157,6 +160,8 @@ export function applyDraftEdit(chapters: StoryChapter[], edit: DraftEdit): Story
       return update(chapters, edit.chapterId, (c) => ({ ...c, scene: null, scene_hidden: false }));
     case 'setCamera':
       return updateScene(chapters, edit.chapterId, (scene) => ({ ...scene, camera: edit.camera }));
+    case 'setTransition':
+      return updateScene(chapters, edit.chapterId, (scene) => ({ ...scene, transition: edit.transition }));
     case 'setLayerVisible':
       return updateScene(chapters, edit.chapterId, (scene) => ({
         ...scene,

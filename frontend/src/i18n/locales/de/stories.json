@@ -16,7 +16,8 @@
     "previous": "Zurück",
     "next": "Weiter",
     "edit": "Bearbeiten",
-    "sceneUnavailable": "Die Karte dieses Kapitels ist nicht verfügbar oder wurde gelöscht."
+    "sceneUnavailable": "Die Karte dieses Kapitels ist nicht verfügbar oder wurde gelöscht.",
+    "backToChapterView": "Zurück zur Ansicht dieses Kapitels"
   },
   "list": {
     "modeLabel": "Karten oder Storys",
@@ -182,7 +183,14 @@
       "mapMissing": "Die Karte dieser Szene wurde nicht gefunden. Sie wurde vielleicht gelöscht.",
       "currentMapIs": "Karte: {{name}}",
       "mapResultsCount_one": "{{count}} Karte gefunden",
-      "mapResultsCount_other": "{{count}} Karten gefunden"
+      "mapResultsCount_other": "{{count}} Karten gefunden",
+      "transition": "Übergang",
+      "transitionHint": "Wie sich die Karte zur Ansicht dieses Kapitels bewegt.",
+      "transitions": {
+        "fly": "Flug",
+        "glide": "Gleiten",
+        "cut": "Schnitt"
+      }
     },
     "markdown": {
       "write": "Schreiben",

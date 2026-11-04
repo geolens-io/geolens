@@ -1,5 +1,5 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from 'react';
-import { MapPinOff } from 'lucide-react';
+import { MapPinOff, Undo2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { useMap } from '@/hooks/use-maps';
@@ -9,17 +9,25 @@ import { toSharedLayer } from '@/components/viewer/shared-layer';
 import type { DrawnLayer } from '@/components/map/legend-facts';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { MapErrorBoundary } from '@/components/error';
+import { Button } from '@/components/ui/button';
 import { motionDuration } from '@/lib/reduced-motion';
 import { readMapCamera } from '@/components/builder/builder-camera';
 import type { StoryCamera } from '@/types/api';
-import { applySceneVisibility, cameraViewState, toStoryCamera, type ResolvedScene } from './story-scenes';
+import {
+  applySceneVisibility,
+  cameraDiffers,
+  cameraGap,
+  cameraViewState,
+  panTolerancePx,
+  toStoryCamera,
+  transitionDuration,
+  type ResolvedScene,
+} from './story-scenes';
 
 // Lazy so the map-vendor chunk loads only once a scene is shown.
 const ViewerMap = lazy(() =>
   import('@/components/viewer/ViewerMap').then((m) => ({ default: m.ViewerMap })),
 );
-
-const FLY_DURATION_MS = 2000;
 
 export interface StoryMapPaneHandle {
   /** The map's current view as a scene stores it, or null while no map is ready. */
@@ -73,6 +81,10 @@ function StoryMap({
   const { t } = useTranslation('stories');
   const { scene, chapterId } = resolved;
   const { data, isLoading, isError } = useMap(scene.map_id);
+  // Counts the times the map is sent back to the scene's camera: the editor's
+  // reset key and the reader's return button.
+  const [returns, setReturns] = useState(0);
+  const sceneVisit = (resetKey ?? 0) + returns;
 
   const layers = useMemo(() => (data?.layers ?? []).map(toSharedLayer), [data?.layers]);
   const sceneLayers = useMemo(
@@ -83,20 +95,32 @@ function StoryMap({
   // or new layer visibility from the editor's checkboxes.
   const visibilityKey = JSON.stringify(scene.layer_visibility ?? {});
   const { visibleLayers, handleToggleVisibility, isLegendOpen, setIsLegendOpen } =
-    useViewerLayers(sceneLayers, { mapKey: `${chapterId}:${visibilityKey}` });
+    useViewerLayers(sceneLayers, { mapKey: `${chapterId}:${visibilityKey}:${sceneVisit}` });
   const [drawnLayers, setDrawnLayers] = useState<ReadonlyMap<string, DrawnLayer>>();
 
   const mapRef = useRef<MaplibreMap | null>(null);
-  const cameraRef = useRef(scene.camera);
+  const sceneRef = useRef(scene);
   useEffect(() => {
-    cameraRef.current = scene.camera;
-  }, [scene.camera]);
+    sceneRef.current = scene;
+  }, [scene]);
+
+  const [away, setAway] = useState(false);
+
+  // Cut is a zero-length move, as is every move under reduced motion.
+  const playTransition = useCallback((map: MaplibreMap) => {
+    const { camera, transition } = sceneRef.current;
+    const duration = transition === 'cut' ? 0 : motionDuration(transitionDuration(cameraGap(map, camera)));
+    const options = { ...camera, duration };
+    if (transition === 'glide' || transition === 'cut') map.easeTo(options);
+    else map.flyTo(options);
+    setAway(false);
+  }, []);
 
   // Keyed on the chapter and the reset key rather than the camera object, so a
   // background refetch of the story doesn't pull a reader back from where they panned.
   useEffect(() => {
-    mapRef.current?.flyTo({ ...cameraRef.current, duration: motionDuration(FLY_DURATION_MS) });
-  }, [chapterId, resetKey]);
+    if (mapRef.current) playTransition(mapRef.current);
+  }, [chapterId, sceneVisit, playTransition]);
 
   // Unmounting with the map clears the handle, so a remount never reads the old map.
   useImperativeHandle(
@@ -106,10 +130,38 @@ function StoryMap({
   );
 
   // The reader may have moved on while the map loaded.
+  const [readyMap, setReadyMap] = useState<MaplibreMap | null>(null);
   const handleMapReady = useCallback((map: MaplibreMap) => {
     mapRef.current = map;
-    map.jumpTo(cameraRef.current);
+    setReadyMap(map);
+    map.jumpTo(sceneRef.current.camera);
   }, []);
+
+  // MapLibre marks a move the reader made (drag, wheel, touch, keys, controls) with an originalEvent.
+  useEffect(() => {
+    if (!readyMap) return;
+    let tolerance = panTolerancePx(readyMap);
+    const onResize = () => {
+      tolerance = panTolerancePx(readyMap);
+    };
+    const onMoveEnd = (event: { originalEvent?: unknown }) => {
+      if (event.originalEvent) setAway(cameraDiffers(readyMap, sceneRef.current.camera, tolerance));
+    };
+    readyMap.on('resize', onResize);
+    readyMap.on('moveend', onMoveEnd);
+    return () => {
+      readyMap.off('resize', onResize);
+      readyMap.off('moveend', onMoveEnd);
+    };
+  }, [readyMap]);
+
+  const returnToChapterView = () => {
+    const map = mapRef.current;
+    if (!map) return;
+    setReturns((n) => n + 1);
+    // The button leaves with the click, so focus goes to the map rather than the page.
+    map.getCanvas().focus();
+  };
 
   // ViewerMap reads its view once, at mount.
   const [initialViewState] = useState(() => cameraViewState(scene.camera));
@@ -144,9 +196,22 @@ function StoryMap({
             onMapReady={handleMapReady}
             onDrawnChange={setDrawnLayers}
             showAttributeTable={data.show_attribute_table}
+            fadeLayerChanges
           />
         </Suspense>
       </MapErrorBoundary>
+      {away && (
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="absolute left-1/2 top-3 z-10 -translate-x-1/2 shadow-md"
+          onClick={returnToChapterView}
+        >
+          <Undo2 className="h-4 w-4" aria-hidden="true" />
+          {t('reader.backToChapterView')}
+        </Button>
+      )}
       <LayerLegend
         layers={sceneLayers}
         visibleLayers={visibleLayers}

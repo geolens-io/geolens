@@ -1,4 +1,14 @@
-import { activeChapterFrom, applySceneVisibility, nextSceneMapId, resolveScene, toStoryCamera } from '../story-scenes';
+import {
+  activeChapterFrom,
+  applySceneVisibility,
+  cameraDiffers,
+  nextSceneMapId,
+  panTolerancePx,
+  resolveScene,
+  toStoryCamera,
+  transitionDuration,
+  type CameraProbe,
+} from '../story-scenes';
 import type { StoryChapter, StoryScene } from '@/types/api';
 
 function scene(mapId: string, zoom = 3): StoryScene {
@@ -91,5 +101,67 @@ describe('toStoryCamera', () => {
   it('has no camera without a center or zoom', () => {
     expect(toStoryCamera({ center_lng: null, center_lat: 1, zoom: 2, bearing: 0, pitch: 0 })).toBeNull();
     expect(toStoryCamera({ center_lng: 1, center_lat: 1, zoom: null, bearing: 0, pitch: 0 })).toBeNull();
+  });
+});
+
+const gap = (panPx: number, zoom = 0) => ({ panPx, zoom, bearing: 0, pitch: 0 });
+
+describe('transitionDuration', () => {
+  it('starts at the 600 ms floor and grows with the pan and the zoom change', () => {
+    expect(transitionDuration(gap(0))).toBe(600);
+    expect(transitionDuration(gap(400))).toBe(1000);
+    expect(transitionDuration(gap(0, 2))).toBe(900);
+    expect(transitionDuration(gap(400, 2))).toBe(1300);
+  });
+
+  it('stops at the 2.5 s cap, and for a distance that is not a number', () => {
+    expect(transitionDuration(gap(100000))).toBe(2500);
+    expect(transitionDuration(gap(Number.POSITIVE_INFINITY, 1))).toBe(2500);
+    expect(transitionDuration(gap(Number.NaN, 1))).toBe(2500);
+  });
+});
+
+describe('cameraDiffers', () => {
+  const target = { center: [10, 20] as [number, number], zoom: 5, bearing: 0, pitch: 0 };
+  const TOLERANCE = 10;
+  function probe(view: Partial<{ lng: number; lat: number; zoom: number; bearing: number; pitch: number }> = {}): CameraProbe {
+    const v = { lng: 10, lat: 20, zoom: 5, bearing: 0, pitch: 0, ...view };
+    return {
+      getCenter: () => ({ lng: v.lng, lat: v.lat }),
+      getZoom: () => v.zoom,
+      getBearing: () => v.bearing,
+      getPitch: () => v.pitch,
+      // One pixel per degree around the container's centre.
+      project: ([lng, lat]) => ({ x: 500 + lng - v.lng, y: 250 - (lat - v.lat) }),
+      getContainer: () => ({ clientWidth: 1000, clientHeight: 500 }),
+    };
+  }
+
+  it('is false at the scene camera and within the tolerance', () => {
+    expect(cameraDiffers(probe(), target, TOLERANCE)).toBe(false);
+    expect(cameraDiffers(probe({ lng: 10.9, zoom: 5.1, bearing: 1, pitch: 1 }), target, TOLERANCE)).toBe(false);
+  });
+
+  it('is true when the centre, zoom, bearing or pitch is past it', () => {
+    expect(cameraDiffers(probe({ lng: 21 }), target, TOLERANCE)).toBe(true);
+    expect(cameraDiffers(probe({ zoom: 5.2 }), target, TOLERANCE)).toBe(true);
+    expect(cameraDiffers(probe({ bearing: 2 }), target, TOLERANCE)).toBe(true);
+    expect(cameraDiffers(probe({ pitch: 2 }), target, TOLERANCE)).toBe(true);
+  });
+
+  it('reads a bearing across north as the short way round', () => {
+    expect(cameraDiffers(probe({ bearing: 359.5 }), target, TOLERANCE)).toBe(false);
+    expect(cameraDiffers(probe({ bearing: 358 }), target, TOLERANCE)).toBe(true);
+  });
+
+  it('reads a centre panned across the antimeridian as the short way round', () => {
+    const near = { ...target, center: [-179.99, 20] as [number, number] };
+    expect(cameraDiffers(probe({ lng: 180.01 }), near, TOLERANCE)).toBe(false);
+  });
+});
+
+describe('panTolerancePx', () => {
+  it('is 2% of the smaller side of the map', () => {
+    expect(panTolerancePx({ getContainer: () => ({ clientWidth: 1000, clientHeight: 500 }) })).toBe(10);
   });
 });

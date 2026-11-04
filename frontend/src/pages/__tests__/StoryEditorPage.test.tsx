@@ -328,6 +328,24 @@ it('picks a map, keeps the current view and sets the scene layers', async () => 
   });
 });
 
+it("sets the scene's transition from the select, showing Fly until one is chosen", async () => {
+  const user = userEvent.setup();
+  renderEditor();
+  await ready();
+  await pickMap(user, /^Tracks/);
+
+  const select = await screen.findByRole('combobox', { name: 'Transition' });
+  expect(select).toHaveTextContent('Fly');
+  await user.click(select);
+  await user.click(screen.getByRole('option', { name: 'Glide' }));
+  expect(screen.getByRole('combobox', { name: 'Transition' })).toHaveTextContent('Glide');
+  expect(pane.resolved?.scene.transition).toBe('glide');
+
+  saveNow();
+  await waitFor(() => expect(saveStoryDraft).toHaveBeenCalled());
+  expect(lastSavedChapters()[0].scene).toMatchObject({ map_id: 'map-a', transition: 'glide' });
+});
+
 it('saves unsaved edits before publishing, then publishes that revision', async () => {
   vi.mocked(publishStory).mockResolvedValue(published());
   const user = userEvent.setup();

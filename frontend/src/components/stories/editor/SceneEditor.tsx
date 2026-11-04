@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { savedMapCamera } from '@/components/builder/builder-camera';
 import { mapDetailQuery, useMap } from '@/hooks/use-maps';
 import { formatMutationError } from '@/lib/error-map';
@@ -15,7 +16,9 @@ import { queryKeys } from '@/lib/query-keys';
 import type { StoryCamera, StoryScene } from '@/types/api';
 import { toStoryCamera } from '../story-scenes';
 import { MapPicker } from './MapPicker';
-import type { DraftEdit } from './story-draft';
+import type { DraftEdit, SceneTransition } from './story-draft';
+
+const TRANSITIONS: readonly SceneTransition[] = ['fly', 'glide', 'cut'];
 
 const WORLD_VIEW: StoryCamera = { center: [0, 0], zoom: 2, bearing: 0, pitch: 0 };
 
@@ -47,6 +50,7 @@ export const SceneEditor = memo(function SceneEditor({
   const { t } = useTranslation('stories');
   const qc = useQueryClient();
   const layerIdPrefix = useId();
+  const transitionId = useId();
   const [loadingMap, setLoadingMap] = useState(false);
   const { data: sceneMap } = useMap(scene?.map_id);
   const latestChoice = useRef(0);
@@ -159,6 +163,27 @@ export const SceneEditor = memo(function SceneEditor({
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">{t('editor.scene.useCurrentViewHint')}</p>
+          <div className="space-y-1">
+            <Label htmlFor={transitionId}>{t('editor.scene.transition')}</Label>
+            <Select
+              value={scene.transition ?? 'fly'}
+              onValueChange={(value) =>
+                edit({ type: 'setTransition', chapterId, transition: value as SceneTransition })
+              }
+            >
+              <SelectTrigger id={transitionId} className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TRANSITIONS.map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {t(`editor.scene.transitions.${value}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">{t('editor.scene.transitionHint')}</p>
+          </div>
           {layers.length > 0 && (
             <fieldset className="space-y-2">
               <legend className="text-sm font-medium">{t('editor.scene.layers')}</legend>

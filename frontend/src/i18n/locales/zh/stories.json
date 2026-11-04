@@ -16,7 +16,8 @@
     "previous": "上一章",
     "next": "下一章",
     "edit": "编辑",
-    "sceneUnavailable": "本章的地图不可用或已被删除。"
+    "sceneUnavailable": "本章的地图不可用或已被删除。",
+    "backToChapterView": "返回本章节的视图"
   },
   "list": {
     "modeLabel": "地图或故事",
@@ -182,7 +183,14 @@
       "mapMissing": "未找到此场景的地图，它可能已被删除。",
       "currentMapIs": "地图：{{name}}",
       "mapResultsCount_one": "找到 {{count}} 个地图",
-      "mapResultsCount_other": "找到 {{count}} 个地图"
+      "mapResultsCount_other": "找到 {{count}} 个地图",
+      "transition": "过渡",
+      "transitionHint": "地图如何移动到本章节的视图。",
+      "transitions": {
+        "fly": "飞行",
+        "glide": "滑行",
+        "cut": "切换"
+      }
     },
     "markdown": {
       "write": "撰写",
