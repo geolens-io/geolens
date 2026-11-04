@@ -40,7 +40,7 @@ export default function CarouselBlockRenderer(props: WidgetRenderProps<GalleryCo
     // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
     <section
       role="group"
-      aria-roledescription="carousel"
+      aria-roledescription={t('types.carousel.roleDescription')}
       aria-labelledby={labelId}
       className="space-y-2"
       onKeyDown={onKeyDown}
@@ -50,7 +50,7 @@ export default function CarouselBlockRenderer(props: WidgetRenderProps<GalleryCo
       </span>
       <div
         role="group"
-        aria-roledescription="slide"
+        aria-roledescription={t('types.carousel.slideRoleDescription')}
         aria-label={position}
         key={image.asset_id}
         className="motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200"

@@ -121,6 +121,7 @@ describe('carousel block renderer', () => {
     renderBlock(block('carousel'));
 
     const slide = await screen.findByRole('group', { name: 'Image 1 of 3' });
+    expect(slide).toHaveAttribute('aria-roledescription', 'slide');
     expect(slide.className).toContain('motion-safe:animate-in');
     expect(slide.className).not.toMatch(/(^|\s)animate-in/);
   });

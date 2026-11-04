@@ -80,7 +80,9 @@
       "label": "Carrousel",
       "previous": "Image précédente",
       "next": "Image suivante",
-      "position": "Image {{current}} sur {{total}}"
+      "position": "Image {{current}} sur {{total}}",
+      "roleDescription": "carrousel",
+      "slideRoleDescription": "diapositive"
     }
   },
   "dashboard": {

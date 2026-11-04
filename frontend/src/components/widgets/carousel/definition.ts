@@ -13,6 +13,8 @@ export const carouselWidget = defineWidget<GalleryConfig>({
     'types.carousel.previous',
     'types.carousel.next',
     'types.carousel.position',
+    'types.carousel.roleDescription',
+    'types.carousel.slideRoleDescription',
   ],
   defaultConfig: { images: [] },
   parseConfig: parseGalleryConfig,
