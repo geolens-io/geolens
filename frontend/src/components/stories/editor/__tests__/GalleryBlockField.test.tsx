@@ -96,3 +96,19 @@ it('asks for alt text on each image until it is marked decorative, and counts th
   await user.click(screen.getByRole('checkbox', { name: 'Image 2 is decorative' }));
   expect(screen.queryByRole('textbox', { name: 'Alt text for image 2' })).not.toBeInTheDocument();
 });
+
+it('addresses entries by position when one image appears twice', async () => {
+  const user = userEvent.setup();
+  const chapter = chapterWith(2);
+  const images = (chapter.blocks![0] as { config: { images: Array<{ asset_id: string; caption?: string | null }> } }).config.images;
+  images[1].asset_id = images[0].asset_id;
+  render(<Harness initial={chapter} />);
+
+  const second = screen.getByRole('textbox', { name: 'Caption for image 2 (optional)' });
+  await user.type(second, 'x');
+  expect(screen.getByRole('textbox', { name: 'Caption for image 1 (optional)' })).toHaveValue('');
+  expect(second).toHaveValue('x');
+
+  await user.click(screen.getByRole('button', { name: 'Remove image 1' }));
+  expect(order()).toEqual(['Photo 2']);
+});

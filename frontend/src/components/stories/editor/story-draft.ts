@@ -58,13 +58,13 @@ export type DraftEdit =
       type: 'setGalleryImage';
       chapterId: string;
       blockId: string;
-      assetId: string;
+      index: number;
       alt?: string;
       decorative?: boolean;
       caption?: string;
     }
-  | { type: 'moveGalleryImage'; chapterId: string; blockId: string; assetId: string; by: -1 | 1 }
-  | { type: 'removeGalleryImage'; chapterId: string; blockId: string; assetId: string }
+  | { type: 'moveGalleryImage'; chapterId: string; blockId: string; index: number; by: -1 | 1 }
+  | { type: 'removeGalleryImage'; chapterId: string; blockId: string; index: number }
   | { type: 'addButtonBlock'; chapterId: string; blockId: string }
   | { type: 'setButton'; chapterId: string; blockId: string; label?: string; url?: string; newTab?: boolean }
   | { type: 'addSeparatorBlock'; chapterId: string; blockId: string }
@@ -107,7 +107,7 @@ function galleryBlock(id: string, kind: GalleryKind, assetId: string): Block {
   return { id, type: kind, v: 1, title: null, config: { images: [{ asset_id: assetId, ...IMAGE_DEFAULT_CONFIG }] } };
 }
 
-/** Applies `change` to the gallery image with this asset id; other blocks and images stay as they are. */
+/** Applies `change` to a gallery block's images; other blocks stay as they are. */
 function updateGalleryImages(
   chapters: StoryChapter[],
   chapterId: string,
@@ -237,8 +237,8 @@ export function applyDraftEdit(chapters: StoryChapter[], edit: DraftEdit): Story
       );
     case 'setGalleryImage':
       return updateGalleryImages(chapters, edit.chapterId, edit.blockId, (images) =>
-        images.map((image) => {
-          if (image.asset_id !== edit.assetId) return image;
+        images.map((image, i) => {
+          if (i !== edit.index) return image;
           const next = { ...image };
           if (edit.alt !== undefined) next.alt = edit.alt;
           if (edit.decorative !== undefined) next.decorative = edit.decorative;
@@ -250,13 +250,13 @@ export function applyDraftEdit(chapters: StoryChapter[], edit: DraftEdit): Story
       );
     case 'moveGalleryImage':
       return updateGalleryImages(chapters, edit.chapterId, edit.blockId, (images) => {
-        const from = images.findIndex((image) => image.asset_id === edit.assetId);
+        const from = edit.index;
         const to = from + edit.by;
-        return from < 0 || to < 0 || to >= images.length ? images : arrayMove(images, from, to);
+        return from < 0 || from >= images.length || to < 0 || to >= images.length ? images : arrayMove(images, from, to);
       });
     case 'removeGalleryImage':
       return updateGalleryImages(chapters, edit.chapterId, edit.blockId, (images) =>
-        images.length > 1 ? images.filter((image) => image.asset_id !== edit.assetId) : images,
+        images.length > 1 ? images.filter((_, i) => i !== edit.index) : images,
       );
     case 'addButtonBlock':
       return appendBlock(chapters, edit.chapterId, buttonBlock(edit.blockId));

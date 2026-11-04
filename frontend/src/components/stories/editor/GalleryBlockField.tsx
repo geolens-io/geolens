@@ -40,7 +40,7 @@ interface GalleryImageRowProps {
   index: number;
   count: number;
   edit: (change: DraftEdit) => void;
-  onMove: (assetId: string, by: -1 | 1) => void;
+  onMove: (index: number, by: -1 | 1) => void;
 }
 
 function GalleryImageRow({ storyId, chapterId, blockId, image, index, count, edit, onMove }: GalleryImageRowProps) {
@@ -52,10 +52,10 @@ function GalleryImageRow({ storyId, chapterId, blockId, image, index, count, edi
   const missingAlt = imageNeedsAlt(image);
   const number = index + 1;
   const setImage = (change: { alt?: string; decorative?: boolean; caption?: string }) =>
-    edit({ type: 'setGalleryImage', chapterId, blockId, assetId: image.asset_id, ...change });
+    edit({ type: 'setGalleryImage', chapterId, blockId, index, ...change });
 
   return (
-    <li data-image-id={image.asset_id} data-move-scope className="space-y-3 rounded-md border p-3">
+    <li data-image-id={index} data-move-scope className="space-y-3 rounded-md border p-3">
       <p className="text-sm font-medium">{t('editor.gallery.imageNumber', { index: number })}</p>
       <AssetImage
         path={storyAssetPath(storyId, image.asset_id)}
@@ -115,7 +115,7 @@ function GalleryImageRow({ storyId, chapterId, blockId, image, index, count, edi
             data-move={by}
             disabled={by < 0 ? index === 0 : index === count - 1}
             aria-label={t(by < 0 ? 'editor.gallery.moveUp' : 'editor.gallery.moveDown', { index: number })}
-            onClick={() => onMove(image.asset_id, by)}
+            onClick={() => onMove(index, by)}
           >
             {by < 0 ? (
               <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />
@@ -130,7 +130,7 @@ function GalleryImageRow({ storyId, chapterId, blockId, image, index, count, edi
           size="sm"
           className="text-muted-foreground hover:text-destructive"
           disabled={count === 1}
-          onClick={() => edit({ type: 'removeGalleryImage', chapterId, blockId, assetId: image.asset_id })}
+          onClick={() => edit({ type: 'removeGalleryImage', chapterId, blockId, index })}
         >
           <Trash2 className="h-4 w-4" aria-hidden="true" />
           {t('editor.gallery.remove', { index: number })}
@@ -162,7 +162,7 @@ export function GalleryBlockField({ storyId, uploads, chapterId, block, label, e
       <ul ref={listRef} className="space-y-3">
         {images.map((image, i) => (
           <GalleryImageRow
-            key={image.asset_id}
+            key={i}
             storyId={storyId}
             chapterId={chapterId}
             blockId={block.id}
@@ -170,9 +170,9 @@ export function GalleryBlockField({ storyId, uploads, chapterId, block, label, e
             index={i}
             count={images.length}
             edit={edit}
-            onMove={(assetId, by) => {
-              markMoved(assetId, by);
-              edit({ type: 'moveGalleryImage', chapterId, blockId: block.id, assetId, by });
+            onMove={(from, by) => {
+              markMoved(String(from + by), by);
+              edit({ type: 'moveGalleryImage', chapterId, blockId: block.id, index: from, by });
             }}
           />
         ))}
