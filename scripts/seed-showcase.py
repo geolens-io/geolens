@@ -5447,6 +5447,11 @@ def _orbit_crop(
     )
 
 
+def _meets(b: list[float] | None, view: tuple[float, float, float, float]) -> bool:
+    west, south, east, north = view
+    return bool(b) and b[0] <= east and b[2] >= west and b[1] <= north and b[3] >= south
+
+
 def _view_bbox(camera: dict) -> tuple[float, float, float, float]:
     """Roughly what a 1280 x 800 map shows at the camera, as west, south, east, north."""
     lng, lat = camera["center"]
@@ -5573,12 +5578,21 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
         "bearing": 0,
         "pitch": 0,
     }
-    crop, newest = _orbit_crop(
+    crop, crop_day = _orbit_crop(
         api, passes, bounds, orbit["center_lng"], orbit["center_lat"]
     )
-    older = [day for day in passes if day < newest]
-    if not older:
-        raise RuntimeError(f"{ORBIT_MAP!r} has no scene older than {newest}")
+    # The chapters' dates follow what the camera sees; the crop's own date
+    # belongs to the picture alone.
+    view = _view_bbox(orbit_camera)
+    in_view = [
+        day
+        for day, layers in passes.items()
+        if any(_meets(bounds[lay["id"]], view) for lay in layers)
+    ]
+    newest = in_view[0] if in_view and in_view[0] > min(passes) else next(iter(passes))
+    older = [day for day in in_view if day < newest] or [
+        day for day in passes if day < newest
+    ]
     earlier, gap = _earlier_pass([newest, *older])
 
     def orbit_scene(show: str, transition: str) -> dict:
@@ -5674,7 +5688,7 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
                         "colour at 10 m a pixel and GeoLens draws them straight "
                         "from the public archive instead of keeping a copy. The "
                         "picture below is different: a stored crop of the "
-                        f"{newest} scene, credited to Copernicus Sentinel "
+                        f"{crop_day} scene, credited to Copernicus Sentinel "
                         "data.\n\n"
                         "Each satellite pass covers the city in tiles, so where "
                         f"the {newest} scene stops, the map shows the nearest "
@@ -5690,9 +5704,9 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
                             "alt": "True-colour satellite image of the New York "
                             "City area, with dark water, grey built-up land and "
                             "green parks.",
-                            "caption": f"Sentinel-2 true colour, {newest}. "
+                            "caption": f"Sentinel-2 true colour, {crop_day}. "
                             f"Contains modified Copernicus Sentinel data "
-                            f"{newest[:4]}.",
+                            f"{crop_day[:4]}.",
                         },
                     },
                 ],

@@ -428,11 +428,19 @@ def test_crop_scene_is_the_newest_one_that_covers_the_tile():
     assert chapters[1].title == "A week earlier"
 
 
-def test_crop_scene_needs_an_older_pass_for_the_second_chapter():
-    api = NycFakeApi(orbit_dates=("2026-09-11", "2026-09-04"))
-    api.bounds = {"ds-scene-0": [-73.5, 40.5, -73.0, 41.0], "ds-scene-1": _wide()}
-    with pytest.raises(RuntimeError, match="no scene older than 2026-09-04"):
-        seeder.seed_nyc_story(api)
+def test_chapters_follow_the_view_while_the_caption_follows_the_crop():
+    """The only scene covering the crop is the oldest; a newer tile meets the view."""
+    api = NycFakeApi(orbit_dates=("2026-09-11", "2026-08-29"))
+    api.bounds = {
+        "ds-scene-0": [-73.9, 40.5, -73.0, 41.0],
+        "ds-scene-1": _wide(),
+    }
+    seeder.seed_nyc_story(api)
+    first, second = _document(api).chapters[:2]
+    assert "saw it on 2026-09-11" in first.blocks[0].config.text
+    assert "2026-08-29" in first.blocks[1].config.caption
+    assert "2026-08-29" in second.blocks[0].config.text
+    assert {dataset for dataset, _ in api.tiles} == {"ds-scene-1"}
 
 
 def test_a_view_spanning_two_tiles_keeps_both_visible_in_both_chapters():
