@@ -1979,6 +1979,39 @@ def test_a_lost_save_of_a_default_styled_layer_is_adopted_only_against_a_recorde
         )
 
 
+@pytest.mark.parametrize("edited", [False, True], ids=["unedited", "zoom-edited"])
+def test_a_lost_save_of_a_map_with_no_initial_view_is_adopted_only_with_its_camera_intact(
+    runner, plan_file, geolens, portal, edited
+):
+    token = _changed_in_the_portal(runner, plan_file, geolens, portal)
+    translated = _translated(dataset_id("Parcels"))
+    no_view = {"center_lng": None, "center_lat": None, "zoom": None, "bearing": None}
+    geolens.routes[IMPORT] = lambda seen: (
+        (201, {**translated, "view": {**translated["view"], **no_view}})
+        if seen.json().get("dry_run")
+        else (201, _response())
+    )
+    stored = _committing_save(geolens, commits=True, failure=httpx.ReadTimeout("slow"))
+    _migrate(runner, plan_file, "--token", token)
+    # The server keeps the camera a save sends null.
+    stored.update(center_lng=0.0, center_lat=0.0, zoom=1.0, bearing=0.0)
+    if edited:
+        stored.update(zoom=7.0, updated_at="2026-10-09T00:00:00Z")
+
+    result, payload = _migrate(runner, plan_file, "--token", token)
+
+    assert len(_puts(geolens)) == 1
+    entry = _state(plan_file)["items"][B1]
+    if edited:
+        assert result.exit_code == 1
+        [reason] = payload["not_up_to_date"][B1]
+        assert "changed in GeoLens since the last run" in reason
+        assert entry["map_snapshot"]["updated_at"] == "2026-10-01T00:00:00+00:00"
+    else:
+        assert result.exit_code == 0, result.output
+        assert entry["map_snapshot"]["updated_at"] == "2026-10-03T00:00:00+00:00"
+
+
 @pytest.mark.parametrize("answer", ["older", "unpaired", "older_sdk"])
 def test_a_translation_the_cli_cant_save_is_reported(
     runner, plan_file, geolens, portal, monkeypatch, answer

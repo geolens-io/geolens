@@ -733,11 +733,17 @@ def _owed_layers(
     )
 
 
-# The map fields a save that doesn't send them leaves as they are.
+# The map fields a save leaves as they are when it doesn't send them or sends
+# them null.
 _UNSENT_MAP_KEYS = (
     "name",
     "description",
+    "center_lng",
+    "center_lat",
+    "zoom",
+    "bearing",
     "pitch",
+    "basemap_style",
     "show_basemap_labels",
     "show_attribute_table",
     "visibility",
@@ -797,8 +803,8 @@ def _write_fingerprint(
     styles: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any]:
     """A fingerprint of the map a save leaves, and the fields it covers: the
-    ones the save sends, and the map-level ones it leaves as *before* has them.
-    A null view field is skipped by the save, so it is left out. A style sent
+    ones the save sends, and the map-level ones it leaves as *before* has them,
+    which includes a view field sent null. A style sent
     null is filled in by the save; it is covered by the value *styles* records
     for the layer, and the save is *unverified* when none is recorded."""
     sent = {
