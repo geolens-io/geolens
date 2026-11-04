@@ -190,6 +190,8 @@
     "failureGroupCount_one": "{{count}} 个条目",
     "failureGroupCount_other": "{{count}} 个条目",
     "failureUnknown": "未知错误",
+    "itemErrorImportFailed": "无法导入此条目。",
+    "itemErrorTooLong": "条目 ID 或资源链接过长，无法保存。",
     "importMore": "导入更多",
     "backToResults": "返回结果列表",
     "catalogConnected": "STAC 目录 · 已连接",

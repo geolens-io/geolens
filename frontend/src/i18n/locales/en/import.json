@@ -190,6 +190,8 @@
     "failureGroupCount_one": "{{count}} item",
     "failureGroupCount_other": "{{count}} items",
     "failureUnknown": "Unknown error",
+    "itemErrorImportFailed": "This item could not be imported.",
+    "itemErrorTooLong": "The item id or asset link is too long to store.",
     "importMore": "Import more",
     "backToResults": "Back to results",
     "catalogConnected": "STAC Catalog · connected",

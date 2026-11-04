@@ -142,6 +142,12 @@ function assetUnavailableReasonText(
 
 export function StacImportForm() {
   const { t } = useTranslation('import');
+  // Per-item failures arrive in a 200 response, outside the client's error localization.
+  const itemErrorText = (error: string) => {
+    if (error === 'import_failed') return t('stac.itemErrorImportFailed');
+    if (error === 'too_long') return t('stac.itemErrorTooLong');
+    return error;
+  };
   const [step, setStep] = useState<Step>('idle');
   const [url, setUrl] = useState('');
   const [credentialMethod, setCredentialMethod] = useState<StacCredentialMethod>('none');
@@ -570,7 +576,9 @@ export function StacImportForm() {
         // No datasets created and at least one failure — surface the first
         // distinct error so the toast isn't a silent "{n} failed".
         const firstError = (result.results ?? []).find((r) => r.status === 'error')?.error;
-        toast.error(firstError ?? t('stac.failedCount', { count: result.errors }));
+        toast.error(
+          firstError ? itemErrorText(firstError) : t('stac.failedCount', { count: result.errors }),
+        );
       }
     } catch (err) {
       if (!mountedRef.current) return;
@@ -792,7 +800,7 @@ export function StacImportForm() {
     const failures = (importResult.results ?? []).filter((r) => r.status === 'error');
     const groupedFailures = Array.from(
       failures.reduce((acc, r) => {
-        const message = r.error ?? t('stac.failureUnknown');
+        const message = r.error ? itemErrorText(r.error) : t('stac.failureUnknown');
         const group = acc.get(message) ?? { message, itemIds: [] as string[] };
         group.itemIds.push(r.item_id);
         acc.set(message, group);

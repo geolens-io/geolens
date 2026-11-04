@@ -167,6 +167,8 @@
     "failureGroupCount_one": "{{count}} elemento",
     "failureGroupCount_other": "{{count}} elementos",
     "failureUnknown": "Error desconocido",
+    "itemErrorImportFailed": "No se pudo importar este elemento.",
+    "itemErrorTooLong": "El identificador del elemento o el enlace del recurso es demasiado largo para guardarlo.",
     "importMore": "Importar más",
     "backToResults": "Volver a los resultados",
     "catalogConnected": "Catálogo STAC · conectado",
