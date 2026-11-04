@@ -702,6 +702,29 @@ class TestGroupStats:
             "message": "Unknown column: 'pop'",
         }
 
+    async def test_each_form_reads_its_own_shape_from_a_warm_cache(
+        self, client: AsyncClient, points
+    ):
+        single = {"op": "group_by", "group_column": "kind", "stat": "count"}
+        listed = {
+            "op": "group_by",
+            "group_column": "kind",
+            "stats": [{"stat": "count"}],
+        }
+
+        warm = await _aggregate(client, points.id, single)
+        as_list = await _aggregate(client, points.id, listed)
+        again = await _aggregate(client, points.id, single)
+
+        assert warm.json()["result"]["groups"][0] == {"key": "keep", "value": 6}
+        assert as_list.json()["result"]["groups"][0] == {
+            "key": "keep",
+            "value": 6,
+            "values": [6],
+        }
+        assert again.json()["cached"] is True
+        assert again.json()["result"] == warm.json()["result"]
+
     async def test_a_group_by_cached_before_the_truncated_flag_is_not_read(
         self, client: AsyncClient, points
     ):

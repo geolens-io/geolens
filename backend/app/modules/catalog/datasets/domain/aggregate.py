@@ -779,7 +779,13 @@ async def run_aggregate(
         "aggregate",
         dataset,
         request.model_dump(mode="json")
-        | {"bbox": bbox, "covered": covered, "format": _RESULT_FORMAT},
+        | {
+            "bbox": bbox,
+            "covered": covered,
+            "format": _RESULT_FORMAT,
+            # Both group_by forms read as one `stats` list but answer in two shapes.
+            "single": request.op == "group_by" and request._single,
+        },
     )
     cached = await get_cache().get(cache_key) if cache_key is not None else None
     if cached is not None:
