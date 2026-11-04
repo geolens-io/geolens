@@ -1076,3 +1076,104 @@ async def test_map_stories_is_for_whoever_can_delete_the_map(
     assert no_edit.status_code == 403, no_edit.text
     missing = await client.get(f"/maps/{uuid.uuid4()}/stories/", headers=owner)
     assert missing.status_code == 404
+
+
+_SETTINGS = {
+    "navigation": True,
+    "layout": "floating",
+    "panel_position": "right",
+    "theme": "dark",
+}
+
+
+async def _save_document(client, headers, story: dict, document: dict):
+    return await client.put(
+        f"/stories/{story['id']}/draft",
+        json={"revision": story["revision"], "document": document},
+        headers=headers,
+    )
+
+
+async def test_settings_round_trip_through_draft_publish_and_read(
+    client: AsyncClient, people
+):
+    owner = people["owner"]
+    story = await _story(client, owner)
+    saved = await _save_document(
+        client,
+        owner,
+        story,
+        {"version": 1, "chapters": [_chapter()], "settings": _SETTINGS},
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["document"]["settings"] == _SETTINGS
+    draft = await client.get(f"/stories/{story['id']}/draft", headers=owner)
+    assert draft.json()["document"]["settings"] == _SETTINGS
+
+    published = await _publish(client, owner, story["id"])
+    assert published.status_code == 200, published.text
+    read = await client.get(f"/stories/{story['id']}", headers=owner)
+    assert read.json()["document"]["settings"] == _SETTINGS
+
+
+async def test_a_draft_settings_change_is_unseen_until_publish(
+    client: AsyncClient, people
+):
+    owner = people["owner"]
+    story = await _story(client, owner)
+    saved = await _save_document(
+        client, owner, story, {"version": 1, "chapters": [_chapter()]}
+    )
+    story["revision"] = saved.json()["revision"]
+    await _publish(client, owner, story["id"])
+    first = await client.get(f"/stories/{story['id']}", headers=owner)
+    assert first.json()["document"]["settings"] is None
+
+    draft = await client.get(f"/stories/{story['id']}/draft", headers=owner)
+    story["revision"] = draft.json()["revision"]
+    changed = await _save_document(
+        client,
+        owner,
+        story,
+        {"version": 1, "chapters": [_chapter()], "settings": {"theme": "light"}},
+    )
+    assert changed.status_code == 200, changed.text
+    unpublished = await client.get(f"/stories/{story['id']}", headers=owner)
+    assert unpublished.json()["document"]["settings"] is None
+
+    await _publish(client, owner, story["id"])
+    after = await client.get(f"/stories/{story['id']}", headers=owner)
+    assert after.json()["document"]["settings"]["theme"] == "light"
+    assert after.json()["document"]["settings"]["layout"] == "side"
+
+
+async def test_unknown_or_invalid_settings_are_refused(client: AsyncClient, people):
+    owner = people["owner"]
+    story = await _story(client, owner)
+    for settings in ({"colour": "red"}, {"theme": "sepia"}, {"layout": "grid"}):
+        resp = await _save_document(
+            client,
+            owner,
+            story,
+            {"version": 1, "chapters": [], "settings": settings},
+        )
+        assert resp.status_code == 422, (settings, resp.text)
+
+
+async def test_scene_transition_round_trips_and_defaults_to_absent(
+    client: AsyncClient, people
+):
+    owner = people["owner"]
+    story = await _story(client, owner)
+    map_id = await _map(client, owner)
+    glide, plain = _chapter(map_id), _chapter(map_id)
+    glide["scene"]["transition"] = "glide"
+    saved = await _saved(client, owner, story, [glide, plain])
+    scenes = [c["scene"] for c in saved["document"]["chapters"]]
+    assert scenes[0]["transition"] == "glide"
+    assert scenes[1]["transition"] is None
+
+    bad = _chapter(map_id)
+    bad["scene"]["transition"] = "teleport"
+    resp = await _save(client, owner, {**story, "revision": saved["revision"]}, [bad])
+    assert resp.status_code == 422, resp.text

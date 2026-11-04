@@ -59,8 +59,11 @@ _Avoid_: Team, role, layer group (layers grouped inside a map).
 
 **Chapter**: One step of a story: a title, blocks (text, images, buttons and separators) and an optional scene.
 
-**Scene**: What the map shows for a chapter: a saved map, its camera and which of its saved layers are visible. A chapter without a scene keeps the one before it; chapters before the first scene show that first scene.
+**Scene**: What the map shows for a chapter: a saved map, its camera and which of its saved layers are visible. A scene never changes how a layer looks; a chapter that needs a different look shows another layer of the same map. A chapter without a scene keeps the one before it; chapters before the first scene show that first scene.
 _Avoid_: Slide, view (a map's own saved camera).
+
+**Transition**: How the map moves into a chapter's scene: Fly, Glide or Cut. Layers the scene turns on or off fade, and a scene on another saved map fades in over the one before it. A reader who prefers reduced motion always gets a cut.
+_Avoid_: Animation, camera move.
 
 **Draft**: The version of a story its owner edits. A save replaces the whole draft; readers don't see it until it's published.
 

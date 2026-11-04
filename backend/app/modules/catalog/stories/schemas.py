@@ -69,6 +69,25 @@ class StoryScene(_Strict):
             "ignored, and a layer left out keeps its saved visibility."
         ),
     )
+    transition: Literal["fly", "glide", "cut"] | None = Field(
+        default=None,
+        description="How the map moves into this scene; absent plays as fly.",
+    )
+
+
+class StorySettings(_Strict):
+    navigation: bool = Field(
+        default=False, description="Show the chapter navigation bar."
+    )
+    layout: Literal["side", "floating"] = Field(
+        default="side", description="Chapter panel beside the map or floating over it."
+    )
+    panel_position: Literal["left", "right", "center"] = Field(
+        default="left", description="Where a floating panel sits."
+    )
+    theme: Literal["follow", "light", "dark"] = Field(
+        default="follow", description="Reader page theme; follow uses the reader's."
+    )
 
 
 class StoryChapterInput(_Strict):
@@ -94,6 +113,9 @@ class StoryChapterInput(_Strict):
 class StoryDocumentInput(_Strict):
     version: Literal[1] = STORY_DOCUMENT_VERSION
     chapters: list[StoryChapterInput] = Field(default_factory=list, max_length=200)
+    settings: StorySettings | None = Field(
+        default=None, description="Reader settings; absent means every default."
+    )
 
     @model_validator(mode="after")
     def _check(self) -> StoryDocumentInput:
@@ -127,6 +149,7 @@ class StoryChapter(BaseModel):
 class StoryDocument(BaseModel):
     version: int
     chapters: list[StoryChapter]
+    settings: StorySettings | None = None
 
 
 class StoryCreate(_Strict):

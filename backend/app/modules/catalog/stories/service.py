@@ -58,6 +58,7 @@ from app.modules.catalog.stories.schemas import (
     StoryChapter,
     StoryDocument,
     StoryDocumentInput,
+    StorySettings,
     StoryScene,
 )
 from app.modules.catalog.widgets.schemas import ImageWidget, read_stored, to_store
@@ -416,7 +417,16 @@ def render_document(document: Any, readable: set[uuid.UUID]) -> StoryDocument:
     return StoryDocument(
         version=version if isinstance(version, int) else STORY_DOCUMENT_VERSION,
         chapters=chapters,
+        settings=_settings(document),
     )
+
+
+def _settings(document: Any) -> StorySettings | None:
+    raw = document.get("settings") if isinstance(document, dict) else None
+    try:
+        return StorySettings.model_validate(raw) if raw is not None else None
+    except ValidationError:
+        return None
 
 
 async def render_for(
@@ -506,7 +516,12 @@ async def merge_document(
                 "blocks": to_store(chapter.blocks, kept),
             }
         )
-    document = {"version": STORY_DOCUMENT_VERSION, "chapters": chapters}
+    document: dict[str, Any] = {
+        "version": STORY_DOCUMENT_VERSION,
+        "chapters": chapters,
+    }
+    if sent.settings is not None:
+        document["settings"] = sent.settings.model_dump(mode="json")
     return await _without_deleted_maps(db, document), kept_ids
 
 

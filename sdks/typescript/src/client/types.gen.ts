@@ -13362,6 +13362,7 @@ export type StoryDocument = {
      * Chapters
      */
     chapters: Array<StoryChapter>;
+    settings?: StorySettings | null;
 };
 
 /**
@@ -13376,6 +13377,10 @@ export type StoryDocumentInput = {
      * Chapters
      */
     chapters?: Array<StoryChapterInput>;
+    /**
+     * Reader settings; absent means every default.
+     */
+    settings?: StorySettings | null;
 };
 
 /**
@@ -13601,6 +13606,42 @@ export type StoryScene = {
     layer_visibility?: {
         [key: string]: boolean;
     };
+    /**
+     * Transition
+     *
+     * How the map moves into this scene; absent plays as fly.
+     */
+    transition?: 'fly' | 'glide' | 'cut' | null;
+};
+
+/**
+ * StorySettings
+ */
+export type StorySettings = {
+    /**
+     * Navigation
+     *
+     * Show the chapter navigation bar.
+     */
+    navigation?: boolean;
+    /**
+     * Layout
+     *
+     * Chapter panel beside the map or floating over it.
+     */
+    layout?: 'side' | 'floating';
+    /**
+     * Panel Position
+     *
+     * Where a floating panel sits.
+     */
+    panel_position?: 'left' | 'right' | 'center';
+    /**
+     * Theme
+     *
+     * Reader page theme; follow uses the reader's.
+     */
+    theme?: 'follow' | 'light' | 'dark';
 };
 
 /**
