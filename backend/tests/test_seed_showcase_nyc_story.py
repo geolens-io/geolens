@@ -135,6 +135,8 @@ class NycFakeApi:
         }
 
     def raster_bounds(self, dataset_id):
+        if isinstance(self.bounds, dict):
+            return self.bounds[dataset_id]
         return self.bounds
 
     def raster_tile(self, dataset_id, z, x, y):
@@ -276,7 +278,7 @@ def test_image_block_credits_the_scene_and_is_the_cover():
     assert api.published[0][1] == ASSET
 
 
-@pytest.mark.parametrize("zoom", [10, 11, 12])
+@pytest.mark.parametrize("zoom", [10, 11, 12, 13, 14])
 def test_the_crop_is_the_first_tile_one_scene_covers_whole(zoom):
     api = NycFakeApi()
     x, y = seeder._tile_at(-74.015, 40.725, zoom)
@@ -288,7 +290,7 @@ def test_the_crop_is_the_first_tile_one_scene_covers_whole(zoom):
 def test_no_covering_scene_refuses_the_story():
     api = NycFakeApi()
     api.bounds = [10.0, 10.0, 11.0, 11.0]
-    with pytest.raises(RuntimeError, match="no single newest Sentinel-2 scene"):
+    with pytest.raises(RuntimeError, match="no single Sentinel-2 scene"):
         seeder.seed_nyc_story(api)
     assert api.published == []
 
@@ -404,3 +406,74 @@ def test_only_nyc_story_still_raises_when_an_input_is_absent():
     _without_orbit_map(api)
     with pytest.raises(RuntimeError, match=r"missing map .*seed those first"):
         seeder.seed_nyc_story(api)
+
+
+def _wide(west=-75.0, east=-72.0):
+    return [west, 40.0, east, 42.0]
+
+
+def test_crop_scene_is_the_newest_one_that_covers_the_tile():
+    api = NycFakeApi(orbit_dates=("2026-09-11", "2026-09-04", "2026-08-28"))
+    api.bounds = {
+        "ds-scene-0": [-73.5, 40.5, -73.0, 41.0],
+        "ds-scene-1": _wide(),
+        "ds-scene-2": _wide(),
+    }
+    seeder.seed_nyc_story(api)
+    chapters = _document(api).chapters
+    assert {dataset for dataset, _ in api.tiles} == {"ds-scene-1"}
+    assert "2026-09-04" in chapters[0].blocks[0].config.text
+    assert "2026-09-04" in chapters[0].blocks[1].config.caption
+    assert "2026-08-28" in chapters[1].blocks[0].config.text
+    assert chapters[1].title == "A week earlier"
+
+
+def test_crop_scene_needs_an_older_pass_for_the_second_chapter():
+    api = NycFakeApi(orbit_dates=("2026-09-11", "2026-09-04"))
+    api.bounds = {"ds-scene-0": [-73.5, 40.5, -73.0, 41.0], "ds-scene-1": _wide()}
+    with pytest.raises(RuntimeError, match="no scene older than 2026-09-04"):
+        seeder.seed_nyc_story(api)
+
+
+def test_a_view_spanning_two_tiles_keeps_both_visible_in_both_chapters():
+    api = NycFakeApi(orbit_dates=("2026-09-11", "2026-09-04"))
+    api.bounds = {
+        "ds-scene-0": _wide(east=-74.0),
+        "ds-scene-1": _wide(west=-74.0),
+    }
+    seeder.seed_nyc_story(api)
+    first, second = _document(api).chapters[:2]
+    assert first.scene.camera == second.scene.camera
+    assert set(_visible(first).values()) == {True}
+    assert set(_visible(second).values()) == {True}
+    assert len(_visible(first)) == 2
+
+
+def test_a_layer_outside_the_view_is_hidden():
+    api = NycFakeApi(orbit_dates=("2026-09-11", "2026-09-04", "2026-08-28"))
+    api.bounds = {
+        "ds-scene-0": _wide(),
+        "ds-scene-1": _wide(),
+        "ds-scene-2": [10.0, 10.0, 11.0, 11.0],
+    }
+    seeder.seed_nyc_story(api)
+    far = api.docs[api.map_ids[seeder.ORBIT_MAP]]["layers"][2]["id"]
+    assert _visible(_document(api).chapters[0])[far] is False
+
+
+def test_an_unparseable_date_is_skipped_with_a_log_line(capsys):
+    api = NycFakeApi(orbit_dates=("2026-09-11", "2026-13-45", "2026-09-04"))
+    skipped = api.docs[api.map_ids[seeder.ORBIT_MAP]]["layers"][1]["id"]
+    seeder.seed_nyc_story(api)
+    assert skipped not in _visible(_document(api).chapters[0])
+    assert "not a calendar date" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("zoom", [13, 14])
+def test_deep_crops_skip_the_stitch(monkeypatch, zoom):
+    monkeypatch.setattr(seeder, "_has_pillow", lambda: True)
+    api = NycFakeApi()
+    x, y = seeder._tile_at(-74.015, 40.725, zoom)
+    api.bounds = list(seeder._tile_bbox(zoom, x, y))
+    seeder.seed_nyc_story(api)
+    assert [z for _, z in api.tiles] == [zoom]

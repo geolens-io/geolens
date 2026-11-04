@@ -5340,8 +5340,14 @@ def _orbit_passes(orbit: dict) -> dict[str, list[dict]]:
     passes: dict[str, list[dict]] = {}
     for layer in orbit["layers"]:
         match = _ORBIT_LAYER.match(layer.get("display_name") or "")
-        if match:
-            passes.setdefault(match.group(1), []).append(layer)
+        if not match:
+            continue
+        try:
+            date.fromisoformat(match.group(1))
+        except ValueError:
+            print(f"  skipping layer {layer['display_name']!r}: not a calendar date")
+            continue
+        passes.setdefault(match.group(1), []).append(layer)
     return dict(sorted(passes.items(), reverse=True))
 
 
@@ -5396,30 +5402,97 @@ def _stitch_tiles(api: Api, dataset_id: str, z: int, x: int, y: int) -> bytes | 
     return out.getvalue()
 
 
-def _orbit_crop(api: Api, layers: list[dict], lng: float, lat: float) -> bytes:
-    """A true-colour tile of the point, rendered by the API from one scene.
+def _covers(b: list[float] | None, west, south, east, north) -> bool:
+    return bool(b) and b[0] <= west and b[1] <= south and east <= b[2] and north <= b[3]
 
-    The first zoom at which a single scene covers the whole tile wins, so the
-    crop has no empty corner.
+
+def _orbit_crop(
+    api: Api,
+    passes: dict[str, list[dict]],
+    bounds: dict[str, list[float] | None],
+    lng: float,
+    lat: float,
+) -> tuple[bytes, str]:
+    """A true-colour tile of the point and the date of the scene it came from.
+
+    The first zoom at which one scene covers the whole tile wins, so the crop
+    has no empty corner, and the newest such scene is used. The 1024 px stitch
+    asks for tiles two zooms deeper, so it stops at zoom 12.
     """
-    bounds = {lay["id"]: api.raster_bounds(lay["dataset_id"]) for lay in layers}
-    for z in (10, 11, 12):
+    for z in range(10, 15):
         x, y = _tile_at(lng, lat, z)
-        west, south, east, north = _tile_bbox(z, x, y)
-        for layer in layers:
-            b = bounds[layer["id"]]
-            if b and b[0] <= west and b[1] <= south and east <= b[2] and north <= b[3]:
-                stitched = _stitch_tiles(api, layer["dataset_id"], z, x, y)
+        box = _tile_bbox(z, x, y)
+        for day, layers in passes.items():
+            for layer in layers:
+                if not _covers(bounds[layer["id"]], *box):
+                    continue
+                stitched = (
+                    _stitch_tiles(api, layer["dataset_id"], z, x, y)
+                    if z <= 12
+                    else None
+                )
                 if stitched:
-                    return stitched
+                    return stitched, day
                 tile = api.raster_tile(layer["dataset_id"], z, x, y)
                 if tile:
                     print("  image is a single 256 px tile (low resolution)")
-                    return tile
+                    return tile, day
     raise RuntimeError(
-        "no single newest Sentinel-2 scene covers the centre of "
-        f"{ORBIT_MAP!r}, so there is no image for the story"
+        f"no single Sentinel-2 scene covers the centre of {ORBIT_MAP!r}, so "
+        "there is no image for the story"
     )
+
+
+def _view_bbox(camera: dict) -> tuple[float, float, float, float]:
+    """Roughly what a 1280 x 800 map shows at the camera, as west, south, east, north."""
+    lng, lat = camera["center"]
+    degrees = 360 / (512 * 2 ** camera["zoom"])
+    half_w = degrees * 1280 / 2
+    half_h = degrees * 800 / 2 * math.cos(math.radians(lat))
+    return lng - half_w, lat - half_h, lng + half_w, lat + half_h
+
+
+def _orbit_visibility(
+    passes: dict[str, list[dict]],
+    bounds: dict[str, list[float] | None],
+    view: tuple[float, float, float, float],
+    day: str,
+) -> dict[str, bool]:
+    """Layer visibility that fills the view with imagery, preferring *day*.
+
+    Every scene of *day* that meets the view shows. A scene of another date
+    shows only where it covers part of the view that no scene of *day* does.
+    """
+    west, south, east, north = view
+    points = [
+        (west + (east - west) * i / 4, south + (north - south) * j / 4)
+        for i in range(5)
+        for j in range(5)
+    ]
+
+    def holds(layer: dict, point: tuple[float, float]) -> bool:
+        b = bounds[layer["id"]]
+        return bool(b) and b[0] <= point[0] <= b[2] and b[1] <= point[1] <= b[3]
+
+    preferred = passes.get(day, [])
+    visibility = {}
+    for other, layers in passes.items():
+        for layer in layers:
+            if other == day:
+                b = bounds[layer["id"]]
+                visibility[layer["id"]] = bool(
+                    b
+                    and b[0] <= east
+                    and b[2] >= west
+                    and b[1] <= north
+                    and b[3] >= south
+                )
+            else:
+                visibility[layer["id"]] = any(
+                    holds(layer, pt) and not any(holds(p, pt) for p in preferred)
+                    for pt in points
+                )
+    return visibility
 
 
 def _nyc_story_missing(api: Api) -> list[str]:
@@ -5489,21 +5562,29 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
     passes = _orbit_passes(orbit)
     if len(passes) < 2:
         raise RuntimeError(f"{ORBIT_MAP!r} needs scenes from at least two dates")
-    newest = next(iter(passes))
-    earlier, gap = _earlier_pass(list(passes))
-
-    def orbit_scene(show: str, transition: str) -> dict:
-        visibility = {
-            lay["id"]: day == show for day, layers in passes.items() for lay in layers
-        }
-        return _story_scene(orbit, visibility, orbit_camera, transition)
-
+    bounds = {
+        lay["id"]: api.raster_bounds(lay["dataset_id"])
+        for layers in passes.values()
+        for lay in layers
+    }
     orbit_camera = {
         "center": [orbit["center_lng"], orbit["center_lat"]],
         "zoom": 10.0,
         "bearing": 0,
         "pitch": 0,
     }
+    crop, newest = _orbit_crop(
+        api, passes, bounds, orbit["center_lng"], orbit["center_lat"]
+    )
+    older = [day for day in passes if day < newest]
+    if not older:
+        raise RuntimeError(f"{ORBIT_MAP!r} has no scene older than {newest}")
+    earlier, gap = _earlier_pass([newest, *older])
+
+    def orbit_scene(show: str, transition: str) -> dict:
+        visibility = _orbit_visibility(passes, bounds, _view_bbox(orbit_camera), show)
+        return _story_scene(orbit, visibility, orbit_camera, transition)
+
     buildings = _map_layer(manhattan, "Buildings (3D height, colored by era)")
     subway = _map_layer(manhattan, "Subway (official MTA colors)")
     stations = _map_layer(manhattan, "Stations (green = ADA accessible)")
@@ -5545,7 +5626,6 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
 
     # Keyed on the picture's bytes, so a rerun over the same scene reuses the
     # uploaded asset and a newer scene uploads a new one.
-    crop = _orbit_crop(api, passes[newest], orbit["center_lng"], orbit["center_lat"])
     image_id = _seed_id("story", "nyc-orbit", "image", hashlib.sha256(crop).hexdigest())
     asset_id = None
     if verb == "updated":
@@ -5585,8 +5665,10 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
                         f"{newest}. The image is true colour at 10 m a pixel, and "
                         "GeoLens draws it straight from the public archive "
                         "instead of keeping a copy.\n\n"
-                        "Water is dark, the built-up city is grey and the parks "
-                        "are green.",
+                        "Each satellite pass covers the city in tiles, so where "
+                        f"the {newest} scene stops, the map shows the nearest "
+                        "other pass. Water is dark, the built-up city is grey "
+                        "and the parks are green.",
                     ),
                     {
                         "id": image_id,
@@ -5611,11 +5693,12 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
                 [
                     text(
                         "nyc-earlier",
-                        f"The same view from the pass on {earlier}, {gap} days "
-                        "before the first. Each pass is its own layer, so the "
-                        "camera stays put while the scene swaps.\n\n"
-                        "Cloud, haze and the edges of each tile change from one "
-                        "date to the next.",
+                        f"The same camera, now preferring the pass on {earlier}, "
+                        f"{gap} days before the first. Each pass is its own "
+                        "layer, so the scene swaps while the camera stays put.\n\n"
+                        "Coverage varies by tile, so a corner of the view may "
+                        "still come from another date. Cloud and haze change "
+                        "from one date to the next.",
                     ),
                     separator("nyc-earlier"),
                 ],
