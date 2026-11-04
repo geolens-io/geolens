@@ -24,7 +24,10 @@ from app.modules.auth.schemas import (
     DatasetApiKeyListItem,
     DatasetApiKeyListResponse,
 )
-from app.modules.auth.service import create_api_key_for_user
+from app.modules.auth.service import (
+    create_api_key_for_user,
+    lock_current_session_owner,
+)
 from app.modules.catalog.authorization import (
     check_dataset_access,
     check_dataset_write_access,
@@ -86,6 +89,7 @@ async def create_dataset_api_key(
     that aren't revoked, expired ones included; minting past that gets 409
     until one is revoked. The raw key is returned only in this response.
     """
+    await lock_current_session_owner(db, user)
     dataset = await _found_dataset(db, dataset_id)
     await check_dataset_write_access(db, dataset, dataset_id, user)
     # The feature write handlers refuse these two cases, so a key minted for
