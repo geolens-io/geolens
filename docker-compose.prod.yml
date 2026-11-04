@@ -462,7 +462,7 @@ services:
       TITILER_LIMIT_CONCURRENCY: "${TITILER_LIMIT_CONCURRENCY:-}"
       # Sizes the default concurrency cap to the API's raster render slots.
       TILE_POOL_MAX_SIZE: "${TILE_POOL_MAX_SIZE:-10}"
-      UVICORN_WORKERS: "${UVICORN_WORKERS:-1}"
+      UVICORN_WORKERS: "${UVICORN_WORKERS:-2}"
       # Capping glibc arenas slows TiTiler's RSS ratchet under concurrent reads but
       # does not stop it; size TITILER_MEM_LIMIT for the catalog.
       MALLOC_ARENA_MAX: "${TITILER_MALLOC_ARENA_MAX:-2}"

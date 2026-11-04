@@ -148,4 +148,9 @@ def test_titiler_caps_concurrency_from_the_api_raster_budget(filename: str) -> N
     env = _titiler_env(filename)
     assert env.get("TITILER_LIMIT_CONCURRENCY") == "${TITILER_LIMIT_CONCURRENCY:-}"
     assert env.get("TILE_POOL_MAX_SIZE") == "${TILE_POOL_MAX_SIZE:-10}"
-    assert env.get("UVICORN_WORKERS") == "${UVICORN_WORKERS:-1}"
+    api_env = yaml.safe_load((_REPO_ROOT / filename).read_text(encoding="utf-8"))[
+        "services"
+    ]["api"]["environment"]
+    assert env.get("UVICORN_WORKERS") == api_env["UVICORN_WORKERS"], (
+        f"{filename}: titiler must size its cap from the same API worker default"
+    )
