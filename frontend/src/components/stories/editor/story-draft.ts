@@ -1,5 +1,6 @@
 import { arrayMove } from '@dnd-kit/sortable';
 import { BUTTON_DEFAULT_CONFIG, buttonNeedsAttention } from '@/components/widgets/button/definition';
+import { MAX_GALLERY_IMAGES } from '@/components/widgets/gallery/definition';
 import { IMAGE_DEFAULT_CONFIG, imageNeedsAlt } from '@/components/widgets/image/definition';
 import { SEPARATOR_DEFAULT_CONFIG, type SeparatorStyle } from '@/components/widgets/separator/definition';
 import { deepEqual } from '@/lib/deep-equal';
@@ -16,6 +17,13 @@ export const MAX_DOCUMENT_BYTES = 2 * 1024 * 1024;
 export type SceneTransition = NonNullable<StoryScene['transition']>;
 
 type Block = NonNullable<StoryChapter['blocks']>[number];
+export type GalleryKind = 'gallery' | 'carousel';
+type GalleryBlock = Extract<Block, { type: GalleryKind }>;
+type GalleryImage = GalleryBlock['config']['images'][number];
+
+function isGallery(block: Block): block is GalleryBlock {
+  return block.type === 'gallery' || block.type === 'carousel';
+}
 
 /**
  * Edits to a draft's chapters, addressed by chapter id so an edit that lands
@@ -44,6 +52,19 @@ export type DraftEdit =
       decorative?: boolean;
       caption?: string;
     }
+  | { type: 'addGalleryBlock'; chapterId: string; blockId: string; kind: GalleryKind; assetId: string }
+  | { type: 'addGalleryImage'; chapterId: string; blockId: string; assetId: string }
+  | {
+      type: 'setGalleryImage';
+      chapterId: string;
+      blockId: string;
+      assetId: string;
+      alt?: string;
+      decorative?: boolean;
+      caption?: string;
+    }
+  | { type: 'moveGalleryImage'; chapterId: string; blockId: string; assetId: string; by: -1 | 1 }
+  | { type: 'removeGalleryImage'; chapterId: string; blockId: string; assetId: string }
   | { type: 'addButtonBlock'; chapterId: string; blockId: string }
   | { type: 'setButton'; chapterId: string; blockId: string; label?: string; url?: string; newTab?: boolean }
   | { type: 'addSeparatorBlock'; chapterId: string; blockId: string }
@@ -82,6 +103,22 @@ function imageBlock(id: string, assetId: string): Block {
   return { id, type: 'image', v: 1, title: null, asset_id: assetId, config: { ...IMAGE_DEFAULT_CONFIG } };
 }
 
+function galleryBlock(id: string, kind: GalleryKind, assetId: string): Block {
+  return { id, type: kind, v: 1, title: null, config: { images: [{ asset_id: assetId, ...IMAGE_DEFAULT_CONFIG }] } };
+}
+
+/** Applies `change` to the gallery image with this asset id; other blocks and images stay as they are. */
+function updateGalleryImages(
+  chapters: StoryChapter[],
+  chapterId: string,
+  blockId: string,
+  change: (images: GalleryImage[]) => GalleryImage[],
+) {
+  return updateBlock(chapters, chapterId, blockId, (block) =>
+    isGallery(block) ? { ...block, config: { images: change(block.config.images) } } : block,
+  );
+}
+
 function buttonBlock(id: string): Block {
   return { id, type: 'button', v: 1, title: null, config: { ...BUTTON_DEFAULT_CONFIG } };
 }
@@ -101,7 +138,10 @@ export function buttonsNeedingAttention(chapters: readonly StoryChapter[]): numb
 export function imagesMissingAlt(chapters: readonly StoryChapter[]): number {
   return chapters
     .flatMap((chapter) => chapter.blocks ?? [])
-    .filter((block) => block.type === 'image' && imageNeedsAlt(block.config)).length;
+    .reduce((count, block) => {
+      if (block.type === 'image') return count + (imageNeedsAlt(block.config) ? 1 : 0);
+      return isGallery(block) ? count + block.config.images.filter(imageNeedsAlt).length : count;
+    }, 0);
 }
 
 function update(chapters: StoryChapter[], chapterId: string, change: (c: StoryChapter) => StoryChapter) {
@@ -187,6 +227,37 @@ export function applyDraftEdit(chapters: StoryChapter[], edit: DraftEdit): Story
         if (config.decorative && !config.alt?.trim()) delete config.alt;
         return { ...block, asset_id: edit.assetId ?? block.asset_id, config };
       });
+    case 'addGalleryBlock':
+      return appendBlock(chapters, edit.chapterId, galleryBlock(edit.blockId, edit.kind, edit.assetId));
+    case 'addGalleryImage':
+      return updateGalleryImages(chapters, edit.chapterId, edit.blockId, (images) =>
+        images.length >= MAX_GALLERY_IMAGES
+          ? images
+          : [...images, { asset_id: edit.assetId, ...IMAGE_DEFAULT_CONFIG }],
+      );
+    case 'setGalleryImage':
+      return updateGalleryImages(chapters, edit.chapterId, edit.blockId, (images) =>
+        images.map((image) => {
+          if (image.asset_id !== edit.assetId) return image;
+          const next = { ...image };
+          if (edit.alt !== undefined) next.alt = edit.alt;
+          if (edit.decorative !== undefined) next.decorative = edit.decorative;
+          if (edit.caption !== undefined) next.caption = edit.caption || null;
+          if (!next.decorative) delete next.decorative;
+          if (next.decorative && !next.alt?.trim()) delete next.alt;
+          return next;
+        }),
+      );
+    case 'moveGalleryImage':
+      return updateGalleryImages(chapters, edit.chapterId, edit.blockId, (images) => {
+        const from = images.findIndex((image) => image.asset_id === edit.assetId);
+        const to = from + edit.by;
+        return from < 0 || to < 0 || to >= images.length ? images : arrayMove(images, from, to);
+      });
+    case 'removeGalleryImage':
+      return updateGalleryImages(chapters, edit.chapterId, edit.blockId, (images) =>
+        images.length > 1 ? images.filter((image) => image.asset_id !== edit.assetId) : images,
+      );
     case 'addButtonBlock':
       return appendBlock(chapters, edit.chapterId, buttonBlock(edit.blockId));
     case 'setButton':

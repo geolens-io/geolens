@@ -160,7 +160,17 @@
       "separatorBlock": "Separator {{index}}",
       "removeSeparator": "Remove separator {{index}}",
       "moveSeparatorUp": "Move separator {{index}} up",
-      "moveSeparatorDown": "Move separator {{index}} down"
+      "moveSeparatorDown": "Move separator {{index}} down",
+      "addGallery": "Add gallery",
+      "addCarousel": "Add carousel",
+      "galleryBlock": "Gallery {{index}}",
+      "carouselBlock": "Carousel {{index}}",
+      "removeGallery": "Remove gallery {{index}}",
+      "removeCarousel": "Remove carousel {{index}}",
+      "moveGalleryUp": "Move gallery {{index}} up",
+      "moveGalleryDown": "Move gallery {{index}} down",
+      "moveCarouselUp": "Move carousel {{index}} up",
+      "moveCarouselDown": "Move carousel {{index}} down"
     },
     "scene": {
       "heading": "Map scene",
@@ -249,6 +259,18 @@
       "style": "Style",
       "line": "Line",
       "gap": "Gap"
+    },
+    "gallery": {
+      "imageNumber": "Image {{index}}",
+      "decorative": "Image {{index}} is decorative",
+      "alt": "Alt text for image {{index}}",
+      "caption": "Caption for image {{index}} (optional)",
+      "moveUp": "Move image {{index}} up",
+      "moveDown": "Move image {{index}} down",
+      "remove": "Remove image {{index}}",
+      "addImage": "Add another image",
+      "limit_one": "Up to {{count}} image in this block.",
+      "limit_other": "Up to {{count}} images in this block."
     }
   },
   "groups": {

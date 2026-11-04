@@ -66,6 +66,8 @@ export interface WidgetRenderProps<C> {
   mapHidden?: boolean;
   /** Where the host serves the image the instance names in `asset_id`. */
   assetPath?: string;
+  /** Where the host serves the image a gallery config names by asset id. */
+  assetPathFor?: (assetId: string) => string;
   /** A column's display label, its attribute title else its name; `columnName` without it. */
   columnLabel?: ColumnLabel;
   /** The level of the first heading a text widget may draw, one below the heading it sits under. Stories use 3. */

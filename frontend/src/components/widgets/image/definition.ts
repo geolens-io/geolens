@@ -36,9 +36,10 @@ export function readerAlt(config: ImageConfig): string {
   return config.decorative ? '' : (config.alt ?? '');
 }
 
-function parseImageConfig(config: unknown): ImageConfig | null {
+/** Parses the alt, decorative and caption fields; `extraKeys` are other keys the caller has already checked. */
+export function parseImageFields(config: unknown, extraKeys: readonly string[] = []): ImageConfig | null {
   if (typeof config !== 'object' || config === null || Array.isArray(config)) return null;
-  if (!Object.keys(config).every((key) => KEYS.has(key))) return null;
+  if (!Object.keys(config).every((key) => KEYS.has(key) || extraKeys.includes(key))) return null;
   const { alt, decorative, caption } = config as { alt?: unknown; decorative?: unknown; caption?: unknown };
   if (decorative !== undefined && typeof decorative !== 'boolean') return null;
   if (alt !== undefined && alt !== null && (typeof alt !== 'string' || !validImageAlt(alt))) return null;
@@ -59,7 +60,7 @@ export const imageWidget = defineWidget<ImageConfig>({
   labelKey: 'types.image.label',
   i18nKeys: ['types.image.description', 'types.image.loading'],
   defaultConfig: IMAGE_DEFAULT_CONFIG,
-  parseConfig: parseImageConfig,
+  parseConfig: (config) => parseImageFields(config),
   loadRenderer: () => import('./ImageBlockRenderer'),
   Fallback: ImageBlockFallback,
 });

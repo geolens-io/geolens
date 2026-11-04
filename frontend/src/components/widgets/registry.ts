@@ -5,6 +5,8 @@ import { categorySelectorWidget } from './category-selector/definition';
 import { histogramWidget } from './histogram/definition';
 import { indicatorWidget } from './indicator/definition';
 import { buttonWidget } from './button/definition';
+import { carouselWidget } from './carousel/definition';
+import { galleryWidget } from './gallery/definition';
 import { imageWidget } from './image/definition';
 import { markdownTextWidget } from './markdown/definition';
 import { separatorWidget } from './separator/definition';
@@ -13,6 +15,8 @@ import { separatorWidget } from './separator/definition';
 export const widgetDefinitions: readonly AnyWidgetDefinition[] = [
   markdownTextWidget,
   imageWidget,
+  galleryWidget,
+  carouselWidget,
   buttonWidget,
   separatorWidget,
   indicatorWidget,

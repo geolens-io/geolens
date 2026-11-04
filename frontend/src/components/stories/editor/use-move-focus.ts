@@ -13,7 +13,10 @@ export function useMoveFocus(container: RefObject<HTMLElement | null>, idAttribu
     if (!moved) return;
     movedRef.current = null;
     const row = container.current?.querySelector(`[${idAttribute}="${moved.id}"]`);
-    const arrows = [...(row?.querySelectorAll<HTMLButtonElement>('[data-move]') ?? [])].filter((b) => !b.disabled);
+    // Arrows in a nested `[data-move-scope]` row belong to that row's own hook.
+    const arrows = [...(row?.querySelectorAll<HTMLButtonElement>('[data-move]') ?? [])].filter(
+      (b) => !b.disabled && (b.closest('[data-move-scope]') ?? row) === row,
+    );
     (arrows.find((b) => b.dataset.move === String(moved.by)) ?? arrows[0])?.focus();
   }, [container, idAttribute, items]);
   return (id: string, by: -1 | 1) => {

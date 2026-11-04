@@ -160,7 +160,17 @@
       "separatorBlock": "Trenner {{index}}",
       "removeSeparator": "Trenner {{index}} entfernen",
       "moveSeparatorUp": "Trenner {{index}} nach oben verschieben",
-      "moveSeparatorDown": "Trenner {{index}} nach unten verschieben"
+      "moveSeparatorDown": "Trenner {{index}} nach unten verschieben",
+      "addGallery": "Galerie hinzufügen",
+      "addCarousel": "Karussell hinzufügen",
+      "galleryBlock": "Galerie {{index}}",
+      "carouselBlock": "Karussell {{index}}",
+      "removeGallery": "Galerie {{index}} entfernen",
+      "removeCarousel": "Karussell {{index}} entfernen",
+      "moveGalleryUp": "Galerie {{index}} nach oben",
+      "moveGalleryDown": "Galerie {{index}} nach unten",
+      "moveCarouselUp": "Karussell {{index}} nach oben",
+      "moveCarouselDown": "Karussell {{index}} nach unten"
     },
     "scene": {
       "heading": "Kartenszene",
@@ -249,6 +259,18 @@
       "style": "Stil",
       "line": "Linie",
       "gap": "Abstand"
+    },
+    "gallery": {
+      "imageNumber": "Bild {{index}}",
+      "decorative": "Bild {{index}} ist dekorativ",
+      "alt": "Alternativtext für Bild {{index}}",
+      "caption": "Bildunterschrift für Bild {{index}} (optional)",
+      "moveUp": "Bild {{index}} nach oben",
+      "moveDown": "Bild {{index}} nach unten",
+      "remove": "Bild {{index}} entfernen",
+      "addImage": "Weiteres Bild hinzufügen",
+      "limit_one": "Bis zu {{count}} Bild in diesem Block.",
+      "limit_other": "Bis zu {{count}} Bilder in diesem Block."
     }
   },
   "groups": {

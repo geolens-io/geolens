@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { randomId } from '@/lib/random-id';
 import type { StoryCamera, StoryChapter } from '@/types/api';
 import { ButtonBlockField } from './ButtonBlockField';
+import { GalleryBlockField } from './GalleryBlockField';
 import { ImageBlockField } from './ImageBlockField';
 import { MarkdownField } from './MarkdownField';
 import { SceneEditor } from './SceneEditor';
@@ -23,6 +24,8 @@ const MOVES = [
     Icon: ArrowUp,
     label: {
       image: 'editor.chapter.moveImageUp',
+      gallery: 'editor.chapter.moveGalleryUp',
+      carousel: 'editor.chapter.moveCarouselUp',
       markdown: 'editor.chapter.moveTextBlockUp',
       button: 'editor.chapter.moveButtonUp',
       separator: 'editor.chapter.moveSeparatorUp',
@@ -33,6 +36,8 @@ const MOVES = [
     Icon: ArrowDown,
     label: {
       image: 'editor.chapter.moveImageDown',
+      gallery: 'editor.chapter.moveGalleryDown',
+      carousel: 'editor.chapter.moveCarouselDown',
       markdown: 'editor.chapter.moveTextBlockDown',
       button: 'editor.chapter.moveButtonDown',
       separator: 'editor.chapter.moveSeparatorDown',
@@ -48,6 +53,8 @@ const ADD_BLOCKS = [
 
 const REMOVE_LABELS = {
   image: 'editor.chapter.removeImage',
+  gallery: 'editor.chapter.removeGallery',
+  carousel: 'editor.chapter.removeCarousel',
   markdown: 'editor.chapter.removeBlock',
   button: 'editor.chapter.removeButton',
   separator: 'editor.chapter.removeSeparator',
@@ -166,6 +173,17 @@ export function ChapterEditor({
                 label={t('editor.chapter.imageBlock', { index: kindNumbers[i] })}
                 edit={edit}
               />
+            ) : block.type === 'gallery' || block.type === 'carousel' ? (
+              <GalleryBlockField
+                storyId={storyId}
+                uploads={uploads}
+                chapterId={chapter.id}
+                block={block}
+                label={t(block.type === 'gallery' ? 'editor.chapter.galleryBlock' : 'editor.chapter.carouselBlock', {
+                  index: kindNumbers[i],
+                })}
+                edit={edit}
+              />
             ) : block.type === 'button' ? (
               <ButtonBlockField
                 chapterId={chapter.id}
@@ -226,6 +244,20 @@ export function ChapterEditor({
               )
             }
           />
+          {(['gallery', 'carousel'] as const).map((kind) => (
+            <StoryImagePicker
+              key={kind}
+              testId={`story-${kind}-input`}
+              label={t(kind === 'gallery' ? 'editor.chapter.addGallery' : 'editor.chapter.addCarousel')}
+              disabled={blocksFull}
+              upload={uploads.get(`add${kind}:${chapter.id}`)}
+              onPick={(file) =>
+                uploads.start(`add${kind}:${chapter.id}`, file, (asset) =>
+                  edit({ type: 'addGalleryBlock', chapterId: chapter.id, blockId: randomId(), kind, assetId: asset.id }),
+                )
+              }
+            />
+          ))}
         </div>
         {blocksFull && (
           <p id={`${titleId}-blocks-full`} className="text-xs text-muted-foreground">

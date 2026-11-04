@@ -160,7 +160,17 @@
       "separatorBlock": "分隔线 {{index}}",
       "removeSeparator": "移除分隔线 {{index}}",
       "moveSeparatorUp": "将分隔线 {{index}} 上移",
-      "moveSeparatorDown": "将分隔线 {{index}} 下移"
+      "moveSeparatorDown": "将分隔线 {{index}} 下移",
+      "addGallery": "添加图库",
+      "addCarousel": "添加轮播",
+      "galleryBlock": "图库 {{index}}",
+      "carouselBlock": "轮播 {{index}}",
+      "removeGallery": "删除图库 {{index}}",
+      "removeCarousel": "删除轮播 {{index}}",
+      "moveGalleryUp": "上移图库 {{index}}",
+      "moveGalleryDown": "下移图库 {{index}}",
+      "moveCarouselUp": "上移轮播 {{index}}",
+      "moveCarouselDown": "下移轮播 {{index}}"
     },
     "scene": {
       "heading": "地图场景",
@@ -249,6 +259,18 @@
       "style": "样式",
       "line": "线条",
       "gap": "间隔"
+    },
+    "gallery": {
+      "imageNumber": "图片 {{index}}",
+      "decorative": "图片 {{index}} 仅作装饰",
+      "alt": "图片 {{index}} 的替代文本",
+      "caption": "图片 {{index}} 的说明（可选）",
+      "moveUp": "上移图片 {{index}}",
+      "moveDown": "下移图片 {{index}}",
+      "remove": "删除图片 {{index}}",
+      "addImage": "再添加一张图片",
+      "limit_other": "此区块最多 {{count}} 张图片。",
+      "limit_one": "此区块最多 {{count}} 张图片。"
     }
   },
   "groups": {

@@ -74,6 +74,20 @@ def _image_block(asset_id: str, alt: str = "A river") -> dict:
     }
 
 
+def _gallery_block(kind: str, *asset_ids: str) -> dict:
+    return {
+        "id": str(uuid.uuid4()),
+        "type": kind,
+        "v": 1,
+        "config": {
+            "images": [
+                {"asset_id": asset_id, "alt": f"Photo {n}", "caption": None}
+                for n, asset_id in enumerate(asset_ids)
+            ]
+        },
+    }
+
+
 async def _draft(client, headers, story_id) -> dict:
     resp = await client.get(f"/stories/{story_id}/draft", headers=headers)
     assert resp.status_code == 200, resp.text
@@ -1343,3 +1357,102 @@ async def test_an_upload_holds_no_database_transaction_while_it_processes(
     story = await _story(client, people["owner"])
     await _uploaded(client, people["owner"], story["id"])
     assert seen == {"decode": False, "store": False}
+
+
+@pytest.mark.parametrize("kind", ["gallery", "carousel"])
+async def test_a_gallery_round_trips_and_names_images_of_its_own_story(
+    client: AsyncClient, people, kind
+):
+    owner = people["owner"]
+    story = await _story(client, owner)
+    elsewhere = await _story(client, owner)
+    foreign = await _uploaded(client, owner, elsewhere["id"])
+    first = await _uploaded(client, owner, story["id"])
+    second = await _uploaded(client, owner, story["id"])
+
+    resp = await _save(
+        client,
+        owner,
+        story,
+        [_chapter(blocks=[_gallery_block(kind, first["id"], foreign["id"])])],
+    )
+    assert resp.status_code == 422, resp.text
+    assert _detail(resp)["code"] == "story_assets_not_found"
+    assert _detail(resp)["asset_ids"] == [foreign["id"]]
+
+    block = _gallery_block(kind, second["id"], first["id"])
+    block["config"]["images"][1]["decorative"] = True
+    del block["config"]["images"][1]["alt"]
+    saved = await _saved(client, owner, story, [_chapter(blocks=[block])])
+    assert (await _publish(client, owner, story["id"])).status_code == 200
+    published = await client.get(f"/stories/{story['id']}", headers=owner)
+    stored = saved["document"]["chapters"][0]["blocks"][0]
+    assert [i["asset_id"] for i in stored["config"]["images"]] == [
+        second["id"],
+        first["id"],
+    ]
+    assert published.json()["document"]["chapters"][0]["blocks"][0] == stored
+    for asset_id in (first["id"], second["id"]):
+        assert (await _image(client, owner, story["id"], asset_id)).status_code == 200
+
+
+async def test_a_gallery_image_without_alt_is_refused_on_save(
+    client: AsyncClient, people
+):
+    owner = people["owner"]
+    story = await _story(client, owner)
+    image = (await _uploaded(client, owner, story["id"]))["id"]
+    block = _gallery_block("gallery", image)
+    del block["config"]["images"][0]["alt"]
+
+    resp = await _save(client, owner, story, [_chapter(blocks=[block])])
+
+    assert resp.status_code == 422, resp.text
+
+
+async def test_a_copy_gets_its_own_gallery_images(
+    client: AsyncClient, people, test_db_session
+):
+    owner = people["owner"]
+    story = await _story(client, owner)
+    first = await _uploaded(client, owner, story["id"])
+    second = await _uploaded(client, owner, story["id"])
+    await _uploaded(client, owner, story["id"])  # unused: not copied
+    blocks = [
+        _gallery_block("gallery", first["id"], second["id"]),
+        _gallery_block("carousel", second["id"]),
+    ]
+    await _saved(client, owner, story, [_chapter(blocks=blocks)])
+    original = await _keys(test_db_session, story["id"])
+
+    resp = await client.post(f"/stories/{story['id']}/duplicate", headers=owner)
+
+    assert resp.status_code == 201, resp.text
+    copy = resp.json()
+    gallery, carousel = copy["document"]["chapters"][0]["blocks"]
+    copied_ids = {
+        i["asset_id"] for b in (gallery, carousel) for i in b["config"]["images"]
+    }
+    copied = await _keys(test_db_session, copy["id"])
+    assert set(copied) == copied_ids
+    assert len(copied) == 2
+    assert not copied_ids & set(original)
+    assert [i["alt"] for i in gallery["config"]["images"]] == ["Photo 0", "Photo 1"]
+    for asset_id in copied:
+        assert (await _image(client, owner, copy["id"], asset_id)).status_code == 200
+
+
+async def test_a_save_keeps_gallery_images_and_removes_the_unused(
+    client: AsyncClient, people, test_db_session
+):
+    owner = people["owner"]
+    story = await _story(client, owner)
+    used = [(await _uploaded(client, owner, story["id"]))["id"] for _ in range(2)]
+    unused = (await _uploaded(client, owner, story["id"]))["id"]
+    block = _gallery_block("carousel", *used)
+    saved = await _saved(client, owner, story, [_chapter(blocks=[block])])
+    await _age(test_db_session, *used, unused)
+
+    await _saved(client, owner, saved, saved["document"]["chapters"])
+
+    assert set(await _keys(test_db_session, story["id"])) == set(used)

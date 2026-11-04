@@ -96,6 +96,13 @@ class ImageConfig(_Strict):
         return self
 
 
+MAX_GALLERY_IMAGES = 12
+
+
+class GalleryImage(ImageConfig):
+    asset_id: uuid.UUID = Field(description="An image uploaded to the host story.")
+
+
 class ButtonConfig(_Strict):
     label: Annotated[
         str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)
@@ -330,6 +337,26 @@ class ImageWidget(_Widget):
     config: ImageConfig
 
 
+class GalleryConfig(_Strict):
+    images: list[GalleryImage] = Field(
+        min_length=1,
+        max_length=MAX_GALLERY_IMAGES,
+        description="Images uploaded to the host story, in reading order.",
+    )
+
+
+class GalleryWidget(_Widget):
+    type: Literal["gallery"]
+    v: Literal[1]
+    config: GalleryConfig
+
+
+class CarouselWidget(_Widget):
+    type: Literal["carousel"]
+    v: Literal[1]
+    config: GalleryConfig
+
+
 class ButtonWidget(_Widget):
     type: Literal["button"]
     v: Literal[1]
@@ -465,10 +492,45 @@ DashboardWidget = Annotated[
     BeforeValidator(upgrade),
 ]
 StoryBlock = Annotated[
-    MarkdownWidget | ImageWidget | ButtonWidget | SeparatorWidget,
+    MarkdownWidget
+    | ImageWidget
+    | GalleryWidget
+    | CarouselWidget
+    | ButtonWidget
+    | SeparatorWidget,
     Field(discriminator="type"),
     BeforeValidator(upgrade),
 ]
+
+
+def block_asset_ids(block: Any) -> set[uuid.UUID]:
+    """The story images a story block shows."""
+    if isinstance(block, ImageWidget):
+        return {block.asset_id}
+    if isinstance(block, GalleryWidget | CarouselWidget):
+        return {image.asset_id for image in block.config.images}
+    return set()
+
+
+def block_with_assets_renamed(block: Any, names: dict[uuid.UUID, uuid.UUID]) -> Any:
+    """``block`` pointing at the images in ``names``, or None when none of its
+    images are there. A gallery keeps the images that were copied."""
+    if isinstance(block, ImageWidget):
+        if block.asset_id not in names:
+            return None
+        return block.model_copy(update={"asset_id": names[block.asset_id]})
+    if isinstance(block, GalleryWidget | CarouselWidget):
+        images = [
+            image.model_copy(update={"asset_id": names[image.asset_id]})
+            for image in block.config.images
+            if image.asset_id in names
+        ]
+        if not images:
+            return None
+        return block.model_copy(update={"config": GalleryConfig(images=images)})
+    return block
+
+
 DashboardWidgets = Annotated[list[DashboardWidget], AfterValidator(_unique_ids)]
 StoryBlocks = Annotated[list[StoryBlock], AfterValidator(_unique_ids)]
 

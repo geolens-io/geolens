@@ -72,6 +72,15 @@
     },
     "separator": {
       "label": "Separator"
+    },
+    "gallery": {
+      "label": "Gallery"
+    },
+    "carousel": {
+      "label": "Carousel",
+      "previous": "Previous image",
+      "next": "Next image",
+      "position": "Image {{current}} of {{total}}"
     }
   },
   "dashboard": {

@@ -3876,6 +3876,50 @@
         "title": "CapabilitiesUpload",
         "type": "object"
       },
+      "CarouselWidget": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Made by the client and stable across saves.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "type": {
+            "const": "carousel",
+            "title": "Type",
+            "type": "string"
+          },
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "config": {
+            "$ref": "#/components/schemas/GalleryConfig"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "v",
+          "config"
+        ],
+        "title": "CarouselWidget",
+        "type": "object"
+      },
       "CatalogStatsResponse": {
         "properties": {
           "total_datasets": {
@@ -10542,6 +10586,124 @@
           }
         },
         "title": "FeatureUpdate",
+        "type": "object"
+      },
+      "GalleryConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "images": {
+            "description": "Images uploaded to the host story, in reading order.",
+            "items": {
+              "$ref": "#/components/schemas/GalleryImage"
+            },
+            "maxItems": 12,
+            "minItems": 1,
+            "title": "Images",
+            "type": "array"
+          }
+        },
+        "required": [
+          "images"
+        ],
+        "title": "GalleryConfig",
+        "type": "object"
+      },
+      "GalleryImage": {
+        "additionalProperties": false,
+        "properties": {
+          "alt": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Text that stands in for the image; required unless it is decorative.",
+            "title": "Alt"
+          },
+          "decorative": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "True when the image adds nothing a reader needs: readers get an empty alt, and `alt` may be left out.",
+            "title": "Decorative"
+          },
+          "caption": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caption"
+          },
+          "asset_id": {
+            "description": "An image uploaded to the host story.",
+            "format": "uuid",
+            "title": "Asset Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_id"
+        ],
+        "title": "GalleryImage",
+        "type": "object"
+      },
+      "GalleryWidget": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Made by the client and stable across saves.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "type": {
+            "const": "gallery",
+            "title": "Type",
+            "type": "string"
+          },
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "config": {
+            "$ref": "#/components/schemas/GalleryConfig"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "v",
+          "config"
+        ],
+        "title": "GalleryWidget",
         "type": "object"
       },
       "GeoJSONFeature": {
@@ -23730,6 +23892,8 @@
               "discriminator": {
                 "mapping": {
                   "button": "#/components/schemas/ButtonWidget",
+                  "carousel": "#/components/schemas/CarouselWidget",
+                  "gallery": "#/components/schemas/GalleryWidget",
                   "image": "#/components/schemas/ImageWidget",
                   "markdown": "#/components/schemas/MarkdownWidget",
                   "separator": "#/components/schemas/SeparatorWidget"
@@ -23742,6 +23906,12 @@
                 },
                 {
                   "$ref": "#/components/schemas/ImageWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/GalleryWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/CarouselWidget"
                 },
                 {
                   "$ref": "#/components/schemas/ButtonWidget"
@@ -23803,6 +23973,8 @@
               "discriminator": {
                 "mapping": {
                   "button": "#/components/schemas/ButtonWidget",
+                  "carousel": "#/components/schemas/CarouselWidget",
+                  "gallery": "#/components/schemas/GalleryWidget",
                   "image": "#/components/schemas/ImageWidget",
                   "markdown": "#/components/schemas/MarkdownWidget",
                   "separator": "#/components/schemas/SeparatorWidget"
@@ -23815,6 +23987,12 @@
                 },
                 {
                   "$ref": "#/components/schemas/ImageWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/GalleryWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/CarouselWidget"
                 },
                 {
                   "$ref": "#/components/schemas/ButtonWidget"

@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import userEvent from '@testing-library/user-event';
 import { render, screen } from '@/test/test-utils';
 import { ChapterEditor } from '../ChapterEditor';
+import { applyDraftEdit } from '../story-draft';
 import type { StoryChapter } from '@/types/api';
 
 vi.mock('@/api/client', async (importOriginal) => ({
@@ -157,4 +159,42 @@ it('flags a button with a script address', () => {
   } as StoryChapter);
   expect(screen.getByLabelText('Link address')).toBeInvalid();
   expect(screen.getByText('Enter an address that starts with http:// or https://.')).toBeInTheDocument();
+});
+
+it('keeps focus on a moved gallery block’s own arrow, not on an arrow of one of its images', async () => {
+  const gallery = {
+    id: '00000000-0000-4000-8000-000000000010',
+    type: 'gallery' as const,
+    v: 1 as const,
+    title: null,
+    config: {
+      images: [
+        { asset_id: '00000000-0000-4000-8000-000000000011', alt: 'One' },
+        { asset_id: '00000000-0000-4000-8000-000000000012', alt: 'Two' },
+      ],
+    },
+  };
+  function Harness() {
+    const [chapter, setChapter] = useState({
+      ...CHAPTER,
+      blocks: [gallery, markdown('00000000-0000-4000-8000-000000000013')],
+    } as StoryChapter);
+    return (
+      <ChapterEditor
+        storyId="s1"
+        uploads={{ get: () => ({ progress: null, error: null }), start: vi.fn(), cancelAll: vi.fn(), uploading: false }}
+        chapter={chapter}
+        index={0}
+        edit={(change) => setChapter(applyDraftEdit([chapter], change)[0])}
+        readView={() => null}
+        mapMissing={false}
+        focusTitle={false}
+      />
+    );
+  }
+  render(<Harness />);
+
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Move gallery 1 down' }));
+
+  expect(screen.getByRole('button', { name: 'Move gallery 1 up' })).toHaveFocus();
 });

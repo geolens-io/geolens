@@ -160,7 +160,17 @@
       "separatorBlock": "Separador {{index}}",
       "removeSeparator": "Quitar separador {{index}}",
       "moveSeparatorUp": "Subir el separador {{index}}",
-      "moveSeparatorDown": "Bajar el separador {{index}}"
+      "moveSeparatorDown": "Bajar el separador {{index}}",
+      "addGallery": "Añadir galería",
+      "addCarousel": "Añadir carrusel",
+      "galleryBlock": "Galería {{index}}",
+      "carouselBlock": "Carrusel {{index}}",
+      "removeGallery": "Quitar galería {{index}}",
+      "removeCarousel": "Quitar carrusel {{index}}",
+      "moveGalleryUp": "Subir la galería {{index}}",
+      "moveGalleryDown": "Bajar la galería {{index}}",
+      "moveCarouselUp": "Subir el carrusel {{index}}",
+      "moveCarouselDown": "Bajar el carrusel {{index}}"
     },
     "scene": {
       "heading": "Escena de mapa",
@@ -249,6 +259,18 @@
       "style": "Estilo",
       "line": "Línea",
       "gap": "Espacio"
+    },
+    "gallery": {
+      "imageNumber": "Imagen {{index}}",
+      "decorative": "La imagen {{index}} es decorativa",
+      "alt": "Texto alternativo de la imagen {{index}}",
+      "caption": "Pie de la imagen {{index}} (opcional)",
+      "moveUp": "Subir la imagen {{index}}",
+      "moveDown": "Bajar la imagen {{index}}",
+      "remove": "Quitar la imagen {{index}}",
+      "addImage": "Añadir otra imagen",
+      "limit_one": "Hasta {{count}} imagen en este bloque.",
+      "limit_other": "Hasta {{count}} imágenes en este bloque."
     }
   },
   "groups": {
