@@ -93,12 +93,16 @@ async def raster_render_slot() -> AsyncIterator[None]:
     When the proxy gives up on Titiler, the render keeps running there, so the
     slot is released after ``raster_timeout_slot_grace_seconds`` instead of at
     once. The grace is a bounded estimate of that leftover work, not a wait for
-    Titiler, and the caller's error is raised without delay.
+    Titiler, and the caller's error is raised without delay. A connect or pool
+    timeout never reached Titiler, so it frees the slot at once for the retry.
     """
     await _raster_renders.acquire()
     try:
         yield
-    except httpx.TimeoutException:
+    except httpx.TimeoutException as exc:
+        if isinstance(exc, (httpx.ConnectTimeout, httpx.PoolTimeout)):
+            _raster_renders.slots.release()
+            raise
         task = asyncio.create_task(
             _release_later(_raster_renders, settings.raster_timeout_slot_grace_seconds)
         )

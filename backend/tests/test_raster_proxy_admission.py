@@ -241,3 +241,24 @@ def test_the_proxy_pool_never_exceeds_the_raster_slots():
     size = tiles.settings.tile_pool_max_size
     assert pool._max_connections == size
     assert pool._max_keepalive_connections == size
+
+
+@pytest.mark.parametrize("error", [httpx.ConnectTimeout("x"), httpx.PoolTimeout("x")])
+async def test_a_timeout_before_the_request_was_sent_frees_the_slot_at_once(error):
+    """Titiler never saw the request, so no grace: the retry can take the slot."""
+    with pytest.raises(type(error)):
+        async with admission.raster_render_slot():
+            raise error
+
+    assert not admission._raster_renders.slots.locked()
+    assert not admission._grace_releases
+
+
+async def test_a_read_timeout_holds_the_slot_for_the_grace():
+    with pytest.raises(httpx.ReadTimeout):
+        async with admission.raster_render_slot():
+            raise httpx.ReadTimeout("x")
+
+    assert admission._raster_renders.slots.locked()
+    await asyncio.gather(*admission._grace_releases)
+    assert not admission._raster_renders.slots.locked()
