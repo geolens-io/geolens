@@ -113,7 +113,12 @@ async def test_reset_arriving_during_minting_waits_and_revokes_the_token(
         await asyncio.wait(
             {resetting, lock_wait}, timeout=30, return_when=asyncio.FIRST_COMPLETED
         )
-        reset_waited = lock_wait.done() and not resetting.done()
+        reset_waited = (
+            lock_wait.done()
+            and not lock_wait.cancelled()
+            and lock_wait.exception() is None
+            and not resetting.done()
+        )
         resume.set()
         issued = await asyncio.wait_for(minting, timeout=30)
         reset = await asyncio.wait_for(resetting, timeout=30)
