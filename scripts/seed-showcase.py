@@ -5326,7 +5326,11 @@ _ORBIT_LAYER = re.compile(r"^Sentinel-2 - (\d{4}-\d{2}-\d{2})")
 
 def _map_layer(map_doc: dict, name: str) -> str:
     """The id of the one layer of *map_doc* called *name*."""
-    found = [lay["id"] for lay in map_doc["layers"] if lay.get("display_name") == name]
+    return _map_layer_row(map_doc, name)["id"]
+
+
+def _map_layer_row(map_doc: dict, name: str) -> dict:
+    found = [lay for lay in map_doc["layers"] if lay.get("display_name") == name]
     if len(found) != 1:
         raise RuntimeError(
             f"{map_doc.get('name', 'a map')!r} has {len(found)} layers named "
@@ -5546,11 +5550,7 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
             + " - seed those first"
         )
     maps = api.list_maps()
-    by_title = api.datasets_by_title()
     stories = api.list_stories()
-    buildings_ds = by_title[SKYLINE_BUILDINGS_TITLE]
-    stations_ds = by_title["NYC Subway Stations (MTA)"]
-    canopy_ds = by_title[CITY_SHADE_RESULT]
     print("\n[nyc-story] " + NYC_STORY_TITLE)
     app_url = api.public_app_url()
     orbit = api.get_map(maps[ORBIT_MAP])
@@ -5606,6 +5606,14 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
         )
     }
 
+    # The datasets the scenes display, not the newest same-titled ones.
+    buildings_ds = _map_layer_row(manhattan, "Buildings (3D height, colored by era)")[
+        "dataset_id"
+    ]
+    stations_ds = _map_layer_row(manhattan, "Stations (green = ADA accessible)")[
+        "dataset_id"
+    ]
+    canopy_ds = _map_layer_row(shade, "Canopy change in the study window")["dataset_id"]
     total = api.aggregate(buildings_ds, op="count")["count"]
     tallest = api.aggregate(
         buildings_ds, op="stats", column="height_roof", stats=["max"]
@@ -5662,9 +5670,12 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
                     text(
                         "nyc-orbit",
                         f"This is New York as the Sentinel-2 satellites saw it on "
-                        f"{newest}. The image is true colour at 10 m a pixel, and "
-                        "GeoLens draws it straight from the public archive "
-                        "instead of keeping a copy.\n\n"
+                        f"{newest}. On the map, the satellite layers are true "
+                        "colour at 10 m a pixel and GeoLens draws them straight "
+                        "from the public archive instead of keeping a copy. The "
+                        "picture below is different: a stored crop of the "
+                        f"{newest} scene, credited to Copernicus Sentinel "
+                        "data.\n\n"
                         "Each satellite pass covers the city in tiles, so where "
                         f"the {newest} scene stops, the map shows the nearest "
                         "other pass. Water is dark, the built-up city is grey "

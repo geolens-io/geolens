@@ -477,3 +477,27 @@ def test_deep_crops_skip_the_stitch(monkeypatch, zoom):
     api.bounds = list(seeder._tile_bbox(zoom, x, y))
     seeder.seed_nyc_story(api)
     assert [z for _, z in api.tiles] == [zoom]
+
+
+def test_counts_come_from_the_datasets_the_scenes_display():
+    api = NycFakeApi()
+    seen = []
+    plain = api.aggregate
+    api.aggregate = lambda dataset_id, **body: (
+        seen.append(dataset_id) or plain(dataset_id, **body)
+    )
+    api.datasets_by_title = lambda: {
+        seeder.SKYLINE_BUILDINGS_TITLE: "ds-stale-buildings",
+        "NYC Subway Stations (MTA)": "ds-stale-stations",
+        seeder.CITY_SHADE_RESULT: "ds-stale-canopy",
+    }
+    seeder.seed_nyc_story(api)
+    assert set(seen) == {"ds-buildings", "ds-stations", "ds-canopy"}
+
+
+def test_chapter_text_separates_the_map_layers_from_the_stored_crop():
+    api = NycFakeApi()
+    seeder.seed_nyc_story(api)
+    text = _document(api).chapters[0].blocks[0].config.text
+    assert "On the map, the satellite layers" in text
+    assert "stored crop" in text
