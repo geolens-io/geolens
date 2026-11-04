@@ -5486,6 +5486,16 @@ def _uncovered(
     )
 
 
+def _overlaps(rect: tuple[float, float, float, float], other: list[float]) -> bool:
+    """Whether two rectangles share area, not just an edge."""
+    return (
+        rect[0] < other[2]
+        and other[0] < rect[2]
+        and rect[1] < other[3]
+        and other[1] < rect[3]
+    )
+
+
 def _orbit_visibility(
     passes: dict[str, list[dict]],
     bounds: dict[str, list[float] | None],
@@ -5495,7 +5505,9 @@ def _orbit_visibility(
     """Layer visibility that fills the view with imagery, preferring *day*.
 
     Every scene of *day* that meets the view shows. A scene of another date
-    shows only where its part of the view extends beyond all scenes of *day*.
+    shows only if its part of the view extends beyond all scenes of *day* and
+    it either is older, so the map draws it below them, or does not overlap
+    them. A newer scene that overlaps is dropped, which can leave a gap.
     """
     west, south, east, north = view
     preferred = [
@@ -5518,7 +5530,8 @@ def _orbit_visibility(
                     min(b[2], east),
                     min(b[3], north),
                 )
-                visibility[layer["id"]] = _uncovered(part, preferred)
+                draws_over = other > day and any(_overlaps(part, c) for c in preferred)
+                visibility[layer["id"]] = not draws_over and _uncovered(part, preferred)
     return visibility
 
 
@@ -5733,9 +5746,10 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
                         f"The same camera, now preferring the pass on {earlier}, "
                         f"{gap} days before the first. Each pass is its own "
                         "layer, so the scene swaps while the camera stays put.\n\n"
-                        "Coverage varies by tile, so a corner of the view may "
-                        "still come from another date. Cloud and haze change "
-                        "from one date to the next.",
+                        "Coverage varies by tile: a corner of the view may come "
+                        "from an older pass, and a newer pass that would overlap "
+                        "this one is hidden, which can leave a gap. Cloud and "
+                        "haze change from one date to the next.",
                     ),
                     separator("nyc-earlier"),
                 ],

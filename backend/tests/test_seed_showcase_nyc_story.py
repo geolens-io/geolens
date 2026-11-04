@@ -595,3 +595,19 @@ def test_a_fallback_scene_inside_the_preferred_coverage_is_hidden():
     seeder.seed_nyc_story(api)
     first = _visible(_document(api).chapters[0])
     assert list(first.values()) == [True, False]
+
+
+def test_a_newer_scene_never_draws_over_the_chapters_date():
+    """Two scenes overlap and each reaches beyond the other inside the view."""
+    api = NycFakeApi(orbit_dates=("2026-09-11", "2026-09-04"))
+    api.bounds = {
+        "ds-scene-0": [-75.0, 40.0, -73.9, 42.0],
+        "ds-scene-1": [-74.1, 40.0, -73.0, 42.0],
+    }
+    seeder.seed_nyc_story(api)
+    newer, older = (
+        lay["id"] for lay in api.docs[api.map_ids[seeder.ORBIT_MAP]]["layers"]
+    )
+    first, second = _document(api).chapters[:2]
+    assert (_visible(first)[newer], _visible(first)[older]) == (True, True)
+    assert (_visible(second)[newer], _visible(second)[older]) == (False, True)
