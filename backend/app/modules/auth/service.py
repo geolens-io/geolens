@@ -653,11 +653,15 @@ async def lock_current_session_owner(db: AsyncSession, identity: Identity) -> No
     bearer token was checked, or its row is gone. Holding the lock through the
     commit makes a concurrent revocation wait, so it also invalidates what this
     transaction issues. Another identity's revocation belongs to its extension.
+    The lock leaves key-share room, so a key issued for another locked account
+    can still pass its foreign-key check instead of deadlocking.
     """
     admitted = identity.token_version if isinstance(identity, User) else None
     current = (
         await db.execute(
-            select(User.token_version).where(User.id == identity.id).with_for_update()
+            select(User.token_version)
+            .where(User.id == identity.id)
+            .with_for_update(key_share=True)
         )
     ).scalar_one_or_none()
     if admitted is not None and current != admitted:

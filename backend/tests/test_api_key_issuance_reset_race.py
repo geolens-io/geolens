@@ -8,13 +8,14 @@ import pytest
 from fastapi import Depends, Request
 from httpx import AsyncClient
 from sqlalchemy import delete, func, select, text
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 import app.modules.auth.service as auth_service
 from app.modules.auth.dependencies import (
     get_current_active_user,
     require_session_credential,
 )
-from app.modules.auth.models import ApiKey
+from app.modules.auth.models import ApiKey, User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from tests.factories import create_user
 from tests.lock_wait import await_lock_wait_query
@@ -173,3 +174,43 @@ async def test_reset_arriving_during_issuance_waits_and_invalidates_the_key(
     replay = await client.get("/auth/me/", headers={"X-Api-Key": issued.json()["key"]})
     assert replay.status_code == 401
     assert reset_waited, "the reset committed while issuance was in progress"
+
+
+async def test_callers_locking_their_own_accounts_can_issue_for_each_other(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """Two admins issuing keys for each other at once both succeed instead of deadlocking."""
+    _, a_id = await create_user(client, admin_auth_header, "admin")
+    _, b_id = await create_user(client, admin_auth_header, "admin")
+    factory = async_sessionmaker(test_db_session.bind, expire_on_commit=False)
+
+    async def _issue(
+        caller_id: str, owner_id: str, locked: asyncio.Event, other: asyncio.Event
+    ):
+        async with factory() as db, db.begin():
+            caller = (
+                await db.execute(select(User).where(User.id == uuid.UUID(caller_id)))
+            ).scalar_one()
+            await auth_service.lock_current_session_owner(db, caller)
+            locked.set()
+            await asyncio.wait_for(other.wait(), 10)
+            db.add(
+                ApiKey(
+                    user_id=uuid.UUID(owner_id),
+                    key_hash=uuid.uuid4().hex,
+                    name="crossed",
+                    key_epoch=0,
+                )
+            )
+            await db.flush()
+
+    a_locked, b_locked = asyncio.Event(), asyncio.Event()
+    await asyncio.wait_for(
+        asyncio.gather(
+            _issue(a_id, b_id, a_locked, b_locked),
+            _issue(b_id, a_id, b_locked, a_locked),
+        ),
+        30,
+    )
+    assert await _key_count(test_db_session, a_id) == 1
+    assert await _key_count(test_db_session, b_id) == 1
