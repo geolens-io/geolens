@@ -126,6 +126,8 @@ export function getSourceIdForLayer(layer: SourceIdLayer, prefix?: string) {
   return getCompanionLayerIds(layer.id, prefix).source;
 }
 
+const LEGACY_FILTER_OPERATORS = new Set(['==', '!=', '<', '>', '<=', '>=', 'in', '!in', 'has', '!has']);
+
 /** The feature columns a layer's style, label, filter and popup read. Below z10 the tile
  *  server keeps only the columns a tile URL's `cols=` names, so each one must be listed. */
 export function getDataDrivenColumnsForLayer(
@@ -159,8 +161,28 @@ export function getDataDrivenColumnsForLayer(
     }
     for (const child of node) walk(child);
   }
-  for (const val of Object.values(paint)) walk(val);
-  if (layer.filter) walk(layer.filter);
+  // A legacy property function names its column in `property`.
+  function walkValue(value: unknown): void {
+    const property = (value as { property?: unknown } | null)?.property;
+    if (typeof property === 'string' && property && !Array.isArray(value)) cols.add(property);
+    else walk(value);
+  }
+  // A legacy filter names its field as the second item, and all/any/none nest more filters.
+  function walkLegacyFilter(node: unknown): void {
+    if (!Array.isArray(node)) return;
+    const [op, field] = node;
+    if (op === 'all' || op === 'any' || op === 'none') {
+      for (const child of node.slice(1)) walkLegacyFilter(child);
+    } else if (typeof field === 'string' && field !== '$type' && field !== '$id'
+      && LEGACY_FILTER_OPERATORS.has(op as string)) {
+      cols.add(field);
+    }
+  }
+  for (const val of Object.values(paint)) walkValue(val);
+  if (layer.filter) {
+    walk(layer.filter);
+    walkLegacyFilter(layer.filter);
+  }
   const popup = layer.popup_config;
   if (popup && popup.enabled !== false) {
     if (popup.expression) {

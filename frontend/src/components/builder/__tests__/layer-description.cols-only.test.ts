@@ -1,4 +1,4 @@
-import { describeLayers } from '@/components/builder/layer-description';
+import { describeLayers, getDataDrivenColumnsForLayer } from '@/components/builder/layer-description';
 import { syncRenderContext, toSyncInput } from '@/components/builder/map-sync';
 import { RENDER_CONTEXTS } from '@/test/fixtures/render-contexts';
 import { SAVED_LAYERS } from '@/test/fixtures/saved-layers';
@@ -22,5 +22,26 @@ describe('lean vector tiles', () => {
   it('asks by default from the sync render context, and lets a caller opt out', () => {
     expect(syncRenderContext(new Map(), undefined, undefined, undefined).colsOnly).toBe(true);
     expect(syncRenderContext(new Map(), undefined, undefined, { colsOnly: false }).colsOnly).toBe(false);
+  });
+});
+
+describe('columns named by legacy style forms', () => {
+  it('reads the property of a paint function', () => {
+    const paint = { 'circle-color': { property: 'kind', type: 'categorical', stops: [['a', '#f00']] } };
+    expect(getDataDrivenColumnsForLayer({ paint })).toEqual(['kind']);
+  });
+
+  it('reads the field of a legacy comparison filter', () => {
+    expect(getDataDrivenColumnsForLayer({ filter: ['==', 'status', 'open'] })).toEqual(['status']);
+  });
+
+  it('reads the field of a legacy in filter nested under all', () => {
+    const filter = ['all', ['in', 'kind', 'a', 'b'], ['none', ['!in', 'size', 1]], ['==', '$type', 'Point']];
+    expect(getDataDrivenColumnsForLayer({ filter }).sort()).toEqual(['kind', 'size']);
+  });
+
+  it('reads the field of a legacy has and !has', () => {
+    expect(getDataDrivenColumnsForLayer({ filter: ['any', ['has', 'owner'], ['!has', 'name']] }).sort())
+      .toEqual(['name', 'owner']);
   });
 });
