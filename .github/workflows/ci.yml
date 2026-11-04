@@ -32,13 +32,11 @@ concurrency:
   # Include the event name so daily dependabot pushes cannot cancel the
   # scheduled run, which would let the e2e suite silently rot.
   #
-  # This shape is already safe for the
-  # merge queue. Each queue entry runs on its own `gh-readonly-queue/main/pr-N-<sha>`
-  # ref, so `github.ref` alone puts every entry in a distinct group — two
-  # batches in flight cannot cancel each other, and a queue run and the PR run
-  # it came from differ in both ref and event name. `cancel-in-progress` stays
-  # true because the only thing that can now share a group is a re-run of the
-  # same queue entry.
+  # Each queue entry runs on its own `gh-readonly-queue/main/pr-N-<sha>` ref, so
+  # two batches in flight never cancel each other, and a queue run and the PR
+  # run it came from differ in both ref and event name. A rebuilt entry gets a
+  # new ref and so a new group; the `cancel-superseded-queue-runs` job stops the
+  # runs it replaced.
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
@@ -48,6 +46,51 @@ permissions:
   contents: read
 
 jobs:
+  # A rebuilt queue entry gets a new ref, so nothing shares a concurrency group
+  # with the run it replaces. This stops the same PR's runs whose queue branch
+  # is gone. It gates nothing and is not in `ci-ok`.
+  cancel-superseded-queue-runs:
+    name: Cancel superseded queue runs
+    if: github.event_name == 'merge_group'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      QUEUE_REF: ${{ github.ref_name }}
+    steps:
+      - name: Cancel runs on queue branches that no longer exist
+        run: |
+          set -euo pipefail
+          prefix='gh-readonly-queue/main/pr-'
+          if [[ ! "$QUEUE_REF" =~ ^gh-readonly-queue/main/pr-([0-9]+)-[0-9a-f]+$ ]]; then
+            echo "Not a queue ref: $QUEUE_REF"
+            exit 0
+          fi
+          pr="${BASH_REMATCH[1]}"
+          for status in queued in_progress; do
+            gh run list --workflow ci.yml --event merge_group --status "$status" \
+              --limit 100 --json databaseId,headBranch \
+              --jq '.[] | "\(.databaseId) \(.headBranch)"' |
+            while read -r run_id branch; do
+              # Only this PR's own queue branches, never this run's, never
+              # another PR's (the trailing dash stops pr-12 matching pr-123).
+              [[ "$branch" == "${prefix}${pr}-"* && "$branch" != "$QUEUE_REF" ]] || continue
+              # Cancel only on a definite 404; any other API error leaves the run alone.
+              if out=$(gh api "repos/$GH_REPO/git/ref/heads/$branch" 2>&1); then
+                echo "Keeping run $run_id: $branch still exists"
+              elif [[ "$out" == *"HTTP 404"* ]]; then
+                echo "Cancelling run $run_id on removed branch $branch"
+                gh run cancel "$run_id" || true
+              else
+                echo "Keeping run $run_id: could not check $branch: $out"
+              fi
+            done
+          done
+
   # ---------- detect changed paths for conditional jobs ----------
   changes:
     name: Detect Changes

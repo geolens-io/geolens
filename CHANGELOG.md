@@ -32,6 +32,7 @@ and releases use semantic versioning.
 
 ### Changed
 
+- CI cancels merge-queue runs left behind when a queue entry is rebuilt, so superseded runs no longer hold runners.
 - A map's `updated_at` now moves when only its layers or its groups change
   (a layer added, edited, reordered or removed, or a group shared or
   unshared), so the gallery's "last updated" order and an
