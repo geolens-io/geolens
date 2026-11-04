@@ -39,10 +39,6 @@ class MapStyleImportRequest:
     ``light``, ``transition``) so adding a new key on the client side
     doesn't require a server release.
 
-    Replacing the previous bare-``dict`` body parameter removes
-    ``additionalProperties: true`` from the OpenAPI schema and lets
-    openapi-python-client generate a navigable named model class.
-
         Attributes:
             version (int | None | Unset): MapLibre style version (always 8 in current spec)
             name (None | str | Unset): Display name for the imported map

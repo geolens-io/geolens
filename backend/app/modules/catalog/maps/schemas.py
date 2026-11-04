@@ -10,6 +10,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    FiniteFloat,
     PlainSerializer,
     StringConstraints,
     field_validator,
@@ -883,8 +884,12 @@ class MapUpdate(BaseModel):
     def normalize_nfc(cls, v: str | None) -> str | None:
         return _nfc(v)
 
-    center_lng: float | None = Field(default=None, description="Map center longitude")
-    center_lat: float | None = Field(default=None, description="Map center latitude")
+    center_lng: FiniteFloat | None = Field(
+        default=None, description="Map center longitude"
+    )
+    center_lat: FiniteFloat | None = Field(
+        default=None, description="Map center latitude"
+    )
     zoom: float | None = Field(default=None, ge=0, le=24, description="Map zoom level")
     bearing: float | None = Field(
         default=None, ge=-180, le=180, description="Map rotation in degrees"
@@ -1231,10 +1236,6 @@ class MapStyleImportRequest(BaseModel):
     forward-compatibility with future MapLibre fields (e.g. ``projection``,
     ``light``, ``transition``) so adding a new key on the client side
     doesn't require a server release.
-
-    Replacing the previous bare-``dict`` body parameter removes
-    ``additionalProperties: true`` from the OpenAPI schema and lets
-    openapi-python-client generate a navigable named model class.
     """
 
     version: int | None = Field(
@@ -1250,7 +1251,7 @@ class MapStyleImportRequest(BaseModel):
         default=None,
         description="Free-form metadata bag (used by GeoLens for center/zoom/basemap hints)",
     )
-    center: list[float] | None = Field(
+    center: list[FiniteFloat] | None = Field(
         default=None,
         description="[longitude, latitude] map center",
     )

@@ -14232,7 +14232,7 @@
       },
       "MapStyleImportRequest": {
         "additionalProperties": true,
-        "description": "Typed request body for POST /maps/import.\n\nMirrors the top-level keys of the MapLibre Style Specification that\n``parse_maplibre_style_import`` actually reads. ``extra=\"allow\"`` keeps\nforward-compatibility with future MapLibre fields (e.g. ``projection``,\n``light``, ``transition``) so adding a new key on the client side\ndoesn't require a server release.\n\nReplacing the previous bare-``dict`` body parameter removes\n``additionalProperties: true`` from the OpenAPI schema and lets\nopenapi-python-client generate a navigable named model class.",
+        "description": "Typed request body for POST /maps/import.\n\nMirrors the top-level keys of the MapLibre Style Specification that\n``parse_maplibre_style_import`` actually reads. ``extra=\"allow\"`` keeps\nforward-compatibility with future MapLibre fields (e.g. ``projection``,\n``light``, ``transition``) so adding a new key on the client side\ndoesn't require a server release.",
         "properties": {
           "version": {
             "anyOf": [

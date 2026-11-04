@@ -126,10 +126,6 @@ def sync_detailed(
             ``light``, ``transition``) so adding a new key on the client side
             doesn't require a server release.
 
-            Replacing the previous bare-``dict`` body parameter removes
-            ``additionalProperties: true`` from the OpenAPI schema and lets
-            openapi-python-client generate a navigable named model class.
-
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
@@ -174,10 +170,6 @@ def sync(
             ``light``, ``transition``) so adding a new key on the client side
             doesn't require a server release.
 
-            Replacing the previous bare-``dict`` body parameter removes
-            ``additionalProperties: true`` from the OpenAPI schema and lets
-            openapi-python-client generate a navigable named model class.
-
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
@@ -216,10 +208,6 @@ async def asyncio_detailed(
             forward-compatibility with future MapLibre fields (e.g. ``projection``,
             ``light``, ``transition``) so adding a new key on the client side
             doesn't require a server release.
-
-            Replacing the previous bare-``dict`` body parameter removes
-            ``additionalProperties: true`` from the OpenAPI schema and lets
-            openapi-python-client generate a navigable named model class.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -262,10 +250,6 @@ async def asyncio(
             forward-compatibility with future MapLibre fields (e.g. ``projection``,
             ``light``, ``transition``) so adding a new key on the client side
             doesn't require a server release.
-
-            Replacing the previous bare-``dict`` body parameter removes
-            ``additionalProperties: true`` from the OpenAPI schema and lets
-            openapi-python-client generate a navigable named model class.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
