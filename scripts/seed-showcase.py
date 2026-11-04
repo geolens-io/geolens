@@ -48,6 +48,7 @@ import sys
 import time
 import uuid
 from datetime import date
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 try:
@@ -5461,6 +5462,30 @@ def _view_bbox(camera: dict) -> tuple[float, float, float, float]:
     return lng - half_w, lat - half_h, lng + half_w, lat + half_h
 
 
+def _uncovered(
+    rect: tuple[float, float, float, float], covers: list[list[float]]
+) -> bool:
+    """Whether any part of *rect* lies outside every rectangle in *covers*."""
+    west, south, east, north = rect
+
+    def cuts(low: int, high: int, lo: float, hi: float) -> list[float]:
+        edges = {lo, hi}
+        for c in covers:
+            edges.update(min(max(c[i], lo), hi) for i in (low, high))
+        return sorted(edges)
+
+    xs = cuts(0, 2, west, east)
+    ys = cuts(1, 3, south, north)
+    return any(
+        not any(
+            c[0] <= (x0 + x1) / 2 <= c[2] and c[1] <= (y0 + y1) / 2 <= c[3]
+            for c in covers
+        )
+        for x0, x1 in zip(xs, xs[1:])
+        for y0, y1 in zip(ys, ys[1:])
+    )
+
+
 def _orbit_visibility(
     passes: dict[str, list[dict]],
     bounds: dict[str, list[float] | None],
@@ -5470,38 +5495,44 @@ def _orbit_visibility(
     """Layer visibility that fills the view with imagery, preferring *day*.
 
     Every scene of *day* that meets the view shows. A scene of another date
-    shows only where it covers part of the view that no scene of *day* does.
+    shows only where its part of the view extends beyond all scenes of *day*.
     """
     west, south, east, north = view
-    points = [
-        (west + (east - west) * i / 4, south + (north - south) * j / 4)
-        for i in range(5)
-        for j in range(5)
+    preferred = [
+        bounds[lay["id"]]
+        for lay in passes.get(day, [])
+        if _meets(bounds[lay["id"]], view)
     ]
-
-    def holds(layer: dict, point: tuple[float, float]) -> bool:
-        b = bounds[layer["id"]]
-        return bool(b) and b[0] <= point[0] <= b[2] and b[1] <= point[1] <= b[3]
-
-    preferred = passes.get(day, [])
     visibility = {}
     for other, layers in passes.items():
         for layer in layers:
-            if other == day:
-                b = bounds[layer["id"]]
-                visibility[layer["id"]] = bool(
-                    b
-                    and b[0] <= east
-                    and b[2] >= west
-                    and b[1] <= north
-                    and b[3] >= south
-                )
+            b = bounds[layer["id"]]
+            if not _meets(b, view):
+                visibility[layer["id"]] = False
+            elif other == day:
+                visibility[layer["id"]] = True
             else:
-                visibility[layer["id"]] = any(
-                    holds(layer, pt) and not any(holds(p, pt) for p in preferred)
-                    for pt in points
+                part = (
+                    max(b[0], west),
+                    max(b[1], south),
+                    min(b[2], east),
+                    min(b[3], north),
                 )
+                visibility[layer["id"]] = _uncovered(part, preferred)
     return visibility
+
+
+def _finite_number(value, what: str) -> float:
+    """*value* as a finite number; an exact numeric string is accepted."""
+    try:
+        if value is None or isinstance(value, bool):
+            raise ValueError
+        number = float(Decimal(str(value).strip()))
+    except (ValueError, InvalidOperation):
+        number = math.nan
+    if not math.isfinite(number):
+        raise RuntimeError(f"the aggregate for {what} came back as {value!r}")
+    return number
 
 
 def _nyc_story_missing(api: Api) -> list[str]:
@@ -5589,14 +5620,22 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
         for day, layers in passes.items()
         if any(_meets(bounds[lay["id"]], view) for lay in layers)
     ]
-    newest = in_view[0] if in_view and in_view[0] > min(passes) else next(iter(passes))
-    older = [day for day in in_view if day < newest] or [
-        day for day in passes if day < newest
-    ]
-    earlier, gap = _earlier_pass([newest, *older])
+    if not in_view:
+        raise RuntimeError(f"no Sentinel-2 scene of {ORBIT_MAP!r} meets its view")
+    newest = in_view[0]
+    comparison = len(in_view) > 1
+    if comparison:
+        earlier, gap = _earlier_pass(in_view)
+    else:
+        print(
+            f"  only the {newest} pass meets the view: "
+            "no earlier-pass chapter without a change to show"
+        )
 
     def orbit_scene(show: str, transition: str) -> dict:
-        visibility = _orbit_visibility(passes, bounds, _view_bbox(orbit_camera), show)
+        # A layer left out of the override would keep its saved visibility.
+        visibility = {lay["id"]: False for lay in orbit["layers"]}
+        visibility.update(_orbit_visibility(passes, bounds, view, show))
         return _story_scene(orbit, visibility, orbit_camera, transition)
 
     buildings = _map_layer(manhattan, "Buildings (3D height, colored by era)")
@@ -5628,13 +5667,21 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
         "dataset_id"
     ]
     canopy_ds = _map_layer_row(shade, "Canopy change in the study window")["dataset_id"]
-    total = api.aggregate(buildings_ds, op="count")["count"]
-    tallest = api.aggregate(
-        buildings_ds, op="stats", column="height_roof", stats=["max"]
-    )["max"]
-    station_count = api.aggregate(stations_ds, op="count")["count"]
+    # Checked before the story or its cover exist, so a bad figure leaves nothing behind.
+    total = int(
+        _finite_number(api.aggregate(buildings_ds, op="count")["count"], "buildings")
+    )
+    tallest = _finite_number(
+        api.aggregate(buildings_ds, op="stats", column="height_roof", stats=["max"])[
+            "max"
+        ],
+        "the tallest roof",
+    )
+    station_count = int(
+        _finite_number(api.aggregate(stations_ds, op="count")["count"], "stations")
+    )
     classes = {
-        row["value"]: row["count"]
+        row["value"]: int(_finite_number(row["count"], f"canopy class {row['value']}"))
         for row in api.aggregate(
             canopy_ds, op="value_counts", column="class", limit=10
         )["values"]
@@ -5672,7 +5719,28 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
     def separator(key: str) -> dict:
         return _story_block(key, "separator", "separator", config={"style": "line"})
 
-    earlier_title = "A week earlier" if gap == 7 else "An earlier pass"
+    earlier_chapters = []
+    if comparison:
+        earlier_title = "A week earlier" if gap == 7 else "An earlier pass"
+        earlier_chapters = [
+            _story_blocks_chapter(
+                "nyc-earlier",
+                earlier_title,
+                orbit_scene(earlier, "glide"),
+                [
+                    text(
+                        "nyc-earlier",
+                        f"The same camera, now preferring the pass on {earlier}, "
+                        f"{gap} days before the first. Each pass is its own "
+                        "layer, so the scene swaps while the camera stays put.\n\n"
+                        "Coverage varies by tile, so a corner of the view may "
+                        "still come from another date. Cloud and haze change "
+                        "from one date to the next.",
+                    ),
+                    separator("nyc-earlier"),
+                ],
+            ),
+        ]
     document = {
         "version": 1,
         "chapters": [
@@ -5693,7 +5761,13 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
                         "Each satellite pass covers the city in tiles, so where "
                         f"the {newest} scene stops, the map shows the nearest "
                         "other pass. Water is dark, the built-up city is grey "
-                        "and the parks are green.",
+                        "and the parks are green."
+                        + (
+                            ""
+                            if comparison
+                            else f"\n\nOnly the {newest} pass meets this view, "
+                            "so there is no earlier pass to compare it with."
+                        ),
                     ),
                     {
                         "id": image_id,
@@ -5711,23 +5785,7 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
                     },
                 ],
             ),
-            _story_blocks_chapter(
-                "nyc-earlier",
-                earlier_title,
-                orbit_scene(earlier, "glide"),
-                [
-                    text(
-                        "nyc-earlier",
-                        f"The same camera, now preferring the pass on {earlier}, "
-                        f"{gap} days before the first. Each pass is its own "
-                        "layer, so the scene swaps while the camera stays put.\n\n"
-                        "Coverage varies by tile, so a corner of the view may "
-                        "still come from another date. Cloud and haze change "
-                        "from one date to the next.",
-                    ),
-                    separator("nyc-earlier"),
-                ],
-            ),
+            *earlier_chapters,
             _story_blocks_chapter(
                 "nyc-skyline",
                 "The skyline",

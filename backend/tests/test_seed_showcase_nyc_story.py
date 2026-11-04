@@ -94,6 +94,7 @@ class NycFakeApi:
         self.uploads = 0
         self.uploaded: list[bytes] = []
         self.crop = CROP
+        self.max_roof = 1550.0
         self.tiles: list[tuple] = []
         self.bounds = [-75.0, 40.0, -73.0, 42.0]
 
@@ -125,7 +126,7 @@ class NycFakeApi:
         if body["op"] == "count":
             return {"count": 1234}
         if body["op"] == "stats":
-            return {"max": 1550.0}
+            return {"max": self.max_roof}
         return {
             "values": [
                 {"value": "Gain", "count": 11},
@@ -473,8 +474,23 @@ def test_an_unparseable_date_is_skipped_with_a_log_line(capsys):
     api = NycFakeApi(orbit_dates=("2026-09-11", "2026-13-45", "2026-09-04"))
     skipped = api.docs[api.map_ids[seeder.ORBIT_MAP]]["layers"][1]["id"]
     seeder.seed_nyc_story(api)
-    assert skipped not in _visible(_document(api).chapters[0])
+    assert _visible(_document(api).chapters[0])[skipped] is False
     assert "not a calendar date" in capsys.readouterr().out
+
+
+def test_rejected_orbit_layers_are_switched_off_in_every_orbit_chapter():
+    api = NycFakeApi(orbit_dates=("2026-09-11", "2026-09-04", "2026-13-45"))
+    layers = api.docs[api.map_ids[seeder.ORBIT_MAP]]["layers"]
+    invalid = layers[2]["id"]
+    nameless = _layer("x", "ds-nameless")
+    nameless["display_name"] = None
+    other = _layer("Roads", "ds-roads")
+    layers.extend([nameless, other])
+    seeder.seed_nyc_story(api)
+    for chapter in _document(api).chapters[:2]:
+        visible = _visible(chapter)
+        for rejected in (invalid, nameless["id"], other["id"]):
+            assert visible[rejected] is False
 
 
 @pytest.mark.parametrize("zoom", [13, 14])
@@ -509,3 +525,73 @@ def test_chapter_text_separates_the_map_layers_from_the_stored_crop():
     text = _document(api).chapters[0].blocks[0].config.text
     assert "On the map, the satellite layers" in text
     assert "stored crop" in text
+
+
+@pytest.mark.parametrize("bad", [None, "", "nan", "abc", float("inf"), True])
+def test_a_bad_roof_height_stops_the_seed_before_anything_is_created(bad):
+    api = NycFakeApi()
+    api.max_roof = bad
+    for seed in (seeder.seed_nyc_story, seeder.seed_nyc_story_if_ready):
+        with pytest.raises(RuntimeError, match="the tallest roof"):
+            seed(api)
+    assert (api.stories_created, api.uploads, api.published) == (0, 0, [])
+
+
+def test_the_story_run_reports_a_bad_roof_height_as_a_failure(monkeypatch):
+    for name in (
+        "set_attribute_titles",
+        "seed_hurricane_story",
+        "seed_quake_dashboard",
+        "seed_skyline_dashboard",
+        "seed_skyline_story",
+    ):
+        monkeypatch.setattr(seeder, name, lambda api, *a, **k: None)
+    api = NycFakeApi()
+    api.max_roof = None
+    assert seeder.run_story_and_dashboard(api) == 1
+    assert api.stories_created == 0
+
+
+def test_an_exact_numeric_string_roof_height_is_read():
+    api = NycFakeApi()
+    api.max_roof = "1550.5"
+    seeder.seed_nyc_story(api)
+    text = _document(api).chapters[2].blocks[0].config.text
+    assert "up to 1,550 ft" in text or "up to 1,551 ft" in text
+
+
+def test_a_single_date_in_view_publishes_one_orbit_chapter(capsys):
+    api = NycFakeApi(orbit_dates=("2026-09-11", "2026-09-04"))
+    api.bounds = {
+        "ds-scene-0": [-73.5, 40.5, -73.0, 41.0],
+        "ds-scene-1": _wide(),
+    }
+    seeder.seed_nyc_story(api)
+    chapters = _document(api).chapters
+    assert [c.title for c in chapters][:2] == ["From orbit", "The skyline"]
+    assert len(chapters) == 5
+    assert "Only the 2026-09-04 pass meets this view" in (
+        chapters[0].blocks[0].config.text
+    )
+    assert "no earlier-pass chapter" in capsys.readouterr().out
+
+
+def test_a_fallback_scene_filling_a_narrow_strip_stays_visible():
+    """The strip between two preferred scenes falls between sample positions."""
+    api = NycFakeApi(orbit_dates=("2026-09-11", "2026-09-11", "2026-09-04"))
+    api.bounds = {
+        "ds-scene-0": _wide(east=-73.85),
+        "ds-scene-1": _wide(west=-73.80),
+        "ds-scene-2": _wide(),
+    }
+    seeder.seed_nyc_story(api)
+    first = _visible(_document(api).chapters[0])
+    fallback = api.docs[api.map_ids[seeder.ORBIT_MAP]]["layers"][2]["id"]
+    assert first[fallback] is True
+
+
+def test_a_fallback_scene_inside_the_preferred_coverage_is_hidden():
+    api = NycFakeApi(orbit_dates=("2026-09-11", "2026-09-04"))
+    seeder.seed_nyc_story(api)
+    first = _visible(_document(api).chapters[0])
+    assert list(first.values()) == [True, False]
