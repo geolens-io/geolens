@@ -505,6 +505,8 @@ def _check_map(
     elif modified > recorded or entry.skipped_layers or entry.pending_layers:
         if problem := _translate_again(ctx, item, entry, found, modified):
             problems.append(problem)
+    if owed := entry.owed_reason():
+        problems.append(owed)
     return problems
 
 
@@ -625,6 +627,7 @@ def _translate_again(
     after = {
         "sources": sources,
         "sent_ids": [layer.get("id") for layer in layers],
+        "style_nulls": [_null_styles(layer) for layer in layers],
         "readable": sorted(str(row.id) for row in getattr(found, "layers", None) or []),
         "skipped": skipped,
         "kept_view": kept_view,
@@ -636,7 +639,9 @@ def _translate_again(
     # Recorded before the save, so a rerun can tell a save whose answer was
     # lost from an edit made in GeoLens.
     entry.pending_write = {
-        **_write_fingerprint(update, found, entry.layer_styles),
+        **_write_fingerprint(
+            update, found, entry.layer_styles, entry.layer_ids.values()
+        ),
         "after": after,
     }
     ctx.save()
@@ -685,7 +690,12 @@ def _record_write(entry: ItemState, after: Mapping[str, Any], saved: Any) -> Non
         [str(layer.id) for layer in getattr(saved, "layers", None) or []],
     )
     entry.portal_modified = after["modified"]
-    entry.layer_styles = _filled_styles(saved)
+    nulls = {
+        entry.layer_ids[source]: null
+        for source, null in zip(after["sources"], after["style_nulls"])
+        if source in entry.layer_ids
+    }
+    entry.layer_styles = _filled_styles(saved, nulls)
     entry.pending_layers = _owed_layers(
         after["unimported"], entry.layer_ids, after["listed"], after["sources"]
     )
@@ -694,11 +704,25 @@ def _record_write(entry: ItemState, after: Mapping[str, Any], saved: Any) -> Non
     entry.pending_write = None
 
 
-def _filled_styles(saved: Any) -> dict[str, dict[str, Any]]:
-    """Map layer id -> the styles the server holds for it, which it fills in
-    when a save sends them null."""
+def _null_styles(layer: Mapping[str, Any]) -> list[str]:
+    """The styles a layer sends null or leaves out, which the save fills in."""
+    return [key for key in _SERVER_FILLED if layer.get(key) is None]
+
+
+def _filled_styles(
+    saved: Any, nulls: Mapping[str, Sequence[str]]
+) -> dict[str, dict[str, Any]]:
+    """Map layer id -> the styles the server holds for it, and which of them
+    the save that left them sent null (*nulls*). Only a value filled in from
+    null is the one a later null send fills in again."""
     rows = [layer.to_dict() for layer in getattr(saved, "layers", None) or []]
-    return {str(row["id"]): {k: row.get(k) for k in _SERVER_FILLED} for row in rows}
+    return {
+        str(row["id"]): {
+            "values": {k: row.get(k) for k in _SERVER_FILLED},
+            "null_sent": list(nulls.get(str(row["id"]), [])),
+        }
+        for row in rows
+    }
 
 
 def _unimported(
@@ -712,7 +736,11 @@ def _unimported(
         for layer_id, _, _, source_id, source in _sourced_layers(ctx, webmap)
         if layer_id not in matches
         and source_id in ctx.importable
-        and (source is None or source.status not in FINISHED)
+        and (
+            source is None
+            or source.status not in FINISHED
+            or source.exported_not_imported()
+        )
     )
 
 
@@ -733,21 +761,19 @@ def _owed_layers(
     )
 
 
-# The map fields a save leaves as they are when it doesn't send them or sends
-# them null.
-_UNSENT_MAP_KEYS = (
-    "name",
-    "description",
-    "center_lng",
-    "center_lat",
-    "zoom",
-    "bearing",
-    "pitch",
-    "basemap_style",
-    "show_basemap_labels",
-    "show_attribute_table",
-    "visibility",
-    "created_by",
+# Response fields that move or derive from others without anyone editing the
+# map: the save's own timestamp, the layers (compared apart), and the names and
+# images computed from other rows.
+_DERIVED_MAP_KEYS = frozenset(
+    {
+        "layers",
+        "layer_count",
+        "updated_at",
+        "thumbnail_url",
+        "og_image_url",
+        "forked_from_name",
+        "created_by_username",
+    }
 )
 
 
@@ -786,37 +812,33 @@ def _stored_shape(data: Mapping[str, Any], keys: Mapping[str, Any]) -> dict[str,
     }
 
 
-def _plain(found: Any, key: str) -> Any:
-    """The field *key* of a map as `to_dict` writes it."""
-    from geolens.types import Unset
-
-    value = getattr(found, key, None)
-    if isinstance(value, Unset):
-        return None
-    value = getattr(value, "value", value)
-    return str(value) if isinstance(value, UUID) else value
-
-
 def _write_fingerprint(
     update: Mapping[str, Any],
     before: Any,
     styles: Mapping[str, Mapping[str, Any]],
+    hidden_candidates: Collection[str],
 ) -> dict[str, Any]:
     """A fingerprint of the map a save leaves, and the fields it covers: the
-    ones the save sends, and the map-level ones it leaves as *before* has them,
-    which includes a view field sent null. A style sent
+    ones the save sends, and every other field of the map as *before* has it,
+    which includes a field sent null. A style sent
     null is filled in by the save; it is covered by the value *styles* records
-    for the layer, and the save is *unverified* when none is recorded."""
+    for the layer when that save also sent it null, and the save is
+    *unverified* otherwise."""
     sent = {
         key: value
         for key, value in update.items()
         if key not in ("layers", "expected_updated_at") and value is not None
     }
     sent.update(
-        (key, _plain(before, key)) for key in _UNSENT_MAP_KEYS if key not in sent
+        (key, value)
+        for key, value in before.to_dict().items()
+        if key not in sent and key not in _DERIVED_MAP_KEYS
     )
     rows: list[dict[str, Any]] = []
-    unverified = False
+    # No read shows a row hidden from the run, so a save that keeps one can't
+    # be told from an edit to it.
+    readable = {str(row.id) for row in getattr(before, "layers", None) or []}
+    unverified = any(layer_id not in readable for layer_id in hidden_candidates)
     for layer in update["layers"]:
         # A new layer's id is only known to the answer.
         row = {
@@ -825,13 +847,12 @@ def _write_fingerprint(
             if key != "sort_order" and (key != "id" or value)
         }
         recorded = styles.get(str(layer.get("id") or ""))
-        for key in _SERVER_FILLED:
-            if key in row and row[key] is None:
-                if recorded is not None and key in recorded:
-                    row[key] = recorded[key]
-                else:
-                    del row[key]
-                    unverified = True
+        for key in _null_styles(layer):
+            if recorded is not None and key in recorded["null_sent"]:
+                row[key] = recorded["values"][key]
+            else:
+                row.pop(key, None)
+                unverified = True
         rows.append(row)
     keys = {"map": sorted(sent), "layers": [sorted(row) for row in rows]}
     shape = {"map": sent, "layers": rows, "count": len(rows)}
@@ -1126,7 +1147,9 @@ def import_map(
     )
 
     info = _read_item(ctx, item["id"])
-    body = _import_body(ctx, item, _fetch(ctx, item["id"]))
+    webmap = _fetch(ctx, item["id"])
+    matches = match_datasets(ctx, webmap)
+    body = _import_body(ctx, item, webmap, matches=matches)
     try:
         with long_request_timeout(ctx.geolens.client):
             result = ctx.geolens.call(
@@ -1145,7 +1168,10 @@ def import_map(
     entry.layer_ids = {
         k: str(v) for k, v in result.layer_ids.additional_properties.items()
     }
-    entry.layer_styles = _filled_styles(result.map_)
+    entry.layer_styles = _filled_styles(result.map_, {})
+    # A layer of a source the plan imports but the run hasn't finished is added
+    # by a later rerun, though the web map itself doesn't change.
+    entry.pending_layers = _unimported(ctx, webmap, matches)
     # Kept in the state until the loss report file is written, so a failed
     # write is finished on the rerun instead of dropping the losses.
     entry.pending_loss = _pending_loss(result)

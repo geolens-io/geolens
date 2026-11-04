@@ -289,10 +289,8 @@ def _exported_not_imported(item: Mapping[str, Any], entry: ItemState | None) -> 
     action changed to one that makes datasets or a map, and none are recorded."""
     return bool(
         entry is not None
-        and entry.status in FINISHED
-        and entry.export is not None
         and item["action"] in IMPORTING
-        and not (entry.dataset_ids or entry.layer_datasets or entry.map_id)
+        and entry.exported_not_imported()
     )
 
 

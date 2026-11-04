@@ -248,6 +248,27 @@ class ItemState:
     started_at: str | None = None
     finished_at: str | None = None
 
+    def exported_not_imported(self) -> bool:
+        """Whether the item finished as an export and holds nothing imported,
+        so a plan that now imports it has work left."""
+        return bool(
+            self.status in FINISHED
+            and self.export is not None
+            and not (self.dataset_ids or self.layer_datasets or self.map_id)
+        )
+
+    def owed_reason(self) -> str | None:
+        """Why a web map isn't up to date while *pending_layers* is set."""
+        if not self.pending_layers:
+            return None
+        shown = ", ".join(self.pending_layers[:5])
+        more = len(self.pending_layers) - 5
+        return (
+            f"{len(self.pending_layers)} web map layer(s) are not in the GeoLens "
+            f"map yet: {shown}{f' and {more} more' if more > 0 else ''}; "
+            "a rerun tries again"
+        )
+
     @classmethod
     def from_dict(cls, data: Any) -> ItemState:
         if not isinstance(data, dict) or data.get("status") not in STATUSES:
