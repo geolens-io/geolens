@@ -232,6 +232,9 @@ class ItemState:
     # Operational layers the last translation of a web map left out because
     # their datasets couldn't be read, which a later run translates again.
     skipped_layers: list[str] = field(default_factory=list)
+    # Map layer id -> the paint, layout, style_config and layer_type the server
+    # held at the last confirmed save, which a lost save is checked against.
+    layer_styles: dict[str, dict[str, Any]] = field(default_factory=dict)
     # Operational layers the last translation left unapplied: a dropped layer
     # whose map layer stayed hidden from the run, and one whose service isn't
     # imported yet. A rerun translates the map again until none is left.

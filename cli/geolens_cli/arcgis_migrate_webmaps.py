@@ -636,7 +636,7 @@ def _translate_again(
     # Recorded before the save, so a rerun can tell a save whose answer was
     # lost from an edit made in GeoLens.
     entry.pending_write = {
-        **_write_fingerprint(update, found),
+        **_write_fingerprint(update, found, entry.layer_styles),
         "after": after,
     }
     ctx.save()
@@ -685,12 +685,20 @@ def _record_write(entry: ItemState, after: Mapping[str, Any], saved: Any) -> Non
         [str(layer.id) for layer in getattr(saved, "layers", None) or []],
     )
     entry.portal_modified = after["modified"]
+    entry.layer_styles = _filled_styles(saved)
     entry.pending_layers = _owed_layers(
         after["unimported"], entry.layer_ids, after["listed"], after["sources"]
     )
     entry.pending_loss = after["pending_loss"]
     entry.loss_report_path = None
     entry.pending_write = None
+
+
+def _filled_styles(saved: Any) -> dict[str, dict[str, Any]]:
+    """Map layer id -> the styles the server holds for it, which it fills in
+    when a save sends them null."""
+    rows = [layer.to_dict() for layer in getattr(saved, "layers", None) or []]
+    return {str(row["id"]): {k: row.get(k) for k in _SERVER_FILLED} for row in rows}
 
 
 def _unimported(
@@ -783,10 +791,16 @@ def _plain(found: Any, key: str) -> Any:
     return str(value) if isinstance(value, UUID) else value
 
 
-def _write_fingerprint(update: Mapping[str, Any], before: Any) -> dict[str, Any]:
+def _write_fingerprint(
+    update: Mapping[str, Any],
+    before: Any,
+    styles: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
     """A fingerprint of the map a save leaves, and the fields it covers: the
     ones the save sends, and the map-level ones it leaves as *before* has them.
-    A null view field is skipped by the save, so it is left out."""
+    A null view field is skipped by the save, so it is left out. A style sent
+    null is filled in by the save; it is covered by the value *styles* records
+    for the layer, and the save is *unverified* when none is recorded."""
     sent = {
         key: value
         for key, value in update.items()
@@ -795,21 +809,27 @@ def _write_fingerprint(update: Mapping[str, Any], before: Any) -> dict[str, Any]
     sent.update(
         (key, _plain(before, key)) for key in _UNSENT_MAP_KEYS if key not in sent
     )
-    # A new layer's id is only known to the answer, and a null style is
-    # filled in by the save.
-    rows = [
-        {
+    rows: list[dict[str, Any]] = []
+    unverified = False
+    for layer in update["layers"]:
+        # A new layer's id is only known to the answer.
+        row = {
             key: value
             for key, value in layer.items()
-            if key != "sort_order"
-            and (key != "id" or value)
-            and not (value is None and key in _SERVER_FILLED)
+            if key != "sort_order" and (key != "id" or value)
         }
-        for layer in update["layers"]
-    ]
+        recorded = styles.get(str(layer.get("id") or ""))
+        for key in _SERVER_FILLED:
+            if key in row and row[key] is None:
+                if recorded is not None and key in recorded:
+                    row[key] = recorded[key]
+                else:
+                    del row[key]
+                    unverified = True
+        rows.append(row)
     keys = {"map": sorted(sent), "layers": [sorted(row) for row in rows]}
     shape = {"map": sent, "layers": rows, "count": len(rows)}
-    return {"fingerprint": _digest(shape), "keys": keys}
+    return {"fingerprint": _digest(shape), "keys": keys, "unverified": unverified}
 
 
 def _settle_write(
@@ -827,8 +847,11 @@ def _settle_write(
     if pending is None:
         return None
     entry.pending_write = None
-    if map_state(found) != entry.map_snapshot and pending.get("fingerprint") == _digest(
-        _stored_shape(found.to_dict(), pending["keys"])
+    if (
+        map_state(found) != entry.map_snapshot
+        and not pending.get("unverified")
+        and pending.get("fingerprint")
+        == _digest(_stored_shape(found.to_dict(), pending["keys"]))
     ):
         _record_write(entry, pending["after"], found)
         return _resume_loss(ctx, item_id, entry)
@@ -1116,6 +1139,7 @@ def import_map(
     entry.layer_ids = {
         k: str(v) for k, v in result.layer_ids.additional_properties.items()
     }
+    entry.layer_styles = _filled_styles(result.map_)
     # Kept in the state until the loss report file is written, so a failed
     # write is finished on the rerun instead of dropping the losses.
     entry.pending_loss = _pending_loss(result)

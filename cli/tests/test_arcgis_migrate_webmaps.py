@@ -1913,6 +1913,72 @@ def test_a_layer_whose_service_imports_later_is_added_without_a_portal_change(
     assert len(_puts(geolens)) == 2
 
 
+DEFAULT_PAINT = {"fill-color": "#999999"}
+
+
+def _default_styled_save(geolens, *, lose: set[int]):
+    """A translation that sends every layer's paint null, and a save that
+    fills the default in and stores it; the saves numbered in *lose* commit
+    and raise a timeout in place of an answer."""
+    translated = _translated(dataset_id("Parcels"))
+    for layer in translated["layers"]:
+        layer["paint"] = None
+    geolens.routes[IMPORT] = lambda seen: (
+        (201, translated) if seen.json().get("dry_run") else (201, _response(lost=2))
+    )
+    stored = _committing_save(geolens, commits=True, failure=None)
+    commit = geolens.routes["PUT /maps/" + MAP_ID]
+    calls: list[int] = []
+
+    def put(seen):
+        calls.append(1)
+        answer = commit(seen)
+        for layer in answer["layers"]:
+            layer["paint"] = layer["paint"] or DEFAULT_PAINT
+        stamp = f"2026-10-0{len(calls) + 2}T00:00:00Z"
+        answer["updated_at"] = stored["updated_at"] = stamp
+        stored["layers"] = answer["layers"]
+        if len(calls) in lose:
+            raise httpx.ReadTimeout("slow")
+        return answer
+
+    geolens.routes["PUT /maps/" + MAP_ID] = put
+    return stored
+
+
+@pytest.mark.parametrize("variant", ["unedited", "edited", "first-save-lost"])
+def test_a_lost_save_of_a_default_styled_layer_is_adopted_only_against_a_recorded_default(
+    runner, plan_file, geolens, portal, variant
+):
+    token = _changed_in_the_portal(runner, plan_file, geolens, portal)
+    lost = 1 if variant == "first-save-lost" else 2
+    stored = _default_styled_save(geolens, lose={lost})
+    _migrate(runner, plan_file, "--token", token)
+    if lost == 2:
+        assert _state(plan_file)["items"][B1]["layer_styles"]
+        _edit_webmap(portal, lambda layers: None)
+        _migrate(runner, plan_file, "--token", token)
+    if variant == "edited":
+        stored["layers"][0]["paint"] = {"fill-color": "#ff0000"}
+        stored["updated_at"] = "2026-10-09T00:00:00Z"
+
+    result, payload = _migrate(runner, plan_file, "--token", token)
+
+    entry = _state(plan_file)["items"][B1]
+    assert len(_puts(geolens)) == lost
+    if variant == "unedited":
+        assert result.exit_code == 0, result.output
+        assert entry["pending_write"] is None
+        assert entry["map_snapshot"]["updated_at"] == "2026-10-04T00:00:00+00:00"
+    else:
+        assert result.exit_code == 1
+        [reason] = payload["not_up_to_date"][B1]
+        assert "changed in GeoLens since the last run" in reason
+        assert not entry["map_snapshot"]["updated_at"].startswith(
+            stored["updated_at"][:13]
+        )
+
+
 @pytest.mark.parametrize("answer", ["older", "unpaired", "older_sdk"])
 def test_a_translation_the_cli_cant_save_is_reported(
     runner, plan_file, geolens, portal, monkeypatch, answer
