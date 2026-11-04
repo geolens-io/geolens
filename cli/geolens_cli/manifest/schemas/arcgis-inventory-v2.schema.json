@@ -226,6 +226,11 @@
           ]
         },
         "hosted": {"type": ["boolean", "null"]},
+        "map_widgets": {
+          "description": "For a dashboard, how many map widgets it places, counting each widget even when several show the same web map; null when its configuration lists no widgets.",
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
         "dependencies_status": {
           "enum": ["parsed", "unparsed", "error", "not_fetched", "not_applicable"]
         },

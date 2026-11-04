@@ -14,6 +14,7 @@ import pytest
 from geolens_cli import arcgis_migrate as migrate
 from geolens_cli import arcgis_migrate_export as export_module
 from geolens_cli.arcgis_migrate_state import MigrationState
+from geolens_cli.arcgis_plan import UNREAD_DEPENDENCIES
 from geolens_cli.arcgis_portal import redact_json
 
 from . import test_arcgis_migrate_layers as layers
@@ -1422,3 +1423,68 @@ def test_the_hosted_layer_note_follows_the_items_current_action(
     assert export_module.item_replacement(item, plan, state).startswith(
         expected
     )
+
+
+def _dashboard_plan(map_ids, reason="read", map_widgets=None):
+    maps = [{"id": m, "type": "Web Map", "title": f"Map {m}"} for m in map_ids]
+    layer = {"id": C1, "type": "Feature Service", "title": "Layer"}
+    dash = {
+        "id": D1,
+        "type": "Dashboard",
+        "action": "export_only",
+        "reason": reason,
+        "depends_on": [*map_ids, C1],
+    }
+    if map_widgets is not None:
+        dash["map_widgets"] = map_widgets
+    return dash, {"items": [dash, layer, *maps]}
+
+
+def test_a_dashboard_with_no_map_widget_is_to_be_rebuilt_with_the_map_hidden(tmp_path):
+    state = MigrationState(tmp_path / "s.json", "p", "i", str, persist=False)
+    dash, plan = _dashboard_plan([])
+
+    note = export_module.item_replacement(dash, plan, state)
+
+    assert "It has no map widget: rebuild it with the map hidden" in note
+    assert "histogram" in note and "API-only" not in note
+
+
+def test_a_dashboard_with_several_maps_is_named_and_not_guessed(tmp_path):
+    state = MigrationState(tmp_path / "s.json", "p", "i", str, persist=False)
+    dash, plan = _dashboard_plan([C2, C3])
+
+    note = export_module.item_replacement(dash, plan, state)
+
+    assert f"It has 2 map widgets on Map {C2}, Map {C3}" in note
+    assert "convert it to a single-map dashboard or split it" in note
+
+
+def test_a_one_map_dashboard_or_an_unread_one_gets_only_the_general_note(tmp_path):
+    state = MigrationState(tmp_path / "s.json", "p", "i", str, persist=False)
+    one, plan = _dashboard_plan([C2])
+    unread, unread_plan = _dashboard_plan([], f"x; {UNREAD_DEPENDENCIES}")
+
+    for dash, p in ((one, plan), (unread, unread_plan)):
+        assert export_module.item_replacement(
+            dash, p, state
+        ) == export_module.replacement_note("Dashboard")
+
+
+def test_two_map_widgets_on_one_web_map_still_ask_for_a_split(tmp_path):
+    state = MigrationState(tmp_path / "s.json", "p", "i", str, persist=False)
+    dash, plan = _dashboard_plan([C2], map_widgets=2)
+
+    note = export_module.item_replacement(dash, plan, state)
+
+    assert f"It has 2 map widgets on Map {C2}" in note
+    assert "single-map dashboard or split it" in note
+
+
+def test_one_map_widget_on_one_web_map_asks_for_nothing(tmp_path):
+    state = MigrationState(tmp_path / "s.json", "p", "i", str, persist=False)
+    dash, plan = _dashboard_plan([C2], map_widgets=1)
+
+    assert export_module.item_replacement(
+        dash, plan, state
+    ) == export_module.replacement_note("Dashboard")

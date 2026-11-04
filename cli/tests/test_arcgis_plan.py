@@ -22,6 +22,7 @@ from .arcgis_fake import (
     B1,
     B2,
     C1,
+    C3,
     D1,
     D2,
     D3,
@@ -182,6 +183,18 @@ def test_other_organizations_items_are_not_dependencies():
     assert "not in the inventory" not in item["reason"]
 
 
+def test_a_dashboards_map_widgets_are_counted_per_widget_not_per_map():
+    widgets = [{"type": "mapWidget", "itemId": B1}, {"type": "mapWidget", "itemId": B1}]
+    plan = _plan({item_data_path(C3): {"widgets": [*widgets, {"type": "listWidget"}]}})
+    item = _items(plan)[C3]
+
+    assert item["map_widgets"] == 2
+    assert item["depends_on"].count(B1) <= 1
+    _validator().validate(plan)
+    # A dashboard the inventory did not read for widgets carries no count.
+    assert "map_widgets" not in _items(plan)[A1]
+
+
 def test_view_depends_on_its_parent():
     view_parent = _related(
         {("Service2Service", "reverse"): [{"id": A1, "type": "Feature Service"}]}
@@ -273,6 +286,7 @@ def _as_v1(plan: dict) -> dict:
     old["inventory"].pop("started_at", None)
     for item in old["items"]:
         del item["defaults"]
+        item.pop("map_widgets", None)
     return old
 
 

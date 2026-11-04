@@ -758,6 +758,22 @@ def _app_references(data: Mapping[str, Any]) -> list[_AppRef] | None:
     return list(unique.values())
 
 
+def _map_widget_count(data: Mapping[str, Any]) -> int | None:
+    """How many map widgets a dashboard places, one per widget even when
+    several show the same web map; None when it lists no widgets."""
+    widgets = data.get("widgets")
+    desktop = data.get("desktopView")
+    if not isinstance(widgets, list) and isinstance(desktop, dict):
+        widgets = desktop.get("widgets")
+    if not isinstance(widgets, list):
+        return None
+    return sum(
+        1
+        for widget in widgets
+        if isinstance(widget, dict) and widget.get("type") == "mapWidget"
+    )
+
+
 def _is_web_map(data: Mapping[str, Any]) -> bool:
     """Whether *data* has a web map's structure: ``baseMap`` is required by the spec."""
     layers = data.get("operationalLayers")
@@ -879,6 +895,7 @@ class _DepResult:
     errors: list[dict[str, Any]] = field(default_factory=list)
     auth: PortalError | None = None
     saved: bool = False
+    map_widgets: int | None = None
 
 
 # Reads that carry no usable JSON are an app's normal state, not a failure.
@@ -995,6 +1012,8 @@ def _collect_dependencies(
                 status, dependencies = _extract_dependencies(
                     row, data, index, inv.portal
                 )
+                if row["type"] == "Dashboard":
+                    out.map_widgets = _map_widget_count(data)
         except (TypeError, ValueError, AttributeError, KeyError, IndexError) as exc:
             # One corrupt configuration must not sink the whole inventory.
             message = (
@@ -1063,6 +1082,8 @@ def _collect_dependencies(
         for row, out in zip(targets, pool.map(fetch, targets), strict=True):
             row["dependencies_status"] = out.status
             row["data_saved"] = out.saved
+            if out.map_widgets is not None:
+                row["map_widgets"] = out.map_widgets
             inv.dependencies.extend(out.dependencies)
             inv.errors.extend(out.errors)
             if out.auth is not None:

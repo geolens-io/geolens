@@ -162,6 +162,11 @@
           "type": "array",
           "items": {"type": "string"}
         },
+        "map_widgets": {
+          "description": "For a dashboard, how many map widgets it places, counting each widget even when several show the same web map. Absent when the inventory did not read it.",
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
         "alias_of": {
           "description": "Set by hand on an unfiltered hosted view with action skip: web maps that use it point at this parent item's dataset.",
           "type": "string"

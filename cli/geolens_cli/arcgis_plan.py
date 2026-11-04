@@ -75,6 +75,16 @@ class PlanError(Exception):
     """The inventory or owner map can't be turned into a plan."""
 
 
+UNREAD_DEPENDENCIES = (
+    "its dependencies could not be read, so depends_on may be incomplete"
+)
+
+
+def dependencies_unread(entry: Mapping[str, Any]) -> bool:
+    """Whether a plan entry's ``depends_on`` is known to be incomplete."""
+    return UNREAD_DEPENDENCIES in entry.get("reason", "")
+
+
 def _unread_dependencies(row: Mapping[str, Any]) -> bool:
     return row["dependencies_status"] in ("error", "unparsed", "not_fetched")
 
@@ -180,9 +190,7 @@ def build_plan(
         if missing:
             reason += "; depends on items not in the inventory: " + ", ".join(missing)
         if _unread_dependencies(row):
-            reason += (
-                "; its dependencies could not be read, so depends_on may be incomplete"
-            )
+            reason += f"; {UNREAD_DEPENDENCIES}"
             if row["type"] == "Web Map":
                 reason += (
                     "; rerun the inventory or set the action to import_map by hand"
@@ -204,6 +212,8 @@ def build_plan(
             },
             "depends_on": depends_on,
         }
+        if "map_widgets" in row:
+            entry["map_widgets"] = row["map_widgets"]
         layer = superseded.get(row["id"])
         if layer and action == IMPORT_FILE:
             entry["action"] = EXPORT_ONLY
@@ -305,6 +315,10 @@ def _merge_item(
     merged.pop("unlisted", None)
     for key in _PORTAL_FACTS:
         merged[key] = fresh[key]
+    if "map_widgets" in fresh:
+        merged["map_widgets"] = fresh["map_widgets"]
+    else:
+        merged.pop("map_widgets", None)
     old = current.get("defaults")
     recorded = copy.deepcopy(fresh["defaults"])
     for path in _EDITABLE:

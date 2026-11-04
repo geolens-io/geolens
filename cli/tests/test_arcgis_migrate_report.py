@@ -13,6 +13,7 @@ import typer
 from geolens_cli import arcgis_migrate as migrate
 from geolens_cli import arcgis_migrate_report as report_mod
 from geolens_cli.arcgis_migrate_state import ItemState, MigrationState
+from geolens_cli.arcgis_plan import UNREAD_DEPENDENCIES
 from geolens_cli.arcgis_portal import Redactor
 from geolens_cli.main import app
 
@@ -596,3 +597,49 @@ def test_an_early_exit_says_where_the_report_is(runner, tmp_path, geolens, monke
 
     assert result.exit_code == 130
     assert "arcgis-migration-report.md" in result.output
+
+
+def _dashboard_layout_follow_ups(tmp_path, depends_on, reason="", map_widgets=None):
+    plan = _plan(tmp_path)
+    for item in plan["items"]:
+        if item["id"] == C3:
+            item["type"] = "Dashboard"
+            item["depends_on"] = depends_on
+            item["reason"] = reason
+            item.pop("map_widgets", None)
+            if map_widgets is not None:
+                item["map_widgets"] = map_widgets
+        if item["id"] in (A1, A2):
+            item["type"] = "Web Map"
+    state = _state(tmp_path)
+    export = {"path": "export/dashboard/x", "bytes": 1, "partial": False, "errors": []}
+    _set(state, C3, "done", export=export)
+    report = report_mod.build_run_report(plan, state, runnable=set())
+    return [f["text"] for f in report["follow_ups"] if f["kind"] == "dashboard_layout"]
+
+
+def test_a_dashboard_without_a_map_is_a_follow_up_to_rebuild_with_the_map_hidden(
+    tmp_path,
+):
+    [text] = _dashboard_layout_follow_ups(tmp_path, [])
+
+    assert "no map widget: rebuild it with the map hidden" in text
+
+
+def test_a_dashboard_with_two_maps_is_a_follow_up_naming_them(tmp_path):
+    [text] = _dashboard_layout_follow_ups(tmp_path, [A1, A2])
+
+    assert "2 map widgets" in text
+    assert "convert it to a single-map dashboard or split it" in text
+
+
+def test_a_one_map_or_unread_dashboard_has_no_layout_follow_up(tmp_path):
+    assert _dashboard_layout_follow_ups(tmp_path, [A1]) == []
+    assert _dashboard_layout_follow_ups(tmp_path, [], UNREAD_DEPENDENCIES) == []
+
+
+def test_two_widgets_on_one_map_are_a_split_follow_up_and_one_widget_is_not(tmp_path):
+    [text] = _dashboard_layout_follow_ups(tmp_path, [A1], map_widgets=2)
+
+    assert "2 map widgets" in text
+    assert _dashboard_layout_follow_ups(tmp_path, [A1], map_widgets=1) == []
