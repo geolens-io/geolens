@@ -1171,7 +1171,7 @@ async def test_scene_transition_round_trips_and_defaults_to_absent(
     saved = await _saved(client, owner, story, [glide, plain])
     scenes = [c["scene"] for c in saved["document"]["chapters"]]
     assert scenes[0]["transition"] == "glide"
-    assert scenes[1]["transition"] is None
+    assert "transition" not in scenes[1]
 
     bad = _chapter(map_id)
     bad["scene"]["transition"] = "teleport"
@@ -1192,3 +1192,34 @@ async def test_settings_this_server_cannot_parse_survive_a_draft_save(
     assert read.json()["document"]["settings"] is None
     await _saved(client, owner, read.json(), [_chapter()])
     assert (await _stored_draft(test_db_session, story["id"]))["settings"] == future
+
+
+async def test_a_scene_without_a_transition_is_stored_without_the_key(
+    client: AsyncClient, people, test_db_session
+):
+    owner = people["owner"]
+    story = await _story(client, owner)
+    map_id = await _map(client, owner)
+    fly = _chapter(map_id)
+    fly["scene"]["transition"] = "fly"
+    await _saved(client, owner, story, [_chapter(map_id), fly])
+    plain, kept = (await _stored_draft(test_db_session, story["id"]))["chapters"]
+    assert "transition" not in plain["scene"]
+    assert kept["scene"]["transition"] == "fly"
+
+
+async def test_a_save_that_would_push_kept_settings_past_the_cap_is_refused(
+    client: AsyncClient, people, test_db_session
+):
+    owner = people["owner"]
+    story = await _story(client, owner)
+    kept = {"theme": "sepia", "pad": "x" * (2 * 1024 * 1024 - 400)}
+    draft = {"version": 1, "chapters": [], "settings": kept}
+    await _store(test_db_session, story["id"], draft=draft)
+    read = await client.get(f"/stories/{story['id']}/draft", headers=owner)
+    resp = await _save(
+        client, owner, read.json(), [_chapter(blocks=[_block("y" * 2000)])]
+    )
+    assert resp.status_code == 422, resp.text[:300]
+    assert "too large" in resp.text
+    assert await _stored_draft(test_db_session, story["id"]) == draft

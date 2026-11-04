@@ -92,10 +92,11 @@ rolling upgrade from 1.28 keeps working. Coming from 1.26, use
 `scripts/upgrade.sh`, which stops `api` and `worker` before it migrates, or
 upgrade to 1.27.1 first.
 
-Stories edited during a rolling upgrade to 1.30 can show a hidden scene on
-instances still running 1.29, because those parse a scene saved with a
-`transition` as unavailable. Nothing is lost: the stored document is intact, and
-the scene returns once every instance is on 1.30.
+During a rolling upgrade to 1.30, an instance still on 1.29 hides a scene saved
+with a `transition` until it is upgraded; the stored scene is kept. A draft
+saved through a 1.29 instance drops the story's reader settings (navigation,
+layout, theme), so set them again once every instance is on 1.30. Chapters,
+blocks and scenes without a transition are kept.
 
 ## Rollback
 

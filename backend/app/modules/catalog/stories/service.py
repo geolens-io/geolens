@@ -7,6 +7,8 @@ identity, so a scene on a map they can't read is left out rather than shown.
 
 from __future__ import annotations
 
+import json
+
 import copy
 import uuid
 from collections.abc import Iterable, Iterator
@@ -53,6 +55,7 @@ from app.modules.catalog.stories.assets import (
 )
 from app.modules.catalog.stories.models import Story, StoryGroupGrant, StoryMap
 from app.modules.catalog.stories.schemas import (
+    MAX_STORY_DOCUMENT_BYTES,
     STORY_DOCUMENT_VERSION,
     BlockingMap,
     StoryChapter,
@@ -832,7 +835,17 @@ async def save_draft(
         if isinstance(block, ImageWidget)
     }
     await require_story_assets(db, story.id, images)
-    story.draft, kept_ids = await merge_document(db, sent, story.draft, editor, roles)
+    merged, kept_ids = await merge_document(db, sent, story.draft, editor, roles)
+    # Kept unreadable settings are not in the size the input model checked.
+    if (
+        len(json.dumps(merged, separators=(",", ":")).encode())
+        > MAX_STORY_DOCUMENT_BYTES
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"document too large (>{MAX_STORY_DOCUMENT_BYTES} bytes serialized)",
+        )
+    story.draft = merged
     story.draft_revision += 1
     await sync_story_maps(db, story)
     return images | kept_ids

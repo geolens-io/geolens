@@ -71,6 +71,7 @@ class StoryScene(_Strict):
     )
     transition: Literal["fly", "glide", "cut"] | None = Field(
         default=None,
+        exclude_if=lambda transition: transition is None,
         description="How the map moves into this scene; absent plays as fly.",
     )
 
