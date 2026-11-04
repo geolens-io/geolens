@@ -11,6 +11,7 @@ import { effectiveDemRenderMode } from '@/lib/dem-render-mode';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 import { extractPlaceholders } from '@/lib/popup-template';
+import { CLUSTER_OUTPUT_PROPERTIES, columnsReadBy } from './spec-columns';
 import { buildClusterTileUrl, buildSignedTileUrl, getMvtSourceLayerName } from '@/lib/tile-utils';
 import type { LabelConfig, PopupConfig, StyleConfig } from '@/types/api';
 import { fitsTileRequestLine, getClusterSourceStrategy, serverClusterFilter } from './cluster-source';
@@ -399,15 +400,20 @@ function rasterSource(
     : { type: 'raster', ...spec };
 }
 
+function drawsBoundedGeoJson(layer: SyncLayerInput, described: DescribedLayer): boolean {
+  return described.drawsAs === 'cluster' && getClusterSourceStrategy(layer).kind === 'bounded-geojson';
+}
+
 function vectorSource(
   layer: SyncLayerInput,
   described: DescribedLayer,
   drawn: readonly SyncLayerInput[],
+  specColumns: ReadonlySet<string>,
   ctx: RenderContext,
 ): VectorSourceSpecification | GeoJSONSourceSpecification {
   const attribution = nonBlank(layer.attribution);
   const data = ctx.boundedGeoJson.get(layer.id);
-  if (described.drawsAs === 'cluster' && getClusterSourceStrategy(layer).kind === 'bounded-geojson' && data) {
+  if (data && drawsBoundedGeoJson(layer, described)) {
     // The source filter drops points before they are grouped, so bubble counts match what the layer shows.
     return {
       type: 'geojson',
@@ -423,7 +429,11 @@ function vectorSource(
   const vectorToken = token?.kind === 'vector' ? token : null;
   const tileBaseUrl = tileBaseUrlFor(ctx.tileBaseUrl, ctx.origin);
   const tileVersion = layer.tile_version ?? undefined;
-  const cols = getDataDrivenColumnsForSource(described.sourceId, drawn, ctx.idPrefix);
+  // What the map layers read is the contract with the tile, so the specs the adapters emit decide it.
+  const cols = [...new Set([
+    ...getDataDrivenColumnsForSource(described.sourceId, drawn, ctx.idPrefix),
+    ...specColumns,
+  ])];
   const colsOnly = ctx.colsOnly === true;
   const bounds = normalizeRasterBounds(layer.bounds);
   return {
@@ -448,6 +458,7 @@ export function describeLayers(layers: readonly SyncLayerInput[], ctx: RenderCon
   const drawn = layers.filter((layer) => !isFolderGroupLayer(layer) && !isDemTerrainVisualSuppressed(layer));
   const sources = new Map<string, SourceSpecification>();
   const described: DescribedLayer[] = [];
+  const specColumns = new Map<string, Set<string>>();
   for (const layer of drawn) {
     const layout = layer.layout ?? {};
     const entry: DescribedLayer = {
@@ -462,13 +473,7 @@ export function describeLayers(layers: readonly SyncLayerInput[], ctx: RenderCon
       images: [],
     };
     described.push(entry);
-    if (!sources.has(entry.sourceId)) {
-      const source = entry.drawsAs === 'raster' || entry.drawsAs === 'hillshade'
-        ? rasterSource(layer, entry.drawsAs === 'hillshade', ctx)
-        : vectorSource(layer, entry, drawn, ctx);
-      if (source) sources.set(entry.sourceId, source);
-    }
-    const sourceType = sources.get(entry.sourceId)?.type === 'geojson' ? 'geojson' : 'vector';
+    const sourceType = ctx.boundedGeoJson.has(layer.id) && drawsBoundedGeoJson(layer, entry) ? 'geojson' : 'vector';
     // An adapter can throw on a saved style it cannot read. That layer draws
     // nothing, and every other layer is still described.
     try {
@@ -476,11 +481,26 @@ export function describeLayers(layers: readonly SyncLayerInput[], ctx: RenderCon
       if (drawing) {
         entry.specs = drawing.specs;
         entry.images = drawing.images;
+        const read = specColumns.get(entry.sourceId) ?? new Set<string>();
+        for (const spec of drawing.specs) {
+          for (const col of columnsReadBy(spec.layer)) {
+            if (entry.drawsAs !== 'cluster' || !CLUSTER_OUTPUT_PROPERTIES.has(col)) read.add(col);
+          }
+        }
+        specColumns.set(entry.sourceId, read);
       }
     } catch (e) {
       if (import.meta.env.DEV) console.warn(`[map-sync] describing ${entry.id} failed:`, e);
     }
   }
+  drawn.forEach((layer, index) => {
+    const entry = described[index];
+    if (sources.has(entry.sourceId)) return;
+    const source = entry.drawsAs === 'raster' || entry.drawsAs === 'hillshade'
+      ? rasterSource(layer, entry.drawsAs === 'hillshade', ctx)
+      : vectorSource(layer, entry, drawn, specColumns.get(entry.sourceId) ?? new Set(), ctx);
+    if (source) sources.set(entry.sourceId, source);
+  });
   return { sources, layers: described };
 }
 
