@@ -66,6 +66,10 @@ and releases use semantic versioning.
 
 - DCAT-US validation now rejects malformed `date-time` and `iri` values instead of accepting them.
 - DCAT-US raster tile distributions now point `accessURL` and the data service `endpointURL` at the dataset and carry the tile URL template in the description, because the template is not a valid IRI.
+- The staged-file preview no longer holds a database connection while it
+  downloads the file and runs GDAL, and the audit log and user CSV exports
+  read in bounded batches, so a large export or slow preview no longer ties up
+  the connection pool.
 - The bundled database gets a 512 MB `/dev/shm` (`DB_SHM_SIZE`). Docker's
   64 MB default made parallel queries fail under concurrent dashboard load,
   and widgets answered 500. The space counts toward `DB_MEM_LIMIT`.

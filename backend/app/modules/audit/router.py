@@ -142,6 +142,7 @@ class _AuditExportStream:
                     date_from=self.date_from,
                     date_to=self.date_to,
                     search=self.search,
+                    max_rows=self.max_rows,
                 ):
                     yield log
 

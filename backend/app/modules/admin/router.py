@@ -385,7 +385,9 @@ async def export_users_csv(
             with tenant_job_context(tenant_id):
                 async with async_session() as stream_db:
                     stmt = select(User).order_by(User.created_at.asc())
-                    result = await stream_db.stream(stmt)
+                    result = await stream_db.stream(
+                        stmt.execution_options(yield_per=100)
+                    )
                     async for (user,) in result:
                         writer.writerow(
                             [
