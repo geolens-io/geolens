@@ -2532,6 +2532,10 @@ async def cluster_tile_endpoint(
     exp: int | None = None,
     scope: str | None = None,
     cols: str | None = None,
+    cols_only: bool = Query(
+        False,
+        description="Carry only the columns named by `cols`, at every zoom.",
+    ),
     cluster_radius: int = Query(48, ge=1, le=256),
     cluster_max_zoom: int = Query(14, ge=0, le=22),
     layer_filter: str | None = Query(None, alias="filter", max_length=4096),
@@ -2609,6 +2613,7 @@ async def cluster_tile_endpoint(
         z,
         tile_columns=meta.tile_columns,
         mode="cluster",
+        cols_only=cols_only,
     )
 
     filter_digest = cluster_filters.validated_digest(layer_filter)
@@ -2691,6 +2696,7 @@ async def cluster_tile_endpoint(
                 meta.column_info,
                 tile_columns=meta.tile_columns,
                 additional_columns=additional_columns,
+                cols_only=cols_only,
                 cluster_radius=cluster_radius,
                 cluster_max_zoom=cluster_max_zoom,
                 conn=conn,
@@ -2745,6 +2751,10 @@ async def tile_endpoint(
     exp: int | None = None,
     scope: str | None = None,
     cols: str | None = None,
+    cols_only: bool = Query(
+        False,
+        description="Carry only the columns named by `cols`, at every zoom.",
+    ),
     db: AsyncSession = Depends(get_db),
     user: Identity | None = Depends(get_optional_user_fail_open),
 ) -> Response:
@@ -2814,7 +2824,7 @@ async def tile_endpoint(
     # `z` and the allowlist have to reach it. At z >= 10 every valid subset
     # collapses onto one entry.
     additional_columns, cols_cache_key = parse_cols_param(
-        cols, columns, z, tile_columns=meta.tile_columns
+        cols, columns, z, tile_columns=meta.tile_columns, cols_only=cols_only
     )
 
     cache_ttl = meta.tile_cache_ttl or settings.tile_cache_ttl
@@ -2896,6 +2906,7 @@ async def tile_endpoint(
                 columns,
                 tile_columns=meta.tile_columns,
                 additional_columns=additional_columns,
+                cols_only=cols_only,
                 conn=conn,
                 schema=_schema,
             )

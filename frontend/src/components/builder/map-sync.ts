@@ -232,6 +232,8 @@ export interface SyncOptions {
   basemapPosition?: 'top' | 'bottom';
   /** Physical schema prefix emitted in MVT payload layer names. */
   mvtSourceLayerPrefix?: string | null;
+  /** Request lean vector tiles (default true); false keeps every column in the tile. */
+  colsOnly?: boolean;
 }
 
 /** Convert a MapLayerResponse (builder context) to a SyncLayerInput. */
@@ -1044,7 +1046,7 @@ export function syncRenderContext(
   tokenMap: ReadonlyMap<string, TileToken>,
   tileBaseUrl: string | undefined,
   geojsonDataMap: ReadonlyMap<string, GeoJSON.FeatureCollection> | undefined,
-  options: Pick<SyncOptions, 'idPrefix' | 'mvtSourceLayerPrefix'> | undefined,
+  options: Pick<SyncOptions, 'idPrefix' | 'mvtSourceLayerPrefix' | 'colsOnly'> | undefined,
 ): RenderContext {
   return {
     idPrefix: options?.idPrefix ?? '',
@@ -1053,6 +1055,7 @@ export function syncRenderContext(
     sourceLayerPrefix: options?.mvtSourceLayerPrefix,
     tokens: tokenMap,
     boundedGeoJson: geojsonDataMap ?? new Map(),
+    colsOnly: options?.colsOnly ?? true,
   };
 }
 

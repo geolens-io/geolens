@@ -75,7 +75,47 @@ describe('toAccessibleMapFeatures', () => {
         bounds: [-76.5, 39.1, -75.2, 40.4],
         properties: [['name', 'Market Street'], ['speed', 25]],
         ungroupedKeys: new Set(),
+        datasetId: layer.dataset_id,
+        gid: 7,
+        fetchRow: false,
       }],
+    });
+  });
+
+  describe('fetchRow', () => {
+    const fetchRowFor = (
+      layer: ReturnType<typeof makeLayer>,
+      feature: MapGeoJSONFeature,
+      colsOnly: boolean,
+    ) => toAccessibleMapFeatures(
+      [feature],
+      (mapLayerId) => mapLayerId === 'viewer-layer-layer-1' ? layer : null,
+      undefined,
+      colsOnly,
+    ).features[0].fetchRow;
+
+    const defaultPopup = () => makeLayer({ popup_config: { enabled: true, visible_fields: null } });
+
+    it('is set for default popup settings on lean tiles', () => {
+      expect(fetchRowFor(defaultPopup(), makeFeature(), true)).toBe(true);
+    });
+
+    it('is off when the tile is not lean', () => {
+      expect(fetchRowFor(defaultPopup(), makeFeature(), false)).toBe(false);
+    });
+
+    it('is off when the author chose the fields', () => {
+      const layer = makeLayer({ popup_config: { enabled: true, visible_fields: ['name'] } });
+      expect(fetchRowFor(layer, makeFeature(), true)).toBe(false);
+    });
+
+    it('is off for a feature that did not come from a vector tile source', () => {
+      expect(fetchRowFor(defaultPopup(), makeFeature({ sourceLayer: undefined }), true)).toBe(false);
+    });
+
+    it('is off for a cluster', () => {
+      const cluster = makeFeature({ properties: { point_count: 12 } });
+      expect(fetchRowFor(defaultPopup(), cluster, true)).toBe(false);
     });
   });
 

@@ -35190,6 +35190,12 @@ export type ClusterTileEndpointTilesClustersTablePathZxyPbfGetData = {
          */
         cols?: string | null;
         /**
+         * Cols Only
+         *
+         * Carry only the columns named by `cols`, at every zoom.
+         */
+        cols_only?: boolean;
+        /**
          * Cluster Radius
          */
         cluster_radius?: number;
@@ -35492,6 +35498,12 @@ export type TileEndpointTilesTablePathZxyPbfGetData = {
          * Cols
          */
         cols?: string | null;
+        /**
+         * Cols Only
+         *
+         * Carry only the columns named by `cols`, at every zoom.
+         */
+        cols_only?: boolean;
     };
     url: '/tiles/{table_path}/{z}/{x}/{y}.pbf';
 };

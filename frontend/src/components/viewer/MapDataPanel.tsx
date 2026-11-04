@@ -249,6 +249,7 @@ export function MapDataPanel({
             featureResult={featureResult}
             onRefresh={onRefresh}
             datasetLinksAllowed={datasetLinksAllowed}
+            embedToken={embedToken}
             tableLayerKeys={tableLayerKeys}
             onOpenTable={(key) => {
               setPickedKey(key);

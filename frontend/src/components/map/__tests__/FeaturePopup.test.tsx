@@ -1,7 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
-import { act, fireEvent, render, screen } from '@/test/test-utils';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
+import { ApiError } from '@/api/client';
 import { FeaturePopup, type FeatureInfo } from '../FeaturePopup';
 
 // ---------------------------------------------------------------------------
@@ -398,8 +399,12 @@ describe('FeaturePopup Escape', () => {
 const mockUseAttributes = vi.fn((_datasetId?: string): { data?: unknown } => ({
   data: undefined,
 }));
+const mockUseDatasetRows = vi.fn((..._args: unknown[]): { data?: unknown; isError?: boolean; error?: unknown; isPlaceholderData?: boolean } => ({
+  data: undefined,
+}));
 vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useAttributes: (datasetId?: string) => mockUseAttributes(datasetId),
+  useDatasetRows: (...args: unknown[]) => mockUseDatasetRows(...args),
 }));
 
 function attribute(field_name: string, title: string | null, is_current = true) {
@@ -652,5 +657,87 @@ describe('FeaturePopup — digit grouping', () => {
     );
 
     expect(screen.getByText('1952')).toBeInTheDocument();
+  });
+});
+
+
+describe('FeaturePopup — fields read from the rows endpoint', () => {
+  const lean = (overrides: Partial<FeatureInfo> = {}) => makeFeature({
+    properties: { city: 'NYC' },
+    datasetId: 'ds-1',
+    featureId: 7,
+    fetchRow: true,
+    ...overrides,
+  });
+  const show = (feature: FeatureInfo) =>
+    render(<FeaturePopup longitude={0} latitude={0} features={[feature]} onClose={vi.fn()} />);
+
+  beforeEach(() => {
+    mockUseAttributes.mockReturnValue({ data: undefined });
+    mockUseDatasetRows.mockReset();
+    mockUseDatasetRows.mockReturnValue({ data: undefined });
+  });
+
+  it('opens with the tile fields and a loading line, then adds the fetched fields', () => {
+    show(lean());
+    expect(screen.getByText('NYC')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Loading more fields');
+
+    mockUseDatasetRows.mockReturnValue({ data: { rows: [{ gid: 7, city: 'NYC', mayor: 'Adams' }] } });
+    cleanup();
+    show(lean());
+    expect(screen.getByText('Mayor')).toBeInTheDocument();
+    expect(screen.getByText('Adams')).toBeInTheDocument();
+    expect(screen.queryByText('Gid')).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('reads the row by gid, with the embed token', () => {
+    show(lean({ embedToken: 'et-1' }));
+    expect(mockUseDatasetRows).toHaveBeenCalledWith(
+      'ds-1', 1, 0, undefined, undefined, undefined, 7, { embedToken: 'et-1' },
+    );
+  });
+
+  it('keeps the tile fields and shows an error line when the fetch fails', () => {
+    mockUseDatasetRows.mockReturnValue({ data: undefined, isError: true });
+    show(lean());
+    expect(screen.getByText('NYC')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not load the other fields');
+  });
+
+  it.each([401, 403, 404])('shows only the tile fields, with no line, when the server refuses with %i', (status) => {
+    mockUseDatasetRows.mockReturnValue({ data: undefined, isError: true, error: new ApiError('no', status) });
+    show(lean());
+    expect(screen.getByText('NYC')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('keeps the error line for a server fault', () => {
+    mockUseDatasetRows.mockReturnValue({ data: undefined, isError: true, error: new ApiError('boom', 503) });
+    show(lean());
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+  });
+
+  it('does not show the previous feature row while the next one loads', () => {
+    mockUseDatasetRows.mockReturnValue({ data: { rows: [{ city: 'LA', mayor: 'Bass' }] }, isPlaceholderData: true });
+    show(lean());
+    expect(screen.queryByText('Bass')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toBeInTheDocument();
+  });
+
+  it('does not say "no attributes" or "zoom in" while the row loads', () => {
+    show(lean({ properties: {}, columnInfo: [{ name: 'city', type: 'text' }], zoomAtClick: 4 }));
+    expect(screen.queryByText('No attributes at this zoom')).not.toBeInTheDocument();
+    expect(screen.queryByText('No attributes')).not.toBeInTheDocument();
+  });
+
+  it('fetches nothing for a popup whose fields the author chose', () => {
+    show(lean({ fetchRow: false, visibleFields: ['city'] }));
+    expect(mockUseDatasetRows).toHaveBeenCalledWith(
+      '', 1, 0, undefined, undefined, undefined, 7, { embedToken: undefined },
+    );
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 });

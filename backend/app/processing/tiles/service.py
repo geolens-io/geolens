@@ -112,6 +112,7 @@ def _effective_attr_names(
     tile_columns: list[str] | None,
     additional_columns: list[str] | None,
     mode: str,
+    cols_only: bool = False,
 ) -> set[str]:
     """The attribute names this request would actually emit into the MVT.
 
@@ -130,6 +131,7 @@ def _effective_attr_names(
         z,
         tile_columns=tile_columns,
         additional_columns=additional_columns,
+        cols_only=cols_only,
     )
     return {
         name
@@ -148,6 +150,7 @@ def parse_cols_param(
     *,
     tile_columns: list[str] | None = None,
     mode: str = "vector",
+    cols_only: bool = False,
 ) -> tuple[list[str] | None, str]:
     """Normalize a `cols=` query param into (additional_columns, cache_key).
 
@@ -176,8 +179,11 @@ def parse_cols_param(
     on the raw request. The zoom is already its own cache-key segment, so the
     suffix only has to separate requests at one tile; an empty suffix stays
     byte-identical to the no-`cols=` key.
+
+    With ``cols_only`` the key is the full projection behind an ``only:``
+    prefix, since the tile is no longer a superset of the default one.
     """
-    if not cols:
+    if not cols and not cols_only:
         return None, ""
     resolved = columns or []
     known = {
@@ -187,16 +193,21 @@ def parse_cols_param(
         and isinstance(name := col.get("name"), str)
         and _COLUMN_NAME_RE.match(name)
     }
-    if not known:
+    if not known and not cols_only:
         return None, ""
     # The raw string is bounded by the server's request-line limit and the
     # result by the dataset's column count. Names are compared, never
     # interpolated: the query builders revalidate every name they emit.
-    additional = sorted({c.strip() for c in cols.split(",")} & known)
+    additional = sorted({c.strip() for c in (cols or "").split(",")} & known)
+    projection = {"tile_columns": tile_columns, "mode": mode}
+    if cols_only:
+        effective = _effective_attr_names(
+            resolved, z, additional_columns=additional, cols_only=True, **projection
+        )
+        return additional, "only:" + ",".join(sorted(effective))
     if not additional:
         return None, ""
 
-    projection = {"tile_columns": tile_columns, "mode": mode}
     baseline = _effective_attr_names(resolved, z, additional_columns=None, **projection)
     effective = _effective_attr_names(
         resolved, z, additional_columns=additional, **projection
@@ -214,6 +225,7 @@ def _select_tile_columns(
     *,
     tile_columns: list[str] | None = None,
     additional_columns: list[str] | None = None,
+    cols_only: bool = False,
 ) -> list[dict]:
     """Apply the column allowlist + per-zoom defaults.
 
@@ -232,6 +244,9 @@ def _select_tile_columns(
     When `tile_columns` is set, `additional_columns` is also intersected with
     it, so the three rules above hold for a `cols=` request too: the zoom
     budget is a default the caller may override; the allowlist is not.
+
+    `cols_only`: skip the base selection, so the result is exactly the
+    validated `additional_columns` (none when they are absent).
     """
     allowlist: set[str] | None = None
     if tile_columns is not None:
@@ -247,6 +262,8 @@ def _select_tile_columns(
         base = []
     else:
         base = columns
+    if cols_only:
+        base = []
 
     if additional_columns:
         # The `cols=` opt-in projects the requested columns at every zoom,
@@ -762,6 +779,7 @@ async def get_tile(
     *,
     tile_columns: list[str] | None = None,
     additional_columns: list[str] | None = None,
+    cols_only: bool = False,
     conn: asyncpg.Connection | None = None,
     schema: str = "data",
 ) -> RenderedTile | None:
@@ -778,6 +796,7 @@ async def get_tile(
         additional_columns: Runtime opt-in columns the caller needs at all
             zooms (e.g. data-driven styling columns). Unioned with the
             base selection; validated against ``columns``.
+        cols_only: Project exactly ``additional_columns``, none of the defaults.
         conn: Optional already-acquired asyncpg connection to reuse. Pass one
             that already had ``set_tenant_role_for_tile_request`` called inside
             an open transaction so the per-tenant role/search_path survive.
@@ -797,6 +816,7 @@ async def get_tile(
         z,
         tile_columns=tile_columns,
         additional_columns=additional_columns,
+        cols_only=cols_only,
     )
     query = _build_tile_query(table_name, selected_columns, schema=schema)
     # layer_name must match the schema-qualified table so clients can identify
@@ -820,6 +840,7 @@ async def get_cluster_tile(
     *,
     tile_columns: list[str] | None = None,
     additional_columns: list[str] | None = None,
+    cols_only: bool = False,
     cluster_radius: int = 48,
     cluster_max_zoom: int = 14,
     conn: asyncpg.Connection | None = None,
@@ -844,6 +865,7 @@ async def get_cluster_tile(
             and popups work past cluster max zoom.
         tile_columns: Allowlist override (None / [] / list).
         additional_columns: Runtime opt-in columns (the ``cols=`` param).
+        cols_only: Project exactly ``additional_columns``, none of the defaults.
         cluster_radius: Cluster radius in CSS/screen pixels (MapLibre
             ``clusterRadius`` semantics; converted to MVT extent units
             inside the query).
@@ -861,6 +883,7 @@ async def get_cluster_tile(
         z,
         tile_columns=tile_columns,
         additional_columns=additional_columns,
+        cols_only=cols_only,
     )
     query = _build_cluster_tile_query(
         table_name, schema=schema, attr_columns=attr_columns, filter_sql=filter_sql

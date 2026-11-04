@@ -24,6 +24,7 @@ def _get_kwargs(
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
     cols: None | str | Unset = UNSET,
+    cols_only: bool | Unset = False,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -55,6 +56,8 @@ def _get_kwargs(
     else:
         json_cols = cols
     params["cols"] = json_cols
+
+    params["cols_only"] = cols_only
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -143,6 +146,7 @@ def sync_detailed(
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
     cols: None | str | Unset = UNSET,
+    cols_only: bool | Unset = False,
 ) -> Response[File | ProblemDetail]:
     """Tile Endpoint
 
@@ -198,6 +202,8 @@ def sync_detailed(
         exp (int | None | Unset):
         scope (None | str | Unset):
         cols (None | str | Unset):
+        cols_only (bool | Unset): Carry only the columns named by `cols`, at every zoom. Default:
+            False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -216,6 +222,7 @@ def sync_detailed(
         exp=exp,
         scope=scope,
         cols=cols,
+        cols_only=cols_only,
     )
 
     response = client.get_httpx_client().request(
@@ -236,6 +243,7 @@ def sync(
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
     cols: None | str | Unset = UNSET,
+    cols_only: bool | Unset = False,
 ) -> File | ProblemDetail | None:
     """Tile Endpoint
 
@@ -291,6 +299,8 @@ def sync(
         exp (int | None | Unset):
         scope (None | str | Unset):
         cols (None | str | Unset):
+        cols_only (bool | Unset): Carry only the columns named by `cols`, at every zoom. Default:
+            False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -310,6 +320,7 @@ def sync(
         exp=exp,
         scope=scope,
         cols=cols,
+        cols_only=cols_only,
     ).parsed
 
 
@@ -324,6 +335,7 @@ async def asyncio_detailed(
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
     cols: None | str | Unset = UNSET,
+    cols_only: bool | Unset = False,
 ) -> Response[File | ProblemDetail]:
     """Tile Endpoint
 
@@ -379,6 +391,8 @@ async def asyncio_detailed(
         exp (int | None | Unset):
         scope (None | str | Unset):
         cols (None | str | Unset):
+        cols_only (bool | Unset): Carry only the columns named by `cols`, at every zoom. Default:
+            False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -397,6 +411,7 @@ async def asyncio_detailed(
         exp=exp,
         scope=scope,
         cols=cols,
+        cols_only=cols_only,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -415,6 +430,7 @@ async def asyncio(
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
     cols: None | str | Unset = UNSET,
+    cols_only: bool | Unset = False,
 ) -> File | ProblemDetail | None:
     """Tile Endpoint
 
@@ -470,6 +486,8 @@ async def asyncio(
         exp (int | None | Unset):
         scope (None | str | Unset):
         cols (None | str | Unset):
+        cols_only (bool | Unset): Carry only the columns named by `cols`, at every zoom. Default:
+            False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -490,5 +508,6 @@ async def asyncio(
             exp=exp,
             scope=scope,
             cols=cols,
+            cols_only=cols_only,
         )
     ).parsed

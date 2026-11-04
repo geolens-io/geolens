@@ -40,6 +40,8 @@ export interface RenderContext {
   tokens: ReadonlyMap<string, TileToken>;
   /** Bounded GeoJSON by layer id. A cluster layer that needs it and lacks it draws as circles. */
   boundedGeoJson: ReadonlyMap<string, GeoJSON.FeatureCollection>;
+  /** Ask for vector tiles that carry only the columns the layers read; popups fetch the rest. */
+  colsOnly?: boolean;
 }
 
 /** A layer's zoom range, as `setLayerZoomRange` takes it. */
@@ -260,6 +262,7 @@ export function clusterTileFilter(
   layer: ClusterTileLayer,
   tileBaseUrl: string,
   cols: string[],
+  colsOnly = false,
 ): ReturnType<typeof serverClusterFilter> {
   const routed = serverClusterFilter(layer.filter, layer.dataset_column_info, layer.dataset_tile_columns);
   if (!('json' in routed)) return routed;
@@ -272,6 +275,7 @@ export function clusterTileFilter(
     layer.tile_version ?? undefined,
     { ...clusterOptions(layer), filter: routed.json },
     cols,
+    colsOnly,
   );
   return fitsTileRequestLine(url) ? routed : { omitted: 'too-large' };
 }
@@ -398,12 +402,13 @@ function vectorSource(
   const tileBaseUrl = tileBaseUrlFor(ctx.tileBaseUrl, ctx.origin);
   const tileVersion = layer.tile_version ?? undefined;
   const cols = getDataDrivenColumnsForSource(described.sourceId, drawn, ctx.idPrefix);
+  const colsOnly = ctx.colsOnly === true;
   const bounds = normalizeRasterBounds(layer.bounds);
   return {
     type: 'vector',
     tiles: [serverCluster
-      ? buildClusterTileUrl(layer.dataset_table_name, vectorToken, tileBaseUrl, tileVersion, { ...clusterOptions(layer), filter: routedJson(clusterTileFilter(layer, tileBaseUrl, cols)) }, cols)
-      : buildSignedTileUrl(layer.dataset_table_name, vectorToken, tileBaseUrl, tileVersion, cols)],
+      ? buildClusterTileUrl(layer.dataset_table_name, vectorToken, tileBaseUrl, tileVersion, { ...clusterOptions(layer), filter: routedJson(clusterTileFilter(layer, tileBaseUrl, cols, colsOnly)) }, cols, colsOnly)
+      : buildSignedTileUrl(layer.dataset_table_name, vectorToken, tileBaseUrl, tileVersion, cols, colsOnly)],
     minzoom: VECTOR_SOURCE_MINZOOM,
     maxzoom: serverCluster ? CLUSTER_SOURCE_MAXZOOM : VECTOR_SOURCE_MAXZOOM,
     ...(lineGradientNeededFor(described.sourceId, drawn, ctx.idPrefix) ? { lineMetrics: true } : {}),

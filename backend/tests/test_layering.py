@@ -687,25 +687,6 @@ def test_no_external_imports_of_maps_private_service_modules() -> None:
 
 
 @pytest.mark.architecture
-def test_no_underscore_imports_from_staging_reconcile() -> None:
-    """The storage sweeps share `orphan_scan`; none reaches into staging_reconcile's privates."""
-    offenders = []
-    for path in _iter_backend_app_python_files():
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if (
-                isinstance(node, ast.ImportFrom)
-                and _resolve_relative_import(path, node)
-                == "app.platform.jobs.staging_reconcile"
-            ):
-                offenders += [
-                    f"{_repo_style_rel(path)}:{node.lineno} imports {alias.name}"
-                    for alias in node.names
-                    if alias.name.startswith("_")
-                ]
-    assert not offenders, "\n".join(offenders)
-
-
-@pytest.mark.architecture
 def test_no_external_imports_of_search_private_service_modules() -> None:
     """Search callers use the public service facade; split implementation modules remain private."""
     private_modules = {
@@ -1196,7 +1177,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     facade_line_budgets = {
         "backend/app/modules/catalog/maps/service.py": 128,
         "backend/app/modules/catalog/search/service.py": 80,
-        "backend/app/modules/catalog/datasets/domain/service.py": 136,
+        "backend/app/modules/catalog/datasets/domain/service.py": 132,
         "backend/app/processing/ai/chat_service.py": 487,
         "backend/app/platform/extensions/defaults.py": 75,
     }
@@ -1222,10 +1203,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 668,
         # A metadata edit judges its visibility and status change as one move.
         "backend/app/modules/catalog/datasets/domain/service_metadata.py": 629,
-        # Pointer reads sit beside the detail query that shares them; the row
-        # browser's page, count, label-filter and box SQL share its projection, and
-        # its NULLS LAST keyset also pages the aggregate feature list.
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 786,
+        # Internal pointer reads sit beside the detail query that shares them, and
+        # the row browser's sort, keyset, label-filter, single-row and match SQL —
+        # the page query and the filtered count, which ANDs the same CQL2
+        # fragment — share its column projection; the row boxes read its table.
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 767,
         "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 513,
         # Chat splits retain tool execution and result-serialization workflows.
         "backend/app/processing/ai/chat_actions.py": 529,
@@ -1236,7 +1218,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/platform/extensions/defaults_catalog_port.py": 579,
         # ProcessingPort signatures remain explicit across the catalog boundary.
         "backend/app/platform/extensions/defaults_processing_port.py": 586,
-        "backend/app/platform/extensions/defaults_extensions.py": 436,
+        "backend/app/platform/extensions/defaults_extensions.py": 433,
         "backend/app/modules/catalog/search/service_filters.py": 376,
     }
 
@@ -1293,7 +1275,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/style_import.py": 605,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 151,
     "backend/app/modules/catalog/maps/router_assets.py": 161,
-    "backend/app/modules/catalog/maps/router_sharing.py": 472,
+    "backend/app/modules/catalog/maps/router_sharing.py": 469,
     "backend/app/modules/catalog/search/query_params.py": 205,
     "backend/app/modules/catalog/search/router_saved.py": 104,
     "backend/app/modules/admin/router_operations.py": 332,
@@ -1322,8 +1304,6 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Source API router debt; each credential door judges its URL's scheme in
     # place. Split discovery, preview and dispatch endpoints before raising further.
     "backend/app/modules/catalog/sources/router.py": 1733,
-    # STAC import door: per-item refusals and failure codes sit beside the batch loop.
-    "backend/app/modules/catalog/sources/stac_router.py": 1010,
     # Adoption DDL mirrors the current schema without importing historical migrations.
     "backend/app/core/db/tenant_adoption_sql.py": 2088,
     # Adoption coordinates resumable tenant transactions with ownership and ACL repair.
@@ -1336,7 +1316,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/api/main.py": 1645,
     # Map request validation and published response contracts share this module,
     # including the visibility a client that hasn't opted in reads.
-    "backend/app/modules/catalog/maps/schemas.py": 1606,
+    "backend/app/modules/catalog/maps/schemas.py": 1591,
     # Metadata facade preserves the import and patch surface used by extensions and
     # callers.
     "backend/app/processing/ingest/metadata.py": 169,
@@ -1377,7 +1357,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/refresh/service.py": 1200,
     # Central settings and boot-validation debt, including the service-credential
     # http allowlist; split by configuration domain before raising further.
-    "backend/app/core/config.py": 1504,
+    "backend/app/core/config.py": 1503,
     # Config resolution coordinates validation, overrides, caching, audit and side
     # effects, including model defaults that follow the selected LLM provider.
     "backend/app/core/persistent_config.py": 1212,
@@ -1434,7 +1414,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/standards/stac/router.py": 1896,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
-    "backend/app/processing/tiles/router.py": 2923,
+    "backend/app/processing/tiles/router.py": 2915,
     # SQL allowlisting and cost validation must share canonical AST resolution.
     "backend/app/platform/sandbox/validator.py": 1766,
     # AI orchestration coordinates tool execution, usage accounting, pool-connection

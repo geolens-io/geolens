@@ -31,6 +31,7 @@ function handlerContext(mvtSourceLayerPrefix: string | null | undefined): Render
     sourceLayerPrefix: mvtSourceLayerPrefix,
     tokens: new Map(),
     boundedGeoJson: new Map(),
+    colsOnly: true,
   };
 }
 

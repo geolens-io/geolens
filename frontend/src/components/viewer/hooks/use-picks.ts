@@ -51,6 +51,8 @@ function pickFilterProblem(
       },
       tileBaseUrl,
       getDataDrivenColumnsForLayer(linked),
+      // The longer URL: a pick that fits with `cols_only` fits without it.
+      true,
     );
     if ('omitted' in routed && routed.omitted === 'unsupported') return 'clusters-cant-filter';
     if ('omitted' in routed && routed.omitted === 'too-large') return 'too-many-for-clusters';

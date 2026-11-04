@@ -851,6 +851,8 @@
     "smallDemWarning": "Dieses DEM deckt nur einen kleinen Teil der aktuellen Ansicht ab. Zoomen Sie in die DEM-Ausdehnung hinein oder verwenden Sie als Geländequelle ein DEM, das den gesamten Kartenbereich abdeckt."
   },
   "featurePopup": {
+    "loadingFields": "Weitere Felder werden geladen …",
+    "fieldsFailed": "Die übrigen Felder konnten nicht geladen werden.",
     "noAttributes": "Keine Attribute",
     "zoomForAttributes": "Keine Attribute auf dieser Zoomstufe",
     "booleanTrue": "Ja",
