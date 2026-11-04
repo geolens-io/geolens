@@ -10,6 +10,7 @@ import { AssetImage } from '@/components/widgets/image/AssetImage';
 import { prefetchMap } from '@/hooks/use-maps';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { readerLogoUrl, readerThemeStyle, type ReaderTheme } from '@/lib/reader-theme';
+import { useTheme } from '@/components/theme-provider';
 import { cn } from '@/lib/utils';
 import type { StoryChapter } from '@/types/api';
 import { chapterHeadingId, StoryChapterBody } from './StoryChapterBody';
@@ -68,6 +69,7 @@ export function StoryReader({
   const { t } = useTranslation('stories');
   const queryClient = useQueryClient();
   const isNarrow = useIsMobile();
+  const { resolvedTheme } = useTheme();
   const [position, setPosition] = useState<Position>(null);
   const active = activeIndex(chapters, position);
   const sceneChapter = useMemo(() => nearestSceneChapter(chapters, active), [chapters, active]);
@@ -118,7 +120,7 @@ export function StoryReader({
   return (
     // The map stays the second child in both layouts, so a resize across the
     // breakpoint doesn't remount it; flex-col-reverse puts it on top when narrow.
-    <div className="flex min-h-0 w-full flex-1 flex-col-reverse md:flex-row" style={readerThemeStyle(readerTheme)}>
+    <div className="flex min-h-0 w-full flex-1 flex-col-reverse md:flex-row" style={readerThemeStyle(readerTheme, resolvedTheme)}>
       {isNarrow ? <StoryStepper {...panelProps} /> : <StoryScrollPanel {...panelProps} />}
       {!textOnly && (
         <div className="relative h-[45vh] shrink-0 md:h-auto md:min-w-0 md:flex-1">

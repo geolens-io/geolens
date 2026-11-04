@@ -3,6 +3,7 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { DashboardConfig, SharedLayerResponse } from '@/types/api';
 import { widgetLayerId } from '@/components/widgets/registry';
 import { readerLogoUrl, readerThemeStyle, type ReaderTheme } from '@/lib/reader-theme';
+import { useTheme } from '@/components/theme-provider';
 import { cn } from '@/lib/utils';
 import { DashboardPanel, dashboardPanelPosition } from './DashboardPanel';
 import { linkMapLayers, type LinkedPick } from './linked-filters';
@@ -36,6 +37,7 @@ interface ViewerWithDashboardProps {
  */
 export function ViewerWithDashboard({ children, readerTheme, ...panel }: ViewerWithDashboardProps) {
   const [map, setMap] = useState<MaplibreMap | null>(null);
+  const { resolvedTheme } = useTheme();
   const [storedPicks, setPicks] = useState<readonly LinkedPick[]>([]);
   const { hiddenLayers } = panel;
   // A refreshed map can drop a picked widget or its layer; its pick goes too,
@@ -62,7 +64,7 @@ export function ViewerWithDashboard({ children, readerTheme, ...panel }: ViewerW
         'flex w-full min-h-0 flex-1 flex-col',
         dashboardPanelPosition(panel.config) === 'right' && 'md:flex-row',
       )}
-      style={readerThemeStyle(readerTheme)}
+      style={readerThemeStyle(readerTheme, resolvedTheme)}
     >
       {children({ onMapReady: setMap, mapLayers })}
       <DashboardPanel
