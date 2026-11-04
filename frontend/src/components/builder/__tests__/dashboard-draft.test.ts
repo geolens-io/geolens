@@ -1,3 +1,4 @@
+import { dashboardReadableTypes } from '@/components/widgets/registry';
 import type { MapLayerResponse } from '@/types/api';
 import {
   dashboardChanged,
@@ -102,6 +103,7 @@ describe('dashboard drafts', () => {
     expect(dashboardPayload(draft, [layer()], { panel: 'right' })).toEqual({
       version: 1,
       panel: 'bottom',
+      readable: dashboardReadableTypes(),
       widgets: [{ ...kept, title: 'Parcels' }],
     });
     expect(dashboardPayload({ panel: 'right', widgets: [gone] }, [layer()], { panel: 'right' })).toBeNull();
@@ -183,6 +185,7 @@ describe('a widget with no layer', () => {
     expect(widgetLayerGone(text, [])).toBe(false);
     expect(dashboardPayload({ panel: 'right', widgets: [text] }, [], { panel: 'right' })).toEqual({
       version: 1,
+      readable: dashboardReadableTypes(),
       widgets: [text],
     });
   });

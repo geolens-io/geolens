@@ -22,7 +22,15 @@
     },
     "indicator": {
       "label": "Indicador",
-      "summary": "{{label}}: {{value}}"
+      "summary": "{{label}}: {{value}}",
+      "reference": "{{label}}: {{value}}",
+      "referenceDefault": "Referencia",
+      "above": "{{amount}} por encima de {{label}}",
+      "below": "{{amount}} por debajo de {{label}}",
+      "same": "Igual que {{label}}",
+      "difference": "Diferencia",
+      "measure": "Medida",
+      "value": "Valor"
     },
     "bar_chart": {
       "label": "Gráfico de barras",
@@ -139,6 +147,15 @@
       "notNumeric": "«{{column}}» no es una columna numérica. Elige otra antes de guardar.",
       "viewWithoutGeometry": "Esta capa no tiene geometría, así que el widget no puede seguir la vista del mapa. Haz que abarque toda la capa."
     },
-    "maxWidgets": "Un panel admite como máximo {{max}} widgets."
+    "maxWidgets": "Un panel admite como máximo {{max}} widgets.",
+    "reference": "Valor de referencia",
+    "referenceLabel": "Etiqueta de la referencia",
+    "comparison": "Mostrar la diferencia como",
+    "comparisons": {
+      "both": "Valor y variación porcentual",
+      "value": "Valor",
+      "percent": "Variación porcentual"
+    },
+    "higherIsBetter": "Un valor más alto es mejor"
   }
 }

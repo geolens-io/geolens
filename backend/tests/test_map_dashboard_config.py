@@ -245,6 +245,12 @@ class TestMergeDashboard:
                 v=2,
                 config={"column": "kind", "use_layer_colors": False},
             ),
+            _widget(
+                "indicator",
+                shown,
+                v=2,
+                config={"stat": "count", "reference": 10, "reference_label": "Goal"},
+            ),
         ]
 
     def test_a_save_that_does_not_say_what_it_reads_keeps_the_new_forms_in_place(self):
@@ -259,6 +265,7 @@ class TestMergeDashboard:
         merged = _merge({"widgets": [old, tail]}, stored, readable={shown})
         assert _ids(merged["widgets"]) == _ids(stored["widgets"])
         assert merged["widgets"][5]["v"] == 2
+        assert merged["widgets"][-1]["config"]["reference"] == 10
 
         emptied = _merge({"widgets": []}, stored, readable={shown})
         assert _ids(emptied["widgets"]) == _ids(new)
@@ -273,6 +280,8 @@ class TestMergeDashboard:
             "table:1",
             "bar_chart:1",
             "bar_chart:2",
+            "indicator:1",
+            "indicator:2",
         ]
 
         merged = _merge(
@@ -390,7 +399,7 @@ class TestMergeDashboard:
     ):
         shown = uuid.uuid4()
         if kind == "unparseable":
-            unseen = _widget("indicator", shown, v=2)
+            unseen = _widget("indicator", shown, v=3)
         else:
             request.getfixturevalue("histogram_unregistered")
             unseen = _widget("histogram", shown)

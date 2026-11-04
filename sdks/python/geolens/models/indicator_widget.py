@@ -9,6 +9,8 @@ from ..types import UNSET, Unset
 
 from ..models.indicator_widget_scope import check_indicator_widget_scope
 from ..models.indicator_widget_scope import IndicatorWidgetScope
+from ..models.indicator_widget_v import check_indicator_widget_v
+from ..models.indicator_widget_v import IndicatorWidgetV
 from typing import cast
 from typing import Literal
 from uuid import UUID
@@ -27,7 +29,7 @@ class IndicatorWidget:
         id (UUID): Made by the client and stable across saves.
         layer_id (UUID): A layer of the host's map.
         type_ (Literal['indicator']):
-        v (Literal[1]):
+        v (IndicatorWidgetV):
         config (IndicatorConfig):
         title (None | str | Unset):
         scope (IndicatorWidgetScope | Unset): Summarize the whole layer, or only what the map view shows. Default:
@@ -37,7 +39,7 @@ class IndicatorWidget:
     id: UUID
     layer_id: UUID
     type_: Literal["indicator"]
-    v: Literal[1]
+    v: IndicatorWidgetV
     config: IndicatorConfig
     title: None | str | Unset = UNSET
     scope: IndicatorWidgetScope | Unset = "layer"
@@ -49,7 +51,7 @@ class IndicatorWidget:
 
         type_ = self.type_
 
-        v = self.v
+        v: int = self.v
 
         config = self.config.to_dict()
 
@@ -94,9 +96,7 @@ class IndicatorWidget:
         if type_ != "indicator":
             raise ValueError(f"type must match const 'indicator', got '{type_}'")
 
-        v = cast(Literal[1], d.pop("v"))
-        if v != 1:
-            raise ValueError(f"v must match const 1, got '{v}'")
+        v = check_indicator_widget_v(d.pop("v"))
 
         config = IndicatorConfig.from_dict(d.pop("config"))
 

@@ -43,9 +43,13 @@ export function toDashboardDraft(config: DashboardConfig | null | undefined): Da
   };
 }
 
-/** A widget as a save stores it: its title trimmed, and left out when blank. */
+/**
+ * A widget as a save stores it: its title trimmed and left out when blank, and
+ * its version the oldest one that can hold its config.
+ */
 function toSaved({ title, ...widget }: WidgetInstance): WidgetInstance {
-  return title?.trim() ? { ...widget, title: title.trim() } : widget;
+  const v = getWidgetDefinition(widget.type, 'dashboard')?.storedVersion?.(widget.config) ?? widget.v;
+  return title?.trim() ? { ...widget, v, title: title.trim() } : { ...widget, v };
 }
 
 /**

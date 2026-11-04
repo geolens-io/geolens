@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createElement, type ReactNode } from 'react';
+import { dashboardReadableTypes } from '@/components/widgets/registry';
 import { MAP_COLORS } from '@/lib/map-colors';
 import {
   EXPORT_CANVAS_MAX_AREA,
@@ -1559,6 +1560,7 @@ describe('useBuilderSave', () => {
       expect(mockUpdateMapMutateAsync.mock.calls[0][0].data.dashboard_config).toEqual({
         version: 1,
         panel: 'bottom',
+        readable: dashboardReadableTypes(),
         widgets: [{ ...barChart({}), title: 'Land use' }],
       });
     });

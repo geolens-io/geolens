@@ -558,9 +558,11 @@ from .import_configuration_config_ops_import_post_mode import (
 )
 from .import_result import ImportResult
 from .indicator_config import IndicatorConfig
+from .indicator_config_comparison_type_0 import IndicatorConfigComparisonType0
 from .indicator_config_stat import IndicatorConfigStat
 from .indicator_widget import IndicatorWidget
 from .indicator_widget_scope import IndicatorWidgetScope
+from .indicator_widget_v import IndicatorWidgetV
 from .infrastructure_config import InfrastructureConfig
 from .infrastructure_response import InfrastructureResponse
 from .infrastructure_response_health import InfrastructureResponseHealth
@@ -1507,9 +1509,11 @@ __all__ = (
     "ImportConfigurationConfigOpsImportPostMode",
     "ImportResult",
     "IndicatorConfig",
+    "IndicatorConfigComparisonType0",
     "IndicatorConfigStat",
     "IndicatorWidget",
     "IndicatorWidgetScope",
+    "IndicatorWidgetV",
     "InfrastructureConfig",
     "InfrastructureResponse",
     "InfrastructureResponseHealth",

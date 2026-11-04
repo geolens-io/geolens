@@ -106,6 +106,11 @@ export interface WidgetDefinition<C> {
   type: string;
   /** Newest config version this build writes and reads. */
   v: number;
+  /**
+   * The version a save stores `config` at, when it can be older than `v`: a
+   * config that uses no newer option stays at the version older clients read.
+   */
+  storedVersion?: (config: C) => number;
   surfaces: readonly WidgetSurface[];
   /** Each instance names an image uploaded to its host in `asset_id`. */
   asset?: true;
