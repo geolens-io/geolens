@@ -29,6 +29,7 @@
       "summary": "{{stat}} par {{column}}",
       "keyboardHint": "Utilisez les flèches pour passer d’une barre à l’autre.",
       "keyboardHintPick": "Utilisez les flèches pour passer d’une barre à l’autre. Appuyez sur Entrée pour filtrer la carte selon une barre, puis de nouveau pour retirer le filtre.",
+      "keyboardHintPickPage": "Utilisez les flèches pour passer d’une barre à l’autre. Appuyez sur Entrée pour filtrer le tableau de bord selon une barre, puis de nouveau pour retirer le filtre.",
       "bar": "{{label}} : {{value}}",
       "roleDescription": "diagramme en barres"
     },
@@ -37,6 +38,7 @@
       "summary": "Distribution de {{column}}",
       "keyboardHint": "Utilisez les flèches pour passer d’une classe à l’autre.",
       "keyboardHintPick": "Utilisez les flèches pour passer d’une classe à l’autre. Appuyez sur Entrée pour filtrer la carte selon une classe, puis de nouveau pour retirer le filtre.",
+      "keyboardHintPickPage": "Utilisez les flèches pour passer d’une classe à l’autre. Appuyez sur Entrée pour filtrer le tableau de bord selon une classe, puis de nouveau pour retirer le filtre.",
       "bin": "{{range}} : {{value}}",
       "range": "{{lower}} – {{upper}}",
       "rangeHeader": "Intervalle",

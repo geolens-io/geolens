@@ -29,6 +29,7 @@
       "summary": "{{stat}} by {{column}}",
       "keyboardHint": "Use the arrow keys to move between bars.",
       "keyboardHintPick": "Use the arrow keys to move between bars. Press Enter to filter the map by a bar, and press it again to clear the filter.",
+      "keyboardHintPickPage": "Use the arrow keys to move between bars. Press Enter to filter the dashboard by a bar, and press it again to clear the filter.",
       "bar": "{{label}}: {{value}}",
       "roleDescription": "bar chart"
     },
@@ -37,6 +38,7 @@
       "summary": "Distribution of {{column}}",
       "keyboardHint": "Use the arrow keys to move between bins.",
       "keyboardHintPick": "Use the arrow keys to move between bins. Press Enter to filter the map to a bin, and press it again to clear the filter.",
+      "keyboardHintPickPage": "Use the arrow keys to move between bins. Press Enter to filter the dashboard to a bin, and press it again to clear the filter.",
       "bin": "{{range}}: {{value}}",
       "range": "{{lower}} – {{upper}}",
       "rangeHeader": "Range",

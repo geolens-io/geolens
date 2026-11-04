@@ -38,6 +38,7 @@ export default function BarChartRenderer({
   data,
   selection,
   onSelect,
+  mapHidden,
   columnLabel,
 }: WidgetRenderProps<BarChartConfig>) {
   const { t } = useTranslation('widgets');
@@ -141,7 +142,7 @@ export default function BarChartRenderer({
         )}
       </svg>
       <p id={hintId} className="sr-only">
-        {t(onSelect ? 'types.bar_chart.keyboardHintPick' : 'types.bar_chart.keyboardHint')}
+        {t(onSelect ? (mapHidden ? 'types.bar_chart.keyboardHintPickPage' : 'types.bar_chart.keyboardHintPick') : 'types.bar_chart.keyboardHint')}
       </p>
       <figcaption className="min-h-5 text-sm" aria-live="polite">
         {current !== null && (

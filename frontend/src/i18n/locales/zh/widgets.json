@@ -29,6 +29,7 @@
       "summary": "按 {{column}} 统计的{{stat}}",
       "keyboardHint": "使用方向键在各条之间移动。",
       "keyboardHintPick": "使用方向键在条形之间移动。按 Enter 键按某个条形筛选地图，再按一次清除筛选。",
+      "keyboardHintPickPage": "使用方向键在条形之间移动。按 Enter 键按某个条形筛选仪表板，再按一次清除筛选。",
       "bar": "{{label}}：{{value}}",
       "roleDescription": "条形图"
     },
@@ -37,6 +38,7 @@
       "summary": "{{column}} 的分布",
       "keyboardHint": "使用方向键在分组之间移动。",
       "keyboardHintPick": "使用方向键在分组之间移动。按 Enter 键按某个分组筛选地图，再按一次清除筛选。",
+      "keyboardHintPickPage": "使用方向键在分组之间移动。按 Enter 键按某个分组筛选仪表板，再按一次清除筛选。",
       "bin": "{{range}}：{{value}}",
       "range": "{{lower}} – {{upper}}",
       "rangeHeader": "范围",

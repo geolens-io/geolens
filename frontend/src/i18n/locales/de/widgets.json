@@ -29,6 +29,7 @@
       "summary": "{{stat}} nach {{column}}",
       "keyboardHint": "Mit den Pfeiltasten zwischen den Balken wechseln.",
       "keyboardHintPick": "Mit den Pfeiltasten wechseln Sie zwischen den Balken. Drücken Sie die Eingabetaste, um die Karte nach einem Balken zu filtern, und erneut, um den Filter zu entfernen.",
+      "keyboardHintPickPage": "Mit den Pfeiltasten wechseln Sie zwischen den Balken. Drücken Sie die Eingabetaste, um das Dashboard nach einem Balken zu filtern, und erneut, um den Filter zu entfernen.",
       "bar": "{{label}}: {{value}}",
       "roleDescription": "Balkendiagramm"
     },
@@ -37,6 +38,7 @@
       "summary": "Verteilung von {{column}}",
       "keyboardHint": "Mit den Pfeiltasten wechseln Sie zwischen den Klassen.",
       "keyboardHintPick": "Mit den Pfeiltasten wechseln Sie zwischen den Klassen. Drücken Sie die Eingabetaste, um die Karte nach einer Klasse zu filtern, und erneut, um den Filter zu entfernen.",
+      "keyboardHintPickPage": "Mit den Pfeiltasten wechseln Sie zwischen den Klassen. Drücken Sie die Eingabetaste, um das Dashboard nach einer Klasse zu filtern, und erneut, um den Filter zu entfernen.",
       "bin": "{{range}}: {{value}}",
       "range": "{{lower}} – {{upper}}",
       "rangeHeader": "Bereich",

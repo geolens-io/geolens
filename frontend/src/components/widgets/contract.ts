@@ -62,6 +62,8 @@ export interface WidgetRenderProps<C> {
    * widget is read-only.
    */
   onSelect?: (selection: WidgetSelection | null) => void;
+  /** Set where the dashboard hides its map, so a pick filters the dashboard's widgets and no map. */
+  mapHidden?: boolean;
   /** Where the host serves the image the instance names in `asset_id`. */
   assetPath?: string;
   /** A column's display label, its attribute title else its name; `columnName` without it. */

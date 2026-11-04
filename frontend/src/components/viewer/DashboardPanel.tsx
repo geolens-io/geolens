@@ -194,6 +194,7 @@ export function DashboardWidget({
             data={query.data}
             selection={selection}
             onSelect={onSelect}
+            mapHidden={mapHidden}
             columnLabel={(column) => columnDisplayName(layer.column_info, column)}
             loadingFallback={loadingSkeleton}
           />
@@ -331,8 +332,10 @@ function DashboardWidgetList({
             !!onChoose &&
             column !== undefined &&
             isCql2QueryableColumn(column, layer.column_info) &&
-            mapCarriesColumn(layer, column) &&
-            (getClusterSourceStrategy(layer).kind !== 'server-tile' || isMvtSourceLayerConfigReady(tileConfig));
+            // With no map to filter, only the server's own filtering matters.
+            (layout === 'page' ||
+              (mapCarriesColumn(layer, column) &&
+                (getClusterSourceStrategy(layer).kind !== 'server-tile' || isMvtSourceLayerConfigReady(tileConfig))));
           return (
             <li key={key}>
               <DashboardWidget

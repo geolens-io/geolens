@@ -526,6 +526,26 @@ describe('dashboard linking', () => {
     ).toBe(true);
   });
 
+  it('offers picks on a column outside the tile columns only when the map is hidden', async () => {
+    const chartFor = async (mapHidden: boolean) => {
+      const view = render(
+        <ViewerWithDashboard
+          config={{ ...dashboard(), ...(mapHidden ? { map_hidden: true } : {}) }}
+          layers={[{ ...layer(parcelsId, 'Parcels'), dataset_tile_columns: ['zone'] }, layer(roadsId, 'Roads')]}
+        >
+          {() => <div />}
+        </ViewerWithDashboard>,
+      );
+      const chart = await screen.findByRole('group', { name: 'Count by land_use' });
+      const hint = document.getElementById(chart.getAttribute('aria-describedby') ?? '')?.textContent ?? '';
+      view.unmount();
+      return hint;
+    };
+
+    expect(await chartFor(false)).not.toMatch(/Press Enter to filter/);
+    expect(await chartFor(true)).toMatch(/Press Enter to filter the dashboard by a bar/);
+  });
+
   it('offers no picks on a column the server can’t filter on', async () => {
     const config = {
       version: 1,
