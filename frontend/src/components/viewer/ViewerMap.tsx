@@ -43,6 +43,8 @@ import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
+import { resolveCirclePaint } from '@/components/builder/layer-adapters/circle-adapter';
+import { getBuilderStyleConfig } from '@/components/builder/layer-adapters/shared';
 import { LAYER_FADE_MS, LayerFades } from '@/lib/layer-fade';
 import { motionDuration } from '@/lib/reduced-motion';
 import { clampMinZoomAfterFit, FIT_BOUNDS_OPTIONS, getVisibleLayerBounds } from '@/components/builder/builder-bounds';
@@ -125,12 +127,18 @@ export function toViewerSyncInput(
   // A layer mid-fade is drawn visible, its opacity scaled; a label's zoom-expression opacity can't be scaled.
   const factor = fades?.get(layerKey)?.factor ?? 1;
   const labelOpacity = layer.label_config?.textOpacity;
-  // The adapters fold the opacity into the circle fill only; a ring is faded through its own key.
-  const strokeOpacity = layer.paint?.['circle-stroke-opacity'];
+  // The adapters fold the opacity into a circle's fill and a polygon's flat fill only: a ring and a configured extrusion opacity fade through their own keys.
+  const resolvedCircle = resolveCirclePaint(layer.paint ?? {});
+  const strokeOpacity = resolvedCircle['circle-stroke-opacity'];
   const paint =
     factor !== 1 && (strokeOpacity === undefined || typeof strokeOpacity === 'number')
-      ? { ...layer.paint, 'circle-stroke-opacity': (strokeOpacity ?? 1) * factor }
+      ? { ...layer.paint, ...resolvedCircle, 'circle-stroke-opacity': (strokeOpacity ?? 1) * factor }
       : (layer.paint ?? {});
+  const extrusionOpacity = getBuilderStyleConfig(layer).extrusionOpacity;
+  const styleConfig =
+    factor !== 1 && typeof extrusionOpacity === 'number'
+      ? { ...layer.style_config, builder: { ...layer.style_config?.builder, extrusionOpacity: extrusionOpacity * factor } }
+      : layer.style_config;
   return {
     id: layerKey,
     dataset_table_name: layer.table_name,
@@ -144,7 +152,7 @@ export function toViewerSyncInput(
       layer.label_config && factor !== 1 && (labelOpacity === undefined || typeof labelOpacity === 'number')
         ? { ...layer.label_config, textOpacity: (labelOpacity ?? 1) * factor }
         : layer.label_config,
-    style_config: layer.style_config,
+    style_config: styleConfig,
     // Carry popup_config so the initial source build requests popup
     // visible_fields / title-template cols=; without it a viewer opened at z<10
     // strips those fields until a token refresh rebuilds the URL.

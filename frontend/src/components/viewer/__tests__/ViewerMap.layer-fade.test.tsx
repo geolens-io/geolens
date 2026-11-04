@@ -212,7 +212,58 @@ describe('ViewerMap fading a point layer with a ring', () => {
   });
 });
 
+describe('ViewerMap fading an extruded polygon', () => {
+  beforeEach(() => mapState.reset());
+  afterEach(() => vi.useRealTimers());
+
+  it('scales the configured extrusion opacity with a transition, and restores it when the fade ends', async () => {
+    const extruded = {
+      ...LAYER,
+      geometry_type: 'POLYGON',
+      paint: { 'fill-color': '#336699' },
+      style_config: { builder: { heightColumn: 'height', extrusionOpacity: 0.6 } },
+    } as unknown as typeof LAYER;
+    mapState.fakeMap.isStyleLoaded.mockReturnValue(true);
+    const view = (visible: Set<string>) => (
+      <ViewerMap
+        layers={[extruded]}
+        basemapStyle="openfreemap-positron"
+        initialViewState={{ center_lng: 0, center_lat: 0, zoom: 2, bearing: 0, pitch: 0 }}
+        visibleLayers={visible}
+        fadeLayerChanges
+      />
+    );
+    const { rerender } = render(view(new Set(['pt-layer'])));
+    await waitFor(() => expect(mapState.fakeMap.isStyleLoaded).toHaveBeenCalled());
+    clearWrites();
+    vi.useFakeTimers({ toFake: [...FAKE_TIMERS.toFake] });
+
+    rerender(view(new Set()));
+    const extrusionWrites = () =>
+      mapState.fakeMap.setPaintProperty.mock.calls.filter(
+        ([id, property]) => id === `${LAYER_ID}-extrusion` && property === 'fill-extrusion-opacity',
+      );
+    expect(mapState.fakeMap.setPaintProperty).toHaveBeenCalledWith(`${LAYER_ID}-extrusion`, 'fill-extrusion-opacity-transition', { duration: 400, delay: 0 });
+    expect(extrusionWrites().at(-1)![2]).toBe(0);
+
+    vi.advanceTimersByTime(400);
+    expect(extrusionWrites().at(-1)![2]).toBe(0.6);
+  });
+});
+
 describe('toViewerSyncInput during a fade', () => {
+  it('keeps the default circle paint for a point layer with no paint while the ring fades', () => {
+    const input = toViewerSyncInput({ ...LAYER, paint: {} }, 'k', new Set(), new Map([['k', { factor: 0 }]]));
+    expect(input.paint).toMatchObject({ 'circle-color': expect.any(String), 'circle-stroke-width': 1, 'circle-stroke-opacity': 0 });
+  });
+
+  it('leaves the stored style config untouched', () => {
+    const style = { builder: { extrusionOpacity: 0.6 } };
+    const input = toViewerSyncInput({ ...LAYER, style_config: style } as never, 'k', new Set(), new Map([['k', { factor: 0 }]]));
+    expect(input.style_config).toMatchObject({ builder: { extrusionOpacity: 0 } });
+    expect(style.builder.extrusionOpacity).toBe(0.6);
+  });
+
   const labelled = { ...LAYER, opacity: 0.5, label_config: { column: 'name', textOpacity: 0.8 } };
 
   it('draws a fading layer visible, its opacity and label opacity scaled by the fade factor', () => {
