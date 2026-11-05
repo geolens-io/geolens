@@ -912,8 +912,16 @@
       "AggregateRow": {
         "properties": {
           "gid": {
-            "title": "Gid",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "The feature's id; text at or beyond 2^53, as for a value.",
+            "title": "Gid"
           },
           "values": {
             "additionalProperties": {

@@ -196,14 +196,19 @@ def _key_sql(column: str, data_type: str, bucket: str | None = None) -> tuple[st
         return bucket_sql(quoted, data_type, bucket)
     if data_type != "timestamp with time zone":
         return value_expr(quoted, data_type), "_g._k"
-    utc = "(_g._k AT TIME ZONE 'UTC')"
+    return quoted, _full_year_utc_text("_g._k")
+
+
+def _full_year_utc_text(ref: str) -> str:
+    """A timestamptz as UTC text, keeping the year past 9999 the tile text drops."""
+    utc = f"({ref} AT TIME ZONE 'UTC')"
     far_future = (
         f"to_char({utc}, 'YYYY-MM-DD\"T\"HH24:MI:SS')"
         f" || rtrim(rtrim(to_char({utc}, '.US'), '0'), '.') || '+00:00'"
     )
-    return quoted, (
-        f"CASE WHEN isfinite(_g._k) AND {utc} >= '10000-01-01' THEN {far_future}"
-        f" ELSE {utc_timestamptz_text('_g._k')} END"
+    return (
+        f"CASE WHEN isfinite({ref}) AND {utc} >= '10000-01-01' THEN {far_future}"
+        f" ELSE {utc_timestamptz_text(ref)} END"
     )
 
 
@@ -353,7 +358,11 @@ def _rows_sql(
             raise AggregateError(
                 "invalid_column", f"Column {name!r} cannot be listed ({data_type})"
             )
-        values.append(value_expr(ref(name), data_type))
+        values.append(
+            _full_year_utc_text(ref(name))
+            if data_type == "timestamp with time zone"
+            else value_expr(ref(name), data_type)
+        )
     sort = None
     if request.sort_column is not None:
         data_type = _column_type(columns, request.sort_column, numeric=False)
@@ -447,13 +456,15 @@ def _exact(value: Any) -> Any:
     return as_float if Decimal(repr(as_float)) == value else str(value)
 
 
-def _rows_result(request: RowsRequest, rows: Sequence[Sequence[Any]]) -> RowsResult:
+def _rows_result(
+    request: RowsRequest, rows: Sequence[Sequence[Any]], *, more: bool
+) -> RowsResult:
     page = rows[: request.limit]
     width = 1 + len(request.columns)
     listed = []
     for row in page:
         entry = {
-            "gid": row[0],
+            "gid": _exact(row[0]),
             "values": {
                 name: _exact(value)
                 for name, value in zip(request.columns, row[1:width])
@@ -462,7 +473,7 @@ def _rows_result(request: RowsRequest, rows: Sequence[Sequence[Any]]) -> RowsRes
         if len(row) > width:
             entry["bbox"] = row[width]
         listed.append(AggregateRow.model_validate(entry))
-    has_more = len(rows) > request.limit
+    has_more = more or len(rows) > request.limit
     return RowsResult(
         rows=listed,
         has_more=has_more,
@@ -474,7 +485,10 @@ def _rows_result(request: RowsRequest, rows: Sequence[Sequence[Any]]) -> RowsRes
     )
 
 
-def _result(request: AggregateRequest, rows: Sequence[Sequence[Any]]) -> BaseModel:
+def _result(
+    request: AggregateRequest, rows: Sequence[Sequence[Any]], *, more: bool = False
+) -> BaseModel:
+    """The result of ``rows``; ``more`` says the byte cap cut a row past the limit."""
     if request.op == "count":
         return CountResult(count=int(rows[0][0]))
     if request.op == "stats":
@@ -493,13 +507,13 @@ def _result(request: AggregateRequest, rows: Sequence[Sequence[Any]]) -> BaseMod
     if request.op == "histogram":
         return _histogram(rows, request.bins)
     if request.op == "rows":
-        return _rows_result(request, rows)
+        return _rows_result(request, rows, more=more)
     groups = []
     for r in rows[: request.limit]:
         values = [_stat_value(s.stat, v) for s, v in zip(request.stats, r[1:])]
         multi = {} if request._single else {"values": values}
         groups.append(GroupValue(key=_exact(r[0]), value=values[0], **multi))
-    return GroupByResult(groups=groups, truncated=len(rows) > request.limit)
+    return GroupByResult(groups=groups, truncated=more or len(rows) > request.limit)
 
 
 async def _sandboxed(
@@ -566,7 +580,8 @@ async def _aggregate_rows(
     sql: str,
     binds: list[Any],
     caller_key: str,
-) -> list:
+) -> tuple[list, bool]:
+    """The rows, and whether the byte cap cut only the row past the limit."""
     keyed = request.op in ("value_counts", "group_by", "rows")
     result = await _sandboxed(
         db,
@@ -577,13 +592,19 @@ async def _aggregate_rows(
         max_result_bytes=_MAX_KEYED_RESULT_BYTES if keyed else None,
     )
     # Only the byte cap can cut rows here (the SQL LIMIT is within the row
-    # limit), and a cut list is not an exact answer.
-    if result.truncated:
+    # limit). Losing the row past the limit loses nothing but the sign that more
+    # follow; any other cut list is not an exact answer.
+    probe_cut = (
+        result.truncated
+        and request.op in ("group_by", "rows")
+        and len(result.rows) == request.limit
+    )
+    if result.truncated and not probe_cut:
         raise SandboxError(
             "result_too_large",
             "These values are too large to return together. Choose a smaller limit.",
         )
-    return result.rows
+    return result.rows, probe_cut
 
 
 def _check_filter_depth(cql2: Any) -> None:
@@ -837,9 +858,9 @@ async def run_aggregate(
                 await get_cache().set(verdict_key, too_wide, ttl=keyed_ttl)
             if too_wide:
                 raise _too_wide()
-        rows = await _aggregate_rows(db, request, sql, binds, caller_key)
+        rows, more = await _aggregate_rows(db, request, sql, binds, caller_key)
 
-    payload = _result(request, rows)
+    payload = _result(request, rows, more=more)
     encoded = payload.model_dump(mode="json")
     if cache_key is not None and len(json.dumps(encoded)) <= _MAX_CACHED_BYTES:
         await get_cache().set(

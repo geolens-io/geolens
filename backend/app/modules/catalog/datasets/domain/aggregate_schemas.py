@@ -297,7 +297,9 @@ class GroupByResult(BaseModel):
 
 
 class AggregateRow(BaseModel):
-    gid: int
+    gid: int | str = Field(
+        description="The feature's id; text at or beyond 2^53, as for a value."
+    )
     values: dict[str, Scalar] = Field(description=f"By column. {_EXACT_KEY}")
     bbox: list[float] | None = Field(
         None,

@@ -12,7 +12,7 @@ from collections.abc import Sequence
 
 from app.modules.catalog.datasets.domain.service import nulls_last_keyset
 
-_INT8_MAX = 2**63 - 1
+_INT8_MIN, _INT8_MAX = -(2**63), 2**63 - 1
 AFTER_GID_BIND = "agg_after_gid"
 # The envelope to 6 decimals, as the feature GeoJSON routes write coordinates.
 _BBOX = (
@@ -45,7 +45,8 @@ def bucket_sql(column: str, data_type: str, bucket: str) -> tuple[str, str]:
     text = '\'-MM-DD"T"HH24:MI:SS"Z"\''
     return start, (
         f"CASE WHEN NOT isfinite({k}) THEN {k}::text"
-        f" WHEN {k} < '0001-01-01' THEN '-'"
+        f" WHEN {k} < '0001-01-01' THEN"
+        f" CASE WHEN extract(year FROM {k}) < -1 THEN '-' ELSE '' END"
         f" || lpad((-1 - extract(year FROM {k})::int)::text, 4, '0')"
         f" || to_char({k}, {text})"
         f" ELSE to_char({k}, 'YYYY' || {text}) END"
@@ -67,7 +68,7 @@ def decode_cursor(cursor: str, sort_column: str | None, sort: str) -> int:
         gid, column, direction = json.loads(raw)
     except (ValueError, TypeError) as exc:
         raise ValueError("not a cursor") from exc
-    if type(gid) is not int or not -_INT8_MAX <= gid <= _INT8_MAX:
+    if type(gid) is not int or not _INT8_MIN <= gid <= _INT8_MAX:
         raise ValueError("not a cursor")
     if column != sort_column or direction != sort:
         raise ValueError("cursor is for another order")

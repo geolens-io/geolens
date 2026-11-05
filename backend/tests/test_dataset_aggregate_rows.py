@@ -12,7 +12,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.modules.catalog.datasets.domain import aggregate, aggregate_schemas
+from app.modules.catalog.datasets.domain import (
+    aggregate,
+    aggregate_rows,
+    aggregate_schemas,
+)
 from tests.factories import create_dataset, get_user_id, set_tile_columns
 from tests.test_dataset_aggregate import FIRST_THREE, KEEP, _aggregate, _dropped
 from tests.test_ogc_features_filter import _freeze_rate_limit_window
@@ -348,6 +352,69 @@ class TestRows:
         assert resp.status_code == 422, resp.text
         assert resp.json()["detail"]["code"] == "query_timeout"
 
+    async def test_a_cursor_after_the_lowest_gid_round_trips(self):
+        lowest = -(2**63)
+        cursor = aggregate_rows.encode_cursor(lowest, "kind", "desc")
+
+        assert aggregate_rows.decode_cursor(cursor, "kind", "desc") == lowest
+
+    async def test_a_gid_past_2_53_is_returned_as_exact_text(self):
+        request = aggregate_schemas.RowsRequest(op="rows", columns=["kind"])
+
+        result = aggregate._rows_result(
+            request, [(2**53 + 1, "keep"), (7, "drop")], more=False
+        )
+
+        gids = [row["gid"] for row in result.model_dump(mode="json")["rows"]]
+        assert gids == ["9007199254740993", 7]
+
+    async def test_timestamps_past_year_9999_keep_their_year(
+        self, client: AsyncClient, test_db_session, dated
+    ):
+        await test_db_session.execute(
+            text(
+                f"UPDATE data.{dated.table_name} SET at = CASE gid"  # noqa: S608
+                " WHEN 1 THEN '10001-01-01T00:00:00Z'::timestamptz"
+                " ELSE '10002-06-01T12:00:00.5Z'::timestamptz END WHERE gid <= 2"
+            )
+        )
+        await test_db_session.commit()
+
+        resp = await _aggregate(
+            client, dated.id, _rows({"columns": ["at"], "limit": 2})
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert [row["values"]["at"] for row in resp.json()["result"]["rows"]] == [
+            "10001-01-01T00:00:00+00:00",
+            "10002-06-01T12:00:00.5+00:00",
+        ]
+
+    @pytest.mark.parametrize("op", ["rows", "group_by"])
+    async def test_a_full_page_is_returned_when_only_the_next_row_is_too_large(
+        self, client: AsyncClient, points, monkeypatch, op
+    ):
+        """Two 3,000-character rows fit the cap; the third, read only to tell
+        whether more follow, would not."""
+        monkeypatch.setattr(aggregate, "_MAX_KEYED_RESULT_BYTES", 7000)
+        body = (
+            _rows({"columns": ["note"], "limit": 2})
+            if op == "rows"
+            else {"op": "group_by", "group_column": "note", "stat": "count", "limit": 2}
+        )
+
+        resp = await _aggregate(client, points.id, body)
+
+        assert resp.status_code == 200, resp.text
+        result = resp.json()["result"]
+        if op == "rows":
+            assert len(result["rows"]) == 2
+            assert result["has_more"] is True
+            assert result["next_cursor"] is not None
+        else:
+            assert len(result["groups"]) == 2
+            assert result["truncated"] is True
+
     async def test_rows_too_large_to_return_together_are_refused(
         self, client: AsyncClient, points, monkeypatch
     ):
@@ -495,6 +562,19 @@ class TestDateBuckets:
         assert resp.status_code == 200, resp.text
         groups = resp.json()["result"]["groups"]
         assert [(g["key"], g["value"]) for g in groups] == expected
+
+    async def test_years_before_1_take_the_astronomical_year(self, test_db_session):
+        """1 BC is year 0000 and 2 BC is -0001, as ISO 8601 numbers them."""
+        start, key = aggregate_rows.bucket_sql('"d"', "date", "year")
+
+        keys = await _sql(
+            test_db_session,
+            f"SELECT {key} FROM (SELECT {start} AS _k FROM (VALUES"
+            " ('0001-06-15 BC'::date), ('0002-06-15 BC'::date)) AS t(d)) AS _g"
+            " ORDER BY _g._k DESC",
+        )
+
+        assert keys == [("0000-01-01T00:00:00Z",), ("-0001-01-01T00:00:00Z",)]
 
     async def test_buckets_ignore_the_session_time_zone(self, test_db_session, dated):
         request = aggregate_schemas.GroupByRequest(

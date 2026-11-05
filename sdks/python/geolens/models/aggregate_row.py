@@ -21,19 +21,20 @@ T = TypeVar("T", bound="AggregateRow")
 class AggregateRow:
     """
     Attributes:
-        gid (int):
+        gid (int | str): The feature's id; text at or beyond 2^53, as for a value.
         values (AggregateRowValues): By column. The column's value. A number JSON cannot carry exactly, such as an
             integer beyond 2^53 or NaN, comes back as text.
         bbox (list[float] | None | Unset): Present only when the dataset has geometry: the feature's `[west, south,
             east, north]` in WGS 84, or null without a shape.
     """
 
-    gid: int
+    gid: int | str
     values: AggregateRowValues
     bbox: list[float] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        gid: int | str
         gid = self.gid
 
         values = self.values.to_dict()
@@ -65,7 +66,11 @@ class AggregateRow:
         from ..models.aggregate_row_values import AggregateRowValues
 
         d = dict(src_dict)
-        gid = d.pop("gid")
+
+        def _parse_gid(data: object) -> int | str:
+            return cast(int | str, data)
+
+        gid = _parse_gid(d.pop("gid"))
 
         values = AggregateRowValues.from_dict(d.pop("values"))
 

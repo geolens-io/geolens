@@ -6929,8 +6929,11 @@ export interface components {
         };
         /** AggregateRow */
         AggregateRow: {
-            /** Gid */
-            gid: number;
+            /**
+             * Gid
+             * @description The feature's id; text at or beyond 2^53, as for a value.
+             */
+            gid: number | string;
             /**
              * Values
              * @description By column. The column's value. A number JSON cannot carry exactly, such as an integer beyond 2^53 or NaN, comes back as text.

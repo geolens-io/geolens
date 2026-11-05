@@ -561,8 +561,10 @@ export type AdminUserCreate = {
 export type AggregateRow = {
     /**
      * Gid
+     *
+     * The feature's id; text at or beyond 2^53, as for a value.
      */
-    gid: number;
+    gid: number | string;
     /**
      * Values
      *
