@@ -43,12 +43,10 @@
       "keyboardHintPickPage": "Utilisez les flèches pour passer d’une barre à l’autre. Appuyez sur Entrée pour filtrer le tableau de bord selon une barre, puis de nouveau pour retirer le filtre.",
       "bar": "{{label}} : {{value}}",
       "roleDescription": "diagramme en barres",
-      "summaryDate": "{{stat}} par {{bucket}} de {{column}} (UTC)",
+      "summaryDate": "{{stat}} par {{bucket}} (UTC)",
       "summaryFeature": "{{value}} par {{label}}",
       "summaryFields": "{{stat}} par champ",
-      "dateHeader": "{{column}} (UTC)",
       "fieldHeader": "Champ",
-      "weekOf": "Semaine du {{date}}",
       "buckets": {
         "day": "jour",
         "week": "semaine",

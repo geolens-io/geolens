@@ -151,8 +151,8 @@ describe('bar chart by date', () => {
 
   it('labels each bucket by its UTC start and says the axis is in UTC', () => {
     render(<BarChartRenderer config={config} data={data()} />);
-    const table = screen.getByRole('table', { name: 'Count by month of built (UTC)' });
-    expect(within(table).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(['built (UTC)', 'Count']);
+    const table = screen.getByRole('table', { name: 'Count by month (UTC)' });
+    expect(within(table).getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual(['built', 'Count']);
     // 2026-03-01T00:00Z is still March 1 for a reader west of UTC.
     expect(within(table).getAllByRole('row').slice(1).map((r) => r.textContent)).toEqual([
       'Feb 20264',
@@ -169,7 +169,14 @@ describe('bar chart by date', () => {
         data={{ ...data(), result: { groups: [group('2026-03-02T00:00:00Z', 2)], truncated: false } }}
       />,
     );
-    expect(screen.getByText('Week of Mar 2, 2026')).toBeInTheDocument();
+    expect(screen.getByText('Mar 2, 2026')).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: 'Count by week (UTC)' })).toBeInTheDocument();
+  });
+
+  it('says UTC once even when the column label already does', () => {
+    render(<BarChartRenderer config={config} data={data()} columnLabel={() => 'Time (UTC)'} />);
+    const table = screen.getByRole('table', { name: 'Count by month (UTC)' });
+    expect(within(table).getAllByRole('columnheader')[0]).toHaveTextContent(/^Time \(UTC\)$/);
   });
 
   it('says when the layer has more periods', () => {

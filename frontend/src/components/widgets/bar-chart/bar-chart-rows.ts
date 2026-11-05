@@ -29,8 +29,7 @@ function bucketLabel(key: SelectionValue, bucket: DateBucket, t: TFunction<'widg
     month: { year: 'numeric', month: 'short' },
     year: { year: 'numeric' },
   };
-  const text = new Intl.DateTimeFormat(locale, { ...options[bucket], timeZone: 'UTC' }).format(start);
-  return bucket === 'week' ? t('types.bar_chart.weekOf', { date: text }) : text;
+  return new Intl.DateTimeFormat(locale, { ...options[bucket], timeZone: 'UTC' }).format(start);
 }
 
 function bar(key: SelectionValue, label: string, value: number | string | boolean | null): CategoryRow {
@@ -89,9 +88,8 @@ export function useBarChartText(
       summary: t('types.bar_chart.summaryDate', {
         stat: valueHeader,
         bucket: t(`types.bar_chart.buckets.${config.date_bucket}`),
-        column,
       }),
-      labelHeader: t('types.bar_chart.dateHeader', { column }),
+      labelHeader: column,
       valueHeader,
       ...(groups
         ? {

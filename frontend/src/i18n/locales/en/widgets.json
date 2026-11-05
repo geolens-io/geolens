@@ -43,12 +43,10 @@
       "keyboardHintPickPage": "Use the arrow keys to move between bars. Press Enter to filter the dashboard by a bar, and press it again to clear the filter.",
       "bar": "{{label}}: {{value}}",
       "roleDescription": "bar chart",
-      "summaryDate": "{{stat}} by {{bucket}} of {{column}} (UTC)",
+      "summaryDate": "{{stat}} by {{bucket}} (UTC)",
       "summaryFeature": "{{value}} by {{label}}",
       "summaryFields": "{{stat}} by field",
-      "dateHeader": "{{column}} (UTC)",
       "fieldHeader": "Field",
-      "weekOf": "Week of {{date}}",
       "buckets": {
         "day": "day",
         "week": "week",

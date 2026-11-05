@@ -199,9 +199,7 @@ export const barChartWidget = defineWidget<BarChartConfig>({
     'types.bar_chart.summaryDate',
     'types.bar_chart.summaryFeature',
     'types.bar_chart.summaryFields',
-    'types.bar_chart.dateHeader',
     'types.bar_chart.fieldHeader',
-    'types.bar_chart.weekOf',
     'types.bar_chart.buckets.day',
     'types.bar_chart.buckets.week',
     'types.bar_chart.buckets.month',
@@ -232,7 +230,6 @@ export const barChartWidget = defineWidget<BarChartConfig>({
         return t('types.bar_chart.summaryDate', {
           stat: t(STAT_LABEL_KEYS[config.stat], { column: config.stat_column && columnLabel(config.stat_column) }),
           bucket: t(`types.bar_chart.buckets.${config.date_bucket}`),
-          column: columnLabel(config.column),
         });
       default:
         return t('types.bar_chart.summary', {

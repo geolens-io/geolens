@@ -43,12 +43,10 @@
       "keyboardHintPickPage": "Mit den Pfeiltasten wechseln Sie zwischen den Balken. Drücken Sie die Eingabetaste, um das Dashboard nach einem Balken zu filtern, und erneut, um den Filter zu entfernen.",
       "bar": "{{label}}: {{value}}",
       "roleDescription": "Balkendiagramm",
-      "summaryDate": "{{stat}} nach {{bucket}} von {{column}} (UTC)",
+      "summaryDate": "{{stat}} nach {{bucket}} (UTC)",
       "summaryFeature": "{{value}} nach {{label}}",
       "summaryFields": "{{stat}} nach Feld",
-      "dateHeader": "{{column}} (UTC)",
       "fieldHeader": "Feld",
-      "weekOf": "Woche ab {{date}}",
       "buckets": {
         "day": "Tag",
         "week": "Woche",
