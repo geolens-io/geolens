@@ -56,6 +56,36 @@ describe('fetchAggregate', () => {
     await expect(Promise.all(results)).resolves.toEqual(['first', 'second', 'third']);
   });
 
+  it('sends one stats request per field and answers with all of them', async () => {
+    apiFetchMock.mockImplementation((async (_path: string, init: { body: string }) => {
+      const { column } = JSON.parse(init.body);
+      return { op: 'stats', approximate: false, cached: column === 'b', result: { sum: column === 'a' ? 1 : 2 } };
+    }) as never);
+
+    const response = await fetchAggregate('ds-1', {
+      op: 'stats_by_fields',
+      columns: ['a', 'b'],
+      stats: ['sum'],
+      filter: { op: '=' },
+    });
+
+    expect(apiFetchMock.mock.calls.map(([, init]) => JSON.parse(init!.body as string))).toEqual([
+      { op: 'stats', column: 'a', stats: ['sum'], filter: { op: '=' } },
+      { op: 'stats', column: 'b', stats: ['sum'], filter: { op: '=' } },
+    ]);
+    expect(response).toEqual({
+      op: 'stats_by_fields',
+      approximate: false,
+      cached: false,
+      result: {
+        fields: [
+          { column: 'a', stats: { sum: 1 } },
+          { column: 'b', stats: { sum: 2 } },
+        ],
+      },
+    });
+  });
+
   it('drops a queued request whose caller gave up', async () => {
     const pending = [deferred(), deferred()];
     let next = 0;

@@ -42,7 +42,21 @@
       "keyboardHintPick": "Mit den Pfeiltasten wechseln Sie zwischen den Balken. Drücken Sie die Eingabetaste, um die Karte nach einem Balken zu filtern, und erneut, um den Filter zu entfernen.",
       "keyboardHintPickPage": "Mit den Pfeiltasten wechseln Sie zwischen den Balken. Drücken Sie die Eingabetaste, um das Dashboard nach einem Balken zu filtern, und erneut, um den Filter zu entfernen.",
       "bar": "{{label}}: {{value}}",
-      "roleDescription": "Balkendiagramm"
+      "roleDescription": "Balkendiagramm",
+      "summaryDate": "{{stat}} nach {{bucket}} von {{column}} (UTC)",
+      "summaryFeature": "{{value}} nach {{label}}",
+      "summaryFields": "{{stat}} nach Feld",
+      "dateHeader": "{{column}} (UTC)",
+      "fieldHeader": "Feld",
+      "weekOf": "Woche ab {{date}}",
+      "buckets": {
+        "day": "Tag",
+        "week": "Woche",
+        "month": "Monat",
+        "year": "Jahr"
+      },
+      "moreBuckets": "Die ersten {{shown}} Zeiträume werden angezeigt. Die Ebene hat mehr.",
+      "moreFeatures": "{{shown}} Objekte werden angezeigt. Die Ebene hat mehr."
     },
     "histogram": {
       "label": "Histogramm",
@@ -211,6 +225,29 @@
       "ascending": "Aufsteigend",
       "descending": "Absteigend",
       "pageSize": "Objekte pro Seite"
-    }
+    },
+    "barMode": "Balken zeigen",
+    "barModes": {
+      "category": "Werte einer Spalte",
+      "date": "Datumswerte",
+      "by_feature": "Ein Balken pro Objekt",
+      "by_fields": "Ein Balken pro Feld"
+    },
+    "barNeedsNumbers": "Diese Ebene hat keine numerischen Spalten für dieses Diagramm.",
+    "barNeedsDates": "Diese Ebene hat keine Datumsspalten.",
+    "dateColumn": "Datumsspalte",
+    "dateBucket": "Gruppieren nach",
+    "dateBuckets": {
+      "day": "Tag",
+      "week": "Woche",
+      "month": "Monat",
+      "year": "Jahr"
+    },
+    "labelField": "Beschriftungsfeld",
+    "valueField": "Wertfeld",
+    "sortOrder": "Reihenfolge",
+    "fields": "Felder",
+    "layerColors": "Farben der Ebene verwenden",
+    "layerColorsHelp": "Gilt, wenn die Spalte diejenige ist, nach der der Kartenstil der Ebene einfärbt."
   }
 }

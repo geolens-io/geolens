@@ -1,16 +1,45 @@
+import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
-import { STAT_LABEL_KEYS } from '../aggregate';
-import { columnName, type ColumnLabel, type WidgetSelection } from '../contract';
+import { aggregateResult, aggregateStat, formatAggregateValue, STAT_LABEL_KEYS } from '../aggregate';
+import { columnName, type ColumnLabel, type SelectionValue, type WidgetSelection } from '../contract';
 import { selectedValues } from '../selection';
-import { useCategoryRows, type CategoryRows } from '../value-counts';
-import type { BarChartConfig } from './definition';
+import { categoryLabel, useCategoryRows, type CategoryRow, type CategoryRows } from '../value-counts';
+import { pickedColumn, type BarChartConfig, type DateBucket } from './definition';
 
 export interface BarChartText extends CategoryRows {
   /** What the chart shows, e.g. "Count by Land use". */
   summary: string;
-  /** The grouped column's label. */
+  /** What each bar stands for: the grouped column, the field, or the date's column and its time zone. */
   labelHeader: string;
   valueHeader: string;
+  /** Said under the chart when the layer has more bars than it lists. */
+  note?: string;
+}
+
+const NO_ROWS: CategoryRows = {};
+
+/** A bucket's UTC start, written for its span; the key as sent when it isn't a date. */
+function bucketLabel(key: SelectionValue, bucket: DateBucket, t: TFunction<'widgets'>, locale: string): string {
+  if (typeof key !== 'string') return categoryLabel(key, t);
+  const start = new Date(key);
+  if (Number.isNaN(start.getTime())) return key;
+  const options: Record<DateBucket, Intl.DateTimeFormatOptions> = {
+    day: { dateStyle: 'medium' },
+    week: { dateStyle: 'medium' },
+    month: { year: 'numeric', month: 'short' },
+    year: { year: 'numeric' },
+  };
+  const text = new Intl.DateTimeFormat(locale, { ...options[bucket], timeZone: 'UTC' }).format(start);
+  return bucket === 'week' ? t('types.bar_chart.weekOf', { date: text }) : text;
+}
+
+function bar(key: SelectionValue, label: string, value: number | string | boolean | null): CategoryRow {
+  return {
+    key,
+    label,
+    text: formatAggregateValue(typeof value === 'boolean' ? String(value) : value),
+    amount: typeof value === 'boolean' || value === null ? Number.NaN : Number(value),
+  };
 }
 
 /** The bars of a chart's aggregate result, labelled in the reader's locale. */
@@ -19,16 +48,67 @@ export function useBarChartText(
   data: unknown,
   columnLabel: ColumnLabel = columnName,
 ): BarChartText {
-  const { t } = useTranslation('widgets');
+  const { t, i18n } = useTranslation('widgets');
+  const categories = useCategoryRows(data);
+
+  if (config.mode === 'by_feature') {
+    const valueHeader = columnLabel(config.value_column);
+    const labelHeader = columnLabel(config.label_column);
+    const result = aggregateResult(data, 'rows');
+    return {
+      summary: t('types.bar_chart.summaryFeature', { value: valueHeader, label: labelHeader }),
+      labelHeader,
+      valueHeader,
+      rows: result?.rows.map((row) => {
+        const key = row.values[config.label_column] ?? null;
+        return bar(key, categoryLabel(key, t), row.values[config.value_column] ?? null);
+      }),
+      note: result?.has_more ? t('types.bar_chart.moreFeatures', { shown: result.rows.length }) : undefined,
+    };
+  }
+
+  if (config.mode === 'by_fields') {
+    const valueHeader = t(`editor.statNames.${config.stat}`);
+    const result = aggregateResult(data, 'stats_by_fields');
+    return {
+      summary: t('types.bar_chart.summaryFields', { stat: valueHeader }),
+      labelHeader: t('types.bar_chart.fieldHeader'),
+      valueHeader,
+      rows: result?.fields.map(({ column, stats }) => bar(column, columnLabel(column), stats[aggregateStat(config.stat)] ?? null)),
+    };
+  }
+
   const valueHeader = t(STAT_LABEL_KEYS[config.stat], {
     column: config.stat_column && columnLabel(config.stat_column),
   });
-  const labelHeader = columnLabel(config.column);
+  const column = columnLabel(config.column);
+
+  if (config.mode === 'date') {
+    const groups = aggregateResult(data, 'group_by');
+    return {
+      summary: t('types.bar_chart.summaryDate', {
+        stat: valueHeader,
+        bucket: t(`types.bar_chart.buckets.${config.date_bucket}`),
+        column,
+      }),
+      labelHeader: t('types.bar_chart.dateHeader', { column }),
+      valueHeader,
+      ...(groups
+        ? {
+            rows: groups.groups.map((group) =>
+              bar(group.key ?? null, bucketLabel(group.key ?? null, config.date_bucket, t, i18n.language), group.value ?? null),
+            ),
+          }
+        : NO_ROWS),
+      note: groups?.truncated ? t('types.bar_chart.moreBuckets', { shown: groups.groups.length }) : undefined,
+    };
+  }
+
   return {
-    summary: t('types.bar_chart.summary', { stat: valueHeader, column: labelHeader }),
-    labelHeader,
+    summary: t('types.bar_chart.summary', { stat: valueHeader, column }),
+    labelHeader: column,
     valueHeader,
-    ...useCategoryRows(data),
+    ...categories,
   };
 }
 
@@ -38,7 +118,8 @@ export function barTableProps(
   text: BarChartText,
   selection: WidgetSelection | null | undefined,
 ) {
-  const picked = selectedValues(selection, config.column);
+  const column = pickedColumn(config);
+  const picked = column === null ? [] : selectedValues(selection, column);
   return {
     caption: text.summary,
     labelHeader: text.labelHeader,

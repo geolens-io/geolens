@@ -42,7 +42,21 @@
       "keyboardHintPick": "Use the arrow keys to move between bars. Press Enter to filter the map by a bar, and press it again to clear the filter.",
       "keyboardHintPickPage": "Use the arrow keys to move between bars. Press Enter to filter the dashboard by a bar, and press it again to clear the filter.",
       "bar": "{{label}}: {{value}}",
-      "roleDescription": "bar chart"
+      "roleDescription": "bar chart",
+      "summaryDate": "{{stat}} by {{bucket}} of {{column}} (UTC)",
+      "summaryFeature": "{{value}} by {{label}}",
+      "summaryFields": "{{stat}} by field",
+      "dateHeader": "{{column}} (UTC)",
+      "fieldHeader": "Field",
+      "weekOf": "Week of {{date}}",
+      "buckets": {
+        "day": "day",
+        "week": "week",
+        "month": "month",
+        "year": "year"
+      },
+      "moreBuckets": "Showing the first {{shown}} periods. The layer has more.",
+      "moreFeatures": "Showing {{shown}} features. The layer has more."
     },
     "histogram": {
       "label": "Histogram",
@@ -211,6 +225,29 @@
       "ascending": "Ascending",
       "descending": "Descending",
       "pageSize": "Features per page"
-    }
+    },
+    "barMode": "Bars show",
+    "barModes": {
+      "category": "Values of a column",
+      "date": "Dates",
+      "by_feature": "One bar per feature",
+      "by_fields": "One bar per field"
+    },
+    "barNeedsNumbers": "This layer has no numeric columns for this chart.",
+    "barNeedsDates": "This layer has no date columns.",
+    "dateColumn": "Date column",
+    "dateBucket": "Group by",
+    "dateBuckets": {
+      "day": "Day",
+      "week": "Week",
+      "month": "Month",
+      "year": "Year"
+    },
+    "labelField": "Label field",
+    "valueField": "Value field",
+    "sortOrder": "Order",
+    "fields": "Fields",
+    "layerColors": "Use the layer's colours",
+    "layerColorsHelp": "Applies when the column is the one the layer's map style colours by."
   }
 }

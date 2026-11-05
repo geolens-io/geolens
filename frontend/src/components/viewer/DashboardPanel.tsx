@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { LiveAnnouncement } from '@/components/ui/live-announcement';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { AnyWidgetDefinition, WidgetInstance, WidgetRenderProps, WidgetSelection } from '@/components/widgets/contract';
+import { LayerColorsProvider } from '@/components/widgets/layer-colors';
 import { WidgetView } from '@/components/widgets/WidgetView';
 import { isLayerBound, parseStoredWidget, type ParsedWidget } from '@/components/widgets/registry';
 import type { Bbox } from '@/lib/bbox';
@@ -21,6 +22,7 @@ import type { SharedLayerResponse } from '@/types/api';
 import { FilterChips } from './FilterChips';
 import { useMapViewBbox, useWidgetAggregate } from './hooks/use-dashboard-data';
 import { useFeatureZoom } from './hooks/use-feature-zoom';
+import { layerCategoryColors } from './layer-category-colors';
 import { usePicks } from './hooks/use-picks';
 import { mapCarriesColumn, NO_PICKS, type LinkedPick } from './linked-filters';
 import { columnDisplayName, layerDisplayName } from './shared-layer';
@@ -131,6 +133,7 @@ export function DashboardWidget({
     linked,
     mapHidden,
   });
+  const layerColors = useMemo(() => layerCategoryColors(layer), [layer]);
   const loadingSkeleton = (
     <Skeleton className="h-12 w-full">
       <span className="sr-only">{t('common:loading')}</span>
@@ -193,19 +196,21 @@ export function DashboardWidget({
         loadingSkeleton
       ) : failed && query.data === undefined ? null : (
         <div className={cn('transition-opacity', stale && 'opacity-50')}>
-          <WidgetView
-            parsed={parsed}
-            data={query.data}
-            selection={selection}
-            onSelect={onSelect}
-            mapHidden={mapHidden}
-            onLoadMore={loadMore}
-            loadingMore={loadingMore}
-            loadMoreFailed={loadMoreFailed}
-            onZoomTo={onZoomTo}
-            columnLabel={(column) => columnDisplayName(layer.column_info, column)}
-            loadingFallback={loadingSkeleton}
-          />
+          <LayerColorsProvider value={layerColors}>
+            <WidgetView
+              parsed={parsed}
+              data={query.data}
+              selection={selection}
+              onSelect={onSelect}
+              mapHidden={mapHidden}
+              onLoadMore={loadMore}
+              loadingMore={loadingMore}
+              loadMoreFailed={loadMoreFailed}
+              onZoomTo={onZoomTo}
+              columnLabel={(column) => columnDisplayName(layer.column_info, column)}
+              loadingFallback={loadingSkeleton}
+            />
+          </LayerColorsProvider>
         </div>
       )}
     </WidgetShell>

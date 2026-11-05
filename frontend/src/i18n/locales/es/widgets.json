@@ -42,7 +42,21 @@
       "keyboardHintPick": "Usa las flechas para moverte entre las barras. Pulsa Intro para filtrar el mapa por una barra y vuelve a pulsarlo para quitar el filtro.",
       "keyboardHintPickPage": "Usa las flechas para moverte entre las barras. Pulsa Intro para filtrar el panel por una barra y vuelve a pulsarlo para quitar el filtro.",
       "bar": "{{label}}: {{value}}",
-      "roleDescription": "gráfico de barras"
+      "roleDescription": "gráfico de barras",
+      "summaryDate": "{{stat}} por {{bucket}} de {{column}} (UTC)",
+      "summaryFeature": "{{value}} por {{label}}",
+      "summaryFields": "{{stat}} por campo",
+      "dateHeader": "{{column}} (UTC)",
+      "fieldHeader": "Campo",
+      "weekOf": "Semana del {{date}}",
+      "buckets": {
+        "day": "día",
+        "week": "semana",
+        "month": "mes",
+        "year": "año"
+      },
+      "moreBuckets": "Se muestran los primeros {{shown}} períodos. La capa tiene más.",
+      "moreFeatures": "Se muestran {{shown}} elementos. La capa tiene más."
     },
     "histogram": {
       "label": "Histograma",
@@ -211,6 +225,29 @@
       "ascending": "Ascendente",
       "descending": "Descendente",
       "pageSize": "Entidades por página"
-    }
+    },
+    "barMode": "Las barras muestran",
+    "barModes": {
+      "category": "Valores de una columna",
+      "date": "Fechas",
+      "by_feature": "Una barra por elemento",
+      "by_fields": "Una barra por campo"
+    },
+    "barNeedsNumbers": "Esta capa no tiene columnas numéricas para este gráfico.",
+    "barNeedsDates": "Esta capa no tiene columnas de fecha.",
+    "dateColumn": "Columna de fecha",
+    "dateBucket": "Agrupar por",
+    "dateBuckets": {
+      "day": "Día",
+      "week": "Semana",
+      "month": "Mes",
+      "year": "Año"
+    },
+    "labelField": "Campo de etiqueta",
+    "valueField": "Campo de valor",
+    "sortOrder": "Orden",
+    "fields": "Campos",
+    "layerColors": "Usar los colores de la capa",
+    "layerColorsHelp": "Se aplica cuando la columna es la que el estilo del mapa de la capa usa para colorear."
   }
 }

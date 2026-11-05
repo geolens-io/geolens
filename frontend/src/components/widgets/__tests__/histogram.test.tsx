@@ -58,9 +58,27 @@ describe('histogram widget', () => {
     const heights = columns.map((column) => Number(column.getAttribute('height')));
     expect(heights[1]).toBe(100);
     expect(heights[0]).toBeCloseTo(100 / 3);
-    // The axis names the lowest and highest values.
-    const axis = [...container.querySelectorAll('svg text')].map((label) => label.textContent);
-    expect(axis).toEqual(['0', '30']);
+  });
+
+  it('labels four bin edges under the axis and the tallest count on a gridline', () => {
+    const { container } = render(<HistogramRenderer config={config} data={data} />);
+    const ticks = [...container.querySelectorAll('svg text:not([data-peak])')].map((label) => label.textContent);
+    expect(ticks).toEqual(['0', '10', '20', '30']);
+    expect(container.querySelector('svg text[data-peak]')).toHaveTextContent('12');
+    // The gridline sits at the top of the tallest column.
+    const tallest = [...container.querySelectorAll('svg rect.fill-primary')][1];
+    const grid = container.querySelector('svg line[stroke-dasharray]')!;
+    expect(Number(grid.getAttribute('y1'))).toBe(Number(tallest.getAttribute('y')));
+  });
+
+  it('thins the edge labels of a many-bin histogram to four', () => {
+    const many = {
+      ...data,
+      result: { bins: Array.from({ length: 20 }, (_, i) => ({ lower: i * 5, upper: i * 5 + 5, count: i + 1 })) },
+    };
+    const { container } = render(<HistogramRenderer config={{ ...config, bins: 20 }} data={many} />);
+    const ticks = [...container.querySelectorAll('svg text:not([data-peak])')].map((label) => label.textContent);
+    expect(ticks).toEqual(['0', '35', '65', '100']);
   });
 
   it('is one tab stop, and arrow keys, Home and End move between bins', () => {
@@ -197,10 +215,10 @@ describe('histogram widget', () => {
       expect(screen.getByText('50 – 99')).toBeInTheDocument();
     });
 
-    it('labels the axis with the lowest and highest whole numbers', () => {
+    it('labels the axis with whole numbers, ending on the highest', () => {
       const { container } = render(<HistogramRenderer config={visits} data={bins(50, 2)} />);
-      const axis = [...container.querySelectorAll('svg text')].map((label) => label.textContent);
-      expect(axis).toEqual(['0', '99']);
+      const axis = [...container.querySelectorAll('svg text:not([data-peak])')].map((label) => label.textContent);
+      expect(axis).toEqual(['0', '50', '99']);
     });
 
     it('picks the whole numbers the bin holds', () => {

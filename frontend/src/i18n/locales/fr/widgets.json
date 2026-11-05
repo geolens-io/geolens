@@ -42,7 +42,21 @@
       "keyboardHintPick": "Utilisez les flèches pour passer d’une barre à l’autre. Appuyez sur Entrée pour filtrer la carte selon une barre, puis de nouveau pour retirer le filtre.",
       "keyboardHintPickPage": "Utilisez les flèches pour passer d’une barre à l’autre. Appuyez sur Entrée pour filtrer le tableau de bord selon une barre, puis de nouveau pour retirer le filtre.",
       "bar": "{{label}} : {{value}}",
-      "roleDescription": "diagramme en barres"
+      "roleDescription": "diagramme en barres",
+      "summaryDate": "{{stat}} par {{bucket}} de {{column}} (UTC)",
+      "summaryFeature": "{{value}} par {{label}}",
+      "summaryFields": "{{stat}} par champ",
+      "dateHeader": "{{column}} (UTC)",
+      "fieldHeader": "Champ",
+      "weekOf": "Semaine du {{date}}",
+      "buckets": {
+        "day": "jour",
+        "week": "semaine",
+        "month": "mois",
+        "year": "année"
+      },
+      "moreBuckets": "Affichage des {{shown}} premières périodes. La couche en compte davantage.",
+      "moreFeatures": "Affichage de {{shown}} entités. La couche en compte davantage."
     },
     "histogram": {
       "label": "Histogramme",
@@ -211,6 +225,29 @@
       "ascending": "Croissant",
       "descending": "Décroissant",
       "pageSize": "Entités par page"
-    }
+    },
+    "barMode": "Les barres montrent",
+    "barModes": {
+      "category": "Valeurs d’une colonne",
+      "date": "Dates",
+      "by_feature": "Une barre par entité",
+      "by_fields": "Une barre par champ"
+    },
+    "barNeedsNumbers": "Cette couche n’a aucune colonne numérique pour ce diagramme.",
+    "barNeedsDates": "Cette couche n’a aucune colonne de date.",
+    "dateColumn": "Colonne de date",
+    "dateBucket": "Regrouper par",
+    "dateBuckets": {
+      "day": "Jour",
+      "week": "Semaine",
+      "month": "Mois",
+      "year": "Année"
+    },
+    "labelField": "Champ d’étiquette",
+    "valueField": "Champ de valeur",
+    "sortOrder": "Ordre",
+    "fields": "Champs",
+    "layerColors": "Utiliser les couleurs de la couche",
+    "layerColorsHelp": "S’applique lorsque la colonne est celle par laquelle le style de la couche colore la carte."
   }
 }

@@ -42,7 +42,21 @@
       "keyboardHintPick": "使用方向键在条形之间移动。按 Enter 键按某个条形筛选地图，再按一次清除筛选。",
       "keyboardHintPickPage": "使用方向键在条形之间移动。按 Enter 键按某个条形筛选仪表板，再按一次清除筛选。",
       "bar": "{{label}}：{{value}}",
-      "roleDescription": "条形图"
+      "roleDescription": "条形图",
+      "summaryDate": "按{{bucket}}统计 {{column}} 的{{stat}}（UTC）",
+      "summaryFeature": "按 {{label}} 统计的 {{value}}",
+      "summaryFields": "按字段统计的{{stat}}",
+      "dateHeader": "{{column}}（UTC）",
+      "fieldHeader": "字段",
+      "weekOf": "{{date}} 起的一周",
+      "buckets": {
+        "day": "日",
+        "week": "周",
+        "month": "月",
+        "year": "年"
+      },
+      "moreBuckets": "显示前 {{shown}} 个时段。图层还有更多。",
+      "moreFeatures": "显示 {{shown}} 个要素。图层还有更多。"
     },
     "histogram": {
       "label": "直方图",
@@ -211,6 +225,29 @@
       "ascending": "升序",
       "descending": "降序",
       "pageSize": "每页要素数"
-    }
+    },
+    "barMode": "条形显示",
+    "barModes": {
+      "category": "某列的取值",
+      "date": "日期",
+      "by_feature": "每个要素一条",
+      "by_fields": "每个字段一条"
+    },
+    "barNeedsNumbers": "此图层没有可用于该图表的数值列。",
+    "barNeedsDates": "此图层没有日期列。",
+    "dateColumn": "日期列",
+    "dateBucket": "分组单位",
+    "dateBuckets": {
+      "day": "日",
+      "week": "周",
+      "month": "月",
+      "year": "年"
+    },
+    "labelField": "标签字段",
+    "valueField": "数值字段",
+    "sortOrder": "排序",
+    "fields": "字段",
+    "layerColors": "使用图层的颜色",
+    "layerColorsHelp": "当该列正是图层地图样式用来着色的列时生效。"
   }
 }
