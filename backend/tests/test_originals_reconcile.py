@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.core.db as db_module
 import app.platform.jobs.originals_reconcile as module
-import app.platform.jobs.staging_reconcile as staging_module
+import app.platform.jobs.orphan_scan as orphan_scan
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.platform.jobs.models import (
     ARCHIVE_PENDING_METADATA_KEY,
@@ -152,10 +152,10 @@ async def _job(
 @pytest.fixture(autouse=True)
 async def _a_dataset_exists(test_db_session: AsyncSession):
     """A catalog holding one live dataset."""
-    staging_module._scan_cursors[ORIGINALS_PREFIX] = None
+    orphan_scan._scan_cursors[ORIGINALS_PREFIX] = None
     live = await _dataset(test_db_session)
     yield live
-    staging_module._scan_cursors.clear()
+    orphan_scan._scan_cursors.clear()
     await test_db_session.execute(delete(IngestJob).where(IngestJob.id.in_(_jobs)))
     await test_db_session.execute(delete(Record).where(Record.id.in_(_records)))
     await test_db_session.commit()
@@ -397,12 +397,12 @@ class TestBounds:
             page_size=2,
             client_side_cursor=True,
         )
-        staging_module._scan_cursors[ORIGINALS_PREFIX] = _key(ids[9])
+        orphan_scan._scan_cursors[ORIGINALS_PREFIX] = _key(ids[9])
 
         await _run(test_db_session, storage)
 
         assert storage.scan_pages == 3
-        assert staging_module._scan_cursors[ORIGINALS_PREFIX] is None
+        assert orphan_scan._scan_cursors[ORIGINALS_PREFIX] is None
 
     async def test_a_pass_that_fails_returns_without_raising(
         self, test_db_session: AsyncSession

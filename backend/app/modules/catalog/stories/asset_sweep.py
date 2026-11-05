@@ -15,7 +15,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 
 import structlog
-from sqlalchemy import exists, select, text
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.catalog.stories.assets import (
@@ -23,14 +23,8 @@ from app.modules.catalog.stories.assets import (
     STORY_ASSET_VARIANTS,
 )
 from app.modules.catalog.stories.models import Story, StoryAsset
-from app.platform.jobs.staging_reconcile import (
-    _current_entry,
-    _iter_leg,
-    _resume_point,
-    _scan_cursors,
-)
+from app.platform.jobs.orphan_scan import current_entry, reconcile_orphan_objects
 from app.platform.storage.provider import StoredObject
-from app.platform.storage.titiler_url import resolve_current_storage_key
 
 log = structlog.get_logger()
 
@@ -107,7 +101,7 @@ async def _still_old(
     kept: list[StoredObject] = []
     for entry in entries:
         try:
-            current = await _current_entry(storage, entry.key)
+            current = await current_entry(storage, entry.key)
         except Exception as exc:  # broad: best-effort per object, the pass continues
             outcome.delete_failures += 1
             log.warning(
@@ -197,79 +191,35 @@ async def _sweep_page(
     return True, page[-1].key
 
 
-async def _scan(
-    db: AsyncSession, storage, physical_prefix: str, *, now: datetime
-) -> StoryAssetSweepOutcome:
-    """The pass body, entered only with the advisory lock held.
-
-    Scans circularly from the resume point, so every key is reached across passes.
-    """
+async def _sweep(db: AsyncSession, *, now: datetime) -> StoryAssetSweepOutcome:
     outcome = StoryAssetSweepOutcome(ran=True)
     cutoff = now - ORPHAN_OBJECT_MIN_AGE
-    resume_point = _resume_point(physical_prefix)
-    legs: list[tuple[str | None, str | None]] = [(resume_point, None)]
-    if resume_point is not None:
-        legs.append((None, resume_point))
 
-    last_examined: str | None = None
-    pages = 0
-    stopped_early = False
-    for start_after, stop_at in legs:
-        async for page in _iter_leg(
-            storage, physical_prefix, start_after=start_after, stop_at=stop_at
-        ):
-            pages += 1
-            outcome.objects_listed += len(page)
-            finished = True
-            if page:
-                finished, last_examined = await _sweep_page(
-                    db,
-                    storage,
-                    page,
-                    physical_prefix,
-                    previous_end=last_examined,
-                    cutoff=cutoff,
-                    now=now,
-                    outcome=outcome,
-                )
-            if (
-                not finished
-                or pages >= _MAX_PAGES_PER_PASS
-                or outcome.objects_listed >= _MAX_OBJECTS_SCANNED_PER_PASS
-            ):
-                stopped_early = True
-                break
-        if stopped_early:
-            break
-
-    # A stop before any key was examined leaves no cursor worth resuming from.
-    _scan_cursors[physical_prefix] = last_examined if stopped_early else None
-    return outcome
-
-
-async def _sweep(db: AsyncSession, *, now: datetime) -> StoryAssetSweepOutcome:
-    from app.core.db import async_session  # late-bound so a test engine applies
-    from app.core.db.tenant_session import current_tenant_var
-    from app.core.tenancy import is_multi_tenant
-    from app.platform.storage import get_storage
-
-    if is_multi_tenant() and current_tenant_var.get() is None:
-        return StoryAssetSweepOutcome()
-    physical_prefix = resolve_current_storage_key(_PREFIX)
-
-    # A session that only holds the lock, so ending it releases the lock
-    # without touching ``db``'s transaction.
-    async with async_session() as lock_session:
-        locked = await lock_session.execute(
-            text("SELECT pg_try_advisory_xact_lock(hashtextextended(:key, 0))"),
-            {"key": f"story-asset-sweep:{physical_prefix}"},
+    async def handle_page(storage, physical_prefix, page, previous_end):
+        return await _sweep_page(
+            db,
+            storage,
+            page,
+            physical_prefix,
+            previous_end=previous_end,
+            cutoff=cutoff,
+            now=now,
+            outcome=outcome,
         )
-        if not locked.scalar():
-            return StoryAssetSweepOutcome()
-        async with db.begin_nested():
-            if not await _catalog_has_stories(db):
-                return StoryAssetSweepOutcome()
-            return await _scan(db, get_storage(), physical_prefix, now=now)
+
+    progress = await reconcile_orphan_objects(
+        prefix=_PREFIX,
+        lock_name="story-asset-sweep",
+        handle_page=handle_page,
+        max_objects=_MAX_OBJECTS_SCANNED_PER_PASS,
+        max_pages=_MAX_PAGES_PER_PASS,
+        db=db,
+        guard=lambda: _catalog_has_stories(db),
+    )
+    if progress is None:
+        return StoryAssetSweepOutcome()
+    outcome.objects_listed = progress.objects_listed
+    return outcome
 
 
 async def sweep_unnamed_story_asset_objects(

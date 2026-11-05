@@ -687,6 +687,25 @@ def test_no_external_imports_of_maps_private_service_modules() -> None:
 
 
 @pytest.mark.architecture
+def test_no_underscore_imports_from_staging_reconcile() -> None:
+    """The storage sweeps share `orphan_scan`; none reaches into staging_reconcile's privates."""
+    offenders = []
+    for path in _iter_backend_app_python_files():
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if (
+                isinstance(node, ast.ImportFrom)
+                and _resolve_relative_import(path, node)
+                == "app.platform.jobs.staging_reconcile"
+            ):
+                offenders += [
+                    f"{_repo_style_rel(path)}:{node.lineno} imports {alias.name}"
+                    for alias in node.names
+                    if alias.name.startswith("_")
+                ]
+    assert not offenders, "\n".join(offenders)
+
+
+@pytest.mark.architecture
 def test_no_external_imports_of_search_private_service_modules() -> None:
     """Search callers use the public service facade; split implementation modules remain private."""
     private_modules = {

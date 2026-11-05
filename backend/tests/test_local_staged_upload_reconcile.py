@@ -768,6 +768,7 @@ class TestWiring:
     async def test_a_database_error_in_the_local_pass_leaves_the_storage_pass_running(
         self, test_db_session: AsyncSession, root: Path, now: datetime, monkeypatch
     ) -> None:
+        import app.platform.jobs.orphan_scan as orphan_scan
         import app.platform.jobs.staging_reconcile as storage_pass
 
         async def failing_lookup(db, *_args):
@@ -776,7 +777,7 @@ class TestWiring:
         monkeypatch.setattr(module, "_verdicts", failing_lookup)
         monkeypatch.setattr(settings, "storage_provider", "s3")
         monkeypatch.setitem(
-            storage_pass._scan_cursors, storage_pass.STAGING_PREFIX, None
+            orphan_scan._scan_cursors, storage_pass.STAGING_PREFIX, None
         )
         await _upload(test_db_session, root, now)
         orphan = f"staging/{uuid.uuid4()}/roads.geojson"
