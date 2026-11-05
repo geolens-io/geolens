@@ -2277,6 +2277,49 @@ def test_a_service_skipped_at_the_first_import_adds_its_layer_once_it_imports(
     assert _state(plan_file)["items"][B1]["pending_layers"] == []
 
 
+def test_a_layer_owed_by_a_source_the_inventory_leaves_unlisted_is_still_owed(
+    runner, plan_file, geolens, portal
+):
+    _services(geolens)
+    translated = _translated(dataset_id("Parcels"))
+    geolens.routes[IMPORT] = lambda seen: (
+        (201, translated) if seen.json().get("dry_run") else (201, _response())
+    )
+    _only_the_map(plan_file)
+
+    def roads(listed: bool):
+        def change(plan):
+            for item in plan["items"]:
+                if item["id"] == ROADS:
+                    item.update(action="import_layers", unlisted=not listed)
+
+        return change
+
+    _edit_json(plan_file, roads(True))
+    _edit_webmap(portal, lambda layers: layers.append(ROADS_LAYER))
+    token = secrets.token_urlsafe(16)
+    only = ("--token", token, "--only", B1)
+    _migrate(runner, plan_file, *only)
+    assert _state(plan_file)["items"][B1]["pending_layers"] == ["roads_new_0"]
+    _committing_save(geolens, commits=True, failure=None)
+
+    # A partial inventory leaves the source unlisted for a run.
+    _edit_json(plan_file, roads(False))
+    _migrate(runner, plan_file, *only)
+
+    assert _state(plan_file)["items"][B1]["pending_layers"] == ["roads_new_0"]
+
+    # It is listed again and imports; the web map hasn't changed since.
+    _edit_json(plan_file, roads(True))
+    _edit_json(plan_file.parent / "arcgis-migration-state.json", _roads_imported)
+    _roads_served(geolens)
+    result, _ = _migrate(runner, plan_file, *only)
+
+    assert result.exit_code == 0, result.output
+    assert _sent(geolens)[-1].json()["dataset_matches"]["roads_new_0"]
+    assert _state(plan_file)["items"][B1]["pending_layers"] == []
+
+
 def test_a_service_exported_and_now_imported_keeps_its_layer_pending(
     runner, plan_file, geolens, portal
 ):

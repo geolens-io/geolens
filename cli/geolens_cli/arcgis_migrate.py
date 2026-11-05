@@ -1992,9 +1992,7 @@ def _run(
         importable=frozenset(
             i["id"]
             for i in plan["items"]
-            if i["action"] in _plan.DATASET_ACTIONS
-            and not i.get("removed")
-            and not i.get("unlisted")
+            if i["action"] in _plan.DATASET_ACTIONS and not i.get("removed")
         ),
         portal_root=_portal_base(plan["portal"]["url"]),
         redact=redact,

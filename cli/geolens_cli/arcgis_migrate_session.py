@@ -232,8 +232,9 @@ class MigrationContext:
     operator_id: str | None = None
     # An editor migrating their own content: items stay with the operator.
     own_content: bool = False
-    # The plan's items that import layers or a file, which a web map's layer
-    # waits on until the run has finished them.
+    # The plan's items that import layers or a file, also those a partial
+    # inventory leaves unlisted, which a web map's layer waits on until the
+    # run has finished them.
     importable: frozenset[str] = frozenset()
     # The instance's upload_max_size_mb in bytes, read once from its settings.
     upload_limit: int | None = None
