@@ -366,6 +366,8 @@ async def test_an_overview_over_the_cap_is_dropped_and_the_vrt_still_publishes(
 async def test_regeneration_replaces_the_overview_row(
     client, admin_auth_header, test_db_session, raster_storage, monkeypatch
 ) -> None:
+    from io import BytesIO
+
     from sqlalchemy import text
 
     from tests.test_raster_replace_1221 import (
@@ -391,12 +393,14 @@ async def test_regeneration_replaces_the_overview_row(
         member.dataset.id,
         member.dataset.record_id,
     )
+    stale_href = f"rasters/{ids[0]}/older-release/source.ovr.tif"
+    await raster_storage.put(stale_href, BytesIO(b"stale"))
     await test_db_session.execute(
         text(
             "INSERT INTO catalog.dataset_assets (dataset_id, key, href, size_bytes) "
-            "VALUES (:id, 'vrt_overview', 'stale', 1)"
+            "VALUES (:id, 'vrt_overview', :href, 1)"
         ),
-        {"id": ids[0]},
+        {"id": ids[0], "href": stale_href},
     )
     await test_db_session.commit()
     try:
@@ -404,6 +408,7 @@ async def test_regeneration_replaces_the_overview_row(
         test_db_session.expire_all()
         sizes = await _overview_rows(test_db_session, ids[0])
         assert len(sizes) == 1 and sizes[0] > 1
+        assert not await raster_storage.exists(stale_href)
     finally:
         await _purge_vrt(test_db_session, ids=ids)
 
@@ -473,3 +478,50 @@ def test_a_masked_mosaic_gets_no_overview(tmp_path: Path) -> None:
 
     assert add_vrt_overview(vrt_path, members) is None
     assert not (tmp_path / "masked.ovr.tif").exists()
+
+
+@pytest.mark.anyio
+@needs_gdal_cli
+async def test_the_overview_build_runs_under_the_scratch_root(
+    client, admin_auth_header, test_db_session, raster_storage, monkeypatch, tmp_path
+) -> None:
+    from app.processing.ingest import tasks_vrt
+    from tests.test_raster_replace_1221 import (
+        _make_live_raster,
+        _make_vrt_parent,
+        _purge_vrt,
+        _run_regeneration,
+    )
+
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    monkeypatch.setattr(tasks_vrt, "_scratch_dir", lambda: str(scratch))
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_vrt.get_storage", lambda: raster_storage
+    )
+    built_in: list[str] = []
+    real = tasks_vrt.add_vrt_overview
+
+    def _spy(vrt_path, source_paths):
+        built_in.append(vrt_path)
+        return real(vrt_path, source_paths)
+
+    monkeypatch.setattr(tasks_vrt, "add_vrt_overview", _spy)
+    admin_id = await _admin(test_db_session)
+    member = await _make_live_raster(
+        test_db_session, raster_storage, created_by=admin_id
+    )
+    parent = await _make_vrt_parent(
+        test_db_session, raster_storage, created_by=admin_id, member=member
+    )
+    ids = (
+        parent.dataset.id,
+        parent.dataset.record_id,
+        member.dataset.id,
+        member.dataset.record_id,
+    )
+    try:
+        await _run_regeneration(test_db_session, parent=parent, user_id=admin_id)
+        assert built_in and built_in[0].startswith(str(scratch))
+    finally:
+        await _purge_vrt(test_db_session, ids=ids)

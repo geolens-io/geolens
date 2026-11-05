@@ -34,7 +34,7 @@ from app.platform.jobs.heartbeat import (
 )
 from app.core.failure_reason import redact_failure_reason
 from app.core.db import tenant_task
-from app.processing.raster.cog import sha256_file
+from app.processing.raster.cog import _scratch_dir, sha256_file
 from app.processing.raster.probe import (
     RENDER_TIMEOUT_SECONDS,
     read_raster_metadata,
@@ -151,18 +151,18 @@ async def keep_overview_if_it_fits(
     return overview_path
 
 
-async def counted_overview_bytes(session, dataset_id: uuid.UUID) -> int:
-    """The bytes the dataset's current overview row counts toward quota."""
-    return int(
-        await session.scalar(
+async def counted_overview(session, dataset_id: uuid.UUID) -> tuple[int, str | None]:
+    """The bytes and object key of the dataset's current overview row, if any."""
+    row = (
+        await session.execute(
             text(
-                "SELECT COALESCE(SUM(size_bytes), 0)::bigint "
-                "FROM catalog.dataset_assets "
+                "SELECT size_bytes, href FROM catalog.dataset_assets "
                 "WHERE dataset_id = :dataset_id AND key = :key"
             ),
             {"dataset_id": dataset_id, "key": VRT_OVERVIEW_ASSET_KEY},
         )
-    )
+    ).first()
+    return (int(row.size_bytes or 0), row.href) if row else (0, None)
 
 
 async def record_vrt_overview(
@@ -181,7 +181,7 @@ async def record_vrt_overview(
     """
     from app.modules.quota.service import reserve_storage_bytes
 
-    prior = await counted_overview_bytes(session, dataset_id)
+    prior, _ = await counted_overview(session, dataset_id)
     if overview_path is None:
         await session.execute(
             text(
@@ -294,9 +294,14 @@ def _prior_generation_keys_to_reap(
     quicklook_512_key: str | None,
     replace_quicklook_256: bool,
     replace_quicklook_512: bool,
+    overview_href: str | None = None,
 ) -> list[str]:
     """The logical keys of the prior objects whose catalog pointers will be replaced."""
     logical_keys = [vrt_key, overview_key_for(vrt_key)]
+    # The catalog row can name an overview the VRT's own URI does not, after a
+    # regeneration by a release that does not write one.
+    if overview_href is not None and overview_href not in logical_keys:
+        logical_keys.append(overview_href)
     if replace_quicklook_256 and quicklook_256_key is not None:
         logical_keys.append(quicklook_256_key)
     if replace_quicklook_512 and quicklook_512_key is not None:
@@ -671,7 +676,7 @@ async def ingest_vrt(
         # CPU work, with no session open.
 
         # 5. Build VRT
-        tmp_dir = tempfile.mkdtemp()
+        tmp_dir = tempfile.mkdtemp(dir=_scratch_dir())
         vrt_path = os.path.join(tmp_dir, "source.vrt")
         await asyncio.to_thread(
             build_vrt, vrt_type, source_paths, vrt_path, resolution_strategy
@@ -1222,7 +1227,7 @@ async def regenerate_vrt(
         # CPU work, with no session open.
 
         # 5. Build VRT to temp path
-        tmp_dir = tempfile.mkdtemp()
+        tmp_dir = tempfile.mkdtemp(dir=_scratch_dir())
         vrt_path = os.path.join(tmp_dir, "source.vrt")
 
         await asyncio.to_thread(
@@ -1232,7 +1237,9 @@ async def regenerate_vrt(
             add_vrt_overview, vrt_path, source_paths
         )
         async with async_session() as session:
-            prior_overview_bytes = await counted_overview_bytes(session, vrt_id)
+            prior_overview_bytes, prior_overview_href = await counted_overview(
+                session, vrt_id
+            )
         overview_path = await keep_overview_if_it_fits(
             vrt_owner_id, vrt_path, overview_path, credit_bytes=prior_overview_bytes
         )
@@ -1354,6 +1361,7 @@ async def regenerate_vrt(
                 quicklook_512_key=vrt_ql512_uri,
                 replace_quicklook_256=ql256 is not None,
                 replace_quicklook_512=ql512 is not None,
+                overview_href=prior_overview_href,
             )
             if resolve_storage_key(key, tenant_id=_ctv.get())
             not in written_storage_keys
