@@ -39,6 +39,7 @@ def raster_budget(monkeypatch):
     """A one-slot raster budget and empty statistics caches for each test."""
     budget = admission._RenderBudget(1)
     monkeypatch.setattr(admission, "_raster_renders", budget)
+    monkeypatch.setattr(admission.settings, "raster_timeout_slot_grace_seconds", 0.05)
     tiles._band_stats_cache.clear()
     tiles._band_stats_failures.clear()
     return budget
@@ -123,6 +124,7 @@ async def test_a_failure_after_the_request_was_sent_is_not_retried(proxy, error)
 
     assert response.status_code == 503
     assert len(titiler.urls) == 1
+    await asyncio.gather(*admission._grace_releases)
     assert not admission._raster_renders.slots.locked()
 
 
@@ -193,3 +195,70 @@ async def test_a_busy_budget_fails_the_scan_without_remembering_it(
     assert raised.value.status_code == 429
     assert titiler.urls == []
     assert not tiles._band_stats_failures, "a busy budget must not pin the fallback"
+
+
+def _upstream_503(content_type: str, body: bytes):
+    return SimpleNamespace(
+        status_code=503, content=body, headers={"content-type": content_type}
+    )
+
+
+async def test_a_concurrency_limit_503_sheds_as_429_without_retrying(proxy):
+    """Uvicorn's plain-text 503 means the renderer is saturated; retrying piles on."""
+    titiler = _Titiler(
+        _upstream_503("text/plain; charset=utf-8", b"Service Unavailable")
+    )
+    response = await proxy(titiler)
+
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "2"
+    assert len(titiler.urls) == 1
+    assert not admission._raster_renders.slots.locked()
+
+
+async def test_a_json_503_from_titiler_is_still_retried_then_503(proxy):
+    titiler = _Titiler(_upstream_503("application/json", b'{"detail":"down"}'))
+    response = await proxy(titiler)
+
+    assert response.status_code == 503
+    assert len(titiler.urls) == 3
+
+
+async def test_a_timed_out_render_keeps_its_slot_for_the_grace(proxy):
+    """The slot outlives the proxy's give-up briefly, as Titiler is still rendering."""
+    titiler = _Titiler(httpx.ReadTimeout("read timed out"))
+    response = await proxy(titiler)
+
+    assert response.status_code == 503
+    assert admission._raster_renders.slots.locked()
+    await asyncio.gather(*admission._grace_releases)
+    assert not admission._raster_renders.slots.locked()
+
+
+def test_the_proxy_pool_never_exceeds_the_raster_slots():
+    """Idle connections count toward Titiler's cap, so the pool matches the budget."""
+    pool = tiles._titiler_client._transport._pool
+    size = tiles.settings.tile_pool_max_size
+    assert pool._max_connections == size
+    assert pool._max_keepalive_connections == size
+
+
+@pytest.mark.parametrize("error", [httpx.ConnectTimeout("x"), httpx.PoolTimeout("x")])
+async def test_a_timeout_before_the_request_was_sent_frees_the_slot_at_once(error):
+    """Titiler never saw the request, so no grace: the retry can take the slot."""
+    with pytest.raises(type(error)):
+        async with admission.raster_render_slot():
+            raise error
+
+    assert not admission._raster_renders.slots.locked()
+    assert not admission._grace_releases
+
+
+async def test_a_read_timeout_holds_the_slot_for_the_grace():
+    with pytest.raises(httpx.ReadTimeout):
+        async with admission.raster_render_slot():
+            raise httpx.ReadTimeout("x")
+
+    assert admission._raster_renders.slots.locked()
+    await asyncio.gather(*admission._grace_releases)
+    assert not admission._raster_renders.slots.locked()

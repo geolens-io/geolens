@@ -346,6 +346,7 @@ services:
       ALLOWED_EMAIL_DOMAINS:
       TILE_POOL_MIN_SIZE: "${TILE_POOL_MIN_SIZE:-2}"
       TILE_POOL_MAX_SIZE: "${TILE_POOL_MAX_SIZE:-10}"
+      RASTER_TIMEOUT_SLOT_GRACE_SECONDS: "${RASTER_TIMEOUT_SLOT_GRACE_SECONDS:-5}"
       ENV_ONLY_CONFIG: "${ENV_ONLY_CONFIG:-false}"
       CORS_ALLOWED_ORIGINS:
       # Passed to ogr2ogr as GDAL_HTTP_TIMEOUT; slow ArcGIS Online layers need 300s.
@@ -482,7 +483,11 @@ services:
           [ -n "$$ep" ] && export AWS_S3_ENDPOINT="$$ep"
         fi
         [ "$${S3_ADDRESSING_STYLE:-auto}" = "path" ] && export AWS_VIRTUAL_HOSTING="$${AWS_VIRTUAL_HOSTING:-FALSE}"
-        exec uvicorn titiler.application.main:app --host 0.0.0.0 --port 8000 --workers $${TITILER_WORKERS:-1}
+        # Past this many connections or running requests a worker answers a bare 503
+        # and the proxy sheds it as 429. Default: the raster slots of all API processes split
+        # across TiTiler workers (rounded up) plus 2 of headroom per worker.
+        limit="$${TITILER_LIMIT_CONCURRENCY:-$$(( ($${TILE_POOL_MAX_SIZE:-10} * $${UVICORN_WORKERS:-1} + $${TITILER_WORKERS:-1} - 1) / $${TITILER_WORKERS:-1} + 2 ))}"
+        exec uvicorn titiler.application.main:app --host 0.0.0.0 --port 8000 --workers $${TITILER_WORKERS:-1} --limit-concurrency "$$limit"
     environment:
       # Inputs for the AWS endpoint derivation in the command.
       S3_ENDPOINT: "${S3_ENDPOINT:-}"
@@ -492,6 +497,10 @@ services:
       # is per process, so raise TITILER_MEM_LIMIT with workers: about
       # N x (GDAL_CACHEMAX + 250 MB).
       TITILER_WORKERS: "${TITILER_WORKERS:-1}"
+      TITILER_LIMIT_CONCURRENCY: "${TITILER_LIMIT_CONCURRENCY:-}"
+      # Sizes the default concurrency cap to the API's raster render slots.
+      TILE_POOL_MAX_SIZE: "${TILE_POOL_MAX_SIZE:-10}"
+      UVICORN_WORKERS: "${UVICORN_WORKERS:-1}"
       # Capping glibc arenas slows TiTiler's RSS ratchet under concurrent reads but
       # does not stop it; size TITILER_MEM_LIMIT for the catalog.
       MALLOC_ARENA_MAX: "${TITILER_MALLOC_ARENA_MAX:-2}"

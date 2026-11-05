@@ -542,6 +542,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
 
     tile_pool_min_size: int = Field(default=2, ge=1)
     tile_pool_max_size: int = Field(default=10, ge=1)
+    raster_timeout_slot_grace_seconds: int = Field(default=5, ge=0)
 
     # GDAL_HTTP_TIMEOUT for ogr2ogr service ingest. Large service layers exceed
     # GDAL's 120s default.
