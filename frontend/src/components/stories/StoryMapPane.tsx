@@ -89,6 +89,17 @@ export const StoryMapPane = memo(function StoryMapPane({ resolved, next, emptyHi
   if (outgoing) slots.push({ scene: outgoing, role: 'outgoing' });
   if (standby) slots.push({ scene: standby, role: 'standby' });
   if (resolved) slots.push({ scene: resolved, role: 'active' });
+  // Slots keep the order they mounted in: a node that React moves loses its
+  // computed style, and the fade-in would jump. Stacking is by z-index.
+  const mountOrder = useRef<string[]>([]);
+  for (const { scene } of slots) if (!mountOrder.current.includes(scene.scene.map_id)) mountOrder.current.push(scene.scene.map_id);
+  const liveIds = slots.map((slot) => slot.scene.scene.map_id).join('|');
+  // Pruned after commit: a render that React discards must not forget a slot.
+  useEffect(() => {
+    const live = liveIds.split('|');
+    mountOrder.current = mountOrder.current.filter((id) => live.includes(id));
+  }, [liveIds]);
+  slots.sort((x, y) => mountOrder.current.indexOf(x.scene.scene.map_id) - mountOrder.current.indexOf(y.scene.scene.map_id));
 
   return (
     // Not a landmark: the page's <main> holds it. MapErrorBoundary targets the id.
@@ -99,7 +110,7 @@ export const StoryMapPane = memo(function StoryMapPane({ resolved, next, emptyHi
           data-slot={role}
           inert={role !== 'active'}
           aria-hidden={role !== 'active' || undefined}
-          className={cn('absolute inset-0', role === 'active' ? 'z-10' : 'pointer-events-none')}
+          className={cn('absolute inset-0', role === 'active' ? 'z-10' : 'z-0 pointer-events-none')}
           style={{
             opacity: role === 'standby' ? 0 : 1,
             transitionProperty: 'opacity',

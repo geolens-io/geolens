@@ -443,7 +443,7 @@ it('turns on terrain from a DEM the map saved as hidden when the scene shows it'
 });
 
 describe('crossfade to a map loaded ahead', () => {
-  const paneSlots = () => [...document.querySelectorAll<HTMLElement>('[data-slot]')];
+  const paneSlots = () => [...document.querySelectorAll<HTMLElement>('#map-viewport > [data-slot]')];
   const slot = (role: string) => paneSlots().find((el) => el.dataset.slot === role);
   const mapCount = () => screen.queryAllByTestId('viewer-map').length;
   const loading = () => screen.queryByText('Loading map…');
@@ -502,6 +502,20 @@ describe('crossfade to a map loaded ahead', () => {
     fireEvent.transitionEnd(incoming);
     expect(slot('outgoing')).toBeUndefined();
     expect(mapCount()).toBe(1);
+  });
+
+  it('keeps both slot nodes where they are when the map changes, so the fade has a start value', async () => {
+    const { rerender, container } = await renderAhead();
+    readyNext('map-b', 'voyager');
+    const before = paneSlots();
+    const watcher = new MutationObserver(() => {});
+    watcher.observe(container.querySelector('#map-viewport')!, { childList: true });
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-b', 7)} next={null} />);
+    const moves = watcher.takeRecords();
+    watcher.disconnect();
+    expect(moves).toHaveLength(0);
+    expect(paneSlots()).toEqual([before[0], before[1]]);
+    expect(paneSlots().map((el) => el.dataset.slot)).toEqual(['outgoing', 'active']);
   });
 
   it('drops the old map when the fade timer runs out without a transition event', async () => {
