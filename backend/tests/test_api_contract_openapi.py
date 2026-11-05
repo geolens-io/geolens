@@ -734,3 +734,10 @@ async def test_snapshot_and_served_openapi_share_the_api_server() -> None:
         response = await client.get("/openapi.json")
     assert response.status_code == 200
     assert response.json()["servers"] == [{"url": "/api"}]
+
+
+def test_story_summary_stays_a_published_schema_with_chapter_count():
+    """SDK consumers import StorySummary by name; the list item keeps it."""
+    schemas = _openapi()["components"]["schemas"]
+    assert "chapter_count" in schemas["StorySummary"]["properties"]
+    assert "chapter_count" not in schemas["StoryResponse"]["properties"]

@@ -52,7 +52,7 @@ from app.modules.catalog.stories.schemas import (
     StoryPublish,
     StoryRevision,
     StoryResponse,
-    StoryListItem,
+    StorySummary,
     StoryUpdate,
 )
 from app.modules.catalog.stories.service import (
@@ -185,7 +185,7 @@ async def list_stories_endpoint(
     )
     return StoryListResponse(
         stories=[
-            StoryListItem(
+            StorySummary(
                 **_summary(s, can_edit_story(s, user, roles)), chapter_count=count
             )
             for s, count in stories

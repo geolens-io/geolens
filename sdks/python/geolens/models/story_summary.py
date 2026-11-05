@@ -15,11 +15,11 @@ from uuid import UUID
 import datetime
 
 
-T = TypeVar("T", bound="StoryListItem")
+T = TypeVar("T", bound="StorySummary")
 
 
 @_attrs_define
-class StoryListItem:
+class StorySummary:
     """
     Attributes:
         id (UUID):
@@ -175,7 +175,7 @@ class StoryListItem:
 
         chapter_count = d.pop("chapter_count")
 
-        story_list_item = cls(
+        story_summary = cls(
             id=id,
             title=title,
             summary=summary,
@@ -189,8 +189,8 @@ class StoryListItem:
             chapter_count=chapter_count,
         )
 
-        story_list_item.additional_properties = d
-        return story_list_item
+        story_summary.additional_properties = d
+        return story_summary
 
     @property
     def additional_keys(self) -> list[str]:

@@ -14031,66 +14031,13 @@ export type StoryGroupsUpdate = {
 };
 
 /**
- * StoryListItem
- */
-export type StoryListItem = {
-    /**
-     * Id
-     */
-    id: string;
-    /**
-     * Title
-     */
-    title: string;
-    /**
-     * Summary
-     */
-    summary: string | null;
-    visibility: StoredStoryVisibility;
-    /**
-     * Created By
-     */
-    created_by: string | null;
-    /**
-     * Published At
-     *
-     * When the story was last published; null if never.
-     */
-    published_at: string | null;
-    /**
-     * Cover Asset Id
-     *
-     * The cover image, served at `/stories/{id}/assets/{cover_asset_id}`; null without one.
-     */
-    cover_asset_id: string | null;
-    /**
-     * Created At
-     */
-    created_at: string;
-    /**
-     * Updated At
-     */
-    updated_at: string;
-    /**
-     * Can Edit
-     */
-    can_edit: boolean;
-    /**
-     * Chapter Count
-     *
-     * Chapters in the published document; 0 until published.
-     */
-    chapter_count: number;
-};
-
-/**
  * StoryListResponse
  */
 export type StoryListResponse = {
     /**
      * Stories
      */
-    stories: Array<StoryListItem>;
+    stories: Array<StorySummary>;
     /**
      * Total
      */
@@ -14235,6 +14182,59 @@ export type StorySettings = {
      * Reader page theme; follow uses the reader's.
      */
     theme?: 'follow' | 'light' | 'dark';
+};
+
+/**
+ * StorySummary
+ */
+export type StorySummary = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Summary
+     */
+    summary: string | null;
+    visibility: StoredStoryVisibility;
+    /**
+     * Created By
+     */
+    created_by: string | null;
+    /**
+     * Published At
+     *
+     * When the story was last published; null if never.
+     */
+    published_at: string | null;
+    /**
+     * Cover Asset Id
+     *
+     * The cover image, served at `/stories/{id}/assets/{cover_asset_id}`; null without one.
+     */
+    cover_asset_id: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+    /**
+     * Can Edit
+     */
+    can_edit: boolean;
+    /**
+     * Chapter Count
+     *
+     * Chapters in the published document; 0 until published.
+     */
+    chapter_count: number;
 };
 
 /**
