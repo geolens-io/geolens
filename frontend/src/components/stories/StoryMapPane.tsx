@@ -77,7 +77,13 @@ export const StoryMapPane = memo(function StoryMapPane({ resolved, next, emptyHi
   }
   // At most two maps: the next one loads only once the fade has ended.
   const wanted = !outgoing && resolved && next && next.scene.map_id !== resolved.scene.map_id ? next : null;
-  if (standby?.scene.map_id !== wanted?.scene.map_id || standby?.chapterId !== wanted?.chapterId) setStandby(wanted);
+  if (
+    standby?.scene.map_id !== wanted?.scene.map_id ||
+    standby?.chapterId !== wanted?.chapterId ||
+    JSON.stringify(standby?.scene) !== JSON.stringify(wanted?.scene)
+  ) {
+    setStandby(wanted);
+  }
 
   useEffect(() => {
     if (!outgoing) return;
@@ -248,6 +254,11 @@ function StoryMap({
 
   // The reader may have moved on while the map loaded.
   const [readyMap, setReadyMap] = useState<MaplibreMap | null>(null);
+  // Latched: later tile loads while panning don't bring the cover back.
+  const [settled, setSettled] = useState(false);
+  const handleViewerReady = useCallback((ready: boolean) => {
+    if (ready) setSettled(true);
+  }, []);
   const handleMapReady = useCallback((map: MaplibreMap) => {
     mapRef.current = map;
     setReadyMap(map);
@@ -257,8 +268,13 @@ function StoryMap({
   // A map loaded ahead that is shown before it is ready covers itself with the loading state.
   const loadedAhead = useRef(role === 'standby').current;
   useEffect(() => {
-    onReady?.(readyMap !== null);
-  }, [readyMap, onReady]);
+    onReady?.(settled);
+  }, [settled, onReady]);
+
+  // A refetch can change the camera of the chapter waiting hidden.
+  useEffect(() => {
+    if (role === 'standby' && mapRef.current) mapRef.current.jumpTo(scene.camera);
+  }, [role, scene.camera]);
 
   // MapLibre marks a reader's drag, wheel, touch, keys and buttons with an originalEvent; the compass sets none.
   useEffect(() => {
@@ -323,12 +339,13 @@ function StoryMap({
             initialViewState={initialViewState}
             visibleLayers={visibleLayers}
             onMapReady={handleMapReady}
+            onReadyChange={handleViewerReady}
             onDrawnChange={setDrawnLayers}
             showAttributeTable={data.show_attribute_table}
             fadeLayerChanges
           />
         </Suspense>
-        {loadedAhead && role === 'active' && !readyMap && (
+        {loadedAhead && role === 'active' && !settled && (
           <div className="absolute inset-0 z-20 bg-muted">
             <LoadingState className="h-full" message={t('reader.mapLoading')} />
           </div>

@@ -1,4 +1,4 @@
-import { useMemo, useRef, type KeyboardEvent } from 'react';
+import { useId, useMemo, useRef, type KeyboardEvent } from 'react';
 import type { MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { useTranslation } from 'react-i18next';
 import { demChipGlyph, LayerTypeIcon, RasterGlyphChip } from '@/components/map/layer-icons';
@@ -80,6 +80,7 @@ export function LayerLegend({
     return terrainSourceIsShownAsLayer(terrainConfig, visibleSourceLayers) ? null : entry;
   }, [terrainConfig, layers, sorted, visibleLayers]);
 
+  const panelId = useId();
   // Escape closes the panel only while focus is in the legend, and marks the
   // event handled so FeaturePopup and BasemapToggle's document listeners skip it.
   function handleEscape(e: KeyboardEvent<HTMLElement>) {
@@ -98,7 +99,7 @@ export function LayerLegend({
         onClick={onToggle}
         onKeyDown={handleEscape}
         aria-expanded={isOpen}
-        aria-controls="layer-legend-panel"
+        aria-controls={panelId}
         aria-label={isOpen ? t('viewer.legend.hide') : t('viewer.legend.show')}
         className={`absolute ${edge} top-3 z-20 flex items-center justify-center w-8 h-8 rounded-md bg-background/80 backdrop-blur-sm border border-border/50 shadow-sm text-foreground hover:bg-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
       >
@@ -113,7 +114,7 @@ export function LayerLegend({
       <div
         ref={panelRef}
         onKeyDown={handleEscape}
-        id="layer-legend-panel"
+        id={panelId}
         role="region"
         aria-label={t('viewer.legend.title')}
         // Cap the height against the CONTAINER, not the viewport: the panel is

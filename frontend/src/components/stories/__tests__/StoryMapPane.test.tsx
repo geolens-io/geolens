@@ -469,8 +469,13 @@ describe('crossfade to a map loaded ahead', () => {
     return view;
   }
 
-  const readyNext = (id: 'map-b' | 'map-c', basemap: string) =>
+  const loadNext = (id: 'map-b' | 'map-c', basemap: string) =>
     act(() => viewer.byBasemap[basemap].onMapReady!(nextMaps[id] as never));
+  // Loaded and also settled: tiles, layers and terrain, as the viewer reports it.
+  const readyNext = (id: 'map-b' | 'map-c', basemap: string) => {
+    loadNext(id, basemap);
+    act(() => viewer.byBasemap[basemap].onReadyChange!(true));
+  };
 
   it('mounts the next map hidden, inert and at its own camera, only when it is on another map', async () => {
     await renderAhead();
@@ -528,6 +533,24 @@ describe('crossfade to a map loaded ahead', () => {
     expect(moves).toHaveLength(0);
     expect(paneSlots()).toEqual([before[0], before[1]]);
     expect(paneSlots().map((el) => el.dataset.slot)).toEqual(['outgoing', 'active']);
+  });
+
+  it('does not crossfade into a map that has loaded but not settled', async () => {
+    const { rerender } = await renderAhead();
+    loadNext('map-b', 'voyager');
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-b', 7)} next={null} />);
+    expect(slot('outgoing')).toBeUndefined();
+    expect(loading()).toBeInTheDocument();
+
+    act(() => viewer.byBasemap.voyager.onReadyChange!(true));
+    expect(loading()).toBeNull();
+  });
+
+  it('positions the waiting map at a camera a refetch changed before it is shown', async () => {
+    const { rerender } = await renderAhead();
+    readyNext('map-b', 'voyager');
+    rerender(<StoryMapPane resolved={resolved('c1', 'map-a', 3)} next={resolved('c2', 'map-b', 9)} />);
+    expect(nextMaps['map-b'].jumpTo).toHaveBeenLastCalledWith(expect.objectContaining({ zoom: 9 }));
   });
 
   it('gives the pane its own stacking context so slot z-indexes stay inside it', async () => {
@@ -606,7 +629,7 @@ describe('crossfade to a map loaded ahead', () => {
     await screen.findAllByTestId('viewer-map');
     count();
     expect(slot('standby')).toBeInTheDocument();
-    act(() => viewer.byBasemap['dark-matter'].onMapReady!(nextMaps['map-c'] as never));
+    readyNext('map-c', 'dark-matter');
     rerender(<StoryMapPane resolved={resolved('c3', 'map-c', 9)} next={null} />);
     count();
     fireEvent.transitionEnd(slot('active')!);
