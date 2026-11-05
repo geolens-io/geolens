@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.modules.auth.schemas import GroupRef
 from app.modules.catalog.widgets.schemas import StoryBlock, StoryBlocks
+from app.platform.extensions.reader_theme import ReaderTheme
 
 STORY_DOCUMENT_VERSION = 1
 # Each block's text is capped too, but 200 chapters of 100 blocks would still
@@ -258,6 +259,13 @@ class StorySummary(BaseModel):
 class StoryResponse(StorySummary):
     document: StoryDocument | None = Field(
         description="The published document; null until the story is published."
+    )
+    reader_theme: ReaderTheme | None = Field(
+        default=None,
+        description=(
+            "The theme a branding extension sets for the story's reader; null "
+            "without one."
+        ),
     )
 
 

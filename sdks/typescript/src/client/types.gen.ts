@@ -5499,6 +5499,10 @@ export type DuplicateMapResponse = {
      */
     groups?: Array<GroupRef> | null;
     /**
+     * The theme a branding extension sets for the map's viewer and dashboard; null without one. The Builder ignores it.
+     */
+    reader_theme?: ReaderTheme | null;
+    /**
      * Excluded Layer Count
      *
      * Layers skipped due to access restrictions
@@ -8360,6 +8364,10 @@ export type MapResponse = {
      * The sharing groups the map is shared with, by name. Set on the detail endpoint for the owner and admins only; null elsewhere.
      */
     groups?: Array<GroupRef> | null;
+    /**
+     * The theme a branding extension sets for the map's viewer and dashboard; null without one. The Builder ignores it.
+     */
+    reader_theme?: ReaderTheme | null;
 };
 
 /**
@@ -10757,6 +10765,36 @@ export type RasterTileToken = {
 };
 
 /**
+ * ReaderTheme
+ *
+ * An accent colour, a logo and a font family for reader-facing pages.
+ *
+ * The frontend applies these as theme tokens only. A font is named, never
+ * fetched: the operator ships the font file, since the CSP allows no remote
+ * fonts.
+ */
+export type ReaderTheme = {
+    /**
+     * Accent
+     *
+     * The accent colour as `#rrggbb`.
+     */
+    accent?: string | null;
+    /**
+     * Logo Url
+     *
+     * An https URL of the logo shown in the page header.
+     */
+    logo_url?: string | null;
+    /**
+     * Font Family
+     *
+     * A CSS font family list the page's text uses first.
+     */
+    font_family?: string | null;
+};
+
+/**
  * RefreshRequest
  */
 export type RefreshRequest = {
@@ -12138,6 +12176,10 @@ export type SharedMapResponse = {
      * Layers
      */
     layers: Array<SharedLayerResponse>;
+    /**
+     * The theme a branding extension sets for the viewer and its dashboard; null without one.
+     */
+    reader_theme?: ReaderTheme | null;
 };
 
 /**
@@ -13779,6 +13821,10 @@ export type StoryResponse = {
      * The published document; null until the story is published.
      */
     document: StoryDocument | null;
+    /**
+     * The theme a branding extension sets for the story's reader; null without one.
+     */
+    reader_theme?: ReaderTheme | null;
 };
 
 /**

@@ -143,11 +143,15 @@ class TestExtensionApiVersionConstant:
         ``return_z`` keyword. An overlay that replaces the ``processing_port``
         key without it gets a TypeError on ArcGIS imports.
 
+        v22 adds the required ``get_reader_theme`` method to
+        ``BrandingExtension``. An overlay that replaces the ``branding`` key
+        without it serves story and dashboard pages no reader theme.
+
         Update this pin, and the note above it, whenever the constant moves.
         """
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
-        assert EXTENSION_API_VERSION == 21
+        assert EXTENSION_API_VERSION == 22
 
 
 class TestCheckExtensionApiVersion:

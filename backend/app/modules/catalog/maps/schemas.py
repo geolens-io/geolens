@@ -35,6 +35,7 @@ from app.modules.catalog.maps.visibility_contract import (
     restricted_map_visibility_opted_in,
 )
 from app.modules.embed_tokens.schemas import ADVANCED_SHARING_ERROR
+from app.platform.extensions.reader_theme import ReaderTheme
 
 LEGACY_BUILDER_PAINT_KEYS = {
     "_outline-width": "outline_width",
@@ -1105,6 +1106,13 @@ class MapResponse(BaseModel):
             "detail endpoint for the owner and admins only; null elsewhere."
         ),
     )
+    reader_theme: ReaderTheme | None = Field(
+        default=None,
+        description=(
+            "The theme a branding extension sets for the map's viewer and "
+            "dashboard; null without one. The Builder ignores it."
+        ),
+    )
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1435,6 +1443,13 @@ class SharedMapResponse(BaseModel):
     has_non_public_layers: bool = False
     legend_title: str | None = None
     layers: list[SharedLayerResponse]
+    reader_theme: ReaderTheme | None = Field(
+        default=None,
+        description=(
+            "The theme a branding extension sets for the viewer and its "
+            "dashboard; null without one."
+        ),
+    )
 
 
 class ShareTokenRequest(BaseModel):

@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from ..models.dashboard_config import DashboardConfig
     from ..models.group_ref import GroupRef
     from ..models.map_layer_response import MapLayerResponse
+    from ..models.reader_theme import ReaderTheme
     from ..models.terrain_config import TerrainConfig
 
 
@@ -64,6 +65,8 @@ class MapResponse:
         legend_title (None | str | Unset):
         groups (list[GroupRef] | None | Unset): The sharing groups the map is shared with, by name. Set on the detail
             endpoint for the owner and admins only; null elsewhere.
+        reader_theme (None | ReaderTheme | Unset): The theme a branding extension sets for the map's viewer and
+            dashboard; null without one. The Builder ignores it.
     """
 
     id: UUID
@@ -95,11 +98,13 @@ class MapResponse:
     plugins: list[str] | None | Unset = UNSET
     legend_title: None | str | Unset = UNSET
     groups: list[GroupRef] | None | Unset = UNSET
+    reader_theme: None | ReaderTheme | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.basemap_config import BasemapConfig
         from ..models.dashboard_config import DashboardConfig
+        from ..models.reader_theme import ReaderTheme
         from ..models.terrain_config import TerrainConfig
 
         id = str(self.id)
@@ -236,6 +241,14 @@ class MapResponse:
         else:
             groups = self.groups
 
+        reader_theme: dict[str, Any] | None | Unset
+        if isinstance(self.reader_theme, Unset):
+            reader_theme = UNSET
+        elif isinstance(self.reader_theme, ReaderTheme):
+            reader_theme = self.reader_theme.to_dict()
+        else:
+            reader_theme = self.reader_theme
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -284,6 +297,8 @@ class MapResponse:
             field_dict["legend_title"] = legend_title
         if groups is not UNSET:
             field_dict["groups"] = groups
+        if reader_theme is not UNSET:
+            field_dict["reader_theme"] = reader_theme
 
         return field_dict
 
@@ -293,6 +308,7 @@ class MapResponse:
         from ..models.dashboard_config import DashboardConfig
         from ..models.group_ref import GroupRef
         from ..models.map_layer_response import MapLayerResponse
+        from ..models.reader_theme import ReaderTheme
         from ..models.terrain_config import TerrainConfig
 
         d = dict(src_dict)
@@ -531,6 +547,23 @@ class MapResponse:
 
         groups = _parse_groups(d.pop("groups", UNSET))
 
+        def _parse_reader_theme(data: object) -> None | ReaderTheme | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                reader_theme_type_0 = ReaderTheme.from_dict(data)
+
+                return reader_theme_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | ReaderTheme | Unset, data)
+
+        reader_theme = _parse_reader_theme(d.pop("reader_theme", UNSET))
+
         map_response = cls(
             id=id,
             name=name,
@@ -561,6 +594,7 @@ class MapResponse:
             plugins=plugins,
             legend_title=legend_title,
             groups=groups,
+            reader_theme=reader_theme,
         )
 
         map_response.additional_properties = d

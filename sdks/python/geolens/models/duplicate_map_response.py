@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from ..models.dashboard_config import DashboardConfig
     from ..models.group_ref import GroupRef
     from ..models.map_layer_response import MapLayerResponse
+    from ..models.reader_theme import ReaderTheme
     from ..models.terrain_config import TerrainConfig
 
 
@@ -64,6 +65,8 @@ class DuplicateMapResponse:
         legend_title (None | str | Unset):
         groups (list[GroupRef] | None | Unset): The sharing groups the map is shared with, by name. Set on the detail
             endpoint for the owner and admins only; null elsewhere.
+        reader_theme (None | ReaderTheme | Unset): The theme a branding extension sets for the map's viewer and
+            dashboard; null without one. The Builder ignores it.
         excluded_layer_count (int | Unset): Layers skipped due to access restrictions Default: 0.
     """
 
@@ -96,12 +99,14 @@ class DuplicateMapResponse:
     plugins: list[str] | None | Unset = UNSET
     legend_title: None | str | Unset = UNSET
     groups: list[GroupRef] | None | Unset = UNSET
+    reader_theme: None | ReaderTheme | Unset = UNSET
     excluded_layer_count: int | Unset = 0
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.basemap_config import BasemapConfig
         from ..models.dashboard_config import DashboardConfig
+        from ..models.reader_theme import ReaderTheme
         from ..models.terrain_config import TerrainConfig
 
         id = str(self.id)
@@ -238,6 +243,14 @@ class DuplicateMapResponse:
         else:
             groups = self.groups
 
+        reader_theme: dict[str, Any] | None | Unset
+        if isinstance(self.reader_theme, Unset):
+            reader_theme = UNSET
+        elif isinstance(self.reader_theme, ReaderTheme):
+            reader_theme = self.reader_theme.to_dict()
+        else:
+            reader_theme = self.reader_theme
+
         excluded_layer_count = self.excluded_layer_count
 
         field_dict: dict[str, Any] = {}
@@ -288,6 +301,8 @@ class DuplicateMapResponse:
             field_dict["legend_title"] = legend_title
         if groups is not UNSET:
             field_dict["groups"] = groups
+        if reader_theme is not UNSET:
+            field_dict["reader_theme"] = reader_theme
         if excluded_layer_count is not UNSET:
             field_dict["excluded_layer_count"] = excluded_layer_count
 
@@ -299,6 +314,7 @@ class DuplicateMapResponse:
         from ..models.dashboard_config import DashboardConfig
         from ..models.group_ref import GroupRef
         from ..models.map_layer_response import MapLayerResponse
+        from ..models.reader_theme import ReaderTheme
         from ..models.terrain_config import TerrainConfig
 
         d = dict(src_dict)
@@ -537,6 +553,23 @@ class DuplicateMapResponse:
 
         groups = _parse_groups(d.pop("groups", UNSET))
 
+        def _parse_reader_theme(data: object) -> None | ReaderTheme | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                reader_theme_type_0 = ReaderTheme.from_dict(data)
+
+                return reader_theme_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | ReaderTheme | Unset, data)
+
+        reader_theme = _parse_reader_theme(d.pop("reader_theme", UNSET))
+
         excluded_layer_count = d.pop("excluded_layer_count", UNSET)
 
         duplicate_map_response = cls(
@@ -569,6 +602,7 @@ class DuplicateMapResponse:
             plugins=plugins,
             legend_title=legend_title,
             groups=groups,
+            reader_theme=reader_theme,
             excluded_layer_count=excluded_layer_count,
         )
 

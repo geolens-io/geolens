@@ -10635,6 +10635,8 @@ export interface components {
              * @description The sharing groups the map is shared with, by name. Set on the detail endpoint for the owner and admins only; null elsewhere.
              */
             groups?: components["schemas"]["GroupRef"][] | null;
+            /** @description The theme a branding extension sets for the map's viewer and dashboard; null without one. The Builder ignores it. */
+            reader_theme?: components["schemas"]["ReaderTheme"] | null;
             /**
              * Excluded Layer Count
              * @description Layers skipped due to access restrictions
@@ -12774,6 +12776,8 @@ export interface components {
              * @description The sharing groups the map is shared with, by name. Set on the detail endpoint for the owner and admins only; null elsewhere.
              */
             groups?: components["schemas"]["GroupRef"][] | null;
+            /** @description The theme a branding extension sets for the map's viewer and dashboard; null without one. The Builder ignores it. */
+            reader_theme?: components["schemas"]["ReaderTheme"] | null;
         };
         /**
          * MapSpriteEntry
@@ -14645,6 +14649,31 @@ export interface components {
             /** Format */
             format: string;
         };
+        /**
+         * ReaderTheme
+         * @description An accent colour, a logo and a font family for reader-facing pages.
+         *
+         *     The frontend applies these as theme tokens only. A font is named, never
+         *     fetched: the operator ships the font file, since the CSP allows no remote
+         *     fonts.
+         */
+        ReaderTheme: {
+            /**
+             * Accent
+             * @description The accent colour as `#rrggbb`.
+             */
+            accent?: string | null;
+            /**
+             * Logo Url
+             * @description An https URL of the logo shown in the page header.
+             */
+            logo_url?: string | null;
+            /**
+             * Font Family
+             * @description A CSS font family list the page's text uses first.
+             */
+            font_family?: string | null;
+        };
         /** RefreshRequest */
         RefreshRequest: {
             /** Refresh Token */
@@ -15645,6 +15674,8 @@ export interface components {
             legend_title?: string | null;
             /** Layers */
             layers: components["schemas"]["SharedLayerResponse"][];
+            /** @description The theme a branding extension sets for the viewer and its dashboard; null without one. */
+            reader_theme?: components["schemas"]["ReaderTheme"] | null;
         };
         /**
          * SourceHealthResponse
@@ -16936,6 +16967,8 @@ export interface components {
             can_edit: boolean;
             /** @description The published document; null until the story is published. */
             document: components["schemas"]["StoryDocument"] | null;
+            /** @description The theme a branding extension sets for the story's reader; null without one. */
+            reader_theme?: components["schemas"]["ReaderTheme"] | null;
         };
         /** StoryRevision */
         StoryRevision: {

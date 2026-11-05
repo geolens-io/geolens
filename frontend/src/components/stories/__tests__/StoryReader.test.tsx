@@ -311,3 +311,23 @@ describe('a story with no scenes', () => {
     expect(pane.hint).toBe("This chapter's map is unavailable or has been deleted.");
   });
 });
+
+describe('reader theme', () => {
+  const theme = { accent: '#0a7f4f', logo_url: 'https://cdn.example.com/logo.svg', font_family: null };
+
+  it('scopes the accent to the reader and shows the logo', () => {
+    const { container } = render(
+      <StoryReader storyId="s1" title="Hurricanes" summary={null} chapters={CHAPTERS} readerTheme={theme} />,
+    );
+    const root = container.firstElementChild as HTMLElement;
+    expect(root.style.getPropertyValue('--primary')).toBe('#0a7f4f');
+    expect(document.documentElement.style.getPropertyValue('--primary')).toBe('');
+    expect(container.querySelector('header img')).toHaveAttribute('src', theme.logo_url);
+  });
+
+  it('renders with the standard tokens and no logo without a theme', () => {
+    const { container } = renderReader();
+    expect((container.firstElementChild as HTMLElement).getAttribute('style')).toBeNull();
+    expect(container.querySelector('header img')).toBeNull();
+  });
+});

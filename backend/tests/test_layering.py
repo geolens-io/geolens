@@ -1237,7 +1237,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/platform/extensions/defaults_catalog_port.py": 579,
         # ProcessingPort signatures remain explicit across the catalog boundary.
         "backend/app/platform/extensions/defaults_processing_port.py": 586,
-        "backend/app/platform/extensions/defaults_extensions.py": 433,
+        "backend/app/platform/extensions/defaults_extensions.py": 436,
         "backend/app/modules/catalog/search/service_filters.py": 376,
     }
 
@@ -1294,7 +1294,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/style_import.py": 605,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 151,
     "backend/app/modules/catalog/maps/router_assets.py": 161,
-    "backend/app/modules/catalog/maps/router_sharing.py": 469,
+    "backend/app/modules/catalog/maps/router_sharing.py": 472,
     "backend/app/modules/catalog/search/query_params.py": 205,
     "backend/app/modules/catalog/search/router_saved.py": 104,
     "backend/app/modules/admin/router_operations.py": 332,
@@ -1337,7 +1337,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/api/main.py": 1645,
     # Map request validation and published response contracts share this module,
     # including the visibility a client that hasn't opted in reads.
-    "backend/app/modules/catalog/maps/schemas.py": 1591,
+    "backend/app/modules/catalog/maps/schemas.py": 1606,
     # Metadata facade preserves the import and patch surface used by extensions and
     # callers.
     "backend/app/processing/ingest/metadata.py": 169,
