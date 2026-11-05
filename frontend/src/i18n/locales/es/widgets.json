@@ -90,6 +90,17 @@
       "truncated_one": "Se muestra solo el primer valor. No se listan más valores.",
       "truncated_many": "Se muestran los primeros {{count}} valores. No se listan más valores.",
       "truncated_other": "Se muestran los primeros {{count}} valores. No se listan más valores."
+    },
+    "feature_list": {
+      "label": "Lista de entidades",
+      "summary": "Entidades por {{column}}",
+      "listLabel": "Entidades",
+      "shown": "{{shown}} entidades mostradas",
+      "shownMore": "{{shown}} entidades mostradas, hay más disponibles",
+      "loadMore": "Cargar más",
+      "loadingMore": "Cargando más",
+      "zoomTo": "Acercar a la entidad en el mapa",
+      "noMap": "Este panel no tiene mapa, por lo que no se puede acercar a las entidades."
     }
   },
   "dashboard": {
@@ -186,6 +197,16 @@
     "sortDirection": "Orden",
     "sortDesc": "De mayor a menor",
     "sortAsc": "De menor a mayor",
-    "rows": "Filas"
+    "rows": "Filas",
+    "featureList": {
+      "title": "Columna del título",
+      "subtitle": "Columna del subtítulo",
+      "none": "Ninguna",
+      "sortBy": "Ordenar por",
+      "direction": "Orden",
+      "ascending": "Ascendente",
+      "descending": "Descendente",
+      "pageSize": "Entidades por página"
+    }
   }
 }

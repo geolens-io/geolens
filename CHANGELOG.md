@@ -51,6 +51,7 @@ and releases use semantic versioning.
   changed again into the same GeoLens map on a rerun, keeping its layer ids,
   unless the map was changed in GeoLens since the last run.
 - Dashboards: a table widget shows statistics grouped by a category.
+- Dashboards: a feature list widget lists a layer's features and zooms to one.
 
 ### Changed
 

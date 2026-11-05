@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ExpressionSpecification, Map as MaplibreMap, PaddingOptions } from 'maplibre-gl';
 import { geometryBounds, toFitBounds, type Bbox } from '@/lib/bbox';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { motionDuration } from '@/lib/reduced-motion';
 
 /**
  * What a row click highlights: a fetched geometry, drawn from a source of its
@@ -227,7 +228,12 @@ export function useMapFeatureHighlight({
           clearHighlight();
           highlightFeatureRef.current = painted;
           paintHighlight(painted);
-          map.fitBounds(toFitBounds(bbox), { padding: getFitPaddingRef.current(), maxZoom: fitMaxZoom(bbox) });
+          map.fitBounds(toFitBounds(bbox), {
+            padding: getFitPaddingRef.current(),
+            maxZoom: fitMaxZoom(bbox),
+            // MapLibre's own default duration unless the reader asked for less motion.
+            ...(motionDuration(1) === 0 ? { duration: 0 } : {}),
+          });
         } catch {
           // Style changes or out-of-range coordinates leave the table usable.
         }
@@ -252,5 +258,5 @@ export function useMapFeatureHighlight({
     [reset],
   );
 
-  return { selectedGid, highlightFeature, selectFeature };
+  return { selectedGid, highlightFeature, selectFeature, clearHighlightedFeature: reset };
 }

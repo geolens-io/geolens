@@ -54,6 +54,9 @@ export function WidgetView({
   selection,
   onSelect,
   mapHidden,
+  onLoadMore,
+  loadingMore,
+  onZoomTo,
   assetPath,
   assetPathFor,
   columnLabel,
@@ -65,6 +68,9 @@ export function WidgetView({
   selection?: WidgetSelection | null;
   onSelect?: (selection: WidgetSelection | null) => void;
   mapHidden?: boolean;
+  onLoadMore?: () => void;
+  loadingMore?: boolean;
+  onZoomTo?: WidgetRenderProps<unknown>['onZoomTo'];
   assetPath?: string;
   assetPathFor?: WidgetRenderProps<unknown>['assetPathFor'];
   columnLabel?: ColumnLabel;
@@ -94,6 +100,9 @@ export function WidgetView({
           selection={selection}
           onSelect={onSelect}
           mapHidden={mapHidden}
+          onLoadMore={onLoadMore}
+          loadingMore={loadingMore}
+          onZoomTo={onZoomTo}
           assetPath={assetPath}
           assetPathFor={assetPathFor}
           columnLabel={columnLabel}

@@ -43,6 +43,12 @@ faded. Picks are never saved; their chips stay in the panel's header while
 it is collapsed. Without `onSelect`, as in the Builder's preview, a widget is
 read-only.
 
+A list that pages (`feature_list`, from the aggregate `rows` op) gets
+`onLoadMore` and `loadingMore` from the host, which joins the pages it has read
+into one result. A widget that points at a feature gets `onZoomTo` where the
+dashboard has a map: the map fits the feature and flashes it. Without it, as
+with the map hidden, the widget draws that feature as plain text.
+
 A type is a `WidgetDefinition` (`contract.ts`) with:
 
 - `type`: a stable id. Never rename or reuse a shipped one.

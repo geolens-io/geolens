@@ -90,6 +90,17 @@
       "truncated_one": "Seule la première valeur est affichée. Les autres valeurs ne sont pas listées.",
       "truncated_many": "Les {{count}} premières valeurs sont affichées. Les autres valeurs ne sont pas listées.",
       "truncated_other": "Les {{count}} premières valeurs sont affichées. Les autres valeurs ne sont pas listées."
+    },
+    "feature_list": {
+      "label": "Liste d’entités",
+      "summary": "Entités par {{column}}",
+      "listLabel": "Entités",
+      "shown": "{{shown}} entités affichées",
+      "shownMore": "{{shown}} entités affichées, d’autres sont disponibles",
+      "loadMore": "Charger plus",
+      "loadingMore": "Chargement en cours",
+      "zoomTo": "Zoomer sur l’entité sur la carte",
+      "noMap": "Ce tableau de bord n’a pas de carte, il est donc impossible de zoomer sur les entités."
     }
   },
   "dashboard": {
@@ -186,6 +197,16 @@
     "sortDirection": "Ordre",
     "sortDesc": "Du plus grand au plus petit",
     "sortAsc": "Du plus petit au plus grand",
-    "rows": "Lignes"
+    "rows": "Lignes",
+    "featureList": {
+      "title": "Colonne du titre",
+      "subtitle": "Colonne du sous-titre",
+      "none": "Aucune",
+      "sortBy": "Trier par",
+      "direction": "Ordre",
+      "ascending": "Croissant",
+      "descending": "Décroissant",
+      "pageSize": "Entités par page"
+    }
   }
 }

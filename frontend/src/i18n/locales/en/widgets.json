@@ -90,6 +90,17 @@
       "truncated_one": "Showing the first value only. More values are not listed.",
       "truncated_many": "Showing the first {{count}} values. More values are not listed.",
       "truncated_other": "Showing the first {{count}} values. More values are not listed."
+    },
+    "feature_list": {
+      "label": "Feature list",
+      "summary": "Features by {{column}}",
+      "listLabel": "Features",
+      "shown": "{{shown}} features shown",
+      "shownMore": "{{shown}} features shown, more available",
+      "loadMore": "Load more",
+      "loadingMore": "Loading more",
+      "zoomTo": "Zoom to feature on the map",
+      "noMap": "This dashboard has no map, so features cannot be zoomed to."
     }
   },
   "dashboard": {
@@ -186,6 +197,16 @@
     "sortDirection": "Order",
     "sortDesc": "Largest first",
     "sortAsc": "Smallest first",
-    "rows": "Rows"
+    "rows": "Rows",
+    "featureList": {
+      "title": "Title column",
+      "subtitle": "Subtitle column",
+      "none": "None",
+      "sortBy": "Sort by",
+      "direction": "Order",
+      "ascending": "Ascending",
+      "descending": "Descending",
+      "pageSize": "Features per page"
+    }
   }
 }

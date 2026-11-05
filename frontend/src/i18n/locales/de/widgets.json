@@ -90,6 +90,17 @@
       "truncated_one": "Nur der erste Wert wird angezeigt. Weitere Werte sind nicht aufgeführt.",
       "truncated_many": "Die ersten {{count}} Werte werden angezeigt. Weitere Werte sind nicht aufgeführt.",
       "truncated_other": "Die ersten {{count}} Werte werden angezeigt. Weitere Werte sind nicht aufgeführt."
+    },
+    "feature_list": {
+      "label": "Objektliste",
+      "summary": "Objekte nach {{column}}",
+      "listLabel": "Objekte",
+      "shown": "{{shown}} Objekte angezeigt",
+      "shownMore": "{{shown}} Objekte angezeigt, weitere verfügbar",
+      "loadMore": "Mehr laden",
+      "loadingMore": "Weitere werden geladen",
+      "zoomTo": "Auf der Karte zum Objekt zoomen",
+      "noMap": "Dieses Dashboard hat keine Karte, daher kann nicht zu Objekten gezoomt werden."
     }
   },
   "dashboard": {
@@ -186,6 +197,16 @@
     "sortDirection": "Reihenfolge",
     "sortDesc": "Größte zuerst",
     "sortAsc": "Kleinste zuerst",
-    "rows": "Zeilen"
+    "rows": "Zeilen",
+    "featureList": {
+      "title": "Titelspalte",
+      "subtitle": "Untertitelspalte",
+      "none": "Keine",
+      "sortBy": "Sortieren nach",
+      "direction": "Reihenfolge",
+      "ascending": "Aufsteigend",
+      "descending": "Absteigend",
+      "pageSize": "Objekte pro Seite"
+    }
   }
 }

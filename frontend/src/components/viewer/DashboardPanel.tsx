@@ -7,7 +7,7 @@ import { ApiError } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { LiveAnnouncement } from '@/components/ui/live-announcement';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { AnyWidgetDefinition, WidgetInstance, WidgetSelection } from '@/components/widgets/contract';
+import type { AnyWidgetDefinition, WidgetInstance, WidgetRenderProps, WidgetSelection } from '@/components/widgets/contract';
 import { WidgetView } from '@/components/widgets/WidgetView';
 import { isLayerBound, parseStoredWidget, type ParsedWidget } from '@/components/widgets/registry';
 import type { Bbox } from '@/lib/bbox';
@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 import type { SharedLayerResponse } from '@/types/api';
 import { FilterChips } from './FilterChips';
 import { useMapViewBbox, useWidgetAggregate } from './hooks/use-dashboard-data';
+import { useFeatureZoom } from './hooks/use-feature-zoom';
 import { usePicks } from './hooks/use-picks';
 import { mapCarriesColumn, NO_PICKS, type LinkedPick } from './linked-filters';
 import { columnDisplayName, layerDisplayName } from './shared-layer';
@@ -95,6 +96,7 @@ export function DashboardWidget({
   selection,
   onSelect,
   mapHidden = false,
+  onZoomTo,
 }: {
   parsed: ReadyWidget;
   layer: SharedLayerResponse;
@@ -112,13 +114,15 @@ export function DashboardWidget({
   onSelect?: (selection: WidgetSelection | null) => void;
   /** Set where the dashboard hides its map: a view-scoped widget then reads its whole layer and says so. */
   mapHidden?: boolean;
+  /** Set where the dashboard has a map the widget can zoom; see `WidgetRenderProps`. */
+  onZoomTo?: WidgetRenderProps<unknown>['onZoomTo'];
 }) {
   const { t } = useTranslation('widgets');
   const headingId = useId();
   const layerLineId = useId();
   const Heading = headingLevel === 4 ? 'h4' : 'h3';
   const { instance, definition } = parsed;
-  const { query, filterIgnored, loading, followsView, viewScopeDropped } = useWidgetAggregate({
+  const { query, filterIgnored, loading, followsView, viewScopeDropped, loadMore, loadingMore } = useWidgetAggregate({
     instance,
     definition,
     layer,
@@ -195,6 +199,9 @@ export function DashboardWidget({
             selection={selection}
             onSelect={onSelect}
             mapHidden={mapHidden}
+            onLoadMore={loadMore}
+            loadingMore={loadingMore}
+            onZoomTo={onZoomTo}
             columnLabel={(column) => columnDisplayName(layer.column_info, column)}
             loadingFallback={loadingSkeleton}
           />
@@ -261,6 +268,7 @@ function DashboardWidgetList({
   layout,
   picks,
   onChoose,
+  onZoom,
   onProblemChange,
 }: {
   id: string;
@@ -272,6 +280,8 @@ function DashboardWidgetList({
   layout: DashboardLayout;
   picks: readonly LinkedPick[];
   onChoose?: (widgetId: string, layer: SharedLayerResponse, selection: WidgetSelection | null) => void;
+  /** Set where a map can show a feature a widget names. */
+  onZoom?: (layer: SharedLayerResponse, feature: { id: number | string; bbox: Bbox }) => void;
   onProblemChange: (id: string, problem: WidgetProblem | null) => void;
 }) {
   const { t } = useTranslation('widgets');
@@ -344,6 +354,7 @@ function DashboardWidgetList({
                 viewBbox={parsed.instance.scope === 'view' ? viewBbox : null}
                 embedToken={embedToken}
                 mapHidden={layout === 'page'}
+                onZoomTo={onZoom ? (feature) => onZoom(layer, feature) : undefined}
                 onProblemChange={onProblemChange}
                 linked={linkedByWidget.get(widgetId)}
                 selection={picks.find((pick) => pick.widgetId === widgetId)?.selection ?? null}
@@ -421,6 +432,7 @@ export function DashboardPanel({
   const toggleRef = useRef<HTMLButtonElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const { choose, remove, announcement, layerName, pickLabel } = usePicks(picks, onPicksChange, layers);
+  const zoomTo = useFeatureZoom(mapHidden ? null : map);
   // One announcement for the panel, so a pan that fails every widget doesn't speak once per widget.
   const [problems, setProblems] = useState<ReadonlyMap<string, WidgetProblem>>(() => new Map());
   const onProblemChange = useCallback((widgetId: string, problem: WidgetProblem | null) => {
@@ -562,6 +574,7 @@ export function DashboardPanel({
           layout={layout}
           picks={picks}
           onChoose={onPicksChange ? choose : undefined}
+          onZoom={map && !mapHidden ? zoomTo : undefined}
           onProblemChange={onProblemChange}
         />
       )}

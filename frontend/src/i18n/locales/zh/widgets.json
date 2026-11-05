@@ -90,6 +90,17 @@
       "truncated_one": "仅显示第一个值，未列出更多值。",
       "truncated_many": "仅显示前 {{count}} 个值，未列出更多值。",
       "truncated_other": "仅显示前 {{count}} 个值，未列出更多值。"
+    },
+    "feature_list": {
+      "label": "要素列表",
+      "summary": "按{{column}}列出的要素",
+      "listLabel": "要素",
+      "shown": "已显示 {{shown}} 个要素",
+      "shownMore": "已显示 {{shown}} 个要素，还有更多",
+      "loadMore": "加载更多",
+      "loadingMore": "正在加载更多",
+      "zoomTo": "在地图上缩放到该要素",
+      "noMap": "此仪表板没有地图，因此无法缩放到要素。"
     }
   },
   "dashboard": {
@@ -186,6 +197,16 @@
     "sortDirection": "顺序",
     "sortDesc": "从大到小",
     "sortAsc": "从小到大",
-    "rows": "行数"
+    "rows": "行数",
+    "featureList": {
+      "title": "标题列",
+      "subtitle": "副标题列",
+      "none": "无",
+      "sortBy": "排序依据",
+      "direction": "顺序",
+      "ascending": "升序",
+      "descending": "降序",
+      "pageSize": "每页要素数"
+    }
   }
 }
