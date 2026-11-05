@@ -332,3 +332,20 @@ describe('reader settings edits', () => {
     expect(applySettingsEdit(stored, { navigation: false })).toBe(stored);
   });
 });
+
+describe('reader theme edits', () => {
+  const stored: StorySettings = { navigation: false, layout: 'side', panel_position: 'left', theme: 'dark' };
+
+  it('store the whole settings object with the chosen theme', () => {
+    expect(applySettingsEdit(null, { theme: 'light' })).toEqual({ ...stored, theme: 'light' });
+  });
+
+  it('send follow explicitly to reset a stored light or dark', () => {
+    expect(applySettingsEdit(stored, { theme: 'follow' })).toEqual({ ...stored, theme: 'follow' });
+  });
+
+  it('leave settings alone when the theme is unchanged', () => {
+    expect(applySettingsEdit(stored, { theme: 'dark' })).toBe(stored);
+    expect(applySettingsEdit(null, { theme: 'follow' })).toBeNull();
+  });
+});

@@ -85,8 +85,8 @@ export function readSettings(settings: StorySettings | null | undefined): StoryS
   return { ...DEFAULT_STORY_SETTINGS, ...settings };
 }
 
-/** A change to the reader settings; the theme is left as stored. */
-export type SettingsEdit = Partial<Pick<StorySettings, 'navigation' | 'layout' | 'panel_position'>>;
+/** A change to the reader settings. */
+export type SettingsEdit = Partial<StorySettings>;
 
 /** The settings after an edit; unchanged settings come back as the same object. */
 export function applySettingsEdit(settings: StorySettings | null | undefined, edit: SettingsEdit): StorySettings | null | undefined {
