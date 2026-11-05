@@ -471,6 +471,7 @@ def _check_map(
     problems = []
     if unwritten := _settle_write(ctx, item["id"], entry, found):
         problems.append(unwritten)
+    _drop_gone_rows(ctx, entry, found)
     if ctx.portal is None:
         problems.append(
             "the run can't read this web map from the portal to check it for changes"
@@ -628,6 +629,8 @@ def _translate_again(
         "sources": sources,
         "sent_ids": [layer.get("id") for layer in layers],
         "style_nulls": [_null_styles(layer) for layer in layers],
+        "sent_datasets": [str(layer.get("dataset_id")) for layer in layers],
+        "server_version": _server_version(ctx),
         "readable": sorted(str(row.id) for row in getattr(found, "layers", None) or []),
         "skipped": skipped,
         "kept_view": kept_view,
@@ -645,6 +648,7 @@ def _translate_again(
             entry.layer_styles,
             entry.layer_ids.values(),
             _geometries(ctx, layers),
+            after["server_version"],
         ),
         "after": after,
     }
@@ -699,7 +703,21 @@ def _record_write(entry: ItemState, after: Mapping[str, Any], saved: Any) -> Non
         for source, null in zip(after["sources"], after["style_nulls"])
         if source in entry.layer_ids
     }
-    entry.layer_styles = _filled_styles(saved, nulls)
+    entry.layer_styles = _filled_styles(saved, nulls, after["server_version"])
+    saved_rows = getattr(saved, "layers", None) or []
+    entry.row_datasets = {
+        **{
+            row: ds
+            for row, ds in entry.row_datasets.items()
+            if row in entry.layer_ids.values()
+        },
+        **{
+            sent: ds
+            for sent, ds in zip(after["sent_ids"], after["sent_datasets"])
+            if sent
+        },
+        **{str(layer.id): str(layer.dataset_id) for layer in saved_rows},
+    }
     entry.pending_layers = _owed_layers(
         after["unimported"], entry.layer_ids, after["listed"], after["sources"]
     )
@@ -708,9 +726,22 @@ def _record_write(entry: ItemState, after: Mapping[str, Any], saved: Any) -> Non
     entry.pending_write = None
 
 
-def _style_inputs(dataset_id: Any, geometry: Any) -> dict[str, Any]:
-    """What a save reads from the dataset to fill in a style."""
-    return {"dataset_id": str(dataset_id), "geometry": geometry}
+def _style_inputs(dataset_id: Any, geometry: Any, version: Any) -> dict[str, Any]:
+    """What a save reads to fill in a style: the dataset, and the server's
+    version, whose defaults can change between releases."""
+    return {"dataset_id": str(dataset_id), "geometry": geometry, "version": version}
+
+
+def _server_version(ctx: MigrationContext) -> str | None:
+    """The GeoLens version, read once; None when it can't be read."""
+    from geolens.api.health import health_health_get as health
+
+    if ctx.server_version is None:
+        try:
+            ctx.server_version = ctx.geolens.call(health.sync_detailed).version
+        except GeoLensError:
+            return None
+    return ctx.server_version
 
 
 def _geometries(
@@ -738,7 +769,7 @@ def _null_styles(layer: Mapping[str, Any]) -> list[str]:
 
 
 def _filled_styles(
-    saved: Any, nulls: Mapping[str, Sequence[str]]
+    saved: Any, nulls: Mapping[str, Sequence[str]], version: str | None
 ) -> dict[str, dict[str, Any]]:
     """Map layer id -> the styles the server holds for it, and which of them
     the save that left them sent null (*nulls*). Only a value filled in from
@@ -749,11 +780,32 @@ def _filled_styles(
             "values": {k: row.get(k) for k in _SERVER_FILLED},
             "null_sent": list(nulls.get(str(row["id"]), [])),
             "inputs": _style_inputs(
-                row.get("dataset_id"), row.get("dataset_geometry_type")
+                row.get("dataset_id"), row.get("dataset_geometry_type"), version
             ),
         }
         for row in rows
     }
+
+
+def _drop_gone_rows(ctx: MigrationContext, entry: ItemState, found: Any) -> None:
+    """Forget the map layer recorded for an operational layer whose row the
+    map no longer lists though its dataset is readable now: a save hides a row
+    only while its dataset is unreadable, so the row was deleted."""
+    from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get as get
+
+    shown = {str(row.id) for row in getattr(found, "layers", None) or []}
+    for source, row in list(entry.layer_ids.items()):
+        dataset_id = entry.row_datasets.get(row)
+        if row in shown or dataset_id is None:
+            continue
+        try:
+            ctx.geolens.call(get.sync_detailed, dataset_id=UUID(dataset_id))
+        except (GeoLensError, ValueError):
+            continue
+        del entry.layer_ids[source]
+        entry.row_datasets.pop(row, None)
+        if source in entry.pending_layers:
+            entry.pending_layers.remove(source)
 
 
 def _unimported(
@@ -852,6 +904,7 @@ def _write_fingerprint(
     styles: Mapping[str, Mapping[str, Any]],
     hidden_candidates: Collection[str],
     geometries: Mapping[str, Any],
+    version: str | None,
 ) -> dict[str, Any]:
     """A fingerprint of the map a save leaves, and the fields it covers: the
     ones the save sends, and every other field of the map as *before* has it,
@@ -888,6 +941,7 @@ def _write_fingerprint(
         current = _style_inputs(
             layer.get("dataset_id"),
             geometries.get(str(layer.get("dataset_id")), _UNKNOWN),
+            _UNKNOWN if version is None else version,
         )
         for key in nulls:
             reusable = (
@@ -1220,7 +1274,11 @@ def import_map(
     entry.layer_ids = {
         k: str(v) for k, v in result.layer_ids.additional_properties.items()
     }
-    entry.layer_styles = _filled_styles(result.map_, {})
+    entry.layer_styles = _filled_styles(result.map_, {}, _server_version(ctx))
+    entry.row_datasets = {
+        str(row.id): str(row.dataset_id)
+        for row in getattr(result.map_, "layers", None) or []
+    }
     # A layer of a source the plan imports but the run hasn't finished is added
     # by a later rerun, though the web map itself doesn't change.
     entry.pending_layers = _unimported(ctx, webmap, matches)

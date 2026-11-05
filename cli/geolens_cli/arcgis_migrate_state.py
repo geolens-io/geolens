@@ -232,6 +232,9 @@ class ItemState:
     # Operational layers the last translation of a web map left out because
     # their datasets couldn't be read, which a later run translates again.
     skipped_layers: list[str] = field(default_factory=list)
+    # Map layer id -> the dataset it shows, which tells a row hidden from the
+    # run from one a save deleted.
+    row_datasets: dict[str, str] = field(default_factory=dict)
     # Map layer id -> the paint, layout, style_config and layer_type the server
     # held at the last confirmed save, which a lost save is checked against.
     layer_styles: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -256,6 +259,12 @@ class ItemState:
             and self.export is not None
             and not (self.dataset_ids or self.layer_datasets or self.map_id)
         )
+
+    def unsettled_reason(self) -> str | None:
+        """Why a web map isn't up to date while a save's outcome is unknown."""
+        if self.pending_write is None:
+            return None
+        return "the web map's last save has no recorded outcome; a rerun settles it"
 
     def owed_reason(self) -> str | None:
         """Why a web map isn't up to date while *pending_layers* is set."""

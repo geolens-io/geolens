@@ -240,6 +240,8 @@ class MigrationContext:
     upload_limit: int | None = None
     # How the plan's sharing becomes GeoLens sharing (arcgis_migrate_groups.Sharing).
     sharing: Any = None
+    # The GeoLens version, read once when a style default is recorded.
+    server_version: str | None = None
     sleep: Callable[[float], None] = time.sleep
     clock: Callable[[], float] = time.monotonic
 

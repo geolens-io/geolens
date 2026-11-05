@@ -1151,6 +1151,8 @@ def _migrate_one(
         # failed import keeps the bundle's record.
         entry.export = None
         entry.stale = []
+    if item["action"] == _plan.IMPORT_MAP and (owed := entry.owed_reason()):
+        entry.stale = [state.clean(owed)]
     state.finish(item["id"], result.status)
 
 
@@ -1376,10 +1378,19 @@ def _report(
     failed = [
         item["id"] for item in plan["items"] if state.status(item["id"]) == FAILED
     ]
+    # A web map imported this run reports the layers its import still owes.
+    reported = [
+        *summary.refreshed,
+        *(
+            i["id"]
+            for i in to_run
+            if i["action"] == _plan.IMPORT_MAP and i["id"] not in summary.refreshed
+        ),
+    ]
     stale = {
         item_id: list(state.items[item_id].stale)
-        for item_id in summary.refreshed
-        if state.items[item_id].stale
+        for item_id in reported
+        if item_id in state.items and state.items[item_id].stale
     }
     ran = {item["id"] for item in to_run}
     report_files: tuple[Path, Path] | None = None
@@ -1448,7 +1459,7 @@ def _report(
         brought = len(summary.refreshed)
         # A dry run counts every item it would try; its stale reasons are old.
         if not opts.dry_run:
-            brought -= len(stale)
+            brought -= len([i for i in stale if i in summary.refreshed])
         fmt.info(f"{verb} {brought} migrated item(s) up to date.")
         for item_id, reasons in stale.items():
             for reason in reasons:

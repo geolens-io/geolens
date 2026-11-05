@@ -51,8 +51,9 @@ def _unfinished(plan: Mapping[str, Any], state: MigrationState) -> list[dict[str
         elif status not in FINISHED:
             out.append({"item": item["id"], "reason": status})
         reasons = [*entry.left_behind, *entry.stale] if entry else []
-        if entry and (owed := entry.owed_reason()) and owed not in reasons:
-            reasons.append(owed)
+        for extra in (entry.owed_reason(), entry.unsettled_reason()) if entry else ():
+            if extra and extra not in reasons:
+                reasons.append(extra)
         for reason in reasons:
             out.append({"item": item["id"], "reason": reason})
         export = (entry.export or {}) if entry else {}

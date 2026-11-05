@@ -1651,6 +1651,12 @@ def _committing_save(geolens, *, commits: bool, failure: Exception | None):
     # What a save reads from a layer's dataset to fill in its styles.
     geometries = {dataset_id("Parcels"): "Polygon", dataset_id("Owners"): "Point"}
     geolens.dataset_geometry = geometries
+    geolens.server_version = {"now": "1.30.0"}
+    geolens.routes["GET /health"] = lambda seen: {
+        "status": "ok",
+        "version": geolens.server_version["now"],
+        "providers": {},
+    }
     for ds in geometries:
         geolens.routes[f"GET /datasets/{ds}"] = lambda seen, ds=ds: {
             **_dataset(ds, OPERATOR),
@@ -1890,6 +1896,75 @@ def test_a_hidden_layer_the_portal_dropped_is_removed_once_the_run_can_read_it(
 
     assert result.exit_code == 0, result.output
     assert len(puts) == 2
+
+
+def test_a_mapping_whose_row_the_save_deleted_is_forgotten(
+    runner, plan_file, geolens, portal
+):
+    token = _changed_in_the_portal(runner, plan_file, geolens, portal)
+    parcels = dataset_id("Parcels")
+    full = _translated(parcels)
+    stored: list[dict[str, Any]] = [
+        {
+            "id": LAYER_ID.format(i),
+            "dataset_id": parcels,
+            "sort_order": n,
+            "opacity": 1,
+        }
+        for n, i in enumerate((1, 2))
+    ]
+    hidden = {LAYER_ID.format(2)}
+    puts: list[dict[str, Any]] = []
+    read = geolens.routes["GET /maps/" + MAP_ID]
+
+    def get(seen):
+        shown = [row for row in stored if row["id"] not in hidden]
+        layers = _saved({"layers": shown})["layers"]
+        return {**read(seen), "layers": layers, "layer_count": len(layers)}
+
+    def put(seen):
+        named = {row["id"]: row for row in seen.json()["layers"] if row.get("id")}
+        stored[:] = [
+            {**row, **named.get(row["id"], {})}
+            for row in stored
+            if row["id"] in named or row["id"] in hidden
+        ]
+        puts.append(seen.json())
+        return {**get(seen), "updated_at": f"2026-10-0{len(puts) + 3}T00:00:00Z"}
+
+    geolens.routes["GET /maps/" + MAP_ID] = get
+    geolens.routes["PUT /maps/" + MAP_ID] = put
+    geolens.routes[IMPORT] = (
+        201,
+        {**full, "layers": full["layers"][1:2], "layer_sources": ["parcels_0"]},
+    )
+
+    def drop_the_view(layers):
+        for layer in layers:
+            if "layers" in layer:
+                layer["layers"] = [m for m in layer["layers"] if m["id"] != "view_0"]
+
+    _edit_webmap(portal, drop_the_view)
+    _edit_json(
+        plan_file.parent / "arcgis-migration-state.json",
+        lambda state: state["items"][B1].update(
+            row_datasets={LAYER_ID.format(1): parcels, LAYER_ID.format(2): parcels}
+        ),
+    )
+    _migrate(runner, plan_file, "--token", token)
+    assert _state(plan_file)["items"][B1]["pending_layers"] == ["view_0"]
+
+    # The dataset became readable before the save, so it deleted the row.
+    stored[:] = [row for row in stored if row["id"] not in hidden]
+    hidden.clear()
+    FakeImport(geolens, [_layer(0, "Parcels")])._serve_dataset(parcels)
+    result, _ = _migrate(runner, plan_file, "--token", token)
+
+    assert result.exit_code == 0, result.output
+    entry = _state(plan_file)["items"][B1]
+    assert "view_0" not in entry["layer_ids"]
+    assert entry["pending_layers"] == []
+    assert len(puts) == 1
 
 
 def test_a_layer_whose_service_imports_later_is_added_without_a_portal_change(
@@ -2171,7 +2246,9 @@ def test_an_explicit_paint_with_a_null_outline_is_not_adopted_against_the_cached
     assert len(_puts(geolens)) == 2
 
 
-@pytest.mark.parametrize("change", ["unchanged", "repointed", "geometry-changed"])
+@pytest.mark.parametrize(
+    "change", ["unchanged", "repointed", "geometry-changed", "server-upgraded"]
+)
 def test_a_cached_default_is_reused_only_for_the_dataset_it_was_made_from(
     runner, plan_file, geolens, portal, change
 ):
@@ -2182,6 +2259,8 @@ def test_a_cached_default_is_reused_only_for_the_dataset_it_was_made_from(
     _edit_webmap(portal, lambda layers: None)
     if change == "geometry-changed":
         geolens.dataset_geometry[dataset_id("Parcels")] = "Point"
+    if change == "server-upgraded":
+        geolens.server_version["now"] = "1.31.0"
     _migrate(runner, plan_file, "--token", token)
     if change != "unchanged":
         # The user restores the styles the layers had before the lost save.
@@ -2198,6 +2277,26 @@ def test_a_cached_default_is_reused_only_for_the_dataset_it_was_made_from(
         assert result.exit_code == 1
         [reason] = payload["not_up_to_date"][B1]
         assert "changed in GeoLens since the last run" in reason
+
+
+def test_a_web_map_with_an_unsettled_save_is_unfinished_in_the_cutover_preview(
+    runner, plan_file, geolens, portal
+):
+    token = _changed_in_the_portal(runner, plan_file, geolens, portal)
+    _edit_json(
+        plan_file.parent / "arcgis-migration-state.json",
+        lambda state: state["items"][B1].update(
+            pending_write={"fingerprint": "x", "keys": {}, "after": {}}
+        ),
+    )
+
+    _, payload = _migrate(runner, plan_file, "--token", token, "--dry-run", "--cutover")
+
+    [check] = [
+        c for c in payload["cutover"]["checks"] if c["check"] == "unfinished-items"
+    ]
+    assert [i["item"] for i in check["items"]] == [B1]
+    assert "no recorded outcome" in check["items"][0]["reason"]
 
 
 def test_a_web_map_with_a_layer_still_owed_blocks_cutover(
@@ -2260,9 +2359,11 @@ def test_a_service_skipped_at_the_first_import_adds_its_layer_once_it_imports(
     token = secrets.token_urlsafe(16)
     state_path = plan_file.parent / "arcgis-migration-state.json"
 
-    result, _ = _migrate(runner, plan_file, "--token", token, "--only", B1)
+    result, payload = _migrate(runner, plan_file, "--token", token, "--only", B1)
 
-    assert result.exit_code == 0, result.output
+    # A first import reports its owed layers as a rerun does.
+    assert result.exit_code == 1
+    assert "roads_new_0" in payload["not_up_to_date"][B1][0]
     assert _state(plan_file)["items"][B1]["pending_layers"] == ["roads_new_0"]
 
     # The service imports later (say the upload limit was raised).
