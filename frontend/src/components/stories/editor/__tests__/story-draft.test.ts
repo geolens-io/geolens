@@ -1,11 +1,12 @@
 import {
   applyDraftEdit,
+  applySettingsEdit,
   buttonsNeedingAttention,
   documentBytes,
   imagesMissingAlt,
   MAX_BLOCKS_PER_CHAPTER,
   MAX_CHAPTERS,
-  sameChapters,
+  storyDocumentChanged,
 } from '../story-draft';
 import type { StoryChapter, StorySettings } from '@/types/api';
 
@@ -163,13 +164,20 @@ describe('document caps', () => {
   });
 });
 
-describe('sameChapters', () => {
-  it('compares by content', () => {
-    expect(sameChapters([chapter('a')], [chapter('a')])).toBe(true);
-    expect(sameChapters([chapter('a')], [chapter('a', { title: 'other' })])).toBe(false);
+describe('storyDocumentChanged', () => {
+  const base = { navigation: false, layout: 'side', panel_position: 'left', theme: 'follow' } as const;
+
+  it('compares chapters', () => {
+    expect(storyDocumentChanged({ chapters: [chapter('a')] }, { chapters: [chapter('a')] })).toBe(false);
+    expect(storyDocumentChanged({ chapters: [chapter('a')] }, { chapters: [chapter('a', { title: 'other' })] })).toBe(true);
+  });
+
+  it('reads absent settings as the defaults', () => {
+    const chapters = [chapter('a')];
+    expect(storyDocumentChanged({ chapters }, { chapters, settings: base })).toBe(false);
+    expect(storyDocumentChanged({ chapters, settings: null }, { chapters, settings: { ...base, navigation: true } })).toBe(true);
   });
 });
-
 
 describe('image block edits', () => {
   const asset = '9a3e5c71-2b4d-4f86-8e1a-7c5d3b2f4e60';
@@ -282,5 +290,31 @@ describe('button and separator block edits', () => {
     expect(applyDraftEdit(full, { type: 'addSeparatorBlock', chapterId: 'a', blockId: 'x' })[0].blocks).toHaveLength(
       MAX_BLOCKS_PER_CHAPTER,
     );
+  });
+});
+
+describe('reader settings edits', () => {
+  const stored = { navigation: false, layout: 'side', panel_position: 'left', theme: 'dark' } as const;
+
+  it('fills the defaults when a story has none stored', () => {
+    expect(applySettingsEdit(null, { navigation: true })).toEqual({
+      navigation: true,
+      layout: 'side',
+      panel_position: 'left',
+      theme: 'follow',
+    });
+    expect(applySettingsEdit(undefined, { layout: 'floating', panel_position: 'center' })).toMatchObject({
+      layout: 'floating',
+      panel_position: 'center',
+    });
+  });
+
+  it('keeps the stored theme', () => {
+    expect(applySettingsEdit(stored, { layout: 'floating' })).toEqual({ ...stored, layout: 'floating' });
+  });
+
+  it('returns the same settings when nothing changes, so the draft stays clean', () => {
+    expect(applySettingsEdit(null, { navigation: false, layout: 'side' })).toBeNull();
+    expect(applySettingsEdit(stored, { navigation: false })).toBe(stored);
   });
 });

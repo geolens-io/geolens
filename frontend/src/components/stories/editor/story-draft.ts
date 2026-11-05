@@ -48,6 +48,29 @@ export type DraftEdit =
   | { type: 'moveBlock'; chapterId: string; blockId: string; by: -1 | 1 }
   | { type: 'removeBlock'; chapterId: string; blockId: string };
 
+/** What a story without stored reader settings behaves as. */
+const DEFAULT_STORY_SETTINGS: StorySettings = {
+  navigation: false,
+  layout: 'side',
+  panel_position: 'left',
+  theme: 'follow',
+};
+
+/** Stored settings with every default filled in. */
+export function readSettings(settings: StorySettings | null | undefined): StorySettings {
+  return { ...DEFAULT_STORY_SETTINGS, ...settings };
+}
+
+/** A change to the reader settings; the theme is left as stored. */
+export type SettingsEdit = Partial<Pick<StorySettings, 'navigation' | 'layout' | 'panel_position'>>;
+
+/** The settings after an edit; unchanged settings come back as the same object. */
+export function applySettingsEdit(settings: StorySettings | null | undefined, edit: SettingsEdit): StorySettings | null | undefined {
+  const current = readSettings(settings);
+  const changed = (Object.keys(edit) as (keyof SettingsEdit)[]).some((key) => edit[key] !== current[key]);
+  return changed ? { ...current, ...edit } : settings;
+}
+
 function textBlock(id: string): Block {
   return { id, type: 'markdown', v: 1, title: null, config: { text: '' } };
 }
@@ -194,9 +217,12 @@ export function applyDraftEdit(chapters: StoryChapter[], edit: DraftEdit): Story
   }
 }
 
-/** Whether two chapter lists would save the same document. */
-export function sameChapters(a: readonly StoryChapter[], b: readonly StoryChapter[]): boolean {
-  return deepEqual(a, b);
+/** Whether two documents differ in what they save: chapters or reader settings, stored or defaulted. */
+export function storyDocumentChanged(
+  a: { chapters: readonly StoryChapter[]; settings?: StorySettings | null },
+  b: { chapters: readonly StoryChapter[]; settings?: StorySettings | null },
+): boolean {
+  return !deepEqual(a.chapters, b.chapters) || !deepEqual(readSettings(a.settings), readSettings(b.settings));
 }
 
 // Python's compact `json.dumps`, which the server measures with, escapes every

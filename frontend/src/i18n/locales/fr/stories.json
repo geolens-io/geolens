@@ -267,5 +267,23 @@
     "cannotShareMap": "(vous ne pouvez pas partager cette carte)",
     "shareMaps": "Partager mes cartes et enregistrer",
     "sharingRevokesLinks": "Une carte privée partagée ainsi ne fonctionne plus via son lien de partage ni ses codes d'intégration, et les couches que les groupes ne peuvent pas lire leur restent masquées."
+  },
+  "readerSettings": {
+    "heading": "Réglages du lecteur",
+    "description": "La façon dont les lecteurs voient ce récit. Ils s'appliquent à la publication.",
+    "navigation": "Barre de navigation",
+    "navigationHint": "Affiche le titre du récit et la liste des chapitres au-dessus du récit.",
+    "layout": "Disposition",
+    "layoutHint": "Le panneau flottant place le texte du chapitre sur une carte en plein écran. Sur téléphone, la carte s'affiche au-dessus du texte.",
+    "layouts": {
+      "side": "Panneau latéral",
+      "floating": "Panneau flottant"
+    },
+    "position": "Position du panneau",
+    "positions": {
+      "left": "Gauche",
+      "right": "Droite",
+      "center": "Centre"
+    }
   }
 }

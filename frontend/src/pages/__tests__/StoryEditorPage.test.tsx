@@ -17,7 +17,7 @@ import { ApiError } from '@/api/client';
 import { listMaps } from '@/api/maps';
 import { useAuthStore } from '@/stores/auth-store';
 import type { ResolvedScene } from '@/components/stories/story-scenes';
-import type { MapResponse, StoryChapter, StoryDraftResponse, StoryResponse } from '@/types/api';
+import type { MapResponse, StoryChapter, StoryDraftResponse, StoryResponse, StorySettings } from '@/types/api';
 
 vi.mock('@/api/stories', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/api/stories')>()),
@@ -119,9 +119,9 @@ function draft(overrides: Partial<StoryDraftResponse> = {}): StoryDraftResponse 
   };
 }
 
-function published(chapters: StoryChapter[] = CHAPTERS): StoryResponse {
+function published(chapters: StoryChapter[] = CHAPTERS, settings?: StorySettings): StoryResponse {
   const { revision: _revision, ...rest } = draft();
-  return { ...rest, document: { version: 1, chapters } };
+  return { ...rest, document: { version: 1, chapters, settings } };
 }
 
 function renderEditor() {
@@ -181,8 +181,8 @@ beforeAll(() => {
 beforeEach(() => {
   vi.mocked(getStoryDraft).mockResolvedValue(draft());
   vi.mocked(getStory).mockResolvedValue(published());
-  vi.mocked(saveStoryDraft).mockImplementation(async (_id, revision, chapters) =>
-    draft({ revision: revision + 1, document: { version: 1, chapters } }),
+  vi.mocked(saveStoryDraft).mockImplementation(async (_id, revision, chapters, settings) =>
+    draft({ revision: revision + 1, document: { version: 1, chapters, settings } }),
   );
   vi.mocked(publishStory).mockReset();
   vi.mocked(discardStoryDraft).mockReset();
@@ -240,6 +240,7 @@ it('saves edits to the draft against the revision it loaded', async () => {
 it('sends the draft settings back unchanged on a save', async () => {
   const settings = { navigation: true, layout: 'floating', panel_position: 'right', theme: 'dark' } as const;
   vi.mocked(getStoryDraft).mockResolvedValue(draft({ document: { version: 1, chapters: CHAPTERS, settings } }));
+  vi.mocked(getStory).mockResolvedValue(published(CHAPTERS, settings));
   const user = userEvent.setup();
   renderEditor();
   await ready();
@@ -249,6 +250,38 @@ it('sends the draft settings back unchanged on a save', async () => {
   await user.type(title, 'Landfall');
   saveNow();
   await waitFor(() => expect(saveStoryDraft).toHaveBeenCalledWith('s1', 4, expect.any(Array), settings));
+});
+
+it('saves reader settings chosen in the dialog with the draft, keeping the stored theme', async () => {
+  const settings = { navigation: false, layout: 'side', panel_position: 'left', theme: 'dark' } as const;
+  vi.mocked(getStoryDraft).mockResolvedValue(draft({ document: { version: 1, chapters: CHAPTERS, settings } }));
+  vi.mocked(getStory).mockResolvedValue(published(CHAPTERS, settings));
+  const user = userEvent.setup();
+  renderEditor();
+  await ready();
+
+  await user.click(screen.getByRole('button', { name: 'Reader settings' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Reader settings' });
+  expect(within(dialog).queryByRole('combobox', { name: 'Panel position' })).not.toBeInTheDocument();
+  await user.click(within(dialog).getByRole('switch', { name: 'Navigation bar' }));
+  await user.click(within(dialog).getByRole('combobox', { name: 'Layout' }));
+  await user.click(await screen.findByRole('option', { name: 'Floating panel' }));
+  await user.click(within(dialog).getByRole('combobox', { name: 'Panel position' }));
+  await user.click(await screen.findByRole('option', { name: 'Right' }));
+  await user.keyboard('{Escape}');
+  expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
+
+  saveNow();
+  await waitFor(() =>
+    expect(saveStoryDraft).toHaveBeenCalledWith('s1', 4, expect.any(Array), {
+      navigation: true,
+      layout: 'floating',
+      panel_position: 'right',
+      theme: 'dark',
+    }),
+  );
+  expect(await screen.findByText('Draft saved. Readers still see the last published version.')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Publish' })).toBeEnabled();
 });
 
 it('adds, reorders and deletes chapters from the chapter list', async () => {
@@ -835,6 +868,23 @@ it('makes the chapter panel inert while a discard is replacing the draft', async
   gate.resolve(draft({ revision: 5, document: { version: 1, chapters: [CHAPTERS[0]] } }));
   expect(await screen.findByText('Published. Readers see this version.')).toBeInTheDocument();
   expect(screen.getByLabelText('Chapter title').closest('[inert]')).toBeNull();
+});
+
+it('disables reader settings while a discard is replacing the draft', async () => {
+  vi.mocked(getStory).mockResolvedValue(published([CHAPTERS[0]]));
+  const gate = deferred<StoryDraftResponse>();
+  vi.mocked(discardStoryDraft).mockReturnValueOnce(gate.promise);
+  const user = userEvent.setup();
+  renderEditor();
+  await screen.findByText('Draft saved. Readers still see the last published version.');
+  expect(screen.getByRole('button', { name: 'Reader settings' })).toBeEnabled();
+  await user.click(screen.getByRole('button', { name: 'Discard draft' }));
+  await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Discard draft' }));
+  expect(screen.getByRole('button', { name: 'Reader settings' })).toBeDisabled();
+
+  gate.resolve(draft({ revision: 5, document: { version: 1, chapters: [CHAPTERS[0]] } }));
+  expect(await screen.findByText('Published. Readers see this version.')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Reader settings' })).toBeEnabled();
 });
 
 it('flags chapters whose map the server could not find and offers to remove the scene', async () => {

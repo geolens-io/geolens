@@ -14,8 +14,8 @@ vi.mock('@/hooks/use-permissions', () => ({
   usePermissions: () => ({ can: (capability: string) => capability === 'edit_metadata' && auth.canEdit }),
 }));
 vi.mock('@/components/stories/StoryReader', () => ({
-  StoryReader: ({ title, editHref }: { title: string; editHref?: string }) => (
-    <div data-testid="story-reader" data-edit={editHref ?? ''}>
+  StoryReader: ({ title, editHref, settings }: { title: string; editHref?: string; settings?: { layout: string } | null }) => (
+    <div data-testid="story-reader" data-edit={editHref ?? ''} data-layout={settings?.layout ?? ''}>
       {title}
     </div>
   ),
@@ -57,6 +57,13 @@ it('reads the published story', async () => {
   renderPage();
   expect(await screen.findByTestId('story-reader')).toHaveTextContent('Hurricanes');
   expect(getStory).toHaveBeenCalledWith('story-1');
+});
+
+it("hands the published document's reader settings to the reader", async () => {
+  const settings = { navigation: true, layout: 'floating', panel_position: 'right', theme: 'follow' } as const;
+  vi.mocked(getStory).mockResolvedValue({ ...STORY, document: { ...STORY.document!, settings } });
+  renderPage();
+  expect(await screen.findByTestId('story-reader')).toHaveAttribute('data-layout', 'floating');
 });
 
 it('offers a signed-out reader sign-in for a story they cannot see', async () => {

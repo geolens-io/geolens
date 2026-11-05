@@ -267,5 +267,23 @@
     "cannotShareMap": "(Sie können diese Karte nicht teilen)",
     "shareMaps": "Meine Karten teilen und speichern",
     "sharingRevokesLinks": "Eine private Karte, die Sie so teilen, funktioniert nicht mehr über ihren Freigabelink und ihre Einbettungscodes, und Ebenen, die die Gruppen nicht lesen können, bleiben für sie ausgeblendet."
+  },
+  "readerSettings": {
+    "heading": "Leser-Einstellungen",
+    "description": "So sehen Leser diese Story. Die Einstellungen gelten ab dem Veröffentlichen.",
+    "navigation": "Navigationsleiste",
+    "navigationHint": "Zeigt den Titel der Story und eine Kapitelliste über der Story.",
+    "layout": "Layout",
+    "layoutHint": "Das schwebende Panel legt den Kapiteltext über eine Vollbildkarte. Auf Smartphones liegt die Karte über dem Text.",
+    "layouts": {
+      "side": "Seitenpanel",
+      "floating": "Schwebendes Panel"
+    },
+    "position": "Position des Panels",
+    "positions": {
+      "left": "Links",
+      "right": "Rechts",
+      "center": "Mitte"
+    }
   }
 }

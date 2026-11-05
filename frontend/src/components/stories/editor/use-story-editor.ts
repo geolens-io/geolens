@@ -12,20 +12,24 @@ import {
   type StoryConflict,
 } from '@/api/stories';
 import { queryKeys } from '@/lib/query-keys';
-import type { StoryChapter, StoryDraftResponse, StoryGroupsResponse, StoryResponse } from '@/types/api';
+import type { StoryDraftResponse, StorySettings, StoryGroupsResponse, StoryResponse } from '@/types/api';
 import { captureAccount } from './same-account';
 import {
   applyDraftEdit,
+  applySettingsEdit,
   documentBytes,
   buttonsNeedingAttention,
   imagesMissingAlt,
   MAX_DOCUMENT_BYTES,
   type DraftEdit,
+  type SettingsEdit,
 } from './story-draft';
 import { useStoryUploads } from './use-story-uploads';
 
 /** How long the author must stop editing before the draft is saved. */
 const AUTOSAVE_DELAY_MS = 2000;
+
+type Sent = Pick<StoryDraftResponse['document'], 'chapters' | 'settings'>;
 
 export type EditorBusy = 'save' | 'publish' | 'discard' | 'reload' | null;
 
@@ -43,6 +47,7 @@ export function useStoryEditor(initial: StoryDraftResponse) {
   const id = initial.id;
   const [saved, setSaved] = useState(initial);
   const [chapters, setChapters] = useState(initial.document.chapters);
+  const [settings, setSettings] = useState<StorySettings | null | undefined>(initial.document.settings);
   const [conflict, setConflict] = useState<StoryConflict | null>(null);
   const [busy, setBusy] = useState<EditorBusy>(null);
   // Set when a save fails; the next edit clears it and so lets autosave try again.
@@ -58,11 +63,11 @@ export function useStoryEditor(initial: StoryDraftResponse) {
   const [generation, setGeneration] = useState(0);
   // Every adopted draft and every edit makes a new chapters array, so a
   // reference check is the dirty test; it costs nothing per keystroke.
-  const dirty = chapters !== saved.document.chapters;
+  const dirty = chapters !== saved.document.chapters || settings !== saved.document.settings;
 
   const missingAlt = useMemo(() => imagesMissingAlt(chapters), [chapters]);
   const incompleteButtons = useMemo(() => buttonsNeedingAttention(chapters), [chapters]);
-  const tooLarge = useMemo(() => documentBytes(chapters, saved.document.settings) > MAX_DOCUMENT_BYTES, [chapters, saved.document.settings]);
+  const tooLarge = useMemo(() => documentBytes(chapters, settings) > MAX_DOCUMENT_BYTES, [chapters, settings]);
   const unsaveable = tooLarge || missingAlt > 0 || incompleteButtons > 0;
   const stale = conflict?.code === 'stale_revision';
 
@@ -70,6 +75,12 @@ export function useStoryEditor(initial: StoryDraftResponse) {
     if (refuseEdits.current) return;
     setFailed(false);
     setChapters((c) => applyDraftEdit(c, change));
+  }, []);
+
+  const editSettings = useCallback((change: SettingsEdit) => {
+    if (refuseEdits.current) return;
+    setFailed(false);
+    setSettings((current) => applySettingsEdit(current, change));
   }, []);
 
   /** Runs one operation with `busy` set; the page disables every trigger while one runs. */
@@ -88,18 +99,20 @@ export function useStoryEditor(initial: StoryDraftResponse) {
 
   /**
    * Takes a draft the server returned as the saved copy and the working copy.
-   * Pass the chapters that were sent to keep anything typed since: the working
+   * Pass what was sent to keep anything typed since: each part of the working
    * copy is replaced only if it's still what was sent.
    */
-  function adopt(draft: StoryDraftResponse, sent?: StoryChapter[]) {
+  function adopt(draft: StoryDraftResponse, sent?: Sent) {
     setSaved(draft);
     if (sent) {
-      setChapters((current) => (current === sent ? draft.document.chapters : current));
+      setChapters((current) => (current === sent.chapters ? draft.document.chapters : current));
+      setSettings((current) => (current === sent.settings ? draft.document.settings : current));
     } else {
       // An upload still running would land its image in the replacement.
       uploads.cancelAll();
       setFailed(false);
       setChapters(draft.document.chapters);
+      setSettings(draft.document.settings);
       setGeneration((g) => g + 1);
     }
   }
@@ -109,9 +122,9 @@ export function useStoryEditor(initial: StoryDraftResponse) {
   }
 
   async function persist(revision: number, same: () => boolean): Promise<StoryDraftResponse | null> {
-    const sent = chapters;
+    const sent = { chapters, settings };
     try {
-      const draft = await saveStoryDraft(id, revision, sent, saved.document.settings);
+      const draft = await saveStoryDraft(id, revision, sent.chapters, sent.settings);
       if (!same()) return null;
       adopt(draft, sent);
       setConflict(null);
@@ -150,7 +163,7 @@ export function useStoryEditor(initial: StoryDraftResponse) {
     if (!canAutosave) return;
     const timer = setTimeout(autosave, AUTOSAVE_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [canAutosave, chapters]);
+  }, [canAutosave, chapters, settings]);
 
   // A hidden tab may never come back, so save what's pending now.
   useEffect(() => {
@@ -179,12 +192,12 @@ export function useStoryEditor(initial: StoryDraftResponse) {
       let revision = saved.revision;
       // The working copy as it stands when the publish goes out; anything typed
       // after that is kept when the draft is read back.
-      let expected = chapters;
+      let expected: Sent = { chapters, settings };
       if (dirty) {
         const draft = await persist(revision, same);
         if (!draft) return;
         revision = draft.revision;
-        expected = draft.document.chapters;
+        expected = draft.document;
       }
       try {
         const story = await publishStory(id, revision, confirm);
@@ -262,6 +275,7 @@ export function useStoryEditor(initial: StoryDraftResponse) {
   return {
     story: saved,
     chapters,
+    settings,
     dirty,
     failed,
     stale,
@@ -272,6 +286,7 @@ export function useStoryEditor(initial: StoryDraftResponse) {
     unsaveable,
     canAutosave,
     edit,
+    editSettings,
     save,
     saveToLeave,
     leaving,

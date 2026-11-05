@@ -1,11 +1,15 @@
 import userEvent from '@testing-library/user-event';
-import { act, fireEvent, render, screen, waitFor } from '@/test/test-utils';
+import { act, fireEvent, render, screen, waitFor, within } from '@/test/test-utils';
 import { StoryReader } from '../StoryReader';
 import type { ResolvedScene } from '../story-scenes';
-import type { StoryChapter, StoryScene } from '@/types/api';
+import type { StoryChapter, StoryScene, StorySettings } from '@/types/api';
 
 const layout = vi.hoisted(() => ({ narrow: true }));
-const pane = vi.hoisted(() => ({ resolved: null as ResolvedScene | null, hint: undefined as string | undefined }));
+const pane = vi.hoisted(() => ({
+  resolved: null as ResolvedScene | null,
+  hint: undefined as string | undefined,
+  legendSide: undefined as string | undefined,
+}));
 
 const prefetch = vi.hoisted(() => vi.fn());
 
@@ -16,8 +20,9 @@ vi.mock('@/api/client', async (importOriginal) => ({
 }));
 vi.mock('@/hooks/use-maps', () => ({ prefetchMap: (_qc: unknown, id: string) => prefetch(id) }));
 vi.mock('../StoryMapPane', () => ({
-  StoryMapPane: ({ resolved, emptyHint }: { resolved: ResolvedScene | null; emptyHint?: string }) => {
+  StoryMapPane: ({ resolved, emptyHint, legendSide }: { resolved: ResolvedScene | null; emptyHint?: string; legendSide?: string }) => {
     pane.resolved = resolved;
+    pane.legendSide = legendSide;
     pane.hint = emptyHint;
     return <div data-testid="story-map" />;
   },
@@ -191,17 +196,23 @@ describe('wide scrolling panel', () => {
 });
 
 describe('switching layouts', () => {
-  const realScrollIntoView = Element.prototype.scrollIntoView;
+  const realScrollTo = Element.prototype.scrollTo;
+  const realRect = Element.prototype.getBoundingClientRect;
   afterEach(() => {
-    Element.prototype.scrollIntoView = realScrollIntoView;
+    Element.prototype.scrollTo = realScrollTo;
+    Element.prototype.getBoundingClientRect = realRect;
   });
 
-  it('opens the wide layout scrolled to the chapter the stepper was on, and keeps it there', async () => {
-    const scrolled: Element[] = [];
-    Element.prototype.scrollIntoView = vi.fn(function (this: Element, options?: boolean | ScrollIntoViewOptions) {
-      expect(options).toEqual({ block: 'start', behavior: 'instant' });
-      scrolled.push(this);
-    });
+  it('opens the wide layout scrolled to the chapter the stepper was on', async () => {
+    const scrolled = vi.fn();
+    Element.prototype.scrollTo = scrolled;
+    // The panel starts at 100; each chapter starts 900 px below the one before.
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      if (this.tagName !== 'SECTION') return { top: 100 } as DOMRect;
+      const index = Array.from(this.parentElement!.querySelectorAll('section')).indexOf(this as HTMLElement);
+      return { top: 600 + index * 900 } as DOMRect;
+    };
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, value: 1000 });
     const user = userEvent.setup();
     const { rerender } = renderReader();
     await user.click(screen.getByRole('button', { name: /Next/ }));
@@ -209,26 +220,10 @@ describe('switching layouts', () => {
 
     layout.narrow = false;
     rerender(<StoryReader storyId="s1" title="Hurricanes" summary="Where they go" chapters={CHAPTERS} />);
-    const third = screen.getByRole('region', { name: 'Chapter 3' });
-    expect(scrolled).toEqual([third]);
-    expect(third).toHaveAttribute('aria-current', 'step');
-
-    // The scroll event from that restore measures chapters as if at the top; it must not move the reader.
-    const panel = screen.getByRole('region', { name: 'Story chapters' });
-    Object.defineProperty(panel, 'clientHeight', { configurable: true, value: 1000 });
-    panel.getBoundingClientRect = () => ({ top: 100 }) as DOMRect;
-    panel.querySelectorAll('section').forEach((section, i) => {
-      section.getBoundingClientRect = () => ({ top: 600 + i * 900 }) as DOMRect;
-    });
-    fireEvent.scroll(panel);
-    await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
-    expect(third).toHaveAttribute('aria-current', 'step');
-
-    // The reader's own scroll is measured as usual.
-    panel.scrollTop = 40;
-    fireEvent.scroll(panel);
-    await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
-    expect(screen.getByRole('region', { name: 'The tracks' })).toHaveAttribute('aria-current', 'step');
+    expect(screen.getByRole('region', { name: 'Chapter 3' })).toHaveAttribute('aria-current', 'step');
+    // Chapter 3 starts at 2400 - 100; the next chapter would sit at 3200, 400 px past the line.
+    expect(scrolled).toHaveBeenCalledWith({ top: 2300, behavior: 'instant' });
+    delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
   });
 
   it('opens the stepper on the chapter the wide layout was on', async () => {
@@ -329,5 +324,231 @@ describe('reader theme', () => {
     const { container } = renderReader();
     expect((container.firstElementChild as HTMLElement).getAttribute('style')).toBeNull();
     expect(container.querySelector('header img')).toBeNull();
+  });
+});
+
+const SETTINGS: StorySettings = { navigation: false, layout: 'side', panel_position: 'left', theme: 'follow' };
+
+function renderWith(settings: Partial<StorySettings> | null, chapters = CHAPTERS) {
+  return render(
+    <StoryReader
+      storyId="s1"
+      title="Hurricanes"
+      summary={null}
+      chapters={chapters}
+      settings={settings && { ...SETTINGS, ...settings }}
+    />,
+  );
+}
+
+describe('navigation bar', () => {
+  it.each([[null], [{ navigation: false }]])('is off unless the story turns it on (%j)', (settings) => {
+    layout.narrow = false;
+    renderWith(settings);
+    expect(screen.queryByRole('navigation', { name: 'Story chapters' })).not.toBeInTheDocument();
+  });
+
+  it('numbers a chapter whose title is only whitespace', () => {
+    layout.narrow = false;
+    renderWith({ navigation: true }, [{ ...CHAPTERS[0], title: '   ' }, CHAPTERS[1]]);
+    const nav = screen.getByRole('navigation', { name: 'Story chapters' });
+    expect(within(nav).getByRole('button', { name: 'Chapter 1' })).toBeInTheDocument();
+  });
+
+  it('lists the chapters under the story title, numbering an untitled one', () => {
+    layout.narrow = false;
+    renderWith({ navigation: true });
+    const nav = screen.getByRole('navigation', { name: 'Story chapters' });
+    expect(nav).toHaveTextContent('Hurricanes');
+    const items = Array.from(nav.querySelectorAll('li')).map((li) => li.textContent);
+    expect(items).toEqual(['The tracks', 'The coasts', 'Chapter 3', 'Gone']);
+  });
+
+  it('marks the open chapter, follows the stepper and does not announce on its own', async () => {
+    const user = userEvent.setup();
+    layout.narrow = false;
+    renderWith({ navigation: true });
+    const nav = screen.getByRole('navigation', { name: 'Story chapters' });
+    expect(within(nav).getByRole('button', { name: 'The tracks' })).toHaveAttribute('aria-current', 'step');
+
+    await user.click(within(nav).getByRole('button', { name: 'Chapter 3' }));
+    expect(within(nav).getByRole('button', { name: 'Chapter 3' })).toHaveAttribute('aria-current', 'step');
+    expect(within(nav).getByRole('button', { name: 'The tracks' })).not.toHaveAttribute('aria-current');
+    expect(pane.resolved?.chapterId).toBe('c2');
+  });
+
+  it('scrolls the panel to the chosen chapter without handing the scene to the next one', async () => {
+    const user = userEvent.setup();
+    layout.narrow = false;
+    renderWith({ navigation: true });
+    const panel = screen.getByRole('region', { name: 'Story chapters', hidden: false });
+    const scrollTo = vi.fn();
+    panel.scrollTo = scrollTo;
+    Object.defineProperty(panel, 'clientHeight', { configurable: true, value: 1000 });
+    panel.getBoundingClientRect = () => ({ top: 100 }) as DOMRect;
+    // Chapter 2 sits at 700, and chapter 3 only 100 px below it.
+    const tops = [0, 700, 800, 2000];
+    panel.querySelectorAll('section').forEach((section, i) => {
+      section.getBoundingClientRect = () => ({ top: 100 + tops[i] }) as DOMRect;
+    });
+    await user.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'The coasts' }));
+    // 800 - 400 keeps chapter 3's top at the 40% line, not above it.
+    expect(scrollTo).toHaveBeenCalledWith({ top: 400, behavior: 'instant' });
+
+    // After that scroll the short chapter is still the open one.
+    panel.querySelectorAll('section').forEach((section, i) => {
+      section.getBoundingClientRect = () => ({ top: 100 + tops[i] - 400 }) as DOMRect;
+    });
+    fireEvent.scroll(panel);
+    await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    expect(screen.getByRole('region', { name: 'The coasts' })).toHaveAttribute('aria-current', 'step');
+  });
+
+  it('collapses into a menu on narrow screens that Escape closes', async () => {
+    const user = userEvent.setup();
+    layout.narrow = true;
+    renderWith({ navigation: true });
+    const nav = screen.getByRole('navigation', { name: 'Story chapters' });
+    const menu = within(nav).getByRole('button', { name: 'Chapters' });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    await user.click(menu);
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('list')).toHaveClass('overflow-y-auto', 'min-h-0');
+    await user.click(within(dialog).getByRole('button', { name: 'Gone' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.getByRole('region', { name: 'Gone' })).toBeInTheDocument();
+
+    await user.click(menu);
+    await screen.findByRole('dialog');
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(menu).toHaveFocus();
+  });
+});
+
+describe('floating layout', () => {
+  it('keeps the side panel by default', () => {
+    layout.narrow = false;
+    renderWith({ layout: 'side', panel_position: 'right' });
+    expect(screen.getByRole('region', { name: 'Story chapters' })).not.toHaveClass('absolute');
+    expect(screen.getByTestId('story-map').parentElement).not.toHaveClass('absolute');
+  });
+
+  it.each([
+    ['left', 'left-14'],
+    ['right', 'right-14'],
+    ['center', 'lg:left-1/2'],
+  ] as const)('floats an opaque panel over a full-bleed map at the %s', (position, edge) => {
+    layout.narrow = false;
+    renderWith({ layout: 'floating', panel_position: position });
+    const panel = screen.getByRole('region', { name: 'Story chapters' });
+    expect(panel).toHaveClass('absolute', 'bg-card', 'max-w-[calc(100%-24rem)]', edge);
+    expect(panel.className).not.toMatch(/bg-card\//);
+    expect(screen.getByTestId('story-map').parentElement).toHaveClass('absolute', 'inset-0');
+  });
+
+  it('scrolls between chapters inside the floating panel', async () => {
+    layout.narrow = false;
+    renderWith({ layout: 'floating' });
+    const panel = screen.getByRole('region', { name: 'Story chapters' });
+    Object.defineProperty(panel, 'clientHeight', { configurable: true, value: 1000 });
+    panel.getBoundingClientRect = () => ({ top: 100 }) as DOMRect;
+    panel.querySelectorAll('section').forEach((section, i) => {
+      section.getBoundingClientRect = () => ({ top: [-500, 300, 1400, 2400][i] }) as DOMRect;
+    });
+    fireEvent.scroll(panel);
+    await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    expect(pane.resolved?.chapterId).toBe('c2');
+  });
+
+  it.each([
+    ['left', 'end'],
+    ['center', undefined],
+    ['right', undefined],
+  ] as const)('keeps the legend off the %s panel', (position, side) => {
+    layout.narrow = false;
+    renderWith({ layout: 'floating', panel_position: position });
+    expect(pane.legendSide).toBe(side);
+  });
+
+  it('leaves the legend where it is in the side layout', () => {
+    layout.narrow = false;
+    renderWith({ layout: 'side' });
+    expect(pane.legendSide).toBeUndefined();
+  });
+
+  it('clears the map for a chapter with no title or text, and brings the panel back after it', async () => {
+    const user = userEvent.setup();
+    layout.narrow = false;
+    Element.prototype.scrollIntoView = vi.fn();
+    const blank = { ...CHAPTERS[1], title: null, blocks: [] };
+    renderWith({ layout: 'floating', navigation: true }, [CHAPTERS[0], blank, CHAPTERS[2]]);
+    const panel = screen.getByRole('region', { name: 'Story chapters' });
+    expect(panel).toHaveClass('bg-card');
+    expect(panel).not.toHaveClass('pointer-events-none');
+    expect(panel).not.toHaveAttribute('inert');
+    expect(panel).toHaveAttribute('tabindex', '0');
+
+    await user.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'Chapter 2' }));
+    expect(screen.getByRole('region', { name: 'Story chapters' })).toBe(panel);
+    expect(panel).toHaveClass('bg-transparent');
+    expect(panel).not.toHaveClass('bg-card');
+    expect(panel).toHaveClass('pointer-events-none');
+    expect(panel).toHaveAttribute('inert');
+    expect(panel).not.toHaveAttribute('tabindex');
+
+    // With the panel out of the way, its own buttons advance the story.
+    await user.click(screen.getByRole('button', { name: /Next/ }));
+    expect(panel).toHaveClass('bg-card');
+    expect(panel).not.toHaveClass('pointer-events-none');
+    expect(panel).not.toHaveAttribute('inert');
+    expect(panel).toHaveAttribute('tabindex', '0');
+    expect(screen.queryByRole('button', { name: /Next/ })).not.toBeInTheDocument();
+  });
+
+  it('keeps a short last chapter selected after jumping to it', async () => {
+    const user = userEvent.setup();
+    layout.narrow = false;
+    renderWith({ navigation: true });
+    const panel = screen.getByRole('region', { name: 'Story chapters' });
+    panel.scrollTo = vi.fn();
+    Object.defineProperty(panel, 'clientHeight', { configurable: true, value: 1000 });
+    panel.getBoundingClientRect = () => ({ top: 100 }) as DOMRect;
+    // Every chapter starts within the first 40% of the panel, so the jump clamps to the top.
+    panel.querySelectorAll('section').forEach((section, i) => {
+      section.getBoundingClientRect = () => ({ top: 100 + i * 100 }) as DOMRect;
+    });
+    await user.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'The coasts' }));
+    fireEvent.scroll(panel);
+    await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    expect(screen.getByRole('region', { name: 'The coasts' })).toHaveAttribute('aria-current', 'step');
+
+    // The reader's own scroll is measured again.
+    panel.scrollTop = 30;
+    fireEvent.scroll(panel);
+    await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    expect(screen.getByRole('region', { name: 'Gone' })).toHaveAttribute('aria-current', 'step');
+  });
+
+  it('is the stepper on a phone, as in the side layout', () => {
+    layout.narrow = true;
+    renderWith({ layout: 'floating' });
+    expect(screen.getByRole('group', { name: 'Chapters' })).toBeInTheDocument();
+    expect(screen.getByTestId('story-map').parentElement).not.toHaveClass('absolute');
+  });
+
+  it('keeps the panel mounted on a chapter with no blocks, so scrolling still moves on', async () => {
+    const user = userEvent.setup();
+    layout.narrow = false;
+    Element.prototype.scrollIntoView = vi.fn();
+    const chapters = [CHAPTERS[0], { ...CHAPTERS[1], blocks: [] }, CHAPTERS[2]];
+    renderWith({ layout: 'floating', navigation: true }, chapters);
+    const panel = screen.getByRole('region', { name: 'Story chapters' });
+    await user.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'The coasts' }));
+    expect(screen.getByRole('region', { name: 'Story chapters' })).toBe(panel);
+    expect(within(panel).getByRole('heading', { name: 'The coasts' })).toBeInTheDocument();
+    expect(within(panel).queryByText('Second text')).not.toBeInTheDocument();
+    expect(screen.getByTestId('story-map')).toBeInTheDocument();
   });
 });

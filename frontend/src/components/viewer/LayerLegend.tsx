@@ -26,6 +26,8 @@ interface LayerLegendProps {
   legendTitle?: string | null;
   /** What the map drew each layer as, by layer key. A layer missing from it follows its saved style. */
   drawn?: ReadonlyMap<string, DrawnLayer>;
+  /** The map edge the toggle and panel sit on; the end side clears the zoom controls. */
+  side?: 'start' | 'end';
 }
 
 export function LayerLegend({
@@ -37,7 +39,9 @@ export function LayerLegend({
   terrainConfig = null,
   legendTitle = null,
   drawn,
+  side,
 }: LayerLegendProps) {
+  const edge = side === 'end' ? 'end-14' : 'start-3';
   const { t } = useTranslation('common');
   const panelRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -96,7 +100,7 @@ export function LayerLegend({
         aria-expanded={isOpen}
         aria-controls="layer-legend-panel"
         aria-label={isOpen ? t('viewer.legend.hide') : t('viewer.legend.show')}
-        className="absolute start-3 top-3 z-20 flex items-center justify-center w-8 h-8 rounded-md bg-background/80 backdrop-blur-sm border border-border/50 shadow-sm text-foreground hover:bg-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className={`absolute ${edge} top-3 z-20 flex items-center justify-center w-8 h-8 rounded-md bg-background/80 backdrop-blur-sm border border-border/50 shadow-sm text-foreground hover:bg-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
       >
         {isOpen ? <X className="w-4 h-4" aria-hidden="true" /> : <Layers className="w-4 h-4" aria-hidden="true" />}
       </button>
@@ -117,7 +121,7 @@ export function LayerLegend({
         // tall legend run behind the Map data button (bottom-20 + ~2rem) and the
         // basemap toggle (bottom-8) in the same corner. 11rem = the 3.5rem top
         // offset plus clearance above that bottom-left stack.
-        className="absolute start-3 top-14 z-10 w-64 max-h-[calc(100%-11rem)] overflow-y-auto bg-background/90 backdrop-blur-md rounded-lg shadow-lg border border-border/50"
+        className={`absolute ${edge} top-14 z-10 w-64 max-h-[calc(100%-11rem)] overflow-y-auto bg-background/90 backdrop-blur-md rounded-lg shadow-lg border border-border/50`}
       >
         <div className="p-3 border-b border-border/50">
           <h2 className="text-sm font-semibold text-foreground">

@@ -335,7 +335,7 @@ export function MapDataPanel({
         ref={isExpanded ? undefined : attachContent}
         id={id}
         aria-label={t('viewer.data.title')}
-        className="flex shrink-0 flex-col overflow-hidden border-t bg-background"
+        className="relative z-10 flex shrink-0 flex-col overflow-hidden border-t bg-background"
         style={{ height: size.height }}
       >
       </section>

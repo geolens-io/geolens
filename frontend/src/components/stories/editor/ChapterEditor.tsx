@@ -2,6 +2,7 @@ import { useEffect, useId, useRef } from 'react';
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import { chapterTitle } from '../StoryChapterBody';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { randomId } from '@/lib/random-id';
@@ -124,7 +125,7 @@ export function ChapterEditor({
           id={titleId}
           value={chapter.title ?? ''}
           maxLength={CHAPTER_TITLE_MAX_LENGTH}
-          placeholder={t('reader.untitledChapter', { index: index + 1 })}
+          placeholder={chapterTitle({ title: null }, index, t)}
           onChange={(event) => edit({ type: 'setTitle', chapterId: chapter.id, title: event.target.value })}
         />
       </div>
