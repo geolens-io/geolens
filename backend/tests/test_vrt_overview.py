@@ -406,3 +406,70 @@ async def test_regeneration_replaces_the_overview_row(
         assert len(sizes) == 1 and sizes[0] > 1
     finally:
         await _purge_vrt(test_db_session, ids=ids)
+
+
+def _band_stack(tmp_path: Path, nodata: tuple[int, int]) -> tuple[str, list[str]]:
+    members = []
+    for index, value in enumerate(nodata):
+        path = tmp_path / f"band{index}.tif"
+        with rasterio.open(
+            path,
+            "w",
+            driver="GTiff",
+            dtype="uint8",
+            width=100,
+            height=100,
+            count=1,
+            crs="EPSG:4326",
+            transform=from_origin(0.0, 10.0, 0.001, 0.001),
+            nodata=value,
+        ) as dst:
+            dst.write(np.full((100, 100), 5, dtype="uint8"), 1)
+        members.append(str(path))
+    vrt_path = str(tmp_path / "stack.vrt")
+    build_vrt("band_stack", members, vrt_path, "finest")
+    return vrt_path, members
+
+
+@needs_gdal_cli
+def test_bands_with_different_nodata_get_no_overview(tmp_path: Path) -> None:
+    vrt_path, members = _band_stack(tmp_path, (0, 255))
+    before = Path(vrt_path).read_bytes()
+
+    assert add_vrt_overview(vrt_path, members) is None
+
+    assert Path(vrt_path).read_bytes() == before
+
+
+@needs_gdal_cli
+def test_bands_with_the_same_nodata_still_get_an_overview(tmp_path: Path) -> None:
+    vrt_path, members = _band_stack(tmp_path, (0, 0))
+
+    assert add_vrt_overview(vrt_path, members) is not None
+
+
+@needs_gdal_cli
+def test_a_masked_mosaic_gets_no_overview(tmp_path: Path) -> None:
+    members = []
+    for index in range(2):
+        path = tmp_path / f"m{index}.tif"
+        with rasterio.open(
+            path,
+            "w",
+            driver="GTiff",
+            dtype="uint8",
+            width=100,
+            height=100,
+            count=1,
+            crs="EPSG:4326",
+            transform=from_origin(index * 0.1, 10.0, 0.001, 0.001),
+        ) as dst:
+            dst.write(np.full((100, 100), 5, dtype="uint8"), 1)
+            dst.write_mask(np.full((100, 100), 255, dtype="uint8"))
+        members.append(str(path))
+    vrt_path = str(tmp_path / "masked.vrt")
+    build_vrt("mosaic", members, vrt_path, "finest")
+    assert parse(vrt_path).getroot().find(".//MaskBand") is not None
+
+    assert add_vrt_overview(vrt_path, members) is None
+    assert not (tmp_path / "masked.ovr.tif").exists()

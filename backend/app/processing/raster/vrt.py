@@ -466,8 +466,6 @@ def add_vrt_overview(vrt_path: str, source_paths: list[str]) -> str | None:
     """
     from xml.etree.ElementTree import SubElement, parse
 
-    if not members_lack_overviews(source_paths):
-        return None
     try:
         tree = parse(vrt_path)
     except Exception:  # broad: an optimisation must not fail a build gdalbuildvrt reported as successful
@@ -479,6 +477,16 @@ def add_vrt_overview(vrt_path: str, source_paths: list[str]) -> str | None:
         or int(root.get("rasterXSize", "0")) < 2
         or int(root.get("rasterYSize", "0")) < 2
     ):
+        return None
+    # One COG carries one nodata value, and a mask band stays backed by the
+    # full-resolution members, so neither case can use a shared overview.
+    if len({band.findtext("NoDataValue") for band in bands}) > 1:
+        logger.info("VRT overview skipped: the bands carry different nodata values")
+        return None
+    if root.find(".//MaskBand") is not None:
+        logger.info("VRT overview skipped: the VRT carries a mask band")
+        return None
+    if not members_lack_overviews(source_paths):
         return None
 
     overview_path = overview_key_for(vrt_path)
