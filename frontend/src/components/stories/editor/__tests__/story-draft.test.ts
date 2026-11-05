@@ -89,6 +89,20 @@ describe('scene edits', () => {
   });
 });
 
+describe('scene transition', () => {
+  it("sets a chapter's transition, and leaves a chapter without a scene alone", () => {
+    const withScene = applyDraftEdit([chapter('a')], { type: 'setMap', chapterId: 'a', mapId: 'm1', camera });
+    expect(withScene[0].scene?.transition).toBeUndefined();
+
+    const glide = applyDraftEdit(withScene, { type: 'setTransition', chapterId: 'a', transition: 'glide' });
+    expect(glide[0].scene?.transition).toBe('glide');
+    expect(glide[0].scene?.camera).toEqual(camera);
+
+    const textOnly = [chapter('b')];
+    expect(applyDraftEdit(textOnly, { type: 'setTransition', chapterId: 'b', transition: 'cut' })[0].scene).toBeNull();
+  });
+});
+
 describe('block edits', () => {
   it('adds, edits and removes text blocks', () => {
     const added = applyDraftEdit([chapter('a')], { type: 'addTextBlock', chapterId: 'a', blockId: 'new' });

@@ -16,7 +16,8 @@
     "previous": "Précédent",
     "next": "Suivant",
     "edit": "Modifier",
-    "sceneUnavailable": "La carte de ce chapitre est indisponible ou a été supprimée."
+    "sceneUnavailable": "La carte de ce chapitre est indisponible ou a été supprimée.",
+    "backToChapterView": "Revenir à la vue de ce chapitre"
   },
   "list": {
     "modeLabel": "Cartes ou récits",
@@ -182,7 +183,14 @@
       "mapMissing": "La carte de cette scène est introuvable. Elle a peut-être été supprimée.",
       "currentMapIs": "Carte : {{name}}",
       "mapResultsCount_one": "{{count}} carte trouvée",
-      "mapResultsCount_other": "{{count}} cartes trouvées"
+      "mapResultsCount_other": "{{count}} cartes trouvées",
+      "transition": "Transition",
+      "transitionHint": "Comment la carte se déplace vers la vue de ce chapitre.",
+      "transitions": {
+        "fly": "Vol",
+        "glide": "Glissement",
+        "cut": "Coupe"
+      }
     },
     "markdown": {
       "write": "Écrire",

@@ -43,6 +43,10 @@ import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
+import { resolveCirclePaint } from '@/components/builder/layer-adapters/circle-adapter';
+import { getBuilderStyleConfig, resolveAdapterType, scaleOpacity } from '@/components/builder/layer-adapters/shared';
+import { LAYER_FADE_MS, LayerFades } from '@/lib/layer-fade';
+import { motionDuration } from '@/lib/reduced-motion';
 import { clampMinZoomAfterFit, FIT_BOUNDS_OPTIONS, getVisibleLayerBounds } from '@/components/builder/builder-bounds';
 import { adapterInputFor, describeLayers, getSourceIdForLayer } from '@/components/builder/layer-description';
 import { prefixed, isDemTerrainVisualSuppressed, registerBasemapStyleGeneration, syncRenderContext } from '@/components/builder/map-sync';
@@ -108,6 +112,8 @@ interface ViewerMapProps {
   showAttributeTable?: boolean;
   /** Page controls laid over the map area, which the Map data panel pushes up rather than covers. */
   overlays?: ReactNode;
+  /** Layers a visibility change turns on or off fade over a moment instead of switching at once. */
+  fadeLayerChanges?: boolean;
 }
 
 /** Convert a SharedLayerResponse to the normalized SyncLayerInput.
@@ -116,18 +122,39 @@ export function toViewerSyncInput(
   layer: SharedLayerResponse,
   layerKey: string,
   visibleLayers: Set<string>,
+  fades?: ReadonlyMap<string, { factor: number }>,
 ): SyncLayerInput {
+  // A layer mid-fade is drawn visible, its opacity scaled.
+  const factor = fades?.get(layerKey)?.factor ?? 1;
+  const labelOpacity = factor !== 1 && layer.label_config ? scaleOpacity(layer.label_config.textOpacity ?? 1, factor) : undefined;
+  // The adapters fold the opacity into a circle's fill and a polygon's flat fill only: a ring and a configured extrusion opacity fade through their own keys.
+  // Circle keys go in only for a layer already drawn as points, since paint prefixes can decide the type of a layer with no geometry.
+  const drawsPoints = ['circle', 'cluster', 'mixed'].includes(
+    resolveAdapterType(layer.geometry_type, layer.style_config, layer.paint ?? {}),
+  );
+  const resolvedCircle = resolveCirclePaint(layer.paint ?? {});
+  const fadedPaint =
+    factor !== 1 && drawsPoints
+      ? { ...layer.paint, ...resolvedCircle, 'circle-stroke-opacity': scaleOpacity(resolvedCircle['circle-stroke-opacity'] ?? 1, factor) }
+      : (layer.paint ?? {});
+  // A DEM's elevation tint has a fixed opacity of its own.
+  const paint = factor !== 1 && layer.is_dem ? { ...fadedPaint, '_hypso-fade': factor } : fadedPaint;
+  const extrusionOpacity = getBuilderStyleConfig(layer).extrusionOpacity;
+  const styleConfig =
+    factor !== 1 && typeof extrusionOpacity === 'number'
+      ? { ...layer.style_config, builder: { ...layer.style_config?.builder, extrusionOpacity: extrusionOpacity * factor } }
+      : layer.style_config;
   return {
     id: layerKey,
     dataset_table_name: layer.table_name,
     dataset_geometry_type: layer.geometry_type,
-    opacity: layer.opacity ?? 1,
-    visible: visibleLayers.has(layerKey),
-    paint: layer.paint ?? {},
+    opacity: (layer.opacity ?? 1) * factor,
+    visible: visibleLayers.has(layerKey) || !!fades?.has(layerKey),
+    paint,
     layout: layer.layout ?? {},
     filter: layer.filter ?? null,
-    label_config: layer.label_config,
-    style_config: layer.style_config,
+    label_config: labelOpacity === undefined ? layer.label_config : { ...layer.label_config!, textOpacity: labelOpacity as never },
+    style_config: styleConfig,
     // Carry popup_config so the initial source build requests popup
     // visible_fields / title-template cols=; without it a viewer opened at z<10
     // strips those fields until a token refresh rebuilds the URL.
@@ -164,6 +191,7 @@ export const ViewerMap = memo(function ViewerMap({
   datasetLinksAllowed = false,
   showAttributeTable = false,
   overlays,
+  fadeLayerChanges = false,
 }: ViewerMapProps) {
   const { t } = useTranslation('common');
   const mapLocale = useMapLocale();
@@ -913,6 +941,8 @@ export const ViewerMap = memo(function ViewerMap({
     });
   }, [basemapConfig, showBasemapLabels]);
 
+  const [fades] = useState(() => new LayerFades());
+
   /** Wrapper: convert viewer state to normalized inputs and run shared composition sync. */
   const runSync = useCallback((map: MaplibreMap) => {
     const {
@@ -928,7 +958,7 @@ export const ViewerMap = memo(function ViewerMap({
     markMapLoading();
     const tileBaseUrl = resolveTileBaseUrl(tc);
     const syncInputs: SyncLayerInput[] = createViewerLayerEntries(ls).map(({ layer, key }) => (
-      toViewerSyncInput(layer, key, vl)
+      toViewerSyncInput(layer, key, vl, fades.entries)
     ));
     syncMapComposition({
       map,
@@ -963,7 +993,79 @@ export const ViewerMap = memo(function ViewerMap({
     appliedCompositionRef.current = hasOnlySuppressedTerrain || (hasViewerSources && hasViewerLayers)
       ? compositionRequestRef.current
       : null;
-  }, [markMapLoading]);
+  }, [markMapLoading, fades]);
+
+  // Toggle visibility when visibleLayers set changes.
+  // Note: runSync also calls syncVisibility via syncLayersToMap, but this
+  // dedicated effect is needed for *visibility-only* changes where other
+  // sync inputs (layers, tokenMap) haven't changed. It runs before the sync
+  // effect so a layer that starts fading is already known to that pass, which
+  // would otherwise hide it at once.
+  // Null until the opening state is drawn, which has nothing to fade from.
+  const prevVisibleRef = useRef<Set<string> | null>(null);
+  useEffect(() => () => fades.cancelAll(), [fades]);
+  // A fade's later steps read the layer as it is when they run, not as it was when the fade began.
+  const latestRef = useRef({ layerEntries, visibleLayers, mvtSourceLayerPrefix: tileConfig?.mvt_source_layer_prefix });
+  latestRef.current = { layerEntries, visibleLayers, mvtSourceLayerPrefix: tileConfig?.mvt_source_layer_prefix };
+  const applyLayer = useCallback((key: string, target: MaplibreMap, parts: { paint: boolean; visibility: boolean }) => {
+    const { layerEntries: entries, visibleLayers: visible, mvtSourceLayerPrefix } = latestRef.current;
+    const entry = entries.find((candidate) => candidate.key === key);
+    if (!entry) return;
+    try {
+      // A toggle reads ids and adapters, never sources, so it needs no tokens.
+      const context = syncRenderContext(new Map(), undefined, geojsonDataRef.current, {
+        idPrefix: VIEWER_PREFIX,
+        mvtSourceLayerPrefix,
+      });
+      const input = toViewerSyncInput(entry.layer, key, visible, fades.entries);
+      const [described] = describeLayers([input], context).layers;
+      if (!described) return;
+      const adapter = getAdapter(described.drawsAs);
+      const adapterInput = adapterInputFor(input, described);
+      if (parts.paint) adapter.syncPaint(target, adapterInput);
+      // Carries the label companion's visibility too, per its own spec.
+      if (parts.visibility) adapter.syncVisibility(target, adapterInput);
+    } catch (e) {
+      // An adapter can throw on a saved style it cannot read; the sync pass never drew that layer.
+      if (import.meta.env.DEV) console.warn(`[viewer] setting the visibility of ${key} failed:`, e);
+    }
+  }, [fades]);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !tileConfigReady) return;
+
+    const applyVisibilityDiff = () => {
+      const prev = prevVisibleRef.current ?? new Set<string>();
+      const fadeMs = prevVisibleRef.current && fadeLayerChanges ? motionDuration(LAYER_FADE_MS) : 0;
+      for (const { key } of layerEntries) {
+        const wasVisible = prev.has(key);
+        const isVisible = visibleLayers.has(key);
+        if (wasVisible === isVisible) continue;
+
+        if (fadeMs <= 0) {
+          // An instant toggle ends a fade the layer was in, and writes its current paint with it.
+          const wasFading = fades.release(map, key);
+          applyLayer(key, map, { paint: wasFading, visibility: true });
+        } else {
+          const write = (target: MaplibreMap, visibility: boolean) => applyLayer(key, target, { paint: true, visibility });
+          if (isVisible) fades.show(map, key, fadeMs, write);
+          else fades.hide(map, key, fadeMs, write);
+        }
+      }
+      prevVisibleRef.current = new Set(visibleLayers);
+    };
+
+    // A plain early return on !isStyleLoaded() would drop the toggle for good:
+    // prevVisibleRef isn't advanced and nothing in the deps changes when the
+    // style settles, so the checkbox and map stay out of sync. Mirror the
+    // BuilderMap idle retry: re-apply the diff once the map settles.
+    // A fade can't wait: the sync pass in the same commit leaves the style unsettled until idle.
+    if (!map.isStyleLoaded() && !(fadeLayerChanges && prevVisibleRef.current)) {
+      map.once('idle', applyVisibilityDiff);
+      return () => { map.off('idle', applyVisibilityDiff); };
+    }
+    applyVisibilityDiff();
+  }, [visibleLayers, layerEntries, mapReady, tileConfigReady, tileConfig?.mvt_source_layer_prefix, fadeLayerChanges, fades, applyLayer]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -992,50 +1094,6 @@ export const ViewerMap = memo(function ViewerMap({
   // Note: visibleLayers intentionally excluded — the dedicated visibility effect below handles it
   }, [layers, mapReady, tileConfigReady, tileConfig?.cdn_base_url, tileConfig?.mvt_source_layer_prefix, tokenMap, showBasemapLabels, runSync, embedToken, geojsonVersion]);
 
-  // Toggle visibility when visibleLayers set changes.
-  // Note: runSync also calls syncVisibility via syncLayersToMap, but this
-  // dedicated effect is needed for *visibility-only* changes where other
-  // sync inputs (layers, tokenMap) haven't changed.
-  const prevVisibleRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !tileConfigReady) return;
-
-    const applyVisibilityDiff = () => {
-      const prev = prevVisibleRef.current;
-      // A toggle reads ids and adapters, never sources, so it needs no tokens.
-      const context = syncRenderContext(new Map(), undefined, geojsonDataRef.current, {
-        idPrefix: VIEWER_PREFIX,
-        mvtSourceLayerPrefix: tileConfig?.mvt_source_layer_prefix,
-      });
-      for (const { layer, key } of layerEntries) {
-        const wasVisible = prev.has(key);
-        const isVisible = visibleLayers.has(key);
-        if (wasVisible === isVisible) continue;
-
-        const input = toViewerSyncInput(layer, key, visibleLayers);
-        const [described] = describeLayers([input], context).layers;
-        try {
-          // Carries the label companion's visibility too, per its own spec.
-          if (described) getAdapter(described.drawsAs).syncVisibility(map, adapterInputFor(input, described));
-        } catch (e) {
-          // An adapter can throw on a saved style it cannot read; the sync pass never drew that layer.
-          if (import.meta.env.DEV) console.warn(`[viewer] setting the visibility of ${described?.id} failed:`, e);
-        }
-      }
-      prevVisibleRef.current = new Set(visibleLayers);
-    };
-
-    // A plain early return on !isStyleLoaded() would drop the toggle for good:
-    // prevVisibleRef isn't advanced and nothing in the deps changes when the
-    // style settles, so the checkbox and map stay out of sync. Mirror the
-    // BuilderMap idle retry: re-apply the diff once the map settles.
-    if (!map.isStyleLoaded()) {
-      map.once('idle', applyVisibilityDiff);
-      return () => { map.off('idle', applyVisibilityDiff); };
-    }
-    applyVisibilityDiff();
-  }, [visibleLayers, layerEntries, mapReady, tileConfigReady, tileConfig?.mvt_source_layer_prefix]);
 
   // Re-add data layers after any basemap/style change. <MapGL
   // styleDiffing={false}> calls map.setStyle() when mapStyle changes, which

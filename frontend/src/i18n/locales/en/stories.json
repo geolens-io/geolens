@@ -16,7 +16,8 @@
     "previous": "Previous",
     "next": "Next",
     "edit": "Edit",
-    "sceneUnavailable": "This chapter's map is unavailable or has been deleted."
+    "sceneUnavailable": "This chapter's map is unavailable or has been deleted.",
+    "backToChapterView": "Back to this chapter's view"
   },
   "list": {
     "modeLabel": "Maps or stories",
@@ -182,7 +183,14 @@
       "mapMissing": "This scene's map wasn't found. It may have been deleted.",
       "currentMapIs": "Map: {{name}}",
       "mapResultsCount_one": "{{count}} map found",
-      "mapResultsCount_other": "{{count}} maps found"
+      "mapResultsCount_other": "{{count}} maps found",
+      "transition": "Transition",
+      "transitionHint": "How the map moves to this chapter's view.",
+      "transitions": {
+        "fly": "Fly",
+        "glide": "Glide",
+        "cut": "Cut"
+      }
     },
     "markdown": {
       "write": "Write",

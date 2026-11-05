@@ -1,4 +1,5 @@
 import type { BuilderCamera } from '@/components/builder/builder-camera';
+import { lngOffset } from '@/lib/bbox';
 import type { StoryCamera, StoryChapter, StoryScene } from '@/types/api';
 
 export interface ResolvedScene {
@@ -76,4 +77,63 @@ export function toStoryCamera(camera: BuilderCamera): StoryCamera | null {
  */
 export function activeChapterFrom(crossed: readonly boolean[]): number {
   return Math.max(0, crossed.lastIndexOf(true));
+}
+
+const TRANSITION_MIN_MS = 600;
+const TRANSITION_MAX_MS = 2500;
+const TRANSITION_PX_PER_ZOOM = 150;
+
+/** Pixels, zoom levels and degrees of difference between the map's view and a scene camera. */
+export interface CameraGap {
+  panPx: number;
+  zoom: number;
+  bearing: number;
+  pitch: number;
+}
+
+/**
+ * How long a Fly or Glide takes: one millisecond per screen pixel of the move
+ * at the current zoom, plus 150 px per zoom level changed, between 600 ms and 2.5 s.
+ */
+export function transitionDuration({ panPx, zoom }: CameraGap): number {
+  const distance = panPx + zoom * TRANSITION_PX_PER_ZOOM;
+  if (!Number.isFinite(distance)) return TRANSITION_MAX_MS;
+  return Math.round(Math.min(TRANSITION_MAX_MS, TRANSITION_MIN_MS + distance));
+}
+
+/** The part of the map a camera comparison reads. */
+export interface CameraProbe {
+  getCenter(): { lng: number; lat: number };
+  getZoom(): number;
+  getBearing(): number;
+  getPitch(): number;
+  project(lngLat: [number, number]): { x: number; y: number };
+  getContainer(): { clientWidth: number; clientHeight: number };
+}
+
+/** How far the view may drift from a scene camera before it counts as moved, in screen pixels. */
+export function panTolerancePx(map: Pick<CameraProbe, 'getContainer'>): number {
+  const { clientWidth, clientHeight } = map.getContainer();
+  return 0.02 * Math.min(clientWidth, clientHeight);
+}
+
+export function cameraGap(map: CameraProbe, target: StoryCamera): CameraGap {
+  const center = map.getCenter();
+  // The target in the world the centre is in, so a pan across the antimeridian takes the short way.
+  const lng = center.lng + lngOffset(target.center[0], center.lng);
+  const to = map.project([lng, target.center[1]]);
+  // The map's centre is the middle of its container.
+  const { clientWidth, clientHeight } = map.getContainer();
+  return {
+    panPx: Math.hypot(to.x - clientWidth / 2, to.y - clientHeight / 2),
+    zoom: Math.abs(map.getZoom() - target.zoom),
+    bearing: Math.abs(lngOffset(map.getBearing(), target.bearing)),
+    pitch: Math.abs(map.getPitch() - target.pitch),
+  };
+}
+
+/** True when the view is off the scene's camera by more than a small tolerance. */
+export function cameraDiffers(map: CameraProbe, target: StoryCamera, tolerancePx: number): boolean {
+  const gap = cameraGap(map, target);
+  return gap.panPx > tolerancePx || gap.zoom > 0.1 || gap.bearing > 1 || gap.pitch > 1;
 }

@@ -78,11 +78,11 @@ describe('getExpressionSafeOpacity', () => {
     expect(getExpressionSafeOpacity({ 'line-opacity': 0.5 }, 'line', 0.4)).toBe(0.2);
   });
 
-  it('multiplies expression-valued opacity by the master slider', () => {
-    const opacityExpression = ['step', ['zoom'], 0.25, 10, 0.75];
+  it('scales expression-valued opacity by the master slider', () => {
+    const opacityExpression = ['step', ['zoom'], 0.5, 10, 1];
 
     expect(getExpressionSafeOpacity({ 'circle-opacity': opacityExpression }, 'circle', 0.4))
-      .toEqual(['*', opacityExpression, 0.4]);
+      .toEqual(['step', ['zoom'], 0.2, 10, 0.4]);
     // Master at 1 keeps the expression identity (no pointless wrapper churn).
     expect(getExpressionSafeOpacity({ 'circle-opacity': opacityExpression }, 'circle', 1)).toEqual(opacityExpression);
   });

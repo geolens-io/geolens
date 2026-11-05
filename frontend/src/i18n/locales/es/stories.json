@@ -16,7 +16,8 @@
     "previous": "Anterior",
     "next": "Siguiente",
     "edit": "Editar",
-    "sceneUnavailable": "El mapa de este capítulo no está disponible o se eliminó."
+    "sceneUnavailable": "El mapa de este capítulo no está disponible o se eliminó.",
+    "backToChapterView": "Volver a la vista de este capítulo"
   },
   "list": {
     "modeLabel": "Mapas o historias",
@@ -182,7 +183,14 @@
       "mapMissing": "No se encontró el mapa de esta escena. Puede que se haya eliminado.",
       "currentMapIs": "Mapa: {{name}}",
       "mapResultsCount_one": "{{count}} mapa encontrado",
-      "mapResultsCount_other": "{{count}} mapas encontrados"
+      "mapResultsCount_other": "{{count}} mapas encontrados",
+      "transition": "Transición",
+      "transitionHint": "Cómo se mueve el mapa hasta la vista de este capítulo.",
+      "transitions": {
+        "fly": "Vuelo",
+        "glide": "Deslizamiento",
+        "cut": "Corte"
+      }
     },
     "markdown": {
       "write": "Escribir",

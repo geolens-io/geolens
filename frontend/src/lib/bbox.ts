@@ -159,3 +159,8 @@ export function geometryBounds(
 
   return Number.isFinite(west) ? [west, south, east, north] : null;
 }
+
+/** Longitude relative to the origin, wrapped into [-180, 180) so a span across the antimeridian stays contiguous. */
+export function lngOffset(lng: number, originLng: number): number {
+  return ((((lng - originLng) % 360) + 540) % 360) - 180;
+}
