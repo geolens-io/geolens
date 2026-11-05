@@ -107,7 +107,9 @@ def test_the_policy_request_is_internal_anonymous_and_cannot_fail_the_shell():
         assert directive in own, directive
     error_page = re.search(r"error_page ([0-9 ]+) = (@\w+);", own)
     assert error_page is not None
-    assert {"500", "502", "503", "504"} <= set(error_page.group(1).split())
+    # An older api reads the policy path as a story id and answers 422.
+    answers = {"400", "401", "403", "404", "405", "409", "422", "429", "500", "502"}
+    assert answers | {"503", "504"} <= set(error_page.group(1).split())
     fallback = next(loc for loc in _tree() if loc.pattern == error_page.group(2))
     status = re.search(r"return (\d{3});", fallback.own)
     assert status is not None and status.group(1).startswith("2")
