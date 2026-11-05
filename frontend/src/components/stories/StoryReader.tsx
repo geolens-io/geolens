@@ -137,6 +137,7 @@ export function StoryReader({
       })
     : '';
 
+  const bare = floating !== undefined && isTextless(chapter);
   const selectChapter = (index: number) => {
     changeChapter(index);
     scroller.current?.scrollToChapter(index);
@@ -168,7 +169,24 @@ export function StoryReader({
         {isNarrow ? (
           <StoryStepper {...panelProps} />
         ) : (
-          <StoryScrollPanel ref={scroller} {...panelProps} floating={floating} bare={floating !== undefined && isTextless(chapter)} />
+          <StoryScrollPanel ref={scroller} {...panelProps} floating={floating} bare={bare} />
+        )}
+        {bare && floating && (
+          // The hidden panel no longer takes the wheel, so these move between chapters instead.
+          <div
+            role="group"
+            aria-label={t('reader.stepperLabel')}
+            className={cn('absolute top-3 z-[6] flex gap-1 rounded-lg border bg-card p-1 shadow-lg', FLOATING_PLACEMENT[floating])}
+          >
+            <Button variant="ghost" size="sm" aria-disabled={active === 0} onClick={() => selectChapter(active - 1)}>
+              <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+              {t('reader.previous')}
+            </Button>
+            <Button variant="ghost" size="sm" aria-disabled={active === chapters.length - 1} onClick={() => selectChapter(active + 1)}>
+              {t('reader.next')}
+              <ChevronRight className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          </div>
         )}
         {!textOnly && (
           <div
@@ -319,7 +337,7 @@ function StoryScrollPanel({
               FLOATING_BASE,
               FLOATING_PLACEMENT[floating],
               'h-[min(48rem,calc(100%-5rem))] w-[26rem] lg:w-[30rem]',
-              bare && 'border-transparent bg-transparent shadow-none [&>*]:opacity-0',
+              bare && 'pointer-events-none border-transparent bg-transparent shadow-none [&>*]:opacity-0',
             )
           : cn('bg-background', textOnly ? 'flex-1' : 'w-[26rem] shrink-0 border-e lg:w-[30rem]'),
       )}

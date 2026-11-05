@@ -486,14 +486,19 @@ describe('floating layout', () => {
     renderWith({ layout: 'floating', navigation: true }, [CHAPTERS[0], blank, CHAPTERS[2]]);
     const panel = screen.getByRole('region', { name: 'Story chapters' });
     expect(panel).toHaveClass('bg-card');
+    expect(panel).not.toHaveClass('pointer-events-none');
 
     await user.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'Chapter 2' }));
     expect(screen.getByRole('region', { name: 'Story chapters' })).toBe(panel);
     expect(panel).toHaveClass('bg-transparent');
     expect(panel).not.toHaveClass('bg-card');
+    expect(panel).toHaveClass('pointer-events-none');
 
-    await user.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'Chapter 3' }));
+    // With the panel out of the way, its own buttons advance the story.
+    await user.click(screen.getByRole('button', { name: /Next/ }));
     expect(panel).toHaveClass('bg-card');
+    expect(panel).not.toHaveClass('pointer-events-none');
+    expect(screen.queryByRole('button', { name: /Next/ })).not.toBeInTheDocument();
   });
 
   it('keeps a short last chapter selected after jumping to it', async () => {
