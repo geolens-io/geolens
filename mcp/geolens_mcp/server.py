@@ -196,7 +196,8 @@ def list_stories(
     Args:
         search: Optional text filter on story title/summary.
         limit: Max results (1-200, default 50).
-        offset: Result offset for paging.
+        offset: Result offset for paging. `total` and paging reflect the
+            server's answer.
     """
     return _get_api().list_stories(search=search, limit=limit, offset=offset)
 

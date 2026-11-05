@@ -670,3 +670,22 @@ def test_aggregate_posts_the_body_unchanged_and_keeps_refusal_codes():
         api.aggregate(DS, body)
     assert "422" in str(exc.value)
     assert "too_wide" in str(exc.value)
+
+
+def test_list_stories_drops_drafts_and_misses_an_older_server_returned():
+    def older_server(request):
+        return httpx.Response(
+            200,
+            json={
+                "stories": [
+                    _story(_STORY_ID, "Skyline", summary="Tall"),
+                    _story(DS, "Skyline draft", published=False),
+                    _story("99999999-2222-3333-4444-555555555555", "Rivers"),
+                ],
+                "total": 3,
+            },
+        )
+
+    api, _ = _api(older_server)
+    out = api.list_stories(search="SKYLINE")
+    assert [s["title"] for s in out["stories"]] == ["Skyline"]

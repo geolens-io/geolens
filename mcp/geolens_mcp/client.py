@@ -281,6 +281,10 @@ def _story_summary(story: Any) -> Any:
     }
 
 
+def _story_text(story: dict[str, Any]) -> str:
+    return f"{story.get('title') or ''} {story.get('summary') or ''}".casefold()
+
+
 def _story_detail(detail: Any) -> Any:
     """Reduce a StoryResponse to its metadata and published document."""
     if not isinstance(detail, dict):
@@ -460,7 +464,16 @@ class GeoLensReadOnlyAPI:
             _params(search=search, limit=limit, skip=offset, published_only="true"),
         )
         if isinstance(body, dict) and isinstance(body.get("stories"), list):
-            body = {**body, "stories": [_story_summary(s) for s in body["stories"]]}
+            # An older server ignores the filters; never pass drafts through.
+            needle = search.casefold() if search else None
+            kept = [
+                _story_summary(s)
+                for s in body["stories"]
+                if isinstance(s, dict)
+                and s.get("published_at")
+                and (needle is None or needle in _story_text(s))
+            ]
+            body = {**body, "stories": kept}
         return body
 
     def get_story(self, story_id: str) -> Any:
