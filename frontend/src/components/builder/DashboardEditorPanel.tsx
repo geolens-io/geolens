@@ -20,6 +20,7 @@ import { toSharedLayer } from '@/components/viewer/shared-layer';
 import { WIDGET_TITLE_MAX_LENGTH, type AnyWidgetDefinition, type WidgetInstance } from '@/components/widgets/contract';
 import { SelectField } from '@/components/widgets/editor-fields';
 import { getWidgetDefinition, isLayerBound, widgetDefinitions } from '@/components/widgets/registry';
+import { useTheme } from '@/components/theme-provider';
 import { useDebouncedValue } from '@/hooks/use-debounce';
 import type { Bbox } from '@/lib/bbox';
 import { randomId } from '@/lib/random-id';
@@ -295,6 +296,9 @@ function PanelPreview({
   const { t } = useTranslation('widgets');
   const config = useMemo(() => dashboardPayload(draft, layers, draft), [draft, layers]);
   const layout = dashboardLayout(config);
+  const { resolvedTheme } = useTheme();
+  // Readers see the selected theme; follow shows the Builder's own.
+  const previewTheme = draft.theme === 'light' || draft.theme === 'dark' ? draft.theme : resolvedTheme;
   const shared = useMemo(() => dashboardLayers(layers).map(toSharedLayer), [layers]);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -305,7 +309,8 @@ function PanelPreview({
         </DialogHeader>
         <div
           className={cn(
-            'flex h-[70dvh] min-h-0 flex-col overflow-hidden rounded-md border',
+            'flex h-[70dvh] min-h-0 flex-col overflow-hidden rounded-md border bg-background text-foreground',
+            previewTheme,
             layout === 'right' && 'md:flex-row',
           )}
         >

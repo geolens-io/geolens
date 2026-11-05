@@ -22,7 +22,8 @@
  * --text-2xl: 1.5rem   (24px)
  */
 
-:root {
+:root,
+.light {
   /* Base radius: cards at 8px, buttons/inputs at 6px. */
   --radius: 0.5rem;
 
