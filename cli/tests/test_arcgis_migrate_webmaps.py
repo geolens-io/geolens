@@ -41,6 +41,7 @@ from .test_arcgis_migrate_layers import (  # noqa: F401  (fixtures)
     FakeImport,
     _layer,
     _migrate,
+    _dataset,
     _problem,
     _state,
     _write_plan,
@@ -1647,10 +1648,20 @@ def _committing_save(geolens, *, commits: bool, failure: Exception | None):
         "dashboard_config": None,
     }
     read = geolens.routes["GET /maps/" + MAP_ID]
+    # What a save reads from a layer's dataset to fill in its styles.
+    geometries = {dataset_id("Parcels"): "Polygon", dataset_id("Owners"): "Point"}
+    geolens.dataset_geometry = geometries
+    for ds in geometries:
+        geolens.routes[f"GET /datasets/{ds}"] = lambda seen, ds=ds: {
+            **_dataset(ds, OPERATOR),
+            "geometry_type": geometries[ds],
+        }
 
     def put(seen):
         sent = seen.json()
         saved = _saved(sent)
+        for row in saved["layers"]:
+            row["dataset_geometry_type"] = geometries.get(row["dataset_id"])
         if commits:
             stored.update(
                 {k: saved[k] for k in ("updated_at", "layers", "layer_count")},
@@ -1939,9 +1950,12 @@ def test_a_layer_whose_service_imports_later_is_added_without_a_portal_change(
 
 
 DEFAULT_PAINT = {"fill-color": "#999999"}
+POINT_PAINT = {"circle-color": "#111111"}
 
 
-def _default_styled_save(geolens, *, lose: set[int], first_paint=None):
+def _default_styled_save(
+    geolens, *, lose: set[int], first_paint=None, later_dataset: str | None = None
+):
     """A translation that sends every layer's paint null (the first one
     *first_paint*), and a save that fills the default in and stores it; the
     saves numbered in *lose* commit and raise a timeout in place of an
@@ -1954,7 +1968,11 @@ def _default_styled_save(geolens, *, lose: set[int], first_paint=None):
             return 201, _response(lost=2)
         dry_runs.append(1)
         paint = first_paint if len(dry_runs) == 1 else None
-        layers = [{**layer, "paint": paint} for layer in translated["layers"]]
+        dataset = later_dataset if len(dry_runs) > 1 and later_dataset else None
+        layers = [
+            {**layer, "paint": paint, **({"dataset_id": dataset} if dataset else {})}
+            for layer in translated["layers"]
+        ]
         return 201, {**translated, "layers": layers}
 
     geolens.routes[IMPORT] = translate
@@ -1966,7 +1984,8 @@ def _default_styled_save(geolens, *, lose: set[int], first_paint=None):
         calls.append(1)
         answer = commit(seen)
         for layer in answer["layers"]:
-            layer["paint"] = layer["paint"] or DEFAULT_PAINT
+            point = layer["dataset_geometry_type"] == "Point"
+            layer["paint"] = layer["paint"] or (POINT_PAINT if point else DEFAULT_PAINT)
         stamp = f"2026-10-0{len(calls) + 2}T00:00:00Z"
         answer["updated_at"] = stored["updated_at"] = stamp
         stored["layers"] = answer["layers"]
@@ -2150,6 +2169,35 @@ def test_an_explicit_paint_with_a_null_outline_is_not_adopted_against_the_cached
     [reason] = payload["not_up_to_date"][B1]
     assert "changed in GeoLens since the last run" in reason
     assert len(_puts(geolens)) == 2
+
+
+@pytest.mark.parametrize("change", ["unchanged", "repointed", "geometry-changed"])
+def test_a_cached_default_is_reused_only_for_the_dataset_it_was_made_from(
+    runner, plan_file, geolens, portal, change
+):
+    token = _changed_in_the_portal(runner, plan_file, geolens, portal)
+    owners = dataset_id("Owners") if change == "repointed" else None
+    stored = _default_styled_save(geolens, lose={2}, later_dataset=owners)
+    _migrate(runner, plan_file, "--token", token)
+    _edit_webmap(portal, lambda layers: None)
+    if change == "geometry-changed":
+        geolens.dataset_geometry[dataset_id("Parcels")] = "Point"
+    _migrate(runner, plan_file, "--token", token)
+    if change != "unchanged":
+        # The user restores the styles the layers had before the lost save.
+        for layer in stored["layers"]:
+            layer["paint"] = DEFAULT_PAINT
+        stored["updated_at"] = "2026-10-09T00:00:00Z"
+
+    result, payload = _migrate(runner, plan_file, "--token", token)
+
+    assert len(_puts(geolens)) == 2
+    if change == "unchanged":
+        assert result.exit_code == 0, result.output
+    else:
+        assert result.exit_code == 1
+        [reason] = payload["not_up_to_date"][B1]
+        assert "changed in GeoLens since the last run" in reason
 
 
 def test_a_web_map_with_a_layer_still_owed_blocks_cutover(

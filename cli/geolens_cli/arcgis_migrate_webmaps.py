@@ -640,7 +640,11 @@ def _translate_again(
     # lost from an edit made in GeoLens.
     entry.pending_write = {
         **_write_fingerprint(
-            update, found, entry.layer_styles, entry.layer_ids.values()
+            update,
+            found,
+            entry.layer_styles,
+            entry.layer_ids.values(),
+            _geometries(ctx, layers),
         ),
         "after": after,
     }
@@ -704,6 +708,30 @@ def _record_write(entry: ItemState, after: Mapping[str, Any], saved: Any) -> Non
     entry.pending_write = None
 
 
+def _style_inputs(dataset_id: Any, geometry: Any) -> dict[str, Any]:
+    """What a save reads from the dataset to fill in a style."""
+    return {"dataset_id": str(dataset_id), "geometry": geometry}
+
+
+def _geometries(
+    ctx: MigrationContext, layers: Sequence[Mapping[str, Any]]
+) -> dict[str, Any]:
+    """Dataset id -> its geometry type, for the datasets of the layers that
+    send a style null. A dataset that can't be read is left out."""
+    from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get as get
+    from geolens.types import Unset
+
+    found: dict[str, Any] = {}
+    for dataset_id in {str(row["dataset_id"]) for row in layers if _null_styles(row)}:
+        try:
+            dataset = ctx.geolens.call(get.sync_detailed, dataset_id=UUID(dataset_id))
+        except (GeoLensError, ValueError):
+            continue
+        geometry = getattr(dataset, "geometry_type", None)
+        found[dataset_id] = None if isinstance(geometry, Unset) else geometry
+    return found
+
+
 def _null_styles(layer: Mapping[str, Any]) -> list[str]:
     """The styles a layer sends null or leaves out, which the save fills in."""
     return [key for key in _SERVER_FILLED if layer.get(key) is None]
@@ -720,6 +748,9 @@ def _filled_styles(
         str(row["id"]): {
             "values": {k: row.get(k) for k in _SERVER_FILLED},
             "null_sent": list(nulls.get(str(row["id"]), [])),
+            "inputs": _style_inputs(
+                row.get("dataset_id"), row.get("dataset_geometry_type")
+            ),
         }
         for row in rows
     }
@@ -777,6 +808,9 @@ _DERIVED_MAP_KEYS = frozenset(
 )
 
 
+_UNKNOWN = object()
+
+
 # The layer fields a save fills in from the dataset when they are sent null.
 _SERVER_FILLED = ("paint", "layout", "style_config", "layer_type")
 
@@ -817,6 +851,7 @@ def _write_fingerprint(
     before: Any,
     styles: Mapping[str, Mapping[str, Any]],
     hidden_candidates: Collection[str],
+    geometries: Mapping[str, Any],
 ) -> dict[str, Any]:
     """A fingerprint of the map a save leaves, and the fields it covers: the
     ones the save sends, and every other field of the map as *before* has it,
@@ -848,14 +883,24 @@ def _write_fingerprint(
         }
         recorded = styles.get(str(layer.get("id") or ""))
         nulls = _null_styles(layer)
+        # A recorded default holds only for the dataset it was made from, and
+        # the default outline only while the paint is null as well.
+        current = _style_inputs(
+            layer.get("dataset_id"),
+            geometries.get(str(layer.get("dataset_id")), _UNKNOWN),
+        )
         for key in nulls:
-            # The default outline is filled in only while the paint is null too.
-            same_inputs = key != "style_config" or (
+            reusable = (
                 recorded is not None
-                and "paint" in nulls
-                and "paint" in recorded["null_sent"]
+                and recorded.get("inputs") == current
+                and key in recorded["null_sent"]
+                and (
+                    key != "style_config"
+                    or "paint" in nulls
+                    and "paint" in recorded["null_sent"]
+                )
             )
-            if same_inputs and recorded is not None and key in recorded["null_sent"]:
+            if reusable:
                 row[key] = recorded["values"][key]
             else:
                 row.pop(key, None)
