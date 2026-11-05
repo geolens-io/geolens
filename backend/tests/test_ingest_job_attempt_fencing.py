@@ -136,6 +136,7 @@ async def test_vrt_generation_heartbeat_fences_stale_recovery(test_db_session):
     generation_base = f"rasters/{dataset.id}/generations/{generation.id}"
     expected_keys = (
         f"{generation_base}/source.vrt",
+        f"{generation_base}/source.ovr.tif",
         f"{generation_base}/quicklook_256.png",
         f"{generation_base}/quicklook_512.png",
     )
