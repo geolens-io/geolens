@@ -80,6 +80,10 @@ def test_a_registered_theme_is_returned(branding):
         {"font_family": "Inter; background: url(x)"},
         {"font_family": "Inter\\0"},
         {"font_family": "a" * 101},
+        {"font_family": "'Inter"},
+        {"font_family": "Inter,,Roboto"},
+        {"font_family": ",Inter"},
+        {"font_family": "Inter,"},
         {"css": "body { color: red }"},
     ],
 )

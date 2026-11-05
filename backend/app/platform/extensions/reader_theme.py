@@ -14,6 +14,12 @@ logger = structlog.stdlib.get_logger(__name__)
 _warned = False
 
 
+_FONT_SEGMENT = (
+    r"""(?:"[A-Za-z0-9 -]+"|'[A-Za-z0-9 -]+'|[A-Za-z0-9-]+(?: [A-Za-z0-9-]+)*)"""
+)
+_FONT_LIST = rf"^ ?{_FONT_SEGMENT} ?(?:, ?{_FONT_SEGMENT} ?)*$"
+
+
 class ReaderTheme(BaseModel):
     """An accent colour, a logo and a font family for reader-facing pages.
 
@@ -37,7 +43,9 @@ class ReaderTheme(BaseModel):
     font_family: str | None = Field(
         default=None,
         max_length=100,
-        pattern=r"""^[A-Za-z0-9 ,'"-]+$""",
+        # A comma-separated list of family names, each quoted or bare and
+        # never empty, so the page can append its own fallback after it.
+        pattern=_FONT_LIST,
         description="A CSS font family list the page's text uses first.",
     )
 

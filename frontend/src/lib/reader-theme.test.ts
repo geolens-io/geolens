@@ -1,7 +1,7 @@
 import { readerLogoUrl, readerThemeStyle } from './reader-theme';
 
-// Relative luminance of the light and dark --background tokens.
-const BACKGROUND = { light: 0.9557, dark: 0.0031 };
+// Relative luminance of the light --background and the dark --card tokens.
+const BACKGROUND = { light: 0.9557, dark: 0.0059 };
 
 function luminance(hex: string): number {
   const [r, g, b] = [1, 3, 5].map((i) => {
@@ -48,6 +48,13 @@ describe('readerThemeStyle', () => {
     expect(primary('#ffd23f', 'dark')).toBe('#ffd23f');
   });
 
+  it('lightens an accent that reads on the dark background but not on the dark card', () => {
+    const accent = '#7a7a7a';
+    expect(contrast(accent, 0.0031)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(accent, BACKGROUND.dark)).toBeLessThan(4.5);
+    expect(contrast(primary(accent, 'dark'), BACKGROUND.dark)).toBeGreaterThanOrEqual(4.5);
+  });
+
   it('keeps the hue when it adjusts the accent', () => {
     const [r, g, b] = [1, 3, 5].map((i) => parseInt(primary('#ffd23f', 'light').slice(i, i + 2), 16));
     expect(r).toBeGreaterThan(g);
@@ -66,6 +73,10 @@ describe('readerThemeStyle', () => {
     });
   });
 
+  it.each(["'Inter", 'Inter,,Roboto', ',Inter', 'Inter,'])('ignores the malformed font list %s', (font) => {
+    expect(readerThemeStyle({ font_family: font }, 'light')).toBeUndefined();
+  });
+
   it('ignores values outside the allowed set', () => {
     expect(
       readerThemeStyle({ accent: 'red; color: blue', font_family: 'x; background: url(y)' }, 'light'),
@@ -76,6 +87,7 @@ describe('readerThemeStyle', () => {
 describe('readerLogoUrl', () => {
   it('returns only an https logo', () => {
     expect(readerLogoUrl({ logo_url: 'https://cdn.example.com/logo.svg' })).toBe('https://cdn.example.com/logo.svg');
+    expect(readerLogoUrl({ logo_url: 'HTTPS://cdn.example.com/logo.svg' })).toBe('HTTPS://cdn.example.com/logo.svg');
     expect(readerLogoUrl({ logo_url: 'javascript:alert(1)' })).toBeUndefined();
     expect(readerLogoUrl({ logo_url: 'http://cdn.example.com/logo.svg' })).toBeUndefined();
     expect(readerLogoUrl(null)).toBeUndefined();

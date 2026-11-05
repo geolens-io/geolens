@@ -5,12 +5,16 @@ export type ReaderTheme = components['schemas']['ReaderTheme'];
 type ColorMode = 'light' | 'dark';
 
 const HEX = /^#[0-9a-f]{6}$/i;
-const FONT = /^[A-Za-z0-9 ,'"-]{1,100}$/;
+// A comma-separated list of family names, each quoted or bare and never empty.
+const FONT_SEGMENT = String.raw`(?:"[A-Za-z0-9 -]+"|'[A-Za-z0-9 -]+'|[A-Za-z0-9-]+(?: [A-Za-z0-9-]+)*)`;
+const FONT = new RegExp(`^ ?${FONT_SEGMENT} ?(?:, ?${FONT_SEGMENT} ?)*$`);
+const FONT_MAX_LENGTH = 100;
 // The light and dark text tokens from index.css.
 const LIGHT_TEXT = 'oklch(0.985 0 0)';
 const DARK_TEXT = 'oklch(0.145 0.005 250)';
-// Relative luminance of the light and dark --background tokens in index.css.
-const BACKGROUND_LUMINANCE: Record<ColorMode, number> = { light: 0.9557, dark: 0.0031 };
+// Relative luminance of the surface each accent contrasts worst against: the light
+// --background and the dark --card, the lightest dark surface text sits on (index.css).
+const SURFACE_LUMINANCE: Record<ColorMode, number> = { light: 0.9557, dark: 0.0059 };
 const MIN_CONTRAST = 4.5;
 
 type Rgb = [number, number, number];
@@ -45,11 +49,11 @@ function hslToRgb(h: number, s: number, l: number): Rgb {
 }
 
 /**
- * The accent as text on the page background: unchanged when it reaches 4.5:1,
+ * The accent as text on the page's surfaces: unchanged when it reaches 4.5:1,
  * else the same hue darkened (light mode) or lightened (dark mode) until it does.
  */
 function readableAccent(hex: string, mode: ColorMode): string {
-  const background = BACKGROUND_LUMINANCE[mode];
+  const background = SURFACE_LUMINANCE[mode];
   if (contrastRatio(luminance(hex), background) >= MIN_CONTRAST) return hex;
   const [h, s, l] = rgbToHsl(hexToRgb(hex));
   const step = mode === 'light' ? -0.02 : 0.02;
@@ -80,7 +84,7 @@ export function readerThemeStyle(theme: ReaderTheme | null | undefined, mode: Co
     style['--primary'] = primary;
     style['--primary-foreground'] = foregroundOn(primary);
   }
-  if (theme.font_family && FONT.test(theme.font_family)) {
+  if (theme.font_family && theme.font_family.length <= FONT_MAX_LENGTH && FONT.test(theme.font_family)) {
     style.fontFamily = `${theme.font_family}, var(--default-font-family)`;
   }
   return Object.keys(style).length > 0 ? (style as CSSProperties) : undefined;
@@ -88,5 +92,6 @@ export function readerThemeStyle(theme: ReaderTheme | null | undefined, mode: Co
 
 /** The theme's logo URL when it is https, else undefined. */
 export function readerLogoUrl(theme: ReaderTheme | null | undefined): string | undefined {
-  return theme?.logo_url?.startsWith('https://') ? theme.logo_url : undefined;
+  const url = theme?.logo_url;
+  return url && /^https:\/\//i.test(url) ? url : undefined;
 }
