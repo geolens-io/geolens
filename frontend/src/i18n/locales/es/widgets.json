@@ -246,6 +246,7 @@
     "sortOrder": "Orden",
     "fields": "Campos",
     "layerColors": "Usar los colores de la capa",
-    "layerColorsHelp": "Se aplica cuando la columna es la que el estilo del mapa de la capa usa para colorear."
+    "layerColorsHelp": "Se aplica cuando la columna es la que el estilo del mapa de la capa usa para colorear.",
+    "fieldUnavailable": "{{column}} (no es una columna numérica de esta capa)"
   }
 }

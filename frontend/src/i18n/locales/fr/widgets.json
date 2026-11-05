@@ -246,6 +246,7 @@
     "sortOrder": "Ordre",
     "fields": "Champs",
     "layerColors": "Utiliser les couleurs de la couche",
-    "layerColorsHelp": "S’applique lorsque la colonne est celle par laquelle le style de la couche colore la carte."
+    "layerColorsHelp": "S’applique lorsque la colonne est celle par laquelle le style de la couche colore la carte.",
+    "fieldUnavailable": "{{column}} (n’est pas une colonne numérique de cette couche)"
   }
 }

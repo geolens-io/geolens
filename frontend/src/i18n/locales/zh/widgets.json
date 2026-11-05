@@ -246,6 +246,7 @@
     "sortOrder": "排序",
     "fields": "字段",
     "layerColors": "使用图层的颜色",
-    "layerColorsHelp": "当该列正是图层地图样式用来着色的列时生效。"
+    "layerColorsHelp": "当该列正是图层地图样式用来着色的列时生效。",
+    "fieldUnavailable": "{{column}}（不是此图层的数值列）"
   }
 }

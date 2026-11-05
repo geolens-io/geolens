@@ -746,6 +746,29 @@ function clusterFor(layer: LegendLayer, kind: LayerAdapter['type']): LegendFacts
 }
 
 /**
+ * The colour the map's categorical paint gives each value of its column, read
+ * from the paint itself; null when the layer isn't coloured by a `match` on a
+ * column. A value no arm lists takes the fallback colour, as the map draws it.
+ */
+export function categoryColors(layer: LegendLayer): { column: string; colorOf: (value: unknown) => string | undefined } | null {
+  if (!legendFacts(layer)) return null;
+  const kind = drawsAs(layer);
+  if (!CLASSED_KINDS.has(kind)) return null;
+  const paint = layer.paint ?? {};
+  const match = matchClasses(drawnColor(paint, kind, inferGeometryType(paint, layer.dataset_geometry_type ?? layer.geometry_type)));
+  if (!match) return null;
+  return {
+    column: match.column,
+    colorOf: (value) => {
+      const read = readAsMatchInput(match.input, value);
+      if (read === undefined) return undefined;
+      const arm = match.arms.find((entry) => entry.values.includes(read as string | number));
+      return arm?.color ?? (isTransparentColor(match.fallback) ? undefined : match.fallback);
+    },
+  };
+}
+
+/**
  * Legend facts for one saved layer, or null when the map draws nothing for it.
  * Folder rows copy their first child's fields but render nothing, and a DEM in
  * terrain mode shapes the terrain mesh instead of drawing a layer. `drawn` is

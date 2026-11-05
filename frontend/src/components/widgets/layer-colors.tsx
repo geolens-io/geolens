@@ -2,7 +2,7 @@ import { createContext, useContext } from 'react';
 import type { SelectionValue } from './contract';
 
 /** The colours a layer's map style gives the values of one column. */
-export interface LayerCategoryColors {
+interface LayerCategoryColors {
   column: string;
   /** The colour for a value, or undefined where the style gives it none. */
   colorOf: (key: SelectionValue) => string | undefined;

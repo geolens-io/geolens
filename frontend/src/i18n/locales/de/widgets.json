@@ -246,6 +246,7 @@
     "sortOrder": "Reihenfolge",
     "fields": "Felder",
     "layerColors": "Farben der Ebene verwenden",
-    "layerColorsHelp": "Gilt, wenn die Spalte diejenige ist, nach der der Kartenstil der Ebene einfärbt."
+    "layerColorsHelp": "Gilt, wenn die Spalte diejenige ist, nach der der Kartenstil der Ebene einfärbt.",
+    "fieldUnavailable": "{{column}} (keine numerische Spalte dieser Ebene)"
   }
 }

@@ -246,6 +246,7 @@
     "sortOrder": "Order",
     "fields": "Fields",
     "layerColors": "Use the layer's colours",
-    "layerColorsHelp": "Applies when the column is the one the layer's map style colours by."
+    "layerColorsHelp": "Applies when the column is the one the layer's map style colours by.",
+    "fieldUnavailable": "{{column}} (not a numeric column on this layer)"
   }
 }

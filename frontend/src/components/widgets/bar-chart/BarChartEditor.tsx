@@ -24,6 +24,9 @@ import {
   type FieldsBarChartConfig,
 } from './definition';
 
+/** A number the rows endpoint can sort by; it can't list `money`, which aggregates accept. */
+const isRowNumeric = (column: WidgetColumn) => isAggregateNumeric(column.type) && column.type.toLowerCase() !== 'money';
+
 type Mode = NonNullable<BarChartConfig['mode']>;
 const MODES: readonly Mode[] = ['category', 'date', 'by_feature', 'by_fields'];
 
@@ -45,7 +48,7 @@ function configForMode(mode: Mode, config: BarChartConfig, columns: readonly Wid
       return {
         mode,
         label_column: categoryColumn(columns).column ?? first((column) => isTextColumn(column.type)),
-        value_column: first((column) => isAggregateNumeric(column.type)),
+        value_column: first(isRowNumeric),
         sort: 'desc',
         limit,
       };
@@ -121,7 +124,7 @@ function FeatureFields({
         id={`${idPrefix}-value-column`}
         label={t('editor.valueField')}
         value={config.value_column}
-        columns={columns.filter((column) => isAggregateNumeric(column.type))}
+        columns={columns.filter(isRowNumeric)}
         onChange={(value_column) => onChange({ ...config, value_column })}
       />
       <SelectField
@@ -154,6 +157,11 @@ function FieldsFields({
 }: WidgetEditorProps<FieldsBarChartConfig>) {
   const { t } = useTranslation('widgets');
   const numeric = columns.filter((column) => isAggregateNumeric(column.type));
+  // A saved field the layer lost stays listed, so it can be unchecked.
+  const names = [
+    ...numeric.map((column) => column.name),
+    ...config.fields.filter((field) => !numeric.some((column) => column.name === field)),
+  ];
   const toggle = (name: string, on: boolean) => {
     const fields = on ? [...config.fields, name] : config.fields.filter((field) => field !== name);
     // A chart with no fields can't be saved, and the last one has nothing to give up to.
@@ -163,18 +171,19 @@ function FieldsFields({
     <>
       <fieldset className="space-y-1.5">
         <legend className="text-xs font-medium">{t('editor.fields')}</legend>
-        {numeric.map((column) => {
-          const checked = config.fields.includes(column.name);
+        {names.map((name) => {
+          const checked = config.fields.includes(name);
+          const unavailable = !numeric.some((candidate) => candidate.name === name);
           return (
-            <div key={column.name} className="flex items-center gap-2">
+            <div key={name} className="flex items-center gap-2">
               <Checkbox
-                id={`${idPrefix}-field-${column.name}`}
+                id={`${idPrefix}-field-${name}`}
                 checked={checked}
                 disabled={(checked && config.fields.length === 1) || (!checked && config.fields.length >= MAX_FIELDS)}
-                onCheckedChange={(next) => toggle(column.name, next === true)}
+                onCheckedChange={(next) => toggle(name, next === true)}
               />
-              <Label className="text-xs font-normal" htmlFor={`${idPrefix}-field-${column.name}`}>
-                {column.name}
+              <Label className="text-xs font-normal" htmlFor={`${idPrefix}-field-${name}`}>
+                {unavailable ? t('editor.fieldUnavailable', { column: name }) : name}
               </Label>
             </div>
           );
@@ -200,7 +209,7 @@ export default function BarChartEditor(props: WidgetEditorProps<BarChartConfig>)
   const mode: Mode = config.mode ?? 'category';
   const numeric = columns.some((column) => isAggregateNumeric(column.type));
   const dated = columns.some((column) => isDateColumn(column.type));
-  const available: Record<Mode, boolean> = { category: true, date: dated, by_feature: numeric, by_fields: numeric };
+  const available: Record<Mode, boolean> = { category: true, date: dated, by_feature: columns.some(isRowNumeric), by_fields: numeric };
   return (
     <div className="space-y-3">
       <SelectField

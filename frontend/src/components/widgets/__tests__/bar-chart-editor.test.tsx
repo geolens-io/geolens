@@ -99,4 +99,37 @@ describe('BarChartEditor forms', () => {
     await user.click(screen.getByRole('checkbox', { name: 'area' }));
     expect(onChange).toHaveBeenLastCalledWith({ ...byFields, fields: ['height', 'area'] });
   });
+
+  it('keeps money out of the by-feature value choices, since rows cannot list it', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const withMoney = [{ name: 'kind', type: 'text' }, { name: 'price', type: 'money' }, { name: 'height', type: 'integer' }];
+    const { unmount } = render(<BarChartEditor config={config} onChange={onChange} columns={withMoney} idPrefix="w" />);
+    await user.click(screen.getByRole('combobox', { name: 'Bars show' }));
+    await user.click(screen.getByRole('option', { name: 'One bar per feature' }));
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ value_column: 'height' }));
+    unmount();
+
+    render(
+      <BarChartEditor
+        config={{ mode: 'by_feature', label_column: 'kind', value_column: 'height', sort: 'desc', limit: 10 }}
+        onChange={onChange}
+        columns={withMoney}
+        idPrefix="w"
+      />,
+    );
+    await user.click(screen.getByRole('combobox', { name: 'Value field' }));
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['height']);
+  });
+
+  it('lists a saved field the layer lost so it can be removed', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const byFields: BarChartConfig = { mode: 'by_fields', fields: ['height', 'gone'], stat: 'sum' };
+    render(<BarChartEditor config={byFields} onChange={onChange} columns={layerColumns} idPrefix="w" />);
+    const lost = screen.getByRole('checkbox', { name: 'gone (not a numeric column on this layer)' });
+    expect(lost).toBeChecked();
+    await user.click(lost);
+    expect(onChange).toHaveBeenLastCalledWith({ ...byFields, fields: ['height'] });
+  });
 });
