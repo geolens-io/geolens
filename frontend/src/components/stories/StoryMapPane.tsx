@@ -103,7 +103,7 @@ export const StoryMapPane = memo(function StoryMapPane({ resolved, next, emptyHi
 
   return (
     // Not a landmark: the page's <main> holds it. MapErrorBoundary targets the id.
-    <div id="map-viewport" className="absolute inset-0 overflow-hidden bg-muted">
+    <div id="map-viewport" className="absolute inset-0 isolate overflow-hidden bg-muted">
       {slots.map(({ scene, role }) => (
         <div
           key={scene.scene.map_id}
@@ -221,6 +221,15 @@ function StoryMap({
     if (mapRef.current) playTransition(mapRef.current);
   }, [chapterId, sceneVisit, playTransition]);
 
+  // A map back on screen after another map had the view (a change reversed mid-fade) returns to its scene's camera.
+  const prevRole = useRef(role);
+  const shownBefore = useRef(role !== 'standby');
+  useEffect(() => {
+    if (role === 'active' && prevRole.current !== 'active' && shownBefore.current && mapRef.current) playTransition(mapRef.current);
+    prevRole.current = role;
+    if (role !== 'standby') shownBefore.current = true;
+  }, [role, playTransition]);
+
   // The outgoing map moves to the view the next map fades in at.
   const exitRef = useRef(exit);
   useEffect(() => {
@@ -319,12 +328,12 @@ function StoryMap({
             fadeLayerChanges
           />
         </Suspense>
+        {loadedAhead && role === 'active' && !readyMap && (
+          <div className="absolute inset-0 z-20 bg-muted">
+            <LoadingState className="h-full" message={t('reader.mapLoading')} />
+          </div>
+        )}
       </MapErrorBoundary>
-      {loadedAhead && role === 'active' && !readyMap && (
-        <div className="absolute inset-0 z-20 bg-muted">
-          <LoadingState className="h-full" message={t('reader.mapLoading')} />
-        </div>
-      )}
       {away && role === 'active' && (
         <Button
           type="button"

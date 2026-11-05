@@ -47,6 +47,7 @@ vi.mock('@/components/viewer/ViewerMap', () => ({
     useEffect(() => {
       viewer.mounts += 1;
     }, []);
+    if (props.basemapStyle === 'broken') throw new Error('map failed to start');
     viewer.byBasemap[props.basemapStyle as string] = props;
     return <div data-testid="viewer-map" data-basemap={props.basemapStyle} />;
   },
@@ -58,9 +59,19 @@ vi.mock('@/components/viewer/LayerLegend', () => ({
     return null;
   },
 }));
-vi.mock('@/components/error', () => ({
-  MapErrorBoundary: ({ children }: { children: ReactNode }) => <>{children}</>,
-}));
+vi.mock('@/components/error', async () => {
+  const { Component } = await import('react');
+  class MapErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+    state = { failed: false };
+    static getDerivedStateFromError() {
+      return { failed: true };
+    }
+    render() {
+      return this.state.failed ? <button type="button">Retry</button> : this.props.children;
+    }
+  }
+  return { MapErrorBoundary };
+});
 vi.mock('@/hooks/use-maps', () => ({
   useMap: (id: string) => ({ data: MAPS[id], isLoading: false, isError: false }),
 }));
@@ -76,6 +87,7 @@ const MAPS: Record<string, MapResponse> = {
     layers: [layer('roads', true), layer('rivers', false), layer('towns', true)],
   } as unknown as MapResponse,
   'map-b': { id: 'map-b', basemap_style: 'voyager', layers: [] } as unknown as MapResponse,
+  'map-err': { id: 'map-err', basemap_style: 'broken', layers: [] } as unknown as MapResponse,
   'map-c': { id: 'map-c', basemap_style: 'dark-matter', layers: [] } as unknown as MapResponse,
   'map-dem': {
     id: 'map-dem',
@@ -516,6 +528,28 @@ describe('crossfade to a map loaded ahead', () => {
     expect(moves).toHaveLength(0);
     expect(paneSlots()).toEqual([before[0], before[1]]);
     expect(paneSlots().map((el) => el.dataset.slot)).toEqual(['outgoing', 'active']);
+  });
+
+  it('gives the pane its own stacking context so slot z-indexes stay inside it', async () => {
+    await renderAhead();
+    expect(document.getElementById('map-viewport')).toHaveClass('isolate');
+  });
+
+  it('returns a map to its own camera when the change is reversed during the fade', async () => {
+    const { rerender } = await renderAhead();
+    readyNext('map-b', 'voyager');
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-b', 7)} next={null} />);
+    expect(fakeMap.flyTo).toHaveBeenLastCalledWith(expect.objectContaining({ zoom: 7 }));
+    rerender(<StoryMapPane resolved={resolved('c1', 'map-a', 3)} next={resolved('c2', 'map-b', 7)} />);
+    expect(fakeMap.flyTo).toHaveBeenLastCalledWith(expect.objectContaining({ zoom: 3 }));
+  });
+
+  it('shows the error with Retry, not the loading cover, when a map that failed becomes active', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { rerender } = await renderAhead(resolved('c2', 'map-err', 7));
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-err', 7)} next={null} />);
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(loading()).toBeNull();
   });
 
   it('drops the old map when the fade timer runs out without a transition event', async () => {
