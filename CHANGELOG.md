@@ -81,6 +81,7 @@ and releases use semantic versioning.
 - The bundled database gets a 512 MB `/dev/shm` (`DB_SHM_SIZE`). Docker's
   64 MB default made parallel queries fail under concurrent dashboard load,
   and widgets answered 500. The space counts toward `DB_MEM_LIMIT`.
+- Auth: a download token can no longer be issued for a session a password reset just revoked.
 
 ### Security
 

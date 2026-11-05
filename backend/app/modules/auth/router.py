@@ -69,7 +69,7 @@ from app.modules.auth.schemas import (
     UserResponse,
     VerifyEmailRequest,
 )
-from app.modules.auth.service import AuthService
+from app.modules.auth.service import AuthService, lock_current_session_owner
 from app.modules.quota.schemas import UserQuotaUsage
 from app.modules.quota.service import get_user_quota_usage
 from app.core.config import settings
@@ -1113,6 +1113,7 @@ async def create_download_token_endpoint(
             user_id=user.id,
             username=user.username,  # type: ignore[attr-defined]
         )
+        await lock_current_session_owner(db, user)
         service = AuthService(db)
         token = await service.create_download_token(
             identity,
