@@ -5742,6 +5742,31 @@ export type EmbedTokenUpdate = {
 };
 
 /**
+ * EmbedWidget
+ */
+export type EmbedWidget = {
+    /**
+     * Id
+     *
+     * Made by the client and stable across saves.
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Type
+     */
+    type: 'embed';
+    /**
+     * V
+     */
+    v: 1;
+    config: FrameConfig;
+};
+
+/**
  * EmbeddingStatsResponse
  */
 export type EmbeddingStatsResponse = {
@@ -6166,6 +6191,24 @@ export type FeatureUpdate = {
     properties?: {
         [key: string]: unknown;
     } | null;
+};
+
+/**
+ * FrameConfig
+ */
+export type FrameConfig = {
+    /**
+     * Url
+     *
+     * An https address on a host an admin approved for stories. Stored as given and never fetched by the server.
+     */
+    url: string;
+    /**
+     * Title
+     *
+     * Names the frame for screen readers.
+     */
+    title: string;
 };
 
 /**
@@ -13842,7 +13885,7 @@ export type StoryChapter = {
     /**
      * Blocks
      */
-    blocks?: Array<MarkdownWidget | ImageWidget | GalleryWidget | CarouselWidget | ButtonWidget | SeparatorWidget>;
+    blocks?: Array<MarkdownWidget | ImageWidget | GalleryWidget | CarouselWidget | ButtonWidget | SeparatorWidget | EmbedWidget | VideoWidget>;
 };
 
 /**
@@ -13869,7 +13912,7 @@ export type StoryChapterInput = {
     /**
      * Blocks
      */
-    blocks?: Array<MarkdownWidget | ImageWidget | GalleryWidget | CarouselWidget | ButtonWidget | SeparatorWidget>;
+    blocks?: Array<MarkdownWidget | ImageWidget | GalleryWidget | CarouselWidget | ButtonWidget | SeparatorWidget | EmbedWidget | VideoWidget>;
 };
 
 /**
@@ -13988,6 +14031,26 @@ export type StoryDraftUpdate = {
      */
     revision: number;
     document: StoryDocumentInput;
+};
+
+/**
+ * StoryFrameHost
+ *
+ * One approved host.
+ */
+export type StoryFrameHost = {
+    /**
+     * Host
+     *
+     * An exact host name, such as media.example.org.
+     */
+    host: string;
+    /**
+     * Allow Same Origin
+     *
+     * Let this host's frames keep their own origin, which some video players need for playback.
+     */
+    allow_same_origin?: boolean;
 };
 
 /**
@@ -15200,6 +15263,31 @@ export type VerifyEmailRequest = {
      * Raw opaque verification token from the email link
      */
     token: string;
+};
+
+/**
+ * VideoWidget
+ */
+export type VideoWidget = {
+    /**
+     * Id
+     *
+     * Made by the client and stable across saves.
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Type
+     */
+    type: 'video';
+    /**
+     * V
+     */
+    v: 1;
+    config: FrameConfig;
 };
 
 /**
@@ -34440,6 +34528,65 @@ export type CreateStoryEndpointStoriesPostResponses = {
 };
 
 export type CreateStoryEndpointStoriesPostResponse = CreateStoryEndpointStoriesPostResponses[keyof CreateStoryEndpointStoriesPostResponses];
+
+export type StoryFrameHostsEndpointStoriesFrameHostsGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/stories/frame-hosts/';
+};
+
+export type StoryFrameHostsEndpointStoriesFrameHostsGetErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type StoryFrameHostsEndpointStoriesFrameHostsGetError = StoryFrameHostsEndpointStoriesFrameHostsGetErrors[keyof StoryFrameHostsEndpointStoriesFrameHostsGetErrors];
+
+export type StoryFrameHostsEndpointStoriesFrameHostsGetResponses = {
+    /**
+     * Response Story Frame Hosts Endpoint Stories Frame Hosts  Get
+     *
+     * Successful Response
+     */
+    200: Array<StoryFrameHost>;
+};
+
+export type StoryFrameHostsEndpointStoriesFrameHostsGetResponse = StoryFrameHostsEndpointStoriesFrameHostsGetResponses[keyof StoryFrameHostsEndpointStoriesFrameHostsGetResponses];
 
 export type DeleteStoryEndpointStoriesStoryIdDeleteData = {
     body?: never;

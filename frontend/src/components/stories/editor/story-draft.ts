@@ -1,10 +1,11 @@
 import { arrayMove } from '@dnd-kit/sortable';
 import { BUTTON_DEFAULT_CONFIG, buttonNeedsAttention } from '@/components/widgets/button/definition';
+import { approvedFrameHost, FRAME_DEFAULT_CONFIG, frameUrlHost } from '@/components/widgets/embed/frame';
 import { MAX_GALLERY_IMAGES } from '@/components/widgets/gallery/definition';
 import { IMAGE_DEFAULT_CONFIG, imageNeedsAlt } from '@/components/widgets/image/definition';
 import { SEPARATOR_DEFAULT_CONFIG, type SeparatorStyle } from '@/components/widgets/separator/definition';
 import { deepEqual } from '@/lib/deep-equal';
-import type { StoryCamera, StoryChapter, StoryScene, StorySettings } from '@/types/api';
+import type { StoryCamera, StoryChapter, StoryFrameHost, StoryScene, StorySettings } from '@/types/api';
 
 export const STORY_TITLE_MAX_LENGTH = 200;
 export const STORY_SUMMARY_MAX_LENGTH = 2000;
@@ -18,6 +19,7 @@ export type SceneTransition = NonNullable<StoryScene['transition']>;
 
 type Block = NonNullable<StoryChapter['blocks']>[number];
 export type GalleryKind = 'gallery' | 'carousel';
+type FrameKind = 'embed' | 'video';
 type GalleryBlock = Extract<Block, { type: GalleryKind }>;
 type GalleryImage = GalleryBlock['config']['images'][number];
 
@@ -68,6 +70,8 @@ export type DraftEdit =
   | { type: 'addButtonBlock'; chapterId: string; blockId: string }
   | { type: 'setButton'; chapterId: string; blockId: string; label?: string; url?: string; newTab?: boolean }
   | { type: 'addSeparatorBlock'; chapterId: string; blockId: string }
+  | { type: 'addFrameBlock'; chapterId: string; blockId: string; kind: FrameKind }
+  | { type: 'setFrame'; chapterId: string; blockId: string; url?: string; title?: string }
   | { type: 'setSeparator'; chapterId: string; blockId: string; style: SeparatorStyle }
   | { type: 'moveBlock'; chapterId: string; blockId: string; by: -1 | 1 }
   | { type: 'removeBlock'; chapterId: string; blockId: string };
@@ -125,6 +129,34 @@ function buttonBlock(id: string): Block {
 
 function separatorBlock(id: string): Block {
   return { id, type: 'separator', v: 1, title: null, config: { ...SEPARATOR_DEFAULT_CONFIG } };
+}
+
+function frameBlock(id: string, kind: FrameKind): Block {
+  return { id, type: kind, v: 1, title: null, config: { ...FRAME_DEFAULT_CONFIG } };
+}
+
+/**
+ * Whether the server would refuse this embed or video block: no title, or an
+ * address that isn't https on an approved host. `hosts` is undefined while
+ * the list loads, when only the address's shape is checked.
+ */
+function frameNeedsAttention(
+  config: { url: string; title: string },
+  hosts: readonly StoryFrameHost[] | undefined,
+): boolean {
+  if (config.title.trim() === '' || frameUrlHost(config.url) === null) return true;
+  return hosts !== undefined && approvedFrameHost(hosts, config.url) === undefined;
+}
+
+/** How many embed and video blocks the server would refuse; it refuses a draft with any. */
+export function framesNeedingAttention(
+  chapters: readonly StoryChapter[],
+  hosts: readonly StoryFrameHost[] | undefined,
+): number {
+  return chapters
+    .flatMap((chapter) => chapter.blocks ?? [])
+    .filter((block) => (block.type === 'embed' || block.type === 'video') && frameNeedsAttention(block.config, hosts))
+    .length;
 }
 
 /** How many button blocks still lack a label or an http(s) address; the server refuses a draft with any. */
@@ -278,6 +310,14 @@ export function applyDraftEdit(chapters: StoryChapter[], edit: DraftEdit): Story
     case 'setSeparator':
       return updateBlock(chapters, edit.chapterId, edit.blockId, (block) =>
         block.type === 'separator' ? { ...block, config: { style: edit.style } } : block,
+      );
+    case 'addFrameBlock':
+      return appendBlock(chapters, edit.chapterId, frameBlock(edit.blockId, edit.kind));
+    case 'setFrame':
+      return updateBlock(chapters, edit.chapterId, edit.blockId, (block) =>
+        block.type === 'embed' || block.type === 'video'
+          ? { ...block, config: { url: edit.url ?? block.config.url, title: edit.title ?? block.config.title } }
+          : block,
       );
     case 'moveBlock': {
       const blocks = chapters.find((c) => c.id === edit.chapterId)?.blocks ?? [];

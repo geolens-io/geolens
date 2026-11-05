@@ -7,9 +7,11 @@ import { Button } from '@/components/ui/button';
 import { SettingSourceBadge } from './SettingSourceBadge';
 import { SettingsFormActions } from './SettingsFormActions';
 import { findSetting } from './utils';
+import { coerceStoryFrameHosts, StoryFrameHostsField } from './StoryFrameHostsField';
 import { useSettingsForm, type ResetHandler } from './useSettingsForm';
 import { useNotificationStatus, useSendTestNotification } from '@/hooks/use-settings';
 import type { SettingItem, NotificationTestChannelResult } from '@/api/settings';
+import type { StoryFrameHost } from '@/types/api';
 import { Textarea } from '@/components/ui/textarea';
 
 interface TabProps {
@@ -31,6 +33,7 @@ const FIELDS = [
   // control (there is no env var for either).
   { key: 'semantic_search_rate_limit', defaultValue: 30 },
   { key: 'basemap_proxy_rate_limit', defaultValue: 120 },
+  { key: 'story_frame_hosts', defaultValue: [] as StoryFrameHost[], compare: 'json' as const, coerce: coerceStoryFrameHosts },
 ] as const;
 
 function NotificationChannelBadge({ ok, label }: { ok: boolean; label: string }) {
@@ -170,6 +173,14 @@ export function SettingsNetworkTab({ settings, envOnly, onSave, onReset: submitR
           className="w-32"
         />
       </div>
+
+      <StoryFrameHostsField
+        settings={settings}
+        hosts={values.story_frame_hosts as StoryFrameHost[]}
+        onChange={setters.story_frame_hosts}
+        onReset={onReset}
+        envOnly={envOnly}
+      />
 
       {/* Notification channel status + test-send */}
       <div className="space-y-3 border rounded-md p-4">

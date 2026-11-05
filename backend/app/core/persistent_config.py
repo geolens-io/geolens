@@ -1141,6 +1141,15 @@ ENABLED_PLUGINS = PersistentConfig[list[str] | None](
     label="Enabled Plugins",
 )
 
+# Empty by default, which keeps story embed and video blocks off.
+STORY_FRAME_HOSTS = PersistentConfig[list[dict[str, Any]]](
+    key="story_frame_hosts",
+    type_=list[dict[str, Any]],
+    env_default_factory=list,
+    tab="network",
+    label="Story Embed and Video Hosts",
+)
+
 
 def _default_role_permissions() -> dict:
     from app.core.permissions import DEFAULT_ROLE_PERMISSIONS

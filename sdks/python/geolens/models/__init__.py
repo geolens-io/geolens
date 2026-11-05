@@ -406,6 +406,7 @@ from .embed_token_created_response import EmbedTokenCreatedResponse
 from .embed_token_list_response import EmbedTokenListResponse
 from .embed_token_response import EmbedTokenResponse
 from .embed_token_update import EmbedTokenUpdate
+from .embed_widget import EmbedWidget
 from .embedding_stats_response import EmbeddingStatsResponse
 from .enterprise_tabs_response import EnterpriseTabsResponse
 from .export_format import ExportFormat
@@ -434,6 +435,7 @@ from .feature_replace import FeatureReplace
 from .feature_replace_properties import FeatureReplaceProperties
 from .feature_update import FeatureUpdate
 from .feature_update_properties_type_0 import FeatureUpdatePropertiesType0
+from .frame_config import FrameConfig
 from .gallery_config import GalleryConfig
 from .gallery_image import GalleryImage
 from .gallery_widget import GalleryWidget
@@ -1031,6 +1033,7 @@ from .story_document import StoryDocument
 from .story_document_input import StoryDocumentInput
 from .story_draft_response import StoryDraftResponse
 from .story_draft_update import StoryDraftUpdate
+from .story_frame_host import StoryFrameHost
 from .story_groups_response import StoryGroupsResponse
 from .story_groups_update import StoryGroupsUpdate
 from .story_list_response import StoryListResponse
@@ -1104,6 +1107,7 @@ from .value_counts_response import ValueCountsResponse
 from .value_counts_result import ValueCountsResult
 from .vector_tile_token import VectorTileToken
 from .verify_email_request import VerifyEmailRequest
+from .video_widget import VideoWidget
 from .visibility_check_response import VisibilityCheckResponse
 from .vrt_active_generation import VrtActiveGeneration
 from .vrt_add_source_request import VrtAddSourceRequest
@@ -1422,6 +1426,7 @@ __all__ = (
     "EmbedTokenListResponse",
     "EmbedTokenResponse",
     "EmbedTokenUpdate",
+    "EmbedWidget",
     "EnterpriseTabsResponse",
     "ExportFormat",
     "ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200",
@@ -1447,6 +1452,7 @@ __all__ = (
     "FeatureReplaceProperties",
     "FeatureUpdate",
     "FeatureUpdatePropertiesType0",
+    "FrameConfig",
     "GalleryConfig",
     "GalleryImage",
     "GalleryWidget",
@@ -1858,6 +1864,7 @@ __all__ = (
     "StoryDocumentInput",
     "StoryDraftResponse",
     "StoryDraftUpdate",
+    "StoryFrameHost",
     "StoryGroupsResponse",
     "StoryGroupsUpdate",
     "StoryListResponse",
@@ -1923,6 +1930,7 @@ __all__ = (
     "ValueCountsResult",
     "VectorTileToken",
     "VerifyEmailRequest",
+    "VideoWidget",
     "VisibilityCheckResponse",
     "VrtActiveGeneration",
     "VrtAddSourceRequest",

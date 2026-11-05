@@ -806,6 +806,19 @@
       "registrationAdminConfirmDescription": "Jede Registrierung mit Passwort, die ihre E-Mail bestätigt, wird Administrator. Stellen Sie sicher, dass das beabsichtigt ist.",
       "signupAdminActivationDescription": "Nach dieser Änderung können Personen, die sich registrieren, ohne Freigabe durch einen Administrator zu Administratoren werden. Stellen Sie sicher, dass Sie das wollen.",
       "verificationNeedsRegistration": "Gilt, wenn die Selbstregistrierung aktiv ist."
+    },
+    "storyFrames": {
+      "title": "Einbettungen und Videos in Storys",
+      "description": "Websites, deren Seiten und Videoplayer Storys in einem Rahmen zeigen dürfen. Die Browser der Leser laden sie direkt von diesen Websites. Ohne Websites sind Einbettungs- und Videoblöcke aus.",
+      "empty": "Noch keine Websites, daher sind Einbettungs- und Videoblöcke aus.",
+      "hostLabel": "Hostname der Website",
+      "add": "Website hinzufügen",
+      "invalid": "Geben Sie einen Hostnamen wie media.example.org ein, ohne https:// oder Pfad. Platzhalter werden nicht akzeptiert.",
+      "duplicate": "Diese Website steht bereits auf der Liste.",
+      "full": "Die Liste fasst höchstens {{max}} Websites.",
+      "sameOrigin": "Herkunft der Website beibehalten",
+      "sameOriginHint": "Manche Videoplayer brauchen ihre eigene Herkunft zum Abspielen. Die Rahmen dieser Website können dann ihre Cookies und ihren Speicher nutzen, also aktivieren Sie es nur für vertrauenswürdige Websites.",
+      "remove": "{{host}} entfernen"
     }
   },
   "infrastructure": {

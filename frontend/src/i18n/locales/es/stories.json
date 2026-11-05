@@ -137,7 +137,8 @@
       "retry": "Reintentar",
       "waitingForUpload": "Esperando a que termine la subida de la imagen",
       "waitingForAlt": "Añade texto alternativo para guardar",
-      "waitingForButtons": "Completa los botones para guardar"
+      "waitingForButtons": "Completa los botones para guardar",
+      "waitingForFrames": "Completa las páginas incrustadas y los vídeos para guardar"
     },
     "chapters": {
       "label": "Capítulos",
@@ -181,7 +182,17 @@
       "moveGalleryUp": "Subir la galería {{index}}",
       "moveGalleryDown": "Bajar la galería {{index}}",
       "moveCarouselUp": "Subir el carrusel {{index}}",
-      "moveCarouselDown": "Bajar el carrusel {{index}}"
+      "moveCarouselDown": "Bajar el carrusel {{index}}",
+      "addEmbed": "Añadir página incrustada",
+      "addVideo": "Añadir vídeo",
+      "embedBlock": "Página incrustada {{index}}",
+      "videoBlock": "Vídeo {{index}}",
+      "removeEmbed": "Quitar la página incrustada {{index}}",
+      "removeVideo": "Quitar el vídeo {{index}}",
+      "moveEmbedUp": "Subir la página incrustada {{index}}",
+      "moveEmbedDown": "Bajar la página incrustada {{index}}",
+      "moveVideoUp": "Subir el vídeo {{index}}",
+      "moveVideoDown": "Bajar el vídeo {{index}}"
     },
     "scene": {
       "heading": "Escena de mapa",
@@ -242,7 +253,9 @@
       "altMissing_one": "{{count}} imagen necesita texto alternativo antes de guardar.",
       "altMissing_other": "{{count}} imágenes necesitan texto alternativo antes de guardar.",
       "buttonsIncomplete_one": "{{count}} botón necesita una etiqueta y una dirección web antes de guardar.",
-      "buttonsIncomplete_other": "{{count}} botones necesitan una etiqueta y una dirección web antes de guardar."
+      "buttonsIncomplete_other": "{{count}} botones necesitan una etiqueta y una dirección web antes de guardar.",
+      "framesIncomplete_one": "{{count}} página incrustada o vídeo necesita un título y una dirección de un sitio aprobado para poder guardar.",
+      "framesIncomplete_other": "{{count}} páginas incrustadas y vídeos necesitan un título y una dirección de un sitio aprobado para poder guardar."
     },
     "image": {
       "alt": "Texto alternativo",
@@ -282,6 +295,18 @@
       "addImage": "Añadir otra imagen",
       "limit_one": "Hasta {{count}} imagen en este bloque.",
       "limit_other": "Hasta {{count}} imágenes en este bloque."
+    },
+    "frame": {
+      "embedUrl": "Dirección de la página",
+      "videoUrl": "Dirección del reproductor de vídeo",
+      "urlHint": "Una dirección https de un sitio aprobado por un administrador: {{hosts}}.",
+      "noHosts": "Ningún administrador ha aprobado sitios para páginas incrustadas y vídeos.",
+      "noHostsToAdd": "Las páginas incrustadas y los vídeos están desactivados hasta que un administrador apruebe los sitios de los que pueden proceder.",
+      "urlInvalid": "Introduce una dirección https, como https://media.example.org/page.",
+      "hostNotApproved": "{{host}} no es un sitio aprobado. Corrige la dirección o quita este bloque para guardar.",
+      "title": "Título",
+      "titleHint": "Los lectores de pantalla lo anuncian para el marco.",
+      "titleRequired": "Escribe un título antes de guardar."
     }
   },
   "groups": {

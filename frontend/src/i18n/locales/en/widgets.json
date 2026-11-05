@@ -115,6 +115,14 @@
       "noMap": "This dashboard has no map, so features cannot be zoomed to.",
       "loadFailed": "Couldn't load more features.",
       "retryLoadMore": "Try again"
+    },
+    "embed": {
+      "label": "Embed",
+      "unavailable": "This embedded page can't be shown here because its site is no longer approved."
+    },
+    "video": {
+      "label": "Video",
+      "unavailable": "This video can't be shown here because its site is no longer approved."
     }
   },
   "dashboard": {

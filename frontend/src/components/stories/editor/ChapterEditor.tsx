@@ -8,7 +8,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { randomId } from '@/lib/random-id';
 import type { StoryCamera, StoryChapter } from '@/types/api';
+import { useStoryFrameHosts } from '@/components/widgets/embed/frame';
 import { ButtonBlockField } from './ButtonBlockField';
+import { FrameBlockField } from './FrameBlockField';
 import { GalleryBlockField } from './GalleryBlockField';
 import { ImageBlockField } from './ImageBlockField';
 import { MarkdownField } from './MarkdownField';
@@ -30,6 +32,8 @@ const MOVES = [
       markdown: 'editor.chapter.moveTextBlockUp',
       button: 'editor.chapter.moveButtonUp',
       separator: 'editor.chapter.moveSeparatorUp',
+      embed: 'editor.chapter.moveEmbedUp',
+      video: 'editor.chapter.moveVideoUp',
     },
   },
   {
@@ -42,6 +46,8 @@ const MOVES = [
       markdown: 'editor.chapter.moveTextBlockDown',
       button: 'editor.chapter.moveButtonDown',
       separator: 'editor.chapter.moveSeparatorDown',
+      embed: 'editor.chapter.moveEmbedDown',
+      video: 'editor.chapter.moveVideoDown',
     },
   },
 ] as const;
@@ -59,7 +65,14 @@ const REMOVE_LABELS = {
   markdown: 'editor.chapter.removeBlock',
   button: 'editor.chapter.removeButton',
   separator: 'editor.chapter.removeSeparator',
+  embed: 'editor.chapter.removeEmbed',
+  video: 'editor.chapter.removeVideo',
 } as const;
+
+const ADD_FRAMES = [
+  { kind: 'embed', label: 'editor.chapter.addEmbed' },
+  { kind: 'video', label: 'editor.chapter.addVideo' },
+] as const;
 
 interface ChapterEditorProps {
   storyId: string;
@@ -95,6 +108,8 @@ export function ChapterEditor({
   useEffect(() => {
     blockCount.current = blocks.length;
   });
+  const { data: frameHosts } = useStoryFrameHosts();
+  const noFrameHosts = frameHosts?.length === 0;
   const kindCounts = new Map<string, number>();
   const kindNumbers = blocks.map((block) => {
     const n = (kindCounts.get(block.type) ?? 0) + 1;
@@ -197,6 +212,16 @@ export function ChapterEditor({
                 label={t('editor.chapter.buttonBlock', { index: kindNumbers[i] })}
                 edit={edit}
               />
+            ) : block.type === 'embed' || block.type === 'video' ? (
+              <FrameBlockField
+                chapterId={chapter.id}
+                block={block}
+                label={t(block.type === 'embed' ? 'editor.chapter.embedBlock' : 'editor.chapter.videoBlock', {
+                  index: kindNumbers[i],
+                })}
+                hosts={frameHosts}
+                edit={edit}
+              />
             ) : block.type === 'separator' ? (
               <SeparatorBlockField
                 chapterId={chapter.id}
@@ -268,7 +293,28 @@ export function ChapterEditor({
               }
             />
           ))}
+          {ADD_FRAMES.map(({ kind, label }) => (
+            <Button
+              key={kind}
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={blocksFull || frameHosts === undefined || noFrameHosts}
+              aria-describedby={
+                blocksFull ? `${titleId}-blocks-full` : noFrameHosts ? `${titleId}-no-frame-hosts` : undefined
+              }
+              onClick={() => edit({ type: 'addFrameBlock', chapterId: chapter.id, blockId: randomId(), kind })}
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              {t(label)}
+            </Button>
+          ))}
         </div>
+        {noFrameHosts && (
+          <p id={`${titleId}-no-frame-hosts`} className="text-xs text-muted-foreground">
+            {t('editor.frame.noHostsToAdd')}
+          </p>
+        )}
         {blocksFull && (
           <p id={`${titleId}-blocks-full`} className="text-xs text-muted-foreground">
             {t('editor.limits.blocks', { count: MAX_BLOCKS_PER_CHAPTER })}

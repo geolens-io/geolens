@@ -825,6 +825,19 @@
       "registrationAdminConfirmDescription": "Every password sign-up that verifies its email will become an administrator. Make sure that is what you want.",
       "signupAdminActivationDescription": "After this change, people who sign up can become administrators without an administrator approving them. Make sure that is what you want.",
       "verificationNeedsRegistration": "Applies when Self-Registration is on."
+    },
+    "storyFrames": {
+      "title": "Story embeds and videos",
+      "description": "Sites whose pages and video players stories may show in a frame. Readers' browsers load them straight from these sites. With no sites, embed and video blocks are off.",
+      "empty": "No sites yet, so embed and video blocks are off.",
+      "hostLabel": "Site host name",
+      "add": "Add site",
+      "invalid": "Enter a host name such as media.example.org, without https:// or a path. Wildcards aren't accepted.",
+      "duplicate": "That site is already on the list.",
+      "full": "The list holds at most {{max}} sites.",
+      "sameOrigin": "Keep the site's origin",
+      "sameOriginHint": "Some video players need their own origin to play. It lets that site's frames use its cookies and storage, so turn it on only for sites you trust.",
+      "remove": "Remove {{host}}"
     }
   },
   "saml": {

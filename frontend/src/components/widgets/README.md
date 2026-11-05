@@ -110,6 +110,18 @@ A type is a `WidgetDefinition` (`contract.ts`) with:
 definition's `Renderer` and `Editor`. `WidgetView` renders a parsed instance
 with its fallback around that renderer.
 
+## Frames
+
+The `embed` and `video` story blocks store an address and a title, never
+HTML. They frame only hosts an admin lists in the `story_frame_hosts` setting,
+which `GET /stories/frame-hosts/` returns to every page. The renderer frames an
+approved host in a lazy iframe sandboxed to scripts and popups, adding
+`allow-same-origin` only for a host the admin opted in, and shows a link to the
+original for any other host. The server refuses to save or publish a block on
+an unlisted host. nginx copies the same list into each page's `frame-src`
+(`GET /stories/frame-src-policy`), so a frame on another host can't load even
+if a client skips these checks.
+
 ## Adding a widget type
 
 1. Create `my-widget/definition.ts` with `defineWidget<MyConfig>({ ... })`,

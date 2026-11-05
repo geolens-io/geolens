@@ -115,6 +115,14 @@
       "noMap": "Este panel no tiene mapa, por lo que no se puede acercar a las entidades.",
       "loadFailed": "No se pudieron cargar más entidades.",
       "retryLoadMore": "Reintentar"
+    },
+    "embed": {
+      "label": "Página incrustada",
+      "unavailable": "Esta página incrustada no se puede mostrar aquí porque su sitio ya no está aprobado."
+    },
+    "video": {
+      "label": "Vídeo",
+      "unavailable": "Este vídeo no se puede mostrar aquí porque su sitio ya no está aprobado."
     }
   },
   "dashboard": {

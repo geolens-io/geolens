@@ -73,6 +73,7 @@ export const queryKeys = {
   stories: {
     all: ['stories'] as const,
     list: (params: { skip: number; limit: number }) => ['stories', params] as const,
+    frameHosts: ['stories', 'frame-hosts'] as const,
     detail: (id: string | undefined) => ['story', id] as const,
     draft: (id: string | undefined) => ['story', id, 'draft'] as const,
     /** Under its own root, which blob-url-cache revokes. */

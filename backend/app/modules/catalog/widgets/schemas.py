@@ -30,6 +30,11 @@ from pydantic import (
 )
 
 from app.core.config import validate_privacy_url_shape
+from app.platform.story_frames import (
+    MAX_FRAME_URL_LENGTH,
+    frame_url_host,
+    validate_frame_url,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -115,6 +120,20 @@ class ButtonConfig(_Strict):
     new_tab: StrictBool = Field(
         default=False, description="Open the link in a new tab."
     )
+
+
+class FrameConfig(_Strict):
+    url: Annotated[
+        str,
+        StringConstraints(max_length=MAX_FRAME_URL_LENGTH),
+        AfterValidator(validate_frame_url),
+    ] = Field(
+        description="An https address on a host an admin approved for stories. "
+        "Stored as given and never fetched by the server."
+    )
+    title: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)
+    ] = Field(description="Names the frame for screen readers.")
 
 
 class SeparatorConfig(_Strict):
@@ -357,6 +376,18 @@ class CarouselWidget(_Widget):
     config: GalleryConfig
 
 
+class EmbedWidget(_Widget):
+    type: Literal["embed"]
+    v: Literal[1]
+    config: FrameConfig
+
+
+class VideoWidget(_Widget):
+    type: Literal["video"]
+    v: Literal[1]
+    config: FrameConfig
+
+
 class ButtonWidget(_Widget):
     type: Literal["button"]
     v: Literal[1]
@@ -497,7 +528,9 @@ StoryBlock = Annotated[
     | GalleryWidget
     | CarouselWidget
     | ButtonWidget
-    | SeparatorWidget,
+    | SeparatorWidget
+    | EmbedWidget
+    | VideoWidget,
     Field(discriminator="type"),
     BeforeValidator(upgrade),
 ]
@@ -510,6 +543,13 @@ def block_asset_ids(block: Any) -> set[uuid.UUID]:
     if isinstance(block, GalleryWidget | CarouselWidget):
         return {image.asset_id for image in block.config.images}
     return set()
+
+
+def block_frame_host(block: Any) -> str | None:
+    """The host an embed or video block frames; None for any other block."""
+    if isinstance(block, EmbedWidget | VideoWidget):
+        return frame_url_host(block.config.url)
+    return None
 
 
 def block_with_assets_renamed(block: Any, names: dict[uuid.UUID, uuid.UUID]) -> Any:

@@ -79,6 +79,11 @@ from app.modules.catalog.stories.service import (
 )
 from app.platform.extensions.reader_theme import current_reader_theme
 from app.platform.storage.publication import asset_publication
+from app.platform.story_frames import (
+    StoryFrameHost,
+    approved_frame_hosts,
+    frame_src_directive,
+)
 from app.standards.ogc.errors import (
     BAD_GATEWAY_RESPONSE,
     CONFLICT_RESPONSE,
@@ -229,6 +234,37 @@ async def create_story_endpoint(
     return await _draft_response(db, story, user, await get_user_roles(db, user))
 
 
+@router.get(
+    "/frame-hosts", response_model=list[StoryFrameHost], include_in_schema=False
+)
+@router.get("/frame-hosts/", response_model=list[StoryFrameHost])
+async def story_frame_hosts_endpoint(
+    db: AsyncSession = Depends(get_db),
+) -> list[StoryFrameHost]:
+    """The hosts story embed and video blocks may frame (public, no auth required).
+
+    An admin sets them in `story_frame_hosts`. Empty means neither block can
+    be added, and none is shown to readers.
+    """
+    return await approved_frame_hosts(db)
+
+
+@router.get("/frame-src-policy", include_in_schema=False)
+async def story_frame_src_policy_endpoint(
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """The page CSP's ``frame-src``, in ``X-Story-Frame-Src``, for nginx.
+
+    Always 200 with no body, since nginx's ``auth_request`` treats any other
+    status as a failure.
+    """
+    directive = frame_src_directive(await approved_frame_hosts(db))
+    return Response(
+        status_code=status.HTTP_200_OK,
+        headers={"X-Story-Frame-Src": directive, "Cache-Control": "no-store"},
+    )
+
+
 @router.get("/{story_id}", response_model=StoryResponse)
 async def get_story_endpoint(
     story_id: uuid.UUID,
@@ -363,9 +399,11 @@ async def save_story_draft_endpoint(
 
     `revision` must match the stored draft's, or 409 `stale_revision`. 422
     for an unknown or invalid block, for a scene on a map you can't read
-    (`detail.code` `story_maps_not_found`), or for an image block naming an
-    image this story doesn't have (`story_assets_not_found`). Blocks you
-    can't see and scenes sent back with `scene_hidden` are kept as stored.
+    (`detail.code` `story_maps_not_found`), for an image block naming an
+    image this story doesn't have (`story_assets_not_found`), or for an
+    embed or video block whose host isn't approved
+    (`story_frame_host_not_allowed`, the blocks under `detail.blocks`). Blocks
+    you can't see and scenes sent back with `scene_hidden` are kept as stored.
     """
     story, roles = await _owned_story(db, story_id, user)
     before = story.draft
@@ -478,6 +516,8 @@ async def publish_story_endpoint(
     everyone the story's visibility reaches: `detail.maps` names the ones you
     can read and `detail.unreadable_maps` counts the rest. For a restricted
     story, a map only some of its groups lack is `can_share`; see `confirm`.
+    422 `story_frame_host_not_allowed` when an embed or video block frames a
+    host that isn't approved now; `detail.blocks` names each one.
     """
     if body.confirm is not None:
         # Sharing maps locks the story's groups, which must come first.

@@ -6,12 +6,14 @@ import { histogramWidget } from './histogram/definition';
 import { indicatorWidget } from './indicator/definition';
 import { buttonWidget } from './button/definition';
 import { carouselWidget } from './carousel/definition';
+import { embedWidget } from './embed/definition';
 import { galleryWidget } from './gallery/definition';
 import { imageWidget } from './image/definition';
 import { markdownTextWidget } from './markdown/definition';
 import { separatorWidget } from './separator/definition';
 import { tableWidget } from './table/definition';
 import { featureListWidget } from './feature-list/definition';
+import { videoWidget } from './video/definition';
 
 /** Every widget type this build knows. Add new types here; see README.md. */
 export const widgetDefinitions: readonly AnyWidgetDefinition[] = [
@@ -21,6 +23,8 @@ export const widgetDefinitions: readonly AnyWidgetDefinition[] = [
   carouselWidget,
   buttonWidget,
   separatorWidget,
+  embedWidget,
+  videoWidget,
   indicatorWidget,
   barChartWidget,
   histogramWidget,
