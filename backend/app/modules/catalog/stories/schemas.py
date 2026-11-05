@@ -256,6 +256,12 @@ class StorySummary(BaseModel):
     can_edit: bool
 
 
+class StoryListItem(StorySummary):
+    chapter_count: int = Field(
+        description="Chapters in the published document; 0 until published."
+    )
+
+
 class StoryResponse(StorySummary):
     document: StoryDocument | None = Field(
         description="The published document; null until the story is published."
@@ -279,7 +285,7 @@ class StoryDraftResponse(StorySummary):
 
 
 class StoryListResponse(BaseModel):
-    stories: list[StorySummary]
+    stories: list[StoryListItem]
     total: int
 
 

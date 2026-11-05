@@ -24297,11 +24297,110 @@
         "title": "StoryGroupsUpdate",
         "type": "object"
       },
+      "StoryListItem": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "visibility": {
+            "$ref": "#/components/schemas/StoredStoryVisibility"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the story was last published; null if never.",
+            "title": "Published At"
+          },
+          "cover_asset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The cover image, served at `/stories/{id}/assets/{cover_asset_id}`; null without one.",
+            "title": "Cover Asset Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "can_edit": {
+            "title": "Can Edit",
+            "type": "boolean"
+          },
+          "chapter_count": {
+            "description": "Chapters in the published document; 0 until published.",
+            "title": "Chapter Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "summary",
+          "visibility",
+          "created_by",
+          "published_at",
+          "cover_asset_id",
+          "created_at",
+          "updated_at",
+          "can_edit",
+          "chapter_count"
+        ],
+        "title": "StoryListItem",
+        "type": "object"
+      },
       "StoryListResponse": {
         "properties": {
           "stories": {
             "items": {
-              "$ref": "#/components/schemas/StorySummary"
+              "$ref": "#/components/schemas/StoryListItem"
             },
             "title": "Stories",
             "type": "array"
@@ -24568,99 +24667,6 @@
           }
         },
         "title": "StorySettings",
-        "type": "object"
-      },
-      "StorySummary": {
-        "properties": {
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          },
-          "summary": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Summary"
-          },
-          "visibility": {
-            "$ref": "#/components/schemas/StoredStoryVisibility"
-          },
-          "created_by": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Created By"
-          },
-          "published_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "When the story was last published; null if never.",
-            "title": "Published At"
-          },
-          "cover_asset_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The cover image, served at `/stories/{id}/assets/{cover_asset_id}`; null without one.",
-            "title": "Cover Asset Id"
-          },
-          "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
-          },
-          "updated_at": {
-            "format": "date-time",
-            "title": "Updated At",
-            "type": "string"
-          },
-          "can_edit": {
-            "title": "Can Edit",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "id",
-          "title",
-          "summary",
-          "visibility",
-          "created_by",
-          "published_at",
-          "cover_asset_id",
-          "created_at",
-          "updated_at",
-          "can_edit"
-        ],
-        "title": "StorySummary",
         "type": "object"
       },
       "StoryUpdate": {
@@ -71652,6 +71658,36 @@
             "schema": {
               "default": false,
               "title": "Owned Only",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Case-insensitive match on title and summary.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Case-insensitive match on title and summary.",
+              "title": "Search"
+            }
+          },
+          {
+            "description": "Leave out stories that were never published.",
+            "in": "query",
+            "name": "published_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Leave out stories that were never published.",
+              "title": "Published Only",
               "type": "boolean"
             }
           }

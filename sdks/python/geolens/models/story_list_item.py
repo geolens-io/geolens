@@ -15,11 +15,11 @@ from uuid import UUID
 import datetime
 
 
-T = TypeVar("T", bound="StorySummary")
+T = TypeVar("T", bound="StoryListItem")
 
 
 @_attrs_define
-class StorySummary:
+class StoryListItem:
     """
     Attributes:
         id (UUID):
@@ -34,6 +34,7 @@ class StorySummary:
         created_at (datetime.datetime):
         updated_at (datetime.datetime):
         can_edit (bool):
+        chapter_count (int): Chapters in the published document; 0 until published.
     """
 
     id: UUID
@@ -46,6 +47,7 @@ class StorySummary:
     created_at: datetime.datetime
     updated_at: datetime.datetime
     can_edit: bool
+    chapter_count: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -82,6 +84,8 @@ class StorySummary:
 
         can_edit = self.can_edit
 
+        chapter_count = self.chapter_count
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -96,6 +100,7 @@ class StorySummary:
                 "created_at": created_at,
                 "updated_at": updated_at,
                 "can_edit": can_edit,
+                "chapter_count": chapter_count,
             }
         )
 
@@ -168,7 +173,9 @@ class StorySummary:
 
         can_edit = d.pop("can_edit")
 
-        story_summary = cls(
+        chapter_count = d.pop("chapter_count")
+
+        story_list_item = cls(
             id=id,
             title=title,
             summary=summary,
@@ -179,10 +186,11 @@ class StorySummary:
             created_at=created_at,
             updated_at=updated_at,
             can_edit=can_edit,
+            chapter_count=chapter_count,
         )
 
-        story_summary.additional_properties = d
-        return story_summary
+        story_list_item.additional_properties = d
+        return story_list_item
 
     @property
     def additional_keys(self) -> list[str]:

@@ -596,12 +596,8 @@ def _story_handler(request):
         return httpx.Response(
             200,
             json={
-                "stories": [
-                    _story(_STORY_ID, "Skyline", summary="Tall towers"),
-                    _story(DS, "Unfinished", published=False),
-                    _story("99999999-2222-3333-4444-555555555555", "Rivers"),
-                ],
-                "total": 3,
+                "stories": [{**_story(_STORY_ID, "Skyline"), "chapter_count": 2}],
+                "total": 1,
             },
         )
     return httpx.Response(
@@ -613,24 +609,20 @@ def _story_handler(request):
     )
 
 
-def test_list_stories_lists_published_with_chapter_counts():
+def test_list_stories_passes_search_and_paging_to_the_route():
     api, seen = _api(_story_handler)
-    out = api.list_stories()
-    assert out["total"] == 2
-    assert [s["title"] for s in out["stories"]] == ["Skyline", "Rivers"]
+    out = api.list_stories(search="sky", limit=5, offset=10)
+    assert len(seen) == 1
+    assert seen[0].url.path == "/api/stories/"
+    assert dict(seen[0].url.params) == {
+        "search": "sky",
+        "limit": "5",
+        "skip": "10",
+        "published_only": "true",
+    }
+    assert out["total"] == 1
     assert out["stories"][0]["chapter_count"] == 2
     assert "can_edit" not in out["stories"][0]
-    assert seen[0].url.path == "/api/stories/"
-
-
-def test_list_stories_search_and_paging():
-    api, _ = _api(_story_handler)
-    assert [s["title"] for s in api.list_stories(search="TOWERS")["stories"]] == [
-        "Skyline"
-    ]
-    page = api.list_stories(limit=1, offset=1)
-    assert page["total"] == 2
-    assert [s["title"] for s in page["stories"]] == ["Rivers"]
 
 
 def test_get_story_reads_the_published_route_without_trailing_slash():

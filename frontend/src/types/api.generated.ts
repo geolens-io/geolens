@@ -17142,10 +17142,52 @@ export interface components {
              */
             confirm?: "share_maps" | null;
         };
+        /** StoryListItem */
+        StoryListItem: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+            /** Summary */
+            summary: string | null;
+            visibility: components["schemas"]["StoredStoryVisibility"];
+            /** Created By */
+            created_by: string | null;
+            /**
+             * Published At
+             * @description When the story was last published; null if never.
+             */
+            published_at: string | null;
+            /**
+             * Cover Asset Id
+             * @description The cover image, served at `/stories/{id}/assets/{cover_asset_id}`; null without one.
+             */
+            cover_asset_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Can Edit */
+            can_edit: boolean;
+            /**
+             * Chapter Count
+             * @description Chapters in the published document; 0 until published.
+             */
+            chapter_count: number;
+        };
         /** StoryListResponse */
         StoryListResponse: {
             /** Stories */
-            stories: components["schemas"]["StorySummary"][];
+            stories: components["schemas"]["StoryListItem"][];
             /** Total */
             total: number;
         };
@@ -17261,43 +17303,6 @@ export interface components {
              * @enum {string}
              */
             theme: "follow" | "light" | "dark";
-        };
-        /** StorySummary */
-        StorySummary: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Title */
-            title: string;
-            /** Summary */
-            summary: string | null;
-            visibility: components["schemas"]["StoredStoryVisibility"];
-            /** Created By */
-            created_by: string | null;
-            /**
-             * Published At
-             * @description When the story was last published; null if never.
-             */
-            published_at: string | null;
-            /**
-             * Cover Asset Id
-             * @description The cover image, served at `/stories/{id}/assets/{cover_asset_id}`; null without one.
-             */
-            cover_asset_id: string | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-            /** Can Edit */
-            can_edit: boolean;
         };
         /** StoryUpdate */
         StoryUpdate: {
@@ -48263,6 +48268,10 @@ export interface operations {
                 skip?: number;
                 limit?: number;
                 owned_only?: boolean;
+                /** @description Case-insensitive match on title and summary. */
+                search?: string | null;
+                /** @description Leave out stories that were never published. */
+                published_only?: boolean;
             };
             header?: never;
             path?: never;

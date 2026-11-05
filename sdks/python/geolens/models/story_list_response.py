@@ -8,7 +8,7 @@ from attrs import field as _attrs_field
 
 
 if TYPE_CHECKING:
-    from ..models.story_summary import StorySummary
+    from ..models.story_list_item import StoryListItem
 
 
 T = TypeVar("T", bound="StoryListResponse")
@@ -18,11 +18,11 @@ T = TypeVar("T", bound="StoryListResponse")
 class StoryListResponse:
     """
     Attributes:
-        stories (list[StorySummary]):
+        stories (list[StoryListItem]):
         total (int):
     """
 
-    stories: list[StorySummary]
+    stories: list[StoryListItem]
     total: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -47,13 +47,13 @@ class StoryListResponse:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.story_summary import StorySummary
+        from ..models.story_list_item import StoryListItem
 
         d = dict(src_dict)
         stories = []
         _stories = d.pop("stories")
         for stories_item_data in _stories:
-            stories_item = StorySummary.from_dict(stories_item_data)
+            stories_item = StoryListItem.from_dict(stories_item_data)
 
             stories.append(stories_item)
 

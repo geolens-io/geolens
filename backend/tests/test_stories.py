@@ -1223,3 +1223,52 @@ async def test_a_save_that_would_push_kept_settings_past_the_cap_is_refused(
     assert resp.status_code == 422, resp.text[:300]
     assert "too large" in resp.text
     assert await _stored_draft(test_db_session, story["id"]) == draft
+
+
+async def test_list_filters_by_text_and_published_and_counts_chapters(
+    client: AsyncClient, people
+):
+    owner = people["owner"]
+    tag = uuid.uuid4().hex[:8]
+    done = await _story(client, owner, title=f"Skyline {tag}", summary="Tall towers")
+    chapters = [_chapter(), _chapter()]
+    saved = await _saved(client, owner, done, chapters)
+    assert (
+        await _publish(client, owner, done["id"], saved["revision"])
+    ).status_code == 200
+    draft = await _story(client, owner, title=f"Rivers {tag}")
+
+    async def listed(**params):
+        resp = await client.get("/stories/", params=params, headers=owner)
+        assert resp.status_code == 200, resp.text
+        return {s["id"]: s for s in resp.json()["stories"]}, resp.json()["total"]
+
+    by_id, total = await listed(search=f"SKYLINE {tag}")
+    assert list(by_id) == [done["id"]] and total == 1
+    assert by_id[done["id"]]["chapter_count"] == 2
+
+    by_id, _ = await listed(search="tall TOWERS")
+    assert done["id"] in by_id and draft["id"] not in by_id
+
+    by_id, _ = await listed(search=tag)
+    assert by_id[draft["id"]]["chapter_count"] == 0
+    by_id, _ = await listed(search=tag, published_only="true")
+    assert list(by_id) == [done["id"]]
+
+    by_id, total = await listed(search="100%_" + tag)
+    assert by_id == {} and total == 0
+
+
+async def test_list_chapter_count_is_the_published_document_not_the_draft(
+    client: AsyncClient, people
+):
+    owner = people["owner"]
+    story = await _story(client, owner, title=f"Count {uuid.uuid4().hex[:8]}")
+    saved = await _saved(client, owner, story, [_chapter(), _chapter()])
+    published = await _publish(client, owner, story["id"], saved["revision"])
+    assert published.status_code == 200, published.text
+    await _saved(client, owner, {**story, "revision": saved["revision"]}, [_chapter()])
+    resp = await client.get(
+        "/stories/", params={"search": story["title"]}, headers=owner
+    )
+    assert [s["chapter_count"] for s in resp.json()["stories"]] == [2]

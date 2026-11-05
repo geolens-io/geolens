@@ -23,6 +23,7 @@ from sqlalchemy import (
     Row,
     Select,
     and_,
+    case,
     delete,
     func,
     insert,
@@ -36,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 
 from app.core.db.sqlstate import is_lock_conflict
+from app.core.text import escape_ilike
 from app.core.identity import Identity
 from app.modules.auth.permissions import get_user_roles as get_account_roles
 from app.modules.auth.service import get_user_identity
@@ -279,7 +281,10 @@ async def list_stories(
     skip: int,
     limit: int,
     owned_only: bool,
-) -> tuple[list[Story], int]:
+    search: str | None = None,
+    published_only: bool = False,
+) -> tuple[list[tuple[Story, int]], int]:
+    """A page of readable stories with each one's published chapter count."""
     stmt = apply_story_visibility_filter(
         select(Story).options(defer(Story.draft), defer(Story.published)),
         user.id if user is not None else None,
@@ -289,11 +294,32 @@ async def list_stories(
         if user is None:
             return [], 0
         stmt = stmt.where(Story.created_by == user.id)
+    if published_only:
+        stmt = stmt.where(Story.published_at.is_not(None))
+    if search:
+        pattern = f"%{escape_ilike(search)}%".lower()
+        stmt = stmt.where(
+            or_(
+                func.lower(Story.title).like(pattern, escape="\\"),
+                func.lower(func.coalesce(Story.summary, "")).like(pattern, escape="\\"),
+            )
+        )
     total = await db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
-    page = await db.scalars(
-        stmt.order_by(Story.updated_at.desc(), Story.id).offset(skip).limit(limit)
+    chapters = Story.published["chapters"]
+    chapter_count = case(
+        (
+            func.jsonb_typeof(chapters) == "array",
+            func.jsonb_array_length(chapters),
+        ),
+        else_=0,
     )
-    return list(page), total
+    page = await db.execute(
+        stmt.add_columns(chapter_count)
+        .order_by(Story.updated_at.desc(), Story.id)
+        .offset(skip)
+        .limit(limit)
+    )
+    return [(story, count) for story, count in page.all()], total
 
 
 async def stories_using_map(

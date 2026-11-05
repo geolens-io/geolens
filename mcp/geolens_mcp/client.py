@@ -271,21 +271,14 @@ def _map_summary(detail: Any) -> Any:
 
 
 _STORY_FIELDS = ("id", "title", "summary", "visibility", "published_at", "updated_at")
-_STORY_PAGE = 200
-_STORY_SCAN_PAGES = 25
 
 
-def _story_document(detail: Any) -> dict[str, Any]:
-    document = detail.get("document") if isinstance(detail, dict) else None
-    return document if isinstance(document, dict) else {}
-
-
-def _story_summary(listed: dict[str, Any], detail: Any) -> dict[str, Any]:
-    """A listed story with the chapter count of its published document."""
-    chapters = _story_document(detail).get("chapters")
-    out = {key: listed[key] for key in _STORY_FIELDS if key in listed}
-    out["chapter_count"] = len(chapters) if isinstance(chapters, list) else None
-    return out
+def _story_summary(story: Any) -> Any:
+    if not isinstance(story, dict):
+        return story
+    return {
+        key: story[key] for key in (*_STORY_FIELDS, "chapter_count") if key in story
+    }
 
 
 def _story_detail(detail: Any) -> Any:
@@ -459,43 +452,16 @@ class GeoLensReadOnlyAPI:
             {"sql": sql, "restrict_tables": restrict_tables, "row_limit": row_limit},
         )
 
-    def _published_stories(self, search: Optional[str]) -> list[dict[str, Any]]:
-        """Published stories the caller can read, optionally text-filtered.
-
-        The list route has no text filter and also lists the caller's own
-        drafts, so pages are scanned (bounded) and filtered here.
-        """
-        needle = search.casefold() if search else None
-        found: list[dict[str, Any]] = []
-        for page in range(_STORY_SCAN_PAGES):
-            body = self._get(
-                "/stories/", _params(limit=_STORY_PAGE, skip=page * _STORY_PAGE)
-            )
-            batch = body.get("stories") if isinstance(body, dict) else None
-            if not isinstance(batch, list):
-                break
-            for story in batch:
-                if not isinstance(story, dict) or not story.get("published_at"):
-                    continue
-                text = f"{story.get('title') or ''} {story.get('summary') or ''}"
-                if needle is None or needle in text.casefold():
-                    found.append(story)
-            if len(batch) < _STORY_PAGE:
-                break
-        return found
-
     def list_stories(
         self, search: Optional[str] = None, limit: int = 50, offset: int = 0
     ) -> Any:
-        matched = self._published_stories(search)
-        stories = []
-        for story in matched[offset : offset + limit]:
-            try:
-                detail = self._get(f"/stories/{_id_segment(story['id'])}")
-            except RuntimeError:
-                detail = None
-            stories.append(_story_summary(story, detail))
-        return {"stories": stories, "total": len(matched)}
+        body = self._get(
+            "/stories/",
+            _params(search=search, limit=limit, skip=offset, published_only="true"),
+        )
+        if isinstance(body, dict) and isinstance(body.get("stories"), list):
+            body = {**body, "stories": [_story_summary(s) for s in body["stories"]]}
+        return body
 
     def get_story(self, story_id: str) -> Any:
         # No trailing-slash sibling on this route; it serves the published

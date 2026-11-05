@@ -572,7 +572,7 @@ export type MapHistoryEntryResponse = components['schemas']['MapHistoryEventResp
 
 export type MapHistoryListResponse = components['schemas']['MapHistoryListResponse'];
 
-export type StorySummary = components['schemas']['StorySummary'];
+export type StorySummary = components['schemas']['StoryListItem'];
 export type StoryListResponse = components['schemas']['StoryListResponse'];
 export type StoryResponse = components['schemas']['StoryResponse'];
 export type StoryChapter = components['schemas']['StoryChapter'];
