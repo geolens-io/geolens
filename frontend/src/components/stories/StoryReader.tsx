@@ -326,8 +326,8 @@ function StoryScrollPanel({
     <div
       ref={panelRef}
       onScroll={handleScroll}
-      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- the named overflow region must be keyboard-scrollable
-      tabIndex={0}
+      tabIndex={bare ? undefined : 0}
+      inert={bare}
       role="region"
       aria-label={t('reader.chaptersLabel')}
       className={cn(
