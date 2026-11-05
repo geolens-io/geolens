@@ -290,6 +290,27 @@ describe('DashboardEditorPanel', () => {
     expect(lastDraft(onChange).mapHidden).toBeUndefined();
   });
 
+  it('previews the map placeholder when the hidden-map dashboard has no widget left to save', async () => {
+    const user = userEvent.setup();
+    const gone = {
+      id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+      type: 'indicator',
+      v: 1,
+      layer_id: 'b1c2d3e4-0000-4000-8000-0000000000ff',
+      scope: 'layer' as const,
+      config: { stat: 'count', column: null },
+    };
+    render(
+      <Harness
+        layers={[parcels]}
+        initial={{ panel: 'right', widgets: [gone], mapHidden: true }}
+        onChange={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Preview panel' }));
+    expect(within(await screen.findByRole('dialog')).getByText('Map')).toBeInTheDocument();
+  });
+
   it('offers no hide-the-map switch before there are widgets', () => {
     render(<Harness onChange={vi.fn()} />);
     expect(screen.queryByRole('switch', { name: 'Hide the map' })).not.toBeInTheDocument();

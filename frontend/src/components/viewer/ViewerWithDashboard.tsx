@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { DashboardConfig, SharedLayerResponse } from '@/types/api';
 import { widgetLayerId } from '@/components/widgets/registry';
@@ -65,6 +65,10 @@ export function ViewerWithDashboard({ children, readerTheme, ...panel }: ViewerW
     () => (mapHidden ? [] : linkMapLayers(panel.layers, picks)),
     [mapHidden, panel.layers, picks],
   );
+  // The unmounted map must not outlive its removal: a later map reports itself through onMapReady.
+  useEffect(() => {
+    if (mapHidden) setMap(null);
+  }, [mapHidden]);
   return (
     <div
       className={cn(

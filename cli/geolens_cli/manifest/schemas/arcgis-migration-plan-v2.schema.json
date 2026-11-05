@@ -167,6 +167,11 @@
           "type": ["integer", "null"],
           "minimum": 0
         },
+        "map_widget_maps": {
+          "description": "For a dashboard, the web map item ids its map widgets show; present with map_widgets.",
+          "type": "array",
+          "items": {"type": "string"}
+        },
         "alias_of": {
           "description": "Set by hand on an unfiltered hosted view with action skip: web maps that use it point at this parent item's dataset.",
           "type": "string"

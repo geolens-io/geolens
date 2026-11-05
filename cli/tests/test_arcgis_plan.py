@@ -184,15 +184,31 @@ def test_other_organizations_items_are_not_dependencies():
 
 
 def test_a_dashboards_map_widgets_are_counted_per_widget_not_per_map():
-    widgets = [{"type": "mapWidget", "itemId": B1}, {"type": "mapWidget", "itemId": B1}]
+    widgets = [
+        {"id": "w1", "type": "mapWidget", "itemId": B1},
+        {"id": "w2", "type": "mapWidget", "itemId": B1},
+    ]
     plan = _plan({item_data_path(C3): {"widgets": [*widgets, {"type": "listWidget"}]}})
     item = _items(plan)[C3]
 
     assert item["map_widgets"] == 2
-    assert item["depends_on"].count(B1) <= 1
+    assert item["map_widget_maps"] == [B1]
     _validator().validate(plan)
     # A dashboard the inventory did not read for widgets carries no count.
     assert "map_widgets" not in _items(plan)[A1]
+
+
+def test_a_mobile_only_map_widget_counts_and_a_copied_one_counts_once():
+    mobile_only = {
+        "mobileView": {"widgets": [{"id": "m1", "type": "mapWidget", "itemId": B1}]}
+    }
+    copied = {
+        "widgets": [{"id": "w1", "type": "mapWidget", "itemId": B1}],
+        "mobileView": {"widgets": [{"id": "w1", "type": "mapWidget", "itemId": B1}]},
+    }
+
+    assert _items(_plan({item_data_path(C3): mobile_only}))[C3]["map_widgets"] == 1
+    assert _items(_plan({item_data_path(C3): copied}))[C3]["map_widgets"] == 1
 
 
 def test_view_depends_on_its_parent():
@@ -287,6 +303,7 @@ def _as_v1(plan: dict) -> dict:
     for item in old["items"]:
         del item["defaults"]
         item.pop("map_widgets", None)
+        item.pop("map_widget_maps", None)
     return old
 
 

@@ -28,7 +28,6 @@ import typer
 
 from . import arcgis_report as _report
 from ._sdk_helpers import EXIT_NETWORK
-from .arcgis_plan import dependencies_unread
 from .arcgis_migrate_session import (
     GeoLensError,
     ItemFailed,
@@ -133,21 +132,23 @@ def dashboard_layout_follow_up(
     item: Mapping[str, Any], plan: Mapping[str, Any]
 ) -> str | None:
     """What a Dashboard's map widgets mean for its GeoLens layout, or None when
-    it has one map or its dependencies were not read and a count would be a
-    guess. None means rebuilding with the map hidden; several are not chosen
-    between."""
-    if item["type"] != "Dashboard" or dependencies_unread(item):
+    it has one map widget or is not a dashboard. None of them means rebuilding
+    with the map hidden; several are not chosen between; an unread widget list
+    leaves the count unknown, which is said rather than guessed."""
+    if item["type"] != "Dashboard":
         return None
-    titles = {i["id"]: i["title"] for i in plan["items"] if i["type"] == "Web Map"}
-    maps = [titles[t] for t in item.get("depends_on", []) if t in titles]
-    # Widgets, not distinct maps: two widgets on one web map can differ in extent.
     count = item.get("map_widgets")
     if count is None:
-        count = len(maps)
+        return (
+            "its map widgets could not be counted: check whether it has one "
+            "map or several before rebuilding"
+        )
     if count == 0:
         return "it has no map widget: rebuild it with the map hidden"
     if count == 1:
         return None
+    titles = {i["id"]: i["title"] for i in plan["items"] if i["type"] == "Web Map"}
+    maps = [titles[m] for m in item.get("map_widget_maps", []) if m in titles]
     on = f" on {', '.join(maps)}" if maps else ""
     return (
         f"it has {count} map widgets{on}: convert it to a "

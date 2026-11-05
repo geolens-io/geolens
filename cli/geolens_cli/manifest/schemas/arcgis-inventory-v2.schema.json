@@ -231,6 +231,11 @@
           "type": ["integer", "null"],
           "minimum": 0
         },
+        "map_widget_maps": {
+          "description": "For a dashboard, the web map item ids its map widgets show; present with map_widgets.",
+          "type": "array",
+          "items": {"type": "string"}
+        },
         "dependencies_status": {
           "enum": ["parsed", "unparsed", "error", "not_fetched", "not_applicable"]
         },

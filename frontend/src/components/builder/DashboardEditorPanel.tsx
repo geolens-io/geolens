@@ -293,7 +293,7 @@ function PanelPreview({
 }) {
   const { t } = useTranslation('widgets');
   const config = useMemo(() => dashboardPayload(draft, layers, draft), [draft, layers]);
-  const layout = dashboardLayout({ panel: draft.panel, map_hidden: draft.mapHidden });
+  const layout = dashboardLayout(config);
   const shared = useMemo(() => dashboardLayers(layers).map(toSharedLayer), [layers]);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

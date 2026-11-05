@@ -69,20 +69,12 @@ _EDITABLE = (
 )
 # Item values that describe the portal item; a merge takes the inventory's.
 _PORTAL_FACTS = ("type", "title", "owner", "reason")
+# What the inventory read of a dashboard's map widgets; absent when it did not.
+_MAP_WIDGET_KEYS = ("map_widgets", "map_widget_maps")
 
 
 class PlanError(Exception):
     """The inventory or owner map can't be turned into a plan."""
-
-
-UNREAD_DEPENDENCIES = (
-    "its dependencies could not be read, so depends_on may be incomplete"
-)
-
-
-def dependencies_unread(entry: Mapping[str, Any]) -> bool:
-    """Whether a plan entry's ``depends_on`` is known to be incomplete."""
-    return UNREAD_DEPENDENCIES in entry.get("reason", "")
 
 
 def _unread_dependencies(row: Mapping[str, Any]) -> bool:
@@ -190,7 +182,9 @@ def build_plan(
         if missing:
             reason += "; depends on items not in the inventory: " + ", ".join(missing)
         if _unread_dependencies(row):
-            reason += f"; {UNREAD_DEPENDENCIES}"
+            reason += (
+                "; its dependencies could not be read, so depends_on may be incomplete"
+            )
             if row["type"] == "Web Map":
                 reason += (
                     "; rerun the inventory or set the action to import_map by hand"
@@ -212,8 +206,9 @@ def build_plan(
             },
             "depends_on": depends_on,
         }
-        if "map_widgets" in row:
-            entry["map_widgets"] = row["map_widgets"]
+        for key in _MAP_WIDGET_KEYS:
+            if key in row:
+                entry[key] = row[key]
         layer = superseded.get(row["id"])
         if layer and action == IMPORT_FILE:
             entry["action"] = EXPORT_ONLY
@@ -315,10 +310,11 @@ def _merge_item(
     merged.pop("unlisted", None)
     for key in _PORTAL_FACTS:
         merged[key] = fresh[key]
-    if "map_widgets" in fresh:
-        merged["map_widgets"] = fresh["map_widgets"]
-    else:
-        merged.pop("map_widgets", None)
+    for key in _MAP_WIDGET_KEYS:
+        if key in fresh:
+            merged[key] = fresh[key]
+        else:
+            merged.pop(key, None)
     old = current.get("defaults")
     recorded = copy.deepcopy(fresh["defaults"])
     for path in _EDITABLE:
