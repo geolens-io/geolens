@@ -20,6 +20,7 @@ function renderTab(hosts: unknown, envOnly = false) {
 it('says the blocks are off while no host is listed', () => {
   renderTab([]);
   expect(screen.getByText(/No sites yet, so embed and video blocks are off/)).toBeInTheDocument();
+  expect(screen.getByText('Pages already open pick up the list after a reload.')).toBeInTheDocument();
 });
 
 it('adds an exact host, opts it into its own origin and saves the list', async () => {

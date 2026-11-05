@@ -837,7 +837,8 @@
       "full": "The list holds at most {{max}} sites.",
       "sameOrigin": "Keep the site's origin",
       "sameOriginHint": "Some video players need their own origin to play. It lets that site's frames use its cookies and storage, so turn it on only for sites you trust.",
-      "remove": "Remove {{host}}"
+      "remove": "Remove {{host}}",
+      "reloadHint": "Pages already open pick up the list after a reload."
     }
   },
   "saml": {

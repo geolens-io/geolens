@@ -818,7 +818,8 @@
       "full": "Die Liste fasst höchstens {{max}} Websites.",
       "sameOrigin": "Herkunft der Website beibehalten",
       "sameOriginHint": "Manche Videoplayer brauchen ihre eigene Herkunft zum Abspielen. Die Rahmen dieser Website können dann ihre Cookies und ihren Speicher nutzen, also aktivieren Sie es nur für vertrauenswürdige Websites.",
-      "remove": "{{host}} entfernen"
+      "remove": "{{host}} entfernen",
+      "reloadHint": "Bereits geöffnete Seiten übernehmen die Liste nach dem Neuladen."
     }
   },
   "infrastructure": {

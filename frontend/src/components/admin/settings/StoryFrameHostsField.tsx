@@ -106,6 +106,7 @@ export function StoryFrameHostsField({ settings, hosts, onChange, onReset, envOn
       <p id={`${id}-same-origin-hint`} className="text-xs text-muted-foreground">
         {t('settings.storyFrames.sameOriginHint')}
       </p>
+      <p className="text-xs text-muted-foreground">{t('settings.storyFrames.reloadHint')}</p>
       <form onSubmit={add} className="flex max-w-xl flex-wrap items-start gap-2">
         <div className="min-w-56 flex-1 space-y-1">
           <Label htmlFor={`${id}-host`}>{t('settings.storyFrames.hostLabel')}</Label>

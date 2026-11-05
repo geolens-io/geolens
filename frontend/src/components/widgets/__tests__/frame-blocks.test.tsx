@@ -78,7 +78,7 @@ describe('frame block renderer', () => {
     expect(frame).toHaveAttribute('src', URL_ON_MEDIA);
     expect(frame).toHaveAttribute('loading', 'lazy');
     expect(frame).toHaveAttribute('sandbox', 'allow-scripts allow-popups');
-    expect(frame).toHaveAttribute('referrerpolicy', 'no-referrer');
+    expect(frame).toHaveAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
   });
 
   it('keeps the host origin only for a host the admin opted in', async () => {

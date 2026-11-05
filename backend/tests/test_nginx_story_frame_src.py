@@ -96,6 +96,15 @@ def test_the_policy_request_is_internal_anonymous_and_cannot_fail_the_shell():
     for header in ("Authorization", "Cookie", "X-Api-Key"):
         assert f'proxy_set_header {header} "";' in own
     assert "add_header" not in own
+    for directive in (
+        "proxy_buffer_size 32k;",
+        "proxy_buffers 4 32k;",
+        "proxy_busy_buffers_size 64k;",
+        "proxy_connect_timeout 2s;",
+        "proxy_send_timeout 2s;",
+        "proxy_read_timeout 2s;",
+    ):
+        assert directive in own, directive
     error_page = re.search(r"error_page ([0-9 ]+) = (@\w+);", own)
     assert error_page is not None
     assert {"500", "502", "503", "504"} <= set(error_page.group(1).split())

@@ -837,7 +837,8 @@
       "full": "列表最多包含 {{max}} 个网站。",
       "sameOrigin": "保留网站来源",
       "sameOriginHint": "某些视频播放器需要保留自身来源才能播放。启用后，该网站的框架可以使用其 Cookie 和存储，因此只应对可信网站启用。",
-      "remove": "移除 {{host}}"
+      "remove": "移除 {{host}}",
+      "reloadHint": "已打开的页面需重新加载后才会使用此列表。"
     }
   },
   "saml": {

@@ -818,7 +818,8 @@
       "full": "La liste contient au plus {{max}} sites.",
       "sameOrigin": "Conserver l’origine du site",
       "sameOriginHint": "Certains lecteurs vidéo ont besoin de leur propre origine pour lire. Les cadres de ce site peuvent alors utiliser ses cookies et son stockage : ne l’activez que pour des sites de confiance.",
-      "remove": "Retirer {{host}}"
+      "remove": "Retirer {{host}}",
+      "reloadHint": "Les pages déjà ouvertes prennent en compte la liste après un rechargement."
     }
   },
   "infrastructure": {
