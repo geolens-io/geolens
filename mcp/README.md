@@ -18,7 +18,7 @@ All tools are read-only and scoped to the caller's access.
 
 - `search_datasets`, `get_dataset_schema`, `get_features`: find datasets, read their columns and page through features.
 - `list_maps`, `get_map`: saved maps and their layers.
-- `list_stories`, `get_story`: published stories and their chapters. Drafts are never read.
+- `list_stories`, `get_story`: published stories and their chapters. Drafts are never read. Against a server that predates chapter counts, `chapter_count` is null.
 - `aggregate`: exact counts, statistics, histograms, group-bys and row pages over one dataset.
 - `query`: one sandboxed SELECT. Use `aggregate` for counts and summaries.
 

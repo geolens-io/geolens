@@ -276,13 +276,14 @@ _STORY_FIELDS = ("id", "title", "summary", "visibility", "published_at", "update
 def _story_summary(story: Any) -> Any:
     if not isinstance(story, dict):
         return story
-    return {
-        key: story[key] for key in (*_STORY_FIELDS, "chapter_count") if key in story
-    }
+    out = {key: story[key] for key in _STORY_FIELDS if key in story}
+    # Servers before the count was added omit it; null says "not reported".
+    out["chapter_count"] = story.get("chapter_count")
+    return out
 
 
-def _story_text(story: dict[str, Any]) -> str:
-    return f"{story.get('title') or ''} {story.get('summary') or ''}".casefold()
+def _story_matches(story: dict[str, Any], needle: str) -> bool:
+    return any(needle in (story.get(f) or "").casefold() for f in ("title", "summary"))
 
 
 def _story_detail(detail: Any) -> Any:
@@ -366,9 +367,11 @@ class GeoLensReadOnlyAPI:
                     detail = str(detail)[:500]
             except Exception:
                 detail = (exc.response.text or "")[:200]
+            retry_after = exc.response.headers.get("Retry-After")
             raise RuntimeError(
                 f"GeoLens API {exc.response.status_code} for {path}"
                 + (f": {detail}" if detail else "")
+                + (f" (Retry-After: {retry_after})" if retry_after else "")
             ) from exc
         except httpx.HTTPError as exc:
             raise RuntimeError(f"Could not reach GeoLens API at {path}: {exc}") from exc
@@ -471,7 +474,7 @@ class GeoLensReadOnlyAPI:
                 for s in body["stories"]
                 if isinstance(s, dict)
                 and s.get("published_at")
-                and (needle is None or needle in _story_text(s))
+                and (needle is None or _story_matches(s, needle))
             ]
             body = {**body, "stories": kept}
         return body

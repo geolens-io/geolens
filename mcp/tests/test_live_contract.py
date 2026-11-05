@@ -481,7 +481,9 @@ def test_story_tools_read_the_published_version_not_the_draft(live):
             match = next(s for s in listed["stories"] if s["id"] == story_id)
             assert match["chapter_count"] == 1
         finally:
-            http.delete(f"/stories/{story_id}")
+            deleted = http.delete(f"/stories/{story_id}")
+            if deleted.status_code not in (204, 404):
+                pytest.fail(f"story {story_id}: HTTP {deleted.status_code}")
 
     missing = str(uuid.uuid4())
     with pytest.raises(RuntimeError, match="404"):

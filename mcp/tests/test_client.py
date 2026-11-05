@@ -689,3 +689,35 @@ def test_list_stories_drops_drafts_and_misses_an_older_server_returned():
     api, _ = _api(older_server)
     out = api.list_stories(search="SKYLINE")
     assert [s["title"] for s in out["stories"]] == ["Skyline"]
+
+
+def test_list_stories_older_server_matches_fields_separately_and_nulls_the_count():
+    def older_server(request):
+        return httpx.Response(
+            200,
+            json={
+                "stories": [
+                    _story(_STORY_ID, "Alpha", summary="Beta"),
+                    _story("99999999-2222-3333-4444-555555555555", "Alpha Beta"),
+                ],
+                "total": 2,
+            },
+        )
+
+    api, _ = _api(older_server)
+    out = api.list_stories(search="alpha beta")
+    assert [s["id"] for s in out["stories"]] == ["99999999-2222-3333-4444-555555555555"]
+    assert out["stories"][0]["chapter_count"] is None
+
+
+def test_error_carries_the_retry_after_header():
+    def busy(request):
+        return httpx.Response(
+            503,
+            headers={"Retry-After": "7"},
+            json={"detail": {"code": "query_unavailable", "message": "later"}},
+        )
+
+    api, _ = _api(busy)
+    with pytest.raises(RuntimeError, match=r"query_unavailable.*Retry-After: 7"):
+        api.aggregate(DS, {"op": "count"})
