@@ -5,9 +5,9 @@ import { FrameBlockFallback } from './FrameBlockFallback';
 import { approvedFrameHost, frameSandbox, useStoryFrameHosts, type FrameConfig } from './frame';
 
 /**
- * A sandboxed, lazily loaded frame of a page on an approved host. While the
- * list loads, or when the host is no longer on it, the reader gets a link to
- * the page instead; the page CSP would block the frame anyway.
+ * A sandboxed, lazily loaded frame of a page on an approved host, with a link
+ * to the page under it. While the list loads, or when the host is no longer on
+ * it, the reader gets only the link; the page CSP would block the frame anyway.
  */
 export function FrameBlockRenderer({ config, kind }: WidgetRenderProps<FrameConfig> & { kind: 'embed' | 'video' }) {
   const { t } = useTranslation('widgets');
@@ -22,15 +22,22 @@ export function FrameBlockRenderer({ config, kind }: WidgetRenderProps<FrameConf
       </div>
     );
   }
+  // A browser that blocks the frame reports nothing to the page, so the link always stays.
   return (
-    <iframe
-      src={config.url}
-      title={config.title}
-      loading="lazy"
-      sandbox={frameSandbox(entry)}
-      referrerPolicy="strict-origin-when-cross-origin"
-      allowFullScreen={kind === 'video'}
-      className={cn('w-full rounded-md border', kind === 'video' ? 'aspect-video' : 'h-[28rem]')}
-    />
+    <figure className="space-y-1">
+      <iframe
+        src={config.url}
+        title={config.title}
+        loading="lazy"
+        sandbox={frameSandbox(entry)}
+        referrerPolicy="strict-origin-when-cross-origin"
+        allowFullScreen={kind === 'video'}
+        className={cn('w-full rounded-md border', kind === 'video' ? 'aspect-video' : 'h-[28rem]')}
+      />
+      <figcaption>
+        <p className="text-xs text-muted-foreground">{t('types.embed.originalLink')}</p>
+        <FrameBlockFallback config={config} />
+      </figcaption>
+    </figure>
   );
 }

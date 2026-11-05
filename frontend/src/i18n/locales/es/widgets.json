@@ -118,7 +118,8 @@
     },
     "embed": {
       "label": "Página incrustada",
-      "unavailable": "Esta página incrustada no se puede mostrar aquí porque su sitio ya no está aprobado."
+      "unavailable": "Esta página incrustada no se puede mostrar aquí porque su sitio ya no está aprobado.",
+      "originalLink": "Si el marco se queda vacío, abre el original:"
     },
     "video": {
       "label": "Vídeo",

@@ -8,7 +8,7 @@ export const embedWidget = defineWidget<FrameConfig>({
   v: 1,
   surfaces: ['story'],
   labelKey: 'types.embed.label',
-  i18nKeys: ['types.embed.unavailable', 'types.button.opensInNewTab'],
+  i18nKeys: ['types.embed.unavailable', 'types.button.opensInNewTab', 'types.embed.originalLink'],
   defaultConfig: FRAME_DEFAULT_CONFIG,
   parseConfig: parseFrameConfig,
   loadRenderer: () => import('./EmbedBlockRenderer'),

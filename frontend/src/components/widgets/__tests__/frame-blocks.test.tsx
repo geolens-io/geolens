@@ -79,6 +79,11 @@ describe('frame block renderer', () => {
     expect(frame).toHaveAttribute('loading', 'lazy');
     expect(frame).toHaveAttribute('sandbox', 'allow-scripts allow-popups');
     expect(frame).toHaveAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+    // A frame the browser blocks still leaves the reader a way to the page.
+    expect(screen.getByText(/If the frame stays empty, open the original/)).toBeInTheDocument();
+    const link = screen.getByRole('link', { name: /Field visit/ });
+    expect(link).toHaveAttribute('href', URL_ON_MEDIA);
+    expect(link).toHaveAttribute('target', '_blank');
   });
 
   it('keeps the host origin only for a host the admin opted in', async () => {

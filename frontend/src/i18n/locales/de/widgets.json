@@ -118,7 +118,8 @@
     },
     "embed": {
       "label": "Einbettung",
-      "unavailable": "Diese eingebettete Seite kann hier nicht angezeigt werden, weil ihre Website nicht mehr freigegeben ist."
+      "unavailable": "Diese eingebettete Seite kann hier nicht angezeigt werden, weil ihre Website nicht mehr freigegeben ist.",
+      "originalLink": "Bleibt der Rahmen leer, öffnen Sie das Original:"
     },
     "video": {
       "label": "Video",

@@ -97,6 +97,7 @@ def test_the_policy_request_is_internal_anonymous_and_cannot_fail_the_shell():
         assert f'proxy_set_header {header} "";' in own
     assert "add_header" not in own
     for directive in (
+        "resolver_timeout 2s;",
         "proxy_buffer_size 32k;",
         "proxy_buffers 4 32k;",
         "proxy_busy_buffers_size 64k;",

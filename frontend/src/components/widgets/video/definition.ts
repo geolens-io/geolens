@@ -8,7 +8,7 @@ export const videoWidget = defineWidget<FrameConfig>({
   v: 1,
   surfaces: ['story'],
   labelKey: 'types.video.label',
-  i18nKeys: ['types.video.unavailable', 'types.button.opensInNewTab'],
+  i18nKeys: ['types.video.unavailable', 'types.button.opensInNewTab', 'types.embed.originalLink'],
   defaultConfig: FRAME_DEFAULT_CONFIG,
   parseConfig: parseFrameConfig,
   loadRenderer: () => import('./VideoBlockRenderer'),
