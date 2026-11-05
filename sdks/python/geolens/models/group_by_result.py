@@ -6,6 +6,8 @@ from typing import Any, TypeVar, TYPE_CHECKING
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..types import UNSET, Unset
+
 
 if TYPE_CHECKING:
     from ..models.group_value import GroupValue
@@ -18,10 +20,12 @@ T = TypeVar("T", bound="GroupByResult")
 class GroupByResult:
     """
     Attributes:
-        groups (list[GroupValue]): Largest value first.
+        groups (list[GroupValue]): In the requested order; by default the largest value first.
+        truncated (bool | Unset): Whether more groups matched than `limit` lists. Default: False.
     """
 
     groups: list[GroupValue]
+    truncated: bool | Unset = False
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -30,6 +34,8 @@ class GroupByResult:
             groups_item = groups_item_data.to_dict()
             groups.append(groups_item)
 
+        truncated = self.truncated
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -37,6 +43,8 @@ class GroupByResult:
                 "groups": groups,
             }
         )
+        if truncated is not UNSET:
+            field_dict["truncated"] = truncated
 
         return field_dict
 
@@ -52,8 +60,11 @@ class GroupByResult:
 
             groups.append(groups_item)
 
+        truncated = d.pop("truncated", UNSET)
+
         group_by_result = cls(
             groups=groups,
+            truncated=truncated,
         )
 
         group_by_result.additional_properties = d

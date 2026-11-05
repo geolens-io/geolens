@@ -556,6 +556,32 @@ export type AdminUserCreate = {
 };
 
 /**
+ * AggregateRow
+ */
+export type AggregateRow = {
+    /**
+     * Gid
+     *
+     * The feature's id; text at or beyond 2^53, as for a value.
+     */
+    gid: number | string;
+    /**
+     * Values
+     *
+     * By column. The column's value. A number JSON cannot carry exactly, such as an integer beyond 2^53 or NaN, comes back as text.
+     */
+    values: {
+        [key: string]: string | number | number | boolean | null;
+    };
+    /**
+     * Bbox
+     *
+     * Present only when the dataset has geometry: the feature's `[west, south, east, north]` in WGS 84, or null without a shape.
+     */
+    bbox?: Array<number> | null;
+};
+
+/**
  * AlterColumnTypeRequest
  */
 export type AlterColumnTypeRequest = {
@@ -6230,14 +6256,40 @@ export type GroupByRequest = {
     group_column: string;
     /**
      * Stat
+     *
+     * One statistic; or give `stats`.
      */
-    stat: 'count' | 'sum' | 'avg' | 'min' | 'max';
+    stat?: 'count' | 'sum' | 'avg' | 'min' | 'max' | null;
     /**
      * Column
      *
      * The numeric column `stat` reads; omit for `count`.
      */
     column?: string | null;
+    /**
+     * Stats
+     *
+     * Statistics returned as each group's `values`, in this order.
+     */
+    stats?: Array<GroupStat> | null;
+    /**
+     * Date Bucket
+     *
+     * Group a date or timestamp column by the UTC day, Monday-first week, month or year it falls in.
+     */
+    date_bucket?: 'day' | 'week' | 'month' | 'year' | null;
+    /**
+     * Sort By
+     *
+     * Order and keep groups by a statistic's index in `stats` (0 with `stat`) or by `group`. Defaults to the first statistic, or to the group with `date_bucket`.
+     */
+    sort_by?: 'group' | number | null;
+    /**
+     * Sort
+     *
+     * Defaults to `desc`, or `asc` with `date_bucket`.
+     */
+    sort?: 'asc' | 'desc' | null;
     /**
      * Limit
      */
@@ -6272,9 +6324,15 @@ export type GroupByResult = {
     /**
      * Groups
      *
-     * Largest value first.
+     * In the requested order; by default the largest value first.
      */
     groups: Array<GroupValue>;
+    /**
+     * Truncated
+     *
+     * Whether more groups matched than `limit` lists.
+     */
+    truncated?: boolean;
 };
 
 /**
@@ -6398,6 +6456,22 @@ export type GroupResponse = {
 };
 
 /**
+ * GroupStat
+ */
+export type GroupStat = {
+    /**
+     * Stat
+     */
+    stat: 'count' | 'sum' | 'avg' | 'min' | 'max';
+    /**
+     * Column
+     *
+     * The numeric column `stat` reads. Optional for `count`, which then counts rows, and otherwise counts the column's non-null values.
+     */
+    column?: string | null;
+};
+
+/**
  * GroupValue
  */
 export type GroupValue = {
@@ -6410,9 +6484,15 @@ export type GroupValue = {
     /**
      * Value
      *
-     * Exact for count, sum, min and max, as for a key; avg is a float.
+     * Exact for count, sum, min and max, as for a key; avg is a float. With `stats`, the first statistic's value.
      */
     value: number | number | string | null;
+    /**
+     * Values
+     *
+     * Present with `stats`: each one's value in order. Exact for count, sum, min and max, as for a key; avg is a float.
+     */
+    values?: Array<number | number | string | null> | null;
 };
 
 /**
@@ -11273,6 +11353,100 @@ export type ReuploadServicePreviewRequest = {
      * Structured credential for a protected service. Mutually exclusive with the token field.
      */
     auth?: ServiceAuthRequest | null;
+};
+
+/**
+ * RowsRequest
+ */
+export type RowsRequest = {
+    /**
+     * Filter
+     *
+     * CQL2-JSON filter, as the OGC API Features `filter` accepts.
+     */
+    filter?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Bbox
+     *
+     * Map view `[west, south, east, north]` in WGS 84; west greater than east crosses the antimeridian. Omit for the whole layer.
+     */
+    bbox?: [
+        number,
+        number,
+        number,
+        number
+    ] | null;
+    /**
+     * Op
+     */
+    op: 'rows';
+    /**
+     * Columns
+     */
+    columns: Array<string>;
+    /**
+     * Sort Column
+     *
+     * Order rows by this column with nulls last, then by gid; omit to order by gid.
+     */
+    sort_column?: string | null;
+    /**
+     * Sort
+     */
+    sort?: 'asc' | 'desc';
+    /**
+     * Limit
+     */
+    limit?: number;
+    /**
+     * Cursor
+     *
+     * The previous page's `next_cursor`, under the same sort.
+     */
+    cursor?: string | null;
+};
+
+/**
+ * RowsResponse
+ */
+export type RowsResponse = {
+    /**
+     * Approximate
+     *
+     * Always false: a view too wide to count exactly is refused.
+     */
+    approximate?: false;
+    /**
+     * Cached
+     */
+    cached: boolean;
+    /**
+     * Op
+     */
+    op: 'rows';
+    result: RowsResult;
+};
+
+/**
+ * RowsResult
+ */
+export type RowsResult = {
+    /**
+     * Rows
+     */
+    rows: Array<AggregateRow>;
+    /**
+     * Next Cursor
+     *
+     * Pass as `cursor` for the next page.
+     */
+    next_cursor: string | null;
+    /**
+     * Has More
+     */
+    has_more: boolean;
 };
 
 /**
@@ -21707,7 +21881,9 @@ export type AggregateEndpointDatasetsDatasetIdAggregatePostData = {
         op: 'histogram';
     } & HistogramRequest) | ({
         op: 'group_by';
-    } & GroupByRequest);
+    } & GroupByRequest) | ({
+        op: 'rows';
+    } & RowsRequest);
     headers?: {
         /**
          * X-Embed-Token
@@ -21779,7 +21955,9 @@ export type AggregateEndpointDatasetsDatasetIdAggregatePostResponses = {
         op: 'histogram';
     } & HistogramResponse) | ({
         op: 'group_by';
-    } & GroupByResponse);
+    } & GroupByResponse) | ({
+        op: 'rows';
+    } & RowsResponse);
 };
 
 export type AggregateEndpointDatasetsDatasetIdAggregatePostResponse = AggregateEndpointDatasetsDatasetIdAggregatePostResponses[keyof AggregateEndpointDatasetsDatasetIdAggregatePostResponses];

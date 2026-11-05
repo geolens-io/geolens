@@ -92,8 +92,10 @@ async def aggregate_endpoint(
     With ``bbox``, a view the planner expects to hold more than 500,000 rows
     is refused with 422 and the code ``too_wide`` rather than approximated. A
     ``bbox`` that contains the whole dataset is answered as the whole layer.
+    The ``rows`` operation lists features a page at a time, with each row's
+    ``bbox`` when the dataset has geometry, and never returns a geometry.
     Refusals carry a ``code`` in ``detail``: ``too_wide``, ``invalid_column``,
-    ``invalid_filter``, ``no_geometry``, ``query_timeout``,
+    ``invalid_cursor``, ``invalid_filter``, ``no_geometry``, ``query_timeout``,
     ``query_data_error``, ``result_too_large``, and with 429 ``query_busy``
     (this caller already has two aggregates running) or ``query_at_capacity``,
     and with 503 ``query_unavailable`` when the database could not serve the

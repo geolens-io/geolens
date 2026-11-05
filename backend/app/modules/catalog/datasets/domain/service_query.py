@@ -56,6 +56,8 @@ __all__ = [
     "get_dataset_rows",
     "get_row_bboxes",
     "InvalidSortColumn",
+    "is_sortable_column",
+    "nulls_last_keyset",
     "sortable_columns",
 ]
 
@@ -387,12 +389,21 @@ def _build_select_cols(column_info: list[dict]) -> list[str]:
     return [_safe_column_ref(c["name"]) for c in _projected_columns(column_info)]
 
 
+def is_sortable_column(name: str, data_type: str | None) -> bool:
+    """Whether a column with this name and type can be a row list's sort."""
+    return (
+        bool(SAFE_TABLE_NAME_RE.match(name))
+        and name not in _GEOM_COLUMN_NAMES
+        and data_type in _SORTABLE_TYPES
+    )
+
+
 def sortable_columns(column_info: list[dict]) -> list[str]:
     """Names the rows endpoint accepts as ``sort``: projected, orderable columns."""
     return [
         c["name"]
         for c in _projected_columns(column_info)
-        if c.get("type") in _SORTABLE_TYPES
+        if is_sortable_column(c["name"], c.get("type"))
     ]
 
 
@@ -402,19 +413,27 @@ _ANCHOR_CTE = '"Anchor"'
 _ANCHOR = '"Anchor"."V"'
 
 
-def _sorted_keyset(col: str, *, descending: bool) -> str:
+def nulls_last_keyset(
+    col: str, anchor: str, gid: str, after_gid: str, *, descending: bool
+) -> str:
     """Predicate for rows after the cursor row in (col, gid), NULLs last.
 
-    The cursor row's value stays in PostgreSQL and is compared in the
-    column's own type; a Python round trip changes some values (a year of
-    interval, second-resolution offsets, the largest dates).
+    ``anchor`` is the cursor row's ``col`` value and ``after_gid`` its gid,
+    both read inside the query, so the comparison stays in the column's own
+    type; a Python round trip changes some values (a year of interval,
+    second-resolution offsets, the largest dates).
     """
     op = "<" if descending else ">"
     return (
-        f"gid > 0 AND ({_ANCHOR} IS NULL AND {col} IS NULL AND gid > :after_gid"
-        f" OR {_ANCHOR} IS NOT NULL AND ({col} IS NULL OR {col} {op} {_ANCHOR}"
-        f" OR ({col} = {_ANCHOR} AND gid > :after_gid)))"
+        f"({anchor} IS NULL AND {col} IS NULL AND {gid} > {after_gid}"
+        f" OR {anchor} IS NOT NULL AND ({col} IS NULL OR {col} {op} {anchor}"
+        f" OR ({col} = {anchor} AND {gid} > {after_gid})))"
     )
+
+
+def _sorted_keyset(col: str, *, descending: bool) -> str:
+    keyset = nulls_last_keyset(col, _ANCHOR, "gid", ":after_gid", descending=descending)
+    return f"gid > 0 AND {keyset}"
 
 
 # A number's text form needn't be its label key (1e16 reads back as "1e+16",

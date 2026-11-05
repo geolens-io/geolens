@@ -1196,7 +1196,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     facade_line_budgets = {
         "backend/app/modules/catalog/maps/service.py": 128,
         "backend/app/modules/catalog/search/service.py": 80,
-        "backend/app/modules/catalog/datasets/domain/service.py": 132,
+        "backend/app/modules/catalog/datasets/domain/service.py": 136,
         "backend/app/processing/ai/chat_service.py": 487,
         "backend/app/platform/extensions/defaults.py": 75,
     }
@@ -1222,11 +1222,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 668,
         # A metadata edit judges its visibility and status change as one move.
         "backend/app/modules/catalog/datasets/domain/service_metadata.py": 629,
-        # Internal pointer reads sit beside the detail query that shares them, and
-        # the row browser's sort, keyset, label-filter, single-row and match SQL —
-        # the page query and the filtered count, which ANDs the same CQL2
-        # fragment — share its column projection; the row boxes read its table.
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 767,
+        # Pointer reads sit beside the detail query that shares them; the row
+        # browser's page, count, label-filter and box SQL share its projection, and
+        # its NULLS LAST keyset also pages the aggregate feature list.
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 786,
         "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 513,
         # Chat splits retain tool execution and result-serialization workflows.
         "backend/app/processing/ai/chat_actions.py": 529,
