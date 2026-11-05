@@ -26,8 +26,8 @@ export type AggregateRequest =
   | components['schemas']['ValueCountsRequest']
   | components['schemas']['HistogramRequest']
   | components['schemas']['GroupByRequest']
-  | components['schemas']['RowsRequest']
-  | StatsByFieldsRequest;
+  | StatsByFieldsRequest
+  | components['schemas']['RowsRequest'];
 
 export type AggregateResponse =
   | components['schemas']['CountResponse']
@@ -35,8 +35,8 @@ export type AggregateResponse =
   | components['schemas']['ValueCountsResponse']
   | components['schemas']['HistogramResponse']
   | components['schemas']['GroupByResponse']
-  | components['schemas']['RowsResponse']
-  | StatsByFieldsResponse;
+  | StatsByFieldsResponse
+  | components['schemas']['RowsResponse'];
 
 // The endpoint answers a caller's third concurrent request with 429.
 const slots = createSlotPool(2);
