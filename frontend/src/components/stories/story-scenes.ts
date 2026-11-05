@@ -28,14 +28,14 @@ export function resolveScene(chapters: readonly StoryChapter[], index: number): 
   return chapter?.scene ? { scene: chapter.scene, chapterId: chapter.id } : null;
 }
 
-/** The map of the first scene after chapter `index` that isn't on `currentMapId`, to load ahead. */
-export function nextSceneMapId(
+/** The first scene after chapter `index` that isn't on `currentMapId`, to load ahead. */
+export function nextMapScene(
   chapters: readonly StoryChapter[],
   index: number,
   currentMapId: string | undefined,
-): string | undefined {
-  return chapters.slice(index + 1).find((c) => c.scene && c.scene.map_id !== currentMapId)?.scene
-    ?.map_id;
+): ResolvedScene | null {
+  const chapter = chapters.slice(index + 1).find((c) => c.scene && c.scene.map_id !== currentMapId);
+  return chapter?.scene ? { scene: chapter.scene, chapterId: chapter.id } : null;
 }
 
 /**

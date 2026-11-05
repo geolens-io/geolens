@@ -16,7 +16,7 @@ import type { StoryChapter, StorySettings } from '@/types/api';
 import { chapterHeadingId, chapterTitle, StoryChapterBody } from './StoryChapterBody';
 import { StoryMapPane } from './StoryMapPane';
 import { StoryNavBar } from './StoryNavBar';
-import { activeChapterFrom, nearestSceneChapter, nextSceneMapId } from './story-scenes';
+import { activeChapterFrom, nearestSceneChapter, nextMapScene } from './story-scenes';
 
 // A chapter becomes active once its top passes 40% of the panel's height.
 const ACTIVE_LINE = 0.4;
@@ -141,7 +141,9 @@ export function StoryReader({
     [chapters],
   );
 
-  const nextMapId = nextSceneMapId(chapters, active, resolved?.scene.map_id);
+  const currentMapId = resolved?.scene.map_id;
+  const next = useMemo(() => nextMapScene(chapters, active, currentMapId), [chapters, active, currentMapId]);
+  const nextMapId = next?.scene.map_id;
   useEffect(() => {
     if (nextMapId) void prefetchMap(queryClient, nextMapId);
   }, [queryClient, nextMapId]);
@@ -216,6 +218,7 @@ export function StoryReader({
           >
             <StoryMapPane
               resolved={resolved}
+              next={next}
               emptyHint={sceneChapter?.scene_hidden ? t('reader.sceneUnavailable') : undefined}
               legendSide={floating === 'left' ? 'end' : undefined}
             />

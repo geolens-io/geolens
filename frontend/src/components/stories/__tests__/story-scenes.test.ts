@@ -2,7 +2,7 @@ import {
   activeChapterFrom,
   applySceneVisibility,
   cameraDiffers,
-  nextSceneMapId,
+  nextMapScene,
   panTolerancePx,
   resolveScene,
   toStoryCamera,
@@ -64,7 +64,7 @@ describe('applySceneVisibility', () => {
   });
 });
 
-describe('nextSceneMapId', () => {
+describe('nextMapScene', () => {
   it('finds the next scene on a different map, skipping text-only and same-map chapters', () => {
     const chapters = [
       chapter('one', scene('map-a')),
@@ -72,8 +72,8 @@ describe('nextSceneMapId', () => {
       chapter('same', scene('map-a', 6)),
       chapter('other', scene('map-b')),
     ];
-    expect(nextSceneMapId(chapters, 0, 'map-a')).toBe('map-b');
-    expect(nextSceneMapId(chapters, 3, 'map-b')).toBeUndefined();
+    expect(nextMapScene(chapters, 0, 'map-a')).toEqual({ scene: chapters[3].scene, chapterId: 'other' });
+    expect(nextMapScene(chapters, 3, 'map-b')).toBeNull();
   });
 });
 
