@@ -124,6 +124,15 @@
     "video": {
       "label": "Video",
       "unavailable": "This video can't be shown here because its site is no longer approved."
+    },
+    "pie_chart": {
+      "label": "Pie chart",
+      "summary": "{{stat}} by {{column}}",
+      "keyboardHint": "Use the arrow keys to move between slices.",
+      "keyboardHintPick": "Use the arrow keys to move between slices. Press Enter to filter the map by a slice, and press it again to clear the filter.",
+      "keyboardHintPickPage": "Use the arrow keys to move between slices. Press Enter to filter the dashboard by a slice, and press it again to clear the filter.",
+      "slice": "{{label}}: {{value}} ({{share}})",
+      "roleDescription": "pie chart"
     }
   },
   "dashboard": {
@@ -257,6 +266,7 @@
     "fields": "Fields",
     "layerColors": "Use the layer's colours",
     "layerColorsHelp": "Applies when the column is the one the layer's map style colours by.",
-    "fieldUnavailable": "{{column}} (not a numeric column on this layer)"
+    "fieldUnavailable": "{{column}} (not a numeric column on this layer)",
+    "slices": "Slices"
   }
 }

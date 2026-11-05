@@ -124,6 +124,15 @@
     "video": {
       "label": "视频",
       "unavailable": "此视频无法在此显示，因为其网站已不再获准。"
+    },
+    "pie_chart": {
+      "label": "饼图",
+      "summary": "按 {{column}} 统计的{{stat}}",
+      "keyboardHint": "使用方向键在各扇区之间移动。",
+      "keyboardHintPick": "使用方向键在扇区之间移动。按 Enter 键按某个扇区筛选地图，再按一次清除筛选。",
+      "keyboardHintPickPage": "使用方向键在扇区之间移动。按 Enter 键按某个扇区筛选仪表板，再按一次清除筛选。",
+      "slice": "{{label}}：{{value}}（{{share}}）",
+      "roleDescription": "饼图"
     }
   },
   "dashboard": {
@@ -257,6 +266,7 @@
     "fields": "字段",
     "layerColors": "使用图层的颜色",
     "layerColorsHelp": "当该列正是图层地图样式用来着色的列时生效。",
-    "fieldUnavailable": "{{column}}（不是此图层的数值列）"
+    "fieldUnavailable": "{{column}}（不是此图层的数值列）",
+    "slices": "扇区数"
   }
 }

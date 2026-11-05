@@ -124,6 +124,15 @@
     "video": {
       "label": "Vídeo",
       "unavailable": "Este vídeo no se puede mostrar aquí porque su sitio ya no está aprobado."
+    },
+    "pie_chart": {
+      "label": "Gráfico circular",
+      "summary": "{{stat}} por {{column}}",
+      "keyboardHint": "Usa las flechas para moverte entre los sectores.",
+      "keyboardHintPick": "Usa las flechas para moverte entre los sectores. Pulsa Intro para filtrar el mapa por un sector y vuelve a pulsarlo para quitar el filtro.",
+      "keyboardHintPickPage": "Usa las flechas para moverte entre los sectores. Pulsa Intro para filtrar el panel por un sector y vuelve a pulsarlo para quitar el filtro.",
+      "slice": "{{label}}: {{value}} ({{share}})",
+      "roleDescription": "gráfico circular"
     }
   },
   "dashboard": {
@@ -257,6 +266,7 @@
     "fields": "Campos",
     "layerColors": "Usar los colores de la capa",
     "layerColorsHelp": "Se aplica cuando la columna es la que el estilo del mapa de la capa usa para colorear.",
-    "fieldUnavailable": "{{column}} (no es una columna numérica de esta capa)"
+    "fieldUnavailable": "{{column}} (no es una columna numérica de esta capa)",
+    "slices": "Sectores"
   }
 }
