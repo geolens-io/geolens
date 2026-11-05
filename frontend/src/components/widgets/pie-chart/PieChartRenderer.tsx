@@ -83,12 +83,13 @@ export default function PieChartRenderer({
   const table = <ValueTable {...pieTableProps(config, text, selection)} />;
 
   if (rows.length === 0) return table;
-  // A negative value has no slice, so shares of the rest would read as shares of the whole.
-  if (rows.some((row) => row.amount < 0)) {
+  // A negative or non-finite value has no slice, so shares of the rest would read as shares of the whole.
+  if (rows.some((row) => !Number.isFinite(row.amount) || row.amount < 0)) {
     return (
       <div className="space-y-2">
         <p className="text-xs text-muted-foreground">{t('types.pie_chart.signed')}</p>
         {table}
+        {text.note && <p className="text-xs text-muted-foreground">{text.note}</p>}
       </div>
     );
   }

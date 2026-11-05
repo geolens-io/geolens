@@ -161,11 +161,27 @@ describe('PieChartRenderer', () => {
       <PieChartRenderer config={{ ...config, stat: 'sum', stat_column: 'area' }} data={signed} />,
     );
     expect(container.querySelector('svg')).toBeNull();
-    expect(screen.getByText(/can't show negative values/)).toBeInTheDocument();
+    expect(screen.getByText(/can't show negative or non-numeric values/)).toBeInTheDocument();
     expect(within(screen.getByRole('table')).getAllByRole('row').slice(1).map((row) => row.textContent)).toEqual([
       'park50',
       'road-30',
     ]);
+    expect(container.textContent).not.toMatch(/%/);
+  });
+
+  it('treats Infinity and NaN as unsliceable, and keeps the top-values note with the table', () => {
+    const odd = {
+      op: 'group_by',
+      approximate: false,
+      cached: false,
+      result: { groups: [{ key: 'park', value: 50 }, { key: 'road', value: 'Infinity' }, { key: 'lot', value: 'NaN' }], truncated: true },
+    };
+    const { container } = render(
+      <PieChartRenderer config={{ ...config, stat: 'sum', stat_column: 'area' }} data={odd} />,
+    );
+    expect(container.querySelector('svg')).toBeNull();
+    expect(screen.getByText(/can't show negative or non-numeric values/)).toBeInTheDocument();
+    expect(screen.getByText(/Showing the top 3 values/)).toBeInTheDocument();
     expect(container.textContent).not.toMatch(/%/);
   });
 

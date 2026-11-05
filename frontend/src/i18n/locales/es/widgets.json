@@ -135,7 +135,7 @@
       "roleDescription": "gráfico circular",
       "sliceValue": "{{label}}: {{value}}",
       "truncated": "Se muestran los {{shown}} valores principales. La capa tiene más, así que los sectores no suman el total.",
-      "signed": "Los sectores no pueden mostrar valores negativos, así que este gráfico se muestra como tabla."
+      "signed": "Los sectores no pueden mostrar valores negativos ni no numéricos, así que este gráfico se muestra como tabla."
     }
   },
   "dashboard": {

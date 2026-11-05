@@ -135,7 +135,7 @@
       "roleDescription": "pie chart",
       "sliceValue": "{{label}}: {{value}}",
       "truncated": "Showing the top {{shown}} values. The layer has more, so the slices don't add up to the whole.",
-      "signed": "Slices can't show negative values, so this chart is shown as a table."
+      "signed": "Slices can't show negative or non-numeric values, so this chart is shown as a table."
     }
   },
   "dashboard": {

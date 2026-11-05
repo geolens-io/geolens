@@ -135,7 +135,7 @@
       "roleDescription": "diagramme circulaire",
       "sliceValue": "{{label}} : {{value}}",
       "truncated": "Affichage des {{shown}} premières valeurs. La couche en compte davantage, les secteurs ne forment donc pas le tout.",
-      "signed": "Les secteurs ne peuvent pas représenter de valeurs négatives ; ce diagramme est donc affiché sous forme de tableau."
+      "signed": "Les secteurs ne peuvent pas représenter de valeurs négatives ou non numériques ; ce diagramme est donc affiché sous forme de tableau."
     }
   },
   "dashboard": {
