@@ -11684,6 +11684,7 @@
             "type": "string"
           },
           "v": {
+            "description": "`2` when the config sets any reference option, else `1`. A `1` that sets one is refused.",
             "enum": [
               1,
               2

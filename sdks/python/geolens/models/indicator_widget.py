@@ -29,7 +29,7 @@ class IndicatorWidget:
         id (UUID): Made by the client and stable across saves.
         layer_id (UUID): A layer of the host's map.
         type_ (Literal['indicator']):
-        v (IndicatorWidgetV):
+        v (IndicatorWidgetV): `2` when the config sets any reference option, else `1`. A `1` that sets one is refused.
         config (IndicatorConfig):
         title (None | str | Unset):
         scope (IndicatorWidgetScope | Unset): Summarize the whole layer, or only what the map view shows. Default:

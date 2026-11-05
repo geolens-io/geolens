@@ -159,6 +159,28 @@ function sentIfSetNowOrBefore<K extends string, V>(key: K, value: V, send: boole
 }
 
 /**
+ * The save payload, which for a dashboard emptied of widgets still lists what
+ * this build reads, so the server clears those stored widgets rather than keeping them.
+ */
+export function dashboardSavePayload(
+  draft: DashboardDraft,
+  layers: readonly MapLayerResponse[],
+  saved: DashboardDraft,
+): DashboardConfigInput | null {
+  const payload = dashboardPayload(draft, layers, saved);
+  const readable = readableToSend();
+  if (payload || saved.widgets.length === 0 || !readable) return payload;
+  return {
+    version: 1,
+    panel: draft.panel,
+    map_hidden: !!draft.mapHidden,
+    theme: draft.theme ?? 'follow',
+    readable,
+    widgets: [],
+  };
+}
+
+/**
  * The `dashboard_config` a save sends: the draft without the widgets whose
  * layer is gone, or null when none are left. `panel` is sent only when the
  * panel is or was at the bottom: a 1.28.0 server refuses the key during a

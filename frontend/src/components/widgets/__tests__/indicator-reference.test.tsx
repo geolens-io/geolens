@@ -48,7 +48,7 @@ describe('indicator reference config', () => {
       widgets: [{ id, type: 'indicator', v: 2, layer_id: layerId, scope: 'layer' as const, config }],
     });
     const versionOf = (config: IndicatorConfig) => {
-      const widgets = dashboardPayload(draft(config), [layer()], 'right')?.widgets ?? [];
+      const widgets = dashboardPayload(draft(config), [layer()], { panel: 'right' })?.widgets ?? [];
       return (widgets[0] as unknown as { v: number }).v;
     };
     expect(versionOf(base)).toBe(1);
@@ -118,7 +118,7 @@ describe('indicator difference', () => {
 
   it('compares an exact value past 2^53 without rounding it', () => {
     expect(indicatorDifference('9007199254740993', { ...base, reference: 9007199254740992 })).toMatchObject({
-      amount: 1,
+      amount: 1n,
       direction: 'above',
       tone: 'good',
     });
@@ -126,6 +126,25 @@ describe('indicator difference', () => {
       'below',
     );
     expect(indicatorDifference('9007199254740993', { ...base, reference: 1.5 })).toBeNull();
+  });
+
+  it('has no difference for a decimal text past 2^53, and reads one in exponent form', () => {
+    expect(indicatorDifference('9007199254740992.1', { ...base, reference: 9007199254740992 })).toBeNull();
+    expect(indicatorDifference('1.00000000000000000001E-8', { ...base, reference: 0 })).toMatchObject({
+      direction: 'above',
+    });
+  });
+
+  it('keeps the percent when the subtraction overflows, and has none to show for a value-only comparison', () => {
+    const config = { ...base, reference: -1e308 };
+    expect(indicatorDifference(1e308, config)).toMatchObject({ amount: null, percent: 2 });
+    expect(indicatorDifference(1e308, { ...config, comparison: 'value' })).toBeNull();
+  });
+
+  it('writes an exact difference past 2^53 without rounding it', () => {
+    const data = { op: 'stats', approximate: false, cached: false, result: { sum: '9223372036854775807' } };
+    render(<IndicatorRenderer config={{ stat: 'sum', column: 'id', reference: 0, comparison: 'value' }} data={data} />);
+    expect(screen.getByText(/^\+9,223,372,036,854,775,807 above Reference/)).toBeInTheDocument();
   });
 
   it('shows no difference line for an exact value and a fractional reference', () => {
@@ -149,7 +168,7 @@ describe('indicator reference display', () => {
       <IndicatorRenderer config={{ ...base, reference: 100, reference_label: 'Target' }} data={countOf(125)} />,
     );
     expect(screen.getByText('Target: 100')).toBeInTheDocument();
-    const difference = screen.getByText('+25 (+25%) above Target');
+    const difference = screen.getByText('+25 (+25%) above Target, favorable');
     expect(difference).toHaveClass('text-success');
     expect(container.querySelector('[aria-hidden="true"]')).toHaveTextContent('▲');
   });
@@ -158,20 +177,20 @@ describe('indicator reference display', () => {
     const { rerender } = render(
       <IndicatorRenderer config={{ ...base, reference: 100 }} data={countOf(80)} />,
     );
-    expect(screen.getByText('-20 (-20%) below Reference')).toHaveClass('text-destructive');
+    expect(screen.getByText('-20 (-20%) below Reference, unfavorable')).toHaveClass('text-destructive');
     rerender(<IndicatorRenderer config={{ ...base, reference: 100, higher_is_better: false }} data={countOf(80)} />);
-    expect(screen.getByText('-20 (-20%) below Reference')).toHaveClass('text-success');
+    expect(screen.getByText('-20 (-20%) below Reference, favorable')).toHaveClass('text-success');
   });
 
   it('shows the chosen form of the difference, and no percent for a reference of 0', () => {
     const show = (config: IndicatorConfig, count: number) =>
       render(<IndicatorRenderer config={config} data={countOf(count)} />);
     show({ ...base, reference: 50, comparison: 'value' }, 60);
-    expect(screen.getByText('+10 above Reference')).toBeInTheDocument();
+    expect(screen.getByText('+10 above Reference, favorable')).toBeInTheDocument();
     show({ ...base, reference: 50, comparison: 'percent' }, 60);
-    expect(screen.getByText('+20% above Reference')).toBeInTheDocument();
+    expect(screen.getByText('+20% above Reference, favorable')).toBeInTheDocument();
     show({ ...base, reference: 0, comparison: 'percent' }, 7);
-    expect(screen.getByText('+7 above Reference')).toBeInTheDocument();
+    expect(screen.getByText('+7 above Reference, favorable')).toBeInTheDocument();
     show({ ...base, reference: 7 }, 7);
     expect(screen.getByText('Same as Reference')).toBeInTheDocument();
   });
@@ -188,7 +207,7 @@ describe('indicator reference display', () => {
     const table = screen.getByRole('table');
     expect(within(table).getByRole('row', { name: /^Count 125$/ })).toBeInTheDocument();
     expect(within(table).getByRole('row', { name: /^Target 100$/ })).toBeInTheDocument();
-    expect(within(table).getByRole('row', { name: /^Difference \+25 \(\+25%\) above Target$/ })).toBeInTheDocument();
+    expect(within(table).getByRole('row', { name: /^Difference \+25 \(\+25%\) above Target, favorable$/ })).toBeInTheDocument();
   });
 
   it('keeps the one-line alternative without a reference', () => {
@@ -228,6 +247,16 @@ describe('IndicatorEditor reference fields', () => {
     render(<Harness start={full} />);
     await user.clear(screen.getByRole('spinbutton', { name: 'Reference value' }));
     expect(onChange).toHaveBeenLastCalledWith(base);
+  });
+
+  it('keeps a label of 40 characters that is more than 40 code units', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const config: IndicatorConfig = { ...base, reference: 10 };
+    render(<IndicatorEditor config={config} onChange={onChange} columns={columns} idPrefix="w" />);
+    await user.click(screen.getByLabelText('Reference label'));
+    await user.paste('😀'.repeat(45));
+    expect([...(onChange.mock.lastCall?.[0].reference_label ?? '')]).toHaveLength(40);
   });
 
   it('writes only the options that differ from their defaults', async () => {

@@ -82,9 +82,8 @@ export default function IndicatorEditor({
             <Input
               id={`${idPrefix}-reference-label`}
               className="h-8"
-              maxLength={REFERENCE_LABEL_MAX_LENGTH}
               value={config.reference_label ?? ''}
-              onChange={(event) => onChange(withReference(config, { ...config, reference_label: event.target.value }))}
+              onChange={(event) => onChange(withReference(config, { ...config, reference_label: [...event.target.value].slice(0, REFERENCE_LABEL_MAX_LENGTH).join('') }))}
             />
           </div>
           <SelectField

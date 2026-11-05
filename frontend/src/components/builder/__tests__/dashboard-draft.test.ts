@@ -3,6 +3,7 @@ import type { MapLayerResponse } from '@/types/api';
 import {
   dashboardChanged,
   dashboardPayload,
+  dashboardSavePayload,
   toDashboardDraft,
   widgetProblem,
   widgetLayerGone,
@@ -192,5 +193,36 @@ describe('a widget with no layer', () => {
 
   it('reads back from a map response', () => {
     expect(toDashboardDraft({ version: 1, widgets: [text] } as never).widgets).toEqual([text]);
+  });
+});
+
+describe('the save that empties a dashboard', () => {
+  const widget = { id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11', type: 'markdown', v: 1, config: { text: 'Notes' } };
+  const had: DashboardDraft = { panel: 'right', widgets: [widget] };
+  const none: DashboardDraft = { panel: 'right', widgets: [] };
+
+  it('says what the build reads, so stored widgets beyond the earliest ones go too', () => {
+    expect(dashboardSavePayload(none, [], had)).toEqual({
+      version: 1,
+      panel: 'right',
+      map_hidden: false,
+      theme: 'follow',
+      readable: dashboardReadableTypes(),
+      widgets: [],
+    });
+  });
+
+  it('keeps the draft layout settings for the next widget', () => {
+    const laidOut: DashboardDraft = { panel: 'bottom', theme: 'dark', mapHidden: true, widgets: [] };
+    expect(dashboardSavePayload(laidOut, [], had)).toMatchObject({
+      panel: 'bottom',
+      theme: 'dark',
+      map_hidden: true,
+      widgets: [],
+    });
+  });
+
+  it('stays null when there was nothing stored to clear', () => {
+    expect(dashboardSavePayload(none, [], none)).toBeNull();
   });
 });

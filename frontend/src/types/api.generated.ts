@@ -11721,6 +11721,7 @@ export interface components {
             type: "indicator";
             /**
              * V
+             * @description `2` when the config sets any reference option, else `1`. A `1` that sets one is refused.
              * @enum {integer}
              */
             v: 1 | 2;

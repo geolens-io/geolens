@@ -346,7 +346,10 @@ class IndicatorWidget(_LayerWidget):
     type: Literal["indicator"]
     # v2 is an indicator with reference options; a client that reads only v1
     # leaves it as stored. One without them is always v1.
-    v: Literal[1, 2]
+    v: Literal[1, 2] = Field(
+        description="`2` when the config sets any reference option, else `1`. "
+        "A `1` that sets one is refused."
+    )
     config: IndicatorConfig
 
     @model_validator(mode="after")

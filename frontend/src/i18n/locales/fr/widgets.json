@@ -30,7 +30,10 @@
       "same": "Identique à {{label}}",
       "difference": "Écart",
       "measure": "Mesure",
-      "value": "Valeur"
+      "value": "Valeur",
+      "outcome": "{{difference}}, {{outcome}}",
+      "good": "favorable",
+      "bad": "défavorable"
     },
     "bar_chart": {
       "label": "Diagramme en barres",

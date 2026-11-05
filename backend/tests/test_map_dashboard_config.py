@@ -294,6 +294,24 @@ class TestMergeDashboard:
         )
         assert _ids(partial["widgets"]) == _ids(new[1:])
 
+    def test_an_emptying_save_that_declares_indicator_2_clears_it(self):
+        shown = uuid.uuid4()
+        reference = _widget(
+            "indicator",
+            shown,
+            v=2,
+            config={"stat": "count", "reference": 5},
+        )
+        stored = {"version": 1, "widgets": [reference]}
+
+        assert _merge(None, stored, readable={shown}) == stored
+        cleared = _merge(
+            {"readable": ["indicator:1", "indicator:2"], "widgets": []},
+            stored,
+            readable={shown},
+        )
+        assert cleared["widgets"] == []
+
     @pytest.mark.parametrize("pair", ["bar_chart", "pie_chart:01", "pie_chart:0"])
     def test_a_malformed_readable_pair_is_refused(self, pair):
         with pytest.raises(ValidationError):

@@ -6849,6 +6849,8 @@ export type IndicatorWidget = {
     type: 'indicator';
     /**
      * V
+     *
+     * `2` when the config sets any reference option, else `1`. A `1` that sets one is refused.
      */
     v: 1 | 2;
     config: IndicatorConfig;

@@ -30,7 +30,10 @@
       "same": "与{{label}}相同",
       "difference": "差值",
       "measure": "指标",
-      "value": "数值"
+      "value": "数值",
+      "outcome": "{{difference}}，{{outcome}}",
+      "good": "有利",
+      "bad": "不利"
     },
     "bar_chart": {
       "label": "条形图",

@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n/i18n';
 import { formatNumber } from '@/lib/format';
 import { aggregateResult, aggregateStat, formatAggregateValue, STAT_LABEL_KEYS } from '../aggregate';
 import { columnName, type ColumnLabel } from '../contract';
@@ -8,47 +9,68 @@ type Direction = 'above' | 'below' | 'same';
 type Tone = 'good' | 'bad' | 'neutral';
 
 interface Difference {
-  amount: number;
-  /** Change as a fraction of the reference's size; null when the reference is 0. */
+  /** The signed difference; a bigint when the value is an exact integer past 2^53, null when it overflows. */
+  amount: number | bigint | null;
+  /** Change as a fraction of the reference's size; null when the reference is 0 or the change overflows. */
   percent: number | null;
   direction: Direction;
   tone: Tone;
 }
 
-/** The value as a number, or null when it is missing or not numeric. */
+const DECIMAL_TEXT = /^-?\d+(\.\d+)?([eE][+-]?\d+)?$/;
+
+/**
+ * The value as a number, or null when it is missing, not numeric, or a text
+ * the number can't hold. The endpoint sends such a decimal as text, and past
+ * 2^53 its rounding could hide a real difference.
+ */
 function numericValue(value: number | string | null | undefined): number | null {
-  const number = typeof value === 'string' && /^-?\d+(\.\d+)?$/.test(value) ? Number(value) : value;
-  return typeof number === 'number' && Number.isFinite(number) ? number : null;
+  if (typeof value === 'string') {
+    if (!DECIMAL_TEXT.test(value)) return null;
+    const number = Number(value);
+    return Number.isFinite(number) && Math.abs(number) < 2 ** 53 ? number : null;
+  }
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 /**
  * How `value` differs from the config's reference, or null without a
- * reference or a numeric value. A reference of 0 has no percent change.
+ * reference, a numeric value, or a difference the comparison can show.
+ * A reference of 0 has no percent change.
  */
 export function indicatorDifference(
   value: number | string | null | undefined,
   config: IndicatorConfig,
 ): Difference | null {
   const { reference } = config;
-  let amount: number;
-  let direction: Direction;
   if (reference === undefined) return null;
+  let amount: number | bigint | null;
+  let percent: number | null;
+  let direction: Direction;
   if (typeof value === 'string' && /^-?\d+$/.test(value) && !Number.isSafeInteger(Number(value))) {
     // An exact integer past 2^53: a Number would round it and could report a false tie.
     if (!Number.isInteger(reference)) return null;
     const exact = BigInt(value) - BigInt(reference);
-    amount = Number(exact);
+    amount = exact;
+    percent = reference === 0 ? null : Number(exact) / Math.abs(reference);
     direction = exact > 0n ? 'above' : exact < 0n ? 'below' : 'same';
   } else {
     const current = numericValue(value);
     if (current === null) return null;
-    amount = current - reference;
-    direction = amount > 0 ? 'above' : amount < 0 ? 'below' : 'same';
+    const raw = current - reference;
+    amount = Number.isFinite(raw) ? raw : null;
+    // The quotient form still works when the subtraction overflows.
+    percent = reference === 0 ? null : amount === null ? current / Math.abs(reference) - Math.sign(reference) : amount / Math.abs(reference);
+    direction = current > reference ? 'above' : current < reference ? 'below' : 'same';
   }
+  if (percent !== null && !Number.isFinite(percent)) percent = null;
+  const comparison = config.comparison ?? 'both';
+  const showsAmount = amount !== null && (comparison !== 'percent' || percent === null);
+  if (!showsAmount && (comparison === 'value' || percent === null)) return null;
   const higherIsBetter = config.higher_is_better ?? true;
   return {
     amount,
-    percent: reference === 0 ? null : amount / Math.abs(reference),
+    percent,
     direction,
     tone: direction === 'same' ? 'neutral' : (direction === 'above') === higherIsBetter ? 'good' : 'bad',
   };
@@ -91,19 +113,24 @@ export function useIndicatorText(
   const difference = indicatorDifference(value, config);
   if (difference) {
     const signed = { signDisplay: 'exceptZero' } as const;
-    const parts: string[] = [];
     const comparison = config.comparison ?? 'both';
-    if (comparison !== 'percent' || difference.percent === null) {
-      parts.push(formatNumber(difference.amount, { ...signed, maximumFractionDigits: 2 }));
-    }
-    if (comparison !== 'value' && difference.percent !== null) {
-      const percent = formatNumber(difference.percent, { ...signed, style: 'percent', maximumFractionDigits: 1 });
-      parts.push(comparison === 'both' ? `(${percent})` : percent);
-    }
+    const amount =
+      difference.amount !== null && (comparison !== 'percent' || difference.percent === null)
+        ? new Intl.NumberFormat(i18n.language, { ...signed, maximumFractionDigits: 2 }).format(difference.amount)
+        : null;
+    const percent =
+      comparison !== 'value' && difference.percent !== null
+        ? formatNumber(difference.percent, { ...signed, style: 'percent', maximumFractionDigits: 1 })
+        : null;
+    const shown = amount !== null && percent !== null ? `${amount} (${percent})` : (amount ?? percent ?? '');
+    const phrase = t(`types.indicator.${difference.direction}`, { amount: shown, label });
     text.difference = {
       arrow: ARROWS[difference.direction],
       tone: difference.tone,
-      text: t(`types.indicator.${difference.direction}`, { amount: parts.join(' '), label }),
+      text:
+        difference.tone === 'neutral'
+          ? phrase
+          : t('types.indicator.outcome', { difference: phrase, outcome: t(`types.indicator.${difference.tone}`) }),
     };
   }
   return text;

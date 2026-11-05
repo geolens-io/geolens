@@ -30,7 +30,10 @@
       "same": "Gleich wie {{label}}",
       "difference": "Abweichung",
       "measure": "Messgröße",
-      "value": "Wert"
+      "value": "Wert",
+      "outcome": "{{difference}}, {{outcome}}",
+      "good": "günstig",
+      "bad": "ungünstig"
     },
     "bar_chart": {
       "label": "Balkendiagramm",
