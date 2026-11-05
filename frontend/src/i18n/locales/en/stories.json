@@ -274,7 +274,7 @@
     "navigation": "Navigation bar",
     "navigationHint": "Show the story title and a list of chapters above the story.",
     "layout": "Layout",
-    "layoutHint": "The floating panel puts the chapter text over a full-screen map. Phones keep the side-by-side layout.",
+    "layoutHint": "The floating panel puts the chapter text over a full-screen map. On phones the map sits above the text.",
     "layouts": {
       "side": "Side panel",
       "floating": "Floating panel"

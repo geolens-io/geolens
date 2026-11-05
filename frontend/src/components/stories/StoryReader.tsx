@@ -58,6 +58,8 @@ interface PanelProps extends Omit<StoryReaderProps, 'settings'> {
   ref?: Ref<ScrollPanelHandle>;
   /** Set when the panel floats over a full-bleed map. */
   floating?: PanelPosition;
+  /** A floating panel with nothing to show leaves the map clear but stays scrollable. */
+  bare?: boolean;
 }
 
 interface ScrollPanelHandle {
@@ -70,9 +72,14 @@ interface ScrollPanelHandle {
 const FLOATING_PLACEMENT: Record<PanelPosition, string> = {
   left: 'left-14',
   right: 'right-14',
-  center: 'left-1/2 -translate-x-1/2',
+  // Below lg a centred panel would meet the legend, so it sits as the right one does.
+  center: 'right-14 lg:right-auto lg:left-1/2 lg:-translate-x-1/2',
 };
-const FLOATING_BASE = 'absolute top-3 z-[5] max-w-[calc(100%-7rem)] rounded-lg border bg-card text-card-foreground shadow-lg';
+const FLOATING_BASE = 'absolute top-3 z-[5] max-w-[calc(100%-24rem)] rounded-lg border bg-card text-card-foreground shadow-lg';
+
+function isTextless(chapter: StoryChapter): boolean {
+  return !chapter.title?.trim() && !chapter.blocks?.length;
+}
 
 /**
  * Reads a published story. Wide screens scroll the chapters beside a fixed
@@ -161,7 +168,7 @@ export function StoryReader({
         {isNarrow ? (
           <StoryStepper {...panelProps} />
         ) : (
-          <StoryScrollPanel ref={scroller} {...panelProps} floating={floating} />
+          <StoryScrollPanel ref={scroller} {...panelProps} floating={floating} bare={floating !== undefined && isTextless(chapter)} />
         )}
         {!textOnly && (
           <div
@@ -172,7 +179,7 @@ export function StoryReader({
             <StoryMapPane
               resolved={resolved}
               emptyHint={sceneChapter?.scene_hidden ? t('reader.sceneUnavailable') : undefined}
-              legendSide={floating && floating !== 'right' ? 'end' : undefined}
+              legendSide={floating === 'left' ? 'end' : undefined}
             />
           </div>
         )}
@@ -243,11 +250,13 @@ function StoryScrollPanel({
   textOnly,
   ref,
   floating,
+  bare,
 }: PanelProps) {
   const { t } = useTranslation('stories');
   const panelRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<(HTMLElement | null)[]>([]);
   const frame = useRef<number | null>(null);
+  const jumpedTo = useRef<number | null>(null);
   useEffect(() => () => {
     if (frame.current !== null) cancelAnimationFrame(frame.current);
   }, []);
@@ -263,6 +272,7 @@ function StoryScrollPanel({
     const next = sectionRefs.current[index + 1];
     if (next) top = Math.min(top, offset(next) - panel.clientHeight * ACTIVE_LINE);
     panel.scrollTo?.({ top: Math.max(0, top), behavior: 'instant' });
+    jumpedTo.current = panel.scrollTop;
   }, []);
   useImperativeHandle(ref, () => ({ scrollToChapter }), [scrollToChapter]);
 
@@ -281,6 +291,11 @@ function StoryScrollPanel({
       frame.current = null;
       const panel = panelRef.current;
       if (!panel) return;
+      // The settle of a jump keeps the chosen chapter even when the clamp left the next one above the line.
+      if (jumpedTo.current !== null) {
+        if (Math.abs(panel.scrollTop - jumpedTo.current) < 1) return;
+        jumpedTo.current = null;
+      }
       const line = panel.getBoundingClientRect().top + panel.clientHeight * ACTIVE_LINE;
       const crossed = sectionRefs.current
         .slice(0, chapters.length)
@@ -300,7 +315,12 @@ function StoryScrollPanel({
       className={cn(
         'min-h-0 overflow-y-auto focus-visible:outline-2 focus-visible:outline-ring',
         floating
-          ? cn(FLOATING_BASE, FLOATING_PLACEMENT[floating], 'h-[min(48rem,calc(100%-5rem))] w-[26rem] lg:w-[30rem]')
+          ? cn(
+              FLOATING_BASE,
+              FLOATING_PLACEMENT[floating],
+              'h-[min(48rem,calc(100%-5rem))] w-[26rem] lg:w-[30rem]',
+              bare && 'border-transparent bg-transparent shadow-none [&>*]:opacity-0',
+            )
           : cn('bg-background', textOnly ? 'flex-1' : 'w-[26rem] shrink-0 border-e lg:w-[30rem]'),
       )}
     >

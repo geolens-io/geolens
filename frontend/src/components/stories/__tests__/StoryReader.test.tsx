@@ -348,6 +348,13 @@ describe('navigation bar', () => {
     expect(screen.queryByRole('navigation', { name: 'Story chapters' })).not.toBeInTheDocument();
   });
 
+  it('numbers a chapter whose title is only whitespace', () => {
+    layout.narrow = false;
+    renderWith({ navigation: true }, [{ ...CHAPTERS[0], title: '   ' }, CHAPTERS[1]]);
+    const nav = screen.getByRole('navigation', { name: 'Story chapters' });
+    expect(within(nav).getByRole('button', { name: 'Chapter 1' })).toBeInTheDocument();
+  });
+
   it('lists the chapters under the story title, numbering an untitled one', () => {
     layout.narrow = false;
     renderWith({ navigation: true });
@@ -431,12 +438,12 @@ describe('floating layout', () => {
   it.each([
     ['left', 'left-14'],
     ['right', 'right-14'],
-    ['center', 'left-1/2'],
+    ['center', 'lg:left-1/2'],
   ] as const)('floats an opaque panel over a full-bleed map at the %s', (position, edge) => {
     layout.narrow = false;
     renderWith({ layout: 'floating', panel_position: position });
     const panel = screen.getByRole('region', { name: 'Story chapters' });
-    expect(panel).toHaveClass('absolute', 'bg-card', edge);
+    expect(panel).toHaveClass('absolute', 'bg-card', 'max-w-[calc(100%-24rem)]', edge);
     expect(panel.className).not.toMatch(/bg-card\//);
     expect(screen.getByTestId('story-map').parentElement).toHaveClass('absolute', 'inset-0');
   });
@@ -457,7 +464,7 @@ describe('floating layout', () => {
 
   it.each([
     ['left', 'end'],
-    ['center', 'end'],
+    ['center', undefined],
     ['right', undefined],
   ] as const)('keeps the legend off the %s panel', (position, side) => {
     layout.narrow = false;
@@ -469,6 +476,48 @@ describe('floating layout', () => {
     layout.narrow = false;
     renderWith({ layout: 'side' });
     expect(pane.legendSide).toBeUndefined();
+  });
+
+  it('clears the map for a chapter with no title or text, and brings the panel back after it', async () => {
+    const user = userEvent.setup();
+    layout.narrow = false;
+    Element.prototype.scrollIntoView = vi.fn();
+    const blank = { ...CHAPTERS[1], title: null, blocks: [] };
+    renderWith({ layout: 'floating', navigation: true }, [CHAPTERS[0], blank, CHAPTERS[2]]);
+    const panel = screen.getByRole('region', { name: 'Story chapters' });
+    expect(panel).toHaveClass('bg-card');
+
+    await user.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'Chapter 2' }));
+    expect(screen.getByRole('region', { name: 'Story chapters' })).toBe(panel);
+    expect(panel).toHaveClass('bg-transparent');
+    expect(panel).not.toHaveClass('bg-card');
+
+    await user.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'Chapter 3' }));
+    expect(panel).toHaveClass('bg-card');
+  });
+
+  it('keeps a short last chapter selected after jumping to it', async () => {
+    const user = userEvent.setup();
+    layout.narrow = false;
+    renderWith({ navigation: true });
+    const panel = screen.getByRole('region', { name: 'Story chapters' });
+    panel.scrollTo = vi.fn();
+    Object.defineProperty(panel, 'clientHeight', { configurable: true, value: 1000 });
+    panel.getBoundingClientRect = () => ({ top: 100 }) as DOMRect;
+    // Every chapter starts within the first 40% of the panel, so the jump clamps to the top.
+    panel.querySelectorAll('section').forEach((section, i) => {
+      section.getBoundingClientRect = () => ({ top: 100 + i * 100 }) as DOMRect;
+    });
+    await user.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'The coasts' }));
+    fireEvent.scroll(panel);
+    await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    expect(screen.getByRole('region', { name: 'The coasts' })).toHaveAttribute('aria-current', 'step');
+
+    // The reader's own scroll is measured again.
+    panel.scrollTop = 30;
+    fireEvent.scroll(panel);
+    await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    expect(screen.getByRole('region', { name: 'Gone' })).toHaveAttribute('aria-current', 'step');
   });
 
   it('is the stepper on a phone, as in the side layout', () => {

@@ -274,7 +274,7 @@
     "navigation": "Barre de navigation",
     "navigationHint": "Affiche le titre du récit et la liste des chapitres au-dessus du récit.",
     "layout": "Disposition",
-    "layoutHint": "Le panneau flottant place le texte du chapitre sur une carte en plein écran. Les téléphones gardent la disposition côte à côte.",
+    "layoutHint": "Le panneau flottant place le texte du chapitre sur une carte en plein écran. Sur téléphone, la carte s'affiche au-dessus du texte.",
     "layouts": {
       "side": "Panneau latéral",
       "floating": "Panneau flottant"

@@ -12,7 +12,7 @@ export function chapterHeadingId(chapter: StoryChapter) {
 
 /** A chapter's title, or its position number when it has none. */
 export function chapterTitle(chapter: Pick<StoryChapter, 'title'>, index: number, t: TFunction<'stories'>): string {
-  return chapter.title || t('reader.untitledChapter', { index: index + 1 });
+  return chapter.title?.trim() || t('reader.untitledChapter', { index: index + 1 });
 }
 
 /**

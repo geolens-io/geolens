@@ -17,7 +17,7 @@ import { ApiError } from '@/api/client';
 import { listMaps } from '@/api/maps';
 import { useAuthStore } from '@/stores/auth-store';
 import type { ResolvedScene } from '@/components/stories/story-scenes';
-import type { MapResponse, StoryChapter, StoryDraftResponse, StoryResponse } from '@/types/api';
+import type { MapResponse, StoryChapter, StoryDraftResponse, StoryResponse, StorySettings } from '@/types/api';
 
 vi.mock('@/api/stories', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/api/stories')>()),
@@ -119,9 +119,9 @@ function draft(overrides: Partial<StoryDraftResponse> = {}): StoryDraftResponse 
   };
 }
 
-function published(chapters: StoryChapter[] = CHAPTERS): StoryResponse {
+function published(chapters: StoryChapter[] = CHAPTERS, settings?: StorySettings): StoryResponse {
   const { revision: _revision, ...rest } = draft();
-  return { ...rest, document: { version: 1, chapters } };
+  return { ...rest, document: { version: 1, chapters, settings } };
 }
 
 function renderEditor() {
@@ -240,6 +240,7 @@ it('saves edits to the draft against the revision it loaded', async () => {
 it('sends the draft settings back unchanged on a save', async () => {
   const settings = { navigation: true, layout: 'floating', panel_position: 'right', theme: 'dark' } as const;
   vi.mocked(getStoryDraft).mockResolvedValue(draft({ document: { version: 1, chapters: CHAPTERS, settings } }));
+  vi.mocked(getStory).mockResolvedValue(published(CHAPTERS, settings));
   const user = userEvent.setup();
   renderEditor();
   await ready();
@@ -254,6 +255,7 @@ it('sends the draft settings back unchanged on a save', async () => {
 it('saves reader settings chosen in the dialog with the draft, keeping the stored theme', async () => {
   const settings = { navigation: false, layout: 'side', panel_position: 'left', theme: 'dark' } as const;
   vi.mocked(getStoryDraft).mockResolvedValue(draft({ document: { version: 1, chapters: CHAPTERS, settings } }));
+  vi.mocked(getStory).mockResolvedValue(published(CHAPTERS, settings));
   const user = userEvent.setup();
   renderEditor();
   await ready();

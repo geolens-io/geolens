@@ -274,7 +274,7 @@
     "navigation": "Barra de navegación",
     "navigationHint": "Muestra el título de la historia y una lista de capítulos sobre ella.",
     "layout": "Diseño",
-    "layoutHint": "El panel flotante pone el texto del capítulo sobre un mapa a pantalla completa. Los teléfonos mantienen el diseño en paralelo.",
+    "layoutHint": "El panel flotante pone el texto del capítulo sobre un mapa a pantalla completa. En los teléfonos, el mapa va encima del texto.",
     "layouts": {
       "side": "Panel lateral",
       "floating": "Panel flotante"

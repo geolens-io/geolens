@@ -274,7 +274,7 @@
     "navigation": "Navigationsleiste",
     "navigationHint": "Zeigt den Titel der Story und eine Kapitelliste über der Story.",
     "layout": "Layout",
-    "layoutHint": "Das schwebende Panel legt den Kapiteltext über eine Vollbildkarte. Auf Smartphones bleibt das Layout nebeneinander.",
+    "layoutHint": "Das schwebende Panel legt den Kapiteltext über eine Vollbildkarte. Auf Smartphones liegt die Karte über dem Text.",
     "layouts": {
       "side": "Seitenpanel",
       "floating": "Schwebendes Panel"
