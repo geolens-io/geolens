@@ -847,8 +847,15 @@ def _write_fingerprint(
             if key != "sort_order" and (key != "id" or value)
         }
         recorded = styles.get(str(layer.get("id") or ""))
-        for key in _null_styles(layer):
-            if recorded is not None and key in recorded["null_sent"]:
+        nulls = _null_styles(layer)
+        for key in nulls:
+            # The default outline is filled in only while the paint is null too.
+            same_inputs = key != "style_config" or (
+                recorded is not None
+                and "paint" in nulls
+                and "paint" in recorded["null_sent"]
+            )
+            if same_inputs and recorded is not None and key in recorded["null_sent"]:
                 row[key] = recorded["values"][key]
             else:
                 row.pop(key, None)

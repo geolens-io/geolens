@@ -2102,6 +2102,56 @@ def test_a_null_style_after_a_real_one_is_never_adopted_from_a_lost_save(
     assert len(_puts(geolens)) == 2
 
 
+def test_an_explicit_paint_with_a_null_outline_is_not_adopted_against_the_cached_default(
+    runner, plan_file, geolens, portal
+):
+    token = _changed_in_the_portal(runner, plan_file, geolens, portal)
+    outline = {"outline": True}
+    stored = _default_styled_save(geolens, lose={2})
+    # The first confirmed save fills the default outline in with the paint.
+    answer = geolens.routes["PUT /maps/" + MAP_ID]
+
+    def with_outline(seen):
+        result = answer(seen)
+        for layer in result["layers"]:
+            layer["style_config"] = outline if len(_puts(geolens)) == 1 else None
+        stored["layers"] = result["layers"]
+        return result
+
+    geolens.routes["PUT /maps/" + MAP_ID] = with_outline
+    translate = geolens.routes[IMPORT]
+    dry_runs: list[int] = []
+
+    def answer_dry_run(seen):
+        status, body = translate(seen)
+        if not seen.json().get("dry_run"):
+            return status, body
+        dry_runs.append(1)
+        paint = None if len(dry_runs) == 1 else STYLE
+        layers = [
+            {**row, "paint": paint, "style_config": None} for row in body["layers"]
+        ]
+        return status, {**body, "layers": layers}
+
+    geolens.routes[IMPORT] = answer_dry_run
+    _migrate(runner, plan_file, "--token", token)
+    assert _state(plan_file)["items"][B1]["layer_styles"]
+    # The next save sends an explicit paint and a null outline, which stays null.
+    _edit_webmap(portal, lambda layers: None)
+    _migrate(runner, plan_file, "--token", token)
+    # The user turns the old outline on in GeoLens.
+    for layer in stored["layers"]:
+        layer["style_config"] = outline
+    stored["updated_at"] = "2026-10-09T00:00:00Z"
+
+    result, payload = _migrate(runner, plan_file, "--token", token)
+
+    assert result.exit_code == 1
+    [reason] = payload["not_up_to_date"][B1]
+    assert "changed in GeoLens since the last run" in reason
+    assert len(_puts(geolens)) == 2
+
+
 def test_a_web_map_with_a_layer_still_owed_blocks_cutover(
     runner, plan_file, geolens, portal
 ):
