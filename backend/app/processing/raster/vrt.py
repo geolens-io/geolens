@@ -510,42 +510,6 @@ def add_vrt_overview(vrt_path: str, source_paths: list[str]) -> str | None:
         if os.path.exists(overview_path):
             os.remove(overview_path)
         return None
-    try:
-        tree = parse(vrt_path)
-    except Exception:  # broad: an optimisation must not fail a build gdalbuildvrt reported as successful
-        return None
-    root = tree.getroot()
-    bands = root.findall("VRTRasterBand")
-    if (
-        not bands
-        or int(root.get("rasterXSize", "0")) < 2
-        or int(root.get("rasterYSize", "0")) < 2
-    ):
-        return None
-
-    overview_path = overview_key_for(vrt_path)
-    result = run_gdal(
-        [
-            "gdal_translate",
-            "-q",
-            "-of",
-            "COG",
-            "-outsize",
-            "50%",
-            "50%",
-            "-co",
-            "BIGTIFF=IF_SAFER",
-            vrt_path,
-            overview_path,
-        ],
-        env=gdal_safe_env(),
-        tool="gdal_translate",
-    )
-    if result.returncode != 0:
-        logger.warning("VRT overview build failed: %s", result.stderr)
-        if os.path.exists(overview_path):
-            os.remove(overview_path)
-        return None
 
     for position, band in enumerate(bands, start=1):
         overview = SubElement(band, "Overview")
