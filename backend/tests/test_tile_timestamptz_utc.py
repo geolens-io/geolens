@@ -301,6 +301,25 @@ async def test_tile_text_orders_every_value_like_time_against_a_filter_literal(
         assert (row["vt"] == row["lt"]) == row["same"], (row["vt"], row["lt"])
 
 
+@pytest.mark.usefixtures("new_york_tile_pool")
+async def test_tile_text_numbers_1_bc_as_year_0000(test_db_session: AsyncSession):
+    """ISO 8601 numbers 1 BC as year 0000 and 2 BC as -0001."""
+    values = ["0001-12-31 23:00Z BC", "0002-06-15 00:00Z BC"]
+    async with pool_module._tile_pool.acquire() as conn:
+        rendered = dict(
+            await conn.fetch(
+                f"SELECT s, {utc_timestamptz_text('s::timestamptz')}"
+                " FROM unnest($1::text[]) s",
+                values,
+            )
+        )
+
+    assert rendered == {
+        "0001-12-31 23:00Z BC": "0000-12-31T23:00:00+00:00",
+        "0002-06-15 00:00Z BC": "-0001-06-15T00:00:00+00:00",
+    }
+
+
 async def test_migration_rolls_only_timestamptz_datasets(
     test_db_session: AsyncSession,
 ):
