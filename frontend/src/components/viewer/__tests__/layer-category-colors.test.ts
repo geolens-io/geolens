@@ -8,6 +8,22 @@ describe('layerCategoryColors', () => {
     expect(['R', 'C', 'I'].map((value) => colors.colorOf(value))).toEqual(['#66c2a5', '#fc8d62', '#8da0cb']);
   });
 
+  it('keeps categories that share a legend label apart by value', () => {
+    const base = SAVED_LAYERS.categorical;
+    const layer = toSharedLayer({
+      ...base,
+      style_config: {
+        ...base.style_config,
+        categories: (base.style_config!.categories as { value: string; color: string }[]).map((entry) => ({
+          ...entry,
+          label: 'Zone',
+        })),
+      },
+    });
+    const colors = layerCategoryColors(layer)!;
+    expect(['R', 'C', 'I'].map((value) => colors.colorOf(value))).toEqual(['#66c2a5', '#fc8d62', '#8da0cb']);
+  });
+
   it('gives a value the style does not list the colour of its other class', () => {
     expect(layerCategoryColors(toSharedLayer(SAVED_LAYERS.categorical))!.colorOf('X')).toBe('#cccccc');
   });

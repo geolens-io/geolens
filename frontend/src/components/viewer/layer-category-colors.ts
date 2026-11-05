@@ -15,9 +15,9 @@ export function layerCategoryColors(layer: LegendLayer): LayerCategoryColors | n
   const classes = legendFacts(layer)?.classes?.find((entry) => entry.mode === 'categorical' && entry.target === 'color');
   if (config?.mode !== 'categorical' || !config.column || !classes) return null;
   const stored = config.categories ?? [];
-  const labelOf = (category: (typeof stored)[number]) => category.label ?? String(category.value);
-  // The stored categories belong to the style column; the paint has to be drawing them.
-  if (!stored.some((category) => classes.items.some((item) => item.label === labelOf(category)))) return null;
+  const drawn = new Set(classes.items.map((item) => item.color.toLowerCase()));
+  // The stored categories belong to the style column; the paint has to be drawing their colours.
+  if (!stored.some((category) => drawn.has(category.color.toLowerCase()))) return null;
   const other = classes.items.find((item) => item.other)?.color;
   return {
     column: config.column,
@@ -25,8 +25,7 @@ export function layerCategoryColors(layer: LegendLayer): LayerCategoryColors | n
       const category = stored.find((entry) =>
         key === null || entry.value === null ? key === entry.value : String(entry.value) === String(key),
       );
-      if (!category) return other;
-      return classes.items.find((item) => item.label === labelOf(category))?.color ?? category.color;
+      return category ? category.color : other;
     },
   };
 }

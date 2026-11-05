@@ -71,6 +71,12 @@ describe('histogram widget', () => {
     expect(Number(grid.getAttribute('y1'))).toBe(Number(tallest.getAttribute('y')));
   });
 
+  it('writes a large peak count compactly so it fits left of the axis', () => {
+    const big = { ...data, result: { bins: [{ lower: 0, upper: 1, count: 100000 }, { lower: 1, upper: 2, count: 5 }] } };
+    const { container } = render(<HistogramRenderer config={config} data={big} />);
+    expect(container.querySelector('svg text[data-peak]')).toHaveTextContent(/^100K$/);
+  });
+
   it('thins the edge labels of a many-bin histogram to four', () => {
     const many = {
       ...data,

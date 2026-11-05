@@ -10,8 +10,8 @@ import { axisTicks, histogramTableProps, pickBin, pickedBins, useHistogramText }
 
 // Drawn in viewBox units; the SVG scales to the panel's width.
 const WIDTH = 320;
-// Room left of the columns for the peak count's label.
-const LEFT = 30;
+// Room left of the columns for the peak count's label, which is compact so a large count fits.
+const LEFT = 36;
 const PLOT_HEIGHT = 100;
 // Room above the columns for a picked bin's check mark, and below for the axis labels.
 const TOP = 12;
@@ -37,7 +37,7 @@ export default function HistogramRenderer({
   mapHidden,
   columnLabel,
 }: WidgetRenderProps<HistogramConfig>) {
-  const { t } = useTranslation('widgets');
+  const { t, i18n } = useTranslation('widgets');
   const text = useHistogramText(config, data, columnLabel);
   const hintId = useId();
   const bins = text.bins ?? [];
@@ -100,7 +100,7 @@ export default function HistogramRenderer({
         <g aria-hidden="true" fontSize={10} className="fill-muted-foreground tabular-nums">
           <line x1={LEFT} x2={WIDTH} y1={TOP} y2={TOP} className="stroke-border" strokeDasharray="3 3" strokeWidth={1} />
           <text x={LEFT - 4} y={TOP} textAnchor="end" dominantBaseline="middle" data-peak="">
-            {bins.find((bin) => bin.count === most)?.countText}
+            {new Intl.NumberFormat(i18n.language, { notation: 'compact', maximumFractionDigits: 1 }).format(most)}
           </text>
           {ticks.map(({ edge, text }, index) => {
             const x = LEFT + edge * step;
