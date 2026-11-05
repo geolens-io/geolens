@@ -10,12 +10,6 @@ import {
   type DashboardDraft,
 } from '../dashboard-draft';
 
-// The save sends the readable types only once they differ from what a server assumes.
-vi.mock('@/components/widgets/registry', async (importActual) => ({
-  ...(await importActual<typeof import('@/components/widgets/registry')>()),
-  dashboardReadableTypes: () => ['markdown:1', 'indicator:1', 'bar_chart:1', 'histogram:1', 'category_selector:1'],
-}));
-
 const layerId = '0b7d2f4e-3c1a-4e8b-9f6d-5a2c7e1b9d34';
 const goneId = '1c8e3f5a-4d2b-4f9c-8a7e-6b3d8f2c0e45';
 

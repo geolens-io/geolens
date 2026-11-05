@@ -23,12 +23,6 @@ import { demChipGlyph } from '@/components/map/layer-icons';
 import { queryKeys } from '@/lib/query-keys';
 import { ApiError } from '@/api/client';
 
-// The save sends the readable types only once they differ from what a server assumes.
-vi.mock('@/components/widgets/registry', async (importActual) => ({
-  ...(await importActual<typeof import('@/components/widgets/registry')>()),
-  dashboardReadableTypes: () => ['markdown:1', 'indicator:1', 'bar_chart:1', 'histogram:1', 'category_selector:1'],
-}));
-
 /* ── Mocks ─────────────────────────────────────────── */
 
 const mockMutate = vi.fn();

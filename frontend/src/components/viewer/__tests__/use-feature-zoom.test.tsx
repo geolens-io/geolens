@@ -13,7 +13,7 @@ const feature = { id: 7, bbox: [-74, 40, -73.9, 40.1] as [number, number, number
 function fakeMap() {
   const layers = new Set<string>();
   const sources = new Set(['tiles']);
-  const moveend = new Set<() => void>();
+  const listeners = new Map<string, Set<() => void>>();
   const map = {
     isStyleLoaded: () => true,
     getStyle: () => ({}),
@@ -25,14 +25,13 @@ function fakeMap() {
     removeSource: (id: string) => sources.delete(id),
     fitBounds: () => undefined,
     on: () => undefined,
-    off: (event: string, listener: () => void) => {
-      if (event === 'moveend') moveend.delete(listener);
-    },
+    off: (event: string, listener: () => void) => listeners.get(event)?.delete(listener),
     once: (event: string, listener: () => void) => {
-      if (event === 'moveend') moveend.add(listener);
+      listeners.set(event, (listeners.get(event) ?? new Set()).add(listener));
     },
   } as unknown as MaplibreMap;
-  return { map, layers, endFlight: () => [...moveend].forEach((listener) => listener()) };
+  const fire = (event: string) => [...(listeners.get(event) ?? [])].forEach((listener) => listener());
+  return { map, layers, endFlight: () => fire('moveend'), drawn: () => fire('idle') };
 }
 
 function reduceMotion(reduce: boolean) {
@@ -51,8 +50,8 @@ afterEach(() => {
 const lit = (layers: Set<string>) => layers.has('dashboard-feature-highlight-line');
 
 describe('useFeatureZoom', () => {
-  it('keeps the highlight until the map comes to rest, then clears it a second later', () => {
-    const { map, layers, endFlight } = fakeMap();
+  it('counts the second from when the destination is drawn, not when the camera stops', () => {
+    const { map, layers, endFlight, drawn } = fakeMap();
     const { result } = renderHook(() => useFeatureZoom(map));
     act(() => result.current(layer, feature));
     expect(lit(layers)).toBe(true);
@@ -61,28 +60,36 @@ describe('useFeatureZoom', () => {
     expect(lit(layers)).toBe(true);
 
     act(() => endFlight());
+    // Tiles for the destination arrive more than a second after the camera stopped.
+    act(() => vi.advanceTimersByTime(1100));
+    expect(lit(layers)).toBe(true);
+
+    act(() => drawn());
     act(() => vi.advanceTimersByTime(999));
     expect(lit(layers)).toBe(true);
     act(() => vi.advanceTimersByTime(1));
     expect(lit(layers)).toBe(false);
   });
 
-  it('starts the second at once when the camera jumps', () => {
-    reduceMotion(true);
+  it('clears the highlight after the bounded wait when the map never settles', () => {
     const { map, layers } = fakeMap();
     const { result } = renderHook(() => useFeatureZoom(map));
     act(() => result.current(layer, feature));
-    act(() => vi.advanceTimersByTime(1000));
+    act(() => vi.advanceTimersByTime(10_999));
+    expect(lit(layers)).toBe(true);
+    act(() => vi.advanceTimersByTime(1));
     expect(lit(layers)).toBe(false);
   });
 
   it('lets a new selection take over the countdown of the last one', () => {
     reduceMotion(true);
-    const { map, layers } = fakeMap();
+    const { map, layers, drawn } = fakeMap();
     const { result } = renderHook(() => useFeatureZoom(map));
     act(() => result.current(layer, feature));
+    act(() => drawn());
     act(() => vi.advanceTimersByTime(600));
     act(() => result.current(layer, { ...feature, id: 8 }));
+    act(() => drawn());
     act(() => vi.advanceTimersByTime(600));
     expect(lit(layers)).toBe(true);
     act(() => vi.advanceTimersByTime(400));
@@ -91,7 +98,7 @@ describe('useFeatureZoom', () => {
 
   it('leaves a table row highlight on the same map alone when its own flash ends', () => {
     reduceMotion(true);
-    const { map, layers } = fakeMap();
+    const { map, layers, drawn } = fakeMap();
     const tableMap = { current: map };
     const { result } = renderHook(() => {
       const zoom = useFeatureZoom(map);
@@ -104,6 +111,7 @@ describe('useFeatureZoom', () => {
       return { zoom, table };
     });
     act(() => result.current.zoom(layer, feature));
+    act(() => drawn());
     act(() => {
       void result.current.table.highlightFeature(9, {
         geometry: { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] },

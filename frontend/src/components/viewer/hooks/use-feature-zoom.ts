@@ -8,8 +8,8 @@ import { layerHighlightSource } from '../map-data-table';
 
 /** How long a zoomed-to feature stays highlighted once the map has come to rest. */
 const FLASH_MS = 1000;
-// A fit that never reports moveend must not leave the highlight on the map.
-const MAX_FLIGHT_MS = 10_000;
+// A fit or load that never settles must not leave the highlight on the map.
+const MAX_WAIT_MS = 10_000;
 
 const FIT_PADDING = 40;
 const getFitPadding = () => FIT_PADDING;
@@ -42,23 +42,28 @@ export function useFeatureZoom(map: MaplibreMap | null) {
       setZoomed(true);
       stopFlash.current();
       void highlightFeature(Number(feature.id), source ? { ...source, bbox: feature.bbox } : null);
-      // The countdown starts when the fit's flight ends; a jump has no flight.
+      // The countdown starts once the camera has stopped and the map has drawn
+      // the destination, so late tiles still get a visible flash.
       let flash: ReturnType<typeof setTimeout> | undefined;
       const arm = () => {
         clearTimeout(giveUp);
-        current.off('moveend', arm);
+        current.off('idle', arm);
         flash = setTimeout(clearHighlightedFeature, FLASH_MS);
       };
+      const awaitDrawn = () => {
+        current.off('moveend', awaitDrawn);
+        current.once('idle', arm);
+      };
+      const giveUp = setTimeout(arm, MAX_WAIT_MS);
       stopFlash.current = () => {
         clearTimeout(giveUp);
         clearTimeout(flash);
-        current.off('moveend', arm);
+        current.off('moveend', awaitDrawn);
+        current.off('idle', arm);
         stopFlash.current = () => undefined;
       };
-      const jumps = motionDuration(1) === 0;
-      const giveUp = jumps ? undefined : setTimeout(arm, MAX_FLIGHT_MS);
-      if (jumps) arm();
-      else current.once('moveend', arm);
+      if (motionDuration(1) === 0) awaitDrawn();
+      else current.once('moveend', awaitDrawn);
     },
     [highlightFeature, clearHighlightedFeature],
   );

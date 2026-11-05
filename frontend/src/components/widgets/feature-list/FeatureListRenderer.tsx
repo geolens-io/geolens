@@ -43,11 +43,15 @@ export default function FeatureListRenderer({
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">{t('noRows')}</p>;
 
   const mappable = rows.some((row) => row.bbox !== null);
+  // With no buttons in it, the list is how a keyboard reader scrolls past its height.
+  const plain = !onZoomTo || !mappable;
   return (
     <div className="space-y-2">
       <ul
         aria-label={t('types.feature_list.listLabel')}
-        className="max-h-80 divide-y overflow-y-auto rounded-md border"
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a scrollable region with no focusable content must take focus
+        tabIndex={plain ? 0 : undefined}
+        className="max-h-80 divide-y overflow-y-auto rounded-md border focus-visible:outline-2 focus-visible:outline-ring"
       >
         {rows.map((row) => (
           <li key={row.id}>

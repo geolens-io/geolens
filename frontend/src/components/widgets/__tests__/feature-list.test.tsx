@@ -146,6 +146,21 @@ describe('feature list renderer', () => {
     expect(screen.getByText('Unplaced')).toBeInTheDocument();
   });
 
+  it('makes the list a focusable named region when its rows are plain text, so the keyboard can scroll it', async () => {
+    const table = rowsResult([{ gid: 1, values: { name: 'Row one', kind: 'a' } }]);
+    const { rerender } = render(<FeatureListRenderer config={config} data={table} onZoomTo={vi.fn()} />);
+    const user = userEvent.setup();
+    await user.tab();
+    expect(screen.getByRole('list', { name: 'Features' })).toHaveFocus();
+
+    rerender(<FeatureListRenderer config={config} data={mapped} mapHidden />);
+    expect(screen.getByRole('list', { name: 'Features' })).toHaveAttribute('tabindex', '0');
+
+    // With buttons in it, the buttons are the tab stops.
+    rerender(<FeatureListRenderer config={config} data={mapped} onZoomTo={vi.fn()} />);
+    expect(screen.getByRole('list', { name: 'Features' })).not.toHaveAttribute('tabindex');
+  });
+
   it('lists a layer with no geometry whole and offers no zoom', () => {
     const table = rowsResult([
       { gid: 1, values: { name: 'Row one', kind: 'a' } },
