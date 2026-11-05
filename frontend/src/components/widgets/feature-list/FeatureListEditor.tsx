@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import type { WidgetEditorProps } from '../contract';
+import { isSortableColumn } from '@/lib/column-utils';
 import { ColumnField, IntegerField, SelectField } from '../editor-fields';
 import { MAX_PAGE_SIZE, MIN_PAGE_SIZE, type FeatureListConfig } from './definition';
 
@@ -18,10 +19,14 @@ export default function FeatureListEditor({
     { value: NONE, label: t('editor.featureList.none') },
     ...columns.map((column) => ({ value: column.name, label: column.name })),
   ];
+  const sortOptions = [
+    options[0],
+    ...columns.filter((column) => isSortableColumn(column.name, column.type)).map((column) => ({ value: column.name, label: column.name })),
+  ];
   return (
     <div className="space-y-3">
       <ColumnField
-        id={`${idPrefix}-title`}
+        id={`${idPrefix}-title-column`}
         label={t('editor.featureList.title')}
         value={config.title_column}
         columns={columns}
@@ -38,7 +43,7 @@ export default function FeatureListEditor({
         id={`${idPrefix}-sort`}
         label={t('editor.featureList.sortBy')}
         value={optional(config.sort_column)}
-        options={options}
+        options={sortOptions}
         onChange={(value) => onChange({ ...config, sort_column: value === NONE ? null : value })}
       />
       <SelectField

@@ -1,5 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { render as renderWithProviders } from '@/test/test-utils';
+import { isSortableColumn } from '@/lib/column-utils';
+import FeatureListEditor from '../feature-list/FeatureListEditor';
 import { featureListWidget, type FeatureListConfig } from '../feature-list/definition';
 import FeatureListRenderer from '../feature-list/FeatureListRenderer';
 import { FeatureListFallback } from '../feature-list/FeatureListFallback';
@@ -102,7 +105,7 @@ describe('feature list request', () => {
     expect(featureListWidget.readsColumns!(config)).toEqual([
       { name: 'name', numeric: false },
       { name: 'kind', numeric: false },
-      { name: 'name', numeric: false },
+      { name: 'name', numeric: false, sortable: true },
     ]);
   });
 });
@@ -205,5 +208,44 @@ describe('feature list renderer', () => {
     render(<FeatureListFallback config={config} data={mapped} />);
     expect(screen.getByText('Elm Park')).toBeInTheDocument();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+});
+
+describe('feature list editor', () => {
+  const columns = [
+    { name: 'name', type: 'text' },
+    { name: 'tags', type: 'ARRAY' },
+    { name: 'extra', type: 'jsonb' },
+    { name: 'built', type: 'integer' },
+  ];
+
+  it('offers only columns the rows endpoint can order by as the sort', async () => {
+    // Radix scrolls the active option into view, which jsdom lacks.
+    Element.prototype.scrollIntoView = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(<FeatureListEditor config={config} onChange={vi.fn()} columns={columns} idPrefix="w" />);
+    screen.getByRole('combobox', { name: 'Sort by' }).focus();
+    await user.keyboard('{Enter}');
+    const offered = screen.getAllByRole('option').map((option) => option.textContent);
+    expect(offered).toEqual(['None', 'name', 'built']);
+  });
+
+  it('labels the title column picker with an id the widget title input does not use', () => {
+    renderWithProviders(
+      <>
+        <input id="w-title" aria-label="Widget title" />
+        <FeatureListEditor config={config} onChange={vi.fn()} columns={columns} idPrefix="w" />
+      </>,
+    );
+    expect(screen.getByRole('combobox', { name: 'Title column' })).toBeInTheDocument();
+    expect(document.getElementById('w-title')).toBe(screen.getByLabelText('Widget title'));
+  });
+
+  it('mirrors the server rule for a sortable column', () => {
+    expect(isSortableColumn('name', 'text')).toBe(true);
+    expect(isSortableColumn('built', 'integer')).toBe(true);
+    for (const [name, type] of [['tags', 'ARRAY'], ['extra', 'jsonb'], ['geom', 'text'], ['Name', 'text'], ['x', null]] as const) {
+      expect(isSortableColumn(name, type)).toBe(false);
+    }
   });
 });

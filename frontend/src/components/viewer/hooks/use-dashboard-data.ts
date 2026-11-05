@@ -144,7 +144,8 @@ export function useWidgetAggregate({
     viewScopeDropped: viewScoped && mapHidden,
     // A view-scoped widget is also pending while it waits for the map to rest.
     loading: body !== null && query.isPending,
-    loadMore: paged && pages.hasNextPage && !pages.isFetchingNextPage ? () => void pages.fetchNextPage() : undefined,
+    // A page asked for during a refresh would cancel it and append to the old rows.
+    loadMore: paged && pages.hasNextPage && !pages.isFetching ? () => void pages.fetchNextPage() : undefined,
     loadingMore: pages.isFetchingNextPage,
     // A failed page is asked for again only when the reader presses the button.
     loadMoreFailed: pages.isFetchNextPageError,

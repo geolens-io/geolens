@@ -203,4 +203,11 @@ describe('feature list on a dashboard', () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it('keeps rows plain where the map is not the viewer’s, as in the Builder’s preview', async () => {
+    const map = { getBounds: () => undefined, on: () => undefined, off: () => undefined } as unknown as MaplibreMap;
+    render(<DashboardPanel config={dashboard([listWidget])} layers={[layer]} map={map} mapId="map-1" canZoom={false} />);
+    await screen.findByText('First');
+    expect(screen.queryByRole('button', { name: /First/ })).not.toBeInTheDocument();
+  });
 });

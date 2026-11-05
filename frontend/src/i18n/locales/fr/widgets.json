@@ -179,7 +179,8 @@
       "layerRemoved": "Sa couche n'est plus sur la carte : l'enregistrement supprimera ce widget.",
       "missingColumn": "La couche n'a pas de colonne « {{column}} ». Choisissez-en une autre avant d'enregistrer.",
       "notNumeric": "« {{column}} » n'est pas une colonne numérique. Choisissez-en une autre avant d'enregistrer.",
-      "viewWithoutGeometry": "Cette couche n'a pas de géométrie : le widget ne peut pas suivre la vue de la carte. Faites-le porter sur toute la couche."
+      "viewWithoutGeometry": "Cette couche n'a pas de géométrie : le widget ne peut pas suivre la vue de la carte. Faites-le porter sur toute la couche.",
+      "notSortable": "« {{column}} » ne peut pas servir au tri. Choisissez-en une autre avant d’enregistrer."
     },
     "maxWidgets": "Un tableau de bord contient au plus {{max}} widgets.",
     "reference": "Valeur de référence",

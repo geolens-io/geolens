@@ -40,6 +40,21 @@ export function isTextColumn(type: string | null | undefined): boolean {
   return TEXT_COLUMN_TYPES.has((type ?? '').toLowerCase());
 }
 
+// The column types the rows endpoint orders by (service_query._SORTABLE_TYPES), as information_schema names them.
+const SORTABLE_TYPES = new Set([
+  'smallint', 'integer', 'bigint', 'numeric', 'real', 'double precision',
+  'character varying', 'character', 'text', 'date',
+  'timestamp without time zone', 'timestamp with time zone',
+  'time without time zone', 'time with time zone', 'interval',
+  'boolean', 'uuid', 'inet', 'cidr', 'bytea',
+]);
+const GEOMETRY_COLUMN_NAMES = new Set(['geom', 'geom_4326', 'wkb_geometry']);
+
+/** True for a column the rows endpoint accepts as a sort: a plain lowercase name of an orderable type. */
+export function isSortableColumn(name: string, type: string | null | undefined): boolean {
+  return /^[a-z0-9_]+$/.test(name) && !GEOMETRY_COLUMN_NAMES.has(name) && SORTABLE_TYPES.has((type ?? '').toLowerCase());
+}
+
 /** Check if a column type string represents a Postgres boolean. */
 export function isBooleanColumn(type: string): boolean {
   const t = type.toLowerCase();

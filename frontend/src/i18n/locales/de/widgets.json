@@ -179,7 +179,8 @@
       "layerRemoved": "Sein Layer ist nicht mehr auf der Karte; beim Speichern wird dieses Widget entfernt.",
       "missingColumn": "Der Layer hat keine Spalte „{{column}}“. Wählen Sie vor dem Speichern eine andere.",
       "notNumeric": "„{{column}}“ ist keine numerische Spalte. Wählen Sie vor dem Speichern eine andere.",
-      "viewWithoutGeometry": "Dieser Layer hat keine Geometrie, daher kann das Widget dem Kartenausschnitt nicht folgen. Lassen Sie es den ganzen Layer umfassen."
+      "viewWithoutGeometry": "Dieser Layer hat keine Geometrie, daher kann das Widget dem Kartenausschnitt nicht folgen. Lassen Sie es den ganzen Layer umfassen.",
+      "notSortable": "Nach „{{column}}“ kann nicht sortiert werden. Wählen Sie vor dem Speichern eine andere Spalte."
     },
     "maxWidgets": "Ein Dashboard enthält höchstens {{max}} Widgets.",
     "reference": "Referenzwert",

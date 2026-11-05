@@ -179,7 +179,8 @@
       "layerRemoved": "Su capa ya no está en el mapa, así que al guardar se quitará este widget.",
       "missingColumn": "La capa no tiene la columna «{{column}}». Elige otra antes de guardar.",
       "notNumeric": "«{{column}}» no es una columna numérica. Elige otra antes de guardar.",
-      "viewWithoutGeometry": "Esta capa no tiene geometría, así que el widget no puede seguir la vista del mapa. Haz que abarque toda la capa."
+      "viewWithoutGeometry": "Esta capa no tiene geometría, así que el widget no puede seguir la vista del mapa. Haz que abarque toda la capa.",
+      "notSortable": "No se puede ordenar por «{{column}}». Elija otra antes de guardar."
     },
     "maxWidgets": "Un panel admite como máximo {{max}} widgets.",
     "reference": "Valor de referencia",

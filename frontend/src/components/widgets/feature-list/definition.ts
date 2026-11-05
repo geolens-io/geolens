@@ -90,10 +90,11 @@ export const featureListWidget = defineWidget<FeatureListConfig>({
     sort: config.sort,
     limit: config.page_size,
   }),
-  readsColumns: (config) =>
-    [config.title_column, config.subtitle_column, config.sort_column]
-      .filter((column): column is string => column !== null)
-      .map((name) => ({ name, numeric: false })),
+  readsColumns: (config) => [
+    { name: config.title_column, numeric: false },
+    ...(config.subtitle_column === null ? [] : [{ name: config.subtitle_column, numeric: false }]),
+    ...(config.sort_column === null ? [] : [{ name: config.sort_column, numeric: false, sortable: true }]),
+  ],
   loadRenderer: () => import('./FeatureListRenderer'),
   loadEditor: () => import('./FeatureListEditor'),
   Fallback: FeatureListFallback,

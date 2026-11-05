@@ -399,6 +399,8 @@ interface DashboardPanelProps {
   onPicksChange?: (picks: readonly LinkedPick[]) => void;
   /** A branding extension's logo, shown in the open panel's header. */
   logoUrl?: string;
+  /** False where the map isn't the viewer's, as in the Builder's preview, so features aren't offered a zoom. */
+  canZoom?: boolean;
 }
 
 /**
@@ -419,6 +421,7 @@ export function DashboardPanel({
   picks = NO_PICKS,
   onPicksChange,
   logoUrl,
+  canZoom = true,
 }: DashboardPanelProps) {
   const { t } = useTranslation('widgets');
   const contentId = useId();
@@ -575,7 +578,7 @@ export function DashboardPanel({
           layout={layout}
           picks={picks}
           onChoose={onPicksChange ? choose : undefined}
-          onZoom={map && !mapHidden ? zoomTo : undefined}
+          onZoom={map && !mapHidden && canZoom ? zoomTo : undefined}
           onProblemChange={onProblemChange}
         />
       )}

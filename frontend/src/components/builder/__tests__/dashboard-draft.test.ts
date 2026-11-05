@@ -200,6 +200,26 @@ describe('a widget with no layer', () => {
   it('reads back from a map response', () => {
     expect(toDashboardDraft({ version: 1, widgets: [text] } as never).widgets).toEqual([text]);
   });
+
+  it('holds a feature list sorted on a column the rows endpoint cannot order by', () => {
+    const list = (sort_column: string) =>
+      ({
+        id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+        type: 'feature_list',
+        v: 1,
+        layer_id: layerId,
+        scope: 'layer',
+        config: { title_column: 'kind', subtitle_column: null, sort_column, sort: 'asc', page_size: 25 },
+      }) as never;
+    const withColumns = layer({
+      dataset_column_info: [
+        { name: 'kind', type: 'text' },
+        { name: 'tags', type: 'ARRAY' },
+      ],
+    } as never);
+    expect(widgetProblem(list('kind'), withColumns)).toBeNull();
+    expect(widgetProblem(list('tags'), withColumns)).toEqual({ kind: 'notSortable', column: 'tags' });
+  });
 });
 
 describe('the save that empties a dashboard', () => {

@@ -179,7 +179,8 @@
       "layerRemoved": "其图层已不在地图上，保存时会移除此小组件。",
       "missingColumn": "该图层没有“{{column}}”列。保存前请另选一列。",
       "notNumeric": "“{{column}}”不是数值列。保存前请另选一列。",
-      "viewWithoutGeometry": "此图层没有几何，小组件无法跟随地图视图。请将其设为统计整个图层。"
+      "viewWithoutGeometry": "此图层没有几何，小组件无法跟随地图视图。请将其设为统计整个图层。",
+      "notSortable": "无法按“{{column}}”排序。请在保存前选择其他列。"
     },
     "maxWidgets": "一个仪表板最多包含 {{max}} 个小组件。",
     "reference": "参考值",
