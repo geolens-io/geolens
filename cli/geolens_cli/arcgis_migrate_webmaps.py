@@ -13,10 +13,11 @@ into the same map, while the map is as this command left it.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import re
 import tempfile
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlsplit
@@ -141,17 +142,17 @@ def _dataset_for(
     return None
 
 
-def match_datasets(ctx: MigrationContext, webmap: Mapping[str, Any]) -> dict[str, str]:
-    """Operational layer id -> dataset id, for the layers whose item the run
-    imported."""
-    matches: dict[str, str] = {}
+def _sourced_layers(
+    ctx: MigrationContext, webmap: Mapping[str, Any]
+) -> Iterator[tuple[str, Mapping[str, Any], bool, str, ItemState | None]]:
+    """The operational layers of items, as (layer id, layer, whether the item
+    is a hosted view standing in for its parent, plan item id of the source,
+    that item's state), for the layers the server translates.
+    An unsupported layer is dropped before its id is reserved, and the server
+    keeps the first supported layer of an id."""
     seen: set[str] = set()
     for layer in _walk(webmap.get("operationalLayers")):
         layer_id, item_id = layer.get("id"), layer.get("itemId")
-        if len(matches) >= _MAX_MATCHES:
-            break
-        # An unsupported layer is dropped before its id is reserved, and the
-        # server keeps the first supported layer of an id.
         if not _translatable(layer):
             continue
         if not isinstance(layer_id, str) or layer_id in seen:
@@ -160,10 +161,20 @@ def match_datasets(ctx: MigrationContext, webmap: Mapping[str, Any]) -> dict[str
         if not isinstance(item_id, str):
             continue
         parent = ctx.aliases.get(item_id)
-        source = ctx.items.get(parent or item_id)
+        source_id = parent or item_id
+        yield layer_id, layer, parent is not None, source_id, ctx.items.get(source_id)
+
+
+def match_datasets(ctx: MigrationContext, webmap: Mapping[str, Any]) -> dict[str, str]:
+    """Operational layer id -> dataset id, for the layers whose item the run
+    imported."""
+    matches: dict[str, str] = {}
+    for layer_id, layer, aliased, _, source in _sourced_layers(ctx, webmap):
+        if len(matches) >= _MAX_MATCHES:
+            break
         if source is None or source.status not in FINISHED:
             continue
-        dataset = _dataset_for(layer, source, aliased=parent is not None)
+        dataset = _dataset_for(layer, source, aliased=aliased)
         if dataset:
             matches[layer_id] = dataset
     return matches
@@ -457,15 +468,21 @@ def _check_map(
     problem, found = _map_problem(ctx, item, entry)
     if problem:
         return [problem]
+    problems = []
+    if unwritten := _settle_write(ctx, item["id"], entry, found):
+        problems.append(unwritten)
+    _drop_gone_rows(ctx, entry, found)
     if ctx.portal is None:
-        return [
+        problems.append(
             "the run can't read this web map from the portal to check it for changes"
-        ]
+        )
+        return problems
     try:
         info = ctx.portal.client.get_json(f"content/items/{item['id']}")
     except PortalError as exc:
         _stop_if_token_refused(exc)
-        return [f"reading the web map to check it for changes failed, {exc}"]
+        problems.append(f"reading the web map to check it for changes failed, {exc}")
+        return problems
     if found.thumbnail_url or isinstance(info, dict):
         entry.notes = [
             *(note for note in entry.notes if not note.startswith(_THUMBNAIL_NOTE)),
@@ -476,19 +493,22 @@ def _check_map(
             ),
         ]
     modified = _modified(info)
-    if modified is None:
-        return ["the portal doesn't say when the web map last changed"]
     recorded = whole_number(entry.portal_modified)
-    if recorded is None:
-        return [
+    if modified is None:
+        problems.append("the portal doesn't say when the web map last changed")
+    elif recorded is None:
+        problems.append(
             "the state doesn't record when the web map was read for its import, so "
             "a change since can't be ruled out; compare the GeoLens map by hand"
-        ]
-    # A translation that left layers out is tried again until none is.
-    if modified > recorded or entry.skipped_layers:
-        problem = _translate_again(ctx, item, entry, found, modified)
-        return [problem] if problem else []
-    return []
+        )
+    # A translation that left layers out or owes some is tried again until
+    # none is.
+    elif modified > recorded or entry.skipped_layers or entry.pending_layers:
+        if problem := _translate_again(ctx, item, entry, found, modified):
+            problems.append(problem)
+    if owed := entry.owed_reason():
+        problems.append(owed)
+    return problems
 
 
 def _translate_again(
@@ -593,50 +613,387 @@ def _translate_again(
         ),
         f"\n- {_NO_VIEW_NOTE}" if kept_view else "",
     )
+    update = {
+        **result.view.to_dict(),
+        # An unrotated web map leaves the bearing unset, which the save would
+        # skip and so keep an earlier rotation; without a view at all the map
+        # keeps its rotation with its view.
+        "bearing": result.view.bearing if kept_view else result.view.bearing or 0.0,
+        "notes": notes,
+        "layers": layers,
+        "expected_updated_at": seen["updated_at"],
+    }
+    skipped = sorted(set(matches) - set(readable))
+    place = _layer_order(webmap)
+    after = {
+        "sources": sources,
+        "sent_ids": [layer.get("id") for layer in layers],
+        "style_nulls": [_null_styles(layer) for layer in layers],
+        "sent_datasets": [str(layer.get("dataset_id")) for layer in layers],
+        "server_version": _server_version(ctx),
+        "readable": sorted(str(row.id) for row in getattr(found, "layers", None) or []),
+        "skipped": skipped,
+        "kept_view": kept_view,
+        "modified": modified,
+        "listed": sorted(place),
+        "unimported": _unimported(ctx, webmap, matches),
+        "pending_loss": _pending_loss(result, capped_losses),
+    }
+    # Recorded before the save, so a rerun can tell a save whose answer was
+    # lost from an edit made in GeoLens.
+    entry.pending_write = {
+        **_write_fingerprint(
+            update,
+            found,
+            entry.layer_styles,
+            entry.layer_ids.values(),
+            _geometries(ctx, layers),
+            after["server_version"],
+        ),
+        "after": after,
+    }
+    ctx.save()
     try:
         saved = ctx.geolens.write(
             put_map.sync_detailed,
             during="the web map was translated again",
             map_id=UUID(entry.map_id or ""),
-            body=MapUpdate.from_dict(
-                {
-                    **result.view.to_dict(),
-                    # An unrotated web map leaves the bearing unset, which the
-                    # save would skip and so keep an earlier rotation; without
-                    # a view at all the map keeps its rotation with its view.
-                    "bearing": result.view.bearing
-                    if kept_view
-                    else result.view.bearing or 0.0,
-                    "notes": notes,
-                    "layers": layers,
-                    "expected_updated_at": seen["updated_at"],
-                }
-            ),
+            body=MapUpdate.from_dict(update),
         )
     except WriteRaced as exc:
+        entry.pending_write = None
         return str(exc)
     except GeoLensError as exc:
+        # Only a refusal proves nothing was written.
+        if exc.status < 500:
+            entry.pending_write = None
         return f"saving the web map's new translation failed, {exc}"
+    _record_write(entry, after, saved)
+    return _resume_loss(ctx, item["id"], entry)
+
+
+def _record_write(entry: ItemState, after: Mapping[str, Any], saved: Any) -> None:
+    """Record what the item's state holds once the translation *after*
+    describes is saved as the map *saved*."""
     entry.map_snapshot = map_state(saved)
-    skipped = sorted(set(matches) - set(readable))
-    entry.skipped_layers = skipped
+    entry.skipped_layers = list(after["skipped"])
     entry.notes = [
         *(
             n
             for n in entry.notes
             if n != _NO_VIEW_NOTE and not n.startswith(_UNREADABLE_NOTE)
         ),
-        *([_NO_VIEW_NOTE] if kept_view else []),
-        *([f"{_UNREADABLE_NOTE}: {', '.join(skipped)}"] if skipped else []),
+        *([_NO_VIEW_NOTE] if after["kept_view"] else []),
+        *(
+            [f"{_UNREADABLE_NOTE}: {', '.join(after['skipped'])}"]
+            if after["skipped"]
+            else []
+        ),
     ]
     entry.layer_ids = _saved_layer_ids(
-        entry.layer_ids, layers, sources, found, saved.layers
+        entry.layer_ids,
+        after["sent_ids"],
+        after["sources"],
+        set(after["readable"]),
+        [str(layer.id) for layer in getattr(saved, "layers", None) or []],
     )
-    entry.portal_modified = modified
-    entry.pending_loss = _pending_loss(result, capped_losses)
+    entry.portal_modified = after["modified"]
+    nulls = {
+        entry.layer_ids[source]: null
+        for source, null in zip(after["sources"], after["style_nulls"])
+        if source in entry.layer_ids
+    }
+    entry.layer_styles = _filled_styles(saved, nulls, after["server_version"])
+    saved_rows = getattr(saved, "layers", None) or []
+    entry.row_datasets = {
+        **{
+            row: ds
+            for row, ds in entry.row_datasets.items()
+            if row in entry.layer_ids.values()
+        },
+        **{
+            sent: ds
+            for sent, ds in zip(after["sent_ids"], after["sent_datasets"])
+            if sent
+        },
+        **{str(layer.id): str(layer.dataset_id) for layer in saved_rows},
+    }
+    entry.pending_layers = _owed_layers(
+        after["unimported"], entry.layer_ids, after["listed"], after["sources"]
+    )
+    entry.pending_loss = after["pending_loss"]
     entry.loss_report_path = None
-    ctx.save()
-    return _resume_loss(ctx, item["id"], entry)
+    entry.pending_write = None
+
+
+def _style_inputs(dataset_id: Any, geometry: Any, version: Any) -> dict[str, Any]:
+    """What a save reads to fill in a style: the dataset, and the server's
+    version, whose defaults can change between releases."""
+    return {"dataset_id": str(dataset_id), "geometry": geometry, "version": version}
+
+
+def _server_version(ctx: MigrationContext) -> str | None:
+    """The GeoLens version, read once; None when it can't be read."""
+    from geolens.api.health import health_health_get as health
+
+    if ctx.server_version is None:
+        try:
+            ctx.server_version = ctx.geolens.call(health.sync_detailed).version
+        except GeoLensError:
+            return None
+        except typer.Exit as exc:
+            # How the SDK call reports a timeout or network failure.
+            if exc.exit_code != EXIT_NETWORK:
+                raise
+            return None
+    return ctx.server_version
+
+
+def _geometries(
+    ctx: MigrationContext, layers: Sequence[Mapping[str, Any]]
+) -> dict[str, Any]:
+    """Dataset id -> its geometry type, for the datasets of the layers that
+    send a style null. A dataset that can't be read is left out."""
+    from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get as get
+    from geolens.types import Unset
+
+    found: dict[str, Any] = {}
+    for dataset_id in {str(row["dataset_id"]) for row in layers if _null_styles(row)}:
+        try:
+            dataset = ctx.geolens.call(get.sync_detailed, dataset_id=UUID(dataset_id))
+        except (GeoLensError, ValueError):
+            continue
+        geometry = getattr(dataset, "geometry_type", None)
+        found[dataset_id] = None if isinstance(geometry, Unset) else geometry
+    return found
+
+
+def _null_styles(layer: Mapping[str, Any]) -> list[str]:
+    """The styles a layer sends null or leaves out, which the save fills in."""
+    return [key for key in _SERVER_FILLED if layer.get(key) is None]
+
+
+def _filled_styles(
+    saved: Any, nulls: Mapping[str, Sequence[str]], version: str | None
+) -> dict[str, dict[str, Any]]:
+    """Map layer id -> the styles the server holds for it, and which of them
+    the save that left them sent null (*nulls*). Only a value filled in from
+    null is the one a later null send fills in again."""
+    rows = [layer.to_dict() for layer in getattr(saved, "layers", None) or []]
+    return {
+        str(row["id"]): {
+            "values": {k: row.get(k) for k in _SERVER_FILLED},
+            "null_sent": list(nulls.get(str(row["id"]), [])),
+            "inputs": _style_inputs(
+                row.get("dataset_id"), row.get("dataset_geometry_type"), version
+            ),
+        }
+        for row in rows
+    }
+
+
+def _drop_gone_rows(ctx: MigrationContext, entry: ItemState, found: Any) -> None:
+    """Forget the map layer recorded for an operational layer whose row the
+    map no longer lists though its dataset is readable now: a save hides a row
+    only while its dataset is unreadable, so the row was deleted."""
+    from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get as get
+
+    shown = {str(row.id) for row in getattr(found, "layers", None) or []}
+    for source, row in list(entry.layer_ids.items()):
+        dataset_id = entry.row_datasets.get(row)
+        if row in shown or dataset_id is None:
+            continue
+        try:
+            ctx.geolens.call(get.sync_detailed, dataset_id=UUID(dataset_id))
+        except (GeoLensError, ValueError):
+            continue
+        del entry.layer_ids[source]
+        entry.row_datasets.pop(row, None)
+        if source in entry.pending_layers:
+            entry.pending_layers.remove(source)
+
+
+def _unimported(
+    ctx: MigrationContext, webmap: Mapping[str, Any], matches: Mapping[str, str]
+) -> list[str]:
+    """The translatable operational layers *matches* leaves out whose service
+    the plan imports and the run hasn't finished. A layer of an unsupported,
+    skipped or external source is reported, never retried."""
+    return sorted(
+        layer_id
+        for layer_id, _, _, source_id, source in _sourced_layers(ctx, webmap)
+        if layer_id not in matches
+        and source_id in ctx.importable
+        and (
+            source is None
+            or source.status not in FINISHED
+            or source.exported_not_imported()
+        )
+    )
+
+
+def _owed_layers(
+    unimported: Sequence[str],
+    layer_ids: Mapping[str, str],
+    listed: Collection[str],
+    sources: Collection[str],
+) -> list[str]:
+    """The operational layers a translation still owes the web map: the
+    *unimported* ones, and those whose map layer the save left in place,
+    hidden from the run, though the portal no longer lists them."""
+    return sorted(
+        {
+            *unimported,
+            *(s for s in layer_ids if s not in listed and s not in sources),
+        }
+    )
+
+
+# Response fields that move or derive from others without anyone editing the
+# map: the save's own timestamp, the layers (compared apart), and the names and
+# images computed from other rows.
+_DERIVED_MAP_KEYS = frozenset(
+    {
+        "layers",
+        "layer_count",
+        "updated_at",
+        "thumbnail_url",
+        "og_image_url",
+        "forked_from_name",
+        "created_by_username",
+    }
+)
+
+
+_UNKNOWN = object()
+
+
+# The layer fields a save fills in from the dataset when they are sent null.
+_SERVER_FILLED = ("paint", "layout", "style_config", "layer_type")
+
+
+def _canonical(value: Any) -> Any:
+    """*value* with whole floats as ints, so 1 and 1.0 hash alike."""
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, dict):
+        return {k: _canonical(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_canonical(v) for v in value]
+    return value
+
+
+def _digest(shape: Mapping[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(_canonical(shape), sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def _stored_shape(data: Mapping[str, Any], keys: Mapping[str, Any]) -> dict[str, Any]:
+    """What a stored map holds for the fields a save sent: its map-level
+    fields, and its layers in draw order, ids and sort order aside."""
+    rows = sorted(data.get("layers") or [], key=lambda row: row.get("sort_order") or 0)
+    return {
+        "map": {key: data.get(key) for key in keys["map"]},
+        "layers": [
+            {key: row.get(key) for key in row_keys}
+            for row, row_keys in zip(rows, keys["layers"])
+        ],
+        "count": len(rows),
+    }
+
+
+def _write_fingerprint(
+    update: Mapping[str, Any],
+    before: Any,
+    styles: Mapping[str, Mapping[str, Any]],
+    hidden_candidates: Collection[str],
+    geometries: Mapping[str, Any],
+    version: str | None,
+) -> dict[str, Any]:
+    """A fingerprint of the map a save leaves, and the fields it covers: the
+    ones the save sends, and every other field of the map as *before* has it,
+    which includes a field sent null. A style sent
+    null is filled in by the save; it is covered by the value *styles* records
+    for the layer when that save also sent it null, and the save is
+    *unverified* otherwise."""
+    sent = {
+        key: value
+        for key, value in update.items()
+        if key not in ("layers", "expected_updated_at") and value is not None
+    }
+    sent.update(
+        (key, value)
+        for key, value in before.to_dict().items()
+        if key not in sent and key not in _DERIVED_MAP_KEYS
+    )
+    rows: list[dict[str, Any]] = []
+    # No read shows a row hidden from the run, so a save that keeps one can't
+    # be told from an edit to it.
+    readable = {str(row.id) for row in getattr(before, "layers", None) or []}
+    unverified = any(layer_id not in readable for layer_id in hidden_candidates)
+    for layer in update["layers"]:
+        # A new layer's id is only known to the answer.
+        row = {
+            key: value
+            for key, value in layer.items()
+            if key != "sort_order" and (key != "id" or value)
+        }
+        recorded = styles.get(str(layer.get("id") or ""))
+        nulls = _null_styles(layer)
+        # A recorded default holds only for the dataset it was made from, and
+        # the default outline only while the paint is null as well.
+        current = _style_inputs(
+            layer.get("dataset_id"),
+            geometries.get(str(layer.get("dataset_id")), _UNKNOWN),
+            _UNKNOWN if version is None else version,
+        )
+        for key in nulls:
+            reusable = (
+                recorded is not None
+                and recorded.get("inputs") == current
+                and key in recorded["null_sent"]
+                and (
+                    key != "style_config"
+                    or "paint" in nulls
+                    and "paint" in recorded["null_sent"]
+                )
+            )
+            if reusable:
+                row[key] = recorded["values"][key]
+            else:
+                row.pop(key, None)
+                unverified = True
+        rows.append(row)
+    keys = {"map": sorted(sent), "layers": [sorted(row) for row in rows]}
+    shape = {"map": sent, "layers": rows, "count": len(rows)}
+    return {"fingerprint": _digest(shape), "keys": keys, "unverified": unverified}
+
+
+def _settle_write(
+    ctx: MigrationContext, item_id: str, entry: ItemState, found: Any
+) -> str | None:
+    """Settle a save whose outcome the state never recorded; why its loss
+    report wasn't written, or None.
+
+    The map the state records is as it was, so the save never committed; or it
+    changed, and it is taken as the save's own only when it still holds
+    everything the save sent. Anything else is an edit made in GeoLens, which
+    the map's next translation reports.
+    """
+    pending = entry.pending_write
+    if pending is None:
+        return None
+    entry.pending_write = None
+    if (
+        map_state(found) != entry.map_snapshot
+        and not pending.get("unverified")
+        and pending.get("fingerprint")
+        == _digest(_stored_shape(found.to_dict(), pending["keys"]))
+    ):
+        _record_write(entry, pending["after"], found)
+        return _resume_loss(ctx, item_id, entry)
+    return None
 
 
 # What PUT /maps/{id} takes of a map layer.
@@ -753,12 +1110,15 @@ def _fit_notes(notes: str, tail: str) -> str:
 
 def _saved_layer_ids(
     recorded: Mapping[str, str],
-    sent: Sequence[Mapping[str, Any]],
+    sent_ids: Sequence[str | None],
     sources: Sequence[str],
-    before: Any,
-    saved: Sequence[Any],
+    readable: Collection[str],
+    listed: Sequence[str],
 ) -> dict[str, str]:
     """Operational layer id -> the map layer the save left for it.
+
+    *sent_ids* are the ids the save named, one per source; *readable* the map
+    layers the saver could read before it; *listed* the rows its answer lists.
 
     A layer sent with an id the answer lists keeps it. Every other row the
     answer lists is one the save created: for each layer sent without an id,
@@ -770,31 +1130,27 @@ def _saved_layer_ids(
     map *before* the save, since the save keeps such a row and deletes the
     rest.
     """
-    listed = [str(layer.id) for layer in saved]
-    readable = {str(layer.id) for layer in getattr(before, "layers", None) or []}
     ids = {
         source: layer_id
         for source, layer_id in recorded.items()
         if source not in sources and layer_id not in readable
     }
     updated = {
-        source: layer["id"]
-        for layer, source in zip(sent, sources)
-        if layer.get("id") in listed
+        source: sent
+        for sent, source in zip(sent_ids, sources)
+        if sent is not None and sent in listed
     }
     ids.update(updated)
     created = [i for i in listed if i not in updated.values()]
     unpaired = [source for source in sources if source not in updated]
-    idless = [s for layer, s in zip(sent, sources) if not layer.get("id")]
+    idless = [s for sent, s in zip(sent_ids, sources) if not sent]
     if len(created) == len(unpaired):
         ids.update(zip(unpaired, created))
     elif len(created) == len(idless):
         # Every id the answer left out still names its row, hidden from the
         # saver; only the layers sent without one were created.
         ids.update(
-            (s, layer["id"])
-            for layer, s in zip(sent, sources)
-            if layer.get("id") and s not in updated
+            (s, sent) for sent, s in zip(sent_ids, sources) if sent and s not in updated
         )
         ids.update(zip(idless, created))
     return ids
@@ -902,7 +1258,9 @@ def import_map(
     )
 
     info = _read_item(ctx, item["id"])
-    body = _import_body(ctx, item, _fetch(ctx, item["id"]))
+    webmap = _fetch(ctx, item["id"])
+    matches = match_datasets(ctx, webmap)
+    body = _import_body(ctx, item, webmap, matches=matches)
     try:
         with long_request_timeout(ctx.geolens.client):
             result = ctx.geolens.call(
@@ -921,6 +1279,14 @@ def import_map(
     entry.layer_ids = {
         k: str(v) for k, v in result.layer_ids.additional_properties.items()
     }
+    entry.layer_styles = _filled_styles(result.map_, {}, _server_version(ctx))
+    entry.row_datasets = {
+        str(row.id): str(row.dataset_id)
+        for row in getattr(result.map_, "layers", None) or []
+    }
+    # A layer of a source the plan imports but the run hasn't finished is added
+    # by a later rerun, though the web map itself doesn't change.
+    entry.pending_layers = _unimported(ctx, webmap, matches)
     # Kept in the state until the loss report file is written, so a failed
     # write is finished on the rerun instead of dropping the losses.
     entry.pending_loss = _pending_loss(result)

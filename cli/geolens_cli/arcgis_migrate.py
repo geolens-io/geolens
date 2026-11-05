@@ -289,10 +289,8 @@ def _exported_not_imported(item: Mapping[str, Any], entry: ItemState | None) -> 
     action changed to one that makes datasets or a map, and none are recorded."""
     return bool(
         entry is not None
-        and entry.status in FINISHED
-        and entry.export is not None
         and item["action"] in IMPORTING
-        and not (entry.dataset_ids or entry.layer_datasets or entry.map_id)
+        and entry.exported_not_imported()
     )
 
 
@@ -419,8 +417,7 @@ def _earlier_copies(
     wanted = {
         i["id"]
         for i in items
-        if i["action"] in (_plan.IMPORT_LAYERS, _plan.IMPORT_FILE)
-        and not i.get("unlisted")
+        if i["action"] in _plan.DATASET_ACTIONS and not i.get("unlisted")
     }
     if not wanted:
         return None
@@ -1154,6 +1151,8 @@ def _migrate_one(
         # failed import keeps the bundle's record.
         entry.export = None
         entry.stale = []
+    if item["action"] == _plan.IMPORT_MAP and (owed := entry.owed_reason()):
+        entry.stale = [state.clean(owed)]
     state.finish(item["id"], result.status)
 
 
@@ -1379,10 +1378,19 @@ def _report(
     failed = [
         item["id"] for item in plan["items"] if state.status(item["id"]) == FAILED
     ]
+    # A web map imported this run reports the layers its import still owes.
+    reported = [
+        *summary.refreshed,
+        *(
+            i["id"]
+            for i in to_run
+            if i["action"] == _plan.IMPORT_MAP and i["id"] not in summary.refreshed
+        ),
+    ]
     stale = {
         item_id: list(state.items[item_id].stale)
-        for item_id in summary.refreshed
-        if state.items[item_id].stale
+        for item_id in reported
+        if item_id in state.items and state.items[item_id].stale
     }
     ran = {item["id"] for item in to_run}
     report_files: tuple[Path, Path] | None = None
@@ -1451,7 +1459,7 @@ def _report(
         brought = len(summary.refreshed)
         # A dry run counts every item it would try; its stale reasons are old.
         if not opts.dry_run:
-            brought -= len(stale)
+            brought -= len([i for i in stale if i in summary.refreshed])
         fmt.info(f"{verb} {brought} migrated item(s) up to date.")
         for item_id, reasons in stale.items():
             for reason in reasons:
@@ -1992,6 +2000,11 @@ def _run(
         web_origin=_web_origin(instance),
         basemap_map={u: b for u, b in plan.get("basemap_map", {}).items() if b},
         aliases={i["id"]: i["alias_of"] for i in plan["items"] if i.get("alias_of")},
+        importable=frozenset(
+            i["id"]
+            for i in plan["items"]
+            if i["action"] in _plan.DATASET_ACTIONS and not i.get("removed")
+        ),
         portal_root=_portal_base(plan["portal"]["url"]),
         redact=redact,
         operator_id=operator_id,

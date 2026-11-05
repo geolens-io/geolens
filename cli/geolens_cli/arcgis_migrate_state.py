@@ -25,11 +25,12 @@ STATE_FILENAME = "arcgis-migration-state.json"
 # ArcGIS groups, and v4 what this command's own writes added, which a rerun may
 # take away again: a made group's members (``joined``) and each object's
 # groups (``granted``), and v5 the ArcGIS owner each item's owner follows and
-# a handover left incomplete. An older CLI refuses the file rather than
+# a handover left incomplete, and v6 a web map's unconfirmed save and the layers
+# its translation still owes. An older CLI refuses the file rather than
 # rewriting it without them. A v3 file records neither, so a rerun removes
 # nothing it added before.
-STATE_VERSION = "5"
-_READABLE_VERSIONS = ("1", "2", "3", "4", STATE_VERSION)
+STATE_VERSION = "6"
+_READABLE_VERSIONS = ("1", "2", "3", "4", "5", STATE_VERSION)
 
 PENDING = "pending"
 RUNNING = "running"
@@ -231,10 +232,51 @@ class ItemState:
     # Operational layers the last translation of a web map left out because
     # their datasets couldn't be read, which a later run translates again.
     skipped_layers: list[str] = field(default_factory=list)
+    # Map layer id -> the dataset it shows, which tells a row hidden from the
+    # run from one a save deleted.
+    row_datasets: dict[str, str] = field(default_factory=dict)
+    # Map layer id -> the paint, layout, style_config and layer_type the server
+    # held at the last confirmed save, which a lost save is checked against.
+    layer_styles: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Operational layers the last translation left unapplied: a dropped layer
+    # whose map layer stayed hidden from the run, and one whose service isn't
+    # imported yet. A rerun translates the map again until none is left.
+    pending_layers: list[str] = field(default_factory=list)
+    # A web map save sent and not yet confirmed: the map, a fingerprint of the
+    # body, and the bookkeeping the save implies. A rerun that finds the map
+    # changed adopts it only when the map still matches the fingerprint.
+    pending_write: dict[str, Any] | None = None
     # Why the last rerun couldn't bring the item up to date.
     stale: list[str] = field(default_factory=list)
     started_at: str | None = None
     finished_at: str | None = None
+
+    def exported_not_imported(self) -> bool:
+        """Whether the item finished as an export and holds nothing imported,
+        so a plan that now imports it has work left."""
+        return bool(
+            self.status in FINISHED
+            and self.export is not None
+            and not (self.dataset_ids or self.layer_datasets or self.map_id)
+        )
+
+    def unsettled_reason(self) -> str | None:
+        """Why a web map isn't up to date while a save's outcome is unknown."""
+        if self.pending_write is None:
+            return None
+        return "the web map's last save has no recorded outcome; a rerun settles it"
+
+    def owed_reason(self) -> str | None:
+        """Why a web map isn't up to date while *pending_layers* is set."""
+        if not self.pending_layers:
+            return None
+        shown = ", ".join(self.pending_layers[:5])
+        more = len(self.pending_layers) - 5
+        return (
+            f"{len(self.pending_layers)} web map layer(s) are not in the GeoLens "
+            f"map yet: {shown}{f' and {more} more' if more > 0 else ''}; "
+            "a rerun tries again"
+        )
 
     @classmethod
     def from_dict(cls, data: Any) -> ItemState:
