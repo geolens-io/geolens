@@ -134,7 +134,8 @@
       "slice": "{{label}}: {{value}} ({{share}})",
       "roleDescription": "Kreisdiagramm",
       "sliceValue": "{{label}}: {{value}}",
-      "truncated": "Die obersten {{shown}} Werte werden angezeigt. Die Ebene hat mehr, die Segmente ergeben daher nicht das Ganze."
+      "truncated": "Die obersten {{shown}} Werte werden angezeigt. Die Ebene hat mehr, die Segmente ergeben daher nicht das Ganze.",
+      "signed": "Segmente können keine negativen Werte darstellen, daher wird dieses Diagramm als Tabelle angezeigt."
     }
   },
   "dashboard": {

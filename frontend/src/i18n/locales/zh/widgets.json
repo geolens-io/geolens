@@ -134,7 +134,8 @@
       "slice": "{{label}}：{{value}}（{{share}}）",
       "roleDescription": "饼图",
       "sliceValue": "{{label}}：{{value}}",
-      "truncated": "显示前 {{shown}} 个值。图层还有更多，因此各扇区加起来不是整体。"
+      "truncated": "显示前 {{shown}} 个值。图层还有更多，因此各扇区加起来不是整体。",
+      "signed": "扇区无法表示负值，因此此图表以表格显示。"
     }
   },
   "dashboard": {

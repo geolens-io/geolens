@@ -150,6 +150,25 @@ describe('PieChartRenderer', () => {
     expect(screen.getByText('park: 4', { selector: 'figcaption span' })).toBeInTheDocument();
   });
 
+  it('shows a table with an explanation when a value is negative, instead of misleading shares', () => {
+    const signed = {
+      op: 'group_by',
+      approximate: false,
+      cached: false,
+      result: { groups: [{ key: 'park', value: 50 }, { key: 'road', value: -30 }], truncated: false },
+    };
+    const { container } = render(
+      <PieChartRenderer config={{ ...config, stat: 'sum', stat_column: 'area' }} data={signed} />,
+    );
+    expect(container.querySelector('svg')).toBeNull();
+    expect(screen.getByText(/can't show negative values/)).toBeInTheDocument();
+    expect(within(screen.getByRole('table')).getAllByRole('row').slice(1).map((row) => row.textContent)).toEqual([
+      'park50',
+      'road-30',
+    ]);
+    expect(container.textContent).not.toMatch(/%/);
+  });
+
   describe('layer colours', () => {
     const colors = { column: 'kind', colorOf: (key: unknown) => (key === 'park' ? '#00aa00' : undefined) };
     const fills = (config: PieChartConfig, column = 'kind') => {

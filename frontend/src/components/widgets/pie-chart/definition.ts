@@ -58,6 +58,7 @@ export const pieChartWidget = defineWidget<PieChartConfig>({
     'types.pie_chart.slice',
     'types.pie_chart.sliceValue',
     'types.pie_chart.truncated',
+    'types.pie_chart.signed',
   ],
   // `name` is a placeholder: a chart added in the Builder takes its column from
   // initialConfig, and the Builder holds a save naming a column the layer lacks.
