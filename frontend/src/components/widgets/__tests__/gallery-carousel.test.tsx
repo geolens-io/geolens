@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event';
-import { render, screen } from '@/test/test-utils';
+import { act, render, screen, waitFor } from '@/test/test-utils';
 import { apiFetchBlob } from '@/api/client';
 import { parseStoredWidget } from '../registry';
 import { WidgetView } from '../WidgetView';
@@ -124,5 +124,88 @@ describe('carousel block renderer', () => {
     expect(slide).toHaveAttribute('aria-roledescription', 'slide');
     expect(slide.className).toContain('motion-safe:animate-in');
     expect(slide.className).not.toMatch(/(^|\s)animate-in/);
+  });
+});
+
+describe('gallery entries that repeat an image', () => {
+  const entry = (asset: string, caption: string) => ({ asset_id: asset, alt: caption, caption });
+  const view = (list: unknown[]) => (
+    <WidgetView
+      parsed={parseStoredWidget(block('gallery', list), 'story')}
+      assetPathFor={(asset) => `/stories/s1/assets/${asset}`}
+    />
+  );
+
+  it('keep one figure per entry, in order, when the list is reordered', async () => {
+    const a1 = entry(assets[0], 'first');
+    const a2 = entry(assets[0], 'second');
+    const b = entry(assets[1], 'third');
+    const { rerender } = render(view([a1, a2, b]));
+    await screen.findAllByRole('figure');
+    await waitFor(() => expect(screen.getAllByRole('figure')).toHaveLength(3));
+
+    rerender(view([b, a1, a2]));
+
+    const captions = () => screen.getAllByRole('figure').map((figure) => figure.querySelector('figcaption')?.textContent);
+    await waitFor(() => expect(captions()).toEqual(['third', 'first', 'second']));
+  });
+});
+
+describe('carousel loading and keys', () => {
+  const observers: { callback: IntersectionObserverCallback; targets: Element[] }[] = [];
+
+  beforeEach(() => {
+    observers.length = 0;
+    vi.mocked(apiFetchBlob).mockClear();
+    vi.stubGlobal(
+      'IntersectionObserver',
+      class {
+        targets: Element[] = [];
+        constructor(callback: IntersectionObserverCallback) {
+          observers.push({ callback, targets: this.targets });
+        }
+        observe(target: Element) {
+          this.targets.push(target);
+        }
+        disconnect() {}
+        unobserve() {}
+        takeRecords() {
+          return [];
+        }
+      },
+    );
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('waits to fetch the first image until the carousel nears the viewport', async () => {
+    renderBlock(block('carousel'));
+    await waitFor(() => expect(observers.some((o) => o.targets.length > 0)).toBe(true));
+    expect(apiFetchBlob).not.toHaveBeenCalled();
+
+    const { callback, targets } = observers.find((o) => o.targets.length > 0)!;
+    act(() =>
+      callback([{ isIntersecting: true, target: targets[0] } as IntersectionObserverEntry], {} as IntersectionObserver),
+    );
+
+    expect(await screen.findByRole('img', { name: 'A river' })).toBeInTheDocument();
+    expect(vi.mocked(apiFetchBlob).mock.calls.map((call) => call[0])).toEqual([`/stories/s1/assets/${assets[0]}`]);
+  });
+
+  it('leaves the slide alone for an arrow key with a modifier, and still moves on a plain one', async () => {
+    const user = userEvent.setup();
+    renderBlock(block('carousel'));
+    await screen.findByRole('status');
+    screen.getByRole('button', { name: 'Next image' }).focus();
+
+    await user.keyboard('{Alt>}{ArrowRight}{/Alt}');
+    expect(screen.getByRole('status')).toHaveTextContent('Image 1 of 3');
+    const plain = new KeyboardEvent('keydown', { key: 'ArrowRight', altKey: true, bubbles: true, cancelable: true });
+    act(() => {
+      screen.getByRole('button', { name: 'Next image' }).dispatchEvent(plain);
+    });
+    expect(plain.defaultPrevented).toBe(false);
+
+    await user.keyboard('{ArrowRight}');
+    expect(screen.getByRole('status')).toHaveTextContent('Image 2 of 3');
   });
 });

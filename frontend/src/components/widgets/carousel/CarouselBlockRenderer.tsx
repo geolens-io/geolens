@@ -29,6 +29,7 @@ export default function CarouselBlockRenderer(props: WidgetRenderProps<GalleryCo
   const go = (by: -1 | 1) => setIndex((current + by + total) % total);
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     if (total < 2 || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return;
     event.preventDefault();
     event.stopPropagation();
@@ -59,6 +60,7 @@ export default function CarouselBlockRenderer(props: WidgetRenderProps<GalleryCo
           <AssetImage
             path={assetPathFor(image.asset_id)}
             alt={alt}
+            lazy
             className="h-auto w-full rounded-md"
             placeholderClassName="aspect-video w-full"
             loadingLabel={alt ? t('types.image.loading', { alt }) : undefined}

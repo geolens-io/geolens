@@ -2,7 +2,7 @@ import { defineWidget } from '../contract';
 import { parseImageFields, type ImageConfig } from '../image/definition';
 import { GalleryBlockFallback } from './GalleryBlockFallback';
 
-interface GalleryImageConfig extends ImageConfig {
+export interface GalleryImageConfig extends ImageConfig {
   asset_id: string;
 }
 
@@ -12,6 +12,16 @@ export interface GalleryConfig {
 
 /** The server's cap on the images in one gallery or carousel (`MAX_GALLERY_IMAGES` in widgets/schemas.py). */
 export const MAX_GALLERY_IMAGES = 12;
+
+/** A key for each entry that follows its image, also where an image appears twice. */
+export function entryKeys(images: readonly GalleryImageConfig[]): string[] {
+  const seen = new Map<string, number>();
+  return images.map(({ asset_id }) => {
+    const n = seen.get(asset_id) ?? 0;
+    seen.set(asset_id, n + 1);
+    return `${asset_id}:${n}`;
+  });
+}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
