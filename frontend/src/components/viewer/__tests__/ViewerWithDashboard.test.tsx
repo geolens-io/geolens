@@ -3,6 +3,7 @@ import { render } from '@/test/test-utils';
 import type { DashboardConfig } from '@/types/api';
 import type { ReaderTheme } from '@/lib/reader-theme';
 import { DashboardPanel } from '../DashboardPanel';
+import { ThemeProvider } from '@/components/theme-provider';
 import { ViewerWithDashboard } from '../ViewerWithDashboard';
 
 vi.mock('@/api/aggregate', () => ({ fetchAggregate: vi.fn(() => new Promise(() => {})) }));
@@ -92,5 +93,23 @@ describe('reader theme', () => {
     const panel = screen.getByRole('region', { name: 'Dashboard' });
     expect(panel.querySelector('img')).toBeNull();
     expect(panel.closest('[style]')).toBeNull();
+  });
+});
+
+describe('forced reader theme', () => {
+  it.each([
+    ['dark', 'light', 'dark'],
+    ['light', 'dark', 'light'],
+    ['follow', 'light', 'light'],
+  ] as const)('shows a %s dashboard to a %s reader as %s', (theme, reader, shown) => {
+    render(
+      <ThemeProvider defaultTheme={reader}>
+        <ViewerWithDashboard config={{ ...config(), theme }} layers={[]}>
+          {() => <div />}
+        </ViewerWithDashboard>
+      </ThemeProvider>,
+    );
+    expect(document.documentElement).toHaveClass(shown);
+    expect(document.documentElement).not.toHaveClass(shown === 'dark' ? 'light' : 'dark');
   });
 });

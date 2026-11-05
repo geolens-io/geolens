@@ -20,6 +20,7 @@ import { toSharedLayer } from '@/components/viewer/shared-layer';
 import { WIDGET_TITLE_MAX_LENGTH, type AnyWidgetDefinition, type WidgetInstance } from '@/components/widgets/contract';
 import { SelectField } from '@/components/widgets/editor-fields';
 import { getWidgetDefinition, isLayerBound, widgetDefinitions } from '@/components/widgets/registry';
+import { useTheme } from '@/components/theme-provider';
 import { useDebouncedValue } from '@/hooks/use-debounce';
 import type { Bbox } from '@/lib/bbox';
 import { randomId } from '@/lib/random-id';
@@ -32,6 +33,7 @@ import {
   MAX_DASHBOARD_WIDGETS,
   widgetProblem,
   type DashboardDraft,
+  type DashboardTheme,
   type WidgetProblem,
 } from './dashboard-draft';
 
@@ -294,6 +296,9 @@ function PanelPreview({
   const { t } = useTranslation('widgets');
   const config = useMemo(() => dashboardPayload(draft, layers, draft), [draft, layers]);
   const layout = dashboardLayout(config);
+  const { resolvedTheme } = useTheme();
+  // Readers see the selected theme; follow shows the Builder's own.
+  const previewTheme = draft.theme === 'light' || draft.theme === 'dark' ? draft.theme : resolvedTheme;
   const shared = useMemo(() => dashboardLayers(layers).map(toSharedLayer), [layers]);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -304,7 +309,8 @@ function PanelPreview({
         </DialogHeader>
         <div
           className={cn(
-            'flex h-[70dvh] min-h-0 flex-col overflow-hidden rounded-md border',
+            'flex h-[70dvh] min-h-0 flex-col overflow-hidden rounded-md border bg-background text-foreground',
+            previewTheme,
             layout === 'right' && 'md:flex-row',
           )}
         >
@@ -337,7 +343,9 @@ export function DashboardEditorPanel({
   map: MaplibreMap | null;
 }) {
   const { t } = useTranslation('widgets');
+  const { t: tCommon } = useTranslation('common');
   const positionId = useId();
+  const themeId = useId();
   const [previewing, setPreviewing] = useState(false);
   // Memoized so a title keystroke re-renders only its own card.
   const candidates = useMemo(() => dashboardLayers(layers), [layers]);
@@ -400,6 +408,19 @@ export function DashboardEditorPanel({
           { value: 'bottom', label: t('editor.panelBottom') },
         ]}
         onChange={(panel) => onChange({ ...draft, panel: panel as PanelPosition })}
+      />
+
+      <SelectField
+        id={themeId}
+        label={t('editor.theme')}
+        value={draft.theme ?? null}
+        placeholder={t('editor.themeFollow')}
+        options={[
+          { value: 'follow', label: t('editor.themeFollow') },
+          { value: 'light', label: tCommon('theme.light') },
+          { value: 'dark', label: tCommon('theme.dark') },
+        ]}
+        onChange={(theme) => onChange({ ...draft, theme: theme as DashboardTheme })}
       />
 
       {draft.widgets.length === 0 ? (

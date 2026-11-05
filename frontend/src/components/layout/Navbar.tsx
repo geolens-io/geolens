@@ -132,7 +132,7 @@ function UserMenu() {
   const openReport = useReportDialog((s) => s.openReport);
   // The default stays 'system', which honors prefers-color-scheme;
   // resolvedTheme drives the icon and label.
-  const { setTheme, resolvedTheme } = useTheme();
+  const { setTheme, resolvedTheme, forcedTheme } = useTheme();
   // Also admits a multi-tenant fleet operator (manage_tenants only), as the
   // admin routes do via the same mode-aware predicate.
   const settingsAdmin = useSettingsAdmin();
@@ -198,22 +198,24 @@ function UserMenu() {
           </Link>
         </DropdownMenuItem>
 
-        {/* Light/dark toggle */}
-        <DropdownMenuItem
-          onClick={(e) => {
-            e.preventDefault();
-            setTheme(resolvedTheme === 'dark' ? 'light' : 'dark');
-          }}
-        >
-          {resolvedTheme === 'dark' ? (
-            <Sun className="h-4 w-4" />
-          ) : (
-            <Moon className="h-4 w-4" />
-          )}
-          {resolvedTheme === 'dark'
-            ? t('nav.lightMode', { defaultValue: 'Light mode' })
-            : t('nav.darkMode', { defaultValue: 'Dark mode' })}
-        </DropdownMenuItem>
+        {/* Light/dark toggle; a story or dashboard that sets its own theme hides it */}
+        {!forcedTheme && (
+          <DropdownMenuItem
+            onClick={(e) => {
+              e.preventDefault();
+              setTheme(resolvedTheme === 'dark' ? 'light' : 'dark');
+            }}
+          >
+            {resolvedTheme === 'dark' ? (
+              <Sun className="h-4 w-4" />
+            ) : (
+              <Moon className="h-4 w-4" />
+            )}
+            {resolvedTheme === 'dark'
+              ? t('nav.lightMode', { defaultValue: 'Light mode' })
+              : t('nav.darkMode', { defaultValue: 'Dark mode' })}
+          </DropdownMenuItem>
+        )}
 
         {/* Admin control plane (capability-bearing operators only) */}
         {canAccessAdmin && (

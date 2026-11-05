@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { render } from '@/test/test-utils';
 import { fetchAggregate } from '@/api/aggregate';
 import type { MapLayerResponse } from '@/types/api';
+import { ThemeProvider } from '@/components/theme-provider';
 import { DashboardEditorPanel } from '../DashboardEditorPanel';
 import type { DashboardDraft } from '../dashboard-draft';
 
@@ -223,6 +224,22 @@ describe('DashboardEditorPanel', () => {
     expect(limits).toEqual([10, 25]);
   });
 
+  it('sets the reader theme and returns it to follow', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<Harness onChange={onChange} />);
+
+    const select = screen.getByRole('combobox', { name: 'Reader theme' });
+    expect(select).toHaveTextContent('Follow the reader');
+    await user.click(select);
+    await user.click(await screen.findByRole('option', { name: 'Dark' }));
+    expect(lastDraft(onChange).theme).toBe('dark');
+
+    await user.click(screen.getByRole('combobox', { name: 'Reader theme' }));
+    await user.click(await screen.findByRole('option', { name: 'Follow the reader' }));
+    expect(lastDraft(onChange).theme).toBe('follow');
+  });
+
   it('sets the panel position and orders and removes widgets', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -406,6 +423,33 @@ describe('DashboardEditorPanel', () => {
     expect(within(dialog).getByText('Map')).toBeInTheDocument();
     // Below the map the preview stacks; to its right it sits in a row.
     expect(panel.parentElement).not.toHaveClass('md:flex-row');
+  });
+
+  it.each([
+    ['dark', 'light', 'dark'],
+    ['light', 'dark', 'light'],
+    ['follow', 'dark', 'dark'],
+    [undefined, 'light', 'light'],
+  ] as const)('scopes a %s preview to the %s Builder as %s', async (theme, builder, scope) => {
+    const user = userEvent.setup();
+    const stored = {
+      id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+      type: 'indicator',
+      v: 1,
+      layer_id: parcels.id,
+      scope: 'layer' as const,
+      config: { stat: 'count', column: null },
+    };
+    render(
+      <ThemeProvider defaultTheme={builder}>
+        <Harness initial={{ panel: 'right', theme, widgets: [stored] }} onChange={vi.fn()} />
+      </ThemeProvider>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Preview panel' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Preview panel' });
+    const box = within(dialog).getByRole('region', { name: 'Dashboard' }).parentElement!;
+    expect(box).toHaveClass(scope);
+    expect(box).not.toHaveClass(scope === 'dark' ? 'light' : 'dark');
   });
 
   it('lays the preview out in a row for a panel to the right of the map', async () => {

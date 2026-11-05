@@ -18,10 +18,13 @@ export const MAX_DASHBOARD_WIDGETS = 50;
 /** The Builder's working copy of a map's dashboard. */
 export interface DashboardDraft {
   panel: PanelPosition;
+  theme?: DashboardTheme;
   widgets: WidgetInstance[];
   /** Set only when the author hides the map; an absent value is a visible map. */
   mapHidden?: boolean;
 }
+
+export type DashboardTheme = DashboardConfig['theme'];
 
 type DashboardConfigInput = components['schemas']['DashboardConfigInput'];
 
@@ -32,7 +35,12 @@ export function toDashboardDraft(config: DashboardConfig | null | undefined): Da
     const parsed = parseStoredWidget(raw, 'dashboard');
     if (parsed.ok) widgets.push(parsed.instance);
   }
-  return { panel: dashboardPanelPosition(config), widgets, ...(config?.map_hidden ? { mapHidden: true } : {}) };
+  return {
+    panel: dashboardPanelPosition(config),
+    theme: config?.theme,
+    widgets,
+    ...(config?.map_hidden ? { mapHidden: true } : {}),
+  };
 }
 
 /** A widget as a save stores it: its title trimmed, and left out when blank. */
@@ -52,10 +60,13 @@ export function canonicalDashboard(
 ): DashboardDraft {
   const kept = layers ? draft.widgets.filter((widget) => !widgetLayerGone(widget, layers)) : draft.widgets;
   const widgets = kept.map(toSaved);
+  if (widgets.length === 0) return { panel: 'right', widgets };
   return {
-    panel: widgets.length > 0 ? draft.panel : 'right',
+    panel: draft.panel,
     widgets,
-    ...(widgets.length > 0 && draft.mapHidden ? { mapHidden: true } : {}),
+    ...(draft.mapHidden ? { mapHidden: true } : {}),
+    // An absent theme reads as `follow`, which a dashboard stores as nothing.
+    ...(draft.theme && draft.theme !== 'follow' ? { theme: draft.theme } : {}),
   };
 }
 
@@ -149,20 +160,22 @@ function sentIfSetNowOrBefore<K extends string, V>(key: K, value: V, send: boole
  * panel is or was at the bottom: a 1.28.0 server refuses the key during a
  * rolling upgrade, and one that stored a bottom panel knows it. `map_hidden`
  * follows the same rule: sent when the map is hidden, or was and is shown again.
- * `saved` is the dashboard as last stored.
+ * `theme` follows the same rule, and goes out as `follow` to reset a stored
+ * light or dark. `saved` is the dashboard as last stored.
  */
 export function dashboardPayload(
   draft: DashboardDraft,
   layers: readonly MapLayerResponse[],
-  saved: Pick<DashboardDraft, 'panel' | 'mapHidden'>,
+  saved: Pick<DashboardDraft, 'panel' | 'mapHidden' | 'theme'>,
 ): DashboardConfigInput | null {
-  const { panel, widgets, mapHidden } = canonicalDashboard(draft, layers);
+  const { panel, widgets, mapHidden, theme = 'follow' } = canonicalDashboard(draft, layers);
   if (widgets.length === 0) return null;
   const readable = readableToSend();
   return {
     version: 1,
     ...sentIfSetNowOrBefore('panel', panel, panel === 'bottom' || saved.panel === 'bottom'),
     ...sentIfSetNowOrBefore('map_hidden', !!mapHidden, !!mapHidden || !!saved.mapHidden),
+    ...sentIfSetNowOrBefore('theme', theme, theme !== 'follow' || (saved.theme ?? 'follow') !== 'follow'),
     ...(readable ? { readable } : {}),
     widgets: widgets as DashboardConfigInput['widgets'],
   } as DashboardConfigInput;
