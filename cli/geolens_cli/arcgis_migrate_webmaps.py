@@ -741,6 +741,11 @@ def _server_version(ctx: MigrationContext) -> str | None:
             ctx.server_version = ctx.geolens.call(health.sync_detailed).version
         except GeoLensError:
             return None
+        except typer.Exit as exc:
+            # How the SDK call reports a timeout or network failure.
+            if exc.exit_code != EXIT_NETWORK:
+                raise
+            return None
     return ctx.server_version
 
 

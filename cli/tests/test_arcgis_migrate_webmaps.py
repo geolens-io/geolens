@@ -2421,6 +2421,34 @@ def test_a_layer_owed_by_a_source_the_inventory_leaves_unlisted_is_still_owed(
     assert _state(plan_file)["items"][B1]["pending_layers"] == []
 
 
+def test_a_version_probe_lost_on_the_network_keeps_the_imports_bookkeeping(
+    runner, plan_file, geolens, portal
+):
+    _services(geolens)
+    geolens.routes[IMPORT] = (201, _response(lost=2))
+
+    def lost(seen):
+        raise httpx.ReadTimeout("slow")
+
+    geolens.routes["GET /health"] = lost
+    _only_the_map(plan_file)
+    _edit_json(
+        plan_file,
+        lambda plan: [
+            i.update(action="import_layers") for i in plan["items"] if i["id"] == ROADS
+        ],
+    )
+    _edit_webmap(portal, lambda layers: layers.append(ROADS_LAYER))
+    token = secrets.token_urlsafe(16)
+
+    _migrate(runner, plan_file, "--token", token, "--only", B1)
+
+    entry = _state(plan_file)["items"][B1]
+    assert entry["status"] == "done"
+    assert entry["pending_layers"] == ["roads_new_0"]
+    assert entry["loss_report_path"]
+
+
 def test_a_service_exported_and_now_imported_keeps_its_layer_pending(
     runner, plan_file, geolens, portal
 ):
