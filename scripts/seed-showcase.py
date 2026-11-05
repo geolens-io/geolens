@@ -39,6 +39,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import math
 import os
 import re
 import shlex
@@ -46,6 +47,8 @@ import subprocess
 import sys
 import time
 import uuid
+from datetime import date
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 try:
@@ -302,6 +305,12 @@ SKYLINE_CAMERAS = {
     "method": {"center": [-73.99, 40.735], "zoom": 13.6, "pitch": 40, "bearing": 0},
     "dashboard": {"center": [-74.0, 40.718], "zoom": 14.2, "pitch": 55, "bearing": -20},
 }
+ORBIT_MAP = "New York From Orbit - Sentinel-2, by Reference"
+NYC_STORY_TITLE = "New York, From Orbit to the Street Tree"
+NYC_STORY_SUMMARY = (
+    "From Sentinel-2 imagery of the whole city to Manhattan's skyline, its "
+    "subway, and the trees of one East Village park."
+)
 DASHBOARD_MAP = "Earthquake Dashboard - USGS M2.5+ Snapshot"
 DASHBOARD_MAP_DESCRIPTION = (
     "A dashboard over the USGS M2.5+ earthquake service: how many quakes are "
@@ -974,8 +983,34 @@ class Api:
         r.raise_for_status()
         return r.json()["id"]
 
+    def raster_bounds(self, dataset_id: str) -> list[float] | None:
+        """West, south, east, north of a raster dataset, as its tile token has them."""
+        r = self.client.get(
+            f"{self.base}/api/tiles/token/{dataset_id}/", headers=self.h
+        )
+        r.raise_for_status()
+        return r.json().get("bounds")
+
+    def raster_tile(self, dataset_id: str, z: int, x: int, y: int) -> bytes | None:
+        """One rendered JPEG tile, or None when it falls outside the raster."""
+        url = f"{self.base}/api/tiles/raster-proxy/{dataset_id}/{z}/{x}/{y}.jpg"
+        for attempt in range(5):
+            r = self.client.get(url, headers=self.h)
+            if r.status_code != 429 or attempt == 4:
+                break
+            time.sleep(1.0)
+        if r.status_code == 204:
+            return None
+        r.raise_for_status()
+        return r.content
+
     def publish_story(
-        self, story_id: str, title: str, summary: str, document: dict
+        self,
+        story_id: str,
+        title: str,
+        summary: str,
+        document: dict,
+        cover_asset_id: str | None = None,
     ) -> None:
         """Replace the draft with *document*, make the story public, publish it."""
         r = self.client.get(f"{self.base}/api/stories/{story_id}/draft", headers=self.h)
@@ -990,7 +1025,12 @@ class Api:
         r = self.client.patch(
             f"{self.base}/api/stories/{story_id}",
             headers=self.h,
-            json={"title": title, "summary": summary, "visibility": "public"},
+            json={
+                "title": title,
+                "summary": summary,
+                "visibility": "public",
+                **({"cover_asset_id": cover_asset_id} if cover_asset_id else {}),
+            },
         )
         r.raise_for_status()
         r = self.client.post(
@@ -4638,8 +4678,10 @@ def _story_scene(
     map_doc: dict,
     layer_visibility: dict[str, bool] | None = None,
     camera: dict | None = None,
+    transition: str | None = None,
 ) -> dict:
     return {
+        **({"transition": transition} if transition else {}),
         "map_id": map_doc["id"],
         "camera": camera
         or {
@@ -4672,6 +4714,22 @@ def _story_chapter(
             },
             *(extra_blocks or []),
         ],
+    }
+
+
+def _story_block(key: str, name: str, kind: str, **fields) -> dict:
+    return {"id": _seed_id("story", key, name), "type": kind, "v": 1, **fields}
+
+
+def _story_blocks_chapter(
+    key: str, title: str, scene: dict, blocks: list[dict]
+) -> dict:
+    """A chapter whose blocks are given whole, for text, images and buttons."""
+    return {
+        "id": _seed_id("story", key),
+        "title": title,
+        "scene": scene,
+        "blocks": blocks,
     }
 
 
@@ -5264,6 +5322,600 @@ def seed_skyline_story(
     return story_id
 
 
+_ORBIT_LAYER = re.compile(r"^Sentinel-2 - (\d{4}-\d{2}-\d{2})")
+
+
+def _map_layer(map_doc: dict, name: str) -> str:
+    """The id of the one layer of *map_doc* called *name*."""
+    return _map_layer_row(map_doc, name)["id"]
+
+
+def _map_layer_row(map_doc: dict, name: str) -> dict:
+    found = [lay for lay in map_doc["layers"] if lay.get("display_name") == name]
+    if len(found) != 1:
+        raise RuntimeError(
+            f"{map_doc.get('name', 'a map')!r} has {len(found)} layers named "
+            f"{name!r}, expected one"
+        )
+    return found[0]
+
+
+def _orbit_passes(orbit: dict) -> dict[str, list[dict]]:
+    """The orbit map's Sentinel-2 layers by acquisition date, newest date first."""
+    passes: dict[str, list[dict]] = {}
+    for layer in orbit["layers"]:
+        match = _ORBIT_LAYER.match(layer.get("display_name") or "")
+        if not match:
+            continue
+        try:
+            date.fromisoformat(match.group(1))
+        except ValueError:
+            print(f"  skipping layer {layer['display_name']!r}: not a calendar date")
+            continue
+        passes.setdefault(match.group(1), []).append(layer)
+    return dict(sorted(passes.items(), reverse=True))
+
+
+def _earlier_pass(dates: list[str]) -> tuple[str, int]:
+    """The older date nearest a week before the newest, and its gap in days."""
+    newest = date.fromisoformat(dates[0])
+    gaps = {d: (newest - date.fromisoformat(d)).days for d in dates[1:]}
+    pick = min(gaps, key=lambda d: abs(gaps[d] - 7))
+    return pick, gaps[pick]
+
+
+def _tile_at(lng: float, lat: float, z: int) -> tuple[int, int]:
+    n = 2**z
+    x = int((lng + 180) / 360 * n)
+    y = int((1 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2 * n)
+    return x, y
+
+
+def _tile_bbox(z: int, x: int, y: int) -> tuple[float, float, float, float]:
+    """West, south, east, north of an XYZ tile."""
+    n = 2**z
+
+    def lat(row: int) -> float:
+        return math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * row / n))))
+
+    return x / n * 360 - 180, lat(y + 1), (x + 1) / n * 360 - 180, lat(y)
+
+
+def _has_pillow() -> bool:
+    return importlib.util.find_spec("PIL") is not None
+
+
+def _stitch_tiles(api: Api, dataset_id: str, z: int, x: int, y: int) -> bytes | None:
+    """The tile's area as one 1024 px JPEG from the 4x4 tiles two zooms down.
+
+    None when Pillow is missing or any of the sixteen tiles is empty.
+    """
+    if not _has_pillow():
+        return None
+    from PIL import Image
+
+    canvas = Image.new("RGB", (1024, 1024))
+    for row in range(4):
+        for col in range(4):
+            tile = api.raster_tile(dataset_id, z + 2, x * 4 + col, y * 4 + row)
+            if not tile:
+                return None
+            with Image.open(io.BytesIO(tile)) as image:
+                canvas.paste(image.convert("RGB"), (col * 256, row * 256))
+    out = io.BytesIO()
+    canvas.save(out, "JPEG", quality=85)
+    return out.getvalue()
+
+
+def _covers(b: list[float] | None, west, south, east, north) -> bool:
+    return bool(b) and b[0] <= west and b[1] <= south and east <= b[2] and north <= b[3]
+
+
+def _orbit_crop(
+    api: Api,
+    passes: dict[str, list[dict]],
+    bounds: dict[str, list[float] | None],
+    lng: float,
+    lat: float,
+) -> tuple[bytes, str]:
+    """A true-colour tile of the point and the date of the scene it came from.
+
+    The first zoom at which one scene covers the whole tile wins, so the crop
+    has no empty corner, and the newest such scene is used. The 1024 px stitch
+    asks for tiles two zooms deeper, so it stops at zoom 12.
+    """
+    for z in range(10, 15):
+        x, y = _tile_at(lng, lat, z)
+        box = _tile_bbox(z, x, y)
+        for day, layers in passes.items():
+            for layer in layers:
+                if not _covers(bounds[layer["id"]], *box):
+                    continue
+                stitched = (
+                    _stitch_tiles(api, layer["dataset_id"], z, x, y)
+                    if z <= 12
+                    else None
+                )
+                if stitched:
+                    return stitched, day
+                tile = api.raster_tile(layer["dataset_id"], z, x, y)
+                if tile:
+                    print("  image is a single 256 px tile (low resolution)")
+                    return tile, day
+    raise RuntimeError(
+        f"no single Sentinel-2 scene covers the centre of {ORBIT_MAP!r}, so "
+        "there is no image for the story"
+    )
+
+
+def _meets(b: list[float] | None, view: tuple[float, float, float, float]) -> bool:
+    west, south, east, north = view
+    return bool(b) and b[0] <= east and b[2] >= west and b[1] <= north and b[3] >= south
+
+
+def _view_bbox(camera: dict) -> tuple[float, float, float, float]:
+    """Roughly what a 1280 x 800 map shows at the camera, as west, south, east, north."""
+    lng, lat = camera["center"]
+    degrees = 360 / (512 * 2 ** camera["zoom"])
+    half_w = degrees * 1280 / 2
+    half_h = degrees * 800 / 2 * math.cos(math.radians(lat))
+    return lng - half_w, lat - half_h, lng + half_w, lat + half_h
+
+
+def _uncovered(
+    rect: tuple[float, float, float, float], covers: list[list[float]]
+) -> bool:
+    """Whether any part of *rect* lies outside every rectangle in *covers*."""
+    west, south, east, north = rect
+
+    def cuts(low: int, high: int, lo: float, hi: float) -> list[float]:
+        edges = {lo, hi}
+        for c in covers:
+            edges.update(min(max(c[i], lo), hi) for i in (low, high))
+        return sorted(edges)
+
+    xs = cuts(0, 2, west, east)
+    ys = cuts(1, 3, south, north)
+    return any(
+        not any(
+            c[0] <= (x0 + x1) / 2 <= c[2] and c[1] <= (y0 + y1) / 2 <= c[3]
+            for c in covers
+        )
+        for x0, x1 in zip(xs, xs[1:])
+        for y0, y1 in zip(ys, ys[1:])
+    )
+
+
+def _overlaps(rect: tuple[float, float, float, float], other: list[float]) -> bool:
+    """Whether two rectangles share area, not just an edge."""
+    return (
+        rect[0] < other[2]
+        and other[0] < rect[2]
+        and rect[1] < other[3]
+        and other[1] < rect[3]
+    )
+
+
+def _orbit_visibility(
+    passes: dict[str, list[dict]],
+    bounds: dict[str, list[float] | None],
+    view: tuple[float, float, float, float],
+    day: str,
+) -> dict[str, bool]:
+    """Layer visibility that fills the view with imagery, preferring *day*.
+
+    Every scene of *day* that meets the view shows. A scene of another date
+    shows only if its part of the view extends beyond all scenes of *day* and
+    it either is older, so the map draws it below them, or does not overlap
+    them. A newer scene that overlaps is dropped, which can leave a gap.
+    """
+    west, south, east, north = view
+    preferred = [
+        bounds[lay["id"]]
+        for lay in passes.get(day, [])
+        if _meets(bounds[lay["id"]], view)
+    ]
+    visibility = {}
+    for other, layers in passes.items():
+        for layer in layers:
+            b = bounds[layer["id"]]
+            if not _meets(b, view):
+                visibility[layer["id"]] = False
+            elif other == day:
+                visibility[layer["id"]] = True
+            else:
+                part = (
+                    max(b[0], west),
+                    max(b[1], south),
+                    min(b[2], east),
+                    min(b[3], north),
+                )
+                draws_over = other > day and any(_overlaps(part, c) for c in preferred)
+                visibility[layer["id"]] = not draws_over and _uncovered(part, preferred)
+    return visibility
+
+
+def _finite_number(value, what: str) -> float:
+    """*value* as a finite number; an exact numeric string is accepted."""
+    try:
+        if value is None or isinstance(value, bool):
+            raise ValueError
+        number = float(Decimal(str(value).strip()))
+    except (ValueError, InvalidOperation):
+        number = math.nan
+    if not math.isfinite(number):
+        raise RuntimeError(f"the aggregate for {what} came back as {value!r}")
+    return number
+
+
+def _nyc_story_missing(api: Api) -> list[str]:
+    """What the New York story reads that this instance does not have yet."""
+    maps = api.list_maps()
+    by_title = api.datasets_by_title()
+    wanted = [
+        *(
+            (f"map {name!r}", name in maps)
+            for name in (ORBIT_MAP, SKYLINE_MAP, CITY_SHADE_MAP, DASHBOARD_MAP)
+        ),
+        (f"dataset {SKYLINE_BUILDINGS_TITLE!r}", SKYLINE_BUILDINGS_TITLE in by_title),
+        (
+            "dataset 'NYC Subway Stations (MTA)'",
+            "NYC Subway Stations (MTA)" in by_title,
+        ),
+        (f"dataset {CITY_SHADE_RESULT!r}", CITY_SHADE_RESULT in by_title),
+        (f"story {STORY_TITLE!r}", STORY_TITLE in api.list_stories()),
+    ]
+    return [what for what, present in wanted if not present]
+
+
+def seed_nyc_story_if_ready(
+    api: Api, force: bool = False, force_pinned: bool = False
+) -> str:
+    """seed_nyc_story, or a "(missing: ...)" result when its inputs are absent.
+
+    The default seed does not build City in Shade (``--showcase-121``) or the
+    orbit map (``--no-sentinel2``), and a story that cannot be built must not
+    fail the whole run.
+    """
+    missing = _nyc_story_missing(api)
+    if missing:
+        return "(missing: " + ", ".join(missing) + ")"
+    return seed_nyc_story(api, force=force, force_pinned=force_pinned)
+
+
+def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) -> str:
+    """The published New York story across four showcase maps, found by title.
+
+    Maps, layers and link targets are looked up by name when this runs. The
+    first chapter's image is a tile the API renders from the newest Sentinel-2
+    scene on the orbit map, uploaded as the story's cover and reused on a rerun
+    while it stays the same. The maps are not touched.
+    """
+    missing = _nyc_story_missing(api)
+    if missing:
+        raise RuntimeError(
+            "the New York story is missing "
+            + ", ".join(missing)
+            + " - seed those first"
+        )
+    maps = api.list_maps()
+    stories = api.list_stories()
+    print("\n[nyc-story] " + NYC_STORY_TITLE)
+    app_url = api.public_app_url()
+    orbit = api.get_map(maps[ORBIT_MAP])
+    manhattan = api.get_map(maps[SKYLINE_MAP])
+    shade = api.get_map(maps[CITY_SHADE_MAP])
+    if orbit.get("center_lng") is None or orbit.get("center_lat") is None:
+        raise RuntimeError(f"{ORBIT_MAP!r} has no saved camera")
+
+    passes = _orbit_passes(orbit)
+    if len(passes) < 2:
+        raise RuntimeError(f"{ORBIT_MAP!r} needs scenes from at least two dates")
+    bounds = {
+        lay["id"]: api.raster_bounds(lay["dataset_id"])
+        for layers in passes.values()
+        for lay in layers
+    }
+    orbit_camera = {
+        "center": [orbit["center_lng"], orbit["center_lat"]],
+        "zoom": 10.0,
+        "bearing": 0,
+        "pitch": 0,
+    }
+    crop, crop_day = _orbit_crop(
+        api, passes, bounds, orbit["center_lng"], orbit["center_lat"]
+    )
+    # The chapters' dates follow what the camera sees; the crop's own date
+    # belongs to the picture alone.
+    view = _view_bbox(orbit_camera)
+    in_view = [
+        day
+        for day, layers in passes.items()
+        if any(_meets(bounds[lay["id"]], view) for lay in layers)
+    ]
+    if not in_view:
+        raise RuntimeError(f"no Sentinel-2 scene of {ORBIT_MAP!r} meets its view")
+    newest = in_view[0]
+    comparison = len(in_view) > 1
+    if comparison:
+        earlier, gap = _earlier_pass(in_view)
+    else:
+        print(
+            f"  only the {newest} pass meets the view: "
+            "no earlier-pass chapter without a change to show"
+        )
+
+    def orbit_scene(show: str, transition: str) -> dict:
+        # A layer left out of the override would keep its saved visibility.
+        visibility = {lay["id"]: False for lay in orbit["layers"]}
+        visibility.update(_orbit_visibility(passes, bounds, view, show))
+        return _story_scene(orbit, visibility, orbit_camera, transition)
+
+    buildings = _map_layer(manhattan, "Buildings (3D height, colored by era)")
+    subway = _map_layer(manhattan, "Subway (official MTA colors)")
+    stations = _map_layer(manhattan, "Stations (green = ADA accessible)")
+
+    def manhattan_scene(camera: dict, transition: str, underground: bool) -> dict:
+        visibility = {
+            buildings: not underground,
+            subway: underground,
+            stations: underground,
+        }
+        return _story_scene(manhattan, visibility, camera, transition)
+
+    shade_visibility = {
+        _map_layer(shade, name): True
+        for name in (
+            "Canopy change in the study window",
+            "Rectangular study window",
+            "East Village source subset",
+        )
+    }
+
+    # The datasets the scenes display, not the newest same-titled ones.
+    buildings_ds = _map_layer_row(manhattan, "Buildings (3D height, colored by era)")[
+        "dataset_id"
+    ]
+    stations_ds = _map_layer_row(manhattan, "Stations (green = ADA accessible)")[
+        "dataset_id"
+    ]
+    canopy_ds = _map_layer_row(shade, "Canopy change in the study window")["dataset_id"]
+    # Checked before the story or its cover exist, so a bad figure leaves nothing behind.
+    total = int(
+        _finite_number(api.aggregate(buildings_ds, op="count")["count"], "buildings")
+    )
+    tallest = _finite_number(
+        api.aggregate(buildings_ds, op="stats", column="height_roof", stats=["max"])[
+            "max"
+        ],
+        "the tallest roof",
+    )
+    station_count = int(
+        _finite_number(api.aggregate(stations_ds, op="count")["count"], "stations")
+    )
+    classes = {
+        row["value"]: int(_finite_number(row["count"], f"canopy class {row['value']}"))
+        for row in api.aggregate(
+            canopy_ds, op="value_counts", column="class", limit=10
+        )["values"]
+    }
+
+    story_id = stories.get(NYC_STORY_TITLE)
+    verb = "updated"
+    if story_id is None:
+        story_id = api.create_story(NYC_STORY_TITLE, NYC_STORY_SUMMARY)
+        verb = "created"
+
+    # Keyed on the picture's bytes, so a rerun over the same scene reuses the
+    # uploaded asset and a newer scene uploads a new one.
+    image_id = _seed_id("story", "nyc-orbit", "image", hashlib.sha256(crop).hexdigest())
+    asset_id = None
+    if verb == "updated":
+        asset_id = next(
+            (
+                block.get("asset_id")
+                for chapter in api.story_document(story_id).get("chapters", [])
+                for block in chapter.get("blocks", [])
+                if block.get("id") == image_id
+            ),
+            None,
+        )
+    if asset_id is None:
+        asset_id = api.upload_story_asset(story_id, "new-york-from-orbit.jpg", crop)
+
+    def text(key: str, body: str) -> dict:
+        return _story_block(key, "text", "markdown", config={"text": body})
+
+    def button(key: str, name: str, label: str, url: str) -> dict:
+        return _story_block(key, name, "button", config={"label": label, "url": url})
+
+    def separator(key: str) -> dict:
+        return _story_block(key, "separator", "separator", config={"style": "line"})
+
+    earlier_chapters = []
+    if comparison:
+        earlier_title = "A week earlier" if gap == 7 else "An earlier pass"
+        earlier_chapters = [
+            _story_blocks_chapter(
+                "nyc-earlier",
+                earlier_title,
+                orbit_scene(earlier, "glide"),
+                [
+                    text(
+                        "nyc-earlier",
+                        f"The same camera, now preferring the pass on {earlier}, "
+                        f"{gap} days before the first. Each pass is its own "
+                        "layer, so the scene swaps while the camera stays put.\n\n"
+                        "Coverage varies by tile: a corner of the view may come "
+                        "from an older pass, and a newer pass that would overlap "
+                        "this one is hidden, which can leave a gap. Cloud and "
+                        "haze change from one date to the next.",
+                    ),
+                    separator("nyc-earlier"),
+                ],
+            ),
+        ]
+    document = {
+        "version": 1,
+        "chapters": [
+            _story_blocks_chapter(
+                "nyc-orbit",
+                "From orbit",
+                orbit_scene(newest, "fly"),
+                [
+                    text(
+                        "nyc-orbit",
+                        f"This is New York as the Sentinel-2 satellites saw it on "
+                        f"{newest}. On the map, the satellite layers are true "
+                        "colour at 10 m a pixel and GeoLens draws them straight "
+                        "from the public archive instead of keeping a copy. The "
+                        "picture below is different: a stored crop of the "
+                        f"{crop_day} scene, credited to Copernicus Sentinel "
+                        "data.\n\n"
+                        "Each satellite pass covers the city in tiles, so where "
+                        f"the {newest} scene stops, the map shows the nearest "
+                        "other pass. Water is dark, the built-up city is grey "
+                        "and the parks are green."
+                        + (
+                            ""
+                            if comparison
+                            else f"\n\nOnly the {newest} pass meets this view, "
+                            "so there is no earlier pass to compare it with."
+                        ),
+                    ),
+                    {
+                        "id": image_id,
+                        "type": "image",
+                        "v": 1,
+                        "asset_id": asset_id,
+                        "config": {
+                            "alt": "True-colour satellite image of the New York "
+                            "City area, with dark water, grey built-up land and "
+                            "green parks.",
+                            "caption": f"Sentinel-2 true colour, {crop_day}. "
+                            f"Contains modified Copernicus Sentinel data "
+                            f"{crop_day[:4]}.",
+                        },
+                    },
+                ],
+            ),
+            *earlier_chapters,
+            _story_blocks_chapter(
+                "nyc-skyline",
+                "The skyline",
+                manhattan_scene(
+                    {
+                        "center": [-73.9806, 40.750],
+                        "zoom": 15.0,
+                        "bearing": -28,
+                        "pitch": 60,
+                    },
+                    "fly",
+                    False,
+                ),
+                [
+                    text(
+                        "nyc-skyline",
+                        f"A second map holds {total:,} building footprints in "
+                        "Lower and Midtown Manhattan. Height is the form of the "
+                        "city: each footprint is raised to its surveyed roof "
+                        f"height, up to {tallest:,.0f} ft.\n\n"
+                        "Colour is the construction era, from the oldest blocks "
+                        "to the towers completed since 2015.",
+                    )
+                ],
+            ),
+            _story_blocks_chapter(
+                "nyc-turn",
+                "Turn the city",
+                manhattan_scene(
+                    {
+                        "center": [-73.990, 40.744],
+                        "zoom": 15.5,
+                        "bearing": 120,
+                        "pitch": 70,
+                    },
+                    "glide",
+                    False,
+                ),
+                [
+                    text(
+                        "nyc-turn",
+                        "The same map, turned to look at Lower Midtown from the "
+                        "river side.\n\n"
+                        "At this angle the older, lower blocks and the towers "
+                        "beside them stand apart.",
+                    )
+                ],
+            ),
+            _story_blocks_chapter(
+                "nyc-beneath",
+                "What runs beneath",
+                manhattan_scene(
+                    {
+                        "center": [-73.99, 40.735],
+                        "zoom": 13.2,
+                        "bearing": 0,
+                        "pitch": 45,
+                    },
+                    "fly",
+                    True,
+                ),
+                [
+                    text(
+                        "nyc-beneath",
+                        "With the buildings switched off, the subway shows. The "
+                        f"map draws {station_count:,} MTA stations and the lines "
+                        "between them in their official route colours.",
+                    ),
+                    button(
+                        "nyc-beneath",
+                        "manhattan",
+                        "Open the Manhattan map",
+                        f"{app_url}/maps/{maps[SKYLINE_MAP]}",
+                    ),
+                ],
+            ),
+            _story_blocks_chapter(
+                "nyc-trees",
+                "Down to the trees",
+                _story_scene(shade, shade_visibility, None, "fly"),
+                [
+                    text(
+                        "nyc-trees",
+                        "The last map is City in Shade: how tree canopy changed "
+                        "between 2010 and 2017 around Tompkins Square Park. In "
+                        f"the study window, {classes.get('Gain', 0):,} polygons "
+                        f"mark canopy gained, {classes.get('Loss', 0):,} canopy "
+                        f"lost and {classes.get('No Change', 0):,} no change.\n\n"
+                        "The pale layer underneath is the larger source subset "
+                        "the window was clipped from. It is a historical "
+                        "sample, not a measure of today's shade.",
+                    ),
+                    separator("nyc-trees"),
+                    button(
+                        "nyc-trees",
+                        "dashboard",
+                        "Open the earthquake dashboard",
+                        f"{app_url}/maps/{maps[DASHBOARD_MAP]}",
+                    ),
+                    button(
+                        "nyc-trees",
+                        "hurricanes",
+                        "Read the hurricane story",
+                        f"{app_url}/stories/{stories[STORY_TITLE]}",
+                    ),
+                ],
+            ),
+        ],
+    }
+    api.publish_story(
+        story_id, NYC_STORY_TITLE, NYC_STORY_SUMMARY, document, cover_asset_id=asset_id
+    )
+    print(f"  -> story {story_id} ({verb}, published, public)")
+    return story_id
+
+
 ATTRIBUTE_TITLES = {
     SKYLINE_BUILDINGS_TITLE: {
         "height_roof": "Roof height (ft)",
@@ -5323,9 +5975,12 @@ def run_story_and_dashboard(api: Api) -> int:
         seed_quake_dashboard,
         seed_skyline_dashboard,
         seed_skyline_story,
+        seed_nyc_story_if_ready,
     ):
         try:
-            seed(api)
+            result = seed(api)
+            if result and result.startswith("(missing: "):
+                print(_builder_outcome_line(seed.__name__, result))
         except (httpx.HTTPError, RuntimeError, TimeoutError) as e:
             print(f"\nERROR in [{seed.__name__}]: {e}", file=sys.stderr)
             if isinstance(e, httpx.HTTPStatusError):
@@ -7534,6 +8189,8 @@ def _builder_outcome_line(bname: str, result: str | None) -> str | None:
             "--force left its id and share links alone; --force-pinned builds "
             "a fresh row beside it"
         )
+    if result and result.startswith("(missing: "):
+        return f"  {bname}: skipped, not built yet: {result[10:-1]}"
     if not result or result == "(skipped)":
         return f"  {bname}: already exists, skipped (use --force to recreate)"
     return None
@@ -7801,6 +8458,7 @@ def main() -> int:
             "dashboard",
             "skyline-dashboard",
             "skyline-story",
+            "nyc-story",
         ],
         help="build only one showcase item",
     )
@@ -7889,7 +8547,14 @@ def main() -> int:
         or args.refresh_hurdat2
         or args.story_and_dashboard
         or args.only
-        in ("embed", "story", "dashboard", "skyline-dashboard", "skyline-story")
+        in (
+            "embed",
+            "story",
+            "dashboard",
+            "skyline-dashboard",
+            "skyline-story",
+            "nyc-story",
+        )
     ):
         ap.error(
             "--expected-state cannot be combined with force, prune, refresh, "
@@ -7971,6 +8636,7 @@ def main() -> int:
         "dashboard": seed_quake_dashboard,
         "skyline-dashboard": seed_skyline_dashboard,
         "skyline-story": seed_skyline_story,
+        "nyc-story": seed_nyc_story,
     }
 
     built = {}
@@ -8009,6 +8675,7 @@ def main() -> int:
                     ("dashboard", fns["dashboard"]),
                     ("skyline-dashboard", fns["skyline-dashboard"]),
                     ("skyline-story", fns["skyline-story"]),
+                    ("nyc-story", seed_nyc_story_if_ready),
                 ]
             )
         # collections + embed LAST: they reference the datasets above.
@@ -8091,7 +8758,7 @@ def main() -> int:
             "collections"
             if bname == "collections"
             else "api/stories"
-            if bname in ("story", "skyline-story")
+            if bname in ("story", "skyline-story", "nyc-story")
             else "datasets"
             if bname in ("copc", "tiles3d")
             else "maps"
