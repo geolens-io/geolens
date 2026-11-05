@@ -136,6 +136,8 @@ export async function readMapCamera(page: Page): Promise<MapCamera> {
 
 /** Waits until the story map exists and has settled at the camera's first position. */
 export async function waitForStoryMap(page: Page, camera: SceneCamera): Promise<void> {
+  // The viewer sets this once the story pane holds the map, so a chapter change then plays its transition.
+  await expect(page.locator('[data-map-ready="true"]')).toBeVisible({ timeout: 20_000 });
   await expect
     .poll(async () => {
       const now = await readMapCamera(page);
