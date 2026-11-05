@@ -568,3 +568,30 @@ def test_integer_classes_keep_their_values_in_every_overview_level(
         for level in levels:
             shape = (cog.height // level, cog.width // level)
             assert set(np.unique(cog.read(1, out_shape=shape))) <= {0, 200}
+
+
+@needs_gdal_cli
+def test_bands_with_different_data_types_get_no_overview(tmp_path: Path) -> None:
+    members = []
+    for index, dtype in enumerate(("uint8", "float32")):
+        path = tmp_path / f"t{index}.tif"
+        with rasterio.open(
+            path,
+            "w",
+            driver="GTiff",
+            dtype=dtype,
+            width=100,
+            height=100,
+            count=1,
+            crs="EPSG:4326",
+            transform=from_origin(0.0, 10.0, 0.001, 0.001),
+        ) as dst:
+            dst.write(np.full((100, 100), 5, dtype=dtype), 1)
+        members.append(str(path))
+    vrt_path = str(tmp_path / "stack.vrt")
+    build_vrt("band_stack", members, vrt_path, "finest")
+    before = Path(vrt_path).read_bytes()
+
+    assert add_vrt_overview(vrt_path, members) is None
+
+    assert Path(vrt_path).read_bytes() == before
