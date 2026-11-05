@@ -32,6 +32,7 @@ const ViewerMap = lazy(() =>
 
 /** How long the next map takes to fade in over the current one. */
 const CROSSFADE_MS = 400;
+const COVER_MAX_MS = 4000;
 
 export interface StoryMapPaneHandle {
   /** The map's current view as a scene stores it, or null while no map is ready. */
@@ -227,14 +228,14 @@ function StoryMap({
     if (mapRef.current) playTransition(mapRef.current);
   }, [chapterId, sceneVisit, playTransition]);
 
-  // A map back on screen after another map had the view (a change reversed mid-fade) returns to its scene's camera.
+  // A map back on screen after another map had the view starts a new scene visit: authored camera and visibility.
   const prevRole = useRef(role);
   const shownBefore = useRef(role !== 'standby');
   useEffect(() => {
-    if (role === 'active' && prevRole.current !== 'active' && shownBefore.current && mapRef.current) playTransition(mapRef.current);
+    if (role === 'active' && prevRole.current !== 'active' && shownBefore.current) setReturns((n) => n + 1);
     prevRole.current = role;
     if (role !== 'standby') shownBefore.current = true;
-  }, [role, playTransition]);
+  }, [role]);
 
   // The outgoing map moves to the view the next map fades in at.
   const exitRef = useRef(exit);
@@ -254,11 +255,9 @@ function StoryMap({
 
   // The reader may have moved on while the map loaded.
   const [readyMap, setReadyMap] = useState<MaplibreMap | null>(null);
-  // Latched: later tile loads while panning don't bring the cover back.
-  const [settled, setSettled] = useState(false);
-  const handleViewerReady = useCallback((ready: boolean) => {
-    if (ready) setSettled(true);
-  }, []);
+  // Live readiness; the cover latches off once the map has been shown ready or has waited.
+  const [viewerReady, setViewerReady] = useState(false);
+  const [coverDone, setCoverDone] = useState(false);
   const handleMapReady = useCallback((map: MaplibreMap) => {
     mapRef.current = map;
     setReadyMap(map);
@@ -268,8 +267,19 @@ function StoryMap({
   // A map loaded ahead that is shown before it is ready covers itself with the loading state.
   const loadedAhead = useRef(role === 'standby').current;
   useEffect(() => {
-    onReady?.(settled);
-  }, [settled, onReady]);
+    onReady?.(viewerReady);
+  }, [viewerReady, onReady]);
+
+  // The viewer's own entry veil gives up after 4 s; the cover does the same.
+  useEffect(() => {
+    if (role !== 'active') return;
+    if (viewerReady) {
+      setCoverDone(true);
+      return;
+    }
+    const timer = setTimeout(() => setCoverDone(true), COVER_MAX_MS);
+    return () => clearTimeout(timer);
+  }, [role, viewerReady]);
 
   // A refetch can change the camera of the chapter waiting hidden.
   useEffect(() => {
@@ -339,13 +349,13 @@ function StoryMap({
             initialViewState={initialViewState}
             visibleLayers={visibleLayers}
             onMapReady={handleMapReady}
-            onReadyChange={handleViewerReady}
+            onReadyChange={setViewerReady}
             onDrawnChange={setDrawnLayers}
             showAttributeTable={data.show_attribute_table}
             fadeLayerChanges
           />
         </Suspense>
-        {loadedAhead && role === 'active' && !settled && (
+        {loadedAhead && role === 'active' && !coverDone && !viewerReady && (
           <div className="absolute inset-0 z-20 bg-muted">
             <LoadingState className="h-full" message={t('reader.mapLoading')} />
           </div>

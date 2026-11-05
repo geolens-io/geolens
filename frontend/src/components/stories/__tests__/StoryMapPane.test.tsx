@@ -86,7 +86,7 @@ const MAPS: Record<string, MapResponse> = {
     basemap_style: 'positron',
     layers: [layer('roads', true), layer('rivers', false), layer('towns', true)],
   } as unknown as MapResponse,
-  'map-b': { id: 'map-b', basemap_style: 'voyager', layers: [] } as unknown as MapResponse,
+  'map-b': { id: 'map-b', basemap_style: 'voyager', layers: [layer('lakes', true)] } as unknown as MapResponse,
   'map-err': { id: 'map-err', basemap_style: 'broken', layers: [] } as unknown as MapResponse,
   'map-c': { id: 'map-c', basemap_style: 'dark-matter', layers: [] } as unknown as MapResponse,
   'map-dem': {
@@ -551,6 +551,41 @@ describe('crossfade to a map loaded ahead', () => {
     readyNext('map-b', 'voyager');
     rerender(<StoryMapPane resolved={resolved('c1', 'map-a', 3)} next={resolved('c2', 'map-b', 9)} />);
     expect(nextMaps['map-b'].jumpTo).toHaveBeenLastCalledWith(expect.objectContaining({ zoom: 9 }));
+  });
+
+  it('drops the loading cover after four seconds when a preloaded map never settles', async () => {
+    const { rerender } = await renderAhead();
+    loadNext('map-b', 'voyager');
+    vi.useFakeTimers();
+    try {
+      rerender(<StoryMapPane resolved={resolved('c2', 'map-b', 7)} next={null} />);
+      expect(loading()).toBeInTheDocument();
+      act(() => void vi.advanceTimersByTime(4000));
+      expect(loading()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not crossfade into a waiting map that started loading again after it was ready', async () => {
+    const { rerender } = await renderAhead();
+    readyNext('map-b', 'voyager');
+    act(() => viewer.byBasemap.voyager.onReadyChange!(false));
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-b', 7)} next={null} />);
+    expect(slot('outgoing')).toBeUndefined();
+    expect(loading()).toBeInTheDocument();
+  });
+
+  it("restores a returning map's authored layer visibility", async () => {
+    const { rerender } = await renderAhead();
+    readyNext('map-b', 'voyager');
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-b', 7)} next={null} />);
+    act(() => (legend.props!.onToggleVisibility as (key: string) => void)('lakes'));
+    expect(viewer.byBasemap.voyager.visibleLayers.has('lakes')).toBe(false);
+
+    rerender(<StoryMapPane resolved={resolved('c1', 'map-a', 3)} next={resolved('c2', 'map-b', 7)} />);
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-b', 7)} next={null} />);
+    expect(viewer.byBasemap.voyager.visibleLayers.has('lakes')).toBe(true);
   });
 
   it('gives the pane its own stacking context so slot z-indexes stay inside it', async () => {
