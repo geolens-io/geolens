@@ -87,6 +87,14 @@
     "openStories": "打开故事",
     "browseCatalog": "浏览目录"
   },
+  "embed": {
+    "open": "嵌入",
+    "title": "嵌入此故事",
+    "description": "将此代码粘贴到您网站的页面中。故事在那里显示时不带 GeoLens 页眉，如果不再公开则停止显示。",
+    "codeLabel": "嵌入代码",
+    "copy": "复制嵌入代码",
+    "unavailable": "此故事未公开，或已被删除。"
+  },
   "editor": {
     "pageTitle": "正在编辑 {{title}}",
     "loading": "正在加载草稿…",

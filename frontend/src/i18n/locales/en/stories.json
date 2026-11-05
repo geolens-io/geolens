@@ -87,6 +87,14 @@
     "openStories": "Open stories",
     "browseCatalog": "Browse catalog"
   },
+  "embed": {
+    "open": "Embed",
+    "title": "Embed this story",
+    "description": "Paste this code into a page on your site. The story shows there without the GeoLens header, and stops showing if it is no longer public.",
+    "codeLabel": "Embed code",
+    "copy": "Copy embed code",
+    "unavailable": "This story isn't public, or it has been deleted."
+  },
   "editor": {
     "pageTitle": "Editing {{title}}",
     "loading": "Loading draft…",

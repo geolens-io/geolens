@@ -87,6 +87,14 @@
     "openStories": "Abrir historias",
     "browseCatalog": "Explorar el catálogo"
   },
+  "embed": {
+    "open": "Insertar",
+    "title": "Insertar esta historia",
+    "description": "Pega este código en una página de tu sitio. La historia se muestra allí sin la cabecera de GeoLens y deja de mostrarse si ya no es pública.",
+    "codeLabel": "Código para insertar",
+    "copy": "Copiar código para insertar",
+    "unavailable": "Esta historia no es pública o se ha eliminado."
+  },
   "editor": {
     "pageTitle": "Editando {{title}}",
     "loading": "Cargando borrador…",

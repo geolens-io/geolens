@@ -65,6 +65,9 @@ const StoryPage = lazy(loadStoryPage);
 const loadStoryEditorPage = () =>
   import('./pages/StoryEditorPage').then(m => ({ default: m.StoryEditorPage }));
 const StoryEditorPage = lazy(loadStoryEditorPage);
+const loadStoryEmbedPage = () =>
+  import('./pages/StoryEmbedPage').then(m => ({ default: m.StoryEmbedPage }));
+const StoryEmbedPage = lazy(loadStoryEmbedPage);
 const loadAdminOverviewPage = () =>
   import('./pages/admin/AdminOverviewPage').then(m => ({ default: m.AdminOverviewPage }));
 const AdminOverviewPage = lazy(loadAdminOverviewPage);
@@ -148,6 +151,7 @@ export const appRoutes = (
       <Route path="/oauth/callback" element={<OAuthCallbackPage />} handle={preload(loadOAuthCallbackPage)} errorElement={<RouteErrorBoundary />} />
     </Route>
     <Route path="/m/:token" element={<PublicViewerPage />} handle={preload(loadPublicViewerPage)} errorElement={<RouteErrorBoundary />} />
+    <Route path="/stories/:id/embed" element={<StoryEmbedPage />} handle={preload(loadStoryEmbedPage)} errorElement={<RouteErrorBoundary />} />
     <Route element={<AppLayout />} errorElement={<RouteErrorBoundary />}>
       {/* Public routes — no auth required */}
       {/* LandingFirstGuard redirects anonymous visitors to /login when the
