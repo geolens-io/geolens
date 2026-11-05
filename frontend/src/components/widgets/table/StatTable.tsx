@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import type { WidgetRenderProps } from '../contract';
@@ -15,12 +16,33 @@ export function StatTable({ config, data, selection, onSelect, columnLabel }: Wi
   const { t } = useTranslation('widgets');
   const text = useTableText(config, data, columnLabel);
   const { rows } = text;
+  const scroller = useRef<HTMLDivElement>(null);
+  const [scrolls, setScrolls] = useState(false);
+  // A wide table scrolls inside its card; the region is a tab stop only then, so a keyboard can reach the cut-off columns.
+  useLayoutEffect(() => {
+    const node = scroller.current;
+    if (!node) return;
+    const measure = () => setScrolls(node.scrollWidth > node.clientWidth);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  });
   if (!rows || rows.length === 0) {
     return <p className="text-sm text-muted-foreground">{t(rows ? 'noRows' : 'noData')}</p>;
   }
   const picked = selectedValues(selection, config.group_column);
   return (
     <div className="space-y-1">
+      <div
+        ref={scroller}
+        data-slot="table-scroll"
+        className="overflow-x-auto focus-visible:outline-2 focus-visible:outline-ring"
+        role={scrolls ? 'region' : undefined}
+        aria-label={scrolls ? text.summary : undefined}
+        tabIndex={scrolls ? 0 : undefined}
+      >
       <table className="w-full text-sm">
         <caption className="sr-only">{text.summary}</caption>
         <thead>
@@ -87,6 +109,7 @@ export function StatTable({ config, data, selection, onSelect, columnLabel }: Wi
           })}
         </tbody>
       </table>
+      </div>
       {text.truncated && (
         <p className="text-xs text-muted-foreground">{t('types.table.truncated', { count: rows.length })}</p>
       )}

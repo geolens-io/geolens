@@ -115,6 +115,12 @@ describe('table widget', () => {
     expect(within(rows[1]).getByRole('rowheader')).toHaveTextContent('(no value)');
   });
 
+  it('scrolls a wide table inside its own container', () => {
+    const { container } = render(<TableRenderer config={config} data={data} />);
+    const wrapper = container.querySelector('table')!.parentElement!;
+    expect(wrapper).toHaveClass('overflow-x-auto');
+  });
+
   it('is read-only without onSelect', () => {
     render(<TableRenderer config={config} data={data} />);
     expect(screen.queryByRole('button')).toBeNull();

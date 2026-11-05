@@ -105,7 +105,6 @@ describe('dashboard drafts', () => {
       version: 1,
       readable: dashboardReadableTypes(),
       panel: 'bottom',
-      readable: dashboardReadableTypes(),
       widgets: [{ ...kept, title: 'Parcels' }],
     });
     expect(dashboardPayload({ panel: 'right', widgets: [gone] }, [layer()], { panel: 'right' })).toBeNull();
