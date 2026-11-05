@@ -226,6 +226,9 @@ _DISPOSE_SHARED_ENGINE_MODULES = {
     # Its real-GDAL test reads the staged table through the shared engine, so
     # a connection pooled by an earlier module's loop would fail it.
     "test_arcgis_service_z_values",
+    # The scan's advisory lock opens its own shared-engine session, without a
+    # test session fixture to repoint the pool first.
+    "test_orphan_scan_guard",
 }
 
 
