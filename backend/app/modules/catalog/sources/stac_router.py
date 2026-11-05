@@ -46,6 +46,7 @@ from app.modules.catalog.sources.adapters.stac import (
     list_stac_collections,
     search_stac_items,
 )
+from app.modules.catalog.sources.stac_resolve_asset_gate import _MAX_STORED_URI_CHARS
 from app.modules.catalog.sources.stac_next_page import (
     StacNextPage,
     issue_cursor,
@@ -135,6 +136,14 @@ router = APIRouter(
     responses=ERROR_RESPONSES_WRITE,
 )
 
+
+# A code, not prose: the 200 response bypasses the client's error localization,
+# so the wizard translates it.
+_ITEM_IMPORT_FAILED_CODE = "import_failed"
+_ITEM_TOO_LONG_CODE = "too_long"
+
+# datasets.source_filename holds the item id.
+_MAX_STORED_ITEM_ID_CHARS = 500
 
 # Names the rule, never the href: this reaches a per-item result body.
 _OFF_ORIGIN_ITEM_HREF_MESSAGE = (
@@ -748,6 +757,17 @@ async def stac_import(
             )
             skipped += 1
             continue
+        if (
+            len(item.id) > _MAX_STORED_ITEM_ID_CHARS
+            or len(item.data_asset_href) > _MAX_STORED_URI_CHARS
+        ):
+            results.append(
+                StacImportResult(
+                    item_id=item.id, status="error", error=_ITEM_TOO_LONG_CODE
+                )
+            )
+            errors += 1
+            continue
         # The item pointer becomes the origin a later credentialed refresh
         # anchors on, so it may not name a host other than the catalog the
         # caller submitted. Search already drops such a link; this refuses it
@@ -798,7 +818,10 @@ async def stac_import(
     # STAC import inserts Record rows directly, beside the datasets façade,
     # raster and VRT creators, so it takes part in the atomic count-cap
     # reservation too.
-    from app.modules.quota.service import reserve_dataset_slot
+    from app.modules.quota.service import (
+        DatasetQuotaExceededError,
+        reserve_dataset_slot,
+    )
 
     for item in importable:
         refusal = import_refusal(cog_info_map.get(item.data_asset_href))
@@ -948,10 +971,17 @@ async def stac_import(
             )
             created += 1
 
-        except Exception as exc:  # broad: per-item STAC import is isolated; any failure is recorded per-item without aborting the batch
-            logger.warning("STAC item import failed", item_id=item.id, error=str(exc))
+        except DatasetQuotaExceededError as exc:
             results.append(
                 StacImportResult(item_id=item.id, status="error", error=str(exc))
+            )
+            errors += 1
+        except Exception:  # broad: per-item STAC import is isolated; any failure is recorded per-item without aborting the batch
+            logger.exception("STAC item import failed", item_id=item.id)
+            results.append(
+                StacImportResult(
+                    item_id=item.id, status="error", error=_ITEM_IMPORT_FAILED_CODE
+                )
             )
             errors += 1
 

@@ -167,6 +167,8 @@
     "failureGroupCount_one": "{{count}} Element",
     "failureGroupCount_other": "{{count}} Elemente",
     "failureUnknown": "Unbekannter Fehler",
+    "itemErrorImportFailed": "Dieses Element konnte nicht importiert werden.",
+    "itemErrorTooLong": "Die Element-ID oder der Asset-Link ist zu lang zum Speichern.",
     "importMore": "Weitere importieren",
     "backToResults": "Zurück zu den Ergebnissen",
     "catalogConnected": "STAC-Katalog · verbunden",

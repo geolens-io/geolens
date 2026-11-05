@@ -1304,6 +1304,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Source API router debt; each credential door judges its URL's scheme in
     # place. Split discovery, preview and dispatch endpoints before raising further.
     "backend/app/modules/catalog/sources/router.py": 1733,
+    # STAC import door: per-item refusals and failure codes sit beside the batch loop.
+    "backend/app/modules/catalog/sources/stac_router.py": 1010,
     # Adoption DDL mirrors the current schema without importing historical migrations.
     "backend/app/core/db/tenant_adoption_sql.py": 2088,
     # Adoption coordinates resumable tenant transactions with ownership and ACL repair.

@@ -612,6 +612,168 @@ class TestStacImport:
         assert detail.json()["last_checked_at"] is None
         assert detail.json()["source_health"] == "unknown"
 
+    async def test_import_refuses_an_item_too_long_to_store_and_imports_the_rest(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_stac_ssrf,
+    ):
+        """An id over the filename column, or an asset link over the URL
+        column, is refused with a code; the rest of the batch imports."""
+        long_id = "l" * 600
+        long_href = "https://example.com/" + "a" * 2000 + ".tif"
+        items = [
+            {
+                "id": long_id,
+                "collection": "dem-collection",
+                "title": "Long id",
+                "data_asset_href": "https://example.com/data/long-id.tif",
+            },
+            {
+                "id": "long-href",
+                "collection": "dem-collection",
+                "title": "Long href",
+                "data_asset_href": long_href,
+            },
+            {
+                "id": f"normal-{uuid.uuid4().hex[:8]}",
+                "collection": "dem-collection",
+                "title": "Normal",
+                "data_asset_href": f"https://example.com/data/{uuid.uuid4().hex}.tif",
+            },
+        ]
+        resp = await client.post(
+            "/services/stac/import",
+            json={
+                "url": "https://stac.example.com/v1",
+                "items": items,
+                "visibility": "private",
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert (data["created"], data["errors"]) == (1, 2)
+        by_id = {r["item_id"]: r for r in data["results"]}
+        assert by_id[long_id]["status"] == "error"
+        assert by_id[long_id]["error"] == "too_long"
+        assert by_id["long-href"]["error"] == "too_long"
+        assert by_id[items[2]["id"]]["status"] == "created"
+
+    async def test_an_untitled_long_id_item_searches_and_imports(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_stac_ssrf,
+    ):
+        """Search falls back to the item id as the title, which the import
+        model caps at 500, so the derived title is bounded: the batch is
+        accepted, the long id is refused per item and the normal item
+        imports."""
+        import json
+
+        from app.modules.catalog.sources.adapters import stac as stac_adapter
+
+        long_id = "u" * 2048
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            features = [
+                {
+                    "id": id_,
+                    "collection": "dem-collection",
+                    "properties": {},
+                    "links": [],
+                    "assets": {
+                        "data": {
+                            "href": f"https://example.com/data/{n}.tif",
+                            "type": "image/tiff; application=geotiff; "
+                            "profile=cloud-optimized",
+                            "roles": ["data"],
+                        }
+                    },
+                }
+                for n, id_ in enumerate((long_id, "normal-item"))
+            ]
+            raw = json.dumps({"features": features}).encode()
+
+            async def body():
+                yield raw
+
+            return httpx.Response(200, content=body())
+
+        with patch.object(
+            stac_adapter,
+            "_make_client",
+            lambda _credential_header=None: httpx.AsyncClient(
+                transport=httpx.MockTransport(handle)
+            ),
+        ):
+            searched = await stac_adapter.search_stac_items(
+                "https://stac.example.com/v1", limit=5
+            )
+        items = searched["items"]
+        assert items[0]["id"] == long_id
+        assert len(items[0]["title"]) == 500
+        assert items[1]["title"] == "normal-item"
+
+        resp = await client.post(
+            "/services/stac/import",
+            json={
+                "url": "https://stac.example.com/v1",
+                "items": [
+                    {
+                        "id": it["id"],
+                        "collection": it["collection"],
+                        "title": it["title"],
+                        "data_asset_href": it["data_asset_href"],
+                    }
+                    for it in items
+                ],
+                "visibility": "private",
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert (data["created"], data["errors"]) == (1, 1), resp.text
+        assert data["results"][0]["error"] == "too_long"
+
+    async def test_import_reports_a_fixed_message_when_an_item_fails(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        mock_stac_ssrf,
+    ):
+        """A persistence failure never puts the exception text in the
+        per-item result."""
+        detail = "internal failure text that must stay out of the response"
+        with patch(
+            "app.modules.catalog.sources.stac_router.set_dataset_origin",
+            side_effect=RuntimeError(detail),
+        ):
+            resp = await client.post(
+                "/services/stac/import",
+                json={
+                    "url": "https://stac.example.com/v1",
+                    "items": [
+                        {
+                            "id": f"fails-{uuid.uuid4().hex[:8]}",
+                            "collection": "dem-collection",
+                            "title": "Fails",
+                            "data_asset_href": "https://example.com/data/f.tif",
+                        }
+                    ],
+                    "visibility": "private",
+                },
+                headers=admin_auth_header,
+            )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["errors"] == 1
+        assert data["results"][0]["status"] == "error"
+        assert detail not in resp.text
+        assert data["results"][0]["error"] == "import_failed"
+
     async def test_import_refuses_an_off_origin_item_href(
         self,
         client: AsyncClient,
