@@ -31,6 +31,7 @@ export default function HistogramRenderer({
   data,
   selection,
   onSelect,
+  mapHidden,
   columnLabel,
 }: WidgetRenderProps<HistogramConfig>) {
   const { t } = useTranslation('widgets');
@@ -102,7 +103,7 @@ export default function HistogramRenderer({
         </g>
       </svg>
       <p id={hintId} className="sr-only">
-        {t(onSelect ? 'types.histogram.keyboardHintPick' : 'types.histogram.keyboardHint')}
+        {t(onSelect ? (mapHidden ? 'types.histogram.keyboardHintPickPage' : 'types.histogram.keyboardHintPick') : 'types.histogram.keyboardHint')}
       </p>
       <figcaption className="min-h-5 text-sm" aria-live="polite">
         {current !== null && (

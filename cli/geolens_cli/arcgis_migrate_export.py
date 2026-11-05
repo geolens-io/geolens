@@ -83,11 +83,12 @@ NOTES: dict[str, str] = {
     _STORY: _APP_REBUILD,
     "Web Experience": _APP_REBUILD,
     "Dashboard": (
-        "Maps carry over. A GeoLens map can hold a dashboard_config with "
-        "indicator and bar chart widgets (API-only for now, no viewer panel "
-        "yet); lists, filters and other widgets have no equivalent. The data "
-        "they summarize is in the imported datasets and queryable through the "
-        "API, OGC Features and the MCP server."
+        "Maps carry over. A GeoLens map can hold a dashboard of indicator, "
+        "bar chart, histogram, category selector and Markdown widgets, shown "
+        "beside the map in the viewer, share links and embeds, or across the "
+        "full page with the map hidden; lists, filters and other widgets have "
+        "no equivalent. The data they summarize is in the imported datasets "
+        "and queryable through the API, OGC Features and the MCP server."
     ),
     "Form": (
         "Results import as a dataset. The form has no equivalent; it is saved "
@@ -127,6 +128,43 @@ def replacement_note(item_type: str) -> str:
     return NOTES.get(item_type, NOTES_DEFAULT)
 
 
+def dashboard_layout_follow_up(
+    item: Mapping[str, Any], plan: Mapping[str, Any]
+) -> str | None:
+    """What a Dashboard's map widgets mean for its GeoLens layout, or None when
+    it has one map widget or is not a dashboard. None of them means rebuilding
+    with the map hidden; several are not chosen between; an unread widget list
+    leaves the count unknown, which is said rather than guessed."""
+    if item["type"] != "Dashboard":
+        return None
+    count = item.get("map_widgets")
+    if count is None:
+        return (
+            "its map widgets could not be counted: with none, rebuild it with "
+            "the map hidden; with several, convert it to a single-map "
+            "dashboard or split it"
+        )
+    if count == 0:
+        return "it has no map widget: rebuild it with the map hidden"
+    titles = {i["id"]: i["title"] for i in plan["items"] if i["type"] == "Web Map"}
+    ids = item.get("map_widget_maps", [])
+    maps = [titles[m] for m in ids if m in titles]
+    keep = "convert it to a single-map dashboard or split it. The migration does not guess which map to keep"
+    if count == 1:
+        if len(ids) < 2:
+            return None
+        shown = f" ({', '.join(maps)})" if maps else ""
+        return f"its map widget shows {len(ids)} maps{shown}: {keep}"
+    on = f" on {', '.join(maps)}" if maps else ""
+    return f"it has {count} map widgets{on}: {keep}"
+
+
+def _dashboard_note(item: Mapping[str, Any], plan: Mapping[str, Any]) -> str:
+    note = replacement_note("Dashboard")
+    layout = dashboard_layout_follow_up(item, plan)
+    return f"{note} {layout[0].upper()}{layout[1:]}." if layout else note
+
+
 def item_replacement(
     item: Mapping[str, Any], plan: Mapping[str, Any], state: MigrationState
 ) -> str:
@@ -138,6 +176,8 @@ def item_replacement(
     layer = item.get("superseded_by")
     default_action = (item.get("defaults") or {}).get("action", item["action"])
     if not layer or item["action"] != default_action:
+        if item["type"] == "Dashboard":
+            return _dashboard_note(item, plan)
         return replacement_note(item["type"])
     title = next((i["title"] for i in plan["items"] if i["id"] == layer), layer)
     entry = state.items.get(layer)

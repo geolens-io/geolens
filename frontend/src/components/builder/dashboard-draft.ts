@@ -19,6 +19,8 @@ export const MAX_DASHBOARD_WIDGETS = 50;
 export interface DashboardDraft {
   panel: PanelPosition;
   widgets: WidgetInstance[];
+  /** Set only when the author hides the map; an absent value is a visible map. */
+  mapHidden?: boolean;
 }
 
 type DashboardConfigInput = components['schemas']['DashboardConfigInput'];
@@ -30,7 +32,7 @@ export function toDashboardDraft(config: DashboardConfig | null | undefined): Da
     const parsed = parseStoredWidget(raw, 'dashboard');
     if (parsed.ok) widgets.push(parsed.instance);
   }
-  return { panel: dashboardPanelPosition(config), widgets };
+  return { panel: dashboardPanelPosition(config), widgets, ...(config?.map_hidden ? { mapHidden: true } : {}) };
 }
 
 /** A widget as a save stores it: its title trimmed, and left out when blank. */
@@ -41,7 +43,7 @@ function toSaved({ title, ...widget }: WidgetInstance): WidgetInstance {
 /**
  * The dashboard the server stores for a save of `draft`, in the form a map
  * response reads back: titles trimmed or left out, and no widgets meaning no
- * dashboard, which reads as a right panel. With `layers`, the widgets whose
+ * dashboard, which reads as a right panel with the map shown. With `layers`, the widgets whose
  * layer is gone from them are dropped, as a save does.
  */
 export function canonicalDashboard(
@@ -50,7 +52,11 @@ export function canonicalDashboard(
 ): DashboardDraft {
   const kept = layers ? draft.widgets.filter((widget) => !widgetLayerGone(widget, layers)) : draft.widgets;
   const widgets = kept.map(toSaved);
-  return { panel: widgets.length > 0 ? draft.panel : 'right', widgets };
+  return {
+    panel: widgets.length > 0 ? draft.panel : 'right',
+    widgets,
+    ...(widgets.length > 0 && draft.mapHidden ? { mapHidden: true } : {}),
+  };
 }
 
 /**
@@ -132,23 +138,31 @@ function readableToSend(): string[] | undefined {
   return same ? undefined : reads;
 }
 
+/** A key an older server refuses: present only when it carries a value now or did when last stored. */
+function sentIfSetNowOrBefore<K extends string, V>(key: K, value: V, send: boolean): { [P in K]?: V } {
+  return send ? ({ [key]: value } as { [P in K]: V }) : {};
+}
+
 /**
  * The `dashboard_config` a save sends: the draft without the widgets whose
  * layer is gone, or null when none are left. `panel` is sent only when the
  * panel is or was at the bottom: a 1.28.0 server refuses the key during a
- * rolling upgrade, and one that stored a bottom panel knows it.
+ * rolling upgrade, and one that stored a bottom panel knows it. `map_hidden`
+ * follows the same rule: sent when the map is hidden, or was and is shown again.
+ * `saved` is the dashboard as last stored.
  */
 export function dashboardPayload(
   draft: DashboardDraft,
   layers: readonly MapLayerResponse[],
-  savedPanel: PanelPosition,
+  saved: Pick<DashboardDraft, 'panel' | 'mapHidden'>,
 ): DashboardConfigInput | null {
-  const { panel, widgets } = canonicalDashboard(draft, layers);
+  const { panel, widgets, mapHidden } = canonicalDashboard(draft, layers);
   if (widgets.length === 0) return null;
   const readable = readableToSend();
   return {
     version: 1,
-    ...(panel === 'bottom' || savedPanel === 'bottom' ? { panel } : {}),
+    ...sentIfSetNowOrBefore('panel', panel, panel === 'bottom' || saved.panel === 'bottom'),
+    ...sentIfSetNowOrBefore('map_hidden', !!mapHidden, !!mapHidden || !!saved.mapHidden),
     ...(readable ? { readable } : {}),
     widgets: widgets as DashboardConfigInput['widgets'],
   } as DashboardConfigInput;

@@ -19,11 +19,11 @@ const legacy = ['markdown:1', 'indicator:1', 'bar_chart:1', 'histogram:1', 'cate
 describe('the widget types a save says it reads', () => {
   it('are left out while they match what a server assumes', () => {
     mocked.reads = [...legacy].reverse();
-    expect(dashboardPayload({ panel: 'right', widgets: [text] }, [], 'right')).not.toHaveProperty('readable');
+    expect(dashboardPayload({ panel: 'right', widgets: [text] }, [], { panel: 'right' })).not.toHaveProperty('readable');
   });
 
   it('are sent once this build reads more', () => {
     mocked.reads = [...legacy, 'pie_chart:1'];
-    expect(dashboardPayload({ panel: 'right', widgets: [text] }, [], 'right')?.readable).toEqual(mocked.reads);
+    expect(dashboardPayload({ panel: 'right', widgets: [text] }, [], { panel: 'right' })?.readable).toEqual(mocked.reads);
   });
 });

@@ -1422,3 +1422,59 @@ def test_the_hosted_layer_note_follows_the_items_current_action(
     assert export_module.item_replacement(item, plan, state).startswith(
         expected
     )
+
+
+def _dashboard_plan(map_ids, map_widgets):
+    maps = [{"id": m, "type": "Web Map", "title": f"Map {m}"} for m in [C2, C3]]
+    dash = {"id": D1, "type": "Dashboard", "action": "export_only", "reason": "read"}
+    if map_widgets is not None:
+        dash["map_widgets"] = map_widgets
+        dash["map_widget_maps"] = list(map_ids)
+    return dash, {"items": [dash, *maps]}
+
+
+def _note(tmp_path, map_ids, map_widgets):
+    state = MigrationState(tmp_path / "s.json", "p", "i", str, persist=False)
+    dash, plan = _dashboard_plan(map_ids, map_widgets)
+    return export_module.item_replacement(dash, plan, state)
+
+
+def test_a_dashboard_with_no_map_widget_is_to_be_rebuilt_with_the_map_hidden(tmp_path):
+    note = _note(tmp_path, [], 0)
+
+    assert "It has no map widget: rebuild it with the map hidden" in note
+    assert "histogram" in note and "API-only" not in note
+
+
+def test_a_dashboard_with_several_maps_names_only_the_maps_its_widgets_show(tmp_path):
+    note = _note(tmp_path, [C2, C3], 2)
+
+    assert f"It has 2 map widgets on Map {C2}, Map {C3}" in note
+    assert "convert it to a single-map dashboard or split it" in note
+
+
+def test_two_map_widgets_on_one_web_map_still_ask_for_a_split(tmp_path):
+    note = _note(tmp_path, [C2], 2)
+
+    assert f"It has 2 map widgets on Map {C2}:" in note
+    assert f"Map {C3}" not in note
+
+
+def test_a_one_map_widget_dashboard_gets_only_the_general_note(tmp_path):
+    assert _note(tmp_path, [C2], 1) == export_module.replacement_note("Dashboard")
+
+
+def test_a_dashboard_whose_widgets_were_not_read_says_the_count_is_unknown(tmp_path):
+    note = _note(tmp_path, [], None)
+
+    assert "Its map widgets could not be counted" in note
+    assert "with none, rebuild it with the map hidden" in note
+    assert "map widgets (" not in note
+
+
+def test_one_widget_that_shows_two_maps_gets_its_own_wording(tmp_path):
+    note = _note(tmp_path, [C2, C3], 1)
+
+    assert f"Its map widget shows 2 maps (Map {C2}, Map {C3})" in note
+    assert "map widgets (" not in note
+    assert "convert it to a single-map dashboard or split it" in note

@@ -94,6 +94,7 @@ export function DashboardWidget({
   linked,
   selection,
   onSelect,
+  mapHidden = false,
 }: {
   parsed: ReadyWidget;
   layer: SharedLayerResponse;
@@ -109,19 +110,22 @@ export function DashboardWidget({
   selection?: WidgetSelection | null;
   /** Set where picks link widgets, as in the viewer; see `WidgetRenderProps`. */
   onSelect?: (selection: WidgetSelection | null) => void;
+  /** Set where the dashboard hides its map: a view-scoped widget then reads its whole layer and says so. */
+  mapHidden?: boolean;
 }) {
   const { t } = useTranslation('widgets');
   const headingId = useId();
   const layerLineId = useId();
   const Heading = headingLevel === 4 ? 'h4' : 'h3';
   const { instance, definition } = parsed;
-  const { query, filterIgnored, loading } = useWidgetAggregate({
+  const { query, filterIgnored, loading, followsView, viewScopeDropped } = useWidgetAggregate({
     instance,
     definition,
     layer,
     viewBbox,
     embedToken,
     linked,
+    mapHidden,
   });
   const loadingSkeleton = (
     <Skeleton className="h-12 w-full">
@@ -132,7 +136,6 @@ export function DashboardWidget({
   const named = widgetName(definition, instance, layer.column_info, t);
   const heading = named || layerName;
   const layerBelow = !!named;
-  const followsView = instance.scope === 'view' && !!layer.geometry_type;
   // Numbers kept on screen while a pan's new ones load.
   const stale = query.isPlaceholderData;
   const failed = query.isError;
@@ -166,6 +169,7 @@ export function DashboardWidget({
           </p>
         )}
       </header>
+      {viewScopeDropped && <p className="text-xs text-muted-foreground">{t('dashboard.viewScopeUnavailable')}</p>}
       {filterIgnored && (
         <p className="text-xs text-muted-foreground">
           {t(linked?.length ? 'dashboard.filterIgnoredWithPicks' : 'dashboard.filterIgnored')}
@@ -190,6 +194,7 @@ export function DashboardWidget({
             data={query.data}
             selection={selection}
             onSelect={onSelect}
+            mapHidden={mapHidden}
             columnLabel={(column) => columnDisplayName(layer.column_info, column)}
             loadingFallback={loadingSkeleton}
           />
@@ -228,7 +233,7 @@ export function DashboardTextWidget({
 }
 
 /** The part of a dashboard config the panel reads: a stored one, or a draft's as a save would send it. */
-type PanelConfig = { panel?: string | null; widgets?: readonly { id: string }[] };
+type PanelConfig = { panel?: string | null; map_hidden?: boolean | null; widgets?: readonly { id: string }[] };
 
 type PanelWidget = { key: string; parsed: ParsedWidget };
 export type PanelPosition = 'right' | 'bottom';
@@ -236,6 +241,13 @@ export type PanelPosition = 'right' | 'bottom';
 /** Where the author put the panel; a dashboard from before the choice existed sits on the right. */
 export function dashboardPanelPosition(config: PanelConfig | null | undefined): PanelPosition {
   return config?.panel === 'bottom' ? 'bottom' : 'right';
+}
+
+/** How the dashboard sits: beside the map, below it, or as the whole page when its author hides the map. */
+export type DashboardLayout = PanelPosition | 'page';
+
+export function dashboardLayout(config: PanelConfig | null | undefined): DashboardLayout {
+  return config?.map_hidden ? 'page' : dashboardPanelPosition(config);
 }
 
 /** The expanded panel's widgets; unmounted on collapse, so the view bbox starts over on reopen. */
@@ -246,7 +258,7 @@ function DashboardWidgetList({
   hiddenLayers,
   map,
   embedToken,
-  panel,
+  layout,
   picks,
   onChoose,
   onProblemChange,
@@ -257,7 +269,7 @@ function DashboardWidgetList({
   hiddenLayers?: ReadonlySet<string>;
   map: MaplibreMap | null;
   embedToken?: string;
-  panel: PanelPosition;
+  layout: DashboardLayout;
   picks: readonly LinkedPick[];
   onChoose?: (widgetId: string, layer: SharedLayerResponse, selection: WidgetSelection | null) => void;
   onProblemChange: (id: string, problem: WidgetProblem | null) => void;
@@ -270,7 +282,7 @@ function DashboardWidgetList({
   const shown = hiddenLayers?.size
     ? widgets.filter(({ parsed }) => !parsed.ok || !hiddenLayers.has(parsed.instance.layer_id ?? ''))
     : widgets;
-  const followsView = shown.some(({ parsed }) => parsed.ok && parsed.instance.scope === 'view');
+  const followsView = layout !== 'page' && shown.some(({ parsed }) => parsed.ok && parsed.instance.scope === 'view');
   const viewBbox = useMapViewBbox(map, followsView);
   // Built once per change of picks, so each widget's request memo holds between them.
   const linkedByWidget = useMemo(() => {
@@ -296,7 +308,7 @@ function DashboardWidgetList({
       id={id}
       className={cn(
         'min-h-0 flex-1 overflow-y-auto p-3',
-        panel === 'bottom'
+        layout !== 'right'
           ? 'grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))] content-start gap-3'
           : 'space-y-3',
       )}
@@ -320,8 +332,10 @@ function DashboardWidgetList({
             !!onChoose &&
             column !== undefined &&
             isCql2QueryableColumn(column, layer.column_info) &&
-            mapCarriesColumn(layer, column) &&
-            (getClusterSourceStrategy(layer).kind !== 'server-tile' || isMvtSourceLayerConfigReady(tileConfig));
+            // With no map to filter, only the server's own filtering matters.
+            (layout === 'page' ||
+              (mapCarriesColumn(layer, column) &&
+                (getClusterSourceStrategy(layer).kind !== 'server-tile' || isMvtSourceLayerConfigReady(tileConfig))));
           return (
             <li key={key}>
               <DashboardWidget
@@ -329,6 +343,7 @@ function DashboardWidgetList({
                 layer={layer}
                 viewBbox={parsed.instance.scope === 'view' ? viewBbox : null}
                 embedToken={embedToken}
+                mapHidden={layout === 'page'}
                 onProblemChange={onProblemChange}
                 linked={linkedByWidget.get(widgetId)}
                 selection={picks.find((pick) => pick.widgetId === widgetId)?.selection ?? null}
@@ -396,10 +411,15 @@ export function DashboardPanel({
   const { t } = useTranslation('widgets');
   const contentId = useId();
   const storageKey = mapId ? storageKeys.dashboardCollapsed(mapId) : null;
-  const [collapsed, setCollapsed] = useState(
+  const [collapsedChoice, setCollapsed] = useState(
     () => startCollapsed || (storageKey !== null && readStorage(storageKey) === '1'),
   );
+  const layout = dashboardLayout(config);
+  const mapHidden = layout === 'page';
+  // Without a map the dashboard is the page, so there is nothing to collapse it for.
+  const collapsed = !mapHidden && collapsedChoice;
   const toggleRef = useRef<HTMLButtonElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const { choose, remove, announcement, layerName, pickLabel } = usePicks(picks, onPicksChange, layers);
   // One announcement for the panel, so a pan that fails every widget doesn't speak once per widget.
   const [problems, setProblems] = useState<ReadonlyMap<string, WidgetProblem>>(() => new Map());
@@ -429,8 +449,7 @@ export function DashboardPanel({
     }
   }, [widgets]);
   if (widgets.length === 0) return null;
-  const panel = dashboardPanelPosition(config);
-  const right = panel === 'right';
+  const right = layout === 'right';
 
   const toggle = () => {
     const next = !collapsed;
@@ -452,7 +471,7 @@ export function DashboardPanel({
       layerName={layerName}
       pickLabel={pickLabel}
       onRemove={remove}
-      fallbackFocus={toggleRef}
+      fallbackFocus={mapHidden ? headingRef : toggleRef}
       className={className}
     />
   );
@@ -461,12 +480,16 @@ export function DashboardPanel({
     <section
       aria-label={t('dashboard.title')}
       className={cn(
-        'flex shrink-0 flex-col border-t bg-background',
+        'flex flex-col bg-background',
+        mapHidden ? 'min-h-0 w-full flex-1' : 'shrink-0 border-t',
         right && 'md:border-s md:border-t-0',
-        !collapsed && 'max-h-[45dvh]',
-        // Stacked below the map in a short window or iframe, the map keeps most of the height.
-        !collapsed && (right ? 'max-md:[@media(max-height:480px)]:max-h-[35dvh]' : '[@media(max-height:480px)]:max-h-[35dvh]'),
-        !collapsed && right && 'md:max-h-none md:w-80 lg:w-96',
+        !mapHidden &&
+          !collapsed && [
+            'max-h-[45dvh]',
+            // Stacked below the map in a short window or iframe, the map keeps most of the height.
+            right ? 'max-md:[@media(max-height:480px)]:max-h-[35dvh]' : '[@media(max-height:480px)]:max-h-[35dvh]',
+            right && 'md:max-h-none md:w-80 lg:w-96',
+          ],
       )}
     >
       <LiveAnnouncement
@@ -484,40 +507,47 @@ export function DashboardPanel({
           // Decorative: a brand mark beside the heading, not content.
           <img src={logoUrl} alt="" referrerPolicy="no-referrer" className="h-6 w-auto max-w-32 object-contain" />
         )}
-        {!collapsed && <h2 className="flex-1 text-sm font-semibold">{t('dashboard.title')}</h2>}
-        <Button
-          ref={toggleRef}
-          type="button"
-          variant="ghost"
-          size={collapsed ? 'sm' : 'icon-sm'}
-          aria-expanded={!collapsed}
-          aria-controls={collapsed ? undefined : contentId}
-          title={toggleLabel}
-          onClick={toggle}
-        >
-          {collapsed ? (
-            <>
-              <LayoutDashboard aria-hidden="true" />
-              {countOnToggle && (
-                <span
-                  aria-hidden="true"
-                  className="min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 font-semibold text-primary-foreground tabular-nums"
-                >
-                  {picks.length}
-                </span>
-              )}
-            </>
-          ) : (
-            <>
-              <PanelBottomClose aria-hidden="true" className={cn(right && 'md:hidden')} />
-              {right && <PanelRightClose aria-hidden="true" className="hidden md:block" />}
-            </>
-          )}
-          {/* The right panel collapses to a narrow rail on wide screens. */}
-          <span className={collapsed ? (right ? 'md:sr-only' : undefined) : 'sr-only'}>
-            {toggleLabel}
-          </span>
-        </Button>
+        {!collapsed && (
+          // Focusable by script so focus has a place to land when the last chip leaves with no toggle.
+          <h2 ref={headingRef} tabIndex={-1} className="flex-1 text-sm font-semibold outline-none">
+            {t('dashboard.title')}
+          </h2>
+        )}
+        {!mapHidden && (
+          <Button
+            ref={toggleRef}
+            type="button"
+            variant="ghost"
+            size={collapsed ? 'sm' : 'icon-sm'}
+            aria-expanded={!collapsed}
+            aria-controls={collapsed ? undefined : contentId}
+            title={toggleLabel}
+            onClick={toggle}
+          >
+            {collapsed ? (
+              <>
+                <LayoutDashboard aria-hidden="true" />
+                {countOnToggle && (
+                  <span
+                    aria-hidden="true"
+                    className="min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 font-semibold text-primary-foreground tabular-nums"
+                  >
+                    {picks.length}
+                  </span>
+                )}
+              </>
+            ) : (
+              <>
+                <PanelBottomClose aria-hidden="true" className={cn(right && 'md:hidden')} />
+                {right && <PanelRightClose aria-hidden="true" className="hidden md:block" />}
+              </>
+            )}
+            {/* The right panel collapses to a narrow rail on wide screens. */}
+            <span className={collapsed ? (right ? 'md:sr-only' : undefined) : 'sr-only'}>
+              {toggleLabel}
+            </span>
+          </Button>
+        )}
         {collapsed && !right && chips('min-w-0 flex-1')}
       </div>
       {!collapsed && chips('border-b px-3 py-2')}
@@ -529,7 +559,7 @@ export function DashboardPanel({
           hiddenLayers={hiddenLayers}
           map={map}
           embedToken={embedToken}
-          panel={panel}
+          layout={layout}
           picks={picks}
           onChoose={onPicksChange ? choose : undefined}
           onProblemChange={onProblemChange}

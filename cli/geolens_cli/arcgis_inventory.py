@@ -758,6 +758,40 @@ def _app_references(data: Mapping[str, Any]) -> list[_AppRef] | None:
     return list(unique.values())
 
 
+def _map_widgets(data: Mapping[str, Any]) -> tuple[int, list[str]] | None:
+    """(map widget count, the web map ids they show) of a dashboard, or None
+    when it lists no widgets. One count per widget, even when several show the
+    same web map; a widget Esri copies into the mobile view keeps its id, so it
+    counts once, though a copy that shows another map still adds that map."""
+    desktop = data.get("desktopView")
+    widgets = data.get("widgets")
+    if not isinstance(widgets, list) and isinstance(desktop, dict):
+        widgets = desktop.get("widgets")
+    mobile = data.get("mobileView")
+    mobile_widgets = mobile.get("widgets") if isinstance(mobile, dict) else None
+    if not isinstance(widgets, list) and not isinstance(mobile_widgets, list):
+        return None
+    count = 0
+    seen: set[str] = set()
+    maps: dict[str, None] = {}
+    for widget in [
+        *(widgets if isinstance(widgets, list) else []),
+        *(mobile_widgets if isinstance(mobile_widgets, list) else []),
+    ]:
+        if not isinstance(widget, dict) or widget.get("type") != "mapWidget":
+            continue
+        item_id = widget.get("itemId")
+        if isinstance(item_id, str) and item_id:
+            maps.setdefault(item_id)
+        widget_id = widget.get("id")
+        if isinstance(widget_id, str) and widget_id:
+            if widget_id in seen:
+                continue
+            seen.add(widget_id)
+        count += 1
+    return count, list(maps)
+
+
 def _is_web_map(data: Mapping[str, Any]) -> bool:
     """Whether *data* has a web map's structure: ``baseMap`` is required by the spec."""
     layers = data.get("operationalLayers")
@@ -879,6 +913,7 @@ class _DepResult:
     errors: list[dict[str, Any]] = field(default_factory=list)
     auth: PortalError | None = None
     saved: bool = False
+    map_widgets: tuple[int, list[str]] | None = None
 
 
 # Reads that carry no usable JSON are an app's normal state, not a failure.
@@ -995,6 +1030,8 @@ def _collect_dependencies(
                 status, dependencies = _extract_dependencies(
                     row, data, index, inv.portal
                 )
+                if row["type"] == "Dashboard":
+                    out.map_widgets = _map_widgets(data)
         except (TypeError, ValueError, AttributeError, KeyError, IndexError) as exc:
             # One corrupt configuration must not sink the whole inventory.
             message = (
@@ -1063,6 +1100,8 @@ def _collect_dependencies(
         for row, out in zip(targets, pool.map(fetch, targets), strict=True):
             row["dependencies_status"] = out.status
             row["data_saved"] = out.saved
+            if out.map_widgets is not None:
+                row["map_widgets"], row["map_widget_maps"] = out.map_widgets
             inv.dependencies.extend(out.dependencies)
             inv.errors.extend(out.errors)
             if out.auth is not None:

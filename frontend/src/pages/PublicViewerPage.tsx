@@ -193,6 +193,7 @@ function PublicViewer() {
         hiddenLayers={hiddenByReader}
         embedToken={embedToken}
         startCollapsed={startDashboardCollapsed}
+        mainLandmark
       >
         {({ onMapReady, mapLayers }) => (
           <main id="map-viewport" className="w-full min-w-0 min-h-0 flex-1 relative overflow-hidden">

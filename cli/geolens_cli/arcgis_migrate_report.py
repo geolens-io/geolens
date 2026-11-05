@@ -28,7 +28,7 @@ from .arcgis_migrate_cutover import (
     in_use,
     sharing_losses,
 )
-from .arcgis_migrate_export import item_replacement
+from .arcgis_migrate_export import dashboard_layout_follow_up, item_replacement
 from .arcgis_migrate_groups import NO_GROUP, PUBLIC_BLOCKED, SHARING_LABELS
 from . import arcgis_plan as _plan
 from .arcgis_migrate_state import (
@@ -150,6 +150,9 @@ def _follow_ups(
                 )
             for error in entry.export["errors"]:
                 add(item["id"], "export_error", error)
+        layout = dashboard_layout_follow_up(item, plan)
+        if layout and not item.get("removed") and item["action"] != _plan.SKIP:
+            add(item["id"], "dashboard_layout", layout)
         if entry is None or item.get("removed"):
             continue
         for reason in entry.stale:

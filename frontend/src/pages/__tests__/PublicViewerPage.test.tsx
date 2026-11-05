@@ -326,6 +326,41 @@ describe('PublicViewerPage', () => {
     });
   });
 
+  it.each(['/m/share-token', '/m/share-token?embed=true&dashboard=collapsed'])(
+    'shows only the dashboard, mounting no map, when the map is hidden (%s)',
+    (route) => {
+      mockedUseSharedMap.mockReturnValue({
+        data: {
+          ...SHARED_MAP,
+          dashboard_config: {
+            version: 1,
+            panel: 'right',
+            map_hidden: true,
+            widgets: [
+              {
+                id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+                type: 'indicator',
+                v: 1,
+                layer_id: 'shared-layer-1',
+                scope: 'layer',
+                config: { stat: 'count', column: null },
+              },
+            ],
+          },
+        },
+        isLoading: false,
+        isError: false,
+        error: null,
+      } as unknown as ReturnType<typeof useSharedMap>);
+      renderPage(route);
+      expect(screen.getByRole('region', { name: 'Dashboard' })).toBeInTheDocument();
+      expect(screen.queryByTestId('viewer-map')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('layer-legend')).not.toBeInTheDocument();
+      expect(viewerMapMock.props).toBeNull();
+      expect(screen.getAllByRole('main')).toHaveLength(1);
+    },
+  );
+
   it('hands the legend what the viewer map reports drawing', async () => {
     renderPage();
     await screen.findByTestId('viewer-map');

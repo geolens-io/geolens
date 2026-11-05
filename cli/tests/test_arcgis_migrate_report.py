@@ -596,3 +596,79 @@ def test_an_early_exit_says_where_the_report_is(runner, tmp_path, geolens, monke
 
     assert result.exit_code == 130
     assert "arcgis-migration-report.md" in result.output
+
+
+def _dashboard_layout_follow_ups(
+    tmp_path, map_widgets, maps=(), status=None, action=None, removed=False
+):
+    plan = _plan(tmp_path)
+    for item in plan["items"]:
+        if item["id"] == C3:
+            item["type"] = "Dashboard"
+            item.pop("map_widgets", None)
+            if map_widgets is not None:
+                item["map_widgets"] = map_widgets
+                item["map_widget_maps"] = list(maps)
+            if action:
+                item["action"] = action
+            if removed:
+                item["removed"] = True
+        if item["id"] in (A1, A2):
+            item["type"] = "Web Map"
+    state = _state(tmp_path)
+    if status:
+        export = {
+            "path": "export/dashboard/x",
+            "bytes": 1,
+            "partial": False,
+            "errors": [],
+        }
+        _set(state, C3, status, export=export if status == "done" else None)
+    report = report_mod.build_run_report(plan, state, runnable=set())
+    return [
+        f["text"]
+        for f in report["follow_ups"]
+        if f["kind"] == "dashboard_layout" and f["item"] == C3
+    ]
+
+
+def test_a_dashboard_without_a_map_is_a_follow_up_to_rebuild_with_the_map_hidden(
+    tmp_path,
+):
+    [text] = _dashboard_layout_follow_ups(tmp_path, 0, status="done")
+
+    assert "no map widget: rebuild it with the map hidden" in text
+
+
+def test_a_dashboard_with_two_maps_is_a_follow_up_naming_them(tmp_path):
+    [text] = _dashboard_layout_follow_ups(tmp_path, 2, [A1, A2], status="done")
+
+    assert "2 map widgets" in text
+    assert "convert it to a single-map dashboard or split it" in text
+
+
+def test_a_pending_dashboard_is_named_before_it_has_an_export(tmp_path):
+    [text] = _dashboard_layout_follow_ups(tmp_path, 0)
+
+    assert "no map widget" in text
+
+
+def test_a_dashboard_whose_export_failed_is_still_named(tmp_path):
+    [text] = _dashboard_layout_follow_ups(tmp_path, 3, [A1], status="failed")
+
+    assert "3 map widgets" in text
+
+
+def test_a_removed_or_skipped_dashboard_is_not_named(tmp_path):
+    assert _dashboard_layout_follow_ups(tmp_path, 0, removed=True) == []
+    assert _dashboard_layout_follow_ups(tmp_path, 0, action="skip") == []
+
+
+def test_a_one_map_widget_dashboard_has_no_layout_follow_up(tmp_path):
+    assert _dashboard_layout_follow_ups(tmp_path, 1, [A1], status="done") == []
+
+
+def test_a_dashboard_with_an_unread_widget_list_says_the_count_is_unknown(tmp_path):
+    [text] = _dashboard_layout_follow_ups(tmp_path, None)
+
+    assert "could not be counted" in text

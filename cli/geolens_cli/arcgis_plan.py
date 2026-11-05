@@ -69,6 +69,8 @@ _EDITABLE = (
 )
 # Item values that describe the portal item; a merge takes the inventory's.
 _PORTAL_FACTS = ("type", "title", "owner", "reason")
+# What the inventory read of a dashboard's map widgets; absent when it did not.
+_MAP_WIDGET_KEYS = ("map_widgets", "map_widget_maps")
 
 
 class PlanError(Exception):
@@ -204,6 +206,9 @@ def build_plan(
             },
             "depends_on": depends_on,
         }
+        for key in _MAP_WIDGET_KEYS:
+            if key in row:
+                entry[key] = row[key]
         layer = superseded.get(row["id"])
         if layer and action == IMPORT_FILE:
             entry["action"] = EXPORT_ONLY
@@ -305,6 +310,11 @@ def _merge_item(
     merged.pop("unlisted", None)
     for key in _PORTAL_FACTS:
         merged[key] = fresh[key]
+    for key in _MAP_WIDGET_KEYS:
+        if key in fresh:
+            merged[key] = fresh[key]
+        else:
+            merged.pop(key, None)
     old = current.get("defaults")
     recorded = copy.deepcopy(fresh["defaults"])
     for path in _EDITABLE:

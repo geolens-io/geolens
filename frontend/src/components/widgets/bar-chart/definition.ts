@@ -70,6 +70,7 @@ export const barChartWidget = defineWidget<BarChartConfig>({
     'types.bar_chart.roleDescription',
     'types.bar_chart.keyboardHint',
     'types.bar_chart.keyboardHintPick',
+    'types.bar_chart.keyboardHintPickPage',
     'types.bar_chart.bar',
   ],
   // `name` is a placeholder: a chart added in the Builder takes its column from

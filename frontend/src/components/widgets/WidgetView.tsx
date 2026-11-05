@@ -53,6 +53,7 @@ export function WidgetView({
   data,
   selection,
   onSelect,
+  mapHidden,
   assetPath,
   columnLabel,
   headingLevel,
@@ -62,6 +63,7 @@ export function WidgetView({
   data?: unknown;
   selection?: WidgetSelection | null;
   onSelect?: (selection: WidgetSelection | null) => void;
+  mapHidden?: boolean;
   assetPath?: string;
   columnLabel?: ColumnLabel;
   headingLevel?: WidgetRenderProps<unknown>['headingLevel'];
@@ -88,6 +90,7 @@ export function WidgetView({
           data={data}
           selection={selection}
           onSelect={onSelect}
+          mapHidden={mapHidden}
           assetPath={assetPath}
           columnLabel={columnLabel}
           headingLevel={headingLevel}

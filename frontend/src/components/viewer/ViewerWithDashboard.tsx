@@ -1,11 +1,11 @@
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { DashboardConfig, SharedLayerResponse } from '@/types/api';
 import { widgetLayerId } from '@/components/widgets/registry';
 import { readerLogoUrl, readerThemeStyle, type ReaderTheme } from '@/lib/reader-theme';
 import { useTheme } from '@/components/theme-provider';
 import { cn } from '@/lib/utils';
-import { DashboardPanel, dashboardPanelPosition } from './DashboardPanel';
+import { DashboardPanel, dashboardLayout } from './DashboardPanel';
 import { linkMapLayers, type LinkedPick } from './linked-filters';
 
 interface ViewerWithDashboardProps {
@@ -20,6 +20,8 @@ interface ViewerWithDashboardProps {
   /** Remembers the reader's collapsed choice; see `DashboardPanel`. */
   mapId?: string;
   startCollapsed?: boolean;
+  /** Set where the page has no main landmark of its own, which the map's viewport otherwise supplies. */
+  mainLandmark?: boolean;
   /** A branding extension's accent, font and logo for the viewer and its dashboard. */
   readerTheme?: ReaderTheme | null;
   /**
@@ -32,10 +34,11 @@ interface ViewerWithDashboardProps {
 
 /**
  * A viewer's map with its dashboard to the right or below, and always below on
- * narrow screens. A pick on a widget filters its layer on the map until the
+ * narrow screens. When the dashboard hides its map, the map is not mounted and
+ * the dashboard fills the page. A pick on a widget filters its layer on the map until the
  * reader clears it; the saved map is unchanged.
  */
-export function ViewerWithDashboard({ children, readerTheme, ...panel }: ViewerWithDashboardProps) {
+export function ViewerWithDashboard({ children, readerTheme, mainLandmark, ...panel }: ViewerWithDashboardProps) {
   const [map, setMap] = useState<MaplibreMap | null>(null);
   const { resolvedTheme } = useTheme();
   const [storedPicks, setPicks] = useState<readonly LinkedPick[]>([]);
@@ -57,23 +60,36 @@ export function ViewerWithDashboard({ children, readerTheme, ...panel }: ViewerW
       setPicks((stored) => [...stored.filter((pick) => hiddenLayers?.has(pick.layerId)), ...next]),
     [hiddenLayers],
   );
-  const mapLayers = useMemo(() => linkMapLayers(panel.layers, picks), [panel.layers, picks]);
+  const layout = dashboardLayout(panel.config);
+  // The saved layers still feed the widgets; only the map itself stays unmounted.
+  const mapHidden = layout === 'page';
+  const mapLayers = useMemo(
+    () => (mapHidden ? [] : linkMapLayers(panel.layers, picks)),
+    [mapHidden, panel.layers, picks],
+  );
+  // The unmounted map must not outlive its removal: a later map reports itself through onMapReady.
+  useEffect(() => {
+    if (mapHidden) setMap(null);
+  }, [mapHidden]);
+  const dashboard = (
+    <DashboardPanel
+      {...panel}
+      map={map}
+      picks={picks}
+      onPicksChange={changePicks}
+      logoUrl={readerLogoUrl(readerTheme)}
+    />
+  );
   return (
     <div
       className={cn(
         'flex w-full min-h-0 flex-1 flex-col',
-        dashboardPanelPosition(panel.config) === 'right' && 'md:flex-row',
+        layout === 'right' && 'md:flex-row',
       )}
       style={readerThemeStyle(readerTheme, resolvedTheme)}
     >
-      {children({ onMapReady: setMap, mapLayers })}
-      <DashboardPanel
-        {...panel}
-        map={map}
-        picks={picks}
-        onPicksChange={changePicks}
-        logoUrl={readerLogoUrl(readerTheme)}
-      />
+      {!mapHidden && children({ onMapReady: setMap, mapLayers })}
+      {mapHidden && mainLandmark ? <main className="flex min-h-0 w-full flex-1 flex-col">{dashboard}</main> : dashboard}
     </div>
   );
 }

@@ -36,6 +36,7 @@ export const histogramWidget = defineWidget<HistogramConfig>({
     'types.histogram.roleDescription',
     'types.histogram.keyboardHint',
     'types.histogram.keyboardHintPick',
+    'types.histogram.keyboardHintPickPage',
     'types.histogram.bin',
     'types.histogram.range',
     'types.histogram.rangeHeader',

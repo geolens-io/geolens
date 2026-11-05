@@ -264,6 +264,74 @@ describe('DashboardEditorPanel', () => {
     ]);
   });
 
+  it('hides the map from a switch, saved in the draft, and takes the map view away from widgets', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const stored = {
+      id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+      type: 'indicator',
+      v: 1,
+      layer_id: parcels.id,
+      scope: 'view' as const,
+      config: { stat: 'count', column: null },
+    };
+    render(<Harness layers={[parcels]} initial={{ panel: 'right', widgets: [stored] }} onChange={onChange} />);
+    expect(screen.queryByText(/this dashboard hides its map/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('switch', { name: 'Hide the map' }));
+    expect(lastDraft(onChange).mapHidden).toBe(true);
+    // The stored view scope stays selected but is unavailable, with the reason beside it.
+    expect(await screen.findByText(/this dashboard hides its map/)).toBeInTheDocument();
+    await user.click(screen.getByRole('combobox', { name: 'Covers' }));
+    expect(await screen.findByRole('option', { name: "What's in the map view" })).toHaveAttribute('aria-disabled', 'true');
+    await user.keyboard('{Escape}');
+
+    await user.click(screen.getByRole('switch', { name: 'Hide the map' }));
+    expect(lastDraft(onChange).mapHidden).toBeUndefined();
+  });
+
+  it('previews the map placeholder when the hidden-map dashboard has no widget left to save', async () => {
+    const user = userEvent.setup();
+    const gone = {
+      id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+      type: 'indicator',
+      v: 1,
+      layer_id: 'b1c2d3e4-0000-4000-8000-0000000000ff',
+      scope: 'layer' as const,
+      config: { stat: 'count', column: null },
+    };
+    render(
+      <Harness
+        layers={[parcels]}
+        initial={{ panel: 'right', widgets: [gone], mapHidden: true }}
+        onChange={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Preview panel' }));
+    expect(within(await screen.findByRole('dialog')).getByText('Map')).toBeInTheDocument();
+  });
+
+  it('offers no hide-the-map switch before there are widgets', () => {
+    render(<Harness onChange={vi.fn()} />);
+    expect(screen.queryByRole('switch', { name: 'Hide the map' })).not.toBeInTheDocument();
+  });
+
+  it('offers the map view only while the map is shown', async () => {
+    const user = userEvent.setup();
+    render(
+      <Harness
+        layers={[parcels]}
+        initial={{ panel: 'right', widgets: [], mapHidden: true }}
+        onChange={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Add Indicator' }));
+    await user.click(screen.getByRole('combobox', { name: 'Covers' }));
+    expect((await screen.findAllByRole('option')).map((option) => option.textContent)).toEqual([
+      'The whole layer',
+    ]);
+  });
+
   it('flags a stored view-scoped widget on a layer without geometry', () => {
     const stored = {
       id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
