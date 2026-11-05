@@ -44,6 +44,7 @@ from app.processing.raster.vrt import (
     add_vrt_overview,
     build_vrt,
     overview_key_for,
+    overview_keys_for,
     resolve_vrt_source_path,
     strip_vrt_overview,
 )
@@ -120,23 +121,23 @@ _COG_MEDIA_TYPE = "image/tiff; application=geotiff; profile=cloud-optimized"
 async def keep_overview_if_it_fits(
     owner_id: uuid.UUID | None,
     vrt_path: str,
-    overview_path: str | None,
+    overview_paths: list[str] | None,
     *,
     credit_bytes: int = 0,
 ) -> str | None:
-    """Return ``overview_path`` when its bytes fit the owner's cap, else drop it.
+    """Return ``overview_paths`` when their bytes fit the owner's cap, else drop them.
 
     Dropping deletes the file and strips the ``Overview`` elements, so the VRT
     publishes without one. ``credit_bytes`` is what the superseded overview
     already counts. This is advisory and runs before the VRT is hashed; the
     authoritative reservation is ``record_vrt_overview``.
     """
-    if overview_path is None:
+    if overview_paths is None:
         return None
     from app.core.db import async_session
     from app.modules.quota.service import get_user_quota_usage
 
-    size = os.path.getsize(overview_path)
+    size = sum(os.path.getsize(path) for path in overview_paths)
     async with async_session() as session:
         usage = await get_user_quota_usage(session, owner_id)
     if usage.storage_cap > 0 and (
@@ -146,9 +147,9 @@ async def keep_overview_if_it_fits(
             "VRT overview dropped: it would exceed the owner's storage cap",
             size_bytes=size,
         )
-        strip_vrt_overview(vrt_path, overview_path)
+        strip_vrt_overview(vrt_path, overview_paths)
         return None
-    return overview_path
+    return overview_paths
 
 
 async def counted_overview(session, dataset_id: uuid.UUID) -> tuple[int, str | None]:
@@ -171,7 +172,7 @@ async def record_vrt_overview(
     dataset_id: uuid.UUID,
     owner_id: uuid.UUID | None,
     overview_key: str,
-    overview_path: str | None,
+    overview_paths: list[str] | None,
 ) -> None:
     """Reserve the overview's net bytes and write, replace or delete its row.
 
@@ -182,7 +183,7 @@ async def record_vrt_overview(
     from app.modules.quota.service import reserve_storage_bytes
 
     prior, _ = await counted_overview(session, dataset_id)
-    if overview_path is None:
+    if overview_paths is None:
         await session.execute(
             text(
                 "DELETE FROM catalog.dataset_assets "
@@ -191,7 +192,7 @@ async def record_vrt_overview(
             {"dataset_id": dataset_id, "key": VRT_OVERVIEW_ASSET_KEY},
         )
         return
-    size = os.path.getsize(overview_path)
+    size = sum(os.path.getsize(path) for path in overview_paths)
     await reserve_storage_bytes(session, owner_id, max(0, size - prior))
     await session.execute(
         text(
@@ -297,7 +298,7 @@ def _prior_generation_keys_to_reap(
     overview_href: str | None = None,
 ) -> list[str]:
     """The logical keys of the prior objects whose catalog pointers will be replaced."""
-    logical_keys = [vrt_key, overview_key_for(vrt_key)]
+    logical_keys = [vrt_key, *overview_keys_for(vrt_key)]
     # The catalog row can name an overview the VRT's own URI does not, after a
     # regeneration by a release that does not write one.
     if overview_href is not None and overview_href not in logical_keys:
@@ -681,11 +682,11 @@ async def ingest_vrt(
         await asyncio.to_thread(
             build_vrt, vrt_type, source_paths, vrt_path, resolution_strategy
         )
-        overview_path = await asyncio.to_thread(
+        overview_paths = await asyncio.to_thread(
             add_vrt_overview, vrt_path, source_paths
         )
-        overview_path = await keep_overview_if_it_fits(
-            uuid.UUID(user_id), vrt_path, overview_path
+        overview_paths = await keep_overview_if_it_fits(
+            uuid.UUID(user_id), vrt_path, overview_paths
         )
 
         # 6. Extract metadata from assembled VRT
@@ -710,7 +711,11 @@ async def ingest_vrt(
             attempt_uuid,
             keys=[
                 f"{_vrt_base_key}/source.vrt",
-                *([f"{_vrt_base_key}/source.ovr.tif"] if overview_path else []),
+                *(
+                    overview_keys_for(f"{_vrt_base_key}/source.vrt")[
+                        : len(overview_paths or [])
+                    ]
+                ),
                 f"{_vrt_base_key}/quicklook_256.png",
                 f"{_vrt_base_key}/quicklook_512.png",
             ],
@@ -829,14 +834,17 @@ async def ingest_vrt(
                     dataset_id=dataset.id,
                     owner_id=uuid.UUID(user_id),
                     overview_key=overview_key_for(vrt_key),
-                    overview_path=overview_path,
+                    overview_paths=overview_paths,
                 )
 
                 # Before the VRT, so a stored VRT never names a missing overview.
-                if overview_path is not None:
-                    _storage_ovr_key = overview_key_for(_storage_vrt_key)
+                for _ovr_path, _storage_ovr_key in zip(
+                    overview_paths or [],
+                    overview_keys_for(_storage_vrt_key),
+                    strict=False,
+                ):
                     written_storage_keys.append(_storage_ovr_key)
-                    with open(overview_path, "rb") as fobj:
+                    with open(_ovr_path, "rb") as fobj:
                         await storage.put(_storage_ovr_key, fobj)
 
                 written_storage_keys.append(_storage_vrt_key)
@@ -1233,15 +1241,15 @@ async def regenerate_vrt(
         await asyncio.to_thread(
             build_vrt, vrt_type, source_paths, vrt_path, resolution_strategy
         )
-        overview_path = await asyncio.to_thread(
+        overview_paths = await asyncio.to_thread(
             add_vrt_overview, vrt_path, source_paths
         )
         async with async_session() as session:
             prior_overview_bytes, prior_overview_href = await counted_overview(
                 session, vrt_id
             )
-        overview_path = await keep_overview_if_it_fits(
-            vrt_owner_id, vrt_path, overview_path, credit_bytes=prior_overview_bytes
+        overview_paths = await keep_overview_if_it_fits(
+            vrt_owner_id, vrt_path, overview_paths, credit_bytes=prior_overview_bytes
         )
 
         # 6 & 7. Extract metadata (also serves as post-validation)
@@ -1280,7 +1288,7 @@ async def regenerate_vrt(
             attempt_uuid,
             keys=[
                 next_vrt_storage_key,
-                *([overview_key_for(next_vrt_storage_key)] if overview_path else []),
+                *overview_keys_for(next_vrt_storage_key)[: len(overview_paths or [])],
                 *([next_ql256_uri] if ql256 is not None else []),
                 *([next_ql512_uri] if ql512 is not None else []),
             ],
@@ -1334,10 +1342,13 @@ async def regenerate_vrt(
         # Registered before the put: a cancelled put can have completed, and
         # CancelledError skips every statement below it.
         # Before the VRT, so a stored VRT never names a missing overview.
-        if overview_path is not None:
-            next_ovr_physical_key = overview_key_for(next_vrt_physical_key)
+        for ovr_path, next_ovr_physical_key in zip(
+            overview_paths or [],
+            overview_keys_for(next_vrt_physical_key),
+            strict=False,
+        ):
             written_storage_keys.append(next_ovr_physical_key)
-            with open(overview_path, "rb") as fobj:
+            with open(ovr_path, "rb") as fobj:
                 await storage.put(next_ovr_physical_key, fobj)
 
         written_storage_keys.append(next_vrt_physical_key)
@@ -1448,7 +1459,7 @@ async def regenerate_vrt(
                     dataset_id=vrt_id,
                     owner_id=vrt_owner_id,
                     overview_key=overview_key_for(next_vrt_storage_key),
-                    overview_path=overview_path,
+                    overview_paths=overview_paths,
                 )
 
                 # 12. Status transitions

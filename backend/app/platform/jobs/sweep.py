@@ -599,6 +599,9 @@ def unadopted_analysis_tables_from_metadata(user_metadata: object) -> tuple[str,
     return recorded_analysis_output_tables(user_metadata)
 
 
+_OVERVIEW_KEY_RE = r"\.ovr[0-9]*\.tif$"
+
+
 async def _live_referenced_storage_keys(
     keys: tuple[str, ...], *, owed_cogs: bool = False
 ) -> set[str]:
@@ -622,6 +625,7 @@ async def _live_referenced_storage_keys(
     # asyncpg's 32767-arg ceiling at ~8192 keys, and a failed query skips
     # every delete.
     keys_param = bindparam("reap_keys", value=list(keys), type_=ARRAY(Text))
+    overview_key = func.unnest(keys_param).column_valued("overview_key")
     arms = [
         select(RasterAsset.asset_uri.label("key")).where(
             RasterAsset.asset_uri == any_(keys_param)
@@ -635,15 +639,12 @@ async def _live_referenced_storage_keys(
         select(DatasetAsset.href.label("key")).where(
             DatasetAsset.href == any_(keys_param)
         ),
-        # A VRT's overview image has no column of its own: it sits beside the
-        # VRT and shares its lifetime.
-        select(
-            func.regexp_replace(RasterAsset.asset_uri, r"\.vrt$", ".ovr.tif").label(
-                "key"
-            )
-        ).where(
-            func.regexp_replace(RasterAsset.asset_uri, r"\.vrt$", ".ovr.tif")
-            == any_(keys_param)
+        # A VRT's overview files have no column of their own: they sit beside
+        # the VRT and share its lifetime.
+        select(overview_key.label("key")).where(
+            overview_key.op("~")(_OVERVIEW_KEY_RE),
+            RasterAsset.asset_uri
+            == func.regexp_replace(overview_key, _OVERVIEW_KEY_RE, ".vrt"),
         ),
     ]
     if owed_cogs:
@@ -954,6 +955,9 @@ def _stale_generation_storage_keys(
     from app.core.tenancy import is_multi_tenant
     from app.platform.storage.titiler_url import resolve_storage_key
 
+    from app.processing.raster.vrt import overview_keys_for
+
+    overview_names = overview_keys_for("source.vrt")
     tenant_id = current_tenant_var.get()
     if is_multi_tenant() and tenant_id is None:
         return ()
@@ -966,7 +970,7 @@ def _stale_generation_storage_keys(
         for generation_id, vrt_dataset_id in stale_generations
         for suffix in (
             "source.vrt",
-            "source.ovr.tif",
+            *overview_names,
             "quicklook_256.png",
             "quicklook_512.png",
         )

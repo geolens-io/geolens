@@ -429,9 +429,24 @@ def build_vrt(
 OVERVIEW_SUFFIX = ".ovr.tif"
 
 
+# Levels past the half-resolution image are plain files beside it, so the
+# reprojecting reader can pick a level near the one it needs.
+MAX_OVERVIEW_LEVELS = 10
+_LEVEL_FLOOR_PX = 512
+
+
 def overview_key_for(vrt_key: str) -> str:
-    """The object beside a VRT that holds its overview image."""
+    """The object beside a VRT that holds its half-resolution overview COG."""
     return posixpath.splitext(vrt_key)[0] + OVERVIEW_SUFFIX
+
+
+def overview_keys_for(vrt_key: str) -> list[str]:
+    """Every object a VRT's overview levels can occupy, finest level first."""
+    stem = posixpath.splitext(vrt_key)[0]
+    return [
+        overview_key_for(vrt_key),
+        *(f"{stem}.ovr{2**level}.tif" for level in range(2, MAX_OVERVIEW_LEVELS + 1)),
+    ]
 
 
 def members_lack_overviews(source_paths: list[str]) -> bool:
@@ -453,16 +468,16 @@ def members_lack_overviews(source_paths: list[str]) -> bool:
     return False
 
 
-def add_vrt_overview(vrt_path: str, source_paths: list[str]) -> str | None:
-    """Build a half-resolution overview COG beside a VRT and reference it.
+def add_vrt_overview(vrt_path: str, source_paths: list[str]) -> list[str] | None:
+    """Build overview images beside a VRT and reference each from every band.
 
-    Returns the overview file's path, or None when every member already has
-    overviews or the overview could not be built (the VRT is then left as it
-    was). The image is a nearest-neighbour ``gdal_translate`` of the VRT at 50%
-    with the COG driver's own internal overviews, named by ``overview_key_for``.
-    Each ``VRTRasterBand`` gets an ``<Overview>`` naming it relative to the VRT:
-    TiTiler opens with ``GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR``, so a sidecar
-    ``.vrt.ovr`` would never be found.
+    Returns the files, finest first, or None when every member already has
+    overviews or the build was skipped or failed (the VRT is then left as it
+    was). The first is a half-resolution COG; each next one halves the previous
+    until the longer side is at most 512 px, resampled by ``nearest`` for integer
+    data and ``average`` for float. GDAL lists only the levels named by
+    ``<Overview>`` elements, and TiTiler opens with
+    ``GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR``, so a ``.ovr`` sidecar is never found.
     """
     from xml.etree.ElementTree import SubElement, parse
 
@@ -502,50 +517,76 @@ def add_vrt_overview(vrt_path: str, source_paths: list[str]) -> str | None:
         else "nearest"
     )
     overview_path = overview_key_for(vrt_path)
+    if not _translate(
+        [
+            "-of",
+            "COG",
+            "-co",
+            "BIGTIFF=IF_SAFER",
+            "-co",
+            f"OVERVIEW_RESAMPLING={resampling}",
+        ],
+        resampling,
+        vrt_path,
+        overview_path,
+    ):
+        return None
+    paths = [overview_path]
+    for key in overview_keys_for(vrt_path)[1:]:
+        if not _longer_side_exceeds_floor(paths[-1]):
+            break
+        if not _translate(
+            ["-of", "GTiff", "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE"]
+            + ["-co", "BIGTIFF=IF_SAFER"],
+            resampling,
+            paths[-1],
+            key,
+        ):
+            break
+        paths.append(key)
+
+    for position, band in enumerate(bands, start=1):
+        for path in paths:
+            overview = SubElement(band, "Overview")
+            name = SubElement(overview, "SourceFilename", relativeToVRT="1")
+            name.text = posixpath.basename(path)
+            SubElement(overview, "SourceBand").text = band.get("band", str(position))
+    tree.write(vrt_path, encoding="utf-8", xml_declaration=True)
+    return paths
+
+
+def _translate(options: list[str], resampling: str, source: str, target: str) -> bool:
+    """Halve ``source`` into ``target``; a failure or timeout leaves no file."""
     try:
         result = run_gdal(
-            [
-                "gdal_translate",
-                "-q",
-                "-of",
-                "COG",
-                "-r",
-                resampling,
-                "-outsize",
-                "50%",
-                "50%",
-                "-co",
-                "BIGTIFF=IF_SAFER",
-                "-co",
-                f"OVERVIEW_RESAMPLING={resampling}",
-                vrt_path,
-                overview_path,
-            ],
+            ["gdal_translate", "-q", *options, "-r", resampling]
+            + ["-outsize", "50%", "50%", source, target],
             env=gdal_safe_env(),
             tool="gdal_translate",
         )
         failure = result.stderr if result.returncode != 0 else None
-    except (
-        RuntimeError
-    ) as exc:  # the optional overview timing out must not fail the VRT
+    except RuntimeError as exc:  # an optional overview timing out must not fail the VRT
         failure = str(exc)
     if failure is not None:
         logger.warning("VRT overview build failed: %s", failure)
-        if os.path.exists(overview_path):
-            os.remove(overview_path)
-        return None
-
-    for position, band in enumerate(bands, start=1):
-        overview = SubElement(band, "Overview")
-        name = SubElement(overview, "SourceFilename", relativeToVRT="1")
-        name.text = posixpath.basename(overview_path)
-        SubElement(overview, "SourceBand").text = band.get("band", str(position))
-    tree.write(vrt_path, encoding="utf-8", xml_declaration=True)
-    return overview_path
+        if os.path.exists(target):
+            os.remove(target)
+        return False
+    return True
 
 
-def strip_vrt_overview(vrt_path: str, overview_path: str) -> None:
-    """Undo ``add_vrt_overview``: remove the ``Overview`` elements and the file."""
+def _longer_side_exceeds_floor(path: str) -> bool:
+    from app.processing.raster.probe import RasterProbeError, read_raster_metadata
+
+    try:
+        meta = read_raster_metadata(path)
+    except RasterProbeError:
+        return False
+    return max(meta["width"], meta["height"]) > _LEVEL_FLOOR_PX
+
+
+def strip_vrt_overview(vrt_path: str, overview_paths: list[str]) -> None:
+    """Undo ``add_vrt_overview``: remove the ``Overview`` elements and the files."""
     from xml.etree.ElementTree import parse
 
     tree = parse(vrt_path)
@@ -553,4 +594,5 @@ def strip_vrt_overview(vrt_path: str, overview_path: str) -> None:
         for overview in band.findall("Overview"):
             band.remove(overview)
     tree.write(vrt_path, encoding="utf-8", xml_declaration=True)
-    os.remove(overview_path)
+    for path in overview_paths:
+        os.remove(path)

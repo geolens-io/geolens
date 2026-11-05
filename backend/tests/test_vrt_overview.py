@@ -17,6 +17,7 @@ from app.processing.raster.vrt import (
     add_vrt_overview,
     build_vrt,
     overview_key_for,
+    overview_keys_for,
 )
 
 needs_gdal_cli = pytest.mark.skipif(
@@ -78,10 +79,10 @@ def test_members_without_overviews_get_an_overview_the_vrt_reads(
     with _titiler_env(), rasterio.open(vrt_path) as src:
         assert src.overviews(1) == []
 
-    overview_path = add_vrt_overview(vrt_path, members)
+    overview_paths = add_vrt_overview(vrt_path, members)
 
-    assert overview_path == str(tmp_path / "source.ovr.tif")
-    assert Path(overview_path).exists()
+    assert overview_paths == [str(tmp_path / "source.ovr.tif")]
+    assert Path(overview_paths[0]).exists()
     band = parse(vrt_path).getroot().find("VRTRasterBand")
     name = band.find("Overview/SourceFilename")
     assert name.text == "source.ovr.tif"
@@ -247,10 +248,11 @@ async def test_a_live_vrts_overview_counts_as_referenced(
     )
     overview = overview_key_for(parent.cog_key)
     try:
+        level = overview_keys_for(parent.cog_key)[2]
         live = await _live_referenced_storage_keys(
-            (overview, "rasters/other/source.ovr.tif")
+            (overview, level, "rasters/other/source.ovr.tif")
         )
-        assert live == {overview}
+        assert live == {overview, level}
     finally:
         await _purge_vrt(test_db_session, ids=ids)
 
@@ -527,8 +529,9 @@ async def test_the_overview_build_runs_under_the_scratch_root(
         await _purge_vrt(test_db_session, ids=ids)
 
 
-def _big_member(path: Path, values: tuple[int, int] = (0, 200)) -> str:
-    size = 2048
+def _big_member(
+    path: Path, values: tuple[int, int] = (0, 200), size: int = 2048
+) -> str:
     rng = np.random.default_rng(7)
     data = np.where(rng.random((size, size)) > 0.5, values[1], values[0]).astype(
         "uint8"
@@ -559,7 +562,7 @@ def test_integer_classes_keep_their_values_in_every_overview_level(
     vrt_path = str(tmp_path / "source.vrt")
     build_vrt("mosaic", members, vrt_path, "finest")
 
-    overview_path = add_vrt_overview(vrt_path, members)
+    overview_path = add_vrt_overview(vrt_path, members)[0]
 
     with rasterio.open(overview_path) as cog:
         levels = cog.overviews(1)
@@ -595,3 +598,30 @@ def test_bands_with_different_data_types_get_no_overview(tmp_path: Path) -> None
     assert add_vrt_overview(vrt_path, members) is None
 
     assert Path(vrt_path).read_bytes() == before
+
+
+@needs_gdal_cli
+def test_a_reprojected_read_picks_a_coarse_overview_level(tmp_path: Path) -> None:
+    from rasterio.vrt import WarpedVRT
+
+    members = [_big_member(tmp_path / "classes.tif", size=4096)]
+    vrt_path = str(tmp_path / "source.vrt")
+    build_vrt("mosaic", members, vrt_path, "finest")
+    paths = add_vrt_overview(vrt_path, members)
+    assert [Path(p).name for p in paths] == [
+        "source.ovr.tif",
+        "source.ovr4.tif",
+        "source.ovr8.tif",
+    ]
+    for value, path in zip((10, 20, 30), paths, strict=True):
+        with rasterio.open(path, "r+", IGNORE_COG_LAYOUT_BREAK="YES") as level:
+            level.write(np.full((level.height, level.width), value, dtype="uint8"), 1)
+
+    with _titiler_env(), rasterio.open(vrt_path) as src:
+        assert src.overviews(1) == [2, 4, 8]
+        with WarpedVRT(src, crs="EPSG:3857") as warped:
+            reduced = warped.read(
+                1, out_shape=(warped.height // 16, warped.width // 16)
+            )
+    assert set(np.unique(reduced)) <= {0, 30}
+    assert 30 in set(np.unique(reduced))
