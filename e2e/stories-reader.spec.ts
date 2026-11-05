@@ -1,5 +1,6 @@
 import { test, expect, type Page } from './helpers/session';
-import { createMap, deleteMap } from './helpers/maps';
+import { authHeaders, createMap, deleteMap } from './helpers/maps';
+import { deleteDataset, seedDataset, type SeededDataset } from './helpers/catalog';
 import {
   cameraDistance,
   createPublishedStory,
@@ -19,13 +20,21 @@ const THIRD: SceneCamera = { center: [-120, 37], zoom: 6 };
 // The longest a transition runs.
 const FLY_MAX_MS = 2_500;
 
+const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 let mapId = '';
+let dataset: SeededDataset | null = null;
 const storyIds: string[] = [];
 
 test.beforeAll(async ({ playwright }) => {
   const request = await playwright.request.newContext();
   try {
     mapId = await createMap(request, `E2E Reader Map ${RUN}`);
+    dataset = await seedDataset('E2E Reader Dataset');
+    const layer = await request.post(`${BASE_URL}/api/maps/${mapId}/layers/`, {
+      headers: authHeaders(),
+      data: { dataset_id: dataset.id },
+    });
+    expect(layer.ok(), `Add layer failed: ${layer.status()}`).toBe(true);
   } finally {
     await request.dispose();
   }
@@ -36,6 +45,7 @@ test.afterAll(async ({ playwright }) => {
   try {
     for (const id of storyIds) await deleteStory(request, id);
     if (mapId) await deleteMap(request, mapId);
+    if (dataset) await deleteDataset(dataset.id, dataset.title);
   } finally {
     await request.dispose();
   }
@@ -203,12 +213,22 @@ test.describe('story floating layout', () => {
     expect(box.x).toBeGreaterThan(viewport.width / 2);
     expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
 
-    const dataButton = page.getByRole('button', { name: 'Expand map data' });
-    if (await dataButton.count()) {
-      const data = (await dataButton.first().boundingBox())!;
-      const overlaps = data.x < box.x + box.width && data.x + data.width > box.x && data.y < box.y + box.height && data.y + data.height > box.y;
-      expect(overlaps, 'The Map data panel sits under the story panel').toBe(false);
-    }
+    const launcher = page.getByRole('button', { name: 'Map data' });
+    await expect(launcher).toBeVisible();
+    const data = (await launcher.boundingBox())!;
+    const overlaps = data.x < box.x + box.width && data.x + data.width > box.x && data.y < box.y + box.height && data.y + data.height > box.y;
+    expect(overlaps, 'The Map data button sits under the story panel').toBe(false);
+
+    await expect(launcher).toBeEnabled();
+    await launcher.click();
+    const docked = page.getByRole('region', { name: 'Map data' });
+    await expect(docked).toBeVisible();
+    const dockedBox = (await docked.boundingBox())!;
+    const topmost = await docked.evaluate((el, [x, y]) => el.contains(document.elementFromPoint(x, y)), [
+      box.x + box.width / 2,
+      dockedBox.y + 8,
+    ]);
+    expect(topmost, 'The story panel covers the Map data panel').toBe(true);
   });
 
   test('keeps the stepper on a phone', async ({ page, playwright }) => {
@@ -235,9 +255,12 @@ test.describe('story reader theme', () => {
     await expect(page.getByRole('heading', { level: 2, name: 'Alpha' })).toBeVisible();
     await expect.poll(() => rootClass(page)).toContain('dark');
 
-    await page.goto(`/stories/${id}/edit`);
+    // An in-app link keeps the document, so the theme provider's cleanup is what restores the theme.
+    await page.getByRole('link', { name: 'Edit' }).click();
+    await page.waitForURL(/\/stories\/[0-9a-f-]+\/edit$/);
     await expect(page.getByRole('button', { name: 'Publish' })).toBeVisible();
     await expect.poll(() => rootClass(page)).not.toContain('dark');
+    expect(await page.evaluate(() => localStorage.getItem('geolens-theme'))).toBe('light');
   });
 
   test('a story that follows leaves the reader on their theme', async ({ page, playwright }) => {
