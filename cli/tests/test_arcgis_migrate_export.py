@@ -1468,4 +1468,13 @@ def test_a_dashboard_whose_widgets_were_not_read_says_the_count_is_unknown(tmp_p
     note = _note(tmp_path, [], None)
 
     assert "Its map widgets could not be counted" in note
+    assert "with none, rebuild it with the map hidden" in note
     assert "map widgets (" not in note
+
+
+def test_one_widget_that_shows_two_maps_gets_its_own_wording(tmp_path):
+    note = _note(tmp_path, [C2, C3], 1)
+
+    assert f"Its map widget shows 2 maps (Map {C2}, Map {C3})" in note
+    assert "map widgets (" not in note
+    assert "convert it to a single-map dashboard or split it" in note

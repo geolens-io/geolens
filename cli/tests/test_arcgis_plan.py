@@ -1294,3 +1294,15 @@ def test_groups_whose_members_were_not_read_are_named(runner, inventory_file):
     assert "Planning" in result.output
     as_json = _plan_cli(runner, str(inventory_file), json_mode=True)
     assert json.loads(as_json.output)["groups_members_unread"] == ["g1"]
+
+
+def test_a_mobile_copy_that_shows_another_map_still_contributes_its_map():
+    data = {
+        "widgets": [{"id": "w1", "type": "mapWidget", "itemId": B1}],
+        "mobileView": {"widgets": [{"id": "w1", "type": "mapWidget", "itemId": A1}]},
+    }
+
+    item = _items(_plan({item_data_path(C3): data}))[C3]
+
+    assert item["map_widgets"] == 1
+    assert item["map_widget_maps"] == [B1, A1]

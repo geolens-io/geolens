@@ -140,21 +140,23 @@ def dashboard_layout_follow_up(
     count = item.get("map_widgets")
     if count is None:
         return (
-            "its map widgets could not be counted: check whether it has one "
-            "map or several before rebuilding"
+            "its map widgets could not be counted: with none, rebuild it with "
+            "the map hidden; with several, convert it to a single-map "
+            "dashboard or split it"
         )
     if count == 0:
         return "it has no map widget: rebuild it with the map hidden"
-    if count == 1:
-        return None
     titles = {i["id"]: i["title"] for i in plan["items"] if i["type"] == "Web Map"}
-    maps = [titles[m] for m in item.get("map_widget_maps", []) if m in titles]
+    ids = item.get("map_widget_maps", [])
+    maps = [titles[m] for m in ids if m in titles]
+    keep = "convert it to a single-map dashboard or split it. The migration does not guess which map to keep"
+    if count == 1:
+        if len(ids) < 2:
+            return None
+        shown = f" ({', '.join(maps)})" if maps else ""
+        return f"its map widget shows {len(ids)} maps{shown}: {keep}"
     on = f" on {', '.join(maps)}" if maps else ""
-    return (
-        f"it has {count} map widgets{on}: convert it to a "
-        "single-map dashboard or split it. The migration does not guess which "
-        "map to keep"
-    )
+    return f"it has {count} map widgets{on}: {keep}"
 
 
 def _dashboard_note(item: Mapping[str, Any], plan: Mapping[str, Any]) -> str:

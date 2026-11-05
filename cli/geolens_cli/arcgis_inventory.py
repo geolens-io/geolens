@@ -762,7 +762,7 @@ def _map_widgets(data: Mapping[str, Any]) -> tuple[int, list[str]] | None:
     """(map widget count, the web map ids they show) of a dashboard, or None
     when it lists no widgets. One count per widget, even when several show the
     same web map; a widget Esri copies into the mobile view keeps its id, so it
-    counts once."""
+    counts once, though a copy that shows another map still adds that map."""
     desktop = data.get("desktopView")
     widgets = data.get("widgets")
     if not isinstance(widgets, list) and isinstance(desktop, dict):
@@ -780,15 +780,15 @@ def _map_widgets(data: Mapping[str, Any]) -> tuple[int, list[str]] | None:
     ]:
         if not isinstance(widget, dict) or widget.get("type") != "mapWidget":
             continue
+        item_id = widget.get("itemId")
+        if isinstance(item_id, str) and item_id:
+            maps.setdefault(item_id)
         widget_id = widget.get("id")
         if isinstance(widget_id, str) and widget_id:
             if widget_id in seen:
                 continue
             seen.add(widget_id)
         count += 1
-        item_id = widget.get("itemId")
-        if isinstance(item_id, str) and item_id:
-            maps.setdefault(item_id)
     return count, list(maps)
 
 
