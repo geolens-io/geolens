@@ -132,7 +132,9 @@
       "keyboardHintPick": "Usa las flechas para moverte entre los sectores. Pulsa Intro para filtrar el mapa por un sector y vuelve a pulsarlo para quitar el filtro.",
       "keyboardHintPickPage": "Usa las flechas para moverte entre los sectores. Pulsa Intro para filtrar el panel por un sector y vuelve a pulsarlo para quitar el filtro.",
       "slice": "{{label}}: {{value}} ({{share}})",
-      "roleDescription": "gráfico circular"
+      "roleDescription": "gráfico circular",
+      "sliceValue": "{{label}}: {{value}}",
+      "truncated": "Se muestran los {{shown}} valores principales. La capa tiene más, así que los sectores no suman el total."
     }
   },
   "dashboard": {

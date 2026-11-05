@@ -132,7 +132,9 @@
       "keyboardHintPick": "Mit den Pfeiltasten wechseln Sie zwischen den Segmenten. Drücken Sie die Eingabetaste, um die Karte nach einem Segment zu filtern, und erneut, um den Filter zu entfernen.",
       "keyboardHintPickPage": "Mit den Pfeiltasten wechseln Sie zwischen den Segmenten. Drücken Sie die Eingabetaste, um das Dashboard nach einem Segment zu filtern, und erneut, um den Filter zu entfernen.",
       "slice": "{{label}}: {{value}} ({{share}})",
-      "roleDescription": "Kreisdiagramm"
+      "roleDescription": "Kreisdiagramm",
+      "sliceValue": "{{label}}: {{value}}",
+      "truncated": "Die obersten {{shown}} Werte werden angezeigt. Die Ebene hat mehr, die Segmente ergeben daher nicht das Ganze."
     }
   },
   "dashboard": {

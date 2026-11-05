@@ -132,7 +132,9 @@
       "keyboardHintPick": "Utilisez les flèches pour passer d’un secteur à l’autre. Appuyez sur Entrée pour filtrer la carte selon un secteur, puis de nouveau pour retirer le filtre.",
       "keyboardHintPickPage": "Utilisez les flèches pour passer d’un secteur à l’autre. Appuyez sur Entrée pour filtrer le tableau de bord selon un secteur, puis de nouveau pour retirer le filtre.",
       "slice": "{{label}} : {{value}} ({{share}})",
-      "roleDescription": "diagramme circulaire"
+      "roleDescription": "diagramme circulaire",
+      "sliceValue": "{{label}} : {{value}}",
+      "truncated": "Affichage des {{shown}} premières valeurs. La couche en compte davantage, les secteurs ne forment donc pas le tout."
     }
   },
   "dashboard": {

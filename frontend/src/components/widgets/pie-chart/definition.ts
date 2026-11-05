@@ -56,6 +56,8 @@ export const pieChartWidget = defineWidget<PieChartConfig>({
     'types.pie_chart.keyboardHintPick',
     'types.pie_chart.keyboardHintPickPage',
     'types.pie_chart.slice',
+    'types.pie_chart.sliceValue',
+    'types.pie_chart.truncated',
   ],
   // `name` is a placeholder: a chart added in the Builder takes its column from
   // initialConfig, and the Builder holds a save naming a column the layer lacks.

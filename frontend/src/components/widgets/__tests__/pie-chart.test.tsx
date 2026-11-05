@@ -143,6 +143,11 @@ describe('PieChartRenderer', () => {
     );
     expect(container.querySelectorAll('svg[role="group"] path')).toHaveLength(2);
     expect(screen.queryByText('Other')).toBeNull();
+    // The two groups shown are not the whole, so no share is claimed for them.
+    expect(screen.getByText(/Showing the top 2 values/)).toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/%/);
+    fireEvent.focus(screen.getByRole('group', { name: /Sum of area by kind/ }));
+    expect(screen.getByText('park: 4', { selector: 'figcaption span' })).toBeInTheDocument();
   });
 
   describe('layer colours', () => {

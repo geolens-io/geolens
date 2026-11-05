@@ -132,7 +132,9 @@
       "keyboardHintPick": "使用方向键在扇区之间移动。按 Enter 键按某个扇区筛选地图，再按一次清除筛选。",
       "keyboardHintPickPage": "使用方向键在扇区之间移动。按 Enter 键按某个扇区筛选仪表板，再按一次清除筛选。",
       "slice": "{{label}}：{{value}}（{{share}}）",
-      "roleDescription": "饼图"
+      "roleDescription": "饼图",
+      "sliceValue": "{{label}}：{{value}}",
+      "truncated": "显示前 {{shown}} 个值。图层还有更多，因此各扇区加起来不是整体。"
     }
   },
   "dashboard": {

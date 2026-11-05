@@ -61,6 +61,8 @@ export default function PieChartRenderer({
     ...(hasOther ? [{ key: null, label: String(t('other')), text: text.other!, amount: text.otherAmount }] : []),
   ];
   const arcs = pieArcs(slices.map((slice) => slice.amount));
+  // Shares of a list that leaves groups out would read as shares of the whole.
+  const whole = text.note === undefined;
   const share = (index: number) =>
     new Intl.NumberFormat(i18n.language, { style: 'percent', maximumFractionDigits: 1 }).format(arcs[index].share);
   const { current, chartProps, markProps } = useChartMarks(
@@ -137,7 +139,7 @@ export default function PieChartRenderer({
       <figcaption className="min-h-5 text-sm" aria-live="polite">
         {current !== null && (
           <span>
-            {t('types.pie_chart.slice', {
+            {t(whole ? 'types.pie_chart.slice' : 'types.pie_chart.sliceValue', {
               label: slices[current].label,
               value: slices[current].text,
               share: share(current),
@@ -162,10 +164,11 @@ export default function PieChartRenderer({
               {!isOther(index) && picked.includes(slice.key) && <PickedMark />}
             </span>
             <span className="tabular-nums">{slice.text}</span>
-            <span className="w-12 text-right tabular-nums text-muted-foreground">{share(index)}</span>
+            {whole && <span className="w-12 text-right tabular-nums text-muted-foreground">{share(index)}</span>}
           </li>
         ))}
       </ul>
+      {text.note && <p className="text-xs text-muted-foreground">{text.note}</p>}
       <details className="text-sm">
         <summary className="cursor-pointer text-muted-foreground">{t('showTable')}</summary>
         {table}

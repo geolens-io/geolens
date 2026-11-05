@@ -132,7 +132,9 @@
       "keyboardHintPick": "Use the arrow keys to move between slices. Press Enter to filter the map by a slice, and press it again to clear the filter.",
       "keyboardHintPickPage": "Use the arrow keys to move between slices. Press Enter to filter the dashboard by a slice, and press it again to clear the filter.",
       "slice": "{{label}}: {{value}} ({{share}})",
-      "roleDescription": "pie chart"
+      "roleDescription": "pie chart",
+      "sliceValue": "{{label}}: {{value}}",
+      "truncated": "Showing the top {{shown}} values. The layer has more, so the slices don't add up to the whole."
     }
   },
   "dashboard": {

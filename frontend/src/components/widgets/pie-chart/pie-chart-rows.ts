@@ -12,6 +12,8 @@ export interface PieChartText extends CategoryRows {
   valueHeader: string;
   /** The rows a count's top-N list leaves out, as a number, for the "Other" slice. */
   otherAmount: number;
+  /** Said under the chart when a grouped statistic left groups out, so the slices aren't the whole. */
+  note?: string;
 }
 
 /** The slices of a chart's aggregate result, labelled in the reader's locale. */
@@ -25,12 +27,15 @@ export function usePieChartText(
     column: config.stat_column && columnLabel(config.stat_column),
   });
   const labelHeader = columnLabel(config.column);
+  const rows = useCategoryRows(data);
+  const truncated = aggregateResult(data, 'group_by')?.truncated === true;
   return {
     summary: t('types.pie_chart.summary', { stat: valueHeader, column: labelHeader }),
     labelHeader,
     valueHeader,
     otherAmount: aggregateResult(data, 'value_counts')?.other_count ?? 0,
-    ...useCategoryRows(data),
+    ...rows,
+    note: truncated ? t('types.pie_chart.truncated', { shown: rows.rows?.length ?? 0 }) : undefined,
   };
 }
 
