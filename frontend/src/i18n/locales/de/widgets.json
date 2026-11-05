@@ -83,6 +83,13 @@
       "position": "Bild {{current}} von {{total}}",
       "roleDescription": "Karussell",
       "slideRoleDescription": "Folie"
+    },
+    "table": {
+      "label": "Tabelle",
+      "summary": "Statistiken nach {{column}}",
+      "truncated_one": "Nur der erste Wert wird angezeigt. Weitere Werte sind nicht aufgeführt.",
+      "truncated_many": "Die ersten {{count}} Werte werden angezeigt. Weitere Werte sind nicht aufgeführt.",
+      "truncated_other": "Die ersten {{count}} Werte werden angezeigt. Weitere Werte sind nicht aufgeführt."
     }
   },
   "dashboard": {
@@ -170,6 +177,15 @@
       "value": "Wert",
       "percent": "Prozentuale Änderung"
     },
-    "higherIsBetter": "Ein höherer Wert ist besser"
+    "higherIsBetter": "Ein höherer Wert ist besser",
+    "statN": "Statistik {{n}}",
+    "removeStat": "Statistik {{n}} entfernen",
+    "addStat": "Statistik hinzufügen",
+    "sortBy": "Sortieren nach",
+    "sortGroup": "Gruppenwert",
+    "sortDirection": "Reihenfolge",
+    "sortDesc": "Größte zuerst",
+    "sortAsc": "Kleinste zuerst",
+    "rows": "Zeilen"
   }
 }

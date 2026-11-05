@@ -24,6 +24,10 @@ const examples: Record<string, { config: unknown; fallbackText: string | RegExp 
   },
   histogram: { config: { column: 'height', bins: 12 }, fallbackText: /No data yet/ },
   category_selector: { config: { column: 'land_use', multiple: false }, fallbackText: /No data yet/ },
+  table: {
+    config: { group_column: 'land_use', stats: [{ stat: 'count', column: null }, { stat: 'sum', column: 'area' }], sort_by: 1, sort: 'desc', limit: 5 },
+    fallbackText: /No data yet/,
+  },
   image: { config: { alt: 'A river at dusk', caption: 'Looking north' }, fallbackText: /A river at dusk/ },
   gallery: { config: { images: [{ asset_id: '9a3e5c71-2b4d-4f86-8e1a-7c5d3b2f4e60', alt: 'A river at dusk' }] }, fallbackText: /A river at dusk/ },
   carousel: { config: { images: [{ asset_id: '9a3e5c71-2b4d-4f86-8e1a-7c5d3b2f4e60', alt: 'A river at dusk' }] }, fallbackText: /A river at dusk/ },

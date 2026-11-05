@@ -83,6 +83,13 @@
       "position": "Image {{current}} of {{total}}",
       "roleDescription": "carousel",
       "slideRoleDescription": "slide"
+    },
+    "table": {
+      "label": "Table",
+      "summary": "Statistics by {{column}}",
+      "truncated_one": "Showing the first value only. More values are not listed.",
+      "truncated_many": "Showing the first {{count}} values. More values are not listed.",
+      "truncated_other": "Showing the first {{count}} values. More values are not listed."
     }
   },
   "dashboard": {
@@ -170,6 +177,15 @@
       "value": "Value",
       "percent": "Percent change"
     },
-    "higherIsBetter": "A higher value is better"
+    "higherIsBetter": "A higher value is better",
+    "statN": "Statistic {{n}}",
+    "removeStat": "Remove statistic {{n}}",
+    "addStat": "Add a statistic",
+    "sortBy": "Sort by",
+    "sortGroup": "Group value",
+    "sortDirection": "Order",
+    "sortDesc": "Largest first",
+    "sortAsc": "Smallest first",
+    "rows": "Rows"
   }
 }

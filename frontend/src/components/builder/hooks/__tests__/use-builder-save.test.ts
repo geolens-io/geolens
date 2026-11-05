@@ -22,6 +22,7 @@ import { SAVED_LAYERS } from '@/test/fixtures/saved-layers';
 import { demChipGlyph } from '@/components/map/layer-icons';
 import { queryKeys } from '@/lib/query-keys';
 import { ApiError } from '@/api/client';
+import { dashboardReadableTypes } from '@/components/widgets/registry';
 
 /* ── Mocks ─────────────────────────────────────────── */
 
@@ -1559,6 +1560,7 @@ describe('useBuilderSave', () => {
 
       expect(mockUpdateMapMutateAsync.mock.calls[0][0].data.dashboard_config).toEqual({
         version: 1,
+        readable: dashboardReadableTypes(),
         panel: 'bottom',
         readable: dashboardReadableTypes(),
         widgets: [{ ...barChart({}), title: 'Land use' }],

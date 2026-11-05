@@ -83,6 +83,13 @@
       "position": "第 {{current}} 张，共 {{total}} 张",
       "roleDescription": "轮播",
       "slideRoleDescription": "幻灯片"
+    },
+    "table": {
+      "label": "表格",
+      "summary": "按{{column}}统计",
+      "truncated_one": "仅显示第一个值，未列出更多值。",
+      "truncated_many": "仅显示前 {{count}} 个值，未列出更多值。",
+      "truncated_other": "仅显示前 {{count}} 个值，未列出更多值。"
     }
   },
   "dashboard": {
@@ -170,6 +177,15 @@
       "value": "数值",
       "percent": "百分比变化"
     },
-    "higherIsBetter": "数值越高越好"
+    "higherIsBetter": "数值越高越好",
+    "statN": "统计 {{n}}",
+    "removeStat": "移除统计 {{n}}",
+    "addStat": "添加统计",
+    "sortBy": "排序依据",
+    "sortGroup": "分组值",
+    "sortDirection": "顺序",
+    "sortDesc": "从大到小",
+    "sortAsc": "从小到大",
+    "rows": "行数"
   }
 }

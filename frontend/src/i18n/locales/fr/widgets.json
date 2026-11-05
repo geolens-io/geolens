@@ -83,6 +83,13 @@
       "position": "Image {{current}} sur {{total}}",
       "roleDescription": "carrousel",
       "slideRoleDescription": "diapositive"
+    },
+    "table": {
+      "label": "Tableau",
+      "summary": "Statistiques par {{column}}",
+      "truncated_one": "Seule la première valeur est affichée. Les autres valeurs ne sont pas listées.",
+      "truncated_many": "Les {{count}} premières valeurs sont affichées. Les autres valeurs ne sont pas listées.",
+      "truncated_other": "Les {{count}} premières valeurs sont affichées. Les autres valeurs ne sont pas listées."
     }
   },
   "dashboard": {
@@ -170,6 +177,15 @@
       "value": "Valeur",
       "percent": "Variation en pourcentage"
     },
-    "higherIsBetter": "Une valeur plus élevée est meilleure"
+    "higherIsBetter": "Une valeur plus élevée est meilleure",
+    "statN": "Statistique {{n}}",
+    "removeStat": "Retirer la statistique {{n}}",
+    "addStat": "Ajouter une statistique",
+    "sortBy": "Trier par",
+    "sortGroup": "Valeur du groupe",
+    "sortDirection": "Ordre",
+    "sortDesc": "Du plus grand au plus petit",
+    "sortAsc": "Du plus petit au plus grand",
+    "rows": "Lignes"
   }
 }

@@ -10,6 +10,7 @@ import { galleryWidget } from './gallery/definition';
 import { imageWidget } from './image/definition';
 import { markdownTextWidget } from './markdown/definition';
 import { separatorWidget } from './separator/definition';
+import { tableWidget } from './table/definition';
 
 /** Every widget type this build knows. Add new types here; see README.md. */
 export const widgetDefinitions: readonly AnyWidgetDefinition[] = [
@@ -23,6 +24,7 @@ export const widgetDefinitions: readonly AnyWidgetDefinition[] = [
   barChartWidget,
   histogramWidget,
   categorySelectorWidget,
+  tableWidget,
 ];
 
 const byType = new Map(widgetDefinitions.map((definition) => [definition.type, definition]));

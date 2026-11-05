@@ -50,6 +50,7 @@ and releases use semantic versioning.
   too. `geolens arcgis migrate` uses them to translate a web map the portal
   changed again into the same GeoLens map on a rerun, keeping its layer ids,
   unless the map was changed in GeoLens since the last run.
+- Dashboards: a table widget shows statistics grouped by a category.
 
 ### Changed
 
