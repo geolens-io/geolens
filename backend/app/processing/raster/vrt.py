@@ -489,6 +489,15 @@ def add_vrt_overview(vrt_path: str, source_paths: list[str]) -> str | None:
     if not members_lack_overviews(source_paths):
         return None
 
+    from app.processing.raster.cog import _is_float_dtype
+
+    # The COG driver would resample integer classes with cubic and invent
+    # values; averaging only suits continuous data.
+    resampling = (
+        "average"
+        if any(_is_float_dtype(band.get("dataType", "")) for band in bands)
+        else "nearest"
+    )
     overview_path = overview_key_for(vrt_path)
     try:
         result = run_gdal(
@@ -497,11 +506,15 @@ def add_vrt_overview(vrt_path: str, source_paths: list[str]) -> str | None:
                 "-q",
                 "-of",
                 "COG",
+                "-r",
+                resampling,
                 "-outsize",
                 "50%",
                 "50%",
                 "-co",
                 "BIGTIFF=IF_SAFER",
+                "-co",
+                f"OVERVIEW_RESAMPLING={resampling}",
                 vrt_path,
                 overview_path,
             ],

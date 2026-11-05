@@ -525,3 +525,46 @@ async def test_the_overview_build_runs_under_the_scratch_root(
         assert built_in and built_in[0].startswith(str(scratch))
     finally:
         await _purge_vrt(test_db_session, ids=ids)
+
+
+def _big_member(path: Path, values: tuple[int, int] = (0, 200)) -> str:
+    size = 2048
+    rng = np.random.default_rng(7)
+    data = np.where(rng.random((size, size)) > 0.5, values[1], values[0]).astype(
+        "uint8"
+    )
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        dtype="uint8",
+        width=size,
+        height=size,
+        count=1,
+        crs="EPSG:4326",
+        transform=from_origin(0.0, 10.0, 0.005, 0.005),
+        tiled=True,
+        blockxsize=256,
+        blockysize=256,
+    ) as dst:
+        dst.write(data, 1)
+    return str(path)
+
+
+@needs_gdal_cli
+def test_integer_classes_keep_their_values_in_every_overview_level(
+    tmp_path: Path,
+) -> None:
+    members = [_big_member(tmp_path / "classes.tif")]
+    vrt_path = str(tmp_path / "source.vrt")
+    build_vrt("mosaic", members, vrt_path, "finest")
+
+    overview_path = add_vrt_overview(vrt_path, members)
+
+    with rasterio.open(overview_path) as cog:
+        levels = cog.overviews(1)
+        assert levels
+        assert set(np.unique(cog.read(1))) <= {0, 200}
+        for level in levels:
+            shape = (cog.height // level, cog.width // level)
+            assert set(np.unique(cog.read(1, out_shape=shape))) <= {0, 200}
