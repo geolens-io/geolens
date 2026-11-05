@@ -116,13 +116,50 @@ class SeparatorConfig(_Strict):
     )
 
 
+_INDICATOR_REFERENCE_KEYS = frozenset(
+    {"reference", "reference_label", "higher_is_better", "comparison"}
+)
+
+
 class IndicatorConfig(_Strict):
+    # The reference options are left out while at their defaults, so an
+    # indicator without a reference keeps the shape older clients read.
     stat: Statistic
     column: ColumnName | None = None
+    reference: float | None = Field(
+        exclude_if=lambda v: v is None,
+        default=None,
+        strict=True,
+        allow_inf_nan=False,
+        description="A fixed number to compare the value with. The indicator "
+        "shows the difference from it.",
+    )
+    reference_label: str | None = Field(
+        exclude_if=lambda v: v is None,
+        default=None,
+        min_length=1,
+        max_length=40,
+        description="A short name for the reference, such as `Target`. Needs "
+        "`reference`.",
+    )
+    higher_is_better: bool | None = Field(
+        exclude_if=lambda v: v is None,
+        default=None,
+        description="Whether a value above the reference is the good outcome. "
+        "Absent means true.",
+    )
+    comparison: Literal["value", "percent", "both"] | None = Field(
+        exclude_if=lambda v: v is None,
+        default=None,
+        description="Show the difference as a `value`, a `percent` change, or "
+        "`both`. Absent means `both`.",
+    )
 
     @model_validator(mode="after")
     def _column_matches_stat(self) -> "IndicatorConfig":
         _column_only_for(self.stat, self.column, "column")
+        if self.reference is None and self.reference_label is not None:
+            raise ValueError("reference_label needs a reference")
         return self
 
 
@@ -307,8 +344,19 @@ class SeparatorWidget(_Widget):
 
 class IndicatorWidget(_LayerWidget):
     type: Literal["indicator"]
-    v: Literal[1]
+    # v2 is an indicator with reference options; a client that reads only v1
+    # leaves it as stored. One without them is always v1.
+    v: Literal[1, 2] = Field(
+        description="`2` when the config sets any reference option, else `1`. "
+        "A `1` that sets one is refused."
+    )
     config: IndicatorConfig
+
+    @model_validator(mode="after")
+    def _v2_only_for_reference_options(self) -> "IndicatorWidget":
+        sent = self.config.model_fields_set & _INDICATOR_REFERENCE_KEYS
+        self.v = 2 if sent else 1
+        return self
 
 
 class BarChartWidget(_LayerWidget):
@@ -355,10 +403,18 @@ class CategorySelectorWidget(_LayerWidget):
     config: CategorySelectorConfig
 
 
+def _indicator_v1_to_v2(widget: dict[str, Any]) -> dict[str, Any]:
+    config = widget.get("config")
+    if isinstance(config, dict) and config.keys() & _INDICATOR_REFERENCE_KEYS:
+        raise ValueError("reference options need indicator version 2")
+    return widget
+
+
 # (type, v) -> a function that returns the v + 1 form of a v instance. It gets
 # a private copy, and the loop stamps the new ``v``.
 UPGRADERS: dict[tuple[str, int], Callable[[dict[str, Any]], dict[str, Any]]] = {
     ("bar_chart", 1): lambda widget: widget,
+    ("indicator", 1): lambda widget: _indicator_v1_to_v2(widget),
 }
 
 

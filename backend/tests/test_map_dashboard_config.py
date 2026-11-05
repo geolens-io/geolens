@@ -245,6 +245,12 @@ class TestMergeDashboard:
                 v=2,
                 config={"column": "kind", "use_layer_colors": False},
             ),
+            _widget(
+                "indicator",
+                shown,
+                v=2,
+                config={"stat": "count", "reference": 10, "reference_label": "Goal"},
+            ),
         ]
 
     def test_a_save_that_does_not_say_what_it_reads_keeps_the_new_forms_in_place(self):
@@ -259,6 +265,7 @@ class TestMergeDashboard:
         merged = _merge({"widgets": [old, tail]}, stored, readable={shown})
         assert _ids(merged["widgets"]) == _ids(stored["widgets"])
         assert merged["widgets"][5]["v"] == 2
+        assert merged["widgets"][-1]["config"]["reference"] == 10
 
         emptied = _merge({"widgets": []}, stored, readable={shown})
         assert _ids(emptied["widgets"]) == _ids(new)
@@ -273,6 +280,8 @@ class TestMergeDashboard:
             "table:1",
             "bar_chart:1",
             "bar_chart:2",
+            "indicator:1",
+            "indicator:2",
         ]
 
         merged = _merge(
@@ -284,6 +293,52 @@ class TestMergeDashboard:
             {"readable": ["pie_chart:1"], "widgets": []}, stored, readable={shown}
         )
         assert _ids(partial["widgets"]) == _ids(new[1:])
+
+    def test_an_emptying_save_that_declares_indicator_2_clears_it(self):
+        shown = uuid.uuid4()
+        reference = _widget(
+            "indicator",
+            shown,
+            v=2,
+            config={"stat": "count", "reference": 5},
+        )
+        stored = {"version": 1, "widgets": [reference]}
+
+        assert _merge(None, stored, readable={shown}) == stored
+        cleared = _merge(
+            {"readable": ["indicator:1", "indicator:2"], "widgets": []},
+            stored,
+            readable={shown},
+        )
+        assert cleared["widgets"] == []
+
+    def test_an_emptying_save_that_sends_the_defaults_leaves_them_for_the_next_widget(
+        self,
+    ):
+        shown = uuid.uuid4()
+        stored = {
+            "version": 1,
+            "panel": "bottom",
+            "theme": "dark",
+            "map_hidden": True,
+            "widgets": [_widget("indicator", shown)],
+        }
+        emptied = _merge(
+            {
+                "panel": "right",
+                "map_hidden": False,
+                "theme": "follow",
+                "readable": ["indicator:1", "indicator:2"],
+                "widgets": [],
+            },
+            stored,
+            readable={shown},
+        )
+        assert emptied == {"version": 1, "widgets": []}
+        added = _merge(
+            {"widgets": [_widget("indicator", shown)]}, emptied, readable={shown}
+        )
+        assert set(added) == {"version", "widgets"}
 
     @pytest.mark.parametrize("pair", ["bar_chart", "pie_chart:01", "pie_chart:0"])
     def test_a_malformed_readable_pair_is_refused(self, pair):
@@ -390,7 +445,7 @@ class TestMergeDashboard:
     ):
         shown = uuid.uuid4()
         if kind == "unparseable":
-            unseen = _widget("indicator", shown, v=2)
+            unseen = _widget("indicator", shown, v=3)
         else:
             request.getfixturevalue("histogram_unregistered")
             unseen = _widget("histogram", shown)

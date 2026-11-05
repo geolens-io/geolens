@@ -22,7 +22,18 @@
     },
     "indicator": {
       "label": "Indicator",
-      "summary": "{{label}}: {{value}}"
+      "summary": "{{label}}: {{value}}",
+      "reference": "{{label}}: {{value}}",
+      "referenceDefault": "Reference",
+      "above": "{{amount}} above {{label}}",
+      "below": "{{amount}} below {{label}}",
+      "same": "Same as {{label}}",
+      "difference": "Difference",
+      "measure": "Measure",
+      "value": "Value",
+      "outcome": "{{difference}}, {{outcome}}",
+      "good": "favorable",
+      "bad": "unfavorable"
     },
     "bar_chart": {
       "label": "Bar chart",
@@ -139,6 +150,15 @@
       "notNumeric": "“{{column}}” isn't a numeric column. Pick another before saving.",
       "viewWithoutGeometry": "This layer has no geometry, so the widget can't follow the map view. Set it to cover the whole layer."
     },
-    "maxWidgets": "A dashboard holds at most {{max}} widgets."
+    "maxWidgets": "A dashboard holds at most {{max}} widgets.",
+    "reference": "Reference value",
+    "referenceLabel": "Reference label",
+    "comparison": "Show the difference as",
+    "comparisons": {
+      "both": "Value and percent change",
+      "value": "Value",
+      "percent": "Percent change"
+    },
+    "higherIsBetter": "A higher value is better"
   }
 }

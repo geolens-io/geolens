@@ -43,9 +43,13 @@ export function toDashboardDraft(config: DashboardConfig | null | undefined): Da
   };
 }
 
-/** A widget as a save stores it: its title trimmed, and left out when blank. */
+/**
+ * A widget as a save stores it: its title trimmed and left out when blank, and
+ * its version the oldest one that can hold its config.
+ */
 function toSaved({ title, ...widget }: WidgetInstance): WidgetInstance {
-  return title?.trim() ? { ...widget, title: title.trim() } : widget;
+  const v = getWidgetDefinition(widget.type, 'dashboard')?.storedVersion?.(widget.config) ?? widget.v;
+  return title?.trim() ? { ...widget, v, title: title.trim() } : { ...widget, v };
 }
 
 /**
@@ -152,6 +156,28 @@ function readableToSend(): string[] | undefined {
 /** A key an older server refuses: present only when it carries a value now or did when last stored. */
 function sentIfSetNowOrBefore<K extends string, V>(key: K, value: V, send: boolean): { [P in K]?: V } {
   return send ? ({ [key]: value } as { [P in K]: V }) : {};
+}
+
+/**
+ * The save payload, which for a dashboard emptied of widgets still lists what
+ * this build reads, so the server clears those stored widgets rather than keeping them.
+ */
+export function dashboardSavePayload(
+  draft: DashboardDraft,
+  layers: readonly MapLayerResponse[],
+  saved: DashboardDraft,
+): DashboardConfigInput | null {
+  const payload = dashboardPayload(draft, layers, saved);
+  const readable = readableToSend();
+  if (payload || saved.widgets.length === 0 || !readable) return payload;
+  return {
+    version: 1,
+    panel: 'right',
+    map_hidden: false,
+    theme: 'follow',
+    readable,
+    widgets: [],
+  };
 }
 
 /**

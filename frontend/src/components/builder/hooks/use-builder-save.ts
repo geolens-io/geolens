@@ -41,7 +41,7 @@ import { getLayerCapabilities } from '@/lib/layer-capabilities';
 import { classifyApiError } from '@/lib/error-map';
 import {
   canonicalDashboard,
-  dashboardPayload,
+  dashboardSavePayload,
   firstWidgetProblem,
   type DashboardDraft,
 } from '@/components/builder/dashboard-draft';
@@ -1311,7 +1311,7 @@ export function useBuilderSave(state: SaveState) {
       legend_title: legendTitle && legendTitle.trim() ? legendTitle.trim() : null,
       ...(showAttributeTable === undefined ? {} : { show_attribute_table: showAttributeTable }),
       ...(sendDashboard
-        ? { dashboard_config: dashboardPayload(dashboard, localLayers, savedDashboard) }
+        ? { dashboard_config: dashboardSavePayload(dashboard, localLayers, savedDashboard) }
         : {}),
     };
     const persistableLayers = prepareLayersForPersistence(localLayers, groupMeta);

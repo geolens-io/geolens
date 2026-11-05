@@ -22,7 +22,18 @@
     },
     "indicator": {
       "label": "Indicateur",
-      "summary": "{{label}} : {{value}}"
+      "summary": "{{label}} : {{value}}",
+      "reference": "{{label}} : {{value}}",
+      "referenceDefault": "Référence",
+      "above": "{{amount}} au-dessus de {{label}}",
+      "below": "{{amount}} en dessous de {{label}}",
+      "same": "Identique à {{label}}",
+      "difference": "Écart",
+      "measure": "Mesure",
+      "value": "Valeur",
+      "outcome": "{{difference}}, {{outcome}}",
+      "good": "favorable",
+      "bad": "défavorable"
     },
     "bar_chart": {
       "label": "Diagramme en barres",
@@ -139,6 +150,15 @@
       "notNumeric": "« {{column}} » n'est pas une colonne numérique. Choisissez-en une autre avant d'enregistrer.",
       "viewWithoutGeometry": "Cette couche n'a pas de géométrie : le widget ne peut pas suivre la vue de la carte. Faites-le porter sur toute la couche."
     },
-    "maxWidgets": "Un tableau de bord contient au plus {{max}} widgets."
+    "maxWidgets": "Un tableau de bord contient au plus {{max}} widgets.",
+    "reference": "Valeur de référence",
+    "referenceLabel": "Libellé de la référence",
+    "comparison": "Afficher l'écart sous forme de",
+    "comparisons": {
+      "both": "Valeur et variation en pourcentage",
+      "value": "Valeur",
+      "percent": "Variation en pourcentage"
+    },
+    "higherIsBetter": "Une valeur plus élevée est meilleure"
   }
 }

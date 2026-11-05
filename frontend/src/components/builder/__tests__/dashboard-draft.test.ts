@@ -1,7 +1,9 @@
+import { dashboardReadableTypes } from '@/components/widgets/registry';
 import type { MapLayerResponse } from '@/types/api';
 import {
   dashboardChanged,
   dashboardPayload,
+  dashboardSavePayload,
   toDashboardDraft,
   widgetProblem,
   widgetLayerGone,
@@ -102,6 +104,7 @@ describe('dashboard drafts', () => {
     expect(dashboardPayload(draft, [layer()], { panel: 'right' })).toEqual({
       version: 1,
       panel: 'bottom',
+      readable: dashboardReadableTypes(),
       widgets: [{ ...kept, title: 'Parcels' }],
     });
     expect(dashboardPayload({ panel: 'right', widgets: [gone] }, [layer()], { panel: 'right' })).toBeNull();
@@ -183,11 +186,43 @@ describe('a widget with no layer', () => {
     expect(widgetLayerGone(text, [])).toBe(false);
     expect(dashboardPayload({ panel: 'right', widgets: [text] }, [], { panel: 'right' })).toEqual({
       version: 1,
+      readable: dashboardReadableTypes(),
       widgets: [text],
     });
   });
 
   it('reads back from a map response', () => {
     expect(toDashboardDraft({ version: 1, widgets: [text] } as never).widgets).toEqual([text]);
+  });
+});
+
+describe('the save that empties a dashboard', () => {
+  const widget = { id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11', type: 'markdown', v: 1, config: { text: 'Notes' } };
+  const had: DashboardDraft = { panel: 'right', widgets: [widget] };
+  const none: DashboardDraft = { panel: 'right', widgets: [] };
+
+  it('says what the build reads, so stored widgets beyond the earliest ones go too', () => {
+    expect(dashboardSavePayload(none, [], had)).toEqual({
+      version: 1,
+      panel: 'right',
+      map_hidden: false,
+      theme: 'follow',
+      readable: dashboardReadableTypes(),
+      widgets: [],
+    });
+  });
+
+  it('resets the layout settings, since an empty dashboard reloads as the defaults', () => {
+    const laidOut: DashboardDraft = { panel: 'bottom', theme: 'dark', mapHidden: true, widgets: [] };
+    expect(dashboardSavePayload(laidOut, [], { ...had, panel: 'bottom', theme: 'dark', mapHidden: true })).toMatchObject({
+      panel: 'right',
+      theme: 'follow',
+      map_hidden: false,
+      widgets: [],
+    });
+  });
+
+  it('stays null when there was nothing stored to clear', () => {
+    expect(dashboardSavePayload(none, [], none)).toBeNull();
   });
 });

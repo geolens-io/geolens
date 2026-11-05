@@ -6791,6 +6791,30 @@ export type IndicatorConfig = {
      * Column
      */
     column?: string | null;
+    /**
+     * Reference
+     *
+     * A fixed number to compare the value with. The indicator shows the difference from it.
+     */
+    reference?: number | null;
+    /**
+     * Reference Label
+     *
+     * A short name for the reference, such as `Target`. Needs `reference`.
+     */
+    reference_label?: string | null;
+    /**
+     * Higher Is Better
+     *
+     * Whether a value above the reference is the good outcome. Absent means true.
+     */
+    higher_is_better?: boolean | null;
+    /**
+     * Comparison
+     *
+     * Show the difference as a `value`, a `percent` change, or `both`. Absent means `both`.
+     */
+    comparison?: 'value' | 'percent' | 'both' | null;
 };
 
 /**
@@ -6825,8 +6849,10 @@ export type IndicatorWidget = {
     type: 'indicator';
     /**
      * V
+     *
+     * `2` when the config sets any reference option, else `1`. A `1` that sets one is refused.
      */
-    v: 1;
+    v: 1 | 2;
     config: IndicatorConfig;
 };
 

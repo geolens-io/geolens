@@ -207,7 +207,11 @@ describe('Builder dashboard edits across a save', () => {
     await act(async () => {
       await result.current.handleSave();
     });
-    expect(mockUpdateMapMutateAsync.mock.calls[0][0].data.dashboard_config).toBeNull();
+    // Said with the readable list so the server clears the widgets this build reads, not only the earliest ones.
+    expect(mockUpdateMapMutateAsync.mock.calls[0][0].data.dashboard_config).toMatchObject({
+      widgets: [],
+      readable: expect.arrayContaining(['indicator:2']),
+    });
     // The refetch: no dashboard at all.
     rerender({ mapData: { ...mapWith([layerA], 'right', []), dashboard_config: null } as MapResponse });
 

@@ -638,3 +638,82 @@ class TestBarChartVersions:
         read = read_stored([stored], "dashboard").widgets[0].model_dump(mode="json")
         assert read["v"] == 1
         assert read["config"] == stored["config"]
+
+
+def _indicator(v: int = 2, **config: Any) -> dict[str, Any]:
+    return _widget("indicator", v=v, config={"stat": "count", **config})
+
+
+class TestIndicatorReference:
+    def test_a_v2_indicator_round_trips_its_reference_options(self) -> None:
+        config = {
+            "stat": "count",
+            "reference": 120.5,
+            "reference_label": "Target",
+            "higher_is_better": False,
+            "comparison": "percent",
+        }
+        (widget,) = _dashboard(
+            [_indicator(**{k: v for k, v in config.items() if k != "stat"})]
+        )
+        dumped = widget.model_dump(mode="json")
+        assert dumped["v"] == 2
+        assert dumped["config"] == {**config, "column": None}
+
+    def test_defaults_are_left_out_so_a_plain_indicator_keeps_its_shape(self) -> None:
+        (widget,) = _dashboard([_indicator(reference=0)])
+        assert widget.model_dump(mode="json")["config"] == {
+            "stat": "count",
+            "column": None,
+            "reference": 0.0,
+        }
+        (plain,) = _dashboard([_widget("indicator")])
+        assert set(plain.model_dump(mode="json")["config"]) == {"stat", "column"}
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            {"reference": 5},
+            {"reference_label": "Target", "reference": 5},
+            {"higher_is_better": False},
+            {"comparison": "value"},
+        ],
+    )
+    def test_v1_refuses_every_reference_option(self, config: dict[str, Any]) -> None:
+        with pytest.raises(ValidationError):
+            _dashboard([_indicator(v=1, **config)])
+
+    def test_v1_with_a_reference_is_refused_and_v2_without_one_reads_as_v1(
+        self,
+    ) -> None:
+        (widget,) = _dashboard([_indicator(reference=3)])
+        assert widget.v == 2
+        (plain,) = _dashboard([_indicator()])
+        assert plain.v == 1
+
+    def test_a_label_without_a_reference_is_refused(self) -> None:
+        with pytest.raises(ValidationError):
+            _dashboard([_indicator(reference_label="Target")])
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            {"reference": float("nan")},
+            {"reference": float("inf")},
+            {"reference": "12"},
+            {"reference": True},
+            {"reference": 1, "reference_label": "x" * 41},
+            {"reference": 1, "comparison": "ratio"},
+        ],
+    )
+    def test_malformed_reference_options_are_refused(
+        self, config: dict[str, Any]
+    ) -> None:
+        with pytest.raises(ValidationError):
+            _dashboard([_indicator(**config)])
+
+    def test_a_stored_v1_indicator_reads_back_unchanged(self) -> None:
+        stored = _widget("indicator")
+        read = read_stored([stored], "dashboard").widgets[0].model_dump(mode="json")
+        assert read["v"] == 1
+        assert read["config"] == {"stat": "sum", "column": "pop"}

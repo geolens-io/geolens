@@ -22,7 +22,18 @@
     },
     "indicator": {
       "label": "指标",
-      "summary": "{{label}}：{{value}}"
+      "summary": "{{label}}：{{value}}",
+      "reference": "{{label}}：{{value}}",
+      "referenceDefault": "参考值",
+      "above": "比{{label}}高 {{amount}}",
+      "below": "比{{label}}低 {{amount}}",
+      "same": "与{{label}}相同",
+      "difference": "差值",
+      "measure": "指标",
+      "value": "数值",
+      "outcome": "{{difference}}，{{outcome}}",
+      "good": "有利",
+      "bad": "不利"
     },
     "bar_chart": {
       "label": "条形图",
@@ -139,6 +150,15 @@
       "notNumeric": "“{{column}}”不是数值列。保存前请另选一列。",
       "viewWithoutGeometry": "此图层没有几何，小组件无法跟随地图视图。请将其设为统计整个图层。"
     },
-    "maxWidgets": "一个仪表板最多包含 {{max}} 个小组件。"
+    "maxWidgets": "一个仪表板最多包含 {{max}} 个小组件。",
+    "reference": "参考值",
+    "referenceLabel": "参考值名称",
+    "comparison": "差值显示为",
+    "comparisons": {
+      "both": "数值和百分比变化",
+      "value": "数值",
+      "percent": "百分比变化"
+    },
+    "higherIsBetter": "数值越高越好"
   }
 }

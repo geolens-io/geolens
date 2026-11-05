@@ -11670,6 +11670,26 @@ export interface components {
             stat: "count" | "sum" | "mean" | "min" | "max";
             /** Column */
             column?: string | null;
+            /**
+             * Reference
+             * @description A fixed number to compare the value with. The indicator shows the difference from it.
+             */
+            reference?: number | null;
+            /**
+             * Reference Label
+             * @description A short name for the reference, such as `Target`. Needs `reference`.
+             */
+            reference_label?: string | null;
+            /**
+             * Higher Is Better
+             * @description Whether a value above the reference is the good outcome. Absent means true.
+             */
+            higher_is_better?: boolean | null;
+            /**
+             * Comparison
+             * @description Show the difference as a `value`, a `percent` change, or `both`. Absent means `both`.
+             */
+            comparison?: ("value" | "percent" | "both") | null;
         };
         /** IndicatorWidget */
         IndicatorWidget: {
@@ -11701,9 +11721,10 @@ export interface components {
             type: "indicator";
             /**
              * V
-             * @constant
+             * @description `2` when the config sets any reference option, else `1`. A `1` that sets one is refused.
+             * @enum {integer}
              */
-            v: 1;
+            v: 1 | 2;
             config: components["schemas"]["IndicatorConfig"];
         };
         /** InfrastructureConfig */

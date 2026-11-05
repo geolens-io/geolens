@@ -11578,6 +11578,61 @@
               }
             ],
             "title": "Column"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A fixed number to compare the value with. The indicator shows the difference from it.",
+            "title": "Reference"
+          },
+          "reference_label": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A short name for the reference, such as `Target`. Needs `reference`.",
+            "title": "Reference Label"
+          },
+          "higher_is_better": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether a value above the reference is the good outcome. Absent means true.",
+            "title": "Higher Is Better"
+          },
+          "comparison": {
+            "anyOf": [
+              {
+                "enum": [
+                  "value",
+                  "percent",
+                  "both"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Show the difference as a `value`, a `percent` change, or `both`. Absent means `both`.",
+            "title": "Comparison"
           }
         },
         "required": [
@@ -11629,7 +11684,11 @@
             "type": "string"
           },
           "v": {
-            "const": 1,
+            "description": "`2` when the config sets any reference option, else `1`. A `1` that sets one is refused.",
+            "enum": [
+              1,
+              2
+            ],
             "title": "V",
             "type": "integer"
           },

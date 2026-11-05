@@ -22,7 +22,18 @@
     },
     "indicator": {
       "label": "Kennzahl",
-      "summary": "{{label}}: {{value}}"
+      "summary": "{{label}}: {{value}}",
+      "reference": "{{label}}: {{value}}",
+      "referenceDefault": "Referenz",
+      "above": "{{amount}} über {{label}}",
+      "below": "{{amount}} unter {{label}}",
+      "same": "Gleich wie {{label}}",
+      "difference": "Abweichung",
+      "measure": "Messgröße",
+      "value": "Wert",
+      "outcome": "{{difference}}, {{outcome}}",
+      "good": "günstig",
+      "bad": "ungünstig"
     },
     "bar_chart": {
       "label": "Balkendiagramm",
@@ -139,6 +150,15 @@
       "notNumeric": "„{{column}}“ ist keine numerische Spalte. Wählen Sie vor dem Speichern eine andere.",
       "viewWithoutGeometry": "Dieser Layer hat keine Geometrie, daher kann das Widget dem Kartenausschnitt nicht folgen. Lassen Sie es den ganzen Layer umfassen."
     },
-    "maxWidgets": "Ein Dashboard enthält höchstens {{max}} Widgets."
+    "maxWidgets": "Ein Dashboard enthält höchstens {{max}} Widgets.",
+    "reference": "Referenzwert",
+    "referenceLabel": "Bezeichnung der Referenz",
+    "comparison": "Abweichung anzeigen als",
+    "comparisons": {
+      "both": "Wert und prozentuale Änderung",
+      "value": "Wert",
+      "percent": "Prozentuale Änderung"
+    },
+    "higherIsBetter": "Ein höherer Wert ist besser"
   }
 }
