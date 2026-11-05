@@ -660,7 +660,6 @@ describe('FeaturePopup — digit grouping', () => {
   });
 });
 
-
 describe('FeaturePopup — fields read from the rows endpoint', () => {
   const lean = (overrides: Partial<FeatureInfo> = {}) => makeFeature({
     properties: { city: 'NYC' },
@@ -753,5 +752,25 @@ describe('FeaturePopup — fields read from the rows endpoint', () => {
       '', 1, 0, undefined, undefined, undefined, 7, { embedToken: undefined },
     );
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+});
+
+describe('FeaturePopup focus restore', () => {
+  it("returns focus to the canvas of the map that holds the popup, not the first map on the page", () => {
+    const hiddenMap = document.createElement('div');
+    hiddenMap.className = 'maplibregl-map';
+    hiddenMap.innerHTML = '<canvas class="maplibregl-canvas" tabindex="0"></canvas>';
+    const ownMap = document.createElement('div');
+    ownMap.className = 'maplibregl-map';
+    ownMap.innerHTML = '<canvas class="maplibregl-canvas" tabindex="0"></canvas>';
+    document.body.append(hiddenMap, ownMap);
+
+    const { unmount } = render(<FeaturePopup longitude={0} latitude={0} features={[makeFeature()]} onClose={vi.fn()} />, {
+      container: ownMap.appendChild(document.createElement('div')),
+    });
+    unmount();
+    expect(document.activeElement).toBe(ownMap.querySelector('canvas'));
+    hiddenMap.remove();
+    ownMap.remove();
   });
 });

@@ -92,12 +92,16 @@ export function FeaturePopup({
   // trap: map interaction is preserved.
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
+    // The popup sits inside its own map; a page can hold several maps.
+    const ownMap = closeButtonRef.current?.closest<HTMLElement>('.maplibregl-map') ?? null;
     closeButtonRef.current?.focus();
     return () => {
       // Restore focus to the map so the keyboard context returns to the map
       // (canvas carries tabindex=0); fall back to the map container, then to
       // wherever focus was before the popup opened.
       const restoreTarget =
+        ownMap?.querySelector<HTMLElement>('.maplibregl-canvas') ??
+        ownMap ??
         document.querySelector<HTMLElement>('.maplibregl-canvas') ??
         document.querySelector<HTMLElement>('.maplibregl-map') ??
         previouslyFocused;
