@@ -185,6 +185,77 @@ def get_map(map_id: str) -> Any:
 
 
 @_tool
+def list_stories(
+    search: Optional[str] = None,
+    limit: Annotated[int, Field(ge=1, le=200)] = 50,
+    offset: Annotated[int, Field(ge=0)] = 0,
+) -> Any:
+    """List published stories you can read (read-only metadata: id, title,
+    summary, visibility, chapter count). Drafts are never listed.
+
+    Args:
+        search: Optional text filter on story title/summary.
+        limit: Max results (1-200, default 50).
+        offset: Result offset for paging.
+    """
+    return _get_api().list_stories(search=search, limit=limit, offset=offset)
+
+
+@_tool
+def get_story(story_id: str) -> Any:
+    """Get one story's published version: title, summary, visibility and the
+    document with its chapters. Each chapter has a title, blocks and a scene
+    (`map_id`, `camera`, `layer_visibility`); a chapter on a map you can't read
+    comes back without its scene and with `scene_hidden` true. Never returns
+    the draft. `document` is null until the story is published, and a story
+    you can't read answers 404.
+
+    Args:
+        story_id: Story id (e.g. from list_stories).
+    """
+    return _get_api().get_story(story_id)
+
+
+@_tool
+def aggregate(dataset_id: str, request: dict[str, Any]) -> Any:
+    """Compute an exact aggregate over a dataset's rows: counts, summaries and
+    breakdowns without writing SQL. Use `query` for anything else.
+
+    `request` is the JSON body of the aggregate route, chosen by `op`. Every
+    op takes an optional CQL2-JSON `filter` and an optional `bbox`
+    `[west, south, east, north]` in WGS 84. Unknown keys are refused.
+    - `{"op": "count"}`
+    - `{"op": "stats", "column", "stats": [count|sum|avg|min|max, ...]}`
+    - `{"op": "value_counts", "column", "limit"}` (limit 1-50, default 10)
+    - `{"op": "histogram", "column", "bins"}` (bins 1-50, default 10)
+    - `{"op": "group_by", "group_column", "stat", "column"}` or `"stats":
+      [{"stat", "column"}]`, plus optional `date_bucket`
+      (day|week|month|year), `sort_by`, `sort` and `limit` (1-50)
+    - `{"op": "rows", "columns": [up to 20], "sort_column", "sort", "limit",
+      "cursor"}` lists features a page at a time (limit 1-100, default 25),
+      each with its `gid` and `bbox`, never a geometry; pass the previous
+      page's `next_cursor` as `cursor` under the same sort.
+
+    Returns `{op, result, approximate, cached}`. Refusals keep the route's
+    HTTP status and a `code` in the error detail:
+    - 422 `too_wide`: the `bbox` view holds over 500,000 rows. Narrow the bbox
+      or drop it.
+    - 422 `invalid_column`, `invalid_cursor`, `invalid_filter`, `no_geometry`,
+      `query_timeout`, `query_data_error`, `result_too_large`: fix the request
+      and retry.
+    - 429 `query_busy` (two aggregates already running for you) or
+      `query_at_capacity`: retry after 200-400 ms with jitter.
+    - 503 `query_unavailable`: retry after the `Retry-After` delay.
+    Datasets you can't read answer 404. The route allows 10 requests a second.
+
+    Args:
+        dataset_id: Dataset id with a feature table (not a raster).
+        request: The aggregate body described above.
+    """
+    return _get_api().aggregate(dataset_id, request)
+
+
+@_tool
 def query(
     sql: str,
     restrict_tables: list[str],
@@ -196,7 +267,8 @@ def query(
     `data.*` tables, an allowlisted function set (aggregates, math, string,
     date, JSON), and a strict server-side budget (a 5 s statement timeout, a
     repetition cap on self-joins, and `row_limit` rows, at most 1000).
-    Returns `{columns, rows, row_count, truncated}` with rows as lists in
+    For counts, statistics, histograms and group-by summaries prefer
+    `aggregate`, which needs no SQL. Returns `{columns, rows, row_count, truncated}` with rows as lists in
     column order. Geometry columns come back as hex EWKB; select
     `ST_AsText(geom)` or `ST_AsGeoJSON(geom)` for readable geometry.
     `ST_AsGeoJSON(geom, 6)` rounds coordinates to six decimals, which suits

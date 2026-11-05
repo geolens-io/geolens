@@ -270,6 +270,33 @@ def _map_summary(detail: Any) -> Any:
     return out
 
 
+_STORY_FIELDS = ("id", "title", "summary", "visibility", "published_at", "updated_at")
+_STORY_PAGE = 200
+_STORY_SCAN_PAGES = 25
+
+
+def _story_document(detail: Any) -> dict[str, Any]:
+    document = detail.get("document") if isinstance(detail, dict) else None
+    return document if isinstance(document, dict) else {}
+
+
+def _story_summary(listed: dict[str, Any], detail: Any) -> dict[str, Any]:
+    """A listed story with the chapter count of its published document."""
+    chapters = _story_document(detail).get("chapters")
+    out = {key: listed[key] for key in _STORY_FIELDS if key in listed}
+    out["chapter_count"] = len(chapters) if isinstance(chapters, list) else None
+    return out
+
+
+def _story_detail(detail: Any) -> Any:
+    """Reduce a StoryResponse to its metadata and published document."""
+    if not isinstance(detail, dict):
+        return detail
+    out = {key: detail[key] for key in _STORY_FIELDS if key in detail}
+    out["document"] = detail.get("document")
+    return out
+
+
 def _with_detail_source_state(detail: Any) -> Any:
     """Add agent-facing source state and remove raw provider pointers."""
     if not isinstance(detail, dict):
@@ -339,7 +366,7 @@ class GeoLensReadOnlyAPI:
                 detail = body.get("detail") or body.get("message") or ""
                 if not isinstance(detail, str):
                     # FastAPI validation errors carry a structured detail list.
-                    detail = str(detail)[:200]
+                    detail = str(detail)[:500]
             except Exception:
                 detail = (exc.response.text or "")[:200]
             raise RuntimeError(
@@ -431,3 +458,51 @@ class GeoLensReadOnlyAPI:
             "/query/",
             {"sql": sql, "restrict_tables": restrict_tables, "row_limit": row_limit},
         )
+
+    def _published_stories(self, search: Optional[str]) -> list[dict[str, Any]]:
+        """Published stories the caller can read, optionally text-filtered.
+
+        The list route has no text filter and also lists the caller's own
+        drafts, so pages are scanned (bounded) and filtered here.
+        """
+        needle = search.casefold() if search else None
+        found: list[dict[str, Any]] = []
+        for page in range(_STORY_SCAN_PAGES):
+            body = self._get(
+                "/stories/", _params(limit=_STORY_PAGE, skip=page * _STORY_PAGE)
+            )
+            batch = body.get("stories") if isinstance(body, dict) else None
+            if not isinstance(batch, list):
+                break
+            for story in batch:
+                if not isinstance(story, dict) or not story.get("published_at"):
+                    continue
+                text = f"{story.get('title') or ''} {story.get('summary') or ''}"
+                if needle is None or needle in text.casefold():
+                    found.append(story)
+            if len(batch) < _STORY_PAGE:
+                break
+        return found
+
+    def list_stories(
+        self, search: Optional[str] = None, limit: int = 50, offset: int = 0
+    ) -> Any:
+        matched = self._published_stories(search)
+        stories = []
+        for story in matched[offset : offset + limit]:
+            try:
+                detail = self._get(f"/stories/{_id_segment(story['id'])}")
+            except RuntimeError:
+                detail = None
+            stories.append(_story_summary(story, detail))
+        return {"stories": stories, "total": len(matched)}
+
+    def get_story(self, story_id: str) -> Any:
+        # No trailing-slash sibling on this route; it serves the published
+        # document only, never the draft.
+        return _story_detail(self._get(f"/stories/{_id_segment(story_id)}"))
+
+    def aggregate(self, dataset_id: str, request: dict[str, Any]) -> Any:
+        # A POST that reads: the body goes through unchanged and the route
+        # validates it. The trailing slash is the canonical registration.
+        return self._post(f"/datasets/{_id_segment(dataset_id)}/aggregate/", request)

@@ -8,6 +8,7 @@ and releases use semantic versioning.
 ## [Unreleased]
 
 ### Added
+- MCP: list_stories, get_story and aggregate tools read published stories and run dataset aggregates.
 - Stories: an optional navigation bar listing the chapters, and a floating panel layout that puts the chapter text over a full-bleed map, placed left, right or centre.
 
 - Stories: chapters can move the map with Fly, Glide or Cut, timed by the distance of the move, layers fade in and out, and a button returns a reader to the chapter's view.
