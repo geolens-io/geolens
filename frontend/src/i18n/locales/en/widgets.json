@@ -100,7 +100,9 @@
       "loadMore": "Load more",
       "loadingMore": "Loading more",
       "zoomTo": "Zoom to feature on the map",
-      "noMap": "This dashboard has no map, so features cannot be zoomed to."
+      "noMap": "This dashboard has no map, so features cannot be zoomed to.",
+      "loadFailed": "Couldn't load more features.",
+      "retryLoadMore": "Try again"
     }
   },
   "dashboard": {

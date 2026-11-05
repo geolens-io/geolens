@@ -100,7 +100,9 @@
       "loadMore": "Mehr laden",
       "loadingMore": "Weitere werden geladen",
       "zoomTo": "Auf der Karte zum Objekt zoomen",
-      "noMap": "Dieses Dashboard hat keine Karte, daher kann nicht zu Objekten gezoomt werden."
+      "noMap": "Dieses Dashboard hat keine Karte, daher kann nicht zu Objekten gezoomt werden.",
+      "loadFailed": "Weitere Objekte konnten nicht geladen werden.",
+      "retryLoadMore": "Erneut versuchen"
     }
   },
   "dashboard": {

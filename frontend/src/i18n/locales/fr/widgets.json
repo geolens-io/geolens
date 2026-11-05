@@ -100,7 +100,9 @@
       "loadMore": "Charger plus",
       "loadingMore": "Chargement en cours",
       "zoomTo": "Zoomer sur l’entité sur la carte",
-      "noMap": "Ce tableau de bord n’a pas de carte, il est donc impossible de zoomer sur les entités."
+      "noMap": "Ce tableau de bord n’a pas de carte, il est donc impossible de zoomer sur les entités.",
+      "loadFailed": "Impossible de charger d’autres entités.",
+      "retryLoadMore": "Réessayer"
     }
   },
   "dashboard": {

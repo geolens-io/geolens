@@ -100,7 +100,9 @@
       "loadMore": "Cargar más",
       "loadingMore": "Cargando más",
       "zoomTo": "Acercar a la entidad en el mapa",
-      "noMap": "Este panel no tiene mapa, por lo que no se puede acercar a las entidades."
+      "noMap": "Este panel no tiene mapa, por lo que no se puede acercar a las entidades.",
+      "loadFailed": "No se pudieron cargar más entidades.",
+      "retryLoadMore": "Reintentar"
     }
   },
   "dashboard": {

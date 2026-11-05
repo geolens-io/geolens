@@ -165,4 +165,42 @@ describe('feature list on a dashboard', () => {
     expect(screen.queryByRole('button', { name: /First/ })).not.toBeInTheDocument();
     expect(zoom).not.toHaveBeenCalled();
   });
+
+  it('stops asking for a page that failed until the reader presses the button', async () => {
+    vi.stubGlobal(
+      'IntersectionObserver',
+      class {
+        callback: IntersectionObserverCallback;
+        constructor(callback: IntersectionObserverCallback) {
+          this.callback = callback;
+        }
+        observe(target: Element) {
+          queueMicrotask(() =>
+            this.callback([{ isIntersecting: true, target } as IntersectionObserverEntry], this as never),
+          );
+        }
+        disconnect() {}
+      },
+    );
+    try {
+      let failing = true;
+      fetchMock.mockImplementation(async (_dataset, body) => {
+        if (!(body as { cursor?: string }).cursor) return page(['First', 'Second'], 'c1') as never;
+        if (failing) throw new Error('down');
+        return page(['Third'], null) as never;
+      });
+      render(<DashboardPanel config={dashboard([listWidget])} layers={[layer]} map={null} mapId="map-1" />);
+
+      expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't load more");
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      failing = false;
+      await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+      await screen.findByText('Third');
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

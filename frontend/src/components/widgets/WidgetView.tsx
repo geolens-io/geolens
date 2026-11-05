@@ -56,6 +56,7 @@ export function WidgetView({
   mapHidden,
   onLoadMore,
   loadingMore,
+  loadMoreFailed,
   onZoomTo,
   assetPath,
   assetPathFor,
@@ -70,6 +71,7 @@ export function WidgetView({
   mapHidden?: boolean;
   onLoadMore?: () => void;
   loadingMore?: boolean;
+  loadMoreFailed?: boolean;
   onZoomTo?: WidgetRenderProps<unknown>['onZoomTo'];
   assetPath?: string;
   assetPathFor?: WidgetRenderProps<unknown>['assetPathFor'];
@@ -102,6 +104,7 @@ export function WidgetView({
           mapHidden={mapHidden}
           onLoadMore={onLoadMore}
           loadingMore={loadingMore}
+          loadMoreFailed={loadMoreFailed}
           onZoomTo={onZoomTo}
           assetPath={assetPath}
           assetPathFor={assetPathFor}

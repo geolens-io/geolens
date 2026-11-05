@@ -146,6 +146,8 @@ export function useWidgetAggregate({
     loading: body !== null && query.isPending,
     loadMore: paged && pages.hasNextPage && !pages.isFetchingNextPage ? () => void pages.fetchNextPage() : undefined,
     loadingMore: pages.isFetchingNextPage,
+    // A failed page is asked for again only when the reader presses the button.
+    loadMoreFailed: pages.isFetchNextPageError,
   };
 }
 

@@ -69,6 +69,8 @@ export interface WidgetRenderProps<C> {
   onLoadMore?: () => void;
   /** True while the page `onLoadMore` asked for is on its way. */
   loadingMore?: boolean;
+  /** True when the last page `onLoadMore` asked for failed; ask again only on the reader's request. */
+  loadMoreFailed?: boolean;
   /** Set where the dashboard has a map: fits it to the feature with this id and flashes the feature. */
   onZoomTo?: (feature: { id: number | string; bbox: Bbox }) => void;
   /** Where the host serves the image the instance names in `asset_id`. */

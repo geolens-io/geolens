@@ -122,7 +122,7 @@ export function DashboardWidget({
   const layerLineId = useId();
   const Heading = headingLevel === 4 ? 'h4' : 'h3';
   const { instance, definition } = parsed;
-  const { query, filterIgnored, loading, followsView, viewScopeDropped, loadMore, loadingMore } = useWidgetAggregate({
+  const { query, filterIgnored, loading, followsView, viewScopeDropped, loadMore, loadingMore, loadMoreFailed } = useWidgetAggregate({
     instance,
     definition,
     layer,
@@ -201,6 +201,7 @@ export function DashboardWidget({
             mapHidden={mapHidden}
             onLoadMore={loadMore}
             loadingMore={loadingMore}
+            loadMoreFailed={loadMoreFailed}
             onZoomTo={onZoomTo}
             columnLabel={(column) => columnDisplayName(layer.column_info, column)}
             loadingFallback={loadingSkeleton}

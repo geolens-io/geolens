@@ -69,6 +69,8 @@ export const featureListWidget = defineWidget<FeatureListConfig>({
     'types.feature_list.shownMore',
     'types.feature_list.loadMore',
     'types.feature_list.loadingMore',
+    'types.feature_list.loadFailed',
+    'types.feature_list.retryLoadMore',
     'types.feature_list.zoomTo',
     'types.feature_list.noMap',
   ],

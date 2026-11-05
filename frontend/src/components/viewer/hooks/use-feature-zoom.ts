@@ -3,10 +3,13 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import { useMapFeatureHighlight } from '@/components/dataset/hooks/use-map-feature-highlight';
 import type { WidgetRenderProps } from '@/components/widgets/contract';
 import type { SharedLayerResponse } from '@/types/api';
+import { motionDuration } from '@/lib/reduced-motion';
 import { layerHighlightSource } from '../map-data-table';
 
-/** How long a zoomed-to feature stays highlighted. */
+/** How long a zoomed-to feature stays highlighted once the map has come to rest. */
 const FLASH_MS = 1000;
+// A fit that never reports moveend must not leave the highlight on the map.
+const MAX_FLIGHT_MS = 10_000;
 
 const FIT_PADDING = 40;
 const getFitPadding = () => FIT_PADDING;
@@ -26,9 +29,10 @@ export function useFeatureZoom(map: MaplibreMap | null) {
     active: zoomed && map !== null,
     resetKey: 'dashboard',
     getFitPadding,
+    highlightId: 'dashboard-feature-highlight',
   });
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => () => clearTimeout(timer.current), []);
+  const stopFlash = useRef<() => void>(() => undefined);
+  useEffect(() => () => stopFlash.current(), []);
 
   return useCallback(
     (layer: SharedLayerResponse, feature: Parameters<NonNullable<WidgetRenderProps<unknown>['onZoomTo']>>[0]) => {
@@ -36,9 +40,25 @@ export function useFeatureZoom(map: MaplibreMap | null) {
       if (!current) return;
       const source = layer.id ? layerHighlightSource(current, layer, layer.id) : null;
       setZoomed(true);
-      clearTimeout(timer.current);
+      stopFlash.current();
       void highlightFeature(Number(feature.id), source ? { ...source, bbox: feature.bbox } : null);
-      timer.current = setTimeout(clearHighlightedFeature, FLASH_MS);
+      // The countdown starts when the fit's flight ends; a jump has no flight.
+      let flash: ReturnType<typeof setTimeout> | undefined;
+      const arm = () => {
+        clearTimeout(giveUp);
+        current.off('moveend', arm);
+        flash = setTimeout(clearHighlightedFeature, FLASH_MS);
+      };
+      stopFlash.current = () => {
+        clearTimeout(giveUp);
+        clearTimeout(flash);
+        current.off('moveend', arm);
+        stopFlash.current = () => undefined;
+      };
+      const jumps = motionDuration(1) === 0;
+      const giveUp = jumps ? undefined : setTimeout(arm, MAX_FLIGHT_MS);
+      if (jumps) arm();
+      else current.once('moveend', arm);
     },
     [highlightFeature, clearHighlightedFeature],
   );

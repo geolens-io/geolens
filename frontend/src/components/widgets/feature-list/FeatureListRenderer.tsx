@@ -18,6 +18,7 @@ export default function FeatureListRenderer({
   mapHidden,
   onLoadMore,
   loadingMore,
+  loadMoreFailed,
   onZoomTo,
 }: WidgetRenderProps<FeatureListConfig>) {
   const { t } = useTranslation('widgets');
@@ -30,13 +31,13 @@ export default function FeatureListRenderer({
   // Observing again after each page asks for another when the end is still in view.
   useEffect(() => {
     const target = end.current;
-    if (!target || !onLoadMore || loadingMore || typeof IntersectionObserver === 'undefined') return;
+    if (!target || !onLoadMore || loadingMore || loadMoreFailed || typeof IntersectionObserver === 'undefined') return;
     const observer = new IntersectionObserver((entries) => {
       if (entries.some((entry) => entry.isIntersecting)) loadMore.current?.();
     });
     observer.observe(target);
     return () => observer.disconnect();
-  }, [onLoadMore, loadingMore, count]);
+  }, [onLoadMore, loadingMore, loadMoreFailed, count]);
 
   if (!rows) return <p className="text-sm text-muted-foreground">{t('noData')}</p>;
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">{t('noRows')}</p>;
@@ -72,9 +73,14 @@ export default function FeatureListRenderer({
       <p className="text-xs text-muted-foreground">
         {t(hasMore ? 'types.feature_list.shownMore' : 'types.feature_list.shown', { shown: rows.length })}
       </p>
+      {hasMore && loadMoreFailed && (
+        <p role="alert" className="text-xs text-destructive">
+          {t('types.feature_list.loadFailed')}
+        </p>
+      )}
       {hasMore && (
         <Button type="button" variant="outline" size="sm" disabled={!onLoadMore || loadingMore} onClick={onLoadMore}>
-          {t(loadingMore ? 'types.feature_list.loadingMore' : 'types.feature_list.loadMore')}
+          {t(loadingMore ? 'types.feature_list.loadingMore' : loadMoreFailed ? 'types.feature_list.retryLoadMore' : 'types.feature_list.loadMore')}
         </Button>
       )}
     </div>
