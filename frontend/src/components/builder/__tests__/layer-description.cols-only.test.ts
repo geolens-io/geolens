@@ -1,5 +1,6 @@
 import { vi } from 'vitest';
 import { circleAdapter } from '@/components/builder/layer-adapters/circle-adapter';
+import { columnsReadBy } from '@/components/builder/spec-columns';
 import { describeLayers, getDataDrivenColumnsForLayer } from '@/components/builder/layer-description';
 import { syncRenderContext, toSyncInput } from '@/components/builder/map-sync';
 import { RENDER_CONTEXTS } from '@/test/fixtures/render-contexts';
@@ -115,5 +116,25 @@ describe('layers that read a column by a computed name', () => {
 
   it('narrows the tile when every name is a literal', () => {
     expect(urlFor(['==', ['get', 'year'], 1])).toContain('cols_only=true');
+  });
+});
+
+describe('columns the rows endpoint cannot return', () => {
+  const colsFor = (columns: string[]) => {
+    const layer = { ...SAVED_LAYERS.polygon, dataset_column_info: columns.map((name) => ({ name, type: 'text' })) };
+    const { tileColumns, layers } = describeLayers([toSyncInput(layer)], { ...RENDER_CONTEXTS.builder, colsOnly: true });
+    return tileColumns.get(layers[0].sourceId);
+  };
+
+  it('stay in the tile because a popup cannot fetch them', () => {
+    expect(colsFor(['Zone', 'zone2'])).toEqual(['Zone']);
+  });
+});
+
+describe('the object operand of get', () => {
+  it('is read for the fields it uses', () => {
+    const filter = ['==', ['get', 'color', ['case', ['==', ['get', 'kind'], 'a'], ['literal', { color: 1 }], ['literal', {}]]], 1];
+    const { cols } = columnsReadBy({ id: 'l', type: 'fill', source: 's', paint: {}, layout: {}, filter: filter as never });
+    expect(cols.sort()).toEqual(['color', 'kind']);
   });
 });

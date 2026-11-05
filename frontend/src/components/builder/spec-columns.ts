@@ -27,6 +27,8 @@ export function columnsReadBy(layer: LayerSpec['layer']): { cols: string[]; dyna
     if (Array.isArray(node)) {
       if ((node[0] === 'get' || node[0] === 'has') && typeof node[1] === 'string') {
         cols.add(node[1]);
+        // The optional third operand is an object that can read fields too.
+        node.slice(2).forEach(walk);
         return;
       }
       if (node[0] === 'properties' || ((node[0] === 'get' || node[0] === 'has') && node.length > 1 && typeof node[1] !== 'string')) {

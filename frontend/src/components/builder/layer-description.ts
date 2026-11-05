@@ -77,7 +77,13 @@ export interface Description {
   sources: ReadonlyMap<string, SourceSpecification>;
   /** In stack order, leaving out the layers the map draws nothing for. */
   layers: readonly DescribedLayer[];
+  /** The columns each vector source's tile URL names, by source id. */
+  tileColumns: ReadonlyMap<string, readonly string[]>;
 }
+
+// The rows endpoint returns only lowercase column names, so a popup cannot fetch the others.
+const ROWS_READABLE_NAME = /^[a-z0-9_]+$/;
+const TILE_COLUMN_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /** A DEM in terrain mode shapes the terrain mesh and draws no layer of its own. */
 export function isDemTerrainVisualSuppressed(layer: {
@@ -408,7 +414,7 @@ function vectorSource(
   layer: SyncLayerInput,
   described: DescribedLayer,
   drawn: readonly SyncLayerInput[],
-  specColumns: ReadonlySet<string>,
+  cols: string[],
   narrowable: boolean,
   ctx: RenderContext,
 ): VectorSourceSpecification | GeoJSONSourceSpecification {
@@ -430,11 +436,6 @@ function vectorSource(
   const vectorToken = token?.kind === 'vector' ? token : null;
   const tileBaseUrl = tileBaseUrlFor(ctx.tileBaseUrl, ctx.origin);
   const tileVersion = layer.tile_version ?? undefined;
-  // What the map layers read is the contract with the tile, so the specs the adapters emit decide it.
-  const cols = [...new Set([
-    ...getDataDrivenColumnsForSource(described.sourceId, drawn, ctx.idPrefix),
-    ...specColumns,
-  ])];
   // A layer that reads a column by a computed name needs the tile's default projection.
   const colsOnly = ctx.colsOnly === true && narrowable;
   const bounds = normalizeRasterBounds(layer.bounds);
@@ -476,6 +477,12 @@ export function describeLayers(layers: readonly SyncLayerInput[], ctx: RenderCon
       images: [],
     };
     described.push(entry);
+    // Columns a popup cannot fetch stay in the tile.
+    const unfetchable = specColumns.get(entry.sourceId) ?? new Set<string>();
+    for (const column of layer.dataset_column_info ?? []) {
+      if (TILE_COLUMN_NAME.test(column.name) && !ROWS_READABLE_NAME.test(column.name)) unfetchable.add(column.name);
+    }
+    specColumns.set(entry.sourceId, unfetchable);
     const sourceType = ctx.boundedGeoJson.has(layer.id) && drawsBoundedGeoJson(layer, entry) ? 'geojson' : 'vector';
     // An adapter can throw on a saved style it cannot read. That layer draws
     // nothing, and every other layer is still described.
@@ -498,15 +505,22 @@ export function describeLayers(layers: readonly SyncLayerInput[], ctx: RenderCon
       if (import.meta.env.DEV) console.warn(`[map-sync] describing ${entry.id} failed:`, e);
     }
   }
+  const tileColumns = new Map<string, readonly string[]>();
   drawn.forEach((layer, index) => {
     const entry = described[index];
     if (sources.has(entry.sourceId)) return;
+    // What the map layers read is the contract with the tile, so the specs the adapters emit decide it.
+    const cols = [...new Set([
+      ...getDataDrivenColumnsForSource(entry.sourceId, drawn, ctx.idPrefix),
+      ...(specColumns.get(entry.sourceId) ?? []),
+    ])];
+    tileColumns.set(entry.sourceId, cols);
     const source = entry.drawsAs === 'raster' || entry.drawsAs === 'hillshade'
       ? rasterSource(layer, entry.drawsAs === 'hillshade', ctx)
-      : vectorSource(layer, entry, drawn, specColumns.get(entry.sourceId) ?? new Set(), !dynamicSources.has(entry.sourceId), ctx);
+      : vectorSource(layer, entry, drawn, cols, !dynamicSources.has(entry.sourceId), ctx);
     if (source) sources.set(entry.sourceId, source);
   });
-  return { sources, layers: described };
+  return { sources, layers: described, tileColumns };
 }
 
 /**
