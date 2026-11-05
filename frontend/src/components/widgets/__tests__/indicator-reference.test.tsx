@@ -125,11 +125,27 @@ describe('indicator difference', () => {
     expect(indicatorDifference('-9007199254740993', { ...base, reference: -9007199254740992 })?.direction).toBe(
       'below',
     );
-    expect(indicatorDifference('9007199254740993', { ...base, reference: 1.5 })).toBeNull();
+    expect(indicatorDifference('9007199254740993', { ...base, reference: 1.5 })).toMatchObject({
+      direction: 'above',
+    });
   });
 
-  it('has no difference for a decimal text past 2^53, and reads one in exponent form', () => {
-    expect(indicatorDifference('9007199254740992.1', { ...base, reference: 9007199254740992 })).toBeNull();
+  it('compares a decimal text exactly, below and past 2^53', () => {
+    for (const [text, reference] of [
+      ['9007199254740991.1', 9007199254740991],
+      ['9007199254740992.1', 9007199254740992],
+    ] as const) {
+      expect(indicatorDifference(text, { ...base, reference })).toMatchObject({
+        amount: expect.closeTo(0.1, 5),
+        direction: 'above',
+        tone: 'good',
+      });
+    }
+    expect(indicatorDifference('0.30000000000000004', { ...base, reference: 0.3 })?.direction).toBe('above');
+    expect(indicatorDifference('-1.5', { ...base, reference: -1.5 })?.direction).toBe('same');
+  });
+
+  it('reads a decimal text in exponent form', () => {
     expect(indicatorDifference('1.00000000000000000001E-8', { ...base, reference: 0 })).toMatchObject({
       direction: 'above',
     });
@@ -147,11 +163,11 @@ describe('indicator difference', () => {
     expect(screen.getByText(/^\+9,223,372,036,854,775,807 above Reference/)).toBeInTheDocument();
   });
 
-  it('shows no difference line for an exact value and a fractional reference', () => {
-    const data = { op: 'stats', approximate: false, cached: false, result: { sum: '9007199254740993' } };
-    render(<IndicatorRenderer config={{ stat: 'sum', column: 'id', reference: 2.5 }} data={data} />);
-    expect(screen.getByText('9,007,199,254,740,993')).toBeInTheDocument();
-    expect(screen.queryByText(/above|below|Same as/)).not.toBeInTheDocument();
+  it('shows a tie only when the exact value equals the reference', () => {
+    const data = { op: 'stats', approximate: false, cached: false, result: { sum: '9007199254740991.1' } };
+    render(<IndicatorRenderer config={{ stat: 'sum', column: 'id', reference: 9007199254740991 }} data={data} />);
+    expect(screen.queryByText(/Same as/)).not.toBeInTheDocument();
+    expect(screen.getByText(/above Reference, favorable$/)).toBeInTheDocument();
   });
 
   it('reads an exact value sent as text, and has none without a number', () => {

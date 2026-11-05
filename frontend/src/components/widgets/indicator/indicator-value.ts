@@ -9,7 +9,7 @@ type Direction = 'above' | 'below' | 'same';
 type Tone = 'good' | 'bad' | 'neutral';
 
 interface Difference {
-  /** The signed difference; a bigint when the value is an exact integer past 2^53, null when it overflows. */
+  /** The signed difference; a bigint when it is a whole number, null when it overflows. */
   amount: number | bigint | null;
   /** Change as a fraction of the reference's size; null when the reference is 0 or the change overflows. */
   percent: number | null;
@@ -17,20 +17,42 @@ interface Difference {
   tone: Tone;
 }
 
-const DECIMAL_TEXT = /^-?\d+(\.\d+)?([eE][+-]?\d+)?$/;
+const DECIMAL_TEXT = /^(-?)(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/;
+const MAX_TEXT_LENGTH = 300;
+
+/** A decimal as `digits / 10^scale`, so two of them compare without rounding. */
+interface Decimal {
+  digits: bigint;
+  scale: number;
+}
+
+function parseDecimal(text: string): Decimal | null {
+  const match = text.length <= MAX_TEXT_LENGTH ? DECIMAL_TEXT.exec(text) : null;
+  if (!match) return null;
+  const fraction = match[3] ?? '';
+  const exponent = match[4] === undefined ? 0 : Number(match[4]);
+  if (Math.abs(exponent) > MAX_TEXT_LENGTH) return null;
+  const digits = BigInt(match[2] + fraction);
+  return { digits: match[1] ? -digits : digits, scale: fraction.length - exponent };
+}
 
 /**
- * The value as a number, or null when it is missing, not numeric, or a text
- * the number can't hold. The endpoint sends such a decimal as text, and past
- * 2^53 its rounding could hide a real difference.
+ * The exact difference between a decimal text and a number, or null when the
+ * text is not a plain decimal. The endpoint sends a value text when a float
+ * can't hold it, and rounding it could report a false tie.
  */
-function numericValue(value: number | string | null | undefined): number | null {
-  if (typeof value === 'string') {
-    if (!DECIMAL_TEXT.test(value)) return null;
-    const number = Number(value);
-    return Number.isFinite(number) && Math.abs(number) < 2 ** 53 ? number : null;
-  }
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+function exactDifference(text: string, reference: number): { amount: number | bigint; sign: number } | null {
+  const current = parseDecimal(text);
+  const other = parseDecimal(String(reference));
+  if (!current || !other) return null;
+  const scale = Math.max(current.scale, other.scale);
+  if (scale > MAX_TEXT_LENGTH) return null;
+  const lift = (decimal: Decimal) => decimal.digits * 10n ** BigInt(scale - decimal.scale);
+  const diff = lift(current) - lift(other);
+  const sign = diff > 0n ? 1 : diff < 0n ? -1 : 0;
+  if (scale <= 0) return { amount: diff * 10n ** BigInt(-scale), sign };
+  const unit = 10n ** BigInt(scale);
+  return { amount: diff % unit === 0n ? diff / unit : Number(diff) / Number(unit), sign };
 }
 
 /**
@@ -47,21 +69,24 @@ export function indicatorDifference(
   let amount: number | bigint | null;
   let percent: number | null;
   let direction: Direction;
-  if (typeof value === 'string' && /^-?\d+$/.test(value) && !Number.isSafeInteger(Number(value))) {
-    // An exact integer past 2^53: a Number would round it and could report a false tie.
-    if (!Number.isInteger(reference)) return null;
-    const exact = BigInt(value) - BigInt(reference);
-    amount = exact;
-    percent = reference === 0 ? null : Number(exact) / Math.abs(reference);
-    direction = exact > 0n ? 'above' : exact < 0n ? 'below' : 'same';
+  if (typeof value === 'string') {
+    const exact = exactDifference(value, reference);
+    if (!exact) return null;
+    amount = exact.amount;
+    percent = reference === 0 ? null : Number(exact.amount) / Math.abs(reference);
+    direction = exact.sign > 0 ? 'above' : exact.sign < 0 ? 'below' : 'same';
   } else {
-    const current = numericValue(value);
-    if (current === null) return null;
-    const raw = current - reference;
+    if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+    const raw = value - reference;
     amount = Number.isFinite(raw) ? raw : null;
     // The quotient form still works when the subtraction overflows.
-    percent = reference === 0 ? null : amount === null ? current / Math.abs(reference) - Math.sign(reference) : amount / Math.abs(reference);
-    direction = current > reference ? 'above' : current < reference ? 'below' : 'same';
+    percent =
+      reference === 0
+        ? null
+        : amount === null
+          ? value / Math.abs(reference) - Math.sign(reference)
+          : amount / Math.abs(reference);
+    direction = value > reference ? 'above' : value < reference ? 'below' : 'same';
   }
   if (percent !== null && !Number.isFinite(percent)) percent = null;
   const comparison = config.comparison ?? 'both';
