@@ -301,8 +301,13 @@ def _prior_generation_keys_to_reap(
     logical_keys = [vrt_key, *overview_keys_for(vrt_key)]
     # The catalog row can name an overview the VRT's own URI does not, after a
     # regeneration by a release that does not write one.
-    if overview_href is not None and overview_href not in logical_keys:
-        logical_keys.append(overview_href)
+    if overview_href is not None:
+        stale_vrt = overview_href.removesuffix(".ovr.tif") + ".vrt"
+        logical_keys.extend(
+            key
+            for key in (overview_href, *overview_keys_for(stale_vrt))
+            if key not in logical_keys
+        )
     if replace_quicklook_256 and quicklook_256_key is not None:
         logical_keys.append(quicklook_256_key)
     if replace_quicklook_512 and quicklook_512_key is not None:

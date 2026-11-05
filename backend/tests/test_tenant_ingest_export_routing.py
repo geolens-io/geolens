@@ -196,6 +196,26 @@ def test_vrt_reap_retains_old_quicklooks_when_regeneration_has_none():
     ]
 
 
+def test_vrt_reap_covers_every_level_of_a_stale_overview_href():
+    from app.processing.ingest.tasks_vrt import _prior_generation_keys_to_reap
+
+    keys = _prior_generation_keys_to_reap(
+        vrt_key="rasters/vrt/new/source.vrt",
+        quicklook_256_key=None,
+        quicklook_512_key=None,
+        replace_quicklook_256=False,
+        replace_quicklook_512=False,
+        overview_href="rasters/vrt/older/source.ovr.tif",
+    )
+
+    assert {
+        "rasters/vrt/older/source.ovr.tif",
+        "rasters/vrt/older/source.ovr4.tif",
+        "rasters/vrt/older/source.ovr8.tif",
+    } <= set(keys)
+    assert len(keys) == len(set(keys))
+
+
 def test_ingest_worker_fails_closed_without_tenant_context(monkeypatch):
     from app.core.db.tenant_session import current_tenant_var
     from app.processing.ingest.tasks_common import (
