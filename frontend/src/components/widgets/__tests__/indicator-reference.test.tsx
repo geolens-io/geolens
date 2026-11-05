@@ -136,7 +136,7 @@ describe('indicator difference', () => {
       ['9007199254740992.1', 9007199254740992],
     ] as const) {
       expect(indicatorDifference(text, { ...base, reference })).toMatchObject({
-        amount: expect.closeTo(0.1, 5),
+        amount: '0.1',
         direction: 'above',
         tone: 'good',
       });
@@ -161,6 +161,25 @@ describe('indicator difference', () => {
     const data = { op: 'stats', approximate: false, cached: false, result: { sum: '9223372036854775807' } };
     render(<IndicatorRenderer config={{ stat: 'sum', column: 'id', reference: 0, comparison: 'value' }} data={data} />);
     expect(screen.getByText(/^\+9,223,372,036,854,775,807 above Reference/)).toBeInTheDocument();
+  });
+
+  it('displays an exact fractional difference without rounding it through a number', () => {
+    const data = { op: 'stats', approximate: false, cached: false, result: { sum: '9007199254740991.1' } };
+    render(<IndicatorRenderer config={{ stat: 'sum', column: 'id', reference: 0, comparison: 'value' }} data={data} />);
+    expect(screen.getByText(/^\+9,007,199,254,740,991\.1 above Reference/)).toBeInTheDocument();
+  });
+
+  it('keeps the difference when the scaled value would overflow a number', () => {
+    const config = { ...base, reference: 1e-300 };
+    expect(indicatorDifference('9007199254740993', config)).toMatchObject({
+      amount: expect.stringMatching(/^9007199254740992\.9999/),
+      percent: null,
+      direction: 'above',
+    });
+    const data = { op: 'stats', approximate: false, cached: false, result: { sum: '9007199254740993' } };
+    render(<IndicatorRenderer config={{ stat: 'sum', column: 'id', reference: 1e-300 }} data={data} />);
+    expect(screen.queryByText(/∞/)).not.toBeInTheDocument();
+    expect(screen.getByText(/^\+9,007,199,254,740,993 above Reference/)).toBeInTheDocument();
   });
 
   it('shows a tie only when the exact value equals the reference', () => {

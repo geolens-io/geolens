@@ -312,6 +312,34 @@ class TestMergeDashboard:
         )
         assert cleared["widgets"] == []
 
+    def test_an_emptying_save_that_sends_the_defaults_leaves_them_for_the_next_widget(
+        self,
+    ):
+        shown = uuid.uuid4()
+        stored = {
+            "version": 1,
+            "panel": "bottom",
+            "theme": "dark",
+            "map_hidden": True,
+            "widgets": [_widget("indicator", shown)],
+        }
+        emptied = _merge(
+            {
+                "panel": "right",
+                "map_hidden": False,
+                "theme": "follow",
+                "readable": ["indicator:1", "indicator:2"],
+                "widgets": [],
+            },
+            stored,
+            readable={shown},
+        )
+        assert emptied == {"version": 1, "widgets": []}
+        added = _merge(
+            {"widgets": [_widget("indicator", shown)]}, emptied, readable={shown}
+        )
+        assert set(added) == {"version", "widgets"}
+
     @pytest.mark.parametrize("pair", ["bar_chart", "pie_chart:01", "pie_chart:0"])
     def test_a_malformed_readable_pair_is_refused(self, pair):
         with pytest.raises(ValidationError):

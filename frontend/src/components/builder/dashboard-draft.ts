@@ -172,9 +172,9 @@ export function dashboardSavePayload(
   if (payload || saved.widgets.length === 0 || !readable) return payload;
   return {
     version: 1,
-    panel: draft.panel,
-    map_hidden: !!draft.mapHidden,
-    theme: draft.theme ?? 'follow',
+    panel: 'right',
+    map_hidden: false,
+    theme: 'follow',
     readable,
     widgets: [],
   };

@@ -9,8 +9,8 @@ type Direction = 'above' | 'below' | 'same';
 type Tone = 'good' | 'bad' | 'neutral';
 
 interface Difference {
-  /** The signed difference; a bigint when it is a whole number, null when it overflows. */
-  amount: number | bigint | null;
+  /** The signed difference; exact text or a bigint when it came from an exact value, null when it overflows. */
+  amount: number | bigint | string | null;
   /** Change as a fraction of the reference's size; null when the reference is 0 or the change overflows. */
   percent: number | null;
   direction: Direction;
@@ -36,12 +36,22 @@ function parseDecimal(text: string): Decimal | null {
   return { digits: match[1] ? -digits : digits, scale: fraction.length - exponent };
 }
 
+/** `diff / 10^scale` as exact decimal text, for a formatter that reads text without rounding it. */
+function decimalText(diff: bigint, scale: number): string {
+  const digits = (diff < 0n ? -diff : diff).toString().padStart(scale + 1, '0');
+  const point = digits.length - scale;
+  return `${diff < 0n ? '-' : ''}${digits.slice(0, point)}.${digits.slice(point)}`;
+}
+
 /**
  * The exact difference between a decimal text and a number, or null when the
- * text is not a plain decimal. The endpoint sends a value text when a float
+ * text is not a plain decimal. The endpoint sends a value as text when a float
  * can't hold it, and rounding it could report a false tie.
  */
-function exactDifference(text: string, reference: number): { amount: number | bigint; sign: number } | null {
+function exactDifference(
+  text: string,
+  reference: number,
+): { amount: number | bigint | string; percent: number | null; sign: number } | null {
   const current = parseDecimal(text);
   const other = parseDecimal(String(reference));
   if (!current || !other) return null;
@@ -50,9 +60,12 @@ function exactDifference(text: string, reference: number): { amount: number | bi
   const lift = (decimal: Decimal) => decimal.digits * 10n ** BigInt(scale - decimal.scale);
   const diff = lift(current) - lift(other);
   const sign = diff > 0n ? 1 : diff < 0n ? -1 : 0;
-  if (scale <= 0) return { amount: diff * 10n ** BigInt(-scale), sign };
-  const unit = 10n ** BigInt(scale);
-  return { amount: diff % unit === 0n ? diff / unit : Number(diff) / Number(unit), sign };
+  // Both sides are in the same unit, so their ratio needs no scale; it is null when it overflows.
+  const size = Math.abs(Number(lift(other)));
+  const ratio = Number(diff) / size;
+  const percent = other.digits === 0n || !Number.isFinite(ratio) ? null : ratio;
+  if (scale <= 0) return { amount: diff * 10n ** BigInt(-scale), percent, sign };
+  return { amount: decimalText(diff, scale), percent, sign };
 }
 
 /**
@@ -66,14 +79,14 @@ export function indicatorDifference(
 ): Difference | null {
   const { reference } = config;
   if (reference === undefined) return null;
-  let amount: number | bigint | null;
+  let amount: number | bigint | string | null;
   let percent: number | null;
   let direction: Direction;
   if (typeof value === 'string') {
     const exact = exactDifference(value, reference);
     if (!exact) return null;
     amount = exact.amount;
-    percent = reference === 0 ? null : Number(exact.amount) / Math.abs(reference);
+    percent = exact.percent;
     direction = exact.sign > 0 ? 'above' : exact.sign < 0 ? 'below' : 'same';
   } else {
     if (typeof value !== 'number' || !Number.isFinite(value)) return null;
@@ -141,7 +154,7 @@ export function useIndicatorText(
     const comparison = config.comparison ?? 'both';
     const amount =
       difference.amount !== null && (comparison !== 'percent' || difference.percent === null)
-        ? new Intl.NumberFormat(i18n.language, { ...signed, maximumFractionDigits: 2 }).format(difference.amount)
+        ? (new Intl.NumberFormat(i18n.language, { ...signed, maximumFractionDigits: 2 }).format as (v: unknown) => string)(difference.amount)
         : null;
     const percent =
       comparison !== 'value' && difference.percent !== null

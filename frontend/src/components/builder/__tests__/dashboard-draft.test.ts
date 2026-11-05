@@ -212,12 +212,12 @@ describe('the save that empties a dashboard', () => {
     });
   });
 
-  it('keeps the draft layout settings for the next widget', () => {
+  it('resets the layout settings, since an empty dashboard reloads as the defaults', () => {
     const laidOut: DashboardDraft = { panel: 'bottom', theme: 'dark', mapHidden: true, widgets: [] };
-    expect(dashboardSavePayload(laidOut, [], had)).toMatchObject({
-      panel: 'bottom',
-      theme: 'dark',
-      map_hidden: true,
+    expect(dashboardSavePayload(laidOut, [], { ...had, panel: 'bottom', theme: 'dark', mapHidden: true })).toMatchObject({
+      panel: 'right',
+      theme: 'follow',
+      map_hidden: false,
       widgets: [],
     });
   });
