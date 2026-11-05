@@ -357,6 +357,7 @@ describe('PublicViewerPage', () => {
       expect(screen.queryByTestId('viewer-map')).not.toBeInTheDocument();
       expect(screen.queryByTestId('layer-legend')).not.toBeInTheDocument();
       expect(viewerMapMock.props).toBeNull();
+      expect(screen.getAllByRole('main')).toHaveLength(1);
     },
   );
 

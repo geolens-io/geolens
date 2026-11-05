@@ -20,6 +20,8 @@ interface ViewerWithDashboardProps {
   /** Remembers the reader's collapsed choice; see `DashboardPanel`. */
   mapId?: string;
   startCollapsed?: boolean;
+  /** Set where the page has no main landmark of its own, which the map's viewport otherwise supplies. */
+  mainLandmark?: boolean;
   /** A branding extension's accent, font and logo for the viewer and its dashboard. */
   readerTheme?: ReaderTheme | null;
   /**
@@ -36,7 +38,7 @@ interface ViewerWithDashboardProps {
  * the dashboard fills the page. A pick on a widget filters its layer on the map until the
  * reader clears it; the saved map is unchanged.
  */
-export function ViewerWithDashboard({ children, readerTheme, ...panel }: ViewerWithDashboardProps) {
+export function ViewerWithDashboard({ children, readerTheme, mainLandmark, ...panel }: ViewerWithDashboardProps) {
   const [map, setMap] = useState<MaplibreMap | null>(null);
   const { resolvedTheme } = useTheme();
   const [storedPicks, setPicks] = useState<readonly LinkedPick[]>([]);
@@ -69,6 +71,15 @@ export function ViewerWithDashboard({ children, readerTheme, ...panel }: ViewerW
   useEffect(() => {
     if (mapHidden) setMap(null);
   }, [mapHidden]);
+  const dashboard = (
+    <DashboardPanel
+      {...panel}
+      map={map}
+      picks={picks}
+      onPicksChange={changePicks}
+      logoUrl={readerLogoUrl(readerTheme)}
+    />
+  );
   return (
     <div
       className={cn(
@@ -78,13 +89,7 @@ export function ViewerWithDashboard({ children, readerTheme, ...panel }: ViewerW
       style={readerThemeStyle(readerTheme, resolvedTheme)}
     >
       {!mapHidden && children({ onMapReady: setMap, mapLayers })}
-      <DashboardPanel
-        {...panel}
-        map={map}
-        picks={picks}
-        onPicksChange={changePicks}
-        logoUrl={readerLogoUrl(readerTheme)}
-      />
+      {mapHidden && mainLandmark ? <main className="flex min-h-0 w-full flex-1 flex-col">{dashboard}</main> : dashboard}
     </div>
   );
 }
