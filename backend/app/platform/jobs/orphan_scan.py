@@ -156,7 +156,8 @@ async def reconcile_orphan_objects(
     Returns None when the pass declined: multi-tenant mode without a tenant
     context, another process holding the advisory lock, or ``guard`` saying no.
     With ``db``, the walk runs in a savepoint so a database error rolls back
-    only this pass; ``guard`` runs inside it before anything is listed.
+    only this pass. ``guard`` runs before anything is listed, inside the
+    savepoint when there is one.
 
     The lock lives on its own session, so ending it releases the lock without
     touching the caller's transaction.
@@ -181,7 +182,9 @@ async def reconcile_orphan_objects(
             return None
         storage = get_storage()
 
-        async def walk() -> ScanProgress:
+        async def walk() -> ScanProgress | None:
+            if guard is not None and not await guard():
+                return None
             return await _walk(
                 storage,
                 physical_prefix,
@@ -193,6 +196,4 @@ async def reconcile_orphan_objects(
         if db is None:
             return await walk()
         async with db.begin_nested():
-            if guard is not None and not await guard():
-                return None
             return await walk()

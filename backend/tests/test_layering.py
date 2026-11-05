@@ -694,7 +694,8 @@ def test_no_underscore_imports_from_staging_reconcile() -> None:
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if (
                 isinstance(node, ast.ImportFrom)
-                and node.module == "app.platform.jobs.staging_reconcile"
+                and _resolve_relative_import(path, node)
+                == "app.platform.jobs.staging_reconcile"
             ):
                 offenders += [
                     f"{_repo_style_rel(path)}:{node.lineno} imports {alias.name}"
