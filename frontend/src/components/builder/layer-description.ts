@@ -409,6 +409,7 @@ function vectorSource(
   described: DescribedLayer,
   drawn: readonly SyncLayerInput[],
   specColumns: ReadonlySet<string>,
+  narrowable: boolean,
   ctx: RenderContext,
 ): VectorSourceSpecification | GeoJSONSourceSpecification {
   const attribution = nonBlank(layer.attribution);
@@ -434,7 +435,8 @@ function vectorSource(
     ...getDataDrivenColumnsForSource(described.sourceId, drawn, ctx.idPrefix),
     ...specColumns,
   ])];
-  const colsOnly = ctx.colsOnly === true;
+  // A layer that reads a column by a computed name needs the tile's default projection.
+  const colsOnly = ctx.colsOnly === true && narrowable;
   const bounds = normalizeRasterBounds(layer.bounds);
   return {
     type: 'vector',
@@ -459,6 +461,7 @@ export function describeLayers(layers: readonly SyncLayerInput[], ctx: RenderCon
   const sources = new Map<string, SourceSpecification>();
   const described: DescribedLayer[] = [];
   const specColumns = new Map<string, Set<string>>();
+  const dynamicSources = new Set<string>();
   for (const layer of drawn) {
     const layout = layer.layout ?? {};
     const entry: DescribedLayer = {
@@ -483,9 +486,11 @@ export function describeLayers(layers: readonly SyncLayerInput[], ctx: RenderCon
         entry.images = drawing.images;
         const read = specColumns.get(entry.sourceId) ?? new Set<string>();
         for (const spec of drawing.specs) {
-          for (const col of columnsReadBy(spec.layer)) {
+          const { cols, dynamic } = columnsReadBy(spec.layer);
+          for (const col of cols) {
             if (entry.drawsAs !== 'cluster' || !CLUSTER_OUTPUT_PROPERTIES.has(col)) read.add(col);
           }
+          if (dynamic) dynamicSources.add(entry.sourceId);
         }
         specColumns.set(entry.sourceId, read);
       }
@@ -498,7 +503,7 @@ export function describeLayers(layers: readonly SyncLayerInput[], ctx: RenderCon
     if (sources.has(entry.sourceId)) return;
     const source = entry.drawsAs === 'raster' || entry.drawsAs === 'hillshade'
       ? rasterSource(layer, entry.drawsAs === 'hillshade', ctx)
-      : vectorSource(layer, entry, drawn, specColumns.get(entry.sourceId) ?? new Set(), ctx);
+      : vectorSource(layer, entry, drawn, specColumns.get(entry.sourceId) ?? new Set(), !dynamicSources.has(entry.sourceId), ctx);
     if (source) sources.set(entry.sourceId, source);
   });
   return { sources, layers: described };

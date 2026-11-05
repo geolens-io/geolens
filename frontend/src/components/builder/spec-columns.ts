@@ -11,18 +11,26 @@ export const CLUSTER_OUTPUT_PROPERTIES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The feature columns a map layer reads: every `get` or `has` of an
+ * The feature columns a map layer reads, and whether it also reads columns it
+ * does not name: a computed property name or `properties`. A source with such a
+ * layer cannot be narrowed to a list of columns.
+ *
+ * Every `get` or `has` of an
  * expression, the `property` of a legacy function, the field of a legacy
  * filter and the `{field}` tokens of a text or icon layout value.
  */
-export function columnsReadBy(layer: LayerSpec['layer']): string[] {
+export function columnsReadBy(layer: LayerSpec['layer']): { cols: string[]; dynamic: boolean } {
   const cols = new Set<string>();
+  let dynamic = false;
 
   function walk(node: unknown): void {
     if (Array.isArray(node)) {
       if ((node[0] === 'get' || node[0] === 'has') && typeof node[1] === 'string') {
         cols.add(node[1]);
         return;
+      }
+      if (node[0] === 'properties' || ((node[0] === 'get' || node[0] === 'has') && node.length > 1 && typeof node[1] !== 'string')) {
+        dynamic = true;
       }
       for (const child of node) walk(child);
       return;
@@ -58,5 +66,5 @@ export function columnsReadBy(layer: LayerSpec['layer']): string[] {
   walk(layer.filter);
   walkLegacyFilter(layer.filter);
   for (const key of TOKEN_KEYS) walkTokens(layer.layout?.[key]);
-  return [...cols];
+  return { cols: [...cols], dynamic };
 }

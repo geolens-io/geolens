@@ -113,6 +113,19 @@ describe('toAccessibleMapFeatures', () => {
       expect(fetchRowFor(defaultPopup(), makeFeature({ sourceLayer: undefined }), true)).toBe(false);
     });
 
+    it('is off for a gid the map cannot hold exactly, and the tile attributes stay', () => {
+      const feature = makeFeature({ id: Number('9007199254740993') });
+      const layer = defaultPopup();
+      const [item] = toAccessibleMapFeatures([feature], (id) => id === 'viewer-layer-layer-1' ? layer : null, undefined, true).features;
+      expect(item.fetchRow).toBe(false);
+      expect(item.gid).toBeUndefined();
+      expect(item.properties.length).toBeGreaterThan(0);
+    });
+
+    it('keeps the fetch for a gid within the safe range', () => {
+      expect(fetchRowFor(defaultPopup(), makeFeature({ id: 9007199254740991 }), true)).toBe(true);
+    });
+
     it('is off for a cluster', () => {
       const cluster = makeFeature({ properties: { point_count: 12 } });
       expect(fetchRowFor(defaultPopup(), cluster, true)).toBe(false);

@@ -989,7 +989,7 @@ export const BuilderMap = memo(function BuilderMap({
           layerId: layer.id,
           featureId: featureGid(feature),
           // Bounded cluster GeoJSON has no source layer and already carries every property.
-          fetchRow: cfg?.visible_fields == null && feature.sourceLayer !== undefined,
+          fetchRow: cfg?.visible_fields == null && feature.sourceLayer !== undefined && featureGid(feature) !== undefined,
         });
       }
       return mapped;

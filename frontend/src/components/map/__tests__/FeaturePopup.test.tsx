@@ -733,6 +733,13 @@ describe('FeaturePopup — fields read from the rows endpoint', () => {
     expect(screen.queryByText('No attributes')).not.toBeInTheDocument();
   });
 
+  it('shows the tile fields and fetches nothing when no gid identifies the feature', () => {
+    show(lean({ featureId: undefined, fetchRow: false }));
+    expect(screen.getByText('NYC')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('fetches nothing for a popup whose fields the author chose', () => {
     show(lean({ fetchRow: false, visibleFields: ['city'] }));
     expect(mockUseDatasetRows).toHaveBeenCalledWith(

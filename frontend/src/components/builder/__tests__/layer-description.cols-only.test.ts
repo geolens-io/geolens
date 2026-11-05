@@ -98,3 +98,22 @@ describe('columns the rendered layers read', () => {
     }
   });
 });
+
+describe('layers that read a column by a computed name', () => {
+  const urlFor = (filter: unknown) => {
+    const { sources, layers } = describeLayers(
+      [toSyncInput({ ...SAVED_LAYERS.polygon, filter: filter as never })],
+      { ...RENDER_CONTEXTS.builder, colsOnly: true },
+    );
+    return (sources.get(layers[0].sourceId) as { tiles: string[] }).tiles[0];
+  };
+
+  it('keeps the default projection so the computed column still reaches the map', () => {
+    const url = urlFor(['==', ['get', ['concat', 'value_', ['get', 'year']]], 1]);
+    expect(url).not.toContain('cols_only');
+  });
+
+  it('narrows the tile when every name is a literal', () => {
+    expect(urlFor(['==', ['get', 'year'], 1])).toContain('cols_only=true');
+  });
+});

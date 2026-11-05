@@ -780,7 +780,7 @@ export const ViewerMap = memo(function ViewerMap({
           layerId: hit.key,
           featureId: featureGid(feature),
           // Bounded cluster GeoJSON has no source layer and already carries every property.
-          fetchRow: colsOnly && cfg?.visible_fields == null && feature.sourceLayer !== undefined,
+          fetchRow: colsOnly && cfg?.visible_fields == null && feature.sourceLayer !== undefined && featureGid(feature) !== undefined,
           embedToken,
         });
       }

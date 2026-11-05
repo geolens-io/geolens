@@ -168,11 +168,13 @@ export function toAccessibleMapFeatures(
       ungroupedKeys: ungroupedKeys(layer),
       datasetId: layer.dataset_id,
       gid: featureGid(feature),
+      // A gid beyond Number.MAX_SAFE_INTEGER reaches the map rounded, so it names no row.
       // Bounded cluster GeoJSON has no source layer and already carries every property.
       fetchRow: colsOnly
         && layer.popup_config?.enabled !== false
         && layer.popup_config?.visible_fields == null
         && feature.sourceLayer !== undefined
+        && featureGid(feature) !== undefined
         && clusterCount(properties) === null,
     });
   }
