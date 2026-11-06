@@ -189,6 +189,19 @@ describe('a projection too long for the request line', () => {
     expect((sources.get(layers[0].sourceId) as { tiles: string[] }).tiles[0]).toContain('Mixed_Case');
   });
 
+  it('drops the held columns before it drops a cluster layer filter', () => {
+    // 285 held columns fit the request line without the filter but not with it.
+    const columns = [...wide.slice(0, 1), ...Array.from({ length: 284 }, (_, i) => ({ name: `Mixed_Case_Column_${String(i + 1).padStart(4, '0')}_x`, type: 'text' })), { name: 'kind', type: 'text' }];
+    const filter = ['==', ['get', 'kind'], 'a'];
+    const { sources, layers } = describeLayers(
+      [toSyncInput({ ...SAVED_LAYERS.serverCluster, filter: filter as never, dataset_column_info: columns })],
+      { ...RENDER_CONTEXTS.builder, colsOnly: true },
+    );
+    const url = (sources.get(layers[0].sourceId) as { tiles: string[] }).tiles[0];
+    expect(url).toContain('filter=');
+    expect(url).not.toContain('Mixed_Case');
+  });
+
   it('stays lean when the held columns fit', () => {
     expect(urlFor(SAVED_LAYERS.polygon, wide.slice(0, 3))).toContain('cols_only=true');
   });

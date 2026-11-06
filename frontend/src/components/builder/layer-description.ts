@@ -446,13 +446,18 @@ function vectorSource(
     ? buildClusterTileUrl(layer.dataset_table_name, token, tileBaseUrl, tileVersion, { ...clusterOptions(layer), filter: routedJson(clusterTileFilter(layer, tileBaseUrl, tileCols, only)) }, tileCols, only)
     : buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl, tileVersion, tileCols, only);
   // A layer that reads a column by a computed name needs the tile's default projection.
-  let colsOnly = ctx.colsOnly === true && narrowable;
-  let tileCols = cols;
+  const leanAllowed = ctx.colsOnly === true && narrowable;
+  const probe = standInToken(layer.dataset_table_name);
+  // A cluster filter that no longer fits is left off the URL, which the shorter URL would hide.
+  const fits = (tileCols: string[], only: boolean) => {
+    const routed = serverCluster ? clusterTileFilter(layer, tileBaseUrl, tileCols, only) : null;
+    return fitsTileRequestLine(tileUrl(probe, tileCols, only))
+      && !(routed && 'omitted' in routed && routed.omitted === 'too-large');
+  };
   // Past the request line the tile falls back to the default projection, with only the columns the map reads.
-  if (!fitsTileRequestLine(tileUrl(standInToken(layer.dataset_table_name), cols, colsOnly))) {
-    colsOnly = false;
-    tileCols = required;
-  }
+  const fallback = !fits(cols, leanAllowed);
+  const colsOnly = leanAllowed && !fallback;
+  const tileCols = fallback ? required : cols;
   const bounds = normalizeRasterBounds(layer.bounds);
   return {
     type: 'vector',
