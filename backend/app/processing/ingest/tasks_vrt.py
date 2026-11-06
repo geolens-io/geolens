@@ -124,25 +124,27 @@ async def keep_overview_if_it_fits(
     overview_paths: list[str] | None,
     *,
     credit_bytes: int = 0,
-) -> str | None:
+) -> list[str] | None:
     """Return ``overview_paths`` when their bytes fit the owner's cap, else drop them.
 
-    Dropping deletes the file and strips the ``Overview`` elements, so the VRT
-    publishes without one. ``credit_bytes`` is what the superseded overview
-    already counts. This is advisory and runs before the VRT is hashed; the
-    authoritative reservation is ``record_vrt_overview``.
+    Dropping deletes the files and strips the ``Overview`` elements, so the VRT
+    publishes without them. This runs the locked reservation before the VRT is
+    hashed; ``record_vrt_overview`` repeats it at publish, as every door does.
+    ``credit_bytes`` is what the superseded overview already counts.
     """
     if overview_paths is None:
         return None
     from app.core.db import async_session
-    from app.modules.quota.service import get_user_quota_usage
+    from app.modules.quota.service import (
+        StorageQuotaExceededError,
+        reserve_storage_bytes,
+    )
 
     size = sum(os.path.getsize(path) for path in overview_paths)
-    async with async_session() as session:
-        usage = await get_user_quota_usage(session, owner_id)
-    if usage.storage_cap > 0 and (
-        usage.bytes_used + max(0, size - credit_bytes) > usage.storage_cap
-    ):
+    try:
+        async with async_session() as session:
+            await reserve_storage_bytes(session, owner_id, max(0, size - credit_bytes))
+    except StorageQuotaExceededError:
         structlog.get_logger().warning(
             "VRT overview dropped: it would exceed the owner's storage cap",
             size_bytes=size,

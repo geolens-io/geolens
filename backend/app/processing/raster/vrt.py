@@ -4,6 +4,7 @@ import logging
 import math
 import os
 import posixpath
+import shutil
 import subprocess
 
 from app.core.geo import LON_EPSILON_DEGREES, wrap_longitude
@@ -454,8 +455,9 @@ def members_lack_overviews(source_paths: list[str]) -> bool:
 
     A member without overviews makes every coarse read decode it at full
     resolution, so a single such member is enough. Stops at the first one.
-    A member the probe cannot read counts as covered: the build reads it next
-    and reports the failure there.
+    A member the probe cannot read counts as lacking them: a broken member
+    fails the translate safely, and skipping would hide it from every
+    low-zoom read.
     """
     from app.processing.raster.probe import RasterProbeError, read_raster_metadata
 
@@ -464,8 +466,60 @@ def members_lack_overviews(source_paths: list[str]) -> bool:
             if not read_raster_metadata(path).get("overview_levels"):
                 return True
         except RasterProbeError:
-            return False
+            return True
     return False
+
+
+# Bytes per sample by VRT data type, for the scratch-space estimate.
+_SAMPLE_BYTES = {
+    "Byte": 1,
+    "Int8": 1,
+    "UInt16": 2,
+    "Int16": 2,
+    "UInt32": 4,
+    "Int32": 4,
+    "Float32": 4,
+    "CInt16": 4,
+    "UInt64": 8,
+    "Int64": 8,
+    "Float64": 8,
+    "CInt32": 8,
+    "CFloat32": 8,
+    "CFloat64": 16,
+}
+
+
+def _unshareable_reason(root, bands) -> str | None:
+    """Why one shared overview image cannot stand in for these bands, if so.
+
+    One COG carries one data type and one nodata value, and a mask band stays
+    backed by the full-resolution members.
+    """
+    if len({band.get("dataType") for band in bands}) > 1:
+        return "the bands have different data types"
+    if len({band.findtext("NoDataValue") for band in bands}) > 1:
+        return "the bands carry different nodata values"
+    if root.find(".//MaskBand") is not None:
+        return "the VRT carries a mask band"
+    return None
+
+
+def _overview_exceeds_free_space(vrt_path: str, root, bands) -> bool:
+    """Whether the half-resolution image, uncompressed, would not fit beside the VRT."""
+    estimate = sum(
+        (int(root.get("rasterXSize")) // 2)
+        * (int(root.get("rasterYSize")) // 2)
+        * _SAMPLE_BYTES.get(band.get("dataType", ""), 8)
+        for band in bands
+    )
+    free = shutil.disk_usage(posixpath.dirname(vrt_path) or ".").free
+    if estimate > free:
+        logger.info(
+            "VRT overview skipped: %d bytes needed, %d free beside the VRT",
+            estimate,
+            free,
+        )
+    return estimate > free
 
 
 def add_vrt_overview(vrt_path: str, source_paths: list[str]) -> list[str] | None:
@@ -493,21 +547,17 @@ def add_vrt_overview(vrt_path: str, source_paths: list[str]) -> list[str] | None
         or int(root.get("rasterYSize", "0")) < 2
     ):
         return None
-    # One COG carries one data type and one nodata value, and a mask band stays backed by the
-    # full-resolution members, so neither case can use a shared overview.
-    if len({band.get("dataType") for band in bands}) > 1:
-        logger.info("VRT overview skipped: the bands have different data types")
-        return None
-    if len({band.findtext("NoDataValue") for band in bands}) > 1:
-        logger.info("VRT overview skipped: the bands carry different nodata values")
-        return None
-    if root.find(".//MaskBand") is not None:
-        logger.info("VRT overview skipped: the VRT carries a mask band")
+    reason = _unshareable_reason(root, bands)
+    if reason:
+        logger.info("VRT overview skipped: %s", reason)
         return None
     if not members_lack_overviews(source_paths):
         return None
 
     from app.processing.raster.cog import _is_float_dtype
+
+    if _overview_exceeds_free_space(vrt_path, root, bands):
+        return None
 
     # The COG driver would resample integer classes with cubic and invent
     # values; averaging only suits continuous data.
@@ -551,7 +601,16 @@ def add_vrt_overview(vrt_path: str, source_paths: list[str]) -> list[str] | None
             name = SubElement(overview, "SourceFilename", relativeToVRT="1")
             name.text = posixpath.basename(path)
             SubElement(overview, "SourceBand").text = band.get("band", str(position))
-    tree.write(vrt_path, encoding="utf-8", xml_declaration=True)
+    staged = vrt_path + ".staged"
+    try:
+        tree.write(staged, encoding="utf-8", xml_declaration=True)
+        os.replace(staged, vrt_path)
+    except OSError:
+        logger.warning("VRT overview skipped: the VRT could not be rewritten")
+        for leftover in (staged, *paths):
+            if os.path.exists(leftover):
+                os.remove(leftover)
+        return None
     return paths
 
 

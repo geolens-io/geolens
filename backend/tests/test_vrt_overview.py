@@ -625,3 +625,98 @@ def test_a_reprojected_read_picks_a_coarse_overview_level(tmp_path: Path) -> Non
             )
     assert set(np.unique(reduced)) <= {0, 30}
     assert 30 in set(np.unique(reduced))
+
+
+def test_an_unreadable_member_counts_as_lacking_overviews(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.processing.raster import probe
+    from app.processing.raster.vrt import members_lack_overviews
+
+    def _unreadable(path):
+        raise probe.RasterProbeError("open", timeout=1.0)
+
+    monkeypatch.setattr(probe, "read_raster_metadata", _unreadable)
+
+    assert members_lack_overviews(["/missing.tif"]) is True
+
+
+@needs_gdal_cli
+def test_a_failed_vrt_rewrite_leaves_the_vrt_and_no_overview_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vrt_path, members = _vrt(tmp_path, overviews=False)
+    before = Path(vrt_path).read_bytes()
+
+    def _full_disk(src, dst):
+        raise OSError("no space left on device")
+
+    monkeypatch.setattr("app.processing.raster.vrt.os.replace", _full_disk)
+
+    assert add_vrt_overview(vrt_path, members) is None
+    assert Path(vrt_path).read_bytes() == before
+    assert (
+        sorted(
+            p.name for p in tmp_path.iterdir() if "ovr" in p.name or "staged" in p.name
+        )
+        == []
+    )
+
+
+@needs_gdal_cli
+def test_an_overview_larger_than_the_free_space_is_skipped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from collections import namedtuple
+
+    vrt_path, members = _vrt(tmp_path, overviews=False)
+    usage = namedtuple("usage", "total used free")
+    monkeypatch.setattr(
+        "app.processing.raster.vrt.shutil.disk_usage",
+        lambda path: usage(10, 10, 10),
+    )
+
+    assert add_vrt_overview(vrt_path, members) is None
+    assert not any("ovr" in p.name for p in tmp_path.iterdir())
+
+
+@pytest.mark.anyio
+@needs_gdal_cli
+async def test_a_reservation_refused_before_hashing_publishes_without_an_overview(
+    client, admin_auth_header, test_db_session, raster_storage, monkeypatch
+) -> None:
+    from sqlalchemy import select
+
+    from app.modules.quota import service
+    from app.modules.quota.service import StorageQuotaExceededError
+    from app.processing.raster.models import RasterAsset
+
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_vrt.get_storage", lambda: raster_storage
+    )
+    real = service.reserve_storage_bytes
+    calls: list[int] = []
+
+    async def _refuse_once(db, user_id, incoming):
+        calls.append(incoming)
+        if len(calls) == 1:
+            raise StorageQuotaExceededError("a concurrent upload took the room")
+        await real(db, user_id, incoming)
+
+    monkeypatch.setattr(service, "reserve_storage_bytes", _refuse_once)
+    admin_id = await _admin(test_db_session)
+    member, vrt_id, record_id = await _create_vrt(
+        test_db_session, raster_storage, admin_id
+    )
+    try:
+        asset = (
+            await test_db_session.execute(
+                select(RasterAsset).where(RasterAsset.dataset_id == vrt_id)
+            )
+        ).scalar_one()
+        assert asset.status == "ready"
+        assert await _overview_rows(test_db_session, vrt_id) == []
+        stored = (await raster_storage.get(asset.asset_uri)).decode()
+        assert "<Overview>" not in stored
+    finally:
+        await _cleanup(test_db_session, member, vrt_id, record_id)
