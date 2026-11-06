@@ -186,3 +186,143 @@ test.describe('Map dashboard linking', () => {
     }
   });
 });
+
+test.describe('Dashboard widgets and layouts', () => {
+  let datasetId = '';
+  let datasetTitle = '';
+
+  test.beforeAll(async () => {
+    test.setTimeout(120_000);
+    const seeded = await seedCategoryDataset('Dashboard Widgets E2E');
+    datasetId = seeded.id;
+    datasetTitle = seeded.title;
+    await publishDataset(datasetId);
+  });
+
+  test.afterAll(async () => {
+    if (datasetId) await deleteDataset(datasetId, datasetTitle);
+  });
+
+  async function openDashboardEditor(page: Page, mapId: string, widgets: string[]) {
+    await page.goto(`/maps/${mapId}`);
+    await waitForBuilder(page);
+    await page.locator('[data-rail-button="dashboard"]').click();
+    for (const type of widgets) await page.getByRole('button', { name: `Add ${type}` }).click();
+    await expect(page.getByRole('region', { name: 'Preview' })).toHaveCount(widgets.length, { timeout: 15_000 });
+  }
+
+  async function save(page: Page, mapId: string) {
+    const saved = page.waitForResponse((response) => isMapUpdateResponse(response, mapId));
+    await page.getByRole('button', { name: /save/i }).first().click();
+    expect((await saved).status()).toBe(200);
+  }
+
+  test('a reader sees a table and a feature list, and picking a feature moves the map', async ({
+    page,
+    browser,
+    request,
+  }) => {
+    const { mapId } = await publicMapWithShareLink(request, datasetId);
+    try {
+      await openDashboardEditor(page, mapId, ['Table', 'Feature list']);
+      await save(page, mapId);
+
+      const reader = await anonymousPage(browser);
+      try {
+        await reader.goto(`/maps/${mapId}`);
+        const panel = reader.getByRole('region', { name: 'Dashboard' });
+        await expect(panel.getByRole('article')).toHaveCount(2, { timeout: 20_000 });
+        const table = panel.getByRole('table');
+        await expect(table).toBeVisible({ timeout: 15_000 });
+        await expect(table.getByRole('columnheader').first()).toBeVisible();
+
+        const items = panel.getByRole('button', { name: 'Zoom to feature on the map' });
+        await expect(items.first()).toBeVisible({ timeout: 15_000 });
+        const readout = reader.locator('[data-coord-readout="true"]');
+        await expect(readout).toContainText(/z \d/, { timeout: 20_000 });
+        const before = await readout.innerText();
+        await items.first().click();
+        await expect.poll(async () => readout.innerText(), { timeout: 15_000 }).not.toBe(before);
+      } finally {
+        await reader.context().close();
+      }
+    } finally {
+      await deleteMap(request, mapId);
+    }
+  });
+
+  test('an indicator with a reference value shows the reference and the difference', async ({
+    page,
+    browser,
+    request,
+  }) => {
+    const { mapId } = await publicMapWithShareLink(request, datasetId);
+    try {
+      await openDashboardEditor(page, mapId, ['Indicator']);
+      await page.getByLabel('Reference value').fill('3');
+      await save(page, mapId);
+
+      const reader = await anonymousPage(browser);
+      try {
+        await reader.goto(`/maps/${mapId}`);
+        const indicator = reader.getByRole('region', { name: 'Dashboard' }).getByRole('article');
+        await expect(indicator).toHaveCount(1, { timeout: 20_000 });
+        await expect(indicator.getByText('Reference: 3')).toBeVisible({ timeout: 15_000 });
+        await expect(indicator).toContainText(/[▲▼]/);
+      } finally {
+        await reader.context().close();
+      }
+    } finally {
+      await deleteMap(request, mapId);
+    }
+  });
+
+  test('a dashboard that hides its map shows the widgets without a map', async ({ page, browser, request }) => {
+    const { mapId } = await publicMapWithShareLink(request, datasetId);
+    try {
+      await openDashboardEditor(page, mapId, ['Indicator', 'Feature list']);
+      // The note appears on widgets that follow the map view.
+      await page.getByRole('combobox', { name: 'Covers' }).first().click();
+      await page.getByRole('option', { name: "What's in the map view" }).click();
+      await page.getByRole('switch', { name: /hide the map/i }).click();
+      await save(page, mapId);
+
+      const reader = await anonymousPage(browser);
+      try {
+        await reader.goto(`/maps/${mapId}`);
+        const panel = reader.getByRole('region', { name: 'Dashboard' });
+        await expect(panel.getByRole('article')).toHaveCount(2, { timeout: 20_000 });
+        await expect(reader.locator('canvas.maplibregl-canvas')).toHaveCount(0);
+        await expect(panel.getByText('Showing the whole layer: this dashboard hides its map.').first()).toBeVisible();
+        await expect(panel.getByRole('button', { name: 'Zoom to feature on the map' })).toHaveCount(0);
+      } finally {
+        await reader.context().close();
+      }
+    } finally {
+      await deleteMap(request, mapId);
+    }
+  });
+
+  test('a dashboard with a dark reader theme opens dark', async ({ page, browser, request }) => {
+    const { mapId } = await publicMapWithShareLink(request, datasetId);
+    try {
+      await openDashboardEditor(page, mapId, ['Indicator']);
+      await page.getByRole('combobox', { name: 'Reader theme' }).click();
+      await page.getByRole('option', { name: 'Dark' }).click();
+      await save(page, mapId);
+
+      const reader = await anonymousPage(browser);
+      try {
+        await reader.goto(`/maps/${mapId}`);
+        await expect(reader.getByRole('region', { name: 'Dashboard' })).toBeVisible({ timeout: 20_000 });
+        await expect
+          .poll(() => reader.evaluate(() => document.documentElement.classList.contains('dark')))
+          .toBe(true);
+      } finally {
+        await reader.context().close();
+      }
+    } finally {
+      await deleteMap(request, mapId);
+    }
+  });
+});
