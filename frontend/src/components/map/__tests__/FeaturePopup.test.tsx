@@ -390,6 +390,18 @@ describe('FeaturePopup Escape', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true, bubbles: true }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it('leaves Escape alone while the popup sits inside an inert subtree', () => {
+    const onClose = vi.fn();
+    render(
+      <div inert>
+        <FeaturePopup longitude={0} latitude={0} features={[makeFeature()]} onClose={onClose} />
+      </div>,
+    );
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true, bubbles: true }));
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

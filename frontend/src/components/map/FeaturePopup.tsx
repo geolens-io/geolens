@@ -111,10 +111,11 @@ export function FeaturePopup({
 
   // Escape closes the popup (focus is restored by the unmount effect above).
   // Document-level listener so it fires wherever focus is inside the popup,
-  // without a keyboard handler on the non-interactive dialog container.
+  // without a keyboard handler on the non-interactive dialog container. It
+  // stays quiet while an ancestor is inert, as a story's standby map is.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.defaultPrevented) {
+      if (e.key === 'Escape' && !e.defaultPrevented && !closeButtonRef.current?.closest('[inert]')) {
         e.preventDefault();
         onClose();
       }
