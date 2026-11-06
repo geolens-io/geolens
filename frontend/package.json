@@ -52,7 +52,10 @@
     },
     "@loaders.gl/zip": "4.5.4",
     "@loaders.gl/xml": "4.5.4",
-    "@loaders.gl/polyfills": "4.5.4"
+    "@loaders.gl/polyfills": "4.5.4",
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "^11.0.1"
+    }
   },
   "dependencies": {
     "@deck.gl/core": "9.4.0",
