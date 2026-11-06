@@ -7,7 +7,7 @@ import { isAggregateNumeric } from '@/lib/column-utils';
 import type { Statistic } from './aggregate';
 import type { WidgetColumn } from './contract';
 
-const STAT_NAME_KEYS = {
+export const STAT_NAME_KEYS = {
   count: 'editor.statNames.count',
   sum: 'editor.statNames.sum',
   mean: 'editor.statNames.mean',

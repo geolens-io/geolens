@@ -24,6 +24,10 @@ const examples: Record<string, { config: unknown; fallbackText: string | RegExp 
   },
   histogram: { config: { column: 'height', bins: 12 }, fallbackText: /No data yet/ },
   category_selector: { config: { column: 'land_use', multiple: false }, fallbackText: /No data yet/ },
+  table: {
+    config: { group_column: 'land_use', stats: [{ stat: 'count', column: null }, { stat: 'sum', column: 'area' }], sort_by: 1, sort: 'desc', limit: 5 },
+    fallbackText: /No data yet/,
+  },
   image: { config: { alt: 'A river at dusk', caption: 'Looking north' }, fallbackText: /A river at dusk/ },
   gallery: { config: { images: [{ asset_id: '9a3e5c71-2b4d-4f86-8e1a-7c5d3b2f4e60', alt: 'A river at dusk' }] }, fallbackText: /A river at dusk/ },
   carousel: { config: { images: [{ asset_id: '9a3e5c71-2b4d-4f86-8e1a-7c5d3b2f4e60', alt: 'A river at dusk' }] }, fallbackText: /A river at dusk/ },
@@ -125,6 +129,27 @@ describe.each(widgetDefinitions.map((definition) => [definition.type, definition
       const { container } = render(<Renderer config={example.config} />);
       if (example.fallbackText === null) expect(container.firstChild).not.toBeNull();
       else expect(container.textContent).not.toBe('');
+    });
+
+    it('lists every plural form a locale defines for its plural keys', async () => {
+      const resources = await loadAllResources();
+      const listed = new Set(definition.i18nKeys);
+      const plural = /_(zero|one|two|few|many|other)$/;
+      for (const lng of supportedLngs) {
+        for (const key of definition.i18nKeys.filter((candidate) => plural.test(candidate))) {
+          const base = key.replace(plural, '');
+          const parentPath = base.split('.').slice(0, -1).join('.');
+          const parent = (parentPath ? lookupKey(resources[lng].widgets, parentPath) : resources[lng].widgets) as Record<
+            string,
+            unknown
+          >;
+          const name = base.split('.').at(-1)!;
+          for (const sibling of Object.keys(parent).filter((k) => k.startsWith(`${name}_`) && plural.test(k))) {
+            const full = parentPath ? `${parentPath}.${sibling}` : sibling;
+            expect(listed.has(full), `${lng}: widgets:${full} is not in i18nKeys`).toBe(true);
+          }
+        }
+      }
     });
 
     it('has its i18n keys in all five locales', async () => {

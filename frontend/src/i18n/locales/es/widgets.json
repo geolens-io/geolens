@@ -83,6 +83,13 @@
       "position": "Imagen {{current}} de {{total}}",
       "roleDescription": "carrusel",
       "slideRoleDescription": "diapositiva"
+    },
+    "table": {
+      "label": "Tabla",
+      "summary": "Estadísticas por {{column}}",
+      "truncated_one": "Se muestra solo el primer valor. No se listan más valores.",
+      "truncated_many": "Se muestran los primeros {{count}} valores. No se listan más valores.",
+      "truncated_other": "Se muestran los primeros {{count}} valores. No se listan más valores."
     }
   },
   "dashboard": {
@@ -170,6 +177,15 @@
       "value": "Valor",
       "percent": "Variación porcentual"
     },
-    "higherIsBetter": "Un valor más alto es mejor"
+    "higherIsBetter": "Un valor más alto es mejor",
+    "statN": "Estadística {{n}}",
+    "removeStat": "Quitar la estadística {{n}}",
+    "addStat": "Añadir una estadística",
+    "sortBy": "Ordenar por",
+    "sortGroup": "Valor del grupo",
+    "sortDirection": "Orden",
+    "sortDesc": "De mayor a menor",
+    "sortAsc": "De menor a mayor",
+    "rows": "Filas"
   }
 }

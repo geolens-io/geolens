@@ -1559,8 +1559,8 @@ describe('useBuilderSave', () => {
 
       expect(mockUpdateMapMutateAsync.mock.calls[0][0].data.dashboard_config).toEqual({
         version: 1,
-        panel: 'bottom',
         readable: dashboardReadableTypes(),
+        panel: 'bottom',
         widgets: [{ ...barChart({}), title: 'Land use' }],
       });
     });

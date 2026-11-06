@@ -103,8 +103,8 @@ describe('dashboard drafts', () => {
 
     expect(dashboardPayload(draft, [layer()], { panel: 'right' })).toEqual({
       version: 1,
-      panel: 'bottom',
       readable: dashboardReadableTypes(),
+      panel: 'bottom',
       widgets: [{ ...kept, title: 'Parcels' }],
     });
     expect(dashboardPayload({ panel: 'right', widgets: [gone] }, [layer()], { panel: 'right' })).toBeNull();
