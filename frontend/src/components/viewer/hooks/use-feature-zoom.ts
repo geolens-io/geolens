@@ -41,6 +41,7 @@ export function useFeatureZoom(map: MaplibreMap | null) {
       const source = layer.id ? layerHighlightSource(current, layer, layer.id) : null;
       stopFlash.current();
       if (!source) {
+        clearHighlightedFeature();
         // The layer isn't drawn yet, so there is nothing to flash; the camera still moves.
         try {
           fitFeatureBounds(current, feature.bbox, FIT_PADDING);

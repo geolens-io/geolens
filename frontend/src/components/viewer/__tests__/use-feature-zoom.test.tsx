@@ -138,4 +138,15 @@ describe('useFeatureZoom', () => {
     );
     expect(lit(layers)).toBe(false);
   });
+
+  it('clears the earlier feature’s highlight when the next one has no map source yet', () => {
+    const { map, layers } = fakeMap();
+    const { result } = renderHook(() => useFeatureZoom(map));
+    act(() => result.current(layer, feature));
+    expect(lit(layers)).toBe(true);
+
+    drawn.source = false;
+    act(() => result.current(layer, { ...feature, id: 8 }));
+    expect(lit(layers)).toBe(false);
+  });
 });
