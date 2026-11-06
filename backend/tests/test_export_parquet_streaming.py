@@ -233,10 +233,13 @@ class TestExportStreams:
         """The final copy runs within the export's time budget and checks it
         between row groups, so it doesn't finish every group first."""
         monkeypatch.setattr(export_parquet_module, "_BATCH_MAX_ROWS", 1)
+        # The budget also covers writing the ten segments, which a loaded CI
+        # runner has stretched past a second; it must outlast that but not
+        # the ten half-second reads.
         monkeypatch.setattr(
             export_parquet_module,
             "export_subprocess_timeout_seconds",
-            lambda deadline: 1.0,
+            lambda deadline: 3.0,
         )
         reads: list[int] = []
         real_read_row_group = pq.ParquetFile.read_row_group
@@ -265,7 +268,7 @@ class TestExportStreams:
             )
 
         assert 0 < len(reads) < 10
-        assert time.monotonic() - started < 4
+        assert time.monotonic() - started < 6
         assert os.listdir(staging / "exports") == []
 
     @pytest.mark.anyio
