@@ -156,12 +156,12 @@
 
   /* ─ Data visualization categorical palette ─ */
   --viz-1: oklch(0.55 0.18 250);   /* blue */
-  --viz-2: oklch(0.70 0.17 55);    /* orange */
+  --viz-2: oklch(0.66 0.17 55);    /* orange */
   --viz-3: oklch(0.62 0.17 145);   /* green */
   --viz-4: oklch(0.55 0.18 310);   /* purple */
-  --viz-5: oklch(0.65 0.13 195);   /* teal */
+  --viz-5: oklch(0.63 0.13 195);   /* teal */
   --viz-6: oklch(0.65 0.20 5);     /* pink */
-  --viz-7: oklch(0.75 0.16 80);    /* amber */
+  --viz-7: oklch(0.65 0.16 80);    /* amber */
   --viz-8: oklch(0.50 0.18 280);   /* indigo */
 
   /* ─ Sidebar ─ */

@@ -16,12 +16,12 @@ const LIGHT_THEME_TOKEN_COLORS = {
   primary700: '#0058ac',
   viz: [
     '#3b6fd4', // viz-1: branded primary blue
-    '#ec7c0e', // viz-2: orange
+    '#de6f00', // viz-2: orange
     '#2f9f3d', // viz-3: green
     '#914bbe', // viz-4: purple
-    '#00a7a8', // viz-5: teal
+    '#00a0a1', // viz-5: teal
     '#ec4b7f', // viz-6: pink
-    '#e2a000', // viz-7: amber
+    '#c18100', // viz-7: amber
     '#544ec5', // viz-8: indigo
   ],
 } as const;
