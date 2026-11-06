@@ -1225,7 +1225,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Pointer reads sit beside the detail query that shares them; the row
         # browser's page, count, label-filter and box SQL share its projection, and
         # its NULLS LAST keyset also pages the aggregate feature list.
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 789,
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 790,
         "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 513,
         # Chat splits retain tool execution and result-serialization workflows.
         "backend/app/processing/ai/chat_actions.py": 529,

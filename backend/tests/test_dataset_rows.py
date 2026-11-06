@@ -1004,7 +1004,9 @@ async def test_gid_zero_reads_a_row_of_a_registered_table(
             f"/datasets/{ds.id}/rows/", params={"gid": 0}, headers=admin_auth_header
         )
         assert resp.status_code == 200, resp.text
-        assert [row["name"] for row in resp.json()["rows"]] == ["zero"]
+        body = resp.json()
+        assert [row["name"] for row in body["rows"]] == ["zero"]
+        assert body["approximate_total"] == 1
     finally:
         await test_db_session.execute(
             text(

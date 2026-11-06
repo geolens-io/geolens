@@ -612,7 +612,8 @@ async def _count_matches(
         column_types={c["name"]: c.get("type", "") for c in cols},
         after_gid=0,
         limit=FILTERED_COUNT_CAP + 1,
-        keyset="gid > :after_gid",
+        # The same single-row domain as the page query, which includes gid 0.
+        keyset="gid >= :after_gid" if gid is not None else "gid > :after_gid",
         label_codes=label_codes,
         gid=gid,
     )
