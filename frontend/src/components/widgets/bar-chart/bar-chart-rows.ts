@@ -54,15 +54,20 @@ export function useBarChartText(
     const valueHeader = columnLabel(config.value_column);
     const labelHeader = columnLabel(config.label_column);
     const result = aggregateResult(data, 'rows');
+    // A feature list sharing this request may have loaded more pages than the chart shows.
+    const shown = result?.rows.slice(0, config.limit);
     return {
       summary: t('types.bar_chart.summaryFeature', { value: valueHeader, label: labelHeader }),
       labelHeader,
       valueHeader,
-      rows: result?.rows.map((row) => {
+      rows: shown?.map((row) => {
         const key = row.values[config.label_column] ?? null;
         return bar(key, categoryLabel(key, t), row.values[config.value_column] ?? null);
       }),
-      note: result?.has_more ? t('types.bar_chart.moreFeatures', { shown: result.rows.length }) : undefined,
+      note:
+        result && shown && (result.has_more || result.rows.length > shown.length)
+          ? t('types.bar_chart.moreFeatures', { shown: shown.length })
+          : undefined,
     };
   }
 

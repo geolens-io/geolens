@@ -63,7 +63,7 @@ describe('bar chart by feature', () => {
     label_column: 'name',
     value_column: 'height',
     sort: 'desc',
-    limit: 2,
+    limit: 3,
   };
   const row = (gid: number, name: string, height: number | null) => ({ gid, values: { name, height } });
   const data = (hasMore: boolean) => ({
@@ -98,6 +98,21 @@ describe('bar chart by feature', () => {
     expect(onSelect).toHaveBeenCalledWith({ column: 'name', label: 'Tower', values: ['Tower'] });
     const table = screen.getByRole('table', { name: 'height by name' });
     expect(within(table).getAllByRole('row').slice(1).map((r) => r.textContent)).toEqual(['Tower300', 'Hall40', 'ShedN/A']);
+  });
+
+  it('draws no more bars than its limit when a shared request holds more rows, and says there are more', () => {
+    const shared = {
+      ...envelope,
+      op: 'rows',
+      result: {
+        rows: [row(1, 'Tower', 300), row(2, 'Hall', 40), row(3, 'Shed', 9), row(4, 'Barn', 8)],
+        next_cursor: null,
+        has_more: false,
+      },
+    };
+    const { container } = render(<BarChartRenderer config={{ ...config, limit: 2 }} data={shared} />);
+    expect(container.querySelectorAll('svg rect')).toHaveLength(2);
+    expect(screen.getByText('Showing 2 features. The layer has more.')).toBeInTheDocument();
   });
 
   it('says so in the table alternative when there are more features', () => {

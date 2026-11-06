@@ -127,6 +127,27 @@ describe('BarChartEditor forms', () => {
     expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['height']);
   });
 
+  it('offers only listable columns as the by-feature label', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const mixed = [
+      { name: 'Height', type: 'text' },
+      { name: 'zone', type: 'user-defined' },
+      { name: 'kind', type: 'text' },
+      { name: 'size', type: 'integer' },
+    ];
+    render(
+      <BarChartEditor
+        config={{ mode: 'by_feature', label_column: 'kind', value_column: 'size', sort: 'desc', limit: 10 }}
+        onChange={onChange}
+        columns={mixed}
+        idPrefix="w"
+      />,
+    );
+    await user.click(screen.getByRole('combobox', { name: 'Label field' }));
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['kind', 'size']);
+  });
+
   it('lists a saved field the layer lost so it can be removed', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

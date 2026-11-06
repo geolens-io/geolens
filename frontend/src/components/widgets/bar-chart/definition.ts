@@ -270,7 +270,7 @@ export const barChartWidget = defineWidget<BarChartConfig>({
     switch (config.mode) {
       case 'by_feature':
         return [
-          { name: config.label_column, numeric: false },
+          { name: config.label_column, numeric: false, listable: true },
           { name: config.value_column, numeric: true, sortable: true },
         ];
       case 'by_fields':

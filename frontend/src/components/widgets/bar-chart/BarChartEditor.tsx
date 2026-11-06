@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { isAggregateNumeric, isDateColumn, isSortableColumn, isTextColumn } from '@/lib/column-utils';
+import { isAggregateNumeric, isDateColumn, isListableColumn, isSortableColumn, isTextColumn } from '@/lib/column-utils';
 import type { WidgetColumn, WidgetEditorProps } from '../contract';
 import {
   ColumnField,
@@ -27,6 +27,9 @@ import {
 const isRowNumeric = (column: WidgetColumn) =>
   isAggregateNumeric(column.type) && isSortableColumn(column.name, column.type);
 
+/** Columns the rows endpoint can list, which the by-feature label field must be. */
+const listable = (columns: readonly WidgetColumn[]) => columns.filter((column) => isListableColumn(column.name, column.type));
+
 type Mode = NonNullable<BarChartConfig['mode']>;
 const MODES: readonly Mode[] = ['category', 'date', 'by_feature', 'by_fields'];
 
@@ -47,7 +50,7 @@ function configForMode(mode: Mode, config: BarChartConfig, columns: readonly Wid
     case 'by_feature':
       return {
         mode,
-        label_column: categoryColumn(columns).column ?? first((column) => isTextColumn(column.type)),
+        label_column: categoryColumn(listable(columns)).column ?? first((column) => isTextColumn(column.type) && isListableColumn(column.name, column.type)),
         value_column: first(isRowNumeric),
         sort: 'desc',
         limit,
@@ -117,7 +120,7 @@ function FeatureFields({
         id={`${idPrefix}-label-column`}
         label={t('editor.labelField')}
         value={config.label_column}
-        columns={columns}
+        columns={listable(columns)}
         onChange={(label_column) => onChange({ ...config, label_column })}
       />
       <ColumnField

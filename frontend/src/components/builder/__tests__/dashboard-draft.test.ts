@@ -265,22 +265,28 @@ describe('a date bar chart', () => {
 });
 
 describe('a by-feature bar chart', () => {
-  const chart = (value_column: string) =>
+  const chart = (value_column: string, label_column = 'kind') =>
     ({
       id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
       type: 'bar_chart',
       v: 2,
       layer_id: layerId,
       scope: 'layer',
-      config: { mode: 'by_feature', label_column: 'kind', value_column, sort: 'desc', limit: 10 },
+      config: { mode: 'by_feature', label_column, value_column, sort: 'desc', limit: 10 },
     }) as never;
   const withColumns = layer({
     dataset_column_info: [
       { name: 'kind', type: 'text' },
       { name: 'height', type: 'integer' },
       { name: 'Height', type: 'integer' },
+      { name: 'zone', type: 'user-defined' },
     ],
   } as never);
+
+  it('holds the save while its label field cannot be listed', () => {
+    expect(widgetProblem(chart('height', 'Height'), withColumns)).toEqual({ kind: 'notListable', column: 'Height' });
+    expect(widgetProblem(chart('height', 'zone'), withColumns)).toEqual({ kind: 'notListable', column: 'zone' });
+  });
 
   it('holds the save while its value field is a name the rows endpoint cannot sort by', () => {
     expect(widgetProblem(chart('height'), withColumns)).toBeNull();

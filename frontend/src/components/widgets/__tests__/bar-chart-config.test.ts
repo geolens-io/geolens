@@ -128,7 +128,7 @@ describe('bar chart requests', () => {
   it('names the columns each form reads, and which must be numbers', () => {
     const reads = (raw: unknown) => barChartWidget.readsColumns!(parse(raw)!);
     expect(reads(byFeature)).toEqual([
-      { name: 'name', numeric: false },
+      { name: 'name', numeric: false, listable: true },
       { name: 'height', numeric: true, sortable: true },
     ]);
     expect(reads(byFields)).toEqual([
