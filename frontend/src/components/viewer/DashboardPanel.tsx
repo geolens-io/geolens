@@ -124,7 +124,7 @@ export function DashboardWidget({
   const layerLineId = useId();
   const Heading = headingLevel === 4 ? 'h4' : 'h3';
   const { instance, definition } = parsed;
-  const { query, filterIgnored, loading, followsView, viewScopeDropped, loadMore, loadingMore, loadMoreFailed } = useWidgetAggregate({
+  const { query, filterIgnored, loading, followsView, loadMore, loadingMore, loadMoreFailed } = useWidgetAggregate({
     instance,
     definition,
     layer,
@@ -176,7 +176,6 @@ export function DashboardWidget({
           </p>
         )}
       </header>
-      {viewScopeDropped && <p className="text-xs text-muted-foreground">{t('dashboard.viewScopeUnavailable')}</p>}
       {filterIgnored && (
         <p className="text-xs text-muted-foreground">
           {t(linked?.length ? 'dashboard.filterIgnoredWithPicks' : 'dashboard.filterIgnored')}
@@ -572,6 +571,9 @@ export function DashboardPanel({
         {collapsed && !right && chips('min-w-0 flex-1')}
       </div>
       {!collapsed && chips('border-b px-3 py-2')}
+      {!collapsed && mapHidden && widgets.some(({ parsed }) => parsed.ok && parsed.instance.scope === 'view') && (
+        <p className="px-3 pt-2 text-xs text-muted-foreground">{t('dashboard.viewScopeUnavailable')}</p>
+      )}
       {!collapsed && (
         <DashboardWidgetList
           id={contentId}

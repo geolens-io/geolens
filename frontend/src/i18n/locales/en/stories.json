@@ -321,6 +321,7 @@
       "floating": "Floating panel"
     },
     "position": "Panel position",
+    "positionCenterHint": "A centred panel covers the middle of the map, where each chapter's view points. Readers can still move the map around it.",
     "positions": {
       "left": "Left",
       "right": "Right",

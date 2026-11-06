@@ -61,7 +61,7 @@ export function useMapViewBbox(map: MaplibreMap | null, enabled: boolean): Bbox 
  * Fetches one dashboard widget's aggregate with its layer's saved filter, the
  * reader's picks on the layer's other widgets (`linked`) and, for a
  * view-scoped widget, the map view; with the map hidden a view-scoped
- * widget reads its whole layer (`viewScopeDropped`). A saved filter the endpoint can't take is
+ * widget reads its whole layer. A saved filter the endpoint can't take is
  * left out and reported as `filterIgnored`, so the widget can say so.
  */
 export function useWidgetAggregate({
@@ -141,7 +141,6 @@ export function useWidgetAggregate({
     query,
     filterIgnored: savedIgnored,
     followsView,
-    viewScopeDropped: viewScoped && mapHidden,
     // A view-scoped widget is also pending while it waits for the map to rest.
     loading: body !== null && query.isPending,
     // A page asked for during a refresh would cancel it and append to the old rows.

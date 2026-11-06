@@ -129,6 +129,9 @@ function LayerScopeFields({
         ]}
         onChange={(scope) => onChange({ ...widget, scope: scope as 'layer' | 'view' })}
       />
+      {widget.scope === 'view' && mapHidden && (
+        <p className="text-xs text-muted-foreground">{t('dashboard.viewScopeUnavailable')}</p>
+      )}
     </>
   );
 }

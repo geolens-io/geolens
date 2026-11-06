@@ -480,6 +480,30 @@ describe('DashboardPanel', () => {
     expect(screen.getByText(/Show one in the legend to see its widgets/)).toBeInTheDocument();
   });
 
+  it('says once that a hidden-map dashboard reads whole layers', async () => {
+    render(
+      <DashboardPanel
+        config={{ ...dashboard([{ ...countWidget, scope: 'view' }, { ...chartWidget, scope: 'view' }]), map_hidden: true } as DashboardConfig}
+        layers={[layer()]}
+        map={null}
+      />,
+    );
+    await screen.findByText('1,234');
+    expect(screen.getAllByText(/this dashboard hides its map/)).toHaveLength(1);
+  });
+
+  it('stays quiet about the hidden map when every widget reads its layer', async () => {
+    render(
+      <DashboardPanel
+        config={{ ...dashboard([countWidget, chartWidget]), map_hidden: true } as DashboardConfig}
+        layers={[layer()]}
+        map={null}
+      />,
+    );
+    await screen.findByText('1,234');
+    expect(screen.queryByText(/this dashboard hides its map/)).not.toBeInTheDocument();
+  });
+
   it('dims the last numbers while a pan\'s new ones load', async () => {
     const { map, move } = movableMap([-10, -5, 10, 5]);
     render(

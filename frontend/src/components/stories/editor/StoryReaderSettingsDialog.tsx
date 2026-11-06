@@ -65,6 +65,7 @@ export function StoryReaderSettingsDialog({ settings, open, onOpenChange, onChan
           {current.layout === 'floating' && (
             <SettingSelect
               label={t('readerSettings.position')}
+              hint={current.panel_position === 'center' ? t('readerSettings.positionCenterHint') : undefined}
               value={current.panel_position}
               options={POSITIONS.map((value) => ({ value, label: t(`readerSettings.positions.${value}`) }))}
               onChange={(panel_position) => onChange({ panel_position })}
