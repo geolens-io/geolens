@@ -245,8 +245,8 @@ def _select_tile_columns(
     it, so the three rules above hold for a `cols=` request too: the zoom
     budget is a default the caller may override; the allowlist is not.
 
-    `cols_only`: skip the base selection, so the result is exactly the
-    validated `additional_columns` (none when they are absent).
+    `cols_only`: skip the base selection, so the result is the validated
+    `additional_columns` plus the jsonb columns (none when both are absent).
     """
     allowlist: set[str] | None = None
     if tile_columns is not None:
@@ -263,7 +263,14 @@ def _select_tile_columns(
     else:
         base = columns
     if cols_only:
-        base = []
+        # ST_AsMVT flattens a jsonb column into attributes, so no requested name
+        # can be resolved against the keys it carries.
+        pool = (
+            columns
+            if allowlist is None
+            else [c for c in columns if c.get("name") in allowlist]
+        )
+        base = [c for c in pool if str(c.get("type") or "").lower() == "jsonb"]
 
     if additional_columns:
         # The `cols=` opt-in projects the requested columns at every zoom,
@@ -313,23 +320,24 @@ def _guarded_columns(
     return [col for col in default if col.get("name") not in kept]
 
 
-# Number.MAX_SAFE_INTEGER: past it a browser cannot hold a feature id exactly.
+# Number.MAX_SAFE_INTEGER. A browser cannot hold an id past it exactly, and
+# ST_AsMVT leaves out a negative one, so neither can be looked up as a row.
 _MAX_SAFE_FEATURE_ID = 9007199254740991
 
 
 def _attr_select(alias: str, col: dict, *, guarded: bool = False) -> str:
     """One attribute's projection, named after the column.
 
-    A guarded column is only carried by a feature whose id a browser cannot
-    hold exactly, since no row lookup can restore it there. A NULL attribute
-    is left out of the tile.
+    A guarded column is only carried by a feature whose id cannot identify a
+    row (negative or beyond the safe range), so no row lookup can restore it.
+    A NULL attribute is left out of the tile.
     """
     ref = f'{alias}."{col["name"]}"'
     if str(col.get("type") or "").lower() == "timestamp with time zone":
         ref = utc_timestamptz_text(ref)
     if guarded:
         ref = (
-            f"CASE WHEN {alias}.gid NOT BETWEEN -{_MAX_SAFE_FEATURE_ID} "
+            f"CASE WHEN {alias}.gid NOT BETWEEN 0 "
             f"AND {_MAX_SAFE_FEATURE_ID} THEN {ref} END"
         )
     return f'{ref} AS "{col["name"]}"'

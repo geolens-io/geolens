@@ -284,8 +284,8 @@ class TestColsOnlyKeepsFullAttributesWhereIdsAreUnsafe:
         await test_db_session.execute(
             text(
                 f"INSERT INTO data.{table} (gid, name, value, geom, geom_4326) "
-                "SELECT 5, 'small', 1, geom, geom_4326 FROM "
-                f"data.{table}"
+                "SELECT g, n, 1, geom, geom_4326 FROM "
+                f"data.{table}, (VALUES (5, 'small'), (-3, 'negative')) AS v(g, n)"
             )
         )
         await test_db_session.commit()
@@ -298,5 +298,54 @@ class TestColsOnlyKeepsFullAttributesWhereIdsAreUnsafe:
             features = _decode_features(resp.content)
             assert features[5] - service._CLUSTER_RESERVED_COLUMNS == {"name"}
             assert features[9007199254740993] >= {"name", "value"}
+            # ST_AsMVT leaves a negative id out, so that feature has no id.
+            assert features[None] >= {"name", "value"}
         finally:
             await _cleanup_data_table(test_db_session, table)
+
+
+@pytest.mark.usefixtures("_init_tile_pool_for_tests")
+@pytest.mark.parametrize(
+    ("prefix", "extra"),
+    [("/tiles", {}), ("/tiles/clusters", {"cluster_max_zoom": 2})],
+    ids=["plain", "cluster"],
+)
+async def test_cols_only_keeps_jsonb_columns_whose_keys_become_attributes(
+    client: AsyncClient, test_db_session, prefix, extra
+):
+    table = f"cols_json_{uuid.uuid4().hex[:8]}"
+    user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
+    await _create_tile_test_dataset(
+        test_db_session, created_by=user_id, table_name=table
+    )
+    await _create_data_table(test_db_session, table)
+    await test_db_session.execute(
+        text(f"ALTER TABLE data.{table} ADD COLUMN attrs jsonb")
+    )
+    await test_db_session.execute(
+        text(
+            f'UPDATE data.{table} SET attrs = \'{{"kind": "road"}}\', '
+            "geom_4326 = ST_SetSRID(ST_MakePoint(0.02, -0.02), 4326), "
+            "geom = ST_Transform(ST_SetSRID(ST_MakePoint(0.02, -0.02), 4326), 3857)"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            "UPDATE catalog.datasets SET column_info = column_info || "
+            '\'[{"name": "attrs", "type": "jsonb"}]\'::jsonb '
+            "WHERE table_name = :table"
+        ),
+        {"table": table},
+    )
+    await test_db_session.commit()
+    try:
+        resp = await client.get(
+            f"{prefix}/data.{table}/12/2048/2048.pbf",
+            params={"cols": "name", "cols_only": "true", **extra},
+        )
+        assert resp.status_code == 200, resp.text
+        (attributes,) = _decode_features(resp.content).values()
+        assert {"name", "kind"} <= attributes
+        assert "value" not in attributes
+    finally:
+        await _cleanup_data_table(test_db_session, table)
