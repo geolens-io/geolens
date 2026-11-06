@@ -277,7 +277,7 @@ export const barChartWidget = defineWidget<BarChartConfig>({
         return config.fields.map((name) => ({ name, numeric: true }));
       default:
         return [
-          { name: config.column, numeric: false },
+          { name: config.column, numeric: false, ...(config.mode === 'date' ? { date: true } : {}) },
           ...(config.stat === 'count' || config.stat_column === null
             ? []
             : [{ name: config.stat_column, numeric: true }]),

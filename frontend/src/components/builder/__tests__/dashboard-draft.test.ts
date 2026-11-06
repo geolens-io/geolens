@@ -241,6 +241,29 @@ describe('a widget with no layer', () => {
   });
 });
 
+describe('a date bar chart', () => {
+  const dateChart = (column: string) =>
+    ({
+      id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+      type: 'bar_chart',
+      v: 2,
+      layer_id: layerId,
+      scope: 'layer',
+      config: { mode: 'date', column, date_bucket: 'month', stat: 'count', stat_column: null, limit: 10 },
+    }) as never;
+  const withColumns = layer({
+    dataset_column_info: [
+      { name: 'kind', type: 'text' },
+      { name: 'built', type: 'date' },
+    ],
+  } as never);
+
+  it('holds the save while its column is not a date type', () => {
+    expect(widgetProblem(dateChart('built'), withColumns)).toBeNull();
+    expect(widgetProblem(dateChart('kind'), withColumns)).toEqual({ kind: 'notDate', column: 'kind' });
+  });
+});
+
 describe('the save that empties a dashboard', () => {
   const widget = { id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11', type: 'markdown', v: 1, config: { text: 'Notes' } };
   const had: DashboardDraft = { panel: 'right', widgets: [widget] };

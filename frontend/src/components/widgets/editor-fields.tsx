@@ -196,13 +196,6 @@ export function IntegerField({
   );
 }
 
-const DATE_COLUMN_TYPES = new Set(['date', 'timestamp with time zone', 'timestamp without time zone']);
-
-/** Whether a column holds dates the aggregate endpoint can group by day, week, month or year. */
-export function isDateColumn(type: string): boolean {
-  return DATE_COLUMN_TYPES.has(type.toLowerCase());
-}
-
 /** The switch that lets a chart take the layer's category colours. */
 export function LayerColorsField({
   id,

@@ -193,7 +193,8 @@
       "notNumeric": "« {{column}} » n'est pas une colonne numérique. Choisissez-en une autre avant d'enregistrer.",
       "viewWithoutGeometry": "Cette couche n'a pas de géométrie : le widget ne peut pas suivre la vue de la carte. Faites-le porter sur toute la couche.",
       "notSortable": "« {{column}} » ne peut pas servir au tri. Choisissez-en une autre avant d’enregistrer.",
-      "notListable": "« {{column}} » ne peut pas être listée. Choisissez-en une autre avant d’enregistrer."
+      "notListable": "« {{column}} » ne peut pas être listée. Choisissez-en une autre avant d’enregistrer.",
+      "notDate": "« {{column}} » n’est pas une colonne de date. Choisissez-en une autre avant d’enregistrer."
     },
     "maxWidgets": "Un tableau de bord contient au plus {{max}} widgets.",
     "reference": "Valeur de référence",

@@ -193,7 +193,8 @@
       "notNumeric": "«{{column}}» no es una columna numérica. Elige otra antes de guardar.",
       "viewWithoutGeometry": "Esta capa no tiene geometría, así que el widget no puede seguir la vista del mapa. Haz que abarque toda la capa.",
       "notSortable": "No se puede ordenar por «{{column}}». Elija otra antes de guardar.",
-      "notListable": "No se puede listar «{{column}}». Elija otra antes de guardar."
+      "notListable": "No se puede listar «{{column}}». Elija otra antes de guardar.",
+      "notDate": "«{{column}}» no es una columna de fecha. Elija otra antes de guardar."
     },
     "maxWidgets": "Un panel admite como máximo {{max}} widgets.",
     "reference": "Valor de referencia",

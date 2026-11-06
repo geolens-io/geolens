@@ -100,9 +100,24 @@ export async function fetchAggregate(
 ): Promise<AggregateResponse> {
   if (body.op === 'stats_by_fields') {
     const { columns, ...shared } = body;
-    const responses = (await Promise.all(
-      columns.map((column) => fetchAggregate(datasetId, { ...shared, op: 'stats', column }, options)),
-    )) as components['schemas']['StatsResponse'][];
+    // The first failure cancels the sibling requests so they free their slots.
+    const stop = new AbortController();
+    const cancel = () => stop.abort(options.signal?.reason);
+    if (options.signal?.aborted) cancel();
+    options.signal?.addEventListener('abort', cancel, { once: true });
+    let responses: components['schemas']['StatsResponse'][];
+    try {
+      responses = (await Promise.all(
+        columns.map((column) =>
+          fetchAggregate(datasetId, { ...shared, op: 'stats', column }, { ...options, signal: stop.signal }).catch((error) => {
+            stop.abort();
+            throw error;
+          }),
+        ),
+      )) as components['schemas']['StatsResponse'][];
+    } finally {
+      options.signal?.removeEventListener('abort', cancel);
+    }
     return {
       op: 'stats_by_fields',
       approximate: false,

@@ -360,6 +360,8 @@ interface MatchClasses {
   input: unknown;
   arms: { values: (string | number)[]; color: string }[];
   fallback: string;
+  /** Whether a null guard sends null features to the fallback before the match reads them. */
+  guarded: boolean;
 }
 
 /** The values one `match` arm lists, one label or an array of them; null for anything else. */
@@ -386,7 +388,7 @@ function matchClasses(value: unknown): MatchClasses | null {
     if (values === null || typeof color !== 'string') return null;
     arms.push({ values, color });
   }
-  return { column, input: match[1], arms, fallback };
+  return { column, input: match[1], arms, fallback, guarded: match !== value };
 }
 
 /**
@@ -760,10 +762,12 @@ export function categoryColors(layer: LegendLayer): { column: string; colorOf: (
   return {
     column: match.column,
     colorOf: (value) => {
-      const read = readAsMatchInput(match.input, value);
+      // A guarded null is drawn with the fallback, though the input may read it as 0.
+      const read = value === null && match.guarded ? null : readAsMatchInput(match.input, value);
       if (read === undefined) return undefined;
-      const arm = match.arms.find((entry) => entry.values.includes(read as string | number));
-      return arm?.color ?? (isTransparentColor(match.fallback) ? undefined : match.fallback);
+      const arm = read === null ? undefined : match.arms.find((entry) => entry.values.includes(read as string | number));
+      const color = arm?.color ?? match.fallback;
+      return isTransparentColor(color) ? undefined : color;
     },
   };
 }

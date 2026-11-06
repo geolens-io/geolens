@@ -75,3 +75,10 @@ const INTEGER_TYPES = new Set([
 export function isIntegerColumn(type: string): boolean {
   return INTEGER_TYPES.has(type.toLowerCase());
 }
+
+const DATE_COLUMN_TYPES = new Set(['date', 'timestamp with time zone', 'timestamp without time zone']);
+
+/** Whether a column holds dates the aggregate endpoint can group by day, week, month or year. */
+export function isDateColumn(type: string): boolean {
+  return DATE_COLUMN_TYPES.has(type.toLowerCase());
+}

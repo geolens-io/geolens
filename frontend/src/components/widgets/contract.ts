@@ -105,6 +105,8 @@ interface WidgetColumnUse {
   sortable?: boolean;
   /** Must be a column the rows endpoint can list. */
   listable?: boolean;
+  /** Must hold dates the aggregate endpoint can group by a time bucket. */
+  date?: boolean;
 }
 
 export interface WidgetEditorProps<C> {

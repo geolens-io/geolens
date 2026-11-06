@@ -77,6 +77,21 @@ describe('histogram widget', () => {
     expect(container.querySelector('svg text[data-peak]')).toHaveTextContent(/^100K$/);
   });
 
+  it('widens the left margin for a long peak label', async () => {
+    const { default: i18n } = await import('@/i18n/i18n');
+    const before = i18n.language;
+    await i18n.changeLanguage('de');
+    try {
+      const big = { ...data, result: { bins: [{ lower: 0, upper: 1, count: 123456 }, { lower: 1, upper: 2, count: 5 }] } };
+      const { container } = render(<HistogramRenderer config={config} data={big} />);
+      const peak = container.querySelector('svg text[data-peak]')!;
+      // End-aligned at x, the label needs about six units a character to the left of it.
+      expect(Number(peak.getAttribute('x'))).toBeGreaterThanOrEqual((peak.textContent ?? '').length * 5.5);
+    } finally {
+      await i18n.changeLanguage(before);
+    }
+  });
+
   it('thins the edge labels of a many-bin histogram to four', () => {
     const many = {
       ...data,

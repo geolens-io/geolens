@@ -36,4 +36,26 @@ describe('categoryColors', () => {
     expect(categoryColors(toSharedLayer(SAVED_LAYERS.graduatedColor))).toBeNull();
     expect(categoryColors(toSharedLayer({ ...SAVED_LAYERS.categorical, paint: { 'fill-color': '#3b82f6' } }))).toBeNull();
   });
+
+  const numeric = (colorExpression: unknown) =>
+    toSharedLayer({ ...SAVED_LAYERS.categorical, paint: { 'fill-color': colorExpression } });
+
+  it('draws a null with the fallback where a null guard would otherwise read it as 0', () => {
+    const layer = numeric([
+      'case',
+      ['==', ['get', 'n'], null],
+      '#cccccc',
+      ['match', ['to-number', ['get', 'n'], 0], [0], '#ff0000', [1], '#00ff00', '#cccccc'],
+    ]);
+    const colors = categoryColors(layer)!;
+    expect(colors.colorOf(0)).toBe('#ff0000');
+    expect(colors.colorOf(null)).toBe('#cccccc');
+  });
+
+  it('leaves a value without a bar colour when its arm is transparent', () => {
+    const layer = numeric(['match', ['get', 'zone'], ['A'], 'rgba(0,0,0,0)', ['B'], '#00ff00', '#cccccc']);
+    const colors = categoryColors(layer)!;
+    expect(colors.colorOf('A')).toBeUndefined();
+    expect(colors.colorOf('B')).toBe('#00ff00');
+  });
 });

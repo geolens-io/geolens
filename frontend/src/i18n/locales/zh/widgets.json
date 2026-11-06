@@ -193,7 +193,8 @@
       "notNumeric": "“{{column}}”不是数值列。保存前请另选一列。",
       "viewWithoutGeometry": "此图层没有几何，小组件无法跟随地图视图。请将其设为统计整个图层。",
       "notSortable": "无法按“{{column}}”排序。请在保存前选择其他列。",
-      "notListable": "无法列出“{{column}}”。请在保存前选择其他列。"
+      "notListable": "无法列出“{{column}}”。请在保存前选择其他列。",
+      "notDate": "“{{column}}”不是日期列。请在保存前选择其他列。"
     },
     "maxWidgets": "一个仪表板最多包含 {{max}} 个小组件。",
     "reference": "参考值",

@@ -1,12 +1,11 @@
 import { useTranslation } from 'react-i18next';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { isAggregateNumeric, isTextColumn } from '@/lib/column-utils';
+import { isAggregateNumeric, isDateColumn, isTextColumn } from '@/lib/column-utils';
 import type { WidgetColumn, WidgetEditorProps } from '../contract';
 import {
   ColumnField,
   IntegerField,
-  isDateColumn,
   LayerColorsField,
   SelectField,
   StatColumnFields,

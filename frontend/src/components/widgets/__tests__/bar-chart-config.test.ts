@@ -135,7 +135,7 @@ describe('bar chart requests', () => {
       { name: 'height', numeric: true },
       { name: 'area', numeric: true },
     ]);
-    expect(reads(byDate)).toEqual([{ name: 'built', numeric: false }]);
+    expect(reads(byDate)).toEqual([{ name: 'built', numeric: false, date: true }]);
   });
 });
 

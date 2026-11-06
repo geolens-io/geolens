@@ -86,6 +86,36 @@ describe('fetchAggregate', () => {
     });
   });
 
+  it('cancels the other field requests when one fails, and passes its error on unchanged', async () => {
+    const failure = new ApiError('invalid column', 422, { code: 'invalid_column' });
+    const signals: AbortSignal[] = [];
+    apiFetchMock.mockImplementation(((_path: string, init: { body: string; signal: AbortSignal }) => {
+      signals.push(init.signal);
+      if (JSON.parse(init.body).column === 'a') return Promise.reject(failure);
+      return new Promise((_resolve, reject) => init.signal.addEventListener('abort', () => reject(new Error('aborted'))));
+    }) as never);
+
+    await expect(
+      fetchAggregate('ds-1', { op: 'stats_by_fields', columns: ['a', 'b'], stats: ['sum'] }),
+    ).rejects.toBe(failure);
+    expect(signals).toHaveLength(2);
+    expect(signals[1].aborted).toBe(true);
+  });
+
+  it('cancels every field request when the caller gives up', async () => {
+    const signals: AbortSignal[] = [];
+    apiFetchMock.mockImplementation(((_path: string, init: { signal: AbortSignal }) => {
+      signals.push(init.signal);
+      return new Promise((_resolve, reject) => init.signal.addEventListener('abort', () => reject(new Error('aborted'))));
+    }) as never);
+    const caller = new AbortController();
+    const running = fetchAggregate('ds-1', { op: 'stats_by_fields', columns: ['a', 'b'], stats: ['sum'] }, { signal: caller.signal });
+    await vi.waitFor(() => expect(signals).toHaveLength(2));
+    caller.abort();
+    await expect(running).rejects.toBeDefined();
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
+  });
+
   it('drops a queued request whose caller gave up', async () => {
     const pending = [deferred(), deferred()];
     let next = 0;
