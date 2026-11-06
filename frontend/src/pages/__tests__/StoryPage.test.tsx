@@ -1,5 +1,7 @@
+import type { ReactNode } from 'react';
 import { Route, Routes } from 'react-router';
-import { render, screen } from '@/test/test-utils';
+import userEvent from '@testing-library/user-event';
+import { render, screen, within } from '@/test/test-utils';
 import { StoryPage } from '../StoryPage';
 import { ThemeProvider } from '@/components/theme-provider';
 import { getStory } from '@/api/stories';
@@ -11,13 +13,25 @@ vi.mock('@/api/stories', () => ({ getStory: vi.fn() }));
 vi.mock('@/stores/auth-store', () => ({
   useAuthStore: (selector: (s: { token: string | null }) => unknown) => selector({ token: auth.token }),
 }));
+vi.mock('@/hooks/use-settings', () => ({ useTileConfig: () => ({ data: undefined }) }));
 vi.mock('@/hooks/use-permissions', () => ({
   usePermissions: () => ({ can: (capability: string) => capability === 'edit_metadata' && auth.canEdit }),
 }));
 vi.mock('@/components/stories/StoryReader', () => ({
-  StoryReader: ({ title, editHref, settings }: { title: string; editHref?: string; settings?: { layout: string } | null }) => (
+  StoryReader: ({
+    title,
+    editHref,
+    headerActions,
+    settings,
+  }: {
+    title: string;
+    editHref?: string;
+    headerActions?: ReactNode;
+    settings?: { layout: string } | null;
+  }) => (
     <div data-testid="story-reader" data-edit={editHref ?? ''} data-layout={settings?.layout ?? ''}>
       {title}
+      {headerActions}
     </div>
   ),
 }));
@@ -137,5 +151,36 @@ describe('reader theme', () => {
     renderThemed();
     await screen.findByTestId('story-reader');
     expect(document.documentElement).toHaveClass('light');
+  });
+});
+
+describe('embed snippet', () => {
+  it('offers the iframe snippet for a published public story', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getStory).mockResolvedValue({ ...STORY, title: 'Hurricanes & "storms"' });
+    renderPage();
+    await user.click(await screen.findByRole('button', { name: 'Embed' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Embed this story' });
+    const code = (within(dialog).getByRole('textbox', { name: 'Embed code' }) as HTMLTextAreaElement).value;
+    const iframe = new DOMParser().parseFromString(code, 'text/html').querySelector('iframe')!;
+    expect(iframe.getAttribute('src')).toBe(`${window.location.origin}/stories/story-1/embed`);
+    expect(iframe.getAttribute('title')).toBe('Hurricanes & "storms"');
+    expect(iframe.getAttribute('sandbox')?.split(' ')).toEqual(
+      expect.arrayContaining(['allow-scripts', 'allow-same-origin']),
+    );
+    expect(within(dialog).getByRole('button', { name: 'Copy embed code' })).toBeInTheDocument();
+  });
+
+  it.each([
+    ['private', { visibility: 'private' }],
+    ['restricted', { visibility: 'restricted' }],
+    ['internal', { visibility: 'internal' }],
+    ['unpublished', { published_at: null }],
+  ] as const)('is not offered for a %s story', async (_name, change) => {
+    vi.mocked(getStory).mockResolvedValue({ ...STORY, ...change } as StoryResponse);
+    renderPage();
+    await screen.findByTestId('story-reader');
+    expect(screen.queryByRole('button', { name: 'Embed' })).not.toBeInTheDocument();
   });
 });

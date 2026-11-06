@@ -141,3 +141,60 @@ test.describe.serial('Stories', () => {
     await dialog.getByRole('button', { name: 'Close' }).click();
   });
 });
+
+test.describe('embed', () => {
+  const created: string[] = [];
+
+  async function publishedStory(request: APIRequestContext, title: string, visibility: 'public' | 'private') {
+    const api = `${BASE_URL}/api/stories`;
+    const story = await request.post(`${api}/`, { headers: authHeaders(), data: { title, summary: null } });
+    expect(story.ok(), `Create story failed: ${story.status()}`).toBe(true);
+    const { id, revision } = await story.json();
+    created.push(id);
+    const chapter = {
+      id: crypto.randomUUID(),
+      title: 'The only chapter',
+      blocks: [{ id: crypto.randomUUID(), type: 'markdown', v: 1, config: { text: 'Embedded text.' } }],
+    };
+    const saved = await request.put(`${api}/${id}/draft`, {
+      headers: authHeaders(),
+      data: { revision, document: { version: 1, chapters: [chapter] } },
+    });
+    expect(saved.ok(), `Save draft failed: ${saved.status()}`).toBe(true);
+    if (visibility === 'public') {
+      const made = await request.patch(`${api}/${id}`, { headers: authHeaders(), data: { visibility } });
+      expect(made.ok(), `Make story public failed: ${made.status()}`).toBe(true);
+    }
+    const published = await request.post(`${api}/${id}/publish`, {
+      headers: authHeaders(),
+      data: { revision: (await saved.json()).revision },
+    });
+    expect(published.ok(), `Publish story failed: ${published.status()}`).toBe(true);
+    return id as string;
+  }
+
+  test.afterAll(async ({ playwright }) => {
+    const request = await playwright.request.newContext();
+    try {
+      for (const id of created) await request.delete(`${BASE_URL}/api/stories/${id}`, { headers: authHeaders() });
+    } finally {
+      await request.dispose();
+    }
+  });
+
+  test('a public story renders without the app header and a private one is not found', async ({ page, request }) => {
+    const publicId = await publishedStory(request, `E2E Embedded Story ${RUN}`, 'public');
+    // The signed-in owner can read this one on its story page; the embed reads it as anyone would.
+    const privateId = await publishedStory(request, `E2E Private Embed ${RUN}`, 'private');
+
+    await page.goto(`/stories/${publicId}/embed`);
+    await expect(page.getByRole('heading', { level: 1, name: `E2E Embedded Story ${RUN}` })).toBeVisible();
+    await expect(page.getByText('Embedded text.')).toBeVisible();
+    await expect(page.getByRole('banner')).toHaveCount(0);
+    await expect(page.getByRole('link')).toHaveCount(0);
+
+    await page.goto(`/stories/${privateId}/embed`);
+    await expect(page.getByRole('heading', { name: 'Story not available' })).toBeVisible();
+    await expect(page.getByText(`E2E Private Embed ${RUN}`)).toHaveCount(0);
+  });
+});

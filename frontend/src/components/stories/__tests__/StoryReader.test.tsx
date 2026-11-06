@@ -552,3 +552,97 @@ describe('floating layout', () => {
     expect(screen.getByTestId('story-map')).toBeInTheDocument();
   });
 });
+
+describe('chromeless', () => {
+  it('links nowhere else in the app but keeps the story and its navigation bar', () => {
+    layout.narrow = false;
+    render(
+      <StoryReader
+        chromeless
+        storyId="s1"
+        title="Hurricanes"
+        summary="Where they go"
+        chapters={CHAPTERS}
+        editHref="/stories/s1/edit"
+        headerActions={<button type="button">Embed</button>}
+        settings={{ navigation: true, layout: 'side', panel_position: 'right', theme: 'follow' }}
+      />,
+    );
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Embed' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Hurricanes' })).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'Story chapters' })).toBeInTheDocument();
+    expect(screen.getByTestId('story-map')).toBeInTheDocument();
+  });
+
+  it('is the phone stepper when the frame is narrow', () => {
+    render(<StoryReader chromeless storyId="s1" title="Hurricanes" summary={null} chapters={CHAPTERS} editHref="/stories/s1/edit" />);
+    expect(screen.getByRole('group', { name: 'Chapters' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Next/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Edit' })).not.toBeInTheDocument();
+  });
+
+  describe('links in the story', () => {
+    const MAP_URL = `${window.location.origin}/maps/m1`;
+    const LINKED: StoryChapter[] = [
+      {
+        id: 'c1',
+        title: 'Linked',
+        scene: null,
+        scene_hidden: false,
+        blocks: [
+          markdown('00000000-0000-4000-8000-000000000011', 'See [the other story](/stories/s2) or [jump down](#later).'),
+          { id: '00000000-0000-4000-8000-000000000012', type: 'button', v: 1, title: null, config: { label: 'Open the map', url: MAP_URL, new_tab: false } },
+        ],
+      },
+    ];
+    let open: ReturnType<typeof vi.spyOn>;
+    beforeEach(() => {
+      open = vi.spyOn(window, 'open').mockReturnValue(null);
+    });
+    afterEach(() => open.mockRestore());
+
+    function click(name: string): boolean {
+      const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+      screen.getByRole('link', { name }).dispatchEvent(event);
+      return event.defaultPrevented;
+    }
+
+    it.each([true, false])('open in a new tab in an embed, so the frame stays on the story (narrow: %s)', (narrow) => {
+      layout.narrow = narrow;
+      render(<StoryReader chromeless storyId="s1" title="Hurricanes" summary={null} chapters={LINKED} />);
+
+      expect(click('the other story')).toBe(true);
+      expect(open).toHaveBeenLastCalledWith(`${window.location.origin}/stories/s2`, '_blank', 'noopener,noreferrer');
+      expect(click('Open the map')).toBe(true);
+      expect(open).toHaveBeenLastCalledWith(MAP_URL, '_blank', 'noopener,noreferrer');
+
+      expect(click('jump down')).toBe(false);
+      expect(open).toHaveBeenCalledTimes(2);
+    });
+
+    it('follow as written outside an embed', () => {
+      render(<StoryReader storyId="s1" title="Hurricanes" summary={null} chapters={LINKED} />);
+      expect(click('the other story')).toBe(false);
+      expect(click('Open the map')).toBe(false);
+      expect(open).not.toHaveBeenCalled();
+    });
+  });
+
+  it.each([true, false])('puts header actions beside the title and Edit outside an embed (narrow: %s)', (narrow) => {
+    layout.narrow = narrow;
+    render(
+      <StoryReader
+        storyId="s1"
+        title="Hurricanes"
+        summary={null}
+        chapters={CHAPTERS}
+        editHref="/stories/s1/edit"
+        headerActions={<button type="button">Embed</button>}
+      />,
+    );
+    const header = screen.getByRole('heading', { level: 1, name: 'Hurricanes' }).closest('header')!;
+    expect(within(header).getByRole('button', { name: 'Embed' })).toBeInTheDocument();
+    expect(within(header).getByRole('link', { name: 'Edit' })).toHaveAttribute('href', '/stories/s1/edit');
+  });
+});

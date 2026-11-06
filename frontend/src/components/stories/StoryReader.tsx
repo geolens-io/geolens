@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type Ref } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode, type Ref } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { ChevronLeft, ChevronRight, Pencil } from 'lucide-react';
@@ -42,15 +42,19 @@ interface StoryReaderProps {
   chapters: StoryChapter[];
   /** The editor, for a reader who may edit the story. */
   editHref?: string;
+  /** More actions beside the title, such as the embed snippet. */
+  headerActions?: ReactNode;
   /** A branding extension's accent, font and logo for this page. */
   readerTheme?: ReaderTheme | null;
   /** Null or absent means every default. */
   settings?: StorySettings | null;
+  /** The reader is the whole page, as in an embed, so it has no edit link or header actions. */
+  chromeless?: boolean;
 }
 
 type PanelPosition = StorySettings['panel_position'];
 
-interface PanelProps extends Omit<StoryReaderProps, 'settings'> {
+interface PanelProps extends Omit<StoryReaderProps, 'settings' | 'chromeless'> {
   active: number;
   onActiveChange: (index: number) => void;
   /** No chapter has a scene, so the text has the page to itself. */
@@ -77,6 +81,18 @@ const FLOATING_PLACEMENT: Record<PanelPosition, string> = {
 };
 const FLOATING_BASE = 'absolute top-3 z-[5] max-w-[calc(100%-24rem)] rounded-lg border bg-card text-card-foreground shadow-lg';
 
+/**
+ * Opens a link in a chromeless reader in a new tab. Every other GeoLens page
+ * refuses to be framed, and the embed snippet's sandbox allows popups but not
+ * navigating the host page. A link to a place on this page still follows.
+ */
+function openLinkOutsideFrame(event: MouseEvent<HTMLElement>) {
+  const link = (event.target as Element).closest?.('a[href]');
+  if (!(link instanceof HTMLAnchorElement) || link.getAttribute('href')!.startsWith('#')) return;
+  event.preventDefault();
+  window.open(link.href, '_blank', 'noopener,noreferrer');
+}
+
 function isTextless(chapter: StoryChapter): boolean {
   return !chapter.title?.trim() && !chapter.blocks?.length;
 }
@@ -93,8 +109,10 @@ export function StoryReader({
   summary,
   chapters,
   editHref,
+  headerActions,
   readerTheme,
   settings,
+  chromeless = false,
 }: StoryReaderProps) {
   const { t } = useTranslation('stories');
   const queryClient = useQueryClient();
@@ -149,7 +167,8 @@ export function StoryReader({
     title,
     summary,
     chapters,
-    editHref,
+    editHref: chromeless ? undefined : editHref,
+    headerActions: chromeless ? undefined : headerActions,
     readerTheme,
     active,
     onActiveChange: changeChapter,
@@ -159,6 +178,7 @@ export function StoryReader({
     <div
       className="flex min-h-0 w-full flex-1 flex-col"
       style={readerThemeStyle(readerTheme, resolvedTheme)}
+      onClickCapture={chromeless ? openLinkOutsideFrame : undefined}
     >
       {settings?.navigation && (
         <StoryNavBar title={title} chapters={chapters} active={active} onSelect={selectChapter} collapsed={isNarrow} />
@@ -213,6 +233,7 @@ function StoryHeader({
   title,
   summary,
   editHref,
+  headerActions,
   logoUrl,
 }: {
   storyId: string;
@@ -220,6 +241,7 @@ function StoryHeader({
   title: string;
   summary: string | null;
   editHref?: string;
+  headerActions?: ReactNode;
   logoUrl?: string;
 }) {
   const { t } = useTranslation('stories');
@@ -241,13 +263,18 @@ function StoryHeader({
       )}
       <div className="flex items-start justify-between gap-2">
         <h1 className="text-2xl font-semibold text-foreground">{title}</h1>
-        {editHref && (
-          <Button asChild variant="outline" size="sm" className="shrink-0">
-            <Link to={editHref}>
-              <Pencil className="h-4 w-4" aria-hidden="true" />
-              {t('reader.edit')}
-            </Link>
-          </Button>
+        {(headerActions || editHref) && (
+          <div className="flex shrink-0 gap-2">
+            {headerActions}
+            {editHref && (
+              <Button asChild variant="outline" size="sm">
+                <Link to={editHref}>
+                  <Pencil className="h-4 w-4" aria-hidden="true" />
+                  {t('reader.edit')}
+                </Link>
+              </Button>
+            )}
+          </div>
         )}
       </div>
       {summary && <p className="text-sm text-muted-foreground">{summary}</p>}
@@ -262,6 +289,7 @@ function StoryScrollPanel({
   summary,
   chapters,
   editHref,
+  headerActions,
   readerTheme,
   active,
   onActiveChange,
@@ -349,6 +377,7 @@ function StoryScrollPanel({
           title={title}
           summary={summary}
           editHref={editHref}
+          headerActions={headerActions}
           logoUrl={readerLogoUrl(readerTheme)}
         />
         {chapters.map((chapter, i) => (
@@ -378,6 +407,7 @@ function StoryStepper({
   summary,
   chapters,
   editHref,
+  headerActions,
   readerTheme,
   active,
   onActiveChange,
@@ -422,6 +452,7 @@ function StoryStepper({
           title={title}
           summary={isFirst ? summary : null}
           editHref={editHref}
+          headerActions={headerActions}
           logoUrl={readerLogoUrl(readerTheme)}
         />
         <div className="space-y-3">

@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { ErrorState } from '@/components/layout/ErrorState';
 import { EmptyState } from '@/components/layout/EmptyState';
+import { StoryEmbedDialog } from '@/components/stories/StoryEmbedDialog';
 import { StoryReader } from '@/components/stories/StoryReader';
 import { StoryUnavailableState } from '@/components/stories/StoryUnavailableState';
 import { canEditStory } from '@/components/stories/can-edit-story';
@@ -59,6 +60,8 @@ export function StoryPage() {
     );
   }
 
+  // Anyone may read a published public story, so any site may frame it.
+  const embeddable = data.visibility === 'public' && !!data.published_at;
   return (
     <StoryReader
       key={data.id}
@@ -68,6 +71,7 @@ export function StoryPage() {
       summary={data.summary}
       chapters={chapters}
       editHref={editHref}
+      headerActions={embeddable && <StoryEmbedDialog storyId={data.id} title={data.title} />}
       readerTheme={data.reader_theme}
       settings={data.document?.settings}
     />

@@ -87,6 +87,17 @@
     "openStories": "Storys öffnen",
     "browseCatalog": "Katalog durchsuchen"
   },
+  "embed": {
+    "open": "Einbetten",
+    "title": "Diese Story einbetten",
+    "description": "Fügen Sie diesen Code in eine Seite Ihrer Website ein. Die Story erscheint dort ohne die GeoLens-Kopfzeile und wird nicht mehr angezeigt, sobald sie nicht mehr öffentlich ist.",
+    "codeLabel": "Einbettungscode",
+    "copy": "Einbettungscode kopieren",
+    "unavailable": "Diese Story ist nicht öffentlich oder wurde gelöscht.",
+    "errorTitle": "Diese Story konnte nicht angezeigt werden",
+    "errorMessage": "Beim Anzeigen dieser Story ist hier ein Fehler aufgetreten.",
+    "openStory": "Story in einem neuen Tab öffnen"
+  },
   "editor": {
     "pageTitle": "{{title}} bearbeiten",
     "loading": "Entwurf wird geladen…",

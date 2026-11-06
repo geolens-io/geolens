@@ -19,6 +19,7 @@ and releases use semantic versioning.
 - Stories: gallery and carousel blocks hold several images in one block.
 - Tiles: `cols_only=true` makes a vector tile carry only the columns `cols=` names; the viewer and Builder use it and popups fetch the remaining fields on open.
 - Stories: scene transitions and reader settings (navigation bar, layout, theme) in the story document; the reader applies them in 1.30.
+- Stories: a public story can be embedded in another site with an iframe snippet.
 - The dashboard API accepts feature list, table and pie chart widgets, bar
   charts by feature, by fields or by date, and per-dashboard settings to hide
   the map and set a light or dark theme.

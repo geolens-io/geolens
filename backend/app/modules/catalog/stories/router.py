@@ -294,6 +294,38 @@ async def story_link_preview_endpoint(
     )
 
 
+# nginx copies this onto the embed page; it opens framing to any site only for
+# a story any anonymous reader may open.
+_EMBED_FRAMING_OPEN = "frame-ancestors *"
+_EMBED_FRAMING_CLOSED = "frame-ancestors 'none'"
+
+
+@router.get("/{story_id}/frame-policy", include_in_schema=False)
+async def story_embed_frame_policy_endpoint(
+    story_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """The framing policy for ``/stories/<id>/embed``, in ``X-Embed-Frame-Ancestors``.
+
+    Always 200 with no body, since nginx's ``auth_request`` treats any other
+    status as a failure. The story is read as an anonymous caller: a published
+    public story may be framed by any site, and every other story, a missing
+    one and a malformed id get the same ``frame-ancestors 'none'``.
+    """
+    directive = _EMBED_FRAMING_CLOSED
+    try:
+        story = await get_story(db, uuid.UUID(story_id))
+        if story is not None:
+            await check_story_access(db, story, None)
+            directive = _EMBED_FRAMING_OPEN
+    except (ValueError, HTTPException):
+        directive = _EMBED_FRAMING_CLOSED
+    return Response(
+        status_code=status.HTTP_200_OK,
+        headers={"X-Embed-Frame-Ancestors": directive, "Cache-Control": "no-store"},
+    )
+
+
 @router.get("/{story_id}/draft", response_model=StoryDraftResponse)
 async def get_story_draft_endpoint(
     story_id: uuid.UUID,
