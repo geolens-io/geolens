@@ -242,6 +242,8 @@ async def test_unpublishing_a_dataset_on_the_owners_internal_map_is_refused(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
     owner_headers, owner_id = await create_user(client, admin_auth_header, "editor")
+    # Refusal needs a signed-in reader who would lose the dataset.
+    await create_user(client, admin_auth_header, "viewer")
     dataset = await _public_dataset(test_db_session, owner_id)
     own_map = await _map_using(test_db_session, dataset.id, owner_id, "internal")
 

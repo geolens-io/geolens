@@ -265,20 +265,23 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_teardown(item, nextitem):
-    """Leave ``app.core.db`` on the production engine and factory after every test.
+    """Leave ``app.core.db`` on the production engine and factory, and the app
+    without dependency overrides, after every test.
 
     Autouse fixtures create ``monkeypatch`` before ``client``, so a test that
-    patches the façade under ``client`` has monkeypatch's undo reinstate the
-    client's test engine after ``client`` restored the original.
+    patches the façade or an override under ``client`` has monkeypatch's undo
+    reinstate it after ``client`` restored the original.
     """
     try:
         return (yield)
     finally:
         import app.core.db as db_module
+        from app.api.main import app
         from app.core.db import session
 
         db_module.engine = session.engine
         db_module.async_session = session.async_session
+        app.dependency_overrides.clear()
 
 
 @pytest.fixture(autouse=True)
