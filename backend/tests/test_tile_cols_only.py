@@ -8,6 +8,8 @@ columns, still bounded by the admin allowlist.
 import uuid
 from unittest.mock import AsyncMock, patch
 
+from sqlalchemy import text
+
 import pytest
 from httpx import AsyncClient
 
@@ -133,18 +135,19 @@ async def test_plain_tile_query_selects_only_the_named_columns():
     query = await _projected(
         service.get_tile, additional_columns=["name"], cols_only=True
     )
-    assert 't."name"' in query
-    assert 't."value"' not in query
-    assert 't."pop"' not in query
+    assert 't."name" AS "name"' in query
+    # Dropped columns stay only behind the unsafe-id guard.
+    assert 't."value" AS "value"' not in query
+    assert 'THEN t."value" END AS "value"' in query
 
 
 async def test_cluster_tile_query_selects_only_the_named_columns():
     query = await _projected(
         service.get_cluster_tile, additional_columns=["name"], cols_only=True
     )
-    assert '"name"' in query
-    assert '"value"' not in query
-    assert '"pop"' not in query
+    assert 'src."name" AS "name"' in query
+    assert 'src."value" AS "value"' not in query
+    assert 'THEN src."value" END AS "value"' in query
 
 
 async def test_tile_queries_without_cols_only_keep_every_column_at_high_zoom():
@@ -197,3 +200,103 @@ class TestColsOnlyOverHttp:
             assert default_key != only_key
         finally:
             await _cleanup_data_table(test_db_session, table_name)
+
+
+def _varint(buf: bytes, pos: int) -> tuple[int, int]:
+    value = shift = 0
+    while True:
+        byte = buf[pos]
+        pos += 1
+        value |= (byte & 0x7F) << shift
+        if not byte & 0x80:
+            return value, pos
+        shift += 7
+
+
+def _fields(buf: bytes):
+    """Yield (field number, value) for each field of a protobuf message."""
+    pos = 0
+    while pos < len(buf):
+        key, pos = _varint(buf, pos)
+        number, wire = key >> 3, key & 7
+        if wire == 0:
+            value, pos = _varint(buf, pos)
+        elif wire == 2:
+            size, pos = _varint(buf, pos)
+            value, pos = buf[pos : pos + size], pos + size
+        elif wire == 1:
+            value, pos = buf[pos : pos + 8], pos + 8
+        else:
+            value, pos = buf[pos : pos + 4], pos + 4
+        yield number, value
+
+
+def _decode_features(tile: bytes) -> dict[int, set[str]]:
+    """Feature id -> the attribute names it carries, from an MVT body."""
+    features: dict[int, set[str]] = {}
+    for number, layer in _fields(tile):
+        if number != 3:
+            continue
+        keys = [v.decode() for n, v in _fields(layer) if n == 3]
+        for n, feature in _fields(layer):
+            if n != 2:
+                continue
+            fid, tags = None, b""
+            for fn, fv in _fields(feature):
+                if fn == 1:
+                    fid = fv
+                elif fn == 2:
+                    tags = fv
+            pairs, pos = [], 0
+            while pos < len(tags):
+                value, pos = _varint(tags, pos)
+                pairs.append(value)
+            features[fid] = {keys[k] for k in pairs[0::2]}
+    return features
+
+
+@pytest.mark.usefixtures("_init_tile_pool_for_tests")
+class TestColsOnlyKeepsFullAttributesWhereIdsAreUnsafe:
+    @pytest.mark.parametrize(
+        ("prefix", "extra"),
+        [("/tiles", {}), ("/tiles/clusters", {"cluster_max_zoom": 2})],
+        ids=["plain", "cluster"],
+    )
+    async def test_a_feature_the_browser_cannot_identify_keeps_every_column(
+        self, client: AsyncClient, test_db_session, prefix, extra
+    ):
+        table = f"cols_big_{uuid.uuid4().hex[:8]}"
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
+        await _create_tile_test_dataset(
+            test_db_session, created_by=user_id, table_name=table
+        )
+        await _create_data_table(test_db_session, table)
+        await test_db_session.execute(
+            text(f"ALTER TABLE data.{table} ALTER gid TYPE bigint")
+        )
+        await test_db_session.execute(
+            text(
+                f"UPDATE data.{table} SET gid = 9007199254740993, name = 'big', "
+                "geom_4326 = ST_SetSRID(ST_MakePoint(0.02, -0.02), 4326), "
+                "geom = ST_Transform(ST_SetSRID(ST_MakePoint(0.02, -0.02), 4326), 3857)"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{table} (gid, name, value, geom, geom_4326) "
+                "SELECT 5, 'small', 1, geom, geom_4326 FROM "
+                f"data.{table}"
+            )
+        )
+        await test_db_session.commit()
+        try:
+            resp = await client.get(
+                f"{prefix}/data.{table}/12/2048/2048.pbf",
+                params={"cols": "name", "cols_only": "true", **extra},
+            )
+            assert resp.status_code == 200, resp.text
+            features = _decode_features(resp.content)
+            assert features[5] - service._CLUSTER_RESERVED_COLUMNS == {"name"}
+            assert features[9007199254740993] >= {"name", "value"}
+        finally:
+            await _cleanup_data_table(test_db_session, table)

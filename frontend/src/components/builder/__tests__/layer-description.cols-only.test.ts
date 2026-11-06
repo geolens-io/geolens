@@ -135,16 +135,6 @@ describe('columns the rows endpoint cannot return', () => {
     const { tileColumns, layers } = describeLayers([toSyncInput(layer)], { ...RENDER_CONTEXTS.builder, colsOnly: true });
     expect(tileColumns.get(layers[0].sourceId)).toEqual(['status']);
   });
-
-  it.each([
-    ['bigint', false],
-    ['integer', true],
-  ])('keeps full tiles for a %s id column: %s narrowed', (type, narrowed) => {
-    const layer = { ...SAVED_LAYERS.polygon, dataset_column_info: [{ name: 'gid', type }] };
-    const { sources, layers } = describeLayers([toSyncInput(layer)], { ...RENDER_CONTEXTS.builder, colsOnly: true });
-    const url = (sources.get(layers[0].sourceId) as { tiles: string[] }).tiles[0];
-    expect(url.includes('cols_only=true')).toBe(narrowed);
-  });
 });
 
 describe('the object operand of get', () => {

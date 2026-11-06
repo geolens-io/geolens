@@ -82,7 +82,6 @@ export interface Description {
 }
 
 // The rows endpoint returns only lowercase names and no enum columns, so a popup cannot fetch the others.
-const BIGINT_TYPES = new Set(['bigint', 'int8', 'bigserial']);
 const ROWS_READABLE_NAME = /^[a-z0-9_]+$/;
 const TILE_COLUMN_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -497,8 +496,6 @@ export function describeLayers(layers: readonly SyncLayerInput[], ctx: RenderCon
     for (const column of layer.dataset_column_info ?? []) {
       const fetchable = ROWS_READABLE_NAME.test(column.name) && column.type !== 'USER-DEFINED';
       if (TILE_COLUMN_NAME.test(column.name) && !fetchable) unfetchable.add(column.name);
-      // A 64-bit id can exceed what the map holds exactly, so no row could be found for it.
-      if (column.name === 'gid' && BIGINT_TYPES.has(String(column.type).toLowerCase())) dynamicSources.add(entry.sourceId);
     }
     heldColumns.set(entry.sourceId, unfetchable);
     const sourceType = ctx.boundedGeoJson.has(layer.id) && drawsBoundedGeoJson(layer, entry) ? 'geojson' : 'vector';

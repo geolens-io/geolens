@@ -291,15 +291,53 @@ def _select_tile_columns(
     return base
 
 
-def _attr_select(alias: str, col: dict) -> str:
-    """One attribute's projection, named after the column."""
+def _guarded_columns(
+    columns: list[dict],
+    z: int,
+    *,
+    tile_columns: list[str] | None,
+    additional_columns: list[str] | None,
+    selected: list[dict],
+    cols_only: bool,
+) -> list[dict]:
+    """The columns ``cols_only`` drops that the default projection would carry."""
+    if not cols_only:
+        return []
+    kept = {col.get("name") for col in selected}
+    default = _select_tile_columns(
+        columns,
+        z,
+        tile_columns=tile_columns,
+        additional_columns=additional_columns,
+    )
+    return [col for col in default if col.get("name") not in kept]
+
+
+# Number.MAX_SAFE_INTEGER: past it a browser cannot hold a feature id exactly.
+_MAX_SAFE_FEATURE_ID = 9007199254740991
+
+
+def _attr_select(alias: str, col: dict, *, guarded: bool = False) -> str:
+    """One attribute's projection, named after the column.
+
+    A guarded column is only carried by a feature whose id a browser cannot
+    hold exactly, since no row lookup can restore it there. A NULL attribute
+    is left out of the tile.
+    """
     ref = f'{alias}."{col["name"]}"'
     if str(col.get("type") or "").lower() == "timestamp with time zone":
         ref = utc_timestamptz_text(ref)
+    if guarded:
+        ref = (
+            f"CASE WHEN {alias}.gid NOT BETWEEN -{_MAX_SAFE_FEATURE_ID} "
+            f"AND {_MAX_SAFE_FEATURE_ID} THEN {ref} END"
+        )
     return f'{ref} AS "{col["name"]}"'
 
 
-def _build_attr_columns(columns: list[dict]) -> str:
+def _build_attr_columns(
+    columns: list[dict], guarded_columns: Sequence[dict] = ()
+) -> str:
     """Build the attribute column list for the MVT query.
 
     Excludes geometry columns and gid (gid is always included separately
@@ -309,8 +347,9 @@ def _build_attr_columns(columns: list[dict]) -> str:
     column and keeps its case as the MVT property name.
     """
     attr_cols = [
-        _attr_select("t", col)
-        for col in columns
+        _attr_select("t", col, guarded=guarded)
+        for guarded, group in ((False, columns), (True, guarded_columns))
+        for col in group
         if col.get("name")
         and col["name"] not in _EXCLUDED_COLUMNS
         and _COLUMN_NAME_RE.match(col["name"])
@@ -321,7 +360,10 @@ def _build_attr_columns(columns: list[dict]) -> str:
 
 
 def _build_tile_query(
-    table_name: str, columns: list[dict], schema: str = "data"
+    table_name: str,
+    columns: list[dict],
+    schema: str = "data",
+    guarded_columns: Sequence[dict] = (),
 ) -> str:
     """Build the ST_AsMVT tile query for the given table and columns.
 
@@ -340,7 +382,7 @@ def _build_tile_query(
     schema-qualified; search_path alone is not the primary isolation control.
     """
     _validate_tile_table_name(table_name)
-    attr_columns = _build_attr_columns(columns)
+    attr_columns = _build_attr_columns(columns, guarded_columns)
     # The schema name derives from the validated-UUID tenant_data_schema(), so
     # it is safe to quote.
     qualified_table = f'"{schema}"."{table_name}"'
@@ -418,6 +460,7 @@ def _build_cluster_tile_query(
     schema: str = "data",
     attr_columns: list[dict] | None = None,
     filter_sql: str | None = None,
+    guarded_columns: Sequence[dict] = (),
 ) -> str:
     """Build a bounded server-side cluster MVT query for point datasets.
 
@@ -498,8 +541,9 @@ def _build_cluster_tile_query(
     # Mirrors _build_attr_columns' exclusion, revalidation and quoting rules,
     # projecting from the joined source row for unclustered features only.
     unclustered_attr_select = "".join(
-        f",\n        {_attr_select('src', col)}"
-        for col in (attr_columns or [])
+        f",\n        {_attr_select('src', col, guarded=guarded)}"
+        for guarded, group in ((False, attr_columns or []), (True, guarded_columns))
+        for col in group
         if col.get("name")
         and col["name"] not in _EXCLUDED_COLUMNS
         and col["name"] not in _CLUSTER_RESERVED_COLUMNS
@@ -818,7 +862,19 @@ async def get_tile(
         additional_columns=additional_columns,
         cols_only=cols_only,
     )
-    query = _build_tile_query(table_name, selected_columns, schema=schema)
+    query = _build_tile_query(
+        table_name,
+        selected_columns,
+        schema=schema,
+        guarded_columns=_guarded_columns(
+            columns,
+            z,
+            tile_columns=tile_columns,
+            additional_columns=additional_columns,
+            selected=selected_columns,
+            cols_only=cols_only,
+        ),
+    )
     # layer_name must match the schema-qualified table so clients can identify
     # it. In multi_tenant the tile-config contract exposes the resolved tenant
     # schema as ``mvt_source_layer_prefix``, while ``data.{table}`` still signs
@@ -886,7 +942,18 @@ async def get_cluster_tile(
         cols_only=cols_only,
     )
     query = _build_cluster_tile_query(
-        table_name, schema=schema, attr_columns=attr_columns, filter_sql=filter_sql
+        table_name,
+        schema=schema,
+        attr_columns=attr_columns,
+        filter_sql=filter_sql,
+        guarded_columns=_guarded_columns(
+            columns or [],
+            z,
+            tile_columns=tile_columns,
+            additional_columns=additional_columns,
+            selected=attr_columns,
+            cols_only=cols_only,
+        ),
     )
     layer_name = f"{schema}.{table_name}"
 
