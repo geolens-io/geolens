@@ -75,6 +75,8 @@ export const tableWidget = defineWidget<TableConfig>({
     'stats.min',
     'stats.max',
     'types.table.summary',
+    'types.table.truncated_one',
+    'types.table.truncated_many',
     'types.table.truncated_other',
   ],
   // `name` is a placeholder: a table added in the Builder takes its column from

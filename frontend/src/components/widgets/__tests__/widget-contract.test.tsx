@@ -131,6 +131,27 @@ describe.each(widgetDefinitions.map((definition) => [definition.type, definition
       else expect(container.textContent).not.toBe('');
     });
 
+    it('lists every plural form a locale defines for its plural keys', async () => {
+      const resources = await loadAllResources();
+      const listed = new Set(definition.i18nKeys);
+      const plural = /_(zero|one|two|few|many|other)$/;
+      for (const lng of supportedLngs) {
+        for (const key of definition.i18nKeys.filter((candidate) => plural.test(candidate))) {
+          const base = key.replace(plural, '');
+          const parentPath = base.split('.').slice(0, -1).join('.');
+          const parent = (parentPath ? lookupKey(resources[lng].widgets, parentPath) : resources[lng].widgets) as Record<
+            string,
+            unknown
+          >;
+          const name = base.split('.').at(-1)!;
+          for (const sibling of Object.keys(parent).filter((k) => k.startsWith(`${name}_`) && plural.test(k))) {
+            const full = parentPath ? `${parentPath}.${sibling}` : sibling;
+            expect(listed.has(full), `${lng}: widgets:${full} is not in i18nKeys`).toBe(true);
+          }
+        }
+      }
+    });
+
     it('has its i18n keys in all five locales', async () => {
       const resources = await loadAllResources();
       for (const lng of supportedLngs) {
