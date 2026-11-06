@@ -143,9 +143,24 @@ async def _data_bytes(session, dataset_id) -> int:
 
 
 async def _usage(session, owner_id) -> int:
+    """The owner's counted bytes, less their VRT overview COGs.
+
+    These tests pin how COGs are charged; the overview a VRT build adds is
+    counted separately.
+    """
     usage = await get_user_quota_usage(session, owner_id)
+    overview_bytes = await session.scalar(
+        text(
+            "SELECT COALESCE(SUM(da.size_bytes), 0)::bigint "
+            "FROM catalog.dataset_assets da "
+            "JOIN catalog.datasets d ON d.id = da.dataset_id "
+            "JOIN catalog.records r ON r.id = d.record_id "
+            "WHERE da.key = 'vrt_overview' AND r.created_by = :owner"
+        ),
+        {"owner": owner_id},
+    )
     await session.commit()
-    return usage.bytes_used
+    return usage.bytes_used - overview_bytes
 
 
 async def _live_cog(session, dataset_id) -> str:

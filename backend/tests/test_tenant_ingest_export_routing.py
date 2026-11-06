@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
+from app.processing.raster.vrt import overview_keys_for
 
 
 _SCHEMA_A = "data_t_00000000_0000_0000_0000_000000000001"
@@ -189,7 +190,30 @@ def test_vrt_reap_retains_old_quicklooks_when_regeneration_has_none():
         replace_quicklook_512=False,
     )
 
-    assert keys == ["rasters/vrt/old/source.vrt"]
+    assert keys == [
+        "rasters/vrt/old/source.vrt",
+        *(f"rasters/vrt/old/{k}" for k in overview_keys_for("source.vrt")),
+    ]
+
+
+def test_vrt_reap_covers_every_level_of_a_stale_overview_href():
+    from app.processing.ingest.tasks_vrt import _prior_generation_keys_to_reap
+
+    keys = _prior_generation_keys_to_reap(
+        vrt_key="rasters/vrt/new/source.vrt",
+        quicklook_256_key=None,
+        quicklook_512_key=None,
+        replace_quicklook_256=False,
+        replace_quicklook_512=False,
+        overview_href="rasters/vrt/older/source.ovr.tif",
+    )
+
+    assert {
+        "rasters/vrt/older/source.ovr.tif",
+        "rasters/vrt/older/source.ovr4.tif",
+        "rasters/vrt/older/source.ovr8.tif",
+    } <= set(keys)
+    assert len(keys) == len(set(keys))
 
 
 def test_ingest_worker_fails_closed_without_tenant_context(monkeypatch):

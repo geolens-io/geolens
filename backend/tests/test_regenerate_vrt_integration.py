@@ -652,7 +652,9 @@ async def test_staged_set_lands_with_the_artifact_it_describes(
     # member, which is what proves the BUILD used the staged set rather than
     # the links it was about to overwrite.
     vrt_xml = (await local_storage.get(vrt_asset.asset_uri)).decode()
-    assert vrt_xml.count("<SourceFilename") == len(staged)
+    assert vrt_xml.count("<SourceFilename>") + vrt_xml.count(
+        "<SourceFilename relativeToVRT="
+    ) - vrt_xml.count("source.ovr.tif") == len(staged)
 
 
 async def test_death_before_swap_leaves_source_links_untouched(

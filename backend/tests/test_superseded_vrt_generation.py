@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from app.processing.raster.vrt import overview_keys_for
 import structlog
 from sqlalchemy import select, text
 
@@ -285,7 +286,15 @@ async def test_a_regeneration_that_landed_unseen_leaves_the_prior_generation_to_
         live = await _live_keys(ids[0])
         assert set(live).isdisjoint(prior), "the publish didn't land"
         assert await _left(raster_storage, prior) == list(prior)
-        assert (await _owed(job.id))["superseded_keys"] == list(prior)
+        # The prior overview is owed too, though no object backs it here.
+        assert (await _owed(job.id))["superseded_keys"] == [
+            prior[0],
+            *(
+                prior[0].replace("source.vrt", k)
+                for k in overview_keys_for("source.vrt")
+            ),
+            *prior[1:],
+        ]
 
         await run_owed_publish_followups()
 
