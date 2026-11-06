@@ -6,7 +6,8 @@ import type { WidgetRenderProps } from '../contract';
 import { PICKED_GLYPH } from '../PickedMark';
 import { selectedValues, togglePick } from '../selection';
 import { ValueTable } from '../ValueTable';
-import type { BarChartConfig } from './definition';
+import { useLayerColors } from '../layer-colors';
+import { layerColorColumn, pickedColumn, type BarChartConfig } from './definition';
 import { barTableProps, useBarChartText } from './bar-chart-rows';
 
 // Drawn in viewBox units; the SVG scales to the panel's width.
@@ -31,7 +32,10 @@ function clip(text: string, max: number): string {
  *
  * Where the host links widgets, a click on a bar, or Enter or Space on the
  * active one, picks its category; picking it again clears the pick. Picked
- * bars keep full strength and a check mark, and the others fade.
+ * bars keep full strength and a check mark, and the others fade. Only bars that
+ * stand for values of one column can be picked, so a chart by date or by field
+ * is read-only. A category chart on the layer's style column draws each bar in
+ * the layer's colour for it.
  */
 export default function BarChartRenderer({
   config,
@@ -45,14 +49,17 @@ export default function BarChartRenderer({
   const text = useBarChartText(config, data, columnLabel);
   const hintId = useId();
   const rows = text.rows ?? [];
-  const picked = selectedValues(selection, config.column);
+  const pickColumn = pickedColumn(config);
+  const pick = pickColumn === null ? undefined : onSelect;
+  const picked = pickColumn === null ? [] : selectedValues(selection, pickColumn);
+  const colorOf = useLayerColors(layerColorColumn(config));
   const { current, chartProps, markProps } = useChartMarks(
     rows.length,
-    onSelect
+    pick && pickColumn !== null
       ? (index) =>
-          onSelect(
+          pick(
             togglePick(picked.length === 1 && picked[0] === rows[index].key, {
-              column: config.column,
+              column: pickColumn,
               label: rows[index].label,
               values: [rows[index].key],
             }),
@@ -86,6 +93,7 @@ export default function BarChartRenderer({
           const width = Math.abs(end - zeroX);
           const isActive = index === current;
           const isPicked = picked.includes(row.key);
+          const layerColor = colorOf?.(row.key);
           return (
             <g key={index} aria-hidden="true" data-picked={isPicked || undefined} {...markProps(index)}>
               <title>{t('types.bar_chart.bar', { label: row.label, value: row.text })}</title>
@@ -111,10 +119,11 @@ export default function BarChartRenderer({
                 height={BAR_HEIGHT}
                 rx={2}
                 className={cn(
-                  'fill-primary',
+                  !layerColor && 'fill-primary',
                   picked.length > 0 && !isPicked && 'opacity-75',
                   isActive && 'stroke-foreground',
                 )}
+                style={layerColor ? { fill: layerColor } : undefined}
                 strokeWidth={isActive ? 2 : 0}
               />
               <text
@@ -142,13 +151,14 @@ export default function BarChartRenderer({
         )}
       </svg>
       <p id={hintId} className="sr-only">
-        {t(onSelect ? (mapHidden ? 'types.bar_chart.keyboardHintPickPage' : 'types.bar_chart.keyboardHintPick') : 'types.bar_chart.keyboardHint')}
+        {t(pick ? (mapHidden ? 'types.bar_chart.keyboardHintPickPage' : 'types.bar_chart.keyboardHintPick') : 'types.bar_chart.keyboardHint')}
       </p>
       <figcaption className="min-h-5 text-sm" aria-live="polite">
         {current !== null && (
           <span>{t('types.bar_chart.bar', { label: rows[current].label, value: rows[current].text })}</span>
         )}
       </figcaption>
+      {text.note && <p className="text-xs text-muted-foreground">{text.note}</p>}
       <details className="text-sm">
         <summary className="cursor-pointer text-muted-foreground">{t('showTable')}</summary>
         {table}

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -191,6 +192,37 @@ export function IntegerField({
         }}
         onBlur={() => setText(String(value))}
       />
+    </div>
+  );
+}
+
+/** The switch that lets a chart take the layer's category colours. */
+export function LayerColorsField({
+  id,
+  checked,
+  onChange,
+}: {
+  id: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  const { t } = useTranslation('widgets');
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id={id}
+          checked={checked}
+          aria-describedby={`${id}-help`}
+          onCheckedChange={(next) => onChange(next === true)}
+        />
+        <Label className="text-xs font-normal" htmlFor={id}>
+          {t('editor.layerColors')}
+        </Label>
+      </div>
+      <p id={`${id}-help`} className="text-xs text-muted-foreground">
+        {t('editor.layerColorsHelp')}
+      </p>
     </div>
   );
 }

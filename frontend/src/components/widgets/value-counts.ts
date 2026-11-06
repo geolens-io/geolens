@@ -3,7 +3,7 @@ import type { TFunction } from 'i18next';
 import { aggregateResult, formatAggregateValue } from './aggregate';
 import type { SelectionValue } from './contract';
 
-interface CategoryRow {
+export interface CategoryRow {
   /** The category as the endpoint sent it, which a pick filters on. */
   key: SelectionValue;
   label: string;

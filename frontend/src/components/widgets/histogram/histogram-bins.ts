@@ -81,6 +81,23 @@ export function useHistogramText(
   };
 }
 
+export interface AxisTick {
+  /** Which bin edge: 0 is the first bin's lower edge, `bins.length` the last bin's upper edge. */
+  edge: number;
+  text: string;
+}
+
+/** Three or four evenly spread bin edges to label under the axis, always including both ends. */
+export function axisTicks(bins: readonly HistogramBinRow[]): AxisTick[] {
+  if (bins.length === 0) return [];
+  const count = Math.min(3, bins.length);
+  const edges = Array.from({ length: count + 1 }, (_, i) => Math.round((i * bins.length) / count));
+  return [...new Set(edges)].map((edge) => ({
+    edge,
+    text: edge < bins.length ? bins[edge].lowerText : bins[bins.length - 1].upperText,
+  }));
+}
+
 type Interval = { lower: number; upper: number; includeUpper: boolean };
 
 /** Whether two intervals, each closed below and closed above only when `includeUpper`, share a value. */

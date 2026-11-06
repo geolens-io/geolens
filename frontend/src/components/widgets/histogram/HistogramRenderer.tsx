@@ -6,19 +6,23 @@ import type { WidgetRenderProps } from '../contract';
 import { PICKED_GLYPH } from '../PickedMark';
 import { ValueTable } from '../ValueTable';
 import type { HistogramConfig } from './definition';
-import { histogramTableProps, pickBin, pickedBins, useHistogramText } from './histogram-bins';
+import { axisTicks, histogramTableProps, pickBin, pickedBins, useHistogramText } from './histogram-bins';
 
 // Drawn in viewBox units; the SVG scales to the panel's width.
 const WIDTH = 320;
+// The peak label's width in viewBox units, per character at the axis font size, plus a gap.
+const CHAR_WIDTH = 6;
+const LABEL_GAP = 6;
 const PLOT_HEIGHT = 100;
 // Room above the columns for a picked bin's check mark, and below for the axis labels.
 const TOP = 12;
-const AXIS_HEIGHT = 16;
+const AXIS_HEIGHT = 18;
 const GAP = 1;
 
 /**
- * Columns of counts over equal-width bins, from a zero baseline, with the
- * lowest and highest values under the axis. Like the bar chart it is one tab
+ * Columns of counts over equal-width bins, from a zero baseline, with three or
+ * four bin edges labelled under the axis and a gridline at the tallest bin's
+ * count. Like the bar chart it is one tab
  * stop whose columns are hidden from assistive technology: arrow keys, Home
  * and End move between bins, the active bin gets an outline, and a live
  * readout below names it. The data table is one click away.
@@ -34,7 +38,7 @@ export default function HistogramRenderer({
   mapHidden,
   columnLabel,
 }: WidgetRenderProps<HistogramConfig>) {
-  const { t } = useTranslation('widgets');
+  const { t, i18n } = useTranslation('widgets');
   const text = useHistogramText(config, data, columnLabel);
   const hintId = useId();
   const bins = text.bins ?? [];
@@ -49,7 +53,10 @@ export default function HistogramRenderer({
   if (bins.length === 0) return table;
 
   const most = Math.max(...bins.map((bin) => bin.count));
-  const step = WIDTH / bins.length;
+  const peakLabel = new Intl.NumberFormat(i18n.language, { notation: 'compact', maximumFractionDigits: 1 }).format(most);
+  const LEFT = Math.max(24, peakLabel.length * CHAR_WIDTH + LABEL_GAP);
+  const step = (WIDTH - LEFT) / bins.length;
+  const ticks = axisTicks(bins);
   const baseline = TOP + PLOT_HEIGHT;
 
   return (
@@ -67,7 +74,7 @@ export default function HistogramRenderer({
           const drawn = Math.max(height, bin.count > 0 ? 1 : 0);
           const isActive = index === current;
           const isPicked = picked[index];
-          const x = index * step;
+          const x = LEFT + index * step;
           return (
             <g key={index} aria-hidden="true" data-picked={isPicked || undefined} {...markProps(index)}>
               {/* The whole column's height takes the click, so a short bin is easy to hit. */}
@@ -92,14 +99,23 @@ export default function HistogramRenderer({
             </g>
           );
         })}
-        <line x1={0} x2={WIDTH} y1={baseline} y2={baseline} className="stroke-border" strokeWidth={1} aria-hidden="true" />
+        <line x1={LEFT} x2={WIDTH} y1={baseline} y2={baseline} className="stroke-border" strokeWidth={1} aria-hidden="true" />
         <g aria-hidden="true" fontSize={10} className="fill-muted-foreground tabular-nums">
-          <text x={0} y={baseline + 12}>
-            {bins[0].lowerText}
+          <line x1={LEFT} x2={WIDTH} y1={TOP} y2={TOP} className="stroke-border" strokeDasharray="3 3" strokeWidth={1} />
+          <text x={LEFT - 4} y={TOP} textAnchor="end" dominantBaseline="middle" data-peak="">
+            {peakLabel}
           </text>
-          <text x={WIDTH} y={baseline + 12} textAnchor="end">
-            {bins[bins.length - 1].upperText}
-          </text>
+          {ticks.map(({ edge, text }, index) => {
+            const x = LEFT + edge * step;
+            return (
+              <g key={edge}>
+                <line x1={x} x2={x} y1={baseline} y2={baseline + 3} className="stroke-border" strokeWidth={1} />
+                <text x={x} y={baseline + 13} textAnchor={index === 0 ? 'start' : index === ticks.length - 1 ? 'end' : 'middle'}>
+                  {text}
+                </text>
+              </g>
+            );
+          })}
         </g>
       </svg>
       <p id={hintId} className="sr-only">

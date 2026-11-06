@@ -360,6 +360,8 @@ interface MatchClasses {
   input: unknown;
   arms: { values: (string | number)[]; color: string }[];
   fallback: string;
+  /** Whether a null guard sends null features to the fallback before the match reads them. */
+  guarded: boolean;
 }
 
 /** The values one `match` arm lists, one label or an array of them; null for anything else. */
@@ -386,7 +388,7 @@ function matchClasses(value: unknown): MatchClasses | null {
     if (values === null || typeof color !== 'string') return null;
     arms.push({ values, color });
   }
-  return { column, input: match[1], arms, fallback };
+  return { column, input: match[1], arms, fallback, guarded: match !== value };
 }
 
 /**
@@ -743,6 +745,31 @@ function clusterFor(layer: LegendLayer, kind: LayerAdapter['type']): LegendFacts
     },
   };
   return { kind: getClusterSourceStrategy(layer).kind, steps };
+}
+
+/**
+ * The colour the map's categorical paint gives each value of its column, read
+ * from the paint itself; null when the layer isn't coloured by a `match` on a
+ * column. A value no arm lists takes the fallback colour, as the map draws it.
+ */
+export function categoryColors(layer: LegendLayer): { column: string; colorOf: (value: unknown) => string | undefined } | null {
+  if (!legendFacts(layer)) return null;
+  const kind = drawsAs(layer);
+  if (!CLASSED_KINDS.has(kind)) return null;
+  const paint = layer.paint ?? {};
+  const match = matchClasses(drawnColor(paint, kind, inferGeometryType(paint, layer.dataset_geometry_type ?? layer.geometry_type)));
+  if (!match) return null;
+  return {
+    column: match.column,
+    colorOf: (value) => {
+      // A guarded null is drawn with the fallback, though the input may read it as 0.
+      const read = value === null && match.guarded ? null : readAsMatchInput(match.input, value);
+      if (read === undefined) return undefined;
+      const arm = read === null ? undefined : match.arms.find((entry) => entry.values.includes(read as string | number));
+      const color = arm?.color ?? match.fallback;
+      return isTransparentColor(color) ? undefined : color;
+    },
+  };
 }
 
 /**

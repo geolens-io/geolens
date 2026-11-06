@@ -47,6 +47,31 @@ function indicator(config: Record<string, unknown>, onLayer = layerId) {
   };
 }
 
+describe('the version a save stores for a bar chart', () => {
+  const bar = (config: Record<string, unknown>) => ({
+    id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+    type: 'bar_chart',
+    v: 2,
+    layer_id: layerId,
+    scope: 'layer' as const,
+    config,
+  });
+  const plain = { column: 'kind', stat: 'count', stat_column: null, limit: 10 };
+  const saved = (config: Record<string, unknown>) =>
+    dashboardPayload({ panel: 'right', widgets: [bar(config)] }, [layer()], { panel: 'right' })?.widgets?.[0];
+
+  it('stays 1 while the chart uses no option of version 2, so earlier releases keep reading it', () => {
+    expect(saved(plain)).toMatchObject({ v: 1 });
+  });
+
+  it('is 2 once it groups by date, by feature or by field, or turns layer colours off', () => {
+    expect(saved({ ...plain, use_layer_colors: false })).toMatchObject({ v: 2 });
+    expect(
+      saved({ mode: 'date', column: 'built', date_bucket: 'year', stat: 'count', stat_column: null, limit: 10 }),
+    ).toMatchObject({ v: 2 });
+  });
+});
+
 describe('dashboard drafts', () => {
   it('read a dashboard saved before the panel choice as a right panel', () => {
     expect(toDashboardDraft(null)).toEqual({ panel: 'right', widgets: [] });
@@ -213,6 +238,59 @@ describe('a widget with no layer', () => {
     } as never);
     expect(widgetProblem(list('kind'), withColumns)).toBeNull();
     expect(widgetProblem(list('tags'), withColumns)).toEqual({ kind: 'notSortable', column: 'tags' });
+  });
+});
+
+describe('a date bar chart', () => {
+  const dateChart = (column: string) =>
+    ({
+      id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+      type: 'bar_chart',
+      v: 2,
+      layer_id: layerId,
+      scope: 'layer',
+      config: { mode: 'date', column, date_bucket: 'month', stat: 'count', stat_column: null, limit: 10 },
+    }) as never;
+  const withColumns = layer({
+    dataset_column_info: [
+      { name: 'kind', type: 'text' },
+      { name: 'built', type: 'date' },
+    ],
+  } as never);
+
+  it('holds the save while its column is not a date type', () => {
+    expect(widgetProblem(dateChart('built'), withColumns)).toBeNull();
+    expect(widgetProblem(dateChart('kind'), withColumns)).toEqual({ kind: 'notDate', column: 'kind' });
+  });
+});
+
+describe('a by-feature bar chart', () => {
+  const chart = (value_column: string, label_column = 'kind') =>
+    ({
+      id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+      type: 'bar_chart',
+      v: 2,
+      layer_id: layerId,
+      scope: 'layer',
+      config: { mode: 'by_feature', label_column, value_column, sort: 'desc', limit: 10 },
+    }) as never;
+  const withColumns = layer({
+    dataset_column_info: [
+      { name: 'kind', type: 'text' },
+      { name: 'height', type: 'integer' },
+      { name: 'Height', type: 'integer' },
+      { name: 'zone', type: 'user-defined' },
+    ],
+  } as never);
+
+  it('holds the save while its label field cannot be listed', () => {
+    expect(widgetProblem(chart('height', 'Height'), withColumns)).toEqual({ kind: 'notListable', column: 'Height' });
+    expect(widgetProblem(chart('height', 'zone'), withColumns)).toEqual({ kind: 'notListable', column: 'zone' });
+  });
+
+  it('holds the save while its value field is a name the rows endpoint cannot sort by', () => {
+    expect(widgetProblem(chart('height'), withColumns)).toBeNull();
+    expect(widgetProblem(chart('Height'), withColumns)).toEqual({ kind: 'notSortable', column: 'Height' });
   });
 });
 

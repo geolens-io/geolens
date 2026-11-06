@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button';
 import { LiveAnnouncement } from '@/components/ui/live-announcement';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { AnyWidgetDefinition, WidgetInstance, WidgetRenderProps, WidgetSelection } from '@/components/widgets/contract';
+import { categoryColors } from '@/components/map/legend-facts';
+import { LayerColorsProvider } from '@/components/widgets/layer-colors';
 import { WidgetView } from '@/components/widgets/WidgetView';
 import { isLayerBound, parseStoredWidget, type ParsedWidget } from '@/components/widgets/registry';
 import type { Bbox } from '@/lib/bbox';
@@ -131,6 +133,7 @@ export function DashboardWidget({
     linked,
     mapHidden,
   });
+  const layerColors = useMemo(() => categoryColors(layer), [layer]);
   const loadingSkeleton = (
     <Skeleton className="h-12 w-full">
       <span className="sr-only">{t('common:loading')}</span>
@@ -193,19 +196,21 @@ export function DashboardWidget({
         loadingSkeleton
       ) : failed && query.data === undefined ? null : (
         <div className={cn('transition-opacity', stale && 'opacity-50')}>
-          <WidgetView
-            parsed={parsed}
-            data={query.data}
-            selection={selection}
-            onSelect={onSelect}
-            mapHidden={mapHidden}
-            onLoadMore={loadMore}
-            loadingMore={loadingMore}
-            loadMoreFailed={loadMoreFailed}
-            onZoomTo={onZoomTo}
-            columnLabel={(column) => columnDisplayName(layer.column_info, column)}
-            loadingFallback={loadingSkeleton}
-          />
+          <LayerColorsProvider value={layerColors}>
+            <WidgetView
+              parsed={parsed}
+              data={query.data}
+              selection={selection}
+              onSelect={onSelect}
+              mapHidden={mapHidden}
+              onLoadMore={loadMore}
+              loadingMore={loadingMore}
+              loadMoreFailed={loadMoreFailed}
+              onZoomTo={onZoomTo}
+              columnLabel={(column) => columnDisplayName(layer.column_info, column)}
+              loadingFallback={loadingSkeleton}
+            />
+          </LayerColorsProvider>
         </div>
       )}
     </WidgetShell>

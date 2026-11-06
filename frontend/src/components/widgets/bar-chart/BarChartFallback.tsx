@@ -4,5 +4,11 @@ import type { BarChartConfig } from './definition';
 import { barTableProps, useBarChartText } from './bar-chart-rows';
 
 export function BarChartFallback({ config, data, selection, columnLabel }: WidgetRenderProps<BarChartConfig>) {
-  return <ValueTable {...barTableProps(config, useBarChartText(config, data, columnLabel), selection)} />;
+  const text = useBarChartText(config, data, columnLabel);
+  return (
+    <>
+      <ValueTable {...barTableProps(config, text, selection)} />
+      {text.note && <p className="mt-2 text-xs text-muted-foreground">{text.note}</p>}
+    </>
+  );
 }

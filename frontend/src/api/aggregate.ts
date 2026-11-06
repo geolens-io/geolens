@@ -3,12 +3,30 @@ import { abortableDelay } from '@/lib/abort';
 import { createSlotPool } from '@/lib/slot-pool';
 import type { components } from '@/types/api.generated';
 
+type StatsRequest = components['schemas']['StatsRequest'];
+
+/**
+ * The same statistics over several columns. The endpoint reads one column per
+ * request, so `fetchAggregate` sends one `stats` request per column and
+ * answers with all of them.
+ */
+type StatsByFieldsRequest = Omit<StatsRequest, 'op' | 'column'> & {
+  op: 'stats_by_fields';
+  columns: string[];
+};
+
+type StatsByFieldsResponse = Omit<components['schemas']['StatsResponse'], 'op' | 'result'> & {
+  op: 'stats_by_fields';
+  result: { fields: { column: string; stats: components['schemas']['StatsResult'] }[] };
+};
+
 export type AggregateRequest =
   | components['schemas']['CountRequest']
-  | components['schemas']['StatsRequest']
+  | StatsRequest
   | components['schemas']['ValueCountsRequest']
   | components['schemas']['HistogramRequest']
   | components['schemas']['GroupByRequest']
+  | StatsByFieldsRequest
   | components['schemas']['RowsRequest'];
 
 export type AggregateResponse =
@@ -17,6 +35,7 @@ export type AggregateResponse =
   | components['schemas']['ValueCountsResponse']
   | components['schemas']['HistogramResponse']
   | components['schemas']['GroupByResponse']
+  | StatsByFieldsResponse
   | components['schemas']['RowsResponse'];
 
 // The endpoint answers a caller's third concurrent request with 429.
@@ -77,8 +96,36 @@ function refusal(error: unknown): 'rate' | 'busy' | null {
 export async function fetchAggregate(
   datasetId: string,
   body: AggregateRequest,
-  { embedToken, signal }: { embedToken?: string; signal?: AbortSignal } = {},
+  options: { embedToken?: string; signal?: AbortSignal } = {},
 ): Promise<AggregateResponse> {
+  if (body.op === 'stats_by_fields') {
+    const { columns, ...shared } = body;
+    // The first failure cancels the sibling requests so they free their slots.
+    const stop = new AbortController();
+    const cancel = () => stop.abort(options.signal?.reason);
+    if (options.signal?.aborted) cancel();
+    options.signal?.addEventListener('abort', cancel, { once: true });
+    let responses: components['schemas']['StatsResponse'][];
+    try {
+      responses = (await Promise.all(
+        columns.map((column) =>
+          fetchAggregate(datasetId, { ...shared, op: 'stats', column }, { ...options, signal: stop.signal }).catch((error) => {
+            stop.abort();
+            throw error;
+          }),
+        ),
+      )) as components['schemas']['StatsResponse'][];
+    } finally {
+      options.signal?.removeEventListener('abort', cancel);
+    }
+    return {
+      op: 'stats_by_fields',
+      approximate: false,
+      cached: responses.every((response) => response.cached),
+      result: { fields: columns.map((column, index) => ({ column, stats: responses[index].result })) },
+    };
+  }
+  const { embedToken, signal } = options;
   for (let attempt = 0; ; attempt += 1) {
     let busyWait = 0;
     const release = await slots.acquire(signal);

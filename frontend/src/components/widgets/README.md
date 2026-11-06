@@ -23,7 +23,9 @@ together. The document that holds the instances, a story or a map's
 
 A chart is SVG drawn by its renderer, with no chart library: one tab stop,
 arrow keys to move between its marks, colours from theme tokens, and its data
-table as the fallback (see `bar-chart/` and `histogram/`). `chart-marks.ts`
+table as the fallback (see `bar-chart/` and `histogram/`). A
+category chart on the column its layer is coloured by takes the layer's colours
+from `layer-colors.tsx`, which the dashboard panel fills from the layer's legend. `chart-marks.ts`
 handles the keys and clicks, and `ValueTable.tsx` draws the table.
 
 ### Picks

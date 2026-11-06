@@ -7,7 +7,7 @@ import {
   isLayerBound,
   parseStoredWidget,
 } from '@/components/widgets/registry';
-import { isAggregateNumeric, isListableColumn, isSortableColumn } from '@/lib/column-utils';
+import { isAggregateNumeric, isDateColumn, isListableColumn, isSortableColumn } from '@/lib/column-utils';
 import { canOpenAttributeTable } from '@/lib/layer-capabilities';
 import type { DashboardConfig, MapLayerResponse } from '@/types/api';
 import type { components } from '@/types/api.generated';
@@ -98,7 +98,7 @@ export function widgetLayerGone(widget: WidgetInstance, layers: readonly MapLaye
 }
 
 export type WidgetProblem =
-  | { kind: 'missingColumn' | 'notNumeric' | 'notSortable' | 'notListable'; column: string }
+  | { kind: 'missingColumn' | 'notNumeric' | 'notSortable' | 'notListable' | 'notDate'; column: string }
   /** The widget follows the map view on a layer with no geometry, which the endpoint refuses. */
   | { kind: 'viewWithoutGeometry' };
 
@@ -121,6 +121,7 @@ export function widgetProblem(widget: WidgetInstance, layer: MapLayerResponse): 
     const column = columns.find((candidate) => candidate.name === use.name);
     if (!column) return { kind: 'missingColumn', column: use.name };
     if (use.numeric && !isAggregateNumeric(column.type)) return { kind: 'notNumeric', column: use.name };
+    if (use.date && !isDateColumn(column.type)) return { kind: 'notDate', column: use.name };
     if (use.listable && !isListableColumn(use.name, column.type)) return { kind: 'notListable', column: use.name };
     if (use.sortable && !isSortableColumn(use.name, column.type)) return { kind: 'notSortable', column: use.name };
   }

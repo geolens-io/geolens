@@ -11,6 +11,7 @@ and releases use semantic versioning.
 - Stories: the story list takes `search` and `published_only`, and each item reports its published `chapter_count`.
 - MCP: list_stories, get_story and aggregate tools read published stories and run dataset aggregates.
 - Stories: the Reader settings dialog sets the reader theme.
+- Dashboards: bar charts by feature, by field or by date, layer colours on category bar charts, and histogram axis ticks.
 - Stories: an optional navigation bar listing the chapters, and a floating panel layout that puts the chapter text over a full-bleed map, placed left, right or centre.
 
 - Stories: chapters can move the map with Fly, Glide or Cut, timed by the distance of the move, layers fade in and out, and a button returns a reader to the chapter's view.

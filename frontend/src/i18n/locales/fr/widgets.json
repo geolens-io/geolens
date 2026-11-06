@@ -42,7 +42,19 @@
       "keyboardHintPick": "Utilisez les flèches pour passer d’une barre à l’autre. Appuyez sur Entrée pour filtrer la carte selon une barre, puis de nouveau pour retirer le filtre.",
       "keyboardHintPickPage": "Utilisez les flèches pour passer d’une barre à l’autre. Appuyez sur Entrée pour filtrer le tableau de bord selon une barre, puis de nouveau pour retirer le filtre.",
       "bar": "{{label}} : {{value}}",
-      "roleDescription": "diagramme en barres"
+      "roleDescription": "diagramme en barres",
+      "summaryDate": "{{stat}} par {{bucket}} (UTC)",
+      "summaryFeature": "{{value}} par {{label}}",
+      "summaryFields": "{{stat}} par champ",
+      "fieldHeader": "Champ",
+      "buckets": {
+        "day": "jour",
+        "week": "semaine",
+        "month": "mois",
+        "year": "année"
+      },
+      "moreBuckets": "Affichage des {{shown}} premières périodes. La couche en compte davantage.",
+      "moreFeatures": "Affichage de {{shown}} entités. La couche en compte davantage."
     },
     "histogram": {
       "label": "Histogramme",
@@ -181,7 +193,8 @@
       "notNumeric": "« {{column}} » n'est pas une colonne numérique. Choisissez-en une autre avant d'enregistrer.",
       "viewWithoutGeometry": "Cette couche n'a pas de géométrie : le widget ne peut pas suivre la vue de la carte. Faites-le porter sur toute la couche.",
       "notSortable": "« {{column}} » ne peut pas servir au tri. Choisissez-en une autre avant d’enregistrer.",
-      "notListable": "« {{column}} » ne peut pas être listée. Choisissez-en une autre avant d’enregistrer."
+      "notListable": "« {{column}} » ne peut pas être listée. Choisissez-en une autre avant d’enregistrer.",
+      "notDate": "« {{column}} » n’est pas une colonne de date. Choisissez-en une autre avant d’enregistrer."
     },
     "maxWidgets": "Un tableau de bord contient au plus {{max}} widgets.",
     "reference": "Valeur de référence",
@@ -211,6 +224,30 @@
       "ascending": "Croissant",
       "descending": "Décroissant",
       "pageSize": "Entités par page"
-    }
+    },
+    "barMode": "Les barres montrent",
+    "barModes": {
+      "category": "Valeurs d’une colonne",
+      "date": "Dates",
+      "by_feature": "Une barre par entité",
+      "by_fields": "Une barre par champ"
+    },
+    "barNeedsNumbers": "Cette couche n’a aucune colonne numérique pour ce diagramme.",
+    "barNeedsDates": "Cette couche n’a aucune colonne de date.",
+    "dateColumn": "Colonne de date",
+    "dateBucket": "Regrouper par",
+    "dateBuckets": {
+      "day": "Jour",
+      "week": "Semaine",
+      "month": "Mois",
+      "year": "Année"
+    },
+    "labelField": "Champ d’étiquette",
+    "valueField": "Champ de valeur",
+    "sortOrder": "Ordre",
+    "fields": "Champs",
+    "layerColors": "Utiliser les couleurs de la couche",
+    "layerColorsHelp": "S’applique lorsque la colonne est celle par laquelle le style de la couche colore la carte.",
+    "fieldUnavailable": "{{column}} (n’est pas une colonne numérique de cette couche)"
   }
 }
