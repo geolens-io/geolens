@@ -27,8 +27,9 @@ from app.modules.catalog.maps.service import new_map_asset_key
 from app.modules.catalog.stories.images import STORY_ASSET_VARIANTS, StoryImage
 from app.modules.catalog.stories.models import Story, StoryAsset
 from app.modules.catalog.widgets.schemas import (
-    ImageWidget,
     KeptWidget,
+    block_asset_ids,
+    block_with_assets_renamed,
     read_stored,
     to_store,
 )
@@ -108,7 +109,8 @@ def image_ids(*documents: Any) -> set[uuid.UUID]:
     for document in documents:
         for chapter in chapters_of(document):
             stored = read_stored(chapter.get("blocks"), "story")
-            found |= {b.asset_id for b in stored.widgets if isinstance(b, ImageWidget)}
+            for block in stored.widgets:
+                found |= block_asset_ids(block)
             found |= mentioned_ids(*(kept.raw for kept in stored.unreadable))
     return found
 
@@ -395,11 +397,8 @@ def _copied_document(
         stored = read_stored(chapter.get("blocks"), "story")
         blocks = []
         for block in stored.widgets:
-            if isinstance(block, ImageWidget):
-                if block.asset_id not in names:
-                    continue
-                block = block.model_copy(update={"asset_id": names[block.asset_id]})
-            blocks.append(block)
+            if (block := block_with_assets_renamed(block, names)) is not None:
+                blocks.append(block)
         kept = [
             KeptWidget(item.after, _renamed(item.raw, names))
             for item in stored.unreadable

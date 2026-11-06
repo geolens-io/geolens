@@ -72,6 +72,17 @@
     },
     "separator": {
       "label": "Trenner"
+    },
+    "gallery": {
+      "label": "Galerie"
+    },
+    "carousel": {
+      "label": "Karussell",
+      "previous": "Vorheriges Bild",
+      "next": "Nächstes Bild",
+      "position": "Bild {{current}} von {{total}}",
+      "roleDescription": "Karussell",
+      "slideRoleDescription": "Folie"
     }
   },
   "dashboard": {

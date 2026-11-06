@@ -1,7 +1,12 @@
+import { useState } from 'react';
+import { toast } from 'sonner';
 import userEvent from '@testing-library/user-event';
 import { render, screen } from '@/test/test-utils';
 import { ChapterEditor } from '../ChapterEditor';
+import { applyDraftEdit } from '../story-draft';
 import type { StoryChapter } from '@/types/api';
+
+vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/api/client')>()),
@@ -157,4 +162,67 @@ it('flags a button with a script address', () => {
   } as StoryChapter);
   expect(screen.getByLabelText('Link address')).toBeInvalid();
   expect(screen.getByText('Enter an address that starts with http:// or https://.')).toBeInTheDocument();
+});
+
+it('keeps focus on a moved gallery block’s own arrow, not on an arrow of one of its images', async () => {
+  const gallery = {
+    id: '00000000-0000-4000-8000-000000000010',
+    type: 'gallery' as const,
+    v: 1 as const,
+    title: null,
+    config: {
+      images: [
+        { asset_id: '00000000-0000-4000-8000-000000000011', alt: 'One' },
+        { asset_id: '00000000-0000-4000-8000-000000000012', alt: 'Two' },
+      ],
+    },
+  };
+  function Harness() {
+    const [chapter, setChapter] = useState({
+      ...CHAPTER,
+      blocks: [gallery, markdown('00000000-0000-4000-8000-000000000013')],
+    } as StoryChapter);
+    return (
+      <ChapterEditor
+        storyId="s1"
+        uploads={{ get: () => ({ progress: null, error: null }), start: vi.fn(), cancelAll: vi.fn(), uploading: false }}
+        chapter={chapter}
+        index={0}
+        edit={(change) => setChapter(applyDraftEdit([chapter], change)[0])}
+        readView={() => null}
+        mapMissing={false}
+        focusTitle={false}
+      />
+    );
+  }
+  render(<Harness />);
+
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Move gallery 1 down' }));
+
+  expect(screen.getByRole('button', { name: 'Move gallery 1 up' })).toHaveFocus();
+});
+
+it('reports a gallery upload that finishes after the chapter filled up, and adds nothing', async () => {
+  const edit = vi.fn();
+  const start = vi.fn();
+  const props = {
+    storyId: 's1',
+    uploads: { get: () => ({ progress: null, error: null }), start, cancelAll: vi.fn(), uploading: false },
+    index: 0,
+    edit,
+    readView: () => null,
+    mapMissing: false,
+    focusTitle: false,
+  };
+  const blocks = (count: number) =>
+    Array.from({ length: count }, (_, i) => markdown(`00000000-0000-4000-8000-${String(i).padStart(12, '0')}`));
+  const { rerender } = render(<ChapterEditor {...props} chapter={{ ...CHAPTER, blocks: blocks(99) } as StoryChapter} />);
+
+  await userEvent.setup().upload(screen.getByTestId('story-gallery-input'), new File(['x'], 'a.png', { type: 'image/png' }));
+  const finish = start.mock.calls[0][2] as (asset: { id: string }) => void;
+  rerender(<ChapterEditor {...props} chapter={{ ...CHAPTER, blocks: blocks(100) } as StoryChapter} />);
+  finish({ id: '00000000-0000-4000-8000-0000000000ff' });
+
+  expect(edit).not.toHaveBeenCalled();
+  expect(toast.error).toHaveBeenCalledWith('A chapter can have up to 100 text blocks.');
 });

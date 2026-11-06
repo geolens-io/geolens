@@ -2372,6 +2372,31 @@ export type CapabilitiesUpload = {
 };
 
 /**
+ * CarouselWidget
+ */
+export type CarouselWidget = {
+    /**
+     * Id
+     *
+     * Made by the client and stable across saves.
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Type
+     */
+    type: 'carousel';
+    /**
+     * V
+     */
+    v: 1;
+    config: GalleryConfig;
+};
+
+/**
  * CatalogStatsResponse
  */
 export type CatalogStatsResponse = {
@@ -6141,6 +6166,71 @@ export type FeatureUpdate = {
     properties?: {
         [key: string]: unknown;
     } | null;
+};
+
+/**
+ * GalleryConfig
+ */
+export type GalleryConfig = {
+    /**
+     * Images
+     *
+     * Images uploaded to the host story, in reading order.
+     */
+    images: Array<GalleryImage>;
+};
+
+/**
+ * GalleryImage
+ */
+export type GalleryImage = {
+    /**
+     * Alt
+     *
+     * Text that stands in for the image; required unless it is decorative.
+     */
+    alt?: string | null;
+    /**
+     * Decorative
+     *
+     * True when the image adds nothing a reader needs: readers get an empty alt, and `alt` may be left out.
+     */
+    decorative?: boolean | null;
+    /**
+     * Caption
+     */
+    caption?: string | null;
+    /**
+     * Asset Id
+     *
+     * An image uploaded to the host story.
+     */
+    asset_id: string;
+};
+
+/**
+ * GalleryWidget
+ */
+export type GalleryWidget = {
+    /**
+     * Id
+     *
+     * Made by the client and stable across saves.
+     */
+    id: string;
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Type
+     */
+    type: 'gallery';
+    /**
+     * V
+     */
+    v: 1;
+    config: GalleryConfig;
 };
 
 /**
@@ -13752,7 +13842,7 @@ export type StoryChapter = {
     /**
      * Blocks
      */
-    blocks?: Array<MarkdownWidget | ImageWidget | ButtonWidget | SeparatorWidget>;
+    blocks?: Array<MarkdownWidget | ImageWidget | GalleryWidget | CarouselWidget | ButtonWidget | SeparatorWidget>;
 };
 
 /**
@@ -13779,7 +13869,7 @@ export type StoryChapterInput = {
     /**
      * Blocks
      */
-    blocks?: Array<MarkdownWidget | ImageWidget | ButtonWidget | SeparatorWidget>;
+    blocks?: Array<MarkdownWidget | ImageWidget | GalleryWidget | CarouselWidget | ButtonWidget | SeparatorWidget>;
 };
 
 /**

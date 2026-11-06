@@ -8342,6 +8342,28 @@ export interface components {
              */
             presigned: boolean;
         };
+        /** CarouselWidget */
+        CarouselWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "carousel";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            config: components["schemas"]["GalleryConfig"];
+        };
         /** CatalogStatsResponse */
         CatalogStatsResponse: {
             /**
@@ -11157,6 +11179,57 @@ export interface components {
             properties?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /** GalleryConfig */
+        GalleryConfig: {
+            /**
+             * Images
+             * @description Images uploaded to the host story, in reading order.
+             */
+            images: components["schemas"]["GalleryImage"][];
+        };
+        /** GalleryImage */
+        GalleryImage: {
+            /**
+             * Alt
+             * @description Text that stands in for the image; required unless it is decorative.
+             */
+            alt?: string | null;
+            /**
+             * Decorative
+             * @description True when the image adds nothing a reader needs: readers get an empty alt, and `alt` may be left out.
+             */
+            decorative?: boolean | null;
+            /** Caption */
+            caption?: string | null;
+            /**
+             * Asset Id
+             * Format: uuid
+             * @description An image uploaded to the host story.
+             */
+            asset_id: string;
+        };
+        /** GalleryWidget */
+        GalleryWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "gallery";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            config: components["schemas"]["GalleryConfig"];
         };
         /**
          * GeoJSONFeature
@@ -16937,7 +17010,7 @@ export interface components {
              */
             scene_hidden: boolean;
             /** Blocks */
-            blocks?: (components["schemas"]["MarkdownWidget"] | components["schemas"]["ImageWidget"] | components["schemas"]["ButtonWidget"] | components["schemas"]["SeparatorWidget"])[];
+            blocks?: (components["schemas"]["MarkdownWidget"] | components["schemas"]["ImageWidget"] | components["schemas"]["GalleryWidget"] | components["schemas"]["CarouselWidget"] | components["schemas"]["ButtonWidget"] | components["schemas"]["SeparatorWidget"])[];
         };
         /** StoryChapterInput */
         StoryChapterInput: {
@@ -16957,7 +17030,7 @@ export interface components {
              */
             scene_hidden: boolean;
             /** Blocks */
-            blocks?: (components["schemas"]["MarkdownWidget"] | components["schemas"]["ImageWidget"] | components["schemas"]["ButtonWidget"] | components["schemas"]["SeparatorWidget"])[];
+            blocks?: (components["schemas"]["MarkdownWidget"] | components["schemas"]["ImageWidget"] | components["schemas"]["GalleryWidget"] | components["schemas"]["CarouselWidget"] | components["schemas"]["ButtonWidget"] | components["schemas"]["SeparatorWidget"])[];
         };
         /** StoryCreate */
         StoryCreate: {

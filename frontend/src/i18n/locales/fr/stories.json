@@ -160,7 +160,17 @@
       "separatorBlock": "Séparateur {{index}}",
       "removeSeparator": "Retirer le séparateur {{index}}",
       "moveSeparatorUp": "Monter le séparateur {{index}}",
-      "moveSeparatorDown": "Descendre le séparateur {{index}}"
+      "moveSeparatorDown": "Descendre le séparateur {{index}}",
+      "addGallery": "Ajouter une galerie",
+      "addCarousel": "Ajouter un carrousel",
+      "galleryBlock": "Galerie {{index}}",
+      "carouselBlock": "Carrousel {{index}}",
+      "removeGallery": "Supprimer la galerie {{index}}",
+      "removeCarousel": "Supprimer le carrousel {{index}}",
+      "moveGalleryUp": "Monter la galerie {{index}}",
+      "moveGalleryDown": "Descendre la galerie {{index}}",
+      "moveCarouselUp": "Monter le carrousel {{index}}",
+      "moveCarouselDown": "Descendre le carrousel {{index}}"
     },
     "scene": {
       "heading": "Scène de carte",
@@ -249,6 +259,18 @@
       "style": "Style",
       "line": "Ligne",
       "gap": "Espace"
+    },
+    "gallery": {
+      "imageNumber": "Image {{index}}",
+      "decorative": "L'image {{index}} est décorative",
+      "alt": "Texte alternatif de l'image {{index}}",
+      "caption": "Légende de l'image {{index}} (facultatif)",
+      "moveUp": "Monter l'image {{index}}",
+      "moveDown": "Descendre l'image {{index}}",
+      "remove": "Supprimer l'image {{index}}",
+      "addImage": "Ajouter une autre image",
+      "limit_one": "Jusqu'à {{count}} image dans ce bloc.",
+      "limit_other": "Jusqu'à {{count}} images dans ce bloc."
     }
   },
   "groups": {

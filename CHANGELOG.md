@@ -14,6 +14,7 @@ and releases use semantic versioning.
 - Dashboards can hide their map so the widgets fill the page, in the viewer, share links and embeds; the ArcGIS migration report points a dashboard without a map to this layout and names one with several maps.
 - Stories and dashboards can be shown to readers in light or dark, or follow the reader's setting.
 - Dashboards: an indicator can show the difference from a reference value the author enters.
+- Stories: gallery and carousel blocks hold several images in one block.
 - Stories: scene transitions and reader settings (navigation bar, layout, theme) in the story document; the reader applies them in 1.30.
 - The dashboard API accepts feature list, table and pie chart widgets, bar
   charts by feature, by fields or by date, and per-dashboard settings to hide

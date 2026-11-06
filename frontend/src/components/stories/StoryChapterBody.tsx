@@ -45,6 +45,7 @@ export const StoryChapterBody = memo(function StoryChapterBody({
             key={block.id}
             parsed={parseStoredWidget(block, 'story')}
             assetPath={block.type === 'image' ? storyAssetPath(storyId, block.asset_id) : undefined}
+            assetPathFor={(assetId) => storyAssetPath(storyId, assetId)}
           />
         ))}
       </div>

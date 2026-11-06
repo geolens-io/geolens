@@ -64,7 +64,11 @@ from app.modules.catalog.stories.schemas import (
     StorySettings,
     StoryScene,
 )
-from app.modules.catalog.widgets.schemas import ImageWidget, read_stored, to_store
+from app.modules.catalog.widgets.schemas import (
+    block_asset_ids,
+    read_stored,
+    to_store,
+)
 from app.modules.catalog.write_recheck import admit_writer, recheck_admitted_writer
 from app.platform.storage.publication import AssetPublication
 
@@ -829,10 +833,10 @@ async def save_draft(
     """
     refuse_stale_revision(story, revision)
     images = {
-        block.asset_id
+        asset_id
         for chapter in sent.chapters
         for block in chapter.blocks
-        if isinstance(block, ImageWidget)
+        for asset_id in block_asset_ids(block)
     }
     await require_story_assets(db, story.id, images)
     merged, kept_ids = await merge_document(db, sent, story.draft, editor, roles)

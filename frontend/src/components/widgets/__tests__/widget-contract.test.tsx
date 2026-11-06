@@ -25,6 +25,8 @@ const examples: Record<string, { config: unknown; fallbackText: string | RegExp 
   histogram: { config: { column: 'height', bins: 12 }, fallbackText: /No data yet/ },
   category_selector: { config: { column: 'land_use', multiple: false }, fallbackText: /No data yet/ },
   image: { config: { alt: 'A river at dusk', caption: 'Looking north' }, fallbackText: /A river at dusk/ },
+  gallery: { config: { images: [{ asset_id: '9a3e5c71-2b4d-4f86-8e1a-7c5d3b2f4e60', alt: 'A river at dusk' }] }, fallbackText: /A river at dusk/ },
+  carousel: { config: { images: [{ asset_id: '9a3e5c71-2b4d-4f86-8e1a-7c5d3b2f4e60', alt: 'A river at dusk' }] }, fallbackText: /A river at dusk/ },
   button: {
     config: { label: 'Read the report', url: 'https://example.com/report', new_tab: true },
     fallbackText: 'Read the report',
@@ -33,8 +35,8 @@ const examples: Record<string, { config: unknown; fallbackText: string | RegExp 
 };
 
 // Defaults the author has to finish before the instance is valid: an image's
-// alt text, or a button's label and address, is theirs to write.
-const INCOMPLETE_DEFAULTS = new Set(['image', 'button']);
+// alt text, a gallery's images, or a button's label and address, is theirs to write.
+const INCOMPLETE_DEFAULTS = new Set(['image', 'gallery', 'carousel', 'button']);
 
 // An image block names the image it shows.
 const assetId = '9a3e5c71-2b4d-4f86-8e1a-7c5d3b2f4e60';

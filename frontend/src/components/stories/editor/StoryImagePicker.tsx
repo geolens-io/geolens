@@ -9,11 +9,12 @@ interface StoryImagePickerProps {
   label: string;
   disabled?: boolean;
   upload: ImageUpload;
+  testId?: string;
   onPick: (file: File) => void;
 }
 
 /** A button that picks an image to upload, with the upload's progress and any refusal shown beside it. */
-export function StoryImagePicker({ label, disabled = false, upload, onPick }: StoryImagePickerProps) {
+export function StoryImagePicker({ label, disabled = false, upload, testId = 'story-image-input', onPick }: StoryImagePickerProps) {
   const { t } = useTranslation('stories');
   const inputRef = useRef<HTMLInputElement>(null);
   const errorId = useId();
@@ -28,7 +29,7 @@ export function StoryImagePicker({ label, disabled = false, upload, onPick }: St
         type="file"
         accept={STORY_IMAGE_TYPES.join(',')}
         hidden
-        data-testid="story-image-input"
+        data-testid={testId}
         onChange={(event) => {
           const file = event.target.files?.[0];
           // Cleared so choosing the same file again uploads it again.

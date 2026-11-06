@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef } from 'react';
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { chapterTitle } from '../StoryChapterBody';
@@ -8,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { randomId } from '@/lib/random-id';
 import type { StoryCamera, StoryChapter } from '@/types/api';
 import { ButtonBlockField } from './ButtonBlockField';
+import { GalleryBlockField } from './GalleryBlockField';
 import { ImageBlockField } from './ImageBlockField';
 import { MarkdownField } from './MarkdownField';
 import { SceneEditor } from './SceneEditor';
@@ -23,6 +25,8 @@ const MOVES = [
     Icon: ArrowUp,
     label: {
       image: 'editor.chapter.moveImageUp',
+      gallery: 'editor.chapter.moveGalleryUp',
+      carousel: 'editor.chapter.moveCarouselUp',
       markdown: 'editor.chapter.moveTextBlockUp',
       button: 'editor.chapter.moveButtonUp',
       separator: 'editor.chapter.moveSeparatorUp',
@@ -33,6 +37,8 @@ const MOVES = [
     Icon: ArrowDown,
     label: {
       image: 'editor.chapter.moveImageDown',
+      gallery: 'editor.chapter.moveGalleryDown',
+      carousel: 'editor.chapter.moveCarouselDown',
       markdown: 'editor.chapter.moveTextBlockDown',
       button: 'editor.chapter.moveButtonDown',
       separator: 'editor.chapter.moveSeparatorDown',
@@ -48,6 +54,8 @@ const ADD_BLOCKS = [
 
 const REMOVE_LABELS = {
   image: 'editor.chapter.removeImage',
+  gallery: 'editor.chapter.removeGallery',
+  carousel: 'editor.chapter.removeCarousel',
   markdown: 'editor.chapter.removeBlock',
   button: 'editor.chapter.removeButton',
   separator: 'editor.chapter.removeSeparator',
@@ -82,6 +90,11 @@ export function ChapterEditor({
   const textRef = useRef<HTMLElement>(null);
   const blocks = chapter.blocks ?? [];
   const blocksFull = blocks.length >= MAX_BLOCKS_PER_CHAPTER;
+  // An upload can finish after the chapter filled up, so completion reads the current count.
+  const blockCount = useRef(blocks.length);
+  useEffect(() => {
+    blockCount.current = blocks.length;
+  });
   const kindCounts = new Map<string, number>();
   const kindNumbers = blocks.map((block) => {
     const n = (kindCounts.get(block.type) ?? 0) + 1;
@@ -166,6 +179,17 @@ export function ChapterEditor({
                 label={t('editor.chapter.imageBlock', { index: kindNumbers[i] })}
                 edit={edit}
               />
+            ) : block.type === 'gallery' || block.type === 'carousel' ? (
+              <GalleryBlockField
+                storyId={storyId}
+                uploads={uploads}
+                chapterId={chapter.id}
+                block={block}
+                label={t(block.type === 'gallery' ? 'editor.chapter.galleryBlock' : 'editor.chapter.carouselBlock', {
+                  index: kindNumbers[i],
+                })}
+                edit={edit}
+              />
             ) : block.type === 'button' ? (
               <ButtonBlockField
                 chapterId={chapter.id}
@@ -226,6 +250,24 @@ export function ChapterEditor({
               )
             }
           />
+          {(['gallery', 'carousel'] as const).map((kind) => (
+            <StoryImagePicker
+              key={kind}
+              testId={`story-${kind}-input`}
+              label={t(kind === 'gallery' ? 'editor.chapter.addGallery' : 'editor.chapter.addCarousel')}
+              disabled={blocksFull}
+              upload={uploads.get(`add${kind}:${chapter.id}`)}
+              onPick={(file) =>
+                uploads.start(`add${kind}:${chapter.id}`, file, (asset) => {
+                  if (blockCount.current >= MAX_BLOCKS_PER_CHAPTER) {
+                    toast.error(t('editor.limits.blocks', { count: MAX_BLOCKS_PER_CHAPTER }));
+                    return;
+                  }
+                  edit({ type: 'addGalleryBlock', chapterId: chapter.id, blockId: randomId(), kind, assetId: asset.id });
+                })
+              }
+            />
+          ))}
         </div>
         {blocksFull && (
           <p id={`${titleId}-blocks-full`} className="text-xs text-muted-foreground">

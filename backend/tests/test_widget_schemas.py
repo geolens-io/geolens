@@ -35,6 +35,12 @@ SAMPLES: dict[str, dict[str, Any]] = {
     "category_selector": {"layer_id": LAYER, "config": {"column": "landuse"}},
     "markdown": {"config": {"text": "# Chapter one"}},
     "image": {"asset_id": str(uuid.uuid4()), "config": {"alt": "A river"}},
+    "gallery": {
+        "config": {"images": [{"asset_id": str(uuid.uuid4()), "alt": "A river"}]}
+    },
+    "carousel": {
+        "config": {"images": [{"asset_id": str(uuid.uuid4()), "alt": "A river"}]}
+    },
     "button": {"config": {"label": "Read the report", "url": "https://example.com/r"}},
     "separator": {"config": {}},
 }
@@ -182,6 +188,52 @@ class TestAClientSendingWhatTheServerCantParseIsRefused:
         stored = to_store(_story([_widget("image")]), [])
 
         assert stored[0]["config"] == {"alt": "A river", "caption": None}
+
+    @pytest.mark.parametrize("kind", ["gallery", "carousel"])
+    def test_each_image_of_a_gallery_needs_alt_unless_decorative(
+        self, kind: str
+    ) -> None:
+        asset = str(uuid.uuid4())
+        decorative = {"asset_id": asset, "decorative": True}
+        stored = to_store(_story([_widget(kind, config={"images": [decorative]})]), [])
+        assert stored[0]["config"]["images"][0]["decorative"] is True
+        assert "alt" not in stored[0]["config"]["images"][0]
+
+        with pytest.raises(ValidationError):
+            _story(
+                [_widget(kind, config={"images": [{"asset_id": asset, "alt": " "}]})]
+            )
+        with pytest.raises(ValidationError):
+            _story(
+                [
+                    _widget(
+                        kind,
+                        config={
+                            "images": [decorative, {"asset_id": asset, "caption": "x"}]
+                        },
+                    )
+                ]
+            )
+
+    @pytest.mark.parametrize("kind", ["gallery", "carousel"])
+    def test_a_gallery_holds_one_to_twelve_images(self, kind: str) -> None:
+        def image() -> dict[str, Any]:
+            return {"asset_id": str(uuid.uuid4()), "alt": "A river"}
+
+        assert (
+            len(
+                _story([_widget(kind, config={"images": [image() for _ in range(12)]})])
+            )
+            == 1
+        )
+        for images in ([], [image() for _ in range(13)]):
+            with pytest.raises(ValidationError):
+                _story([_widget(kind, config={"images": images})])
+
+    def test_a_gallery_image_refuses_unknown_keys(self) -> None:
+        image = {"asset_id": str(uuid.uuid4()), "alt": "A river", "href": "x"}
+        with pytest.raises(ValidationError):
+            _story([_widget("gallery", config={"images": [image]})])
 
     @pytest.mark.parametrize(
         "url",

@@ -156,6 +156,7 @@ from .capabilities_rate_limits import CapabilitiesRateLimits
 from .capabilities_response import CapabilitiesResponse
 from .capabilities_server import CapabilitiesServer
 from .capabilities_upload import CapabilitiesUpload
+from .carousel_widget import CarouselWidget
 from .catalog_stats_response import CatalogStatsResponse
 from .catalog_stats_response_datasets_by_geometry_type import (
     CatalogStatsResponseDatasetsByGeometryType,
@@ -433,6 +434,9 @@ from .feature_replace import FeatureReplace
 from .feature_replace_properties import FeatureReplaceProperties
 from .feature_update import FeatureUpdate
 from .feature_update_properties_type_0 import FeatureUpdatePropertiesType0
+from .gallery_config import GalleryConfig
+from .gallery_image import GalleryImage
+from .gallery_widget import GalleryWidget
 from .geo_json_feature import GeoJSONFeature
 from .geo_json_feature_collection import GeoJSONFeatureCollection
 from .geo_json_feature_geometry_type_0 import GeoJSONFeatureGeometryType0
@@ -1243,6 +1247,7 @@ __all__ = (
     "CapabilitiesResponse",
     "CapabilitiesServer",
     "CapabilitiesUpload",
+    "CarouselWidget",
     "CatalogStatsResponse",
     "CatalogStatsResponseDatasetsByGeometryType",
     "CatalogStatsResponseDatasetsByVisibility",
@@ -1442,6 +1447,9 @@ __all__ = (
     "FeatureReplaceProperties",
     "FeatureUpdate",
     "FeatureUpdatePropertiesType0",
+    "GalleryConfig",
+    "GalleryImage",
+    "GalleryWidget",
     "GeoJSONFeature",
     "GeoJSONFeatureCollection",
     "GeoJSONFeatureGeometryType0",

@@ -12,6 +12,8 @@ from uuid import UUID
 
 if TYPE_CHECKING:
     from ..models.button_widget import ButtonWidget
+    from ..models.carousel_widget import CarouselWidget
+    from ..models.gallery_widget import GalleryWidget
     from ..models.image_widget import ImageWidget
     from ..models.markdown_widget import MarkdownWidget
     from ..models.separator_widget import SeparatorWidget
@@ -30,7 +32,8 @@ class StoryChapterInput:
         scene (None | StoryScene | Unset):
         scene_hidden (bool | Unset): Send back as read to keep a scene on a map you can't read; with it false, a chapter
             without a scene loses its stored one. Default: False.
-        blocks (list[ButtonWidget | ImageWidget | MarkdownWidget | SeparatorWidget] | Unset):
+        blocks (list[ButtonWidget | CarouselWidget | GalleryWidget | ImageWidget | MarkdownWidget | SeparatorWidget] |
+            Unset):
     """
 
     id: UUID
@@ -38,11 +41,21 @@ class StoryChapterInput:
     scene: None | StoryScene | Unset = UNSET
     scene_hidden: bool | Unset = False
     blocks: (
-        list[ButtonWidget | ImageWidget | MarkdownWidget | SeparatorWidget] | Unset
+        list[
+            ButtonWidget
+            | CarouselWidget
+            | GalleryWidget
+            | ImageWidget
+            | MarkdownWidget
+            | SeparatorWidget
+        ]
+        | Unset
     ) = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.button_widget import ButtonWidget
+        from ..models.carousel_widget import CarouselWidget
+        from ..models.gallery_widget import GalleryWidget
         from ..models.image_widget import ImageWidget
         from ..models.markdown_widget import MarkdownWidget
         from ..models.story_scene import StoryScene
@@ -74,6 +87,10 @@ class StoryChapterInput:
                     blocks_item = blocks_item_data.to_dict()
                 elif isinstance(blocks_item_data, ImageWidget):
                     blocks_item = blocks_item_data.to_dict()
+                elif isinstance(blocks_item_data, GalleryWidget):
+                    blocks_item = blocks_item_data.to_dict()
+                elif isinstance(blocks_item_data, CarouselWidget):
+                    blocks_item = blocks_item_data.to_dict()
                 elif isinstance(blocks_item_data, ButtonWidget):
                     blocks_item = blocks_item_data.to_dict()
                 else:
@@ -102,6 +119,8 @@ class StoryChapterInput:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.button_widget import ButtonWidget
+        from ..models.carousel_widget import CarouselWidget
+        from ..models.gallery_widget import GalleryWidget
         from ..models.image_widget import ImageWidget
         from ..models.markdown_widget import MarkdownWidget
         from ..models.separator_widget import SeparatorWidget
@@ -140,7 +159,15 @@ class StoryChapterInput:
 
         _blocks = d.pop("blocks", UNSET)
         blocks: (
-            list[ButtonWidget | ImageWidget | MarkdownWidget | SeparatorWidget] | Unset
+            list[
+                ButtonWidget
+                | CarouselWidget
+                | GalleryWidget
+                | ImageWidget
+                | MarkdownWidget
+                | SeparatorWidget
+            ]
+            | Unset
         ) = UNSET
         if _blocks is not UNSET:
             blocks = []
@@ -148,7 +175,14 @@ class StoryChapterInput:
 
                 def _parse_blocks_item(
                     data: object,
-                ) -> ButtonWidget | ImageWidget | MarkdownWidget | SeparatorWidget:
+                ) -> (
+                    ButtonWidget
+                    | CarouselWidget
+                    | GalleryWidget
+                    | ImageWidget
+                    | MarkdownWidget
+                    | SeparatorWidget
+                ):
                     try:
                         if not isinstance(data, dict):
                             raise TypeError()
@@ -168,16 +202,32 @@ class StoryChapterInput:
                     try:
                         if not isinstance(data, dict):
                             raise TypeError()
-                        blocks_item_type_2 = ButtonWidget.from_dict(data)
+                        blocks_item_type_2 = GalleryWidget.from_dict(data)
 
                         return blocks_item_type_2
                     except (TypeError, ValueError, AttributeError, KeyError):
                         pass
+                    try:
+                        if not isinstance(data, dict):
+                            raise TypeError()
+                        blocks_item_type_3 = CarouselWidget.from_dict(data)
+
+                        return blocks_item_type_3
+                    except (TypeError, ValueError, AttributeError, KeyError):
+                        pass
+                    try:
+                        if not isinstance(data, dict):
+                            raise TypeError()
+                        blocks_item_type_4 = ButtonWidget.from_dict(data)
+
+                        return blocks_item_type_4
+                    except (TypeError, ValueError, AttributeError, KeyError):
+                        pass
                     if not isinstance(data, dict):
                         raise TypeError()
-                    blocks_item_type_3 = SeparatorWidget.from_dict(data)
+                    blocks_item_type_5 = SeparatorWidget.from_dict(data)
 
-                    return blocks_item_type_3
+                    return blocks_item_type_5
 
                 blocks_item = _parse_blocks_item(blocks_item_data)
 

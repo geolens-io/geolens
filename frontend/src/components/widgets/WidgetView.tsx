@@ -44,7 +44,7 @@ function UnavailableWidget() {
  * Renders one parsed instance: its lazy renderer, with the text fallback while
  * loading or on failure. `selection` and `onSelect` come from a host that
  * links widgets; see `WidgetRenderProps`. A host that serves uploaded images
- * passes the path of the one an image instance names, and a text widget starts
+ * passes the path of the one an image instance names (`assetPathFor` for the several a gallery names), and a text widget starts
  * its headings at `headingLevel`. `columnLabel` names the columns a widget
  * shows; see `WidgetRenderProps`.
  */
@@ -55,6 +55,7 @@ export function WidgetView({
   onSelect,
   mapHidden,
   assetPath,
+  assetPathFor,
   columnLabel,
   headingLevel,
   loadingFallback,
@@ -65,6 +66,7 @@ export function WidgetView({
   onSelect?: (selection: WidgetSelection | null) => void;
   mapHidden?: boolean;
   assetPath?: string;
+  assetPathFor?: WidgetRenderProps<unknown>['assetPathFor'];
   columnLabel?: ColumnLabel;
   headingLevel?: WidgetRenderProps<unknown>['headingLevel'];
   /** Shown while the renderer loads, in place of the text fallback, which still covers a failed load. */
@@ -78,6 +80,7 @@ export function WidgetView({
       data={data}
       selection={selection}
       assetPath={assetPath}
+      assetPathFor={assetPathFor}
       columnLabel={columnLabel}
       headingLevel={headingLevel}
     />
@@ -92,6 +95,7 @@ export function WidgetView({
           onSelect={onSelect}
           mapHidden={mapHidden}
           assetPath={assetPath}
+          assetPathFor={assetPathFor}
           columnLabel={columnLabel}
           headingLevel={headingLevel}
         />
