@@ -35,11 +35,12 @@ const ViewerMap = lazy(() =>
 const CROSSFADE_MS = 400;
 const COVER_MAX_MS = 4000;
 // Centres the button in the map the floating panel leaves free (panel widths
-// and offsets match StoryReader's FLOATING_PLACEMENT).
+// and offsets match StoryReader's FLOATING_PLACEMENT), one row below the
+// coordinate readout, which shares that strip at narrow desktop widths.
 const BACK_BUTTON_PLACEMENT = {
-  left: 'left-[calc((100%+3.5rem+26rem)/2)] lg:left-[calc((100%+3.5rem+30rem)/2)]',
-  right: 'left-[calc((100%-3.5rem-26rem)/2)] lg:left-[calc((100%-3.5rem-30rem)/2)]',
-  center: 'left-[calc((100%-3.5rem-26rem)/2)] lg:left-[calc((50%-15rem)/2)]',
+  left: 'top-10 left-[calc((100%+3.5rem+26rem)/2)] lg:left-[calc((100%+3.5rem+30rem)/2)]',
+  right: 'top-10 left-[calc((100%-3.5rem-26rem)/2)] lg:left-[calc((100%-3.5rem-30rem)/2)]',
+  center: 'top-10 left-[calc((100%-3.5rem-26rem)/2)] lg:left-[calc((50%-15rem)/2)]',
 };
 
 export interface StoryMapPaneHandle {
@@ -383,7 +384,7 @@ function StoryMap({
           type="button"
           variant="secondary"
           size="sm"
-          className={cn('absolute top-3 z-10 -translate-x-1/2 shadow-md', panel ? BACK_BUTTON_PLACEMENT[panel] : 'left-1/2')}
+          className={cn('absolute z-10 -translate-x-1/2 shadow-md', panel ? BACK_BUTTON_PLACEMENT[panel] : 'top-3 left-1/2')}
           onClick={returnToChapterView}
         >
           <Undo2 className="h-4 w-4" aria-hidden="true" />

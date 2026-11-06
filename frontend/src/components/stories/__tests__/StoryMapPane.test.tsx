@@ -170,8 +170,8 @@ it.each([
   fakeMap.view = { ...fakeMap.view, lng: -40 };
   act(() => fakeMap.emit('moveend', READER_MOVE));
   const button = screen.getByRole('button', { name: "Back to this chapter's view" });
-  expect(button).toHaveClass(cls);
-  expect(button).not.toHaveClass('left-1/2');
+  expect(button).toHaveClass(cls, 'top-10');
+  expect(button).not.toHaveClass('left-1/2', 'top-3');
 });
 
 it('flies within the same map when the scene has no transition, timed by the zoom change', async () => {
