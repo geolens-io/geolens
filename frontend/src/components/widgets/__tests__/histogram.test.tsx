@@ -6,6 +6,7 @@ import { HistogramFallback } from '../histogram/HistogramFallback';
 import HistogramRenderer from '../histogram/HistogramRenderer';
 import { selectionCql2 } from '@/components/viewer/linked-filters';
 import type { SharedLayerResponse } from '@/types/api';
+import { changeTestLanguage } from '@/test/i18n';
 
 // Radix Select reads these, and jsdom doesn't implement them.
 Element.prototype.hasPointerCapture = vi.fn(() => false);
@@ -78,9 +79,7 @@ describe('histogram widget', () => {
   });
 
   it('widens the left margin for a long peak label', async () => {
-    const { default: i18n } = await import('@/i18n/i18n');
-    const before = i18n.language;
-    await i18n.changeLanguage('de');
+    await changeTestLanguage('de');
     try {
       const big = { ...data, result: { bins: [{ lower: 0, upper: 1, count: 123456 }, { lower: 1, upper: 2, count: 5 }] } };
       const { container } = render(<HistogramRenderer config={config} data={big} />);
@@ -88,7 +87,7 @@ describe('histogram widget', () => {
       // End-aligned at x, the label needs about six units a character to the left of it.
       expect(Number(peak.getAttribute('x'))).toBeGreaterThanOrEqual((peak.textContent ?? '').length * 5.5);
     } finally {
-      await i18n.changeLanguage(before);
+      await changeTestLanguage('en');
     }
   });
 
