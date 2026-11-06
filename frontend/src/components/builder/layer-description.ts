@@ -449,7 +449,7 @@ function vectorSource(
   let colsOnly = ctx.colsOnly === true && narrowable;
   let tileCols = cols;
   // Past the request line the tile falls back to the default projection, with only the columns the map reads.
-  if (colsOnly && !fitsTileRequestLine(tileUrl(standInToken(layer.dataset_table_name), cols, true))) {
+  if (!fitsTileRequestLine(tileUrl(standInToken(layer.dataset_table_name), cols, colsOnly))) {
     colsOnly = false;
     tileCols = required;
   }

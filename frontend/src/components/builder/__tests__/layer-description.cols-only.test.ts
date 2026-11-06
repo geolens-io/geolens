@@ -164,6 +164,31 @@ describe('a projection too long for the request line', () => {
     expect(url).not.toContain('Mixed_Case');
   });
 
+  it('drops the held columns when the default projection is too long, too', () => {
+    const { sources, layers } = describeLayers(
+      [toSyncInput({ ...SAVED_LAYERS.polygon, dataset_column_info: wide })],
+      { ...RENDER_CONTEXTS.builder, colsOnly: false },
+    );
+    expect((sources.get(layers[0].sourceId) as { tiles: string[] }).tiles[0]).not.toContain('Mixed_Case');
+  });
+
+  it('drops the held columns on a source that cannot be narrowed', () => {
+    const computed = ['==', ['get', ['concat', 'a_', ['get', 'year']]], 1];
+    const { sources, layers } = describeLayers(
+      [toSyncInput({ ...SAVED_LAYERS.polygon, filter: computed as never, dataset_column_info: wide })],
+      { ...RENDER_CONTEXTS.builder, colsOnly: true },
+    );
+    expect((sources.get(layers[0].sourceId) as { tiles: string[] }).tiles[0]).not.toContain('Mixed_Case');
+  });
+
+  it('keeps the held columns when they fit, with lean tiles off', () => {
+    const { sources, layers } = describeLayers(
+      [toSyncInput({ ...SAVED_LAYERS.polygon, dataset_column_info: wide.slice(0, 3) })],
+      { ...RENDER_CONTEXTS.builder, colsOnly: false },
+    );
+    expect((sources.get(layers[0].sourceId) as { tiles: string[] }).tiles[0]).toContain('Mixed_Case');
+  });
+
   it('stays lean when the held columns fit', () => {
     expect(urlFor(SAVED_LAYERS.polygon, wide.slice(0, 3))).toContain('cols_only=true');
   });
