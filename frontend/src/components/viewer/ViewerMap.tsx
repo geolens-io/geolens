@@ -116,6 +116,8 @@ interface ViewerMapProps {
   fadeLayerChanges?: boolean;
   /** Follows the `data-map-ready` signal: style, tiles, layers and terrain all settled. */
   onReadyChange?: (ready: boolean) => void;
+  /** Which top corner the coordinate readout takes; 'start' clears a panel floating on the right. */
+  coordReadoutSide?: 'start' | 'end';
 }
 
 /** Convert a SharedLayerResponse to the normalized SyncLayerInput.
@@ -195,6 +197,7 @@ export const ViewerMap = memo(function ViewerMap({
   overlays,
   fadeLayerChanges = false,
   onReadyChange,
+  coordReadoutSide,
 }: ViewerMapProps) {
   const { t } = useTranslation('common');
   const mapLocale = useMapLocale();
@@ -1257,7 +1260,7 @@ export const ViewerMap = memo(function ViewerMap({
             />
           )}
         </MapGL>
-        <MapCoordReadout map={mapRef.current} />
+        <MapCoordReadout map={mapRef.current} side={coordReadoutSide} />
         {overlays}
         <Button
           ref={dataLauncherRef}

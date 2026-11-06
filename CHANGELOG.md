@@ -95,6 +95,7 @@ and releases use semantic versioning.
 ### Fixed
 
 - Dashboards: the orange, teal and amber chart colours are darker in the light theme so bars, slices and legend swatches keep a 3:1 contrast against cards.
+- Stories and maps: the coordinate readout moves clear of a floating chapter panel, the return-to-view button sits in the map area the panel leaves free, and a long map title truncates instead of running over the toolbar.
 - Rasters: TiTiler refuses renders past its concurrency cap, and the tile proxy answers busy instead of queueing them.
 - Rasters: a VRT mosaic over members without overviews gets an overview image, so low-zoom tiles stop reading every member at full size.
 - DCAT-US validation now rejects malformed `date-time` and `iri` values instead of accepting them.

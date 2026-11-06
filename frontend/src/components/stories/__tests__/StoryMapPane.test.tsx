@@ -158,6 +158,22 @@ async function renderReady(scene: ResolvedScene) {
   return view;
 }
 
+it.each([
+  ['right', 'start', 'left-[calc((100%-3.5rem-26rem)/2)]'],
+  ['left', undefined, 'left-[calc((100%+3.5rem+26rem)/2)]'],
+] as const)('keeps the readout and return button clear of a floating panel on the %s', async (panel, readoutSide, cls) => {
+  viewAt(-70, 25, 3);
+  render(<StoryMapPane resolved={resolved('c1', 'map-a', 3)} panel={panel} />);
+  await screen.findByTestId('viewer-map');
+  act(() => viewer.props!.onMapReady!(fakeMap as never));
+  expect(viewer.props!.coordReadoutSide).toBe(readoutSide);
+  fakeMap.view = { ...fakeMap.view, lng: -40 };
+  act(() => fakeMap.emit('moveend', READER_MOVE));
+  const button = screen.getByRole('button', { name: "Back to this chapter's view" });
+  expect(button).toHaveClass(cls);
+  expect(button).not.toHaveClass('left-1/2');
+});
+
 it('flies within the same map when the scene has no transition, timed by the zoom change', async () => {
   viewAt(-70, 25, 3);
   const { rerender } = await renderReady(resolved('c1', 'map-a', 3));

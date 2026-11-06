@@ -10,6 +10,7 @@ const pane = vi.hoisted(() => ({
   next: null as ResolvedScene | null,
   hint: undefined as string | undefined,
   legendSide: undefined as string | undefined,
+  panel: undefined as string | undefined,
 }));
 
 const prefetch = vi.hoisted(() => vi.fn());
@@ -21,10 +22,11 @@ vi.mock('@/api/client', async (importOriginal) => ({
 }));
 vi.mock('@/hooks/use-maps', () => ({ prefetchMap: (_qc: unknown, id: string) => prefetch(id) }));
 vi.mock('../StoryMapPane', () => ({
-  StoryMapPane: ({ resolved, next, emptyHint, legendSide }: { resolved: ResolvedScene | null; next?: ResolvedScene | null; emptyHint?: string; legendSide?: string }) => {
+  StoryMapPane: ({ resolved, next, emptyHint, legendSide, panel }: { resolved: ResolvedScene | null; next?: ResolvedScene | null; emptyHint?: string; legendSide?: string; panel?: string }) => {
     pane.resolved = resolved;
     pane.next = next ?? null;
     pane.legendSide = legendSide;
+    pane.panel = panel;
     pane.hint = emptyHint;
     return <div data-testid="story-map" />;
   },
@@ -480,6 +482,12 @@ describe('floating layout', () => {
     layout.narrow = false;
     renderWith({ layout: 'floating', panel_position: position });
     expect(pane.legendSide).toBe(side);
+  });
+
+  it.each(['left', 'center', 'right'] as const)('tells the map about the %s panel', (position) => {
+    layout.narrow = false;
+    renderWith({ layout: 'floating', panel_position: position });
+    expect(pane.panel).toBe(position);
   });
 
   it('leaves the legend where it is in the side layout', () => {
