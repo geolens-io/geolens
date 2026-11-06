@@ -1,5 +1,5 @@
 import { createRef, useEffect, type ReactNode } from 'react';
-import { act, render, screen } from '@/test/test-utils';
+import { act, fireEvent, render, screen, waitFor } from '@/test/test-utils';
 import { StoryMapPane, type StoryMapPaneHandle } from '../StoryMapPane';
 import type { ResolvedScene } from '../story-scenes';
 import type { ViewerMap } from '@/components/viewer/ViewerMap';
@@ -8,8 +8,8 @@ import type { MapResponse, StoryScene } from '@/types/api';
 
 type ViewerMapProps = React.ComponentProps<typeof ViewerMap>;
 
-const viewer = vi.hoisted(() => ({ props: null as ViewerMapProps | null, mounts: 0 }));
-const fakeMap = vi.hoisted(() => {
+const viewer = vi.hoisted(() => ({ props: null as ViewerMapProps | null, mounts: 0, byBasemap: {} as Record<string, ViewerMapProps> }));
+const makeFakeMap = vi.hoisted(() => () => {
   const initialView = { lng: 199.1234567, lat: 26.9876543, zoom: 6.7891234, bearing: 10, pitch: 20 };
   const handlers = new Map<string, Set<(event?: unknown) => void>>();
   const map = {
@@ -17,6 +17,7 @@ const fakeMap = vi.hoisted(() => {
     flyTo: vi.fn(),
     easeTo: vi.fn(),
     jumpTo: vi.fn(),
+    stop: vi.fn(),
     focus: vi.fn(),
     getCanvas: () => ({ focus: map.focus }),
     getContainer: () => ({ clientWidth: 1000, clientHeight: 500 }),
@@ -38,6 +39,8 @@ const fakeMap = vi.hoisted(() => {
   };
   return map;
 });
+const fakeMap = vi.hoisted(() => makeFakeMap());
+const nextMaps = vi.hoisted(() => ({ 'map-b': makeFakeMap(), 'map-c': makeFakeMap() }));
 
 vi.mock('@/components/viewer/ViewerMap', () => ({
   ViewerMap: (props: ViewerMapProps) => {
@@ -45,7 +48,9 @@ vi.mock('@/components/viewer/ViewerMap', () => ({
     useEffect(() => {
       viewer.mounts += 1;
     }, []);
-    return <div data-testid="viewer-map" />;
+    if (props.basemapStyle === 'broken') throw new Error('map failed to start');
+    viewer.byBasemap[props.basemapStyle as string] = props;
+    return <div data-testid="viewer-map" data-basemap={props.basemapStyle} />;
   },
 }));
 const legend = vi.hoisted(() => ({ props: null as Record<string, unknown> | null }));
@@ -55,9 +60,19 @@ vi.mock('@/components/viewer/LayerLegend', () => ({
     return null;
   },
 }));
-vi.mock('@/components/error', () => ({
-  MapErrorBoundary: ({ children }: { children: ReactNode }) => <>{children}</>,
-}));
+vi.mock('@/components/error', async () => {
+  const { Component } = await import('react');
+  class MapErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+    state = { failed: false };
+    static getDerivedStateFromError() {
+      return { failed: true };
+    }
+    render() {
+      return this.state.failed ? <button type="button">Retry</button> : this.props.children;
+    }
+  }
+  return { MapErrorBoundary };
+});
 vi.mock('@/hooks/use-maps', () => ({
   useMap: (id: string) => ({ data: MAPS[id], isLoading: false, isError: false }),
 }));
@@ -72,7 +87,9 @@ const MAPS: Record<string, MapResponse> = {
     basemap_style: 'positron',
     layers: [layer('roads', true), layer('rivers', false), layer('towns', true)],
   } as unknown as MapResponse,
-  'map-b': { id: 'map-b', basemap_style: 'positron', layers: [] } as unknown as MapResponse,
+  'map-b': { id: 'map-b', basemap_style: 'voyager', layers: [layer('lakes', true)] } as unknown as MapResponse,
+  'map-err': { id: 'map-err', basemap_style: 'broken', layers: [] } as unknown as MapResponse,
+  'map-c': { id: 'map-c', basemap_style: 'dark-matter', layers: [] } as unknown as MapResponse,
   'map-dem': {
     id: 'map-dem',
     basemap_style: 'positron',
@@ -115,7 +132,14 @@ function mockReducedMotion(reduce: boolean) {
 beforeEach(() => {
   viewer.props = null;
   viewer.mounts = 0;
+  viewer.byBasemap = {};
   fakeMap.reset();
+  for (const map of Object.values(nextMaps)) {
+    map.reset();
+    map.flyTo.mockReset();
+    map.easeTo.mockReset();
+    map.jumpTo.mockReset();
+  }
   fakeMap.flyTo.mockReset();
   fakeMap.easeTo.mockReset();
   fakeMap.jumpTo.mockReset();
@@ -429,4 +453,236 @@ it('turns on terrain from a DEM the map saved as hidden when the scene shows it'
   expect(isViewerTerrainExpected(props.layers, props.terrainConfig)).toBe(true);
   expect(props.visibleLayers.has('dem')).toBe(true);
   expect(legend.props!.layers).toBe(props.layers);
+});
+
+describe('crossfade to a map loaded ahead', () => {
+  const paneSlots = () => [...document.querySelectorAll<HTMLElement>('#map-viewport > [data-slot]')];
+  const slot = (role: string) => paneSlots().find((el) => el.dataset.slot === role);
+  const mapCount = () => screen.queryAllByTestId('viewer-map').length;
+  const loading = () => screen.queryByText('Loading map…');
+
+  /** Renders the chapter on map-a with map-b next, and brings both maps up. */
+  async function renderAhead(nextScene: ResolvedScene = resolved('c2', 'map-b', 7), current = resolved('c1', 'map-a', 3)) {
+    viewAt(-70, 25, 3);
+    const view = render(<StoryMapPane resolved={current} next={nextScene} />);
+    await screen.findAllByTestId('viewer-map');
+    act(() => viewer.byBasemap.positron.onMapReady!(fakeMap as never));
+    return view;
+  }
+
+  const loadNext = (id: 'map-b' | 'map-c', basemap: string) =>
+    act(() => viewer.byBasemap[basemap].onMapReady!(nextMaps[id] as never));
+  // Loaded and also settled: tiles, layers and terrain, as the viewer reports it.
+  const readyNext = (id: 'map-b' | 'map-c', basemap: string) => {
+    loadNext(id, basemap);
+    act(() => viewer.byBasemap[basemap].onReadyChange!(true));
+  };
+
+  it('mounts the next map hidden, inert and at its own camera, only when it is on another map', async () => {
+    await renderAhead();
+    expect(mapCount()).toBe(2);
+    const standby = slot('standby')!;
+    expect(standby).toHaveAttribute('inert');
+    expect(standby).toHaveAttribute('aria-hidden', 'true');
+    expect(standby.style.opacity).toBe('0');
+    expect(viewer.byBasemap.voyager.initialViewState).toMatchObject({ zoom: 7, center_lng: -70 });
+    expect(slot('active')).not.toHaveAttribute('inert');
+  });
+
+  it('mounts no second map when there is no next map to load', async () => {
+    render(<StoryMapPane resolved={resolved('c1', 'map-a', 3)} next={null} />);
+    await screen.findByTestId('viewer-map');
+    expect(mapCount()).toBe(1);
+  });
+
+  it('mounts no second map when the next scene is on the same map', async () => {
+    render(<StoryMapPane resolved={resolved('c1', 'map-a', 3)} next={resolved('c2', 'map-a', 6)} />);
+    await screen.findByTestId('viewer-map');
+    expect(mapCount()).toBe(1);
+  });
+
+  it('fades the next map in over the current one, which moves to the new view, and drops the old after the fade', async () => {
+    const { rerender } = await renderAhead();
+    readyNext('map-b', 'voyager');
+    const incoming = slot('standby')!;
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-b', 7)} next={null} />);
+
+    expect(viewer.mounts).toBe(2);
+    expect(mapCount()).toBe(2);
+    expect(slot('active')).toBe(incoming);
+    expect(incoming.style.opacity).toBe('1');
+    expect(incoming.style.transitionDuration).toBe('400ms');
+    expect(slot('outgoing')).toBeInTheDocument();
+    expect(fakeMap.flyTo).toHaveBeenCalledWith(expect.objectContaining({ zoom: 7, center: [-70, 25] }));
+    expect(nextMaps['map-b'].flyTo).not.toHaveBeenCalled();
+    expect(loading()).toBeNull();
+
+    fireEvent.transitionEnd(incoming);
+    expect(slot('outgoing')).toBeUndefined();
+    expect(mapCount()).toBe(1);
+  });
+
+  it('keeps both slot nodes where they are when the map changes, so the fade has a start value', async () => {
+    const { rerender, container } = await renderAhead();
+    readyNext('map-b', 'voyager');
+    const before = paneSlots();
+    const watcher = new MutationObserver(() => {});
+    watcher.observe(container.querySelector('#map-viewport')!, { childList: true });
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-b', 7)} next={null} />);
+    const moves = watcher.takeRecords();
+    watcher.disconnect();
+    expect(moves).toHaveLength(0);
+    expect(paneSlots()).toEqual([before[0], before[1]]);
+    expect(paneSlots().map((el) => el.dataset.slot)).toEqual(['outgoing', 'active']);
+  });
+
+  it('does not crossfade into a map that has loaded but not settled', async () => {
+    const { rerender } = await renderAhead();
+    loadNext('map-b', 'voyager');
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-b', 7)} next={null} />);
+    expect(slot('outgoing')).toBeUndefined();
+    expect(loading()).toBeInTheDocument();
+
+    act(() => viewer.byBasemap.voyager.onReadyChange!(true));
+    expect(loading()).toBeNull();
+  });
+
+  it('positions the waiting map at a camera a refetch changed before it is shown', async () => {
+    const { rerender } = await renderAhead();
+    readyNext('map-b', 'voyager');
+    rerender(<StoryMapPane resolved={resolved('c1', 'map-a', 3)} next={resolved('c2', 'map-b', 9)} />);
+    expect(nextMaps['map-b'].jumpTo).toHaveBeenLastCalledWith(expect.objectContaining({ zoom: 9 }));
+  });
+
+  it('drops the loading cover after four seconds when a preloaded map never settles', async () => {
+    const { rerender } = await renderAhead();
+    loadNext('map-b', 'voyager');
+    vi.useFakeTimers();
+    try {
+      rerender(<StoryMapPane resolved={resolved('c2', 'map-b', 7)} next={null} />);
+      expect(loading()).toBeInTheDocument();
+      act(() => void vi.advanceTimersByTime(4000));
+      expect(loading()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not crossfade into a waiting map that started loading again after it was ready', async () => {
+    const { rerender } = await renderAhead();
+    readyNext('map-b', 'voyager');
+    act(() => viewer.byBasemap.voyager.onReadyChange!(false));
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-b', 7)} next={null} />);
+    expect(slot('outgoing')).toBeUndefined();
+    expect(loading()).toBeInTheDocument();
+  });
+
+  it("restores a returning map's authored layer visibility", async () => {
+    const { rerender } = await renderAhead();
+    readyNext('map-b', 'voyager');
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-b', 7)} next={null} />);
+    act(() => (legend.props!.onToggleVisibility as (key: string) => void)('lakes'));
+    expect(viewer.byBasemap.voyager.visibleLayers.has('lakes')).toBe(false);
+
+    rerender(<StoryMapPane resolved={resolved('c1', 'map-a', 3)} next={resolved('c2', 'map-b', 7)} />);
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-b', 7)} next={null} />);
+    expect(viewer.byBasemap.voyager.visibleLayers.has('lakes')).toBe(true);
+  });
+
+  it('gives the pane its own stacking context so slot z-indexes stay inside it', async () => {
+    await renderAhead();
+    expect(document.getElementById('map-viewport')).toHaveClass('isolate');
+  });
+
+  it('returns a map to its own camera when the change is reversed during the fade', async () => {
+    const { rerender } = await renderAhead();
+    readyNext('map-b', 'voyager');
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-b', 7)} next={null} />);
+    expect(fakeMap.flyTo).toHaveBeenLastCalledWith(expect.objectContaining({ zoom: 7 }));
+    rerender(<StoryMapPane resolved={resolved('c1', 'map-a', 3)} next={resolved('c2', 'map-b', 7)} />);
+    expect(fakeMap.flyTo).toHaveBeenLastCalledWith(expect.objectContaining({ zoom: 3 }));
+  });
+
+  it('shows the error with Retry, not the loading cover, when a map that failed becomes active', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { rerender } = await renderAhead(resolved('c2', 'map-err', 7));
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-err', 7)} next={null} />);
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(loading()).toBeNull();
+  });
+
+  it('drops the old map when the fade timer runs out without a transition event', async () => {
+    const { rerender } = await renderAhead();
+    readyNext('map-b', 'voyager');
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-b', 7)} next={null} />);
+    expect(slot('outgoing')).toBeInTheDocument();
+    await waitFor(() => expect(slot('outgoing')).toBeUndefined(), { timeout: 2000 });
+  });
+
+  it('cuts without moving the old map, only fading', async () => {
+    const { rerender } = await renderAhead(resolved('c2', 'map-b', 7, {}, 'cut'));
+    readyNext('map-b', 'voyager');
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-b', 7, {}, 'cut')} next={null} />);
+    expect(fakeMap.stop).toHaveBeenCalled();
+    expect(fakeMap.easeTo).not.toHaveBeenCalled();
+    expect(fakeMap.flyTo).not.toHaveBeenCalled();
+    expect(slot('active')!.style.transitionDuration).toBe('400ms');
+  });
+
+  it('swaps without a fade or a move under reduced motion', async () => {
+    mockReducedMotion(true);
+    const { rerender } = await renderAhead();
+    readyNext('map-b', 'voyager');
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-b', 7)} next={null} />);
+    expect(slot('outgoing')).toBeUndefined();
+    expect(mapCount()).toBe(1);
+    expect(slot('active')!.style.transitionDuration).toBe('0ms');
+    expect(fakeMap.flyTo).not.toHaveBeenCalled();
+    expect(fakeMap.easeTo).not.toHaveBeenCalled();
+  });
+
+  it('shows the loading state when the next map is not ready yet', async () => {
+    const { rerender } = await renderAhead();
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-b', 7)} next={null} />);
+    expect(slot('outgoing')).toBeUndefined();
+    expect(mapCount()).toBe(1);
+    expect(loading()).toBeInTheDocument();
+
+    readyNext('map-b', 'voyager');
+    expect(loading()).toBeNull();
+  });
+
+  it('never has more than two maps across a walk through three maps', async () => {
+    const seen: number[] = [];
+    const count = () => seen.push(mapCount());
+    const { rerender } = await renderAhead(resolved('c2', 'map-b', 7));
+    count();
+    readyNext('map-b', 'voyager');
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-b', 7)} next={resolved('c3', 'map-c', 9)} />);
+    count();
+    // The third map waits for the fade to end.
+    expect(viewer.byBasemap['dark-matter']).toBeUndefined();
+    fireEvent.transitionEnd(slot('active')!);
+    await screen.findAllByTestId('viewer-map');
+    count();
+    expect(slot('standby')).toBeInTheDocument();
+    readyNext('map-c', 'dark-matter');
+    rerender(<StoryMapPane resolved={resolved('c3', 'map-c', 9)} next={null} />);
+    count();
+    fireEvent.transitionEnd(slot('active')!);
+    count();
+    expect(seen).toEqual([2, 2, 2, 2, 1]);
+  });
+
+  it('points the handle at the visible map', async () => {
+    const ref = createRef<StoryMapPaneHandle>();
+    viewAt(-70, 25, 3);
+    const { rerender } = render(<StoryMapPane ref={ref} resolved={resolved('c1', 'map-a', 3)} next={resolved('c2', 'map-b', 7)} />);
+    await screen.findAllByTestId('viewer-map');
+    act(() => viewer.byBasemap.positron.onMapReady!(fakeMap as never));
+    readyNext('map-b', 'voyager');
+    nextMaps['map-b'].view = { lng: 10, lat: 20, zoom: 7, bearing: 0, pitch: 0 };
+    rerender(<StoryMapPane ref={ref} resolved={resolved('c2', 'map-b', 7)} next={null} />);
+    expect(ref.current?.getView()).toMatchObject({ center: [10, 20] });
+  });
 });

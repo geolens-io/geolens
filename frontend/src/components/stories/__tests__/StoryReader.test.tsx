@@ -7,6 +7,7 @@ import type { StoryChapter, StoryScene, StorySettings } from '@/types/api';
 const layout = vi.hoisted(() => ({ narrow: true }));
 const pane = vi.hoisted(() => ({
   resolved: null as ResolvedScene | null,
+  next: null as ResolvedScene | null,
   hint: undefined as string | undefined,
   legendSide: undefined as string | undefined,
 }));
@@ -20,8 +21,9 @@ vi.mock('@/api/client', async (importOriginal) => ({
 }));
 vi.mock('@/hooks/use-maps', () => ({ prefetchMap: (_qc: unknown, id: string) => prefetch(id) }));
 vi.mock('../StoryMapPane', () => ({
-  StoryMapPane: ({ resolved, emptyHint, legendSide }: { resolved: ResolvedScene | null; emptyHint?: string; legendSide?: string }) => {
+  StoryMapPane: ({ resolved, next, emptyHint, legendSide }: { resolved: ResolvedScene | null; next?: ResolvedScene | null; emptyHint?: string; legendSide?: string }) => {
     pane.resolved = resolved;
+    pane.next = next ?? null;
     pane.legendSide = legendSide;
     pane.hint = emptyHint;
     return <div data-testid="story-map" />;
@@ -59,6 +61,14 @@ it('loads the next scene map ahead of the reader', async () => {
   expect(prefetch).toHaveBeenCalledWith('map-b');
   await user.click(screen.getByRole('button', { name: /Next/ }));
   expect(prefetch).toHaveBeenCalledTimes(1);
+});
+
+it('hands the pane the next scene on another map to load behind the current one', async () => {
+  const user = userEvent.setup();
+  renderReader();
+  expect(pane.next).toEqual({ scene: CHAPTERS[1].scene, chapterId: 'c2' });
+  await user.click(screen.getByRole('button', { name: /Next/ }));
+  expect(pane.next).toBeNull();
 });
 
 describe('narrow stepper', () => {

@@ -11,8 +11,9 @@ import { LoadingState } from '@/components/layout/LoadingState';
 import { MapErrorBoundary } from '@/components/error';
 import { Button } from '@/components/ui/button';
 import { motionDuration } from '@/lib/reduced-motion';
+import { cn } from '@/lib/utils';
 import { readMapCamera } from '@/components/builder/builder-camera';
-import type { StoryCamera } from '@/types/api';
+import type { StoryCamera, StoryScene } from '@/types/api';
 import {
   applySceneVisibility,
   cameraDiffers,
@@ -29,6 +30,10 @@ const ViewerMap = lazy(() =>
   import('@/components/viewer/ViewerMap').then((m) => ({ default: m.ViewerMap })),
 );
 
+/** How long the next map takes to fade in over the current one. */
+const CROSSFADE_MS = 400;
+const COVER_MAX_MS = 4000;
+
 export interface StoryMapPaneHandle {
   /** The map's current view as a scene stores it, or null while no map is ready. */
   getView(): StoryCamera | null;
@@ -36,6 +41,8 @@ export interface StoryMapPaneHandle {
 
 interface StoryMapPaneProps {
   resolved: ResolvedScene | null;
+  /** The next scene on another map, loaded hidden behind the current map so the change can crossfade. */
+  next?: ResolvedScene | null;
   /** Shown in place of the map while no chapter has a scene. */
   emptyHint?: string;
   /**
@@ -49,31 +56,113 @@ interface StoryMapPaneProps {
   ref?: Ref<StoryMapPaneHandle>;
 }
 
-/** The story's map. A scene on another map remounts it; one on the same map flies there. */
-export const StoryMapPane = memo(function StoryMapPane({ resolved, emptyHint, resetKey, legendSide, ref }: StoryMapPaneProps) {
+/**
+ * The story's map. A scene on another map crossfades from a copy loaded
+ * ahead; without one ready, the map remounts. A scene on the same map flies there.
+ */
+export const StoryMapPane = memo(function StoryMapPane({ resolved, next, emptyHint, resetKey, legendSide, ref }: StoryMapPaneProps) {
+  const [shown, setShown] = useState(resolved);
+  // The map that just lost the view, kept underneath while the next one fades in.
+  const [outgoing, setOutgoing] = useState<ResolvedScene | null>(null);
+  const [standby, setStandby] = useState<ResolvedScene | null>(null);
+  const [standbyReady, setStandbyReady] = useState(false);
+
+  // Settled in render so the old map never unmounts a frame before the new one shows.
+  if (shown !== resolved) {
+    setShown(resolved);
+    if (shown?.scene.map_id !== resolved?.scene.map_id) {
+      const crossfade =
+        !!shown && standbyReady && !!standby && standby.scene.map_id === resolved?.scene.map_id && motionDuration(CROSSFADE_MS) > 0;
+      setOutgoing(crossfade ? shown : null);
+    }
+  }
+  // At most two maps: the next one loads only once the fade has ended.
+  const wanted = !outgoing && resolved && next && next.scene.map_id !== resolved.scene.map_id ? next : null;
+  if (
+    standby?.scene.map_id !== wanted?.scene.map_id ||
+    standby?.chapterId !== wanted?.chapterId ||
+    JSON.stringify(standby?.scene) !== JSON.stringify(wanted?.scene)
+  ) {
+    setStandby(wanted);
+  }
+
+  useEffect(() => {
+    if (!outgoing) return;
+    const timer = setTimeout(() => setOutgoing(null), CROSSFADE_MS + 100);
+    return () => clearTimeout(timer);
+  }, [outgoing]);
+
+  const slots: { scene: ResolvedScene; role: SlotRole }[] = [];
+  if (outgoing) slots.push({ scene: outgoing, role: 'outgoing' });
+  if (standby) slots.push({ scene: standby, role: 'standby' });
+  if (resolved) slots.push({ scene: resolved, role: 'active' });
+  // Slots keep the order they mounted in: a node that React moves loses its
+  // computed style, and the fade-in would jump. Stacking is by z-index.
+  const mountOrder = useRef<string[]>([]);
+  for (const { scene } of slots) if (!mountOrder.current.includes(scene.scene.map_id)) mountOrder.current.push(scene.scene.map_id);
+  const liveIds = slots.map((slot) => slot.scene.scene.map_id).join('|');
+  // Pruned after commit: a render that React discards must not forget a slot.
+  useEffect(() => {
+    const live = liveIds.split('|');
+    mountOrder.current = mountOrder.current.filter((id) => live.includes(id));
+  }, [liveIds]);
+  slots.sort((x, y) => mountOrder.current.indexOf(x.scene.scene.map_id) - mountOrder.current.indexOf(y.scene.scene.map_id));
+
   return (
     // Not a landmark: the page's <main> holds it. MapErrorBoundary targets the id.
-    <div id="map-viewport" className="absolute inset-0 overflow-hidden bg-muted">
-      {resolved ? (
-        <StoryMap key={resolved.scene.map_id} resolved={resolved} resetKey={resetKey} legendSide={legendSide} handleRef={ref} />
-      ) : (
-        emptyHint && (
-          <p className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
-            {emptyHint}
-          </p>
-        )
+    <div id="map-viewport" className="absolute inset-0 isolate overflow-hidden bg-muted">
+      {slots.map(({ scene, role }) => (
+        <div
+          key={scene.scene.map_id}
+          data-slot={role}
+          inert={role !== 'active'}
+          aria-hidden={role !== 'active' || undefined}
+          className={cn('absolute inset-0', role === 'active' ? 'z-10' : 'z-0 pointer-events-none')}
+          style={{
+            opacity: role === 'standby' ? 0 : 1,
+            transitionProperty: 'opacity',
+            transitionDuration: `${motionDuration(CROSSFADE_MS)}ms`,
+          }}
+          onTransitionEnd={(event) => {
+            if (role === 'active' && event.target === event.currentTarget) setOutgoing(null);
+          }}
+        >
+          <StoryMap
+            resolved={scene}
+            role={role}
+            exit={role === 'outgoing' ? resolved : null}
+            onReady={role === 'standby' ? setStandbyReady : undefined}
+            resetKey={resetKey}
+            legendSide={legendSide}
+            handleRef={role === 'active' ? ref : undefined}
+          />
+        </div>
+      ))}
+      {!resolved && emptyHint && (
+        <p className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">
+          {emptyHint}
+        </p>
       )}
     </div>
   );
 });
 
+type SlotRole = 'active' | 'standby' | 'outgoing';
+
 function StoryMap({
   resolved,
+  role,
+  exit,
+  onReady,
   resetKey,
   legendSide,
   handleRef,
 }: {
   resolved: ResolvedScene;
+  role: SlotRole;
+  /** The scene an outgoing map moves toward while the next map fades in. */
+  exit: ResolvedScene | null;
+  onReady?: (ready: boolean) => void;
   resetKey?: number;
   legendSide?: 'start' | 'end';
   handleRef?: Ref<StoryMapPaneHandle>;
@@ -113,8 +202,8 @@ function StoryMap({
   }, []);
 
   // Cut is a zero-length move, as is every move under reduced motion.
-  const playTransition = useCallback((map: MaplibreMap) => {
-    const { camera, transition } = sceneRef.current;
+  const playTransition = useCallback((map: MaplibreMap, target: StoryScene = sceneRef.current) => {
+    const { camera, transition } = target;
     const duration = transition === 'cut' ? 0 : motionDuration(transitionDuration(cameraGap(map, camera)));
     const options = { ...camera, duration };
     // Before the call: starting a move first ends the one running, and a zero-length move ends inside the call.
@@ -139,6 +228,27 @@ function StoryMap({
     if (mapRef.current) playTransition(mapRef.current);
   }, [chapterId, sceneVisit, playTransition]);
 
+  // A map back on screen after another map had the view starts a new scene visit: authored camera and visibility.
+  const prevRole = useRef(role);
+  const shownBefore = useRef(role !== 'standby');
+  useEffect(() => {
+    if (role === 'active' && prevRole.current !== 'active' && shownBefore.current) setReturns((n) => n + 1);
+    prevRole.current = role;
+    if (role !== 'standby') shownBefore.current = true;
+  }, [role]);
+
+  // The outgoing map moves to the view the next map fades in at; a cut holds it still.
+  const exitRef = useRef(exit);
+  useEffect(() => {
+    exitRef.current = exit;
+  }, [exit]);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (role !== 'outgoing' || !map || !exitRef.current) return;
+    if (exitRef.current.scene.transition === 'cut') map.stop();
+    else playTransition(map, exitRef.current.scene);
+  }, [role, playTransition]);
+
   // Unmounting with the map clears the handle, so a remount never reads the old map.
   useImperativeHandle(
     handleRef,
@@ -148,11 +258,36 @@ function StoryMap({
 
   // The reader may have moved on while the map loaded.
   const [readyMap, setReadyMap] = useState<MaplibreMap | null>(null);
+  // Live readiness; the cover latches off once the map has been shown ready or has waited.
+  const [viewerReady, setViewerReady] = useState(false);
+  const [coverDone, setCoverDone] = useState(false);
   const handleMapReady = useCallback((map: MaplibreMap) => {
     mapRef.current = map;
     setReadyMap(map);
     map.jumpTo(sceneRef.current.camera);
   }, []);
+
+  // A map loaded ahead that is shown before it is ready covers itself with the loading state.
+  const loadedAhead = useRef(role === 'standby').current;
+  useEffect(() => {
+    onReady?.(viewerReady);
+  }, [viewerReady, onReady]);
+
+  // The viewer's own entry veil gives up after 4 s; the cover does the same.
+  useEffect(() => {
+    if (role !== 'active') return;
+    if (viewerReady) {
+      setCoverDone(true);
+      return;
+    }
+    const timer = setTimeout(() => setCoverDone(true), COVER_MAX_MS);
+    return () => clearTimeout(timer);
+  }, [role, viewerReady]);
+
+  // A refetch can change the camera of the chapter waiting hidden.
+  useEffect(() => {
+    if (role === 'standby' && mapRef.current) mapRef.current.jumpTo(scene.camera);
+  }, [role, scene.camera]);
 
   // MapLibre marks a reader's drag, wheel, touch, keys and buttons with an originalEvent; the compass sets none.
   useEffect(() => {
@@ -217,13 +352,19 @@ function StoryMap({
             initialViewState={initialViewState}
             visibleLayers={visibleLayers}
             onMapReady={handleMapReady}
+            onReadyChange={setViewerReady}
             onDrawnChange={setDrawnLayers}
             showAttributeTable={data.show_attribute_table}
             fadeLayerChanges
           />
         </Suspense>
+        {loadedAhead && role === 'active' && !coverDone && !viewerReady && (
+          <div className="absolute inset-0 z-20 bg-muted">
+            <LoadingState className="h-full" message={t('reader.mapLoading')} />
+          </div>
+        )}
       </MapErrorBoundary>
-      {away && (
+      {away && role === 'active' && (
         <Button
           type="button"
           variant="secondary"

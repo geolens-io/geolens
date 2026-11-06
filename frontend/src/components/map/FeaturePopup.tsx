@@ -92,13 +92,21 @@ export function FeaturePopup({
   // trap: map interaction is preserved.
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
+    // The popup sits inside its own map; a page can hold several maps.
+    const ownMap = closeButtonRef.current?.closest<HTMLElement>('.maplibregl-map') ?? null;
     closeButtonRef.current?.focus();
     return () => {
-      // Restore focus to the map so the keyboard context returns to the map
-      // (canvas carries tabindex=0); fall back to the map container, then to
-      // wherever focus was before the popup opened.
+      // A control the reader moved to meanwhile keeps focus. Otherwise the map
+      // takes it (canvas carries tabindex=0): this popup's map, or when that
+      // left the page with its chapter, the map on screen (an inert one is a
+      // story's standby or outgoing map); then wherever focus was before.
+      const active = document.activeElement;
+      if (active && active !== document.body) return;
+      const liveMap = ownMap?.isConnected ? ownMap : null;
       const restoreTarget =
-        document.querySelector<HTMLElement>('.maplibregl-canvas') ??
+        liveMap?.querySelector<HTMLElement>('.maplibregl-canvas') ??
+        liveMap ??
+        Array.from(document.querySelectorAll<HTMLElement>('.maplibregl-canvas')).find((c) => !c.closest('[inert]')) ??
         document.querySelector<HTMLElement>('.maplibregl-map') ??
         previouslyFocused;
       restoreTarget?.focus?.();
@@ -107,10 +115,11 @@ export function FeaturePopup({
 
   // Escape closes the popup (focus is restored by the unmount effect above).
   // Document-level listener so it fires wherever focus is inside the popup,
-  // without a keyboard handler on the non-interactive dialog container.
+  // without a keyboard handler on the non-interactive dialog container. It
+  // stays quiet while an ancestor is inert, as a story's standby map is.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.defaultPrevented) {
+      if (e.key === 'Escape' && !e.defaultPrevented && !closeButtonRef.current?.closest('[inert]')) {
         e.preventDefault();
         onClose();
       }

@@ -56,6 +56,7 @@ and releases use semantic versioning.
 
 ### Changed
 
+- Stories: a chapter on a different map loads that map ahead of time and crossfades to it.
 - CI cancels merge-queue runs left behind when a queue entry is rebuilt, so superseded runs no longer hold runners.
 - Jobs: the storage sweeps share one orphan-object scan.
 - Overlay authors: `EXTENSION_API_VERSION` is now 22. `BrandingExtension`

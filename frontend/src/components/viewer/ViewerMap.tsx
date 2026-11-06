@@ -114,6 +114,8 @@ interface ViewerMapProps {
   overlays?: ReactNode;
   /** Layers a visibility change turns on or off fade over a moment instead of switching at once. */
   fadeLayerChanges?: boolean;
+  /** Follows the `data-map-ready` signal: style, tiles, layers and terrain all settled. */
+  onReadyChange?: (ready: boolean) => void;
 }
 
 /** Convert a SharedLayerResponse to the normalized SyncLayerInput.
@@ -192,6 +194,7 @@ export const ViewerMap = memo(function ViewerMap({
   showAttributeTable = false,
   overlays,
   fadeLayerChanges = false,
+  onReadyChange,
 }: ViewerMapProps) {
   const { t } = useTranslation('common');
   const mapLocale = useMapLocale();
@@ -1185,6 +1188,9 @@ export const ViewerMap = memo(function ViewerMap({
     && compositionPrerequisitesReady
     && compositionSettled
     && (!terrainExpected || terrainReady);
+  useEffect(() => {
+    onReadyChange?.(viewerReady);
+  }, [viewerReady, onReadyChange]);
 
   return (
     <div
