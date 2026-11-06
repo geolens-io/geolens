@@ -91,6 +91,21 @@ def test_teardown_leaves_the_db_facade_on_the_production_engine(monkeypatch):
     )
 
 
+def test_teardown_drops_a_dependency_override_a_test_set_under_the_client(
+    monkeypatch,
+):
+    """monkeypatch undoes after ``client`` cleared, so teardown must clear again."""
+    monkeypatch.setattr(app, "dependency_overrides", dict(app.dependency_overrides))
+    teardown = conftest.pytest_runtest_teardown(item=None, nextitem=None)
+    next(teardown)
+    app.dependency_overrides[get_db] = MagicMock()
+
+    with pytest.raises(StopIteration):
+        teardown.send(None)
+
+    assert get_db not in app.dependency_overrides
+
+
 @pytest.fixture
 def harness_steps(monkeypatch):
     steps = MagicMock()
