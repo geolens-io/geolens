@@ -237,13 +237,16 @@ function StoryMap({
     if (role !== 'standby') shownBefore.current = true;
   }, [role]);
 
-  // The outgoing map moves to the view the next map fades in at.
+  // The outgoing map moves to the view the next map fades in at; a cut holds it still.
   const exitRef = useRef(exit);
   useEffect(() => {
     exitRef.current = exit;
   }, [exit]);
   useEffect(() => {
-    if (role === 'outgoing' && mapRef.current && exitRef.current) playTransition(mapRef.current, exitRef.current.scene);
+    const map = mapRef.current;
+    if (role !== 'outgoing' || !map || !exitRef.current) return;
+    if (exitRef.current.scene.transition === 'cut') map.stop();
+    else playTransition(map, exitRef.current.scene);
   }, [role, playTransition]);
 
   // Unmounting with the map clears the handle, so a remount never reads the old map.

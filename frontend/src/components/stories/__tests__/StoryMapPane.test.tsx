@@ -17,6 +17,7 @@ const makeFakeMap = vi.hoisted(() => () => {
     flyTo: vi.fn(),
     easeTo: vi.fn(),
     jumpTo: vi.fn(),
+    stop: vi.fn(),
     focus: vi.fn(),
     getCanvas: () => ({ focus: map.focus }),
     getContainer: () => ({ clientWidth: 1000, clientHeight: 500 }),
@@ -622,7 +623,8 @@ describe('crossfade to a map loaded ahead', () => {
     const { rerender } = await renderAhead(resolved('c2', 'map-b', 7, {}, 'cut'));
     readyNext('map-b', 'voyager');
     rerender(<StoryMapPane resolved={resolved('c2', 'map-b', 7, {}, 'cut')} next={null} />);
-    expect(fakeMap.easeTo).toHaveBeenCalledWith(expect.objectContaining({ zoom: 7, duration: 0 }));
+    expect(fakeMap.stop).toHaveBeenCalled();
+    expect(fakeMap.easeTo).not.toHaveBeenCalled();
     expect(fakeMap.flyTo).not.toHaveBeenCalled();
     expect(slot('active')!.style.transitionDuration).toBe('400ms');
   });

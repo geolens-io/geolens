@@ -96,13 +96,17 @@ export function FeaturePopup({
     const ownMap = closeButtonRef.current?.closest<HTMLElement>('.maplibregl-map') ?? null;
     closeButtonRef.current?.focus();
     return () => {
-      // Restore focus to the map so the keyboard context returns to the map
-      // (canvas carries tabindex=0); fall back to the map container, then to
-      // wherever focus was before the popup opened.
+      // A control the reader moved to meanwhile keeps focus. Otherwise the map
+      // takes it (canvas carries tabindex=0): this popup's map, or when that
+      // left the page with its chapter, the map on screen (an inert one is a
+      // story's standby or outgoing map); then wherever focus was before.
+      const active = document.activeElement;
+      if (active && active !== document.body) return;
+      const liveMap = ownMap?.isConnected ? ownMap : null;
       const restoreTarget =
-        ownMap?.querySelector<HTMLElement>('.maplibregl-canvas') ??
-        ownMap ??
-        document.querySelector<HTMLElement>('.maplibregl-canvas') ??
+        liveMap?.querySelector<HTMLElement>('.maplibregl-canvas') ??
+        liveMap ??
+        Array.from(document.querySelectorAll<HTMLElement>('.maplibregl-canvas')).find((c) => !c.closest('[inert]')) ??
         document.querySelector<HTMLElement>('.maplibregl-map') ??
         previouslyFocused;
       restoreTarget?.focus?.();

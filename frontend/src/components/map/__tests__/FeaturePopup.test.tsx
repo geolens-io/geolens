@@ -785,4 +785,43 @@ describe('FeaturePopup focus restore', () => {
     hiddenMap.remove();
     ownMap.remove();
   });
+
+  it('moves focus to the map on screen when its own map left the page, skipping inert ones', () => {
+    const standby = document.createElement('div');
+    standby.className = 'maplibregl-map';
+    standby.setAttribute('inert', '');
+    standby.innerHTML = '<canvas class="maplibregl-canvas" tabindex="0"></canvas>';
+    const shown = document.createElement('div');
+    shown.className = 'maplibregl-map';
+    shown.innerHTML = '<canvas class="maplibregl-canvas" tabindex="0"></canvas>';
+    const ownMap = document.createElement('div');
+    ownMap.className = 'maplibregl-map';
+    document.body.append(standby, shown, ownMap);
+
+    const { unmount } = render(<FeaturePopup longitude={0} latitude={0} features={[makeFeature()]} onClose={vi.fn()} />, {
+      container: ownMap.appendChild(document.createElement('div')),
+    });
+    ownMap.remove();
+    unmount();
+    expect(document.activeElement).toBe(shown.querySelector('canvas'));
+    standby.remove();
+    shown.remove();
+  });
+
+  it('leaves focus on a control the reader moved to before the popup closed', () => {
+    const ownMap = document.createElement('div');
+    ownMap.className = 'maplibregl-map';
+    ownMap.innerHTML = '<canvas class="maplibregl-canvas" tabindex="0"></canvas>';
+    const elsewhere = document.createElement('button');
+    document.body.append(ownMap, elsewhere);
+
+    const { unmount } = render(<FeaturePopup longitude={0} latitude={0} features={[makeFeature()]} onClose={vi.fn()} />, {
+      container: ownMap.appendChild(document.createElement('div')),
+    });
+    elsewhere.focus();
+    unmount();
+    expect(document.activeElement).toBe(elsewhere);
+    ownMap.remove();
+    elsewhere.remove();
+  });
 });
