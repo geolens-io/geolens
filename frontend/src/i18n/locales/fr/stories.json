@@ -93,7 +93,10 @@
     "description": "Collez ce code dans une page de votre site. Le récit s'y affiche sans l'en-tête de GeoLens et cesse de s'afficher s'il n'est plus public.",
     "codeLabel": "Code d'intégration",
     "copy": "Copier le code d'intégration",
-    "unavailable": "Ce récit n'est pas public, ou il a été supprimé."
+    "unavailable": "Ce récit n'est pas public, ou il a été supprimé.",
+    "errorTitle": "Ce récit n'a pas pu être affiché",
+    "errorMessage": "Un problème est survenu lors de l'affichage de ce récit ici.",
+    "openStory": "Ouvrir le récit dans un nouvel onglet"
   },
   "editor": {
     "pageTitle": "Modification de {{title}}",

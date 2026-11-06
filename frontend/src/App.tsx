@@ -9,6 +9,7 @@ import { SiteBanner } from '@/components/layout/SiteBanner';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { LazyLoadErrorBoundary, RouteErrorBoundary } from '@/components/error';
+import { StoryEmbedError } from '@/components/stories/StoryEmbedError';
 import { SessionExpiredDialog } from '@/components/auth/SessionExpiredDialog';
 import { SessionRestoreNotice } from '@/components/auth/SessionRestoreNotice';
 import { AnalysisJobWatcher } from '@/components/analysis/AnalysisJobWatcher';
@@ -151,7 +152,7 @@ export const appRoutes = (
       <Route path="/oauth/callback" element={<OAuthCallbackPage />} handle={preload(loadOAuthCallbackPage)} errorElement={<RouteErrorBoundary />} />
     </Route>
     <Route path="/m/:token" element={<PublicViewerPage />} handle={preload(loadPublicViewerPage)} errorElement={<RouteErrorBoundary />} />
-    <Route path="/stories/:id/embed" element={<StoryEmbedPage />} handle={preload(loadStoryEmbedPage)} errorElement={<RouteErrorBoundary />} />
+    <Route path="/stories/:id/embed" element={<StoryEmbedPage />} handle={preload(loadStoryEmbedPage)} errorElement={<StoryEmbedError />} />
     <Route element={<AppLayout />} errorElement={<RouteErrorBoundary />}>
       {/* Public routes — no auth required */}
       {/* LandingFirstGuard redirects anonymous visitors to /login when the
