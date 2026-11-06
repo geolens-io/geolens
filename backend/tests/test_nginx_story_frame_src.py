@@ -87,12 +87,21 @@ def test_every_shell_asks_for_the_frame_src(path: str):
     assert "child-src 'self' blob:" in directives
 
 
-def test_the_policy_request_is_internal_anonymous_and_cannot_fail_the_shell():
-    selected = _select(_tree(), "/_story_frame_src_policy")
+@pytest.mark.parametrize(
+    ("location", "upstream"),
+    [
+        ("/_story_frame_src_policy", "/stories/frame-src-policy"),
+        ("/_story_embed_frame_policy", "/stories/$story_embed_policy_id/frame-policy"),
+    ],
+)
+def test_the_policy_request_is_internal_anonymous_and_cannot_fail_the_shell(
+    location: str, upstream: str
+):
+    selected = _select(_tree(), location)
     assert selected is not None and selected.modifier == "="
     own = selected.own
     assert "internal;" in own
-    assert "proxy_pass $upstream_api/stories/frame-src-policy;" in own
+    assert f"proxy_pass $upstream_api{upstream};" in own
     for header in ("Authorization", "Cookie", "X-Api-Key"):
         assert f'proxy_set_header {header} "";' in own
     assert "add_header" not in own
@@ -114,6 +123,18 @@ def test_the_policy_request_is_internal_anonymous_and_cannot_fail_the_shell():
     fallback = next(loc for loc in _tree() if loc.pattern == error_page.group(2))
     status = re.search(r"return (\d{3});", fallback.own)
     assert status is not None and status.group(1).startswith("2")
+
+
+def test_the_story_embed_page_takes_the_frame_src_from_its_one_policy_request():
+    selected = _select(_tree(), f"{STORY}/embed")
+    assert selected is not None and "embed" in selected.pattern
+    own = selected.own
+    assert own.count("auth_request ") == 1
+    assert "auth_request /_story_embed_frame_policy;" in own
+    assert "auth_request_set $story_frame_src $upstream_http_x_story_frame_src;" in own
+    csp = re.search(r'add_header Content-Security-Policy "([^"]+)" always;', own)
+    assert csp is not None
+    assert "$geolens_story_frame_src" in [d.strip() for d in csp.group(1).split(";")]
 
 
 def test_the_map_embed_shell_keeps_its_own_policy():

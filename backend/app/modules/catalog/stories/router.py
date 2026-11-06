@@ -249,6 +249,10 @@ async def story_frame_hosts_endpoint(
     return await approved_frame_hosts(db)
 
 
+async def _story_frame_src(db: AsyncSession) -> str:
+    return frame_src_directive(await approved_frame_hosts(db))
+
+
 @router.get("/frame-src-policy", include_in_schema=False)
 async def story_frame_src_policy_endpoint(
     db: AsyncSession = Depends(get_db),
@@ -258,10 +262,12 @@ async def story_frame_src_policy_endpoint(
     Always 200 with no body, since nginx's ``auth_request`` treats any other
     status as a failure.
     """
-    directive = frame_src_directive(await approved_frame_hosts(db))
     return Response(
         status_code=status.HTTP_200_OK,
-        headers={"X-Story-Frame-Src": directive, "Cache-Control": "no-store"},
+        headers={
+            "X-Story-Frame-Src": await _story_frame_src(db),
+            "Cache-Control": "no-store",
+        },
     )
 
 
@@ -341,7 +347,8 @@ async def story_embed_frame_policy_endpoint(
     story_id: str,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """The framing policy for ``/stories/<id>/embed``, in ``X-Embed-Frame-Ancestors``.
+    """The framing policy for ``/stories/<id>/embed``, in ``X-Embed-Frame-Ancestors``,
+    and the frames that page may show, in ``X-Story-Frame-Src``.
 
     Always 200 with no body, since nginx's ``auth_request`` treats any other
     status as a failure. The story is read as an anonymous caller: a published
@@ -358,7 +365,11 @@ async def story_embed_frame_policy_endpoint(
         directive = _EMBED_FRAMING_CLOSED
     return Response(
         status_code=status.HTTP_200_OK,
-        headers={"X-Embed-Frame-Ancestors": directive, "Cache-Control": "no-store"},
+        headers={
+            "X-Embed-Frame-Ancestors": directive,
+            "X-Story-Frame-Src": await _story_frame_src(db),
+            "Cache-Control": "no-store",
+        },
     )
 
 

@@ -17,6 +17,7 @@ from app.platform.story_frames import (
     parse_frame_hosts,
 )
 from tests.factories import create_user
+from tests.test_story_embed_frame_policy import _public_story
 
 MEDIA = "media.example.org"
 VIDEO = "video.example.net"
@@ -299,3 +300,22 @@ async def test_publish_names_a_block_whose_host_was_removed(
         f"/stories/{story['id']}/publish", json={"revision": revision}, headers=owner
     )
     assert resp.status_code == 200, resp.text
+
+
+@pytest.mark.anyio
+async def test_the_embed_page_policy_carries_the_same_frame_src(
+    client: AsyncClient, admin_auth_header: dict, owner: dict
+):
+    story_id = await _public_story(client, admin_auth_header)
+    missing = str(uuid.uuid4())
+    for target in (story_id, missing, "not-a-story"):
+        resp = await client.get(f"/stories/{target}/frame-policy")
+        assert resp.headers["x-story-frame-src"] == "frame-src 'self' blob:"
+    await _set_hosts(client, admin_auth_header, [{"host": MEDIA}, {"host": VIDEO}])
+    for target in (story_id, missing, "not-a-story"):
+        resp = await client.get(f"/stories/{target}/frame-policy")
+        assert resp.status_code == 200
+        assert resp.headers["x-story-frame-src"] == await _policy(client)
+        assert resp.headers["x-story-frame-src"].endswith(
+            f"https://{MEDIA} https://{VIDEO}"
+        )
