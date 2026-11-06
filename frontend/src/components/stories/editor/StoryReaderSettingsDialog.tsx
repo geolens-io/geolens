@@ -15,6 +15,7 @@ import { readSettings, type SettingsEdit } from './story-draft';
 
 const LAYOUTS: StorySettings['layout'][] = ['side', 'floating'];
 const POSITIONS: StorySettings['panel_position'][] = ['left', 'right', 'center'];
+const THEMES: StorySettings['theme'][] = ['follow', 'light', 'dark'];
 
 interface StoryReaderSettingsDialogProps {
   settings: StorySettings | null | undefined;
@@ -26,6 +27,8 @@ interface StoryReaderSettingsDialogProps {
 /** How readers see the story. Changes join the draft and reach readers on Publish. */
 export function StoryReaderSettingsDialog({ settings, open, onOpenChange, onChange }: StoryReaderSettingsDialogProps) {
   const { t } = useTranslation('stories');
+  const { t: tWidgets } = useTranslation('widgets');
+  const { t: tCommon } = useTranslation('common');
   const navId = useId();
   const current = readSettings(settings);
   return (
@@ -49,6 +52,15 @@ export function StoryReaderSettingsDialog({ settings, open, onOpenChange, onChan
             value={current.layout}
             options={LAYOUTS.map((value) => ({ value, label: t(`readerSettings.layouts.${value}`) }))}
             onChange={(layout) => onChange({ layout })}
+          />
+          <SettingSelect
+            label={tWidgets('editor.theme')}
+            value={current.theme}
+            options={THEMES.map((value) => ({
+              value,
+              label: value === 'follow' ? tWidgets('editor.themeFollow') : tCommon(`theme.${value}`),
+            }))}
+            onChange={(theme) => onChange({ theme })}
           />
           {current.layout === 'floating' && (
             <SettingSelect
