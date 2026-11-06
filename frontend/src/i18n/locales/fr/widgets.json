@@ -90,6 +90,19 @@
       "truncated_one": "Seule la première valeur est affichée. Les autres valeurs ne sont pas listées.",
       "truncated_many": "Les {{count}} premières valeurs sont affichées. Les autres valeurs ne sont pas listées.",
       "truncated_other": "Les {{count}} premières valeurs sont affichées. Les autres valeurs ne sont pas listées."
+    },
+    "feature_list": {
+      "label": "Liste d’entités",
+      "summary": "Entités par {{column}}",
+      "listLabel": "Entités",
+      "shown": "{{shown}} entités affichées",
+      "shownMore": "{{shown}} entités affichées, d’autres sont disponibles",
+      "loadMore": "Charger plus",
+      "loadingMore": "Chargement en cours",
+      "zoomTo": "Zoomer sur l’entité sur la carte",
+      "noMap": "Ce tableau de bord n’a pas de carte, il est donc impossible de zoomer sur les entités.",
+      "loadFailed": "Impossible de charger d’autres entités.",
+      "retryLoadMore": "Réessayer"
     }
   },
   "dashboard": {
@@ -166,7 +179,9 @@
       "layerRemoved": "Sa couche n'est plus sur la carte : l'enregistrement supprimera ce widget.",
       "missingColumn": "La couche n'a pas de colonne « {{column}} ». Choisissez-en une autre avant d'enregistrer.",
       "notNumeric": "« {{column}} » n'est pas une colonne numérique. Choisissez-en une autre avant d'enregistrer.",
-      "viewWithoutGeometry": "Cette couche n'a pas de géométrie : le widget ne peut pas suivre la vue de la carte. Faites-le porter sur toute la couche."
+      "viewWithoutGeometry": "Cette couche n'a pas de géométrie : le widget ne peut pas suivre la vue de la carte. Faites-le porter sur toute la couche.",
+      "notSortable": "« {{column}} » ne peut pas servir au tri. Choisissez-en une autre avant d’enregistrer.",
+      "notListable": "« {{column}} » ne peut pas être listée. Choisissez-en une autre avant d’enregistrer."
     },
     "maxWidgets": "Un tableau de bord contient au plus {{max}} widgets.",
     "reference": "Valeur de référence",
@@ -186,6 +201,16 @@
     "sortDirection": "Ordre",
     "sortDesc": "Du plus grand au plus petit",
     "sortAsc": "Du plus petit au plus grand",
-    "rows": "Lignes"
+    "rows": "Lignes",
+    "featureList": {
+      "title": "Colonne du titre",
+      "subtitle": "Colonne du sous-titre",
+      "none": "Aucune",
+      "sortBy": "Trier par",
+      "direction": "Ordre",
+      "ascending": "Croissant",
+      "descending": "Décroissant",
+      "pageSize": "Entités par page"
+    }
   }
 }

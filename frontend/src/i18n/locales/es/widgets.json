@@ -90,6 +90,19 @@
       "truncated_one": "Se muestra solo el primer valor. No se listan más valores.",
       "truncated_many": "Se muestran los primeros {{count}} valores. No se listan más valores.",
       "truncated_other": "Se muestran los primeros {{count}} valores. No se listan más valores."
+    },
+    "feature_list": {
+      "label": "Lista de entidades",
+      "summary": "Entidades por {{column}}",
+      "listLabel": "Entidades",
+      "shown": "{{shown}} entidades mostradas",
+      "shownMore": "{{shown}} entidades mostradas, hay más disponibles",
+      "loadMore": "Cargar más",
+      "loadingMore": "Cargando más",
+      "zoomTo": "Acercar a la entidad en el mapa",
+      "noMap": "Este panel no tiene mapa, por lo que no se puede acercar a las entidades.",
+      "loadFailed": "No se pudieron cargar más entidades.",
+      "retryLoadMore": "Reintentar"
     }
   },
   "dashboard": {
@@ -166,7 +179,9 @@
       "layerRemoved": "Su capa ya no está en el mapa, así que al guardar se quitará este widget.",
       "missingColumn": "La capa no tiene la columna «{{column}}». Elige otra antes de guardar.",
       "notNumeric": "«{{column}}» no es una columna numérica. Elige otra antes de guardar.",
-      "viewWithoutGeometry": "Esta capa no tiene geometría, así que el widget no puede seguir la vista del mapa. Haz que abarque toda la capa."
+      "viewWithoutGeometry": "Esta capa no tiene geometría, así que el widget no puede seguir la vista del mapa. Haz que abarque toda la capa.",
+      "notSortable": "No se puede ordenar por «{{column}}». Elija otra antes de guardar.",
+      "notListable": "No se puede listar «{{column}}». Elija otra antes de guardar."
     },
     "maxWidgets": "Un panel admite como máximo {{max}} widgets.",
     "reference": "Valor de referencia",
@@ -186,6 +201,16 @@
     "sortDirection": "Orden",
     "sortDesc": "De mayor a menor",
     "sortAsc": "De menor a mayor",
-    "rows": "Filas"
+    "rows": "Filas",
+    "featureList": {
+      "title": "Columna del título",
+      "subtitle": "Columna del subtítulo",
+      "none": "Ninguna",
+      "sortBy": "Ordenar por",
+      "direction": "Orden",
+      "ascending": "Ascendente",
+      "descending": "Descendente",
+      "pageSize": "Entidades por página"
+    }
   }
 }

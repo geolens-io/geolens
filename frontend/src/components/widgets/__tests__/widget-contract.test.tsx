@@ -36,6 +36,10 @@ const examples: Record<string, { config: unknown; fallbackText: string | RegExp 
     fallbackText: 'Read the report',
   },
   separator: { config: { style: 'gap' }, fallbackText: null },
+  feature_list: {
+    config: { title_column: 'name', subtitle_column: 'kind', sort_column: 'name', sort: 'desc', page_size: 40 },
+    fallbackText: /No data yet/,
+  },
 };
 
 // Defaults the author has to finish before the instance is valid: an image's

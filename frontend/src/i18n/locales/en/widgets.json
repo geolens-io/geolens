@@ -90,6 +90,19 @@
       "truncated_one": "Showing the first value only. More values are not listed.",
       "truncated_many": "Showing the first {{count}} values. More values are not listed.",
       "truncated_other": "Showing the first {{count}} values. More values are not listed."
+    },
+    "feature_list": {
+      "label": "Feature list",
+      "summary": "Features by {{column}}",
+      "listLabel": "Features",
+      "shown": "{{shown}} features shown",
+      "shownMore": "{{shown}} features shown, more available",
+      "loadMore": "Load more",
+      "loadingMore": "Loading more",
+      "zoomTo": "Zoom to feature on the map",
+      "noMap": "This dashboard has no map, so features cannot be zoomed to.",
+      "loadFailed": "Couldn't load more features.",
+      "retryLoadMore": "Try again"
     }
   },
   "dashboard": {
@@ -166,7 +179,9 @@
       "layerRemoved": "Its layer is no longer on the map, so saving removes this widget.",
       "missingColumn": "The layer has no column “{{column}}”. Pick another before saving.",
       "notNumeric": "“{{column}}” isn't a numeric column. Pick another before saving.",
-      "viewWithoutGeometry": "This layer has no geometry, so the widget can't follow the map view. Set it to cover the whole layer."
+      "viewWithoutGeometry": "This layer has no geometry, so the widget can't follow the map view. Set it to cover the whole layer.",
+      "notSortable": "“{{column}}” can't be sorted. Pick another before saving.",
+      "notListable": "“{{column}}” can't be listed. Pick another before saving."
     },
     "maxWidgets": "A dashboard holds at most {{max}} widgets.",
     "reference": "Reference value",
@@ -186,6 +201,16 @@
     "sortDirection": "Order",
     "sortDesc": "Largest first",
     "sortAsc": "Smallest first",
-    "rows": "Rows"
+    "rows": "Rows",
+    "featureList": {
+      "title": "Title column",
+      "subtitle": "Subtitle column",
+      "none": "None",
+      "sortBy": "Sort by",
+      "direction": "Order",
+      "ascending": "Ascending",
+      "descending": "Descending",
+      "pageSize": "Features per page"
+    }
   }
 }

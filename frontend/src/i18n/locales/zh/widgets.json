@@ -90,6 +90,19 @@
       "truncated_one": "仅显示第一个值，未列出更多值。",
       "truncated_many": "仅显示前 {{count}} 个值，未列出更多值。",
       "truncated_other": "仅显示前 {{count}} 个值，未列出更多值。"
+    },
+    "feature_list": {
+      "label": "要素列表",
+      "summary": "按{{column}}列出的要素",
+      "listLabel": "要素",
+      "shown": "已显示 {{shown}} 个要素",
+      "shownMore": "已显示 {{shown}} 个要素，还有更多",
+      "loadMore": "加载更多",
+      "loadingMore": "正在加载更多",
+      "zoomTo": "在地图上缩放到该要素",
+      "noMap": "此仪表板没有地图，因此无法缩放到要素。",
+      "loadFailed": "无法加载更多要素。",
+      "retryLoadMore": "重试"
     }
   },
   "dashboard": {
@@ -166,7 +179,9 @@
       "layerRemoved": "其图层已不在地图上，保存时会移除此小组件。",
       "missingColumn": "该图层没有“{{column}}”列。保存前请另选一列。",
       "notNumeric": "“{{column}}”不是数值列。保存前请另选一列。",
-      "viewWithoutGeometry": "此图层没有几何，小组件无法跟随地图视图。请将其设为统计整个图层。"
+      "viewWithoutGeometry": "此图层没有几何，小组件无法跟随地图视图。请将其设为统计整个图层。",
+      "notSortable": "无法按“{{column}}”排序。请在保存前选择其他列。",
+      "notListable": "无法列出“{{column}}”。请在保存前选择其他列。"
     },
     "maxWidgets": "一个仪表板最多包含 {{max}} 个小组件。",
     "reference": "参考值",
@@ -186,6 +201,16 @@
     "sortDirection": "顺序",
     "sortDesc": "从大到小",
     "sortAsc": "从小到大",
-    "rows": "行数"
+    "rows": "行数",
+    "featureList": {
+      "title": "标题列",
+      "subtitle": "副标题列",
+      "none": "无",
+      "sortBy": "排序依据",
+      "direction": "顺序",
+      "ascending": "升序",
+      "descending": "降序",
+      "pageSize": "每页要素数"
+    }
   }
 }

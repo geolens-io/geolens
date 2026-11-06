@@ -11,6 +11,7 @@ import { imageWidget } from './image/definition';
 import { markdownTextWidget } from './markdown/definition';
 import { separatorWidget } from './separator/definition';
 import { tableWidget } from './table/definition';
+import { featureListWidget } from './feature-list/definition';
 
 /** Every widget type this build knows. Add new types here; see README.md. */
 export const widgetDefinitions: readonly AnyWidgetDefinition[] = [
@@ -25,6 +26,7 @@ export const widgetDefinitions: readonly AnyWidgetDefinition[] = [
   histogramWidget,
   categorySelectorWidget,
   tableWidget,
+  featureListWidget,
 ];
 
 const byType = new Map(widgetDefinitions.map((definition) => [definition.type, definition]));

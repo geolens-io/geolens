@@ -64,7 +64,9 @@ function ProblemText({ problem }: { problem: WidgetProblem }) {
         ? t('editor.problem.viewWithoutGeometry')
         : problem.kind === 'missingColumn'
           ? t('editor.problem.missingColumn', { column: problem.column })
-          : t('editor.problem.notNumeric', { column: problem.column })}
+          : t(`editor.problem.${problem.kind}`, {
+              column: problem.column,
+            })}
     </p>
   );
 }
@@ -319,7 +321,7 @@ function PanelPreview({
               {t('editor.previewMap')}
             </div>
           )}
-          <DashboardPanel config={config} layers={shared} map={map} />
+          <DashboardPanel config={config} layers={shared} map={map} canZoom={false} />
         </div>
       </DialogContent>
     </Dialog>

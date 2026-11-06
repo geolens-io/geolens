@@ -1,6 +1,7 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react';
 import type { TFunction } from 'i18next';
 import type { AggregateRequest } from '@/api/aggregate';
+import type { Bbox } from '@/lib/bbox';
 
 /** Where a widget type may be placed. Story blocks and dashboard widgets share one registry. */
 export type WidgetSurface = 'story' | 'dashboard';
@@ -64,6 +65,14 @@ export interface WidgetRenderProps<C> {
   onSelect?: (selection: WidgetSelection | null) => void;
   /** Set where the dashboard hides its map, so a pick filters the dashboard's widgets and no map. */
   mapHidden?: boolean;
+  /** Set where more of the data can be read, as for a list that pages: asks for the next page. */
+  onLoadMore?: () => void;
+  /** True while the page `onLoadMore` asked for is on its way. */
+  loadingMore?: boolean;
+  /** True when the last page `onLoadMore` asked for failed; ask again only on the reader's request. */
+  loadMoreFailed?: boolean;
+  /** Set where the dashboard has a map: fits it to the feature with this id and flashes the feature. */
+  onZoomTo?: (feature: { id: number | string; bbox: Bbox }) => void;
   /** Where the host serves the image the instance names in `asset_id`. */
   assetPath?: string;
   /** Where the host serves the image a gallery config names by asset id. */
@@ -92,6 +101,10 @@ export interface WidgetColumn {
 interface WidgetColumnUse {
   name: string;
   numeric: boolean;
+  /** Must be a column the rows endpoint can order by. */
+  sortable?: boolean;
+  /** Must be a column the rows endpoint can list. */
+  listable?: boolean;
 }
 
 export interface WidgetEditorProps<C> {

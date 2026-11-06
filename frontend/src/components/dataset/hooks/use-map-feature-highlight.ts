@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ExpressionSpecification, Map as MaplibreMap, PaddingOptions } from 'maplibre-gl';
 import { geometryBounds, toFitBounds, type Bbox } from '@/lib/bbox';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { motionDuration } from '@/lib/reduced-motion';
 
 /**
  * What a row click highlights: a fetched geometry, drawn from a source of its
@@ -19,10 +20,10 @@ interface PaintedTarget {
 
 // The source and filters of the two highlight layers: the geometry's own
 // source, or the layer's source narrowed to the feature id.
-function highlightLayerParts({ gid, target }: PaintedTarget) {
+function highlightLayerParts({ gid, target }: PaintedTarget, ids: HighlightIds) {
   const source = 'source' in target
     ? { source: target.source, ...(target.sourceLayer ? { 'source-layer': target.sourceLayer } : {}) }
-    : { source: HIGHLIGHT_SOURCE };
+    : { source: ids.source };
   const points: ExpressionSpecification = ['in', ['geometry-type'], ['literal', ['Point', 'MultiPoint']]];
   const byId: ExpressionSpecification[] = 'source' in target ? [['==', ['id'], gid]] : [];
   const line: ExpressionSpecification = ['all', ...byId, ['!', points]];
@@ -33,15 +34,34 @@ function highlightLayerParts({ gid, target }: PaintedTarget) {
 // Own source and layer ids, cleared on deactivation, reset-key change, and
 // unmount: never the ephemeral preview's overlay, which has its own lifecycle
 // and owner.
-const HIGHLIGHT_SOURCE = 'attribute-table-highlight';
-const HIGHLIGHT_LINE_LAYER = 'attribute-table-highlight-line';
-const HIGHLIGHT_POINT_LAYER = 'attribute-table-highlight-point';
+const TABLE_HIGHLIGHT_ID = 'attribute-table-highlight';
+
+interface HighlightIds {
+  source: string;
+  line: string;
+  point: string;
+}
+
+// Hosts that highlight at the same time give theirs a different `highlightId`, so
+// neither clears the other's layers.
+function highlightIds(highlightId: string): HighlightIds {
+  return { source: highlightId, line: `${highlightId}-line`, point: `${highlightId}-point` };
+}
 
 // A point, or a feature about a metre across, fits at street level rather
 // than the deepest zoom.
 const TINY_SPAN_DEGREES = 1e-5;
 function fitMaxZoom([west, south, east, north]: Bbox): number {
   return Math.abs(east - west) < TINY_SPAN_DEGREES && Math.abs(north - south) < TINY_SPAN_DEGREES ? 16 : 18;
+}
+
+/** Fits the camera to a feature; it jumps when the reader asked for less motion. */
+export function fitFeatureBounds(map: MaplibreMap, bbox: Bbox, padding: number | PaddingOptions) {
+  map.fitBounds(toFitBounds(bbox), {
+    padding,
+    maxZoom: fitMaxZoom(bbox),
+    ...(motionDuration(1) === 0 ? { duration: 0 } : {}),
+  });
 }
 
 // A parsed style accepts mutations even while its sources are still loading,
@@ -60,6 +80,8 @@ interface UseMapFeatureHighlightOptions {
   loadFeature?: (gid: number) => Promise<HighlightTarget | null>;
   /** Padding for the fit, read at fit time so it follows the table's height. */
   getFitPadding: () => number | PaddingOptions;
+  /** The id of the highlight's map source; its layers add `-line` and `-point`. */
+  highlightId?: string;
 }
 
 /**
@@ -72,18 +94,20 @@ export function useMapFeatureHighlight({
   resetKey,
   loadFeature,
   getFitPadding,
+  highlightId = TABLE_HIGHLIGHT_ID,
 }: UseMapFeatureHighlightOptions) {
+  const ids = useMemo(() => highlightIds(highlightId), [highlightId]);
   const getFitPaddingRef = useRef(getFitPadding);
   getFitPaddingRef.current = getFitPadding;
 
   const clearHighlight = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
-    for (const id of [HIGHLIGHT_LINE_LAYER, HIGHLIGHT_POINT_LAYER] as const) {
+    for (const id of [ids.line, ids.point] as const) {
       if (map.getLayer(id)) map.removeLayer(id);
     }
-    if (map.getSource(HIGHLIGHT_SOURCE)) map.removeSource(HIGHLIGHT_SOURCE);
-  }, [mapRef]);
+    if (map.getSource(ids.source)) map.removeSource(ids.source);
+  }, [mapRef, ids]);
 
   // The feature the highlight currently paints, kept so a style replacement
   // can repaint it: a style.load drops every imperatively added source/layer,
@@ -96,21 +120,21 @@ export function useMapFeatureHighlight({
   const paintHighlight = useCallback(
     (painted: PaintedTarget) => {
       const map = mapRef.current;
-      if (!map || map.getLayer(HIGHLIGHT_LINE_LAYER)) return;
+      if (!map || map.getLayer(ids.line)) return;
       const { target } = painted;
       if ('source' in target) {
         if (!map.getSource(target.source)) return;
       } else {
-        if (map.getSource(HIGHLIGHT_SOURCE)) return;
+        if (map.getSource(ids.source)) return;
         if (!target.geometry) return;
-        map.addSource(HIGHLIGHT_SOURCE, {
+        map.addSource(ids.source, {
           type: 'geojson',
           data: { type: 'Feature', geometry: target.geometry, properties: {} },
         });
       }
-      const parts = highlightLayerParts(painted);
+      const parts = highlightLayerParts(painted, ids);
       map.addLayer({
-        id: HIGHLIGHT_LINE_LAYER,
+        id: ids.line,
         type: 'line',
         ...parts.source,
         filter: parts.line,
@@ -120,7 +144,7 @@ export function useMapFeatureHighlight({
         },
       });
       map.addLayer({
-        id: HIGHLIGHT_POINT_LAYER,
+        id: ids.point,
         type: 'circle',
         ...parts.source,
         filter: parts.point,
@@ -132,7 +156,7 @@ export function useMapFeatureHighlight({
         },
       });
     },
-    [mapRef],
+    [mapRef, ids],
   );
 
   // Monotonic token for the row-click request: bumped at every click start
@@ -227,7 +251,7 @@ export function useMapFeatureHighlight({
           clearHighlight();
           highlightFeatureRef.current = painted;
           paintHighlight(painted);
-          map.fitBounds(toFitBounds(bbox), { padding: getFitPaddingRef.current(), maxZoom: fitMaxZoom(bbox) });
+          fitFeatureBounds(map, bbox, getFitPaddingRef.current());
         } catch {
           // Style changes or out-of-range coordinates leave the table usable.
         }
@@ -252,5 +276,5 @@ export function useMapFeatureHighlight({
     [reset],
   );
 
-  return { selectedGid, highlightFeature, selectFeature };
+  return { selectedGid, highlightFeature, selectFeature, clearHighlightedFeature: reset };
 }

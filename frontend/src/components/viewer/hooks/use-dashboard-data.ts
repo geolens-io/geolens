@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import type { Map as MaplibreMap } from 'maplibre-gl';
-import { fetchAggregate, type AggregateRequest } from '@/api/aggregate';
+import { fetchAggregate, type AggregateRequest, type AggregateResponse } from '@/api/aggregate';
 import type { AnyWidgetDefinition, WidgetInstance } from '@/components/widgets/contract';
 import { useDebouncedValue } from '@/hooks/use-debounce';
 import { wrapBboxLongitudes, type Bbox } from '@/lib/bbox';
@@ -95,16 +95,47 @@ export function useWidgetAggregate({
     } as AggregateRequest;
   }, [definition, instance.config, filter, followsView, viewBbox]);
 
-  const query = useQuery({
-    queryKey: queryKeys.dashboard.aggregate(layer.dataset_id, layer.tile_version ?? null, body, embedToken ?? ''),
+  const enabled = body !== null && (!followsView || viewBbox !== null);
+  const paged = body?.op === 'rows';
+  const key = queryKeys.dashboard.aggregate(layer.dataset_id, layer.tile_version ?? null, body, embedToken ?? '');
+  const single = useQuery({
+    queryKey: key,
     queryFn: ({ signal }) => fetchAggregate(layer.dataset_id, body!, { embedToken, signal }),
-    enabled: body !== null && (!followsView || viewBbox !== null),
+    enabled: enabled && !paged,
     // A pan keeps the last numbers on screen until the new view's arrive.
     placeholderData: keepPreviousData,
     staleTime: 60_000,
     // fetchAggregate paces and retries refused requests itself; a reader retries the rest.
     retry: false,
   });
+  // A rows widget reads one page per cursor and shows them joined as a single result.
+  const pages = useInfiniteQuery({
+    queryKey: [...key, 'pages'],
+    queryFn: ({ pageParam, signal }) =>
+      fetchAggregate(layer.dataset_id, { ...body!, ...(pageParam ? { cursor: pageParam } : {}) } as AggregateRequest, {
+        embedToken,
+        signal,
+      }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => (last.op === 'rows' ? last.result.next_cursor : null),
+    enabled: enabled && paged,
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+    retry: false,
+  });
+  const joined = useMemo(() => joinRowPages(pages.data?.pages), [pages.data]);
+
+  const query = paged
+    ? {
+        data: joined,
+        isPending: pages.isPending,
+        isFetching: pages.isFetching,
+        isPlaceholderData: pages.isPlaceholderData,
+        isError: pages.isError,
+        error: pages.error,
+        refetch: pages.refetch,
+      }
+    : single;
 
   return {
     query,
@@ -113,5 +144,21 @@ export function useWidgetAggregate({
     viewScopeDropped: viewScoped && mapHidden,
     // A view-scoped widget is also pending while it waits for the map to rest.
     loading: body !== null && query.isPending,
+    // A page asked for during a refresh would cancel it and append to the old rows.
+    loadMore: paged && pages.hasNextPage && !pages.isFetching ? () => void pages.fetchNextPage() : undefined,
+    loadingMore: pages.isFetchingNextPage,
+    // A failed page is asked for again only when the reader presses the button.
+    loadMoreFailed: pages.isFetchNextPageError,
+  };
+}
+
+/** The pages of one rows request as a single rows result, whose cursor and `has_more` are the last page's. */
+function joinRowPages(pages: readonly AggregateResponse[] | undefined): AggregateResponse | undefined {
+  const rows = (pages ?? []).filter((page) => page.op === 'rows');
+  const last = rows[rows.length - 1];
+  if (!last || last.op !== 'rows') return undefined;
+  return {
+    ...last,
+    result: { ...last.result, rows: rows.flatMap((page) => (page.op === 'rows' ? page.result.rows : [])) },
   };
 }
