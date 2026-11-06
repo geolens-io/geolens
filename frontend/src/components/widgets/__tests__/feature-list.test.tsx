@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render as renderWithProviders } from '@/test/test-utils';
-import { isSortableColumn } from '@/lib/column-utils';
+import { isListableColumn, isSortableColumn } from '@/lib/column-utils';
 import FeatureListEditor from '../feature-list/FeatureListEditor';
 import { featureListWidget, type FeatureListConfig } from '../feature-list/definition';
 import FeatureListRenderer from '../feature-list/FeatureListRenderer';
@@ -103,8 +103,8 @@ describe('feature list request', () => {
 
   it('names the columns it reads so the Builder can check them', () => {
     expect(featureListWidget.readsColumns!(config)).toEqual([
-      { name: 'name', numeric: false },
-      { name: 'kind', numeric: false },
+      { name: 'name', numeric: false, listable: true },
+      { name: 'kind', numeric: false, listable: true },
       { name: 'name', numeric: false, sortable: true },
     ]);
   });
@@ -256,7 +256,47 @@ describe('feature list editor', () => {
     expect(document.getElementById('w-title')).toBe(screen.getByLabelText('Widget title'));
   });
 
+  it('offers only listable columns as title and subtitle', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    const user = userEvent.setup();
+    const all = [...columns, { name: 'status', type: 'USER-DEFINED' }, { name: 'Mixed', type: 'text' }];
+    renderWithProviders(<FeatureListEditor config={config} onChange={vi.fn()} columns={all} idPrefix="w" />);
+    screen.getByRole('combobox', { name: 'Subtitle column' }).focus();
+    await user.keyboard('{Enter}');
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'None',
+      'name',
+      'tags',
+      'extra',
+      'built',
+    ]);
+  });
+
+  it('can pick a column named like the none choice', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const named = [...columns, { name: 'none', type: 'text' }, { name: '__none__', type: 'text' }];
+    renderWithProviders(<FeatureListEditor config={config} onChange={onChange} columns={named} idPrefix="w" />);
+    screen.getByRole('combobox', { name: 'Subtitle column' }).focus();
+    await user.keyboard('{Enter}');
+    await user.click(screen.getByRole('option', { name: '__none__' }));
+    expect(onChange).toHaveBeenCalledWith({ ...config, subtitle_column: '__none__' });
+  });
+
+  it('starts a new list on a listable column', () => {
+    const picked = featureListWidget.initialConfig?.([
+      { name: 'status', type: 'USER-DEFINED' },
+      { name: 'Label', type: 'text' },
+      { name: 'title', type: 'text' },
+    ]);
+    expect(picked).toEqual({ title_column: 'title' });
+  });
+
   it('mirrors the server rule for a sortable column', () => {
+    expect(isListableColumn('name', 'text')).toBe(true);
+    expect(isListableColumn('status', 'USER-DEFINED')).toBe(false);
+    expect(isListableColumn('Mixed', 'text')).toBe(false);
     expect(isSortableColumn('name', 'text')).toBe(true);
     expect(isSortableColumn('built', 'integer')).toBe(true);
     for (const [name, type] of [['tags', 'ARRAY'], ['extra', 'jsonb'], ['geom', 'text'], ['Name', 'text'], ['x', null]] as const) {

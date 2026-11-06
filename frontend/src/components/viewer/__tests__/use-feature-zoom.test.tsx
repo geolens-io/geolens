@@ -4,13 +4,15 @@ import type { SharedLayerResponse } from '@/types/api';
 import { useMapFeatureHighlight } from '@/components/dataset/hooks/use-map-feature-highlight';
 import { useFeatureZoom } from '../hooks/use-feature-zoom';
 
-vi.mock('../map-data-table', () => ({ layerHighlightSource: () => ({ source: 'tiles' }) }));
+const drawn = vi.hoisted(() => ({ source: true }));
+vi.mock('../map-data-table', () => ({ layerHighlightSource: () => (drawn.source ? { source: 'tiles' } : null) }));
 
 const layer = { id: 'layer-1' } as SharedLayerResponse;
 const feature = { id: 7, bbox: [-74, 40, -73.9, 40.1] as [number, number, number, number] };
 
 /** A map that records its style layers and lets the test end a camera flight. */
 function fakeMap() {
+  const fitBounds = vi.fn();
   const layers = new Set<string>();
   const sources = new Set(['tiles']);
   const listeners = new Map<string, Set<() => void>>();
@@ -23,7 +25,7 @@ function fakeMap() {
     removeLayer: (id: string) => layers.delete(id),
     addSource: (id: string) => sources.add(id),
     removeSource: (id: string) => sources.delete(id),
-    fitBounds: () => undefined,
+    fitBounds,
     on: () => undefined,
     off: (event: string, listener: () => void) => listeners.get(event)?.delete(listener),
     once: (event: string, listener: () => void) => {
@@ -31,7 +33,7 @@ function fakeMap() {
     },
   } as unknown as MaplibreMap;
   const fire = (event: string) => [...(listeners.get(event) ?? [])].forEach((listener) => listener());
-  return { map, layers, endFlight: () => fire('moveend'), drawn: () => fire('idle') };
+  return { map, fitBounds, layers, endFlight: () => fire('moveend'), drawn: () => fire('idle') };
 }
 
 function reduceMotion(reduce: boolean) {
@@ -39,6 +41,7 @@ function reduceMotion(reduce: boolean) {
 }
 
 beforeEach(() => {
+  drawn.source = true;
   vi.useFakeTimers();
   reduceMotion(false);
 });
@@ -122,5 +125,17 @@ describe('useFeatureZoom', () => {
     act(() => vi.advanceTimersByTime(1000));
     expect(lit(layers)).toBe(false);
     expect(layers.has('attribute-table-highlight-line')).toBe(true);
+  });
+
+  it('still fits the feature when the layer has no map source yet, without a flash', () => {
+    drawn.source = false;
+    const { map, layers, fitBounds } = fakeMap();
+    const { result } = renderHook(() => useFeatureZoom(map));
+    act(() => result.current(layer, feature));
+    expect(fitBounds).toHaveBeenCalledWith(
+      [[-74, 40], [-73.9, 40.1]],
+      expect.objectContaining({ padding: 40 }),
+    );
+    expect(lit(layers)).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-import { isTextColumn } from '@/lib/column-utils';
+import { isListableColumn, isTextColumn } from '@/lib/column-utils';
 import { configKeys, isColumnName } from '../aggregate';
 import { defineWidget, type WidgetColumn } from '../contract';
 import { FeatureListFallback } from './FeatureListFallback';
@@ -47,10 +47,11 @@ function parseFeatureListConfig(config: unknown): FeatureListConfig | null {
   };
 }
 
-/** The column a new list titles its rows with: the first text column that isn't an identifier, else the first column. */
+/** The column a new list titles its rows with: the first listable text column that isn't an identifier, else the first listable column. */
 function titleColumn(columns: readonly WidgetColumn[]): { title_column?: string } {
-  const text = columns.filter((column) => isTextColumn(column.type));
-  const pick = text.find((column) => !IDENTIFIER.test(column.name)) ?? text[0] ?? columns[0];
+  const listable = columns.filter((column) => isListableColumn(column.name, column.type));
+  const text = listable.filter((column) => isTextColumn(column.type));
+  const pick = text.find((column) => !IDENTIFIER.test(column.name)) ?? text[0] ?? listable[0];
   return pick ? { title_column: pick.name } : {};
 }
 
@@ -91,8 +92,8 @@ export const featureListWidget = defineWidget<FeatureListConfig>({
     limit: config.page_size,
   }),
   readsColumns: (config) => [
-    { name: config.title_column, numeric: false },
-    ...(config.subtitle_column === null ? [] : [{ name: config.subtitle_column, numeric: false }]),
+    { name: config.title_column, numeric: false, listable: true },
+    ...(config.subtitle_column === null ? [] : [{ name: config.subtitle_column, numeric: false, listable: true }]),
     ...(config.sort_column === null ? [] : [{ name: config.sort_column, numeric: false, sortable: true }]),
   ],
   loadRenderer: () => import('./FeatureListRenderer'),

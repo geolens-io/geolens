@@ -103,6 +103,8 @@ interface WidgetColumnUse {
   numeric: boolean;
   /** Must be a column the rows endpoint can order by. */
   sortable?: boolean;
+  /** Must be a column the rows endpoint can list. */
+  listable?: boolean;
 }
 
 export interface WidgetEditorProps<C> {

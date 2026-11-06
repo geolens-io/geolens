@@ -55,6 +55,15 @@ function fitMaxZoom([west, south, east, north]: Bbox): number {
   return Math.abs(east - west) < TINY_SPAN_DEGREES && Math.abs(north - south) < TINY_SPAN_DEGREES ? 16 : 18;
 }
 
+/** Fits the camera to a feature; it jumps when the reader asked for less motion. */
+export function fitFeatureBounds(map: MaplibreMap, bbox: Bbox, padding: number | PaddingOptions) {
+  map.fitBounds(toFitBounds(bbox), {
+    padding,
+    maxZoom: fitMaxZoom(bbox),
+    ...(motionDuration(1) === 0 ? { duration: 0 } : {}),
+  });
+}
+
 // A parsed style accepts mutations even while its sources are still loading,
 // which isStyleLoaded() alone does not report.
 function styleReady(map: MaplibreMap): boolean {
@@ -242,12 +251,7 @@ export function useMapFeatureHighlight({
           clearHighlight();
           highlightFeatureRef.current = painted;
           paintHighlight(painted);
-          map.fitBounds(toFitBounds(bbox), {
-            padding: getFitPaddingRef.current(),
-            maxZoom: fitMaxZoom(bbox),
-            // MapLibre's own default duration unless the reader asked for less motion.
-            ...(motionDuration(1) === 0 ? { duration: 0 } : {}),
-          });
+          fitFeatureBounds(map, bbox, getFitPaddingRef.current());
         } catch {
           // Style changes or out-of-range coordinates leave the table usable.
         }

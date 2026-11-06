@@ -245,4 +245,25 @@ describe('the save that empties a dashboard', () => {
   it('stays null when there was nothing stored to clear', () => {
     expect(dashboardSavePayload(none, [], none)).toBeNull();
   });
+
+  it('holds a feature list that titles rows with a column the rows endpoint cannot list', () => {
+    const list = (title_column: string, subtitle_column: string | null) =>
+      ({
+        id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+        type: 'feature_list',
+        v: 1,
+        layer_id: layerId,
+        scope: 'layer',
+        config: { title_column, subtitle_column, sort_column: null, sort: 'asc', page_size: 25 },
+      }) as never;
+    const withColumns = layer({
+      dataset_column_info: [
+        { name: 'kind', type: 'text' },
+        { name: 'status', type: 'USER-DEFINED' },
+      ],
+    } as never);
+    expect(widgetProblem(list('kind', null), withColumns)).toBeNull();
+    expect(widgetProblem(list('status', null), withColumns)).toEqual({ kind: 'notListable', column: 'status' });
+    expect(widgetProblem(list('kind', 'status'), withColumns)).toEqual({ kind: 'notListable', column: 'status' });
+  });
 });

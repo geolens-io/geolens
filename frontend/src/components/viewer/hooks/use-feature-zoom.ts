@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
-import { useMapFeatureHighlight } from '@/components/dataset/hooks/use-map-feature-highlight';
+import { fitFeatureBounds, useMapFeatureHighlight } from '@/components/dataset/hooks/use-map-feature-highlight';
 import type { WidgetRenderProps } from '@/components/widgets/contract';
 import type { SharedLayerResponse } from '@/types/api';
 import { motionDuration } from '@/lib/reduced-motion';
@@ -39,9 +39,18 @@ export function useFeatureZoom(map: MaplibreMap | null) {
       const current = mapRef.current;
       if (!current) return;
       const source = layer.id ? layerHighlightSource(current, layer, layer.id) : null;
-      setZoomed(true);
       stopFlash.current();
-      void highlightFeature(Number(feature.id), source ? { ...source, bbox: feature.bbox } : null);
+      if (!source) {
+        // The layer isn't drawn yet, so there is nothing to flash; the camera still moves.
+        try {
+          fitFeatureBounds(current, feature.bbox, FIT_PADDING);
+        } catch {
+          // Out-of-range coordinates leave the map where it is.
+        }
+        return;
+      }
+      setZoomed(true);
+      void highlightFeature(Number(feature.id), { ...source, bbox: feature.bbox });
       // The countdown starts once the camera has stopped and the map has drawn
       // the destination, so late tiles still get a visible flash.
       let flash: ReturnType<typeof setTimeout> | undefined;

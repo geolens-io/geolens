@@ -1,11 +1,14 @@
 import { useTranslation } from 'react-i18next';
 import type { WidgetEditorProps } from '../contract';
-import { isSortableColumn } from '@/lib/column-utils';
+import { isListableColumn, isSortableColumn } from '@/lib/column-utils';
 import { ColumnField, IntegerField, SelectField } from '../editor-fields';
 import { MAX_PAGE_SIZE, MIN_PAGE_SIZE, type FeatureListConfig } from './definition';
 
-// Select values can't be empty, so "none" stands for a column left out.
-const NONE = '__none__';
+// Option values carry a prefix so a column named like the "none" choice stays selectable.
+const NONE = 'none';
+const COLUMN = 'column:';
+const encode = (name: string | null) => (name === null ? NONE : `${COLUMN}${name}`);
+const decode = (value: string) => (value.startsWith(COLUMN) ? value.slice(COLUMN.length) : null);
 
 export default function FeatureListEditor({
   config,
@@ -14,37 +17,35 @@ export default function FeatureListEditor({
   idPrefix,
 }: WidgetEditorProps<FeatureListConfig>) {
   const { t } = useTranslation('widgets');
-  const optional = (value: string | null) => value ?? NONE;
-  const options = [
+  const listable = columns.filter((column) => isListableColumn(column.name, column.type));
+  const choices = (from: typeof columns) => [
     { value: NONE, label: t('editor.featureList.none') },
-    ...columns.map((column) => ({ value: column.name, label: column.name })),
+    ...from.map((column) => ({ value: encode(column.name), label: column.name })),
   ];
-  const sortOptions = [
-    options[0],
-    ...columns.filter((column) => isSortableColumn(column.name, column.type)).map((column) => ({ value: column.name, label: column.name })),
-  ];
+  const options = choices(listable);
+  const sortOptions = choices(listable.filter((column) => isSortableColumn(column.name, column.type)));
   return (
     <div className="space-y-3">
       <ColumnField
         id={`${idPrefix}-title-column`}
         label={t('editor.featureList.title')}
         value={config.title_column}
-        columns={columns}
+        columns={listable}
         onChange={(title_column) => onChange({ ...config, title_column })}
       />
       <SelectField
         id={`${idPrefix}-subtitle`}
         label={t('editor.featureList.subtitle')}
-        value={optional(config.subtitle_column)}
+        value={encode(config.subtitle_column)}
         options={options}
-        onChange={(value) => onChange({ ...config, subtitle_column: value === NONE ? null : value })}
+        onChange={(value) => onChange({ ...config, subtitle_column: decode(value) })}
       />
       <SelectField
         id={`${idPrefix}-sort`}
         label={t('editor.featureList.sortBy')}
-        value={optional(config.sort_column)}
+        value={encode(config.sort_column)}
         options={sortOptions}
-        onChange={(value) => onChange({ ...config, sort_column: value === NONE ? null : value })}
+        onChange={(value) => onChange({ ...config, sort_column: decode(value) })}
       />
       <SelectField
         id={`${idPrefix}-direction`}

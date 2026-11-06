@@ -55,6 +55,11 @@ export function isSortableColumn(name: string, type: string | null | undefined):
   return /^[a-z0-9_]+$/.test(name) && !GEOMETRY_COLUMN_NAMES.has(name) && SORTABLE_TYPES.has((type ?? '').toLowerCase());
 }
 
+/** True for a column the rows endpoint lists: a plain lowercase name that isn't geometry or a user-defined type. */
+export function isListableColumn(name: string, type: string | null | undefined): boolean {
+  return /^[a-z0-9_]+$/.test(name) && !GEOMETRY_COLUMN_NAMES.has(name) && (type ?? '').toLowerCase() !== 'user-defined';
+}
+
 /** Check if a column type string represents a Postgres boolean. */
 export function isBooleanColumn(type: string): boolean {
   const t = type.toLowerCase();

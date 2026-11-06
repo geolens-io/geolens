@@ -64,7 +64,7 @@ function ProblemText({ problem }: { problem: WidgetProblem }) {
         ? t('editor.problem.viewWithoutGeometry')
         : problem.kind === 'missingColumn'
           ? t('editor.problem.missingColumn', { column: problem.column })
-          : t(problem.kind === 'notSortable' ? 'editor.problem.notSortable' : 'editor.problem.notNumeric', {
+          : t(`editor.problem.${problem.kind}`, {
               column: problem.column,
             })}
     </p>
