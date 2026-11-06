@@ -14229,6 +14229,12 @@ export type StorySummary = {
      * Can Edit
      */
     can_edit: boolean;
+    /**
+     * Chapter Count
+     *
+     * Chapters in the published document; 0 until published.
+     */
+    chapter_count: number;
 };
 
 /**
@@ -34312,6 +34318,18 @@ export type ListStoriesEndpointStoriesGetData = {
          * Owned Only
          */
         owned_only?: boolean;
+        /**
+         * Search
+         *
+         * Case-insensitive match on title and summary.
+         */
+        search?: string | null;
+        /**
+         * Published Only
+         *
+         * Leave out stories that were never published.
+         */
+        published_only?: boolean;
     };
     url: '/stories/';
 };

@@ -236,7 +236,7 @@ class StoryDraftUpdate(_Strict):
     document: StoryDocumentInput
 
 
-class StorySummary(BaseModel):
+class _StoryFields(BaseModel):
     id: uuid.UUID
     title: str
     summary: str | None
@@ -256,7 +256,13 @@ class StorySummary(BaseModel):
     can_edit: bool
 
 
-class StoryResponse(StorySummary):
+class StorySummary(_StoryFields):
+    chapter_count: int = Field(
+        description="Chapters in the published document; 0 until published."
+    )
+
+
+class StoryResponse(_StoryFields):
     document: StoryDocument | None = Field(
         description="The published document; null until the story is published."
     )
@@ -269,7 +275,7 @@ class StoryResponse(StorySummary):
     )
 
 
-class StoryDraftResponse(StorySummary):
+class StoryDraftResponse(_StoryFields):
     revision: int
     document: StoryDocument
     groups: list[GroupRef] = Field(

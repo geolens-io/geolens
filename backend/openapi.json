@@ -24646,6 +24646,11 @@
           "can_edit": {
             "title": "Can Edit",
             "type": "boolean"
+          },
+          "chapter_count": {
+            "description": "Chapters in the published document; 0 until published.",
+            "title": "Chapter Count",
+            "type": "integer"
           }
         },
         "required": [
@@ -24658,7 +24663,8 @@
           "cover_asset_id",
           "created_at",
           "updated_at",
-          "can_edit"
+          "can_edit",
+          "chapter_count"
         ],
         "title": "StorySummary",
         "type": "object"
@@ -71652,6 +71658,36 @@
             "schema": {
               "default": false,
               "title": "Owned Only",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Case-insensitive match on title and summary.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Case-insensitive match on title and summary.",
+              "title": "Search"
+            }
+          },
+          {
+            "description": "Leave out stories that were never published.",
+            "in": "query",
+            "name": "published_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Leave out stories that were never published.",
+              "title": "Published Only",
               "type": "boolean"
             }
           }

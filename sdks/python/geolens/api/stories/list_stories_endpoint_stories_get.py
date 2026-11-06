@@ -17,6 +17,8 @@ def _get_kwargs(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
     owned_only: bool | Unset = False,
+    search: None | str | Unset = UNSET,
+    published_only: bool | Unset = False,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -26,6 +28,15 @@ def _get_kwargs(
     params["limit"] = limit
 
     params["owned_only"] = owned_only
+
+    json_search: None | str | Unset
+    if isinstance(search, Unset):
+        json_search = UNSET
+    else:
+        json_search = search
+    params["search"] = json_search
+
+    params["published_only"] = published_only
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -114,6 +125,8 @@ def sync_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
     owned_only: bool | Unset = False,
+    search: None | str | Unset = UNSET,
+    published_only: bool | Unset = False,
 ) -> Response[ProblemDetail | StoryListResponse]:
     """List Stories Endpoint
 
@@ -126,6 +139,9 @@ def sync_detailed(
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 50.
         owned_only (bool | Unset):  Default: False.
+        search (None | str | Unset): Case-insensitive match on title and summary.
+        published_only (bool | Unset): Leave out stories that were never published. Default:
+            False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -139,6 +155,8 @@ def sync_detailed(
         skip=skip,
         limit=limit,
         owned_only=owned_only,
+        search=search,
+        published_only=published_only,
     )
 
     response = client.get_httpx_client().request(
@@ -154,6 +172,8 @@ def sync(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
     owned_only: bool | Unset = False,
+    search: None | str | Unset = UNSET,
+    published_only: bool | Unset = False,
 ) -> ProblemDetail | StoryListResponse | None:
     """List Stories Endpoint
 
@@ -166,6 +186,9 @@ def sync(
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 50.
         owned_only (bool | Unset):  Default: False.
+        search (None | str | Unset): Case-insensitive match on title and summary.
+        published_only (bool | Unset): Leave out stories that were never published. Default:
+            False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -180,6 +203,8 @@ def sync(
         skip=skip,
         limit=limit,
         owned_only=owned_only,
+        search=search,
+        published_only=published_only,
     ).parsed
 
 
@@ -189,6 +214,8 @@ async def asyncio_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
     owned_only: bool | Unset = False,
+    search: None | str | Unset = UNSET,
+    published_only: bool | Unset = False,
 ) -> Response[ProblemDetail | StoryListResponse]:
     """List Stories Endpoint
 
@@ -201,6 +228,9 @@ async def asyncio_detailed(
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 50.
         owned_only (bool | Unset):  Default: False.
+        search (None | str | Unset): Case-insensitive match on title and summary.
+        published_only (bool | Unset): Leave out stories that were never published. Default:
+            False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -214,6 +244,8 @@ async def asyncio_detailed(
         skip=skip,
         limit=limit,
         owned_only=owned_only,
+        search=search,
+        published_only=published_only,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -227,6 +259,8 @@ async def asyncio(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
     owned_only: bool | Unset = False,
+    search: None | str | Unset = UNSET,
+    published_only: bool | Unset = False,
 ) -> ProblemDetail | StoryListResponse | None:
     """List Stories Endpoint
 
@@ -239,6 +273,9 @@ async def asyncio(
         skip (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 50.
         owned_only (bool | Unset):  Default: False.
+        search (None | str | Unset): Case-insensitive match on title and summary.
+        published_only (bool | Unset): Leave out stories that were never published. Default:
+            False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -254,5 +291,7 @@ async def asyncio(
             skip=skip,
             limit=limit,
             owned_only=owned_only,
+            search=search,
+            published_only=published_only,
         )
     ).parsed

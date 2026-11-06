@@ -38,6 +38,7 @@ function summary(overrides: Partial<StorySummary>): StorySummary {
     created_at: '2026-10-29T00:00:00Z',
     updated_at: '2026-10-29T00:00:00Z',
     can_edit: false,
+    chapter_count: 0,
     ...overrides,
   };
 }

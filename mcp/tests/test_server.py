@@ -29,6 +29,9 @@ EXPECTED_TOOLS = {
     "get_features": ({"dataset_id"}, {"dataset_id", "limit", "offset", "bbox"}),
     "list_maps": (set(), {"search", "limit", "offset"}),
     "get_map": ({"map_id"}, {"map_id"}),
+    "list_stories": (set(), {"search", "limit", "offset"}),
+    "get_story": ({"story_id"}, {"story_id"}),
+    "aggregate": ({"dataset_id", "request"}, {"dataset_id", "request"}),
     # Sandboxed read-only SQL. restrict_tables is REQUIRED — the
     # backend refuses an unscoped query, so the schema must say so too.
     "query": ({"sql", "restrict_tables"}, {"sql", "restrict_tables", "row_limit"}),
@@ -94,7 +97,7 @@ def _call(name, arguments):
 
 def test_limit_schemas_advertise_and_enforce_the_documented_maximum():
     schemas = {t.name: t.input_schema["properties"] for t in _tools()}
-    for name in ("search_datasets", "get_features", "list_maps"):
+    for name in ("search_datasets", "get_features", "list_maps", "list_stories"):
         assert schemas[name]["limit"]["maximum"] == 200, name
         assert schemas[name]["limit"]["minimum"] == 1, name
     assert schemas["query"]["row_limit"]["maximum"] == 1000
@@ -235,3 +238,12 @@ def test_query_description_lists_the_sandbox_postgis_allowlist():
         for name in re.findall(r"\bST_\w+", description)
     }
     assert advertised == _sandbox_postgis_allowlist()
+
+
+def test_aggregate_description_names_refusal_codes_and_query_points_to_it():
+    descriptions = {tool.name: tool.description for tool in _tools()}
+    for code in ("too_wide", "query_busy", "query_at_capacity", "query_unavailable"):
+        assert code in descriptions["aggregate"]
+    for op in ("count", "stats", "value_counts", "histogram", "group_by", "rows"):
+        assert f'"op": "{op}"' in descriptions["aggregate"]
+    assert "`aggregate`" in descriptions["query"]

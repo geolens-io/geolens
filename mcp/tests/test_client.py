@@ -569,3 +569,155 @@ def test_get_map_without_dashboard_reports_none():
     out = api.get_map(_MAP_ID)
 
     assert out["dashboard_widget_count"] == 0
+
+
+# --- stories and aggregate ---
+
+_STORY_ID = "11111111-2222-3333-4444-555555555555"
+
+
+def _story(story_id, title, published=True, summary=None):
+    return {
+        "id": story_id,
+        "title": title,
+        "summary": summary,
+        "visibility": "public",
+        "created_by": "u",
+        "published_at": "2026-01-01T00:00:00Z" if published else None,
+        "cover_asset_id": None,
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-02T00:00:00Z",
+        "can_edit": True,
+    }
+
+
+def _story_handler(request):
+    if request.url.path == "/api/stories/":
+        return httpx.Response(
+            200,
+            json={
+                "stories": [{**_story(_STORY_ID, "Skyline"), "chapter_count": 2}],
+                "total": 1,
+            },
+        )
+    return httpx.Response(
+        200,
+        json={
+            **_story(request.url.path.rsplit("/", 1)[1], "x"),
+            "document": {"version": 1, "chapters": [{"id": "c1"}, {"id": "c2"}]},
+        },
+    )
+
+
+def test_list_stories_passes_search_and_paging_to_the_route():
+    api, seen = _api(_story_handler)
+    out = api.list_stories(search="sky", limit=5, offset=10)
+    assert len(seen) == 1
+    assert seen[0].url.path == "/api/stories/"
+    assert dict(seen[0].url.params) == {
+        "search": "sky",
+        "limit": "5",
+        "skip": "10",
+        "published_only": "true",
+    }
+    assert out["total"] == 1
+    assert out["stories"][0]["chapter_count"] == 2
+    assert "can_edit" not in out["stories"][0]
+
+
+def test_get_story_reads_the_published_route_without_trailing_slash():
+    api, seen = _api(_story_handler)
+    out = api.get_story(_STORY_ID)
+    assert seen[-1].url.path == f"/api/stories/{_STORY_ID}"
+    assert len(out["document"]["chapters"]) == 2
+    assert "can_edit" not in out
+
+
+def test_story_and_aggregate_not_found_surface_the_status():
+    def handler(request):
+        return httpx.Response(404, json={"detail": "Story not found"})
+
+    api, _ = _api(handler)
+    with pytest.raises(RuntimeError, match="404.*Story not found"):
+        api.get_story(_STORY_ID)
+    with pytest.raises(RuntimeError, match="404"):
+        api.aggregate(DS, {"op": "count"})
+
+
+def test_aggregate_posts_the_body_unchanged_and_keeps_refusal_codes():
+    import json as _json
+
+    body = {
+        "op": "group_by",
+        "group_column": "k",
+        "stat": "count",
+        "bbox": [0, 0, 1, 1],
+    }
+    api, seen = _api(_ok({"op": "group_by", "result": {}}))
+    api.aggregate(DS, body)
+    assert seen[-1].method == "POST"
+    assert seen[-1].url.path == f"/api/datasets/{DS}/aggregate/"
+    assert _json.loads(seen[-1].content.decode()) == body
+
+    def refuse(request):
+        return httpx.Response(
+            422,
+            json={"detail": {"code": "too_wide", "message": "Zoom in " + "x" * 300}},
+        )
+
+    api, _ = _api(refuse)
+    with pytest.raises(RuntimeError) as exc:
+        api.aggregate(DS, body)
+    assert "422" in str(exc.value)
+    assert "too_wide" in str(exc.value)
+
+
+def test_list_stories_drops_drafts_and_misses_an_older_server_returned():
+    def older_server(request):
+        return httpx.Response(
+            200,
+            json={
+                "stories": [
+                    _story(_STORY_ID, "Skyline", summary="Tall"),
+                    _story(DS, "Skyline draft", published=False),
+                    _story("99999999-2222-3333-4444-555555555555", "Rivers"),
+                ],
+                "total": 3,
+            },
+        )
+
+    api, _ = _api(older_server)
+    out = api.list_stories(search="SKYLINE")
+    assert [s["title"] for s in out["stories"]] == ["Skyline"]
+
+
+def test_list_stories_older_server_matches_fields_separately_and_nulls_the_count():
+    def older_server(request):
+        return httpx.Response(
+            200,
+            json={
+                "stories": [
+                    _story(_STORY_ID, "Alpha", summary="Beta"),
+                    _story("99999999-2222-3333-4444-555555555555", "Alpha Beta"),
+                ],
+                "total": 2,
+            },
+        )
+
+    api, _ = _api(older_server)
+    out = api.list_stories(search="alpha beta")
+    assert [s["id"] for s in out["stories"]] == ["99999999-2222-3333-4444-555555555555"]
+    assert out["stories"][0]["chapter_count"] is None
+
+
+def test_error_carries_the_retry_after_header():
+    def busy(request):
+        return httpx.Response(
+            503,
+            headers={"Retry-After": "7"},
+            json={"detail": {"code": "query_unavailable", "message": "later"}},
+        )
+
+    api, _ = _api(busy)
+    with pytest.raises(RuntimeError, match=r"query_unavailable.*Retry-After: 7"):
+        api.aggregate(DS, {"op": "count"})

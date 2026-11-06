@@ -158,6 +158,12 @@ async def list_stories_endpoint(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     owned_only: bool = False,
+    search: str | None = Query(
+        None, description="Case-insensitive match on title and summary."
+    ),
+    published_only: bool = Query(
+        False, description="Leave out stories that were never published."
+    ),
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> StoryListResponse:
@@ -168,11 +174,21 @@ async def list_stories_endpoint(
     """
     roles = await get_user_roles(db, user) if user is not None else set()
     stories, total = await list_stories(
-        db, user, roles, skip=skip, limit=limit, owned_only=owned_only
+        db,
+        user,
+        roles,
+        skip=skip,
+        limit=limit,
+        owned_only=owned_only,
+        search=search,
+        published_only=published_only,
     )
     return StoryListResponse(
         stories=[
-            StorySummary(**_summary(s, can_edit_story(s, user, roles))) for s in stories
+            StorySummary(
+                **_summary(s, can_edit_story(s, user, roles)), chapter_count=count
+            )
+            for s, count in stories
         ],
         total=total,
     )

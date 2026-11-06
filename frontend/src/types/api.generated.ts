@@ -17298,6 +17298,11 @@ export interface components {
             updated_at: string;
             /** Can Edit */
             can_edit: boolean;
+            /**
+             * Chapter Count
+             * @description Chapters in the published document; 0 until published.
+             */
+            chapter_count: number;
         };
         /** StoryUpdate */
         StoryUpdate: {
@@ -48263,6 +48268,10 @@ export interface operations {
                 skip?: number;
                 limit?: number;
                 owned_only?: boolean;
+                /** @description Case-insensitive match on title and summary. */
+                search?: string | null;
+                /** @description Leave out stories that were never published. */
+                published_only?: boolean;
             };
             header?: never;
             path?: never;

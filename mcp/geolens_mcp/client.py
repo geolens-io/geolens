@@ -270,6 +270,31 @@ def _map_summary(detail: Any) -> Any:
     return out
 
 
+_STORY_FIELDS = ("id", "title", "summary", "visibility", "published_at", "updated_at")
+
+
+def _story_summary(story: Any) -> Any:
+    if not isinstance(story, dict):
+        return story
+    out = {key: story[key] for key in _STORY_FIELDS if key in story}
+    # Servers before the count was added omit it; null says "not reported".
+    out["chapter_count"] = story.get("chapter_count")
+    return out
+
+
+def _story_matches(story: dict[str, Any], needle: str) -> bool:
+    return any(needle in (story.get(f) or "").casefold() for f in ("title", "summary"))
+
+
+def _story_detail(detail: Any) -> Any:
+    """Reduce a StoryResponse to its metadata and published document."""
+    if not isinstance(detail, dict):
+        return detail
+    out = {key: detail[key] for key in _STORY_FIELDS if key in detail}
+    out["document"] = detail.get("document")
+    return out
+
+
 def _with_detail_source_state(detail: Any) -> Any:
     """Add agent-facing source state and remove raw provider pointers."""
     if not isinstance(detail, dict):
@@ -339,12 +364,14 @@ class GeoLensReadOnlyAPI:
                 detail = body.get("detail") or body.get("message") or ""
                 if not isinstance(detail, str):
                     # FastAPI validation errors carry a structured detail list.
-                    detail = str(detail)[:200]
+                    detail = str(detail)[:500]
             except Exception:
                 detail = (exc.response.text or "")[:200]
+            retry_after = exc.response.headers.get("Retry-After")
             raise RuntimeError(
                 f"GeoLens API {exc.response.status_code} for {path}"
                 + (f": {detail}" if detail else "")
+                + (f" (Retry-After: {retry_after})" if retry_after else "")
             ) from exc
         except httpx.HTTPError as exc:
             raise RuntimeError(f"Could not reach GeoLens API at {path}: {exc}") from exc
@@ -431,3 +458,33 @@ class GeoLensReadOnlyAPI:
             "/query/",
             {"sql": sql, "restrict_tables": restrict_tables, "row_limit": row_limit},
         )
+
+    def list_stories(
+        self, search: Optional[str] = None, limit: int = 50, offset: int = 0
+    ) -> Any:
+        body = self._get(
+            "/stories/",
+            _params(search=search, limit=limit, skip=offset, published_only="true"),
+        )
+        if isinstance(body, dict) and isinstance(body.get("stories"), list):
+            # An older server ignores the filters; never pass drafts through.
+            needle = search.casefold() if search else None
+            kept = [
+                _story_summary(s)
+                for s in body["stories"]
+                if isinstance(s, dict)
+                and s.get("published_at")
+                and (needle is None or _story_matches(s, needle))
+            ]
+            body = {**body, "stories": kept}
+        return body
+
+    def get_story(self, story_id: str) -> Any:
+        # No trailing-slash sibling on this route; it serves the published
+        # document only, never the draft.
+        return _story_detail(self._get(f"/stories/{_id_segment(story_id)}"))
+
+    def aggregate(self, dataset_id: str, request: dict[str, Any]) -> Any:
+        # A POST that reads: the body goes through unchanged and the route
+        # validates it. The trailing slash is the canonical registration.
+        return self._post(f"/datasets/{_id_segment(dataset_id)}/aggregate/", request)
