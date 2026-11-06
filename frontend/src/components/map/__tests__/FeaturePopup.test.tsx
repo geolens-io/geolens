@@ -720,6 +720,13 @@ describe('FeaturePopup — fields read from the rows endpoint', () => {
     expect(screen.getByRole('alert')).toBeInTheDocument();
   });
 
+  it('says the feature is gone, not "zoom in", when the lookup finds no row', () => {
+    mockUseDatasetRows.mockReturnValue({ data: { rows: [] } });
+    show(lean({ properties: {}, columnInfo: [{ name: 'city', type: 'text' }], zoomAtClick: 4 }));
+    expect(screen.getByText('This feature is no longer in the dataset.')).toBeInTheDocument();
+    expect(screen.queryByText('No attributes at this zoom')).not.toBeInTheDocument();
+  });
+
   it('does not show the previous feature row while the next one loads', () => {
     mockUseDatasetRows.mockReturnValue({ data: { rows: [{ city: 'LA', mayor: 'Bass' }] }, isPlaceholderData: true });
     show(lean());

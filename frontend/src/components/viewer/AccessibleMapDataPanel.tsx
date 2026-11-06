@@ -42,7 +42,10 @@ function FeatureRowDetails({ feature, embedToken }: { feature: PanelFeature; emb
   const [open, setOpen] = useState(false);
   const row = useFeatureRow(feature.datasetId, feature.gid, open, embedToken);
   const entries = row.status === 'ready'
-    ? Object.entries(row.row).filter(([key]) => !key.startsWith('_') && key !== 'geom' && key !== 'geometry')
+    ? Object.entries(row.row).filter(([key]) => (
+      !key.startsWith('_') && key !== 'geom' && key !== 'geometry'
+      && (feature.columnNames === null || feature.columnNames.has(key))
+    ))
     : [];
   if (row.status === 'refused') return null;
   return (

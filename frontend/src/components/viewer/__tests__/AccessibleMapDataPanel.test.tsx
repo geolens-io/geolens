@@ -40,6 +40,7 @@ const RESULT: AccessibleMapFeatureResult = {
     ungroupedKeys: new Set(),
     datasetId: 'dataset-1',
     gid: 7,
+    columnNames: null,
     fetchRow: false,
   }],
 };

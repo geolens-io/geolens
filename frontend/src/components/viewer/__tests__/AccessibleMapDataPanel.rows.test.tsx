@@ -36,6 +36,7 @@ function result(fetchRow: boolean): AccessibleMapFeatureResult {
       ungroupedKeys: new Set(),
       datasetId: 'dataset-1',
       gid: 7,
+      columnNames: null,
       fetchRow,
     }],
   };
@@ -115,6 +116,19 @@ describe('AccessibleMapDataPanel rows', () => {
     open();
     expect(screen.queryByText('All fields')).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('lists only the layer\'s known columns from a fetched row', () => {
+    mockUseDatasetRows.mockReturnValue({ data: { rows: [{ gid: 7, mayor: 'Adams', added_later: 'x', _hidden: 'y' }] } });
+    const features = result(true);
+    features.features[0].columnNames = new Set(['mayor']);
+    render(
+      <AccessibleMapDataPanel layers={[LAYER]} visibleLayers={new Set(['layer-1'])} featureResult={features} onRefresh={vi.fn()} />,
+    );
+    open();
+    expect(screen.getByText('Mayor')).toBeInTheDocument();
+    expect(screen.queryByText('Added Later')).not.toBeInTheDocument();
+    expect(screen.queryByText('Hidden')).not.toBeInTheDocument();
   });
 
   it('shows an error line when the fetch fails', () => {

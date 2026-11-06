@@ -345,8 +345,11 @@ export function FeaturePopup({
               {t('featurePopup.fieldsFailed')}
             </p>
           )}
+          {featureRow.status === 'missing' && (
+            <p className="text-xs text-muted-foreground py-1">{t('featurePopup.rowGone')}</p>
+          )}
           {visibleEntries.length === 0 ? (
-            awaitingRow ? null : <p className="text-xs text-muted-foreground py-1">
+            awaitingRow || featureRow.status === 'missing' ? null : <p className="text-xs text-muted-foreground py-1">
               {/* Below the attribute budget, the tile server strips attribute columns
                   unless opted in via cols=; in all-fields mode nothing is
                   opted in, so a dataset WITH columns arriving property-less

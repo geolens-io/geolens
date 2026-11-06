@@ -5,6 +5,7 @@ import { useDatasetRows } from '@/components/dataset/hooks/use-dataset';
 type FeatureRowState =
   | { status: 'idle' }
   | { status: 'loading' }
+  | { status: 'missing' }
   | { status: 'refused' }
   | { status: 'error' }
   | { status: 'ready'; row: Record<string, unknown> };
@@ -41,7 +42,9 @@ export function useFeatureRow(
     }
     // The previous feature's row stays as placeholder data while the next loads.
     if (!data || isPlaceholderData) return { status: 'loading' };
-    const { gid: _gid, ...row } = data.rows[0] ?? {};
+    // The feature was removed after the tile loaded.
+    if (data.rows.length === 0) return { status: 'missing' };
+    const { gid: _gid, ...row } = data.rows[0];
     return { status: 'ready', row };
   }, [active, data, error, isError, isPlaceholderData]);
   return result;

@@ -154,3 +154,27 @@ describe('the object operand of get', () => {
     expect(cols.sort()).toEqual(['color', 'kind']);
   });
 });
+
+describe('a projection too long for the request line', () => {
+  const wide = Array.from({ length: 400 }, (_, index) => ({ name: `Mixed_Case_Column_${String(index).padStart(4, '0')}_x`, type: 'text' }));
+  const urlFor = (layer: typeof SAVED_LAYERS.polygon, columns: typeof wide) => {
+    const { sources, layers } = describeLayers(
+      [toSyncInput({ ...layer, dataset_column_info: columns })],
+      { ...RENDER_CONTEXTS.builder, colsOnly: true },
+    );
+    return (sources.get(layers[0].sourceId) as { tiles: string[] }).tiles[0];
+  };
+
+  it.each([
+    ['plain', SAVED_LAYERS.polygon],
+    ['cluster', SAVED_LAYERS.serverCluster],
+  ])('falls back to full tiles on a %s source without the held columns', (_kind, layer) => {
+    const url = urlFor(layer, wide);
+    expect(url).not.toContain('cols_only');
+    expect(url).not.toContain('Mixed_Case');
+  });
+
+  it('stays lean when the held columns fit', () => {
+    expect(urlFor(SAVED_LAYERS.polygon, wide.slice(0, 3))).toContain('cols_only=true');
+  });
+});

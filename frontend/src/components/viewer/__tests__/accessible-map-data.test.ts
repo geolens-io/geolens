@@ -77,6 +77,7 @@ describe('toAccessibleMapFeatures', () => {
         ungroupedKeys: new Set(),
         datasetId: layer.dataset_id,
         gid: 7,
+        columnNames: null,
         fetchRow: false,
       }],
     });
