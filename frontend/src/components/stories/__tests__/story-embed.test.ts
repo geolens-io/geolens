@@ -82,3 +82,10 @@ it('escapes the title into the accessible name of the frame', () => {
   expect(iframe.getAttribute('src')).toBe('https://geolens.example.com/stories/story-1/embed');
   expect(iframe.getAttribute('sandbox')).toBe('allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox');
 });
+
+it('delegates fullscreen, so a video block inside the embedded story can use it', () => {
+  const code = storyEmbedCode({ origin: 'https://geolens.example.com', storyId: 'story-1', title: 'Rivers' });
+  const iframe = new DOMParser().parseFromString(code, 'text/html').querySelector('iframe')!;
+  expect(iframe.getAttribute('allow')).toBe('fullscreen');
+  expect(iframe.hasAttribute('allowfullscreen')).toBe(true);
+});
