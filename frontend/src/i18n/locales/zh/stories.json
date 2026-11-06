@@ -321,6 +321,7 @@
       "floating": "浮动面板"
     },
     "position": "面板位置",
+    "positionCenterHint": "居中的面板会遮住地图中央，也就是每个章节视图所指向的位置。读者仍可在面板周围移动地图。",
     "positions": {
       "left": "左侧",
       "right": "右侧",

@@ -321,6 +321,7 @@
       "floating": "Panel flotante"
     },
     "position": "Posición del panel",
+    "positionCenterHint": "Un panel centrado cubre el medio del mapa, hacia donde apunta la vista de cada capítulo. Los lectores aún pueden mover el mapa a su alrededor.",
     "positions": {
       "left": "Izquierda",
       "right": "Derecha",

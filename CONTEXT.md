@@ -19,7 +19,7 @@ _Avoid_: 3D Tiles dataset, mesh.
 
 **Companion drawing**: A label, arrow or extrusion associated with a saved layer. It belongs to that layer's presentation rather than representing another saved layer.
 
-**Dashboard**: A panel of widgets saved with a map, shown beside or below it. It follows the map's sharing and has no access of its own; a reader sees the widgets on the layers they can read, and every text widget.
+**Dashboard**: A panel of widgets saved with a map, shown beside or below it, or on its own with the map hidden. It follows the map's sharing and has no access of its own; a reader sees the widgets on the layers they can read, and every text widget.
 
 **Widget**: One item in a dashboard: a summary of a single saved layer, such as an indicator, a bar chart, a histogram or a category selector, or a block of Markdown text that reads no layer. A layer's widget applies the layer's saved filter, or says when it can't.
 _Avoid_: Chart, when the widget is a number.
@@ -27,6 +27,8 @@ _Avoid_: Chart, when the widget is a number.
 **Pick**: A reader's choice of a bar, a histogram bin or selector values in a dashboard. It filters that layer on the map and its other widgets for the session, never the widget it came from, and is never saved.
 
 **View scope**: A widget's choice to cover only the features in the current map view rather than the whole layer. A layer with no geometry is always covered whole.
+
+**Reference**: A value an author gives an indicator to compare with, named by its label. The difference shows as an amount, a percentage or both, and is judged by whether a higher value is better.
 
 **Source binding**: The system-managed record of where a dataset's current data came from and how to reach it again: the origin, the pointer and the details a refresh needs. It changes only when an import, replacement, refresh or restore publishes new data, and it never holds a credential.
 _Avoid_: Origin (the derived kind alone), source URL (owner-editable text), `origin_ref`.
@@ -57,12 +59,18 @@ _Avoid_: Team, role, layer group (layers grouped inside a map).
 
 **Story**: An ordered list of chapters told over saved maps. It has its own owner and visibility, and it can't be published more widely than any map it uses can be read.
 
-**Chapter**: One step of a story: a title, blocks (text, images, buttons and separators) and an optional scene.
+**Chapter**: One step of a story: a title, blocks (text, images, galleries, carousels, video, framed pages, buttons and separators) and an optional scene.
 
 **Scene**: What the map shows for a chapter: a saved map, its camera and which of its saved layers are visible. A scene never changes how a layer looks; a chapter that needs a different look shows another layer of the same map. A chapter without a scene keeps the one before it; chapters before the first scene show that first scene.
 _Avoid_: Slide, view (a map's own saved camera).
 
-**Transition**: How the map moves into a chapter's scene: Fly, Glide or Cut. Layers the scene turns on or off fade, and a scene on another saved map fades in over the one before it. A reader who prefers reduced motion always gets a cut.
+**Reader settings**: A story's choices for how readers see it: whether the chapter list shows above the story, the layout, the panel position, the theme and the default transition.
+
+**Layout**: Where a story's chapter text sits: a side panel next to the map, or a floating panel over a full-screen map. Phones put the map above the text.
+
+**Panel position**: Which part of the map a floating panel covers: left, right or centre.
+
+**Transition**: How the map moves into a chapter's scene: Fly, Glide or Cut. A chapter without its own transition uses the story's default. Layers the scene turns on or off fade, and a scene on another saved map fades in over the one before it. A reader who prefers reduced motion always gets a cut.
 _Avoid_: Animation, camera move.
 
 **Draft**: The version of a story its owner edits. A save replaces the whole draft; readers don't see it until it's published.

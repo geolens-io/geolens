@@ -37,3 +37,17 @@ describe('StoryReaderSettingsDialog reader theme', () => {
     expect(onChange).toHaveBeenCalledWith({ theme: 'light' });
   });
 });
+
+describe('StoryReaderSettingsDialog panel position hint', () => {
+  const floating: StorySettings = { ...base, layout: 'floating' };
+
+  it('warns that a centred panel covers the middle of the map', () => {
+    renderDialog({ ...floating, panel_position: 'center' });
+    expect(screen.getByText(/A centred panel covers the middle of the map/)).toBeInTheDocument();
+  });
+
+  it('says nothing for a panel at the side', () => {
+    renderDialog({ ...floating, panel_position: 'right' });
+    expect(screen.queryByText(/A centred panel/)).not.toBeInTheDocument();
+  });
+});

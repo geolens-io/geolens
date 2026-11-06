@@ -321,6 +321,7 @@
       "floating": "Schwebendes Panel"
     },
     "position": "Position des Panels",
+    "positionCenterHint": "Ein zentriertes Panel verdeckt die Kartenmitte, auf die die Ansicht jedes Kapitels zeigt. Leser können die Karte weiterhin darum herum verschieben.",
     "positions": {
       "left": "Links",
       "right": "Rechts",

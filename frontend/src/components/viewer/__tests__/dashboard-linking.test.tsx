@@ -220,7 +220,7 @@ describe('dashboard linking', () => {
     const widget = screen.getByRole('article', { name: 'Parcels' });
     expect(await within(widget).findByText('1,234')).toBeInTheDocument();
     expect(fetchMock.mock.calls.every(([, body]) => !('bbox' in body))).toBe(true);
-    expect(within(widget).getByText(/this dashboard hides its map/)).toBeInTheDocument();
+    expect(screen.getByText(/this dashboard hides its map/)).toBeInTheDocument();
     expect(within(widget).queryByText('Follows the map view')).not.toBeInTheDocument();
   });
 

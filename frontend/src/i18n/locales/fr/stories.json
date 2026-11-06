@@ -321,6 +321,7 @@
       "floating": "Panneau flottant"
     },
     "position": "Position du panneau",
+    "positionCenterHint": "Un panneau centré couvre le milieu de la carte, là où pointe la vue de chaque chapitre. Les lecteurs peuvent toujours déplacer la carte autour.",
     "positions": {
       "left": "Gauche",
       "right": "Droite",

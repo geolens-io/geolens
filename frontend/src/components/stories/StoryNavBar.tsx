@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Menu } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -20,12 +20,18 @@ interface StoryNavBarProps {
 export function StoryNavBar({ title, chapters, active, onSelect, collapsed }: StoryNavBarProps) {
   const { t } = useTranslation('stories');
   const [open, setOpen] = useState(false);
+  const activeRef = useRef<HTMLButtonElement>(null);
+  // Titles past the bar's edge scroll under the fade; keep the open chapter in sight.
+  useEffect(() => {
+    if (!collapsed) activeRef.current?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [active, collapsed]);
 
   const list = (
-    <ol className={cn(collapsed ? 'min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-4' : 'flex min-w-0 flex-1 items-center gap-1 overflow-x-auto')}>
+    <ol className={cn(collapsed ? 'min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-4' : 'flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pe-8 scroll-pe-8 [mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)]')}>
       {chapters.map((chapter, i) => (
         <li key={chapter.id} className="shrink-0">
           <Button
+            ref={i === active ? activeRef : undefined}
             variant="ghost"
             size="sm"
             aria-current={i === active ? 'step' : undefined}
