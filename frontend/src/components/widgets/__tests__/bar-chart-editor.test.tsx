@@ -100,10 +100,15 @@ describe('BarChartEditor forms', () => {
     expect(onChange).toHaveBeenLastCalledWith({ ...byFields, fields: ['height', 'area'] });
   });
 
-  it('keeps money out of the by-feature value choices, since rows cannot list it', async () => {
+  it('keeps money and names the rows endpoint cannot sort by out of the by-feature value choices', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    const withMoney = [{ name: 'kind', type: 'text' }, { name: 'price', type: 'money' }, { name: 'height', type: 'integer' }];
+    const withMoney = [
+      { name: 'kind', type: 'text' },
+      { name: 'price', type: 'money' },
+      { name: 'Height', type: 'integer' },
+      { name: 'height', type: 'integer' },
+    ];
     const { unmount } = render(<BarChartEditor config={config} onChange={onChange} columns={withMoney} idPrefix="w" />);
     await user.click(screen.getByRole('combobox', { name: 'Bars show' }));
     await user.click(screen.getByRole('option', { name: 'One bar per feature' }));

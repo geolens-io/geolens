@@ -264,6 +264,30 @@ describe('a date bar chart', () => {
   });
 });
 
+describe('a by-feature bar chart', () => {
+  const chart = (value_column: string) =>
+    ({
+      id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+      type: 'bar_chart',
+      v: 2,
+      layer_id: layerId,
+      scope: 'layer',
+      config: { mode: 'by_feature', label_column: 'kind', value_column, sort: 'desc', limit: 10 },
+    }) as never;
+  const withColumns = layer({
+    dataset_column_info: [
+      { name: 'kind', type: 'text' },
+      { name: 'height', type: 'integer' },
+      { name: 'Height', type: 'integer' },
+    ],
+  } as never);
+
+  it('holds the save while its value field is a name the rows endpoint cannot sort by', () => {
+    expect(widgetProblem(chart('height'), withColumns)).toBeNull();
+    expect(widgetProblem(chart('Height'), withColumns)).toEqual({ kind: 'notSortable', column: 'Height' });
+  });
+});
+
 describe('the save that empties a dashboard', () => {
   const widget = { id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11', type: 'markdown', v: 1, config: { text: 'Notes' } };
   const had: DashboardDraft = { panel: 'right', widgets: [widget] };

@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { isAggregateNumeric, isDateColumn, isTextColumn } from '@/lib/column-utils';
+import { isAggregateNumeric, isDateColumn, isSortableColumn, isTextColumn } from '@/lib/column-utils';
 import type { WidgetColumn, WidgetEditorProps } from '../contract';
 import {
   ColumnField,
@@ -23,8 +23,9 @@ import {
   type FieldsBarChartConfig,
 } from './definition';
 
-/** A number the rows endpoint can sort by; it can't list `money`, which aggregates accept. */
-const isRowNumeric = (column: WidgetColumn) => isAggregateNumeric(column.type) && column.type.toLowerCase() !== 'money';
+/** A number the rows endpoint can sort by, which the by-feature value field must be. */
+const isRowNumeric = (column: WidgetColumn) =>
+  isAggregateNumeric(column.type) && isSortableColumn(column.name, column.type);
 
 type Mode = NonNullable<BarChartConfig['mode']>;
 const MODES: readonly Mode[] = ['category', 'date', 'by_feature', 'by_fields'];

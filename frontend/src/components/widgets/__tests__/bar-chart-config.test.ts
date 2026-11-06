@@ -129,7 +129,7 @@ describe('bar chart requests', () => {
     const reads = (raw: unknown) => barChartWidget.readsColumns!(parse(raw)!);
     expect(reads(byFeature)).toEqual([
       { name: 'name', numeric: false },
-      { name: 'height', numeric: true },
+      { name: 'height', numeric: true, sortable: true },
     ]);
     expect(reads(byFields)).toEqual([
       { name: 'height', numeric: true },
