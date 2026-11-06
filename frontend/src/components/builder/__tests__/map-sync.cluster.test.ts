@@ -179,7 +179,7 @@ describe('syncLayersToMap cluster rendering', () => {
     expect(buildClusterTileUrl).toHaveBeenCalledWith('points', VECTOR_TOKEN, `${window.location.origin}/api`, undefined, {
       clusterRadius: 64,
       clusterMaxZoom: 12,
-    }, []);
+    }, [], true);
     expect(map.addSource).toHaveBeenCalledWith('source-cluster-1', expect.objectContaining({
       type: 'vector',
       tiles: ['/tiles/clusters/mock/{z}/{x}/{y}.pbf?cluster_radius=64&cluster_max_zoom=12'],
@@ -212,6 +212,7 @@ describe('syncLayersToMap cluster rendering', () => {
       undefined,
       expect.objectContaining({ filter: JSON.stringify({ op: '=', args: [{ property: 'kind' }, 'a'] }) }),
       ['kind'],
+      true,
     );
   });
 
@@ -563,6 +564,7 @@ describe('syncLayersToMap cluster rendering', () => {
       undefined,
       expect.any(Object),
       expect.arrayContaining(['fall', 'mass_kg']),
+      true,
     );
   });
 

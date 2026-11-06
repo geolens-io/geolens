@@ -4,7 +4,9 @@ import type { TFunction } from 'i18next';
 import type { WidgetSelection } from '@/components/widgets/contract';
 import type { SharedLayerResponse } from '@/types/api';
 import { fitsAggregateFilterLimits, getClusterSourceStrategy } from '@/components/builder/cluster-source';
-import { clusterTileFilter, getDataDrivenColumnsForLayer, tileBaseUrlFor } from '@/components/builder/layer-description';
+import { clusterTileFilter, describeLayers, tileBaseUrlFor } from '@/components/builder/layer-description';
+import { toViewerSyncInput } from '@/components/viewer/ViewerMap';
+import { VIEWER_PREFIX } from '../viewer-query-layer-ids';
 import { useTileConfig } from '@/hooks/use-settings';
 import { resolveTileBaseUrl } from '@/lib/tile-utils';
 import { linkMapLayers, selectionCql2, widgetFilter, type LinkedPick } from '../linked-filters';
@@ -34,12 +36,24 @@ function pickFilterProblem(
   layer: SharedLayerResponse,
   picks: readonly LinkedPick[],
   tileBaseUrl: string,
+  sourceLayerPrefix: string | null | undefined,
 ): PickFilterProblem | null {
   const onLayer = picks.filter((pick) => pick.layerId === layer.id);
   const { filter } = widgetFilter(layer, onLayer.map((pick) => pick.cql2));
   if (filter && !fitsAggregateFilterLimits(filter)) return 'too-many-values';
   if (getClusterSourceStrategy(layer).kind === 'server-tile') {
     const [linked] = linkMapLayers([layer], onLayer);
+    // The columns the map's own cluster URL names, adapter-derived ones included.
+    const description = describeLayers([toViewerSyncInput(linked, linked.id, new Set([linked.id]))], {
+      idPrefix: VIEWER_PREFIX,
+      origin: window.location.origin,
+      tileBaseUrl,
+      sourceLayerPrefix,
+      tokens: new Map(),
+      boundedGeoJson: new Map(),
+      colsOnly: true,
+    });
+    const cols = [...(description.tileColumns.get(description.layers[0]?.sourceId ?? '') ?? [])];
     const routed = clusterTileFilter(
       {
         dataset_table_name: layer.table_name,
@@ -50,7 +64,9 @@ function pickFilterProblem(
         dataset_tile_columns: layer.dataset_tile_columns,
       },
       tileBaseUrl,
-      getDataDrivenColumnsForLayer(linked),
+      cols,
+      // The longer URL: a pick that fits with `cols_only` fits without it.
+      true,
     );
     if ('omitted' in routed && routed.omitted === 'unsupported') return 'clusters-cant-filter';
     if ('omitted' in routed && routed.omitted === 'too-large') return 'too-many-for-clusters';
@@ -101,7 +117,7 @@ export function usePicks(
     const nextPicks = current ? picks.map((pick) => (pick === current ? next : pick)) : [...picks, next];
     // Picks on a server-clustered layer wait for the tile config (DashboardWidgetList), so this is the map's base.
     const tileBaseUrl = tileBaseUrlFor(resolveTileBaseUrl(tileConfig), window.location.origin);
-    const problem = pickFilterProblem(layer, nextPicks, tileBaseUrl);
+    const problem = pickFilterProblem(layer, nextPicks, tileBaseUrl, tileConfig?.mvt_source_layer_prefix ?? 'data');
     if (problem) {
       announce(t(PROBLEM_KEYS[problem]));
       return;

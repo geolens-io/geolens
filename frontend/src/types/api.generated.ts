@@ -49715,6 +49715,8 @@ export interface operations {
                 exp?: number | null;
                 scope?: string | null;
                 cols?: string | null;
+                /** @description Carry only the columns named by `cols`, at every zoom. */
+                cols_only?: boolean;
                 cluster_radius?: number;
                 cluster_max_zoom?: number;
                 filter?: string | null;
@@ -50083,6 +50085,8 @@ export interface operations {
                 exp?: number | null;
                 scope?: string | null;
                 cols?: string | null;
+                /** @description Carry only the columns named by `cols`, at every zoom. */
+                cols_only?: boolean;
             };
             header?: never;
             path: {

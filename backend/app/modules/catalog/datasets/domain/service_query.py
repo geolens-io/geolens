@@ -547,7 +547,10 @@ async def _select_rows(
     """Run the page query; a sorted page continues after the cursor row."""
     # Sorted reads keep the unsorted domain, gid > 0: a row at gid 0 or below
     # could never be a cursor, since `after` starts at 0 and can't go negative.
-    keyset = "gid > :after_gid"
+    # A single-row read has no cursor, and a registered table may hold gid 0.
+    keyset = (
+        "gid >= :after_gid" if gid is not None and not after_gid else "gid > :after_gid"
+    )
     order_sql = "gid"
     with_sql = join_sql = ""
     if sort_col is not None:
@@ -609,7 +612,8 @@ async def _count_matches(
         column_types={c["name"]: c.get("type", "") for c in cols},
         after_gid=0,
         limit=FILTERED_COUNT_CAP + 1,
-        keyset="gid > :after_gid",
+        # The same single-row domain as the page query, which includes gid 0.
+        keyset="gid >= :after_gid" if gid is not None else "gid > :after_gid",
         label_codes=label_codes,
         gid=gid,
     )

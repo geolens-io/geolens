@@ -974,3 +974,45 @@ async def test_rows_serialize_bit_and_bytea_values(
         )
         await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table}"))
         await test_db_session.commit()
+
+
+@pytest.mark.anyio
+async def test_gid_zero_reads_a_row_of_a_registered_table(
+    client: AsyncClient, test_db_session, admin_auth_header: dict
+):
+    """A registered table can hold gid 0, which a single-row read returns."""
+    table = f"test_rows_zero_{uuid.uuid4().hex[:8]}"
+    await test_db_session.execute(
+        text(f"CREATE TABLE data.{table} (gid integer PRIMARY KEY, name text)")
+    )
+    await test_db_session.execute(
+        text(f"INSERT INTO data.{table} VALUES (0, 'zero'), (1, 'one')")
+    )
+    await test_db_session.commit()
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await _create_dataset(
+        test_db_session,
+        created_by=admin_id,
+        table_name=table,
+        column_info=[
+            {"name": "gid", "type": "integer"},
+            {"name": "name", "type": "text"},
+        ],
+    )
+    try:
+        resp = await client.get(
+            f"/datasets/{ds.id}/rows/", params={"gid": 0}, headers=admin_auth_header
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert [row["name"] for row in body["rows"]] == ["zero"]
+        assert body["approximate_total"] == 1
+    finally:
+        await test_db_session.execute(
+            text(
+                "DELETE FROM catalog.records WHERE id IN "
+                f"(SELECT record_id FROM catalog.datasets WHERE table_name = '{table}')"
+            )
+        )
+        await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table}"))
+        await test_db_session.commit()

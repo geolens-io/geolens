@@ -10,6 +10,7 @@ import { splitTextWithUrls, classifyUrl } from '@/lib/popup-rich-text';
 import { formatFeaturePropertyValue, groupsDigits } from '@/lib/feature-property-value';
 import { useAttributes } from '@/components/dataset/hooks/use-dataset';
 import { valueLabelFor, valueLabelsByField, type ValueLabels } from '@/lib/value-labels';
+import { useFeatureRow } from '@/components/map/hooks/use-feature-row';
 
 export interface FeatureInfo {
   properties: Record<string, unknown>;
@@ -40,6 +41,10 @@ export interface FeatureInfo {
   layerId?: string;
   /** The vector tile feature id, which is the row's `gid`. */
   featureId?: number;
+  /** The tile carries only the columns the map draws with; read the other fields from the rows endpoint. */
+  fetchRow?: boolean;
+  /** Sent with the rows request, for an embedded map's reader. */
+  embedToken?: string;
 }
 
 /** MVT attribute budget: below this zoom the tile
@@ -178,7 +183,20 @@ export function FeaturePopup({
     [t, semanticRoles],
   );
 
-  const properties = feature?.properties;
+  const featureRow = useFeatureRow(
+    feature?.datasetId,
+    feature?.featureId,
+    feature?.fetchRow === true,
+    feature?.embedToken,
+  );
+  // The tile's values stay; the row adds the fields the tile left out.
+  const properties = useMemo(
+    () => (featureRow.status === 'ready'
+      ? { ...feature?.properties, ...featureRow.row }
+      : feature?.properties),
+    [feature?.properties, featureRow],
+  );
+  const awaitingRow = feature?.fetchRow === true && (featureRow.status === 'loading' || featureRow.status === 'error');
   const columnInfo = feature?.columnInfo;
   const visibleFields = feature?.visibleFields;
 
@@ -317,8 +335,21 @@ export function FeaturePopup({
 
         {/* Properties */}
         <div className="max-h-48 overflow-y-auto">
+          {featureRow.status === 'loading' && (
+            <p role="status" className="text-xs text-muted-foreground py-1">
+              {t('featurePopup.loadingFields')}
+            </p>
+          )}
+          {featureRow.status === 'error' && (
+            <p role="alert" className="text-xs text-destructive py-1">
+              {t('featurePopup.fieldsFailed')}
+            </p>
+          )}
+          {featureRow.status === 'missing' && (
+            <p className="text-xs text-muted-foreground py-1">{t('featurePopup.rowGone')}</p>
+          )}
           {visibleEntries.length === 0 ? (
-            <p className="text-xs text-muted-foreground py-1">
+            awaitingRow || featureRow.status === 'missing' ? null : <p className="text-xs text-muted-foreground py-1">
               {/* Below the attribute budget, the tile server strips attribute columns
                   unless opted in via cols=; in all-fields mode nothing is
                   opted in, so a dataset WITH columns arriving property-less

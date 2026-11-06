@@ -51761,7 +51761,7 @@
               "anyOf": [
                 {
                   "maximum": 9223372036854775807,
-                  "minimum": 1,
+                  "minimum": 0,
                   "type": "integer"
                 },
                 {
@@ -73791,6 +73791,18 @@
             }
           },
           {
+            "description": "Carry only the columns named by `cols`, at every zoom.",
+            "in": "query",
+            "name": "cols_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Carry only the columns named by `cols`, at every zoom.",
+              "title": "Cols Only",
+              "type": "boolean"
+            }
+          },
+          {
             "in": "query",
             "name": "cluster_radius",
             "required": false,
@@ -74576,6 +74588,18 @@
                 }
               ],
               "title": "Cols"
+            }
+          },
+          {
+            "description": "Carry only the columns named by `cols`, at every zoom.",
+            "in": "query",
+            "name": "cols_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Carry only the columns named by `cols`, at every zoom.",
+              "title": "Cols Only",
+              "type": "boolean"
             }
           }
         ],

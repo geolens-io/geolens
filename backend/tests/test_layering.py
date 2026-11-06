@@ -1225,7 +1225,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Pointer reads sit beside the detail query that shares them; the row
         # browser's page, count, label-filter and box SQL share its projection, and
         # its NULLS LAST keyset also pages the aggregate feature list.
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 786,
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 790,
         "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 513,
         # Chat splits retain tool execution and result-serialization workflows.
         "backend/app/processing/ai/chat_actions.py": 529,
@@ -1434,7 +1434,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/standards/stac/router.py": 1896,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
-    "backend/app/processing/tiles/router.py": 2923,
+    "backend/app/processing/tiles/router.py": 2934,
     # SQL allowlisting and cost validation must share canonical AST resolution.
     "backend/app/platform/sandbox/validator.py": 1766,
     # AI orchestration coordinates tool execution, usage accounting, pool-connection

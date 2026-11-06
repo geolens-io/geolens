@@ -851,6 +851,9 @@
     "smallDemWarning": "This DEM only covers a small part of the current view. Zoom in to the DEM extent, or use a DEM that covers the whole map area as the terrain source."
   },
   "featurePopup": {
+    "rowGone": "This feature is no longer in the dataset.",
+    "loadingFields": "Loading more fields…",
+    "fieldsFailed": "Could not load the other fields.",
     "noAttributes": "No attributes",
     "zoomForAttributes": "No attributes at this zoom",
     "booleanTrue": "Yes",

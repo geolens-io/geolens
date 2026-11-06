@@ -141,6 +141,8 @@ export function isMvtSourceLayerConfigReady(
  * paint expressions fall to their default branch. Names are joined with a comma
  * and sorted for cache-key stability; the server validates each against the
  * dataset's column_info.
+ *
+ * `colsOnly`: ask the server for exactly `extraCols` at every zoom (`cols_only=true`).
  */
 export function buildSignedTileUrl(
   tableName: string,
@@ -148,13 +150,17 @@ export function buildSignedTileUrl(
   tileBaseUrl?: string | null,
   tileVersion?: string | number | null,
   extraCols?: string[] | null,
+  colsOnly = false,
 ): string {
   const base = tileBaseUrl
     ? tileBaseUrl.replace(/\/$/, '')
     : `${window.location.origin}/api`;
   const url = `${base}/tiles/${getMvtSourceLayerName(tableName)}/{z}/{x}/{y}.pbf`;
   const cols = normalizeExtraCols(extraCols);
-  return appendTileParams(url, tileToken, tileVersion, cols ? { cols } : {});
+  return appendTileParams(url, tileToken, tileVersion, {
+    ...(cols ? { cols } : {}),
+    ...(colsOnly ? { cols_only: 'true' } : {}),
+  });
 }
 
 /** Sort + dedupe + filter falsy entries so the same set always serializes to
@@ -197,6 +203,7 @@ export function buildClusterTileUrl(
   tileVersion?: string | number | null,
   options: { clusterRadius?: number; clusterMaxZoom?: number; filter?: string } = {},
   extraCols?: string[] | null,
+  colsOnly = false,
 ): string {
   const base = tileBaseUrl
     ? tileBaseUrl.replace(/\/$/, '')
@@ -211,6 +218,7 @@ export function buildClusterTileUrl(
     cluster_max_zoom: options.clusterMaxZoom,
     filter: options.filter,
     ...(cols ? { cols } : {}),
+    ...(colsOnly ? { cols_only: 'true' } : {}),
   });
 }
 

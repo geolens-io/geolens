@@ -1,10 +1,12 @@
 /* eslint-disable jsx-a11y/no-noninteractive-tabindex -- the named overflow region must be keyboard-scrollable */
 import { RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { LiveAnnouncement } from '@/components/ui/live-announcement';
 import type { SharedLayerResponse } from '@/types/api';
 import { createViewerLayerEntries } from '@/components/viewer/layer-identity';
+import { useFeatureRow } from '@/components/map/hooks/use-feature-row';
 import { formatMapDataValue, type AccessibleMapFeatureResult } from './accessible-map-data';
 
 interface AccessibleMapDataPanelProps {
@@ -14,6 +16,8 @@ interface AccessibleMapDataPanelProps {
   onRefresh: () => void;
   /** True only when every layer's dataset is public, so linking to dataset pages cannot expose a private id. */
   datasetLinksAllowed?: boolean;
+  /** Sent with the rows request that fills an item's remaining fields, for an embedded map's reader. */
+  embedToken?: string;
   /**
    * Keys of the layers the Map data table can show. With `onOpenTable`, a
    * capped list offers to open these in the table instead of dataset links.
@@ -30,12 +34,62 @@ function humanizeKey(key: string): string {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
+type PanelFeature = AccessibleMapFeatureResult['features'][number];
+
+/** The rest of a feature's fields, read when the reader opens them. */
+function FeatureRowDetails({ feature, embedToken }: { feature: PanelFeature; embedToken?: string }) {
+  const { t, i18n } = useTranslation('common');
+  const [open, setOpen] = useState(false);
+  const row = useFeatureRow(feature.datasetId, feature.gid, open, embedToken);
+  const entries = row.status === 'ready'
+    ? Object.entries(row.row).filter(([key]) => (
+      !key.startsWith('_') && key !== 'geom' && key !== 'geometry'
+      && (feature.columnNames === null || feature.columnNames.has(key))
+    ))
+    : [];
+  if (row.status === 'refused') return null;
+  return (
+    <details className="mt-3" onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary className="cursor-pointer text-sm text-primary pointer-coarse:min-h-11">
+        {t('viewer.data.allFields')}
+      </summary>
+      {row.status === 'loading' && (
+        <p role="status" className="mt-2 text-sm text-muted-foreground">{t('viewer.data.loadingFields')}</p>
+      )}
+      {row.status === 'error' && (
+        <p role="alert" className="mt-2 text-sm text-destructive">{t('viewer.data.fieldsFailed')}</p>
+      )}
+      {row.status === 'ready' && (entries.length === 0 ? (
+        <p className="mt-2 text-sm text-muted-foreground">{t('viewer.data.noAttributes')}</p>
+      ) : (
+        <dl className="mt-2 grid gap-x-4 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
+          {entries.map(([key, value]) => (
+            <div key={key} className="min-w-0">
+              <dt className="font-mono text-xs text-muted-foreground">{humanizeKey(key)}</dt>
+              <dd className="break-words text-sm">
+                {formatMapDataValue(
+                  value,
+                  i18n.language,
+                  t('viewer.data.booleanTrue'),
+                  t('viewer.data.booleanFalse'),
+                  !feature.ungroupedKeys.has(key),
+                ) ?? '—'}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      ))}
+    </details>
+  );
+}
+
 export function AccessibleMapDataPanel({
   layers,
   visibleLayers,
   featureResult,
   onRefresh,
   datasetLinksAllowed = false,
+  embedToken,
   tableLayerKeys,
   onOpenTable,
 }: AccessibleMapDataPanelProps) {
@@ -198,7 +252,8 @@ export function AccessibleMapDataPanel({
                     <h5 className="eyebrow mt-3">
                       {t('viewer.data.attributes')}
                     </h5>
-                    {feature.properties.length === 0 ? (
+                    {/* The tile left the other columns out; the disclosure below reads them. */}
+                    {feature.properties.length === 0 && feature.fetchRow ? null : feature.properties.length === 0 ? (
                       <p className="mt-1 text-sm text-muted-foreground">
                         {t('viewer.data.noAttributes')}
                       </p>
@@ -222,6 +277,7 @@ export function AccessibleMapDataPanel({
                         ))}
                       </dl>
                     )}
+                    {feature.fetchRow && <FeatureRowDetails feature={feature} embedToken={embedToken} />}
                   </article>
                 </li>
               );

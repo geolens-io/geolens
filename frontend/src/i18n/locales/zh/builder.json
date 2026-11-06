@@ -851,6 +851,9 @@
     "smallDemWarning": "此 DEM 仅覆盖当前视图的一小部分。请放大到该 DEM 的范围，或使用能覆盖整个地图区域的 DEM 作为地形来源。"
   },
   "featurePopup": {
+    "rowGone": "该要素已不在数据集中。",
+    "loadingFields": "正在加载更多字段…",
+    "fieldsFailed": "无法加载其余字段。",
     "noAttributes": "无属性",
     "zoomForAttributes": "当前缩放级别下无属性",
     "booleanTrue": "是",

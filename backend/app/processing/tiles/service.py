@@ -112,6 +112,7 @@ def _effective_attr_names(
     tile_columns: list[str] | None,
     additional_columns: list[str] | None,
     mode: str,
+    cols_only: bool = False,
 ) -> set[str]:
     """The attribute names this request would actually emit into the MVT.
 
@@ -130,6 +131,7 @@ def _effective_attr_names(
         z,
         tile_columns=tile_columns,
         additional_columns=additional_columns,
+        cols_only=cols_only,
     )
     return {
         name
@@ -148,6 +150,7 @@ def parse_cols_param(
     *,
     tile_columns: list[str] | None = None,
     mode: str = "vector",
+    cols_only: bool = False,
 ) -> tuple[list[str] | None, str]:
     """Normalize a `cols=` query param into (additional_columns, cache_key).
 
@@ -176,8 +179,11 @@ def parse_cols_param(
     on the raw request. The zoom is already its own cache-key segment, so the
     suffix only has to separate requests at one tile; an empty suffix stays
     byte-identical to the no-`cols=` key.
+
+    With ``cols_only`` the key is the full projection behind an ``only:``
+    prefix, since the tile is no longer a superset of the default one.
     """
-    if not cols:
+    if not cols and not cols_only:
         return None, ""
     resolved = columns or []
     known = {
@@ -187,16 +193,21 @@ def parse_cols_param(
         and isinstance(name := col.get("name"), str)
         and _COLUMN_NAME_RE.match(name)
     }
-    if not known:
+    if not known and not cols_only:
         return None, ""
     # The raw string is bounded by the server's request-line limit and the
     # result by the dataset's column count. Names are compared, never
     # interpolated: the query builders revalidate every name they emit.
-    additional = sorted({c.strip() for c in cols.split(",")} & known)
+    additional = sorted({c.strip() for c in (cols or "").split(",")} & known)
+    projection = {"tile_columns": tile_columns, "mode": mode}
+    if cols_only:
+        effective = _effective_attr_names(
+            resolved, z, additional_columns=additional, cols_only=True, **projection
+        )
+        return additional, "only:" + ",".join(sorted(effective))
     if not additional:
         return None, ""
 
-    projection = {"tile_columns": tile_columns, "mode": mode}
     baseline = _effective_attr_names(resolved, z, additional_columns=None, **projection)
     effective = _effective_attr_names(
         resolved, z, additional_columns=additional, **projection
@@ -214,6 +225,7 @@ def _select_tile_columns(
     *,
     tile_columns: list[str] | None = None,
     additional_columns: list[str] | None = None,
+    cols_only: bool = False,
 ) -> list[dict]:
     """Apply the column allowlist + per-zoom defaults.
 
@@ -232,6 +244,9 @@ def _select_tile_columns(
     When `tile_columns` is set, `additional_columns` is also intersected with
     it, so the three rules above hold for a `cols=` request too: the zoom
     budget is a default the caller may override; the allowlist is not.
+
+    `cols_only`: skip the base selection, so the result is the validated
+    `additional_columns` plus the jsonb columns (none when both are absent).
     """
     allowlist: set[str] | None = None
     if tile_columns is not None:
@@ -247,6 +262,15 @@ def _select_tile_columns(
         base = []
     else:
         base = columns
+    if cols_only:
+        # ST_AsMVT flattens a jsonb column into attributes, so no requested name
+        # can be resolved against the keys it carries.
+        pool = (
+            columns
+            if allowlist is None
+            else [c for c in columns if c.get("name") in allowlist]
+        )
+        base = [c for c in pool if str(c.get("type") or "").lower() == "jsonb"]
 
     if additional_columns:
         # The `cols=` opt-in projects the requested columns at every zoom,
@@ -274,15 +298,54 @@ def _select_tile_columns(
     return base
 
 
-def _attr_select(alias: str, col: dict) -> str:
-    """One attribute's projection, named after the column."""
+def _guarded_columns(
+    columns: list[dict],
+    z: int,
+    *,
+    tile_columns: list[str] | None,
+    additional_columns: list[str] | None,
+    selected: list[dict],
+    cols_only: bool,
+) -> list[dict]:
+    """The columns ``cols_only`` drops that the default projection would carry."""
+    if not cols_only:
+        return []
+    kept = {col.get("name") for col in selected}
+    default = _select_tile_columns(
+        columns,
+        z,
+        tile_columns=tile_columns,
+        additional_columns=additional_columns,
+    )
+    return [col for col in default if col.get("name") not in kept]
+
+
+# Number.MAX_SAFE_INTEGER. A browser cannot hold an id past it exactly, and
+# ST_AsMVT leaves out a negative one, so neither can be looked up as a row.
+_MAX_SAFE_FEATURE_ID = 9007199254740991
+
+
+def _attr_select(alias: str, col: dict, *, guarded: bool = False) -> str:
+    """One attribute's projection, named after the column.
+
+    A guarded column is only carried by a feature whose id cannot identify a
+    row (negative or beyond the safe range), so no row lookup can restore it.
+    A NULL attribute is left out of the tile.
+    """
     ref = f'{alias}."{col["name"]}"'
     if str(col.get("type") or "").lower() == "timestamp with time zone":
         ref = utc_timestamptz_text(ref)
+    if guarded:
+        ref = (
+            f"CASE WHEN {alias}.gid NOT BETWEEN 0 "
+            f"AND {_MAX_SAFE_FEATURE_ID} THEN {ref} END"
+        )
     return f'{ref} AS "{col["name"]}"'
 
 
-def _build_attr_columns(columns: list[dict]) -> str:
+def _build_attr_columns(
+    columns: list[dict], guarded_columns: Sequence[dict] = ()
+) -> str:
     """Build the attribute column list for the MVT query.
 
     Excludes geometry columns and gid (gid is always included separately
@@ -292,8 +355,9 @@ def _build_attr_columns(columns: list[dict]) -> str:
     column and keeps its case as the MVT property name.
     """
     attr_cols = [
-        _attr_select("t", col)
-        for col in columns
+        _attr_select("t", col, guarded=guarded)
+        for guarded, group in ((False, columns), (True, guarded_columns))
+        for col in group
         if col.get("name")
         and col["name"] not in _EXCLUDED_COLUMNS
         and _COLUMN_NAME_RE.match(col["name"])
@@ -304,7 +368,10 @@ def _build_attr_columns(columns: list[dict]) -> str:
 
 
 def _build_tile_query(
-    table_name: str, columns: list[dict], schema: str = "data"
+    table_name: str,
+    columns: list[dict],
+    schema: str = "data",
+    guarded_columns: Sequence[dict] = (),
 ) -> str:
     """Build the ST_AsMVT tile query for the given table and columns.
 
@@ -323,7 +390,7 @@ def _build_tile_query(
     schema-qualified; search_path alone is not the primary isolation control.
     """
     _validate_tile_table_name(table_name)
-    attr_columns = _build_attr_columns(columns)
+    attr_columns = _build_attr_columns(columns, guarded_columns)
     # The schema name derives from the validated-UUID tenant_data_schema(), so
     # it is safe to quote.
     qualified_table = f'"{schema}"."{table_name}"'
@@ -401,6 +468,7 @@ def _build_cluster_tile_query(
     schema: str = "data",
     attr_columns: list[dict] | None = None,
     filter_sql: str | None = None,
+    guarded_columns: Sequence[dict] = (),
 ) -> str:
     """Build a bounded server-side cluster MVT query for point datasets.
 
@@ -481,8 +549,9 @@ def _build_cluster_tile_query(
     # Mirrors _build_attr_columns' exclusion, revalidation and quoting rules,
     # projecting from the joined source row for unclustered features only.
     unclustered_attr_select = "".join(
-        f",\n        {_attr_select('src', col)}"
-        for col in (attr_columns or [])
+        f",\n        {_attr_select('src', col, guarded=guarded)}"
+        for guarded, group in ((False, attr_columns or []), (True, guarded_columns))
+        for col in group
         if col.get("name")
         and col["name"] not in _EXCLUDED_COLUMNS
         and col["name"] not in _CLUSTER_RESERVED_COLUMNS
@@ -762,6 +831,7 @@ async def get_tile(
     *,
     tile_columns: list[str] | None = None,
     additional_columns: list[str] | None = None,
+    cols_only: bool = False,
     conn: asyncpg.Connection | None = None,
     schema: str = "data",
 ) -> RenderedTile | None:
@@ -778,6 +848,7 @@ async def get_tile(
         additional_columns: Runtime opt-in columns the caller needs at all
             zooms (e.g. data-driven styling columns). Unioned with the
             base selection; validated against ``columns``.
+        cols_only: Project exactly ``additional_columns``, none of the defaults.
         conn: Optional already-acquired asyncpg connection to reuse. Pass one
             that already had ``set_tenant_role_for_tile_request`` called inside
             an open transaction so the per-tenant role/search_path survive.
@@ -797,8 +868,21 @@ async def get_tile(
         z,
         tile_columns=tile_columns,
         additional_columns=additional_columns,
+        cols_only=cols_only,
     )
-    query = _build_tile_query(table_name, selected_columns, schema=schema)
+    query = _build_tile_query(
+        table_name,
+        selected_columns,
+        schema=schema,
+        guarded_columns=_guarded_columns(
+            columns,
+            z,
+            tile_columns=tile_columns,
+            additional_columns=additional_columns,
+            selected=selected_columns,
+            cols_only=cols_only,
+        ),
+    )
     # layer_name must match the schema-qualified table so clients can identify
     # it. In multi_tenant the tile-config contract exposes the resolved tenant
     # schema as ``mvt_source_layer_prefix``, while ``data.{table}`` still signs
@@ -820,6 +904,7 @@ async def get_cluster_tile(
     *,
     tile_columns: list[str] | None = None,
     additional_columns: list[str] | None = None,
+    cols_only: bool = False,
     cluster_radius: int = 48,
     cluster_max_zoom: int = 14,
     conn: asyncpg.Connection | None = None,
@@ -844,6 +929,7 @@ async def get_cluster_tile(
             and popups work past cluster max zoom.
         tile_columns: Allowlist override (None / [] / list).
         additional_columns: Runtime opt-in columns (the ``cols=`` param).
+        cols_only: Project exactly ``additional_columns``, none of the defaults.
         cluster_radius: Cluster radius in CSS/screen pixels (MapLibre
             ``clusterRadius`` semantics; converted to MVT extent units
             inside the query).
@@ -861,9 +947,21 @@ async def get_cluster_tile(
         z,
         tile_columns=tile_columns,
         additional_columns=additional_columns,
+        cols_only=cols_only,
     )
     query = _build_cluster_tile_query(
-        table_name, schema=schema, attr_columns=attr_columns, filter_sql=filter_sql
+        table_name,
+        schema=schema,
+        attr_columns=attr_columns,
+        filter_sql=filter_sql,
+        guarded_columns=_guarded_columns(
+            columns or [],
+            z,
+            tile_columns=tile_columns,
+            additional_columns=additional_columns,
+            selected=attr_columns,
+            cols_only=cols_only,
+        ),
     )
     layer_name = f"{schema}.{table_name}"
 

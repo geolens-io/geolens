@@ -230,6 +230,9 @@ export const ViewerMap = memo(function ViewerMap({
     [layerAttributions, showBranding],
   );
 
+  // The rows endpoint refuses an embed whose map hides its attribute table, so its tiles keep every column.
+  const colsOnly = !embedToken || showAttributeTable;
+
   // Tile token management (fetch, auto-refresh, error toast)
   const { tokenMap, refreshTokens } = useViewerTokens({ layers, embedToken });
   // Shared tile-auth recovery: a vector tile 401/403 kicks one throttled token
@@ -693,13 +696,15 @@ export const ViewerMap = memo(function ViewerMap({
       setAccessibleFeatures(toAccessibleMapFeatures(
         rendered,
         (mapLayerId) => lookupHitLayer(mapLayerId, true)?.layer ?? null,
+        undefined,
+        colsOnly,
       ));
     } catch {
       // Style transitions can briefly invalidate a layer between getLayer()
       // and queryRenderedFeatures(). The next idle event refreshes safely.
       setAccessibleFeatures({ features: [], total: 0, truncated: false });
     }
-  }, [lookupHitLayer]);
+  }, [lookupHitLayer, colsOnly]);
 
   useEffect(() => {
     if (!dataPanelOpen || !dataListShown) return;
@@ -774,6 +779,9 @@ export const ViewerMap = memo(function ViewerMap({
           zoomAtClick: map.getZoom(),
           layerId: hit.key,
           featureId: featureGid(feature),
+          // Bounded cluster GeoJSON has no source layer and already carries every property.
+          fetchRow: colsOnly && cfg?.visible_fields == null && feature.sourceLayer !== undefined && featureGid(feature) !== undefined,
+          embedToken,
         });
       }
       return mapped;
@@ -871,7 +879,7 @@ export const ViewerMap = memo(function ViewerMap({
       map.off('click', handleClick);
       canvasForKeyboard?.removeEventListener?.('keydown', handleKeyDown);
     };
-  }, [mapReady, t, queryInteractiveFeatures, lookupHitLayer]);
+  }, [mapReady, t, queryInteractiveFeatures, lookupHitLayer, colsOnly, embedToken]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -929,8 +937,8 @@ export const ViewerMap = memo(function ViewerMap({
   }, [visibleLayers]);
 
   // Ref to hold current sync inputs so the style.load callback can access them
-  const syncInputsRef = useRef({ layers, visibleLayers, tokenMap, tileConfig, tileConfigReady, showBasemapLabels, basemapConfig });
-  syncInputsRef.current = { layers, visibleLayers, tokenMap, tileConfig, tileConfigReady, showBasemapLabels, basemapConfig };
+  const syncInputsRef = useRef({ layers, visibleLayers, tokenMap, tileConfig, tileConfigReady, showBasemapLabels, basemapConfig, colsOnly });
+  syncInputsRef.current = { layers, visibleLayers, tokenMap, tileConfig, tileConfigReady, showBasemapLabels, basemapConfig, colsOnly };
 
   const applyViewerBasemapConfig = useCallback((map: MaplibreMap) => {
     applyMapBasemapAppearance({
@@ -953,6 +961,7 @@ export const ViewerMap = memo(function ViewerMap({
       tileConfigReady: tcReady,
       showBasemapLabels: sbl,
       basemapConfig: bc,
+      colsOnly: lean,
     } = syncInputsRef.current;
     if (!tcReady) return;
     markMapLoading();
@@ -973,6 +982,7 @@ export const ViewerMap = memo(function ViewerMap({
         showBasemapLabels: sbl,
         basemapPosition: bc?.basemap_position ?? undefined,
         mvtSourceLayerPrefix: tc?.mvt_source_layer_prefix,
+        colsOnly: lean,
       },
       basemapConfig: bc,
       showBasemapLabels: sbl,
@@ -1092,7 +1102,7 @@ export const ViewerMap = memo(function ViewerMap({
     }
     runSync(map);
   // Note: visibleLayers intentionally excluded — the dedicated visibility effect below handles it
-  }, [layers, mapReady, tileConfigReady, tileConfig?.cdn_base_url, tileConfig?.mvt_source_layer_prefix, tokenMap, showBasemapLabels, runSync, embedToken, geojsonVersion]);
+  }, [layers, mapReady, tileConfigReady, tileConfig?.cdn_base_url, tileConfig?.mvt_source_layer_prefix, tokenMap, showBasemapLabels, runSync, embedToken, colsOnly, geojsonVersion]);
 
 
   // Re-add data layers after any basemap/style change. <MapGL

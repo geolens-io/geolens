@@ -226,6 +226,8 @@ test.describe('Accessibility - WCAG 2AA', () => {
           await expect(
             dataPanel.getByRole('region', { name: 'Map layer and feature data' }),
           ).toBeVisible();
+          // Tiles carry only the columns the map draws with; opening an item reads its other fields.
+          await dataPanel.getByText('All fields').first().click();
           await expect(dataPanel.getByText('E2E Test Point', { exact: true })).toBeVisible({
             timeout: 15_000,
           });

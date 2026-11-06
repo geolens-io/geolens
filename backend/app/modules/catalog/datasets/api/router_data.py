@@ -187,7 +187,7 @@ async def get_dataset_rows_endpoint(
     ),
     gid: int | None = Query(
         None,
-        ge=1,
+        ge=0,
         le=INT8_MAX,
         description=(
             "Return at most the row with this gid, ANDed with `filter` and the"

@@ -24,6 +24,7 @@ def _get_kwargs(
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
     cols: None | str | Unset = UNSET,
+    cols_only: bool | Unset = False,
     cluster_radius: int | Unset = 48,
     cluster_max_zoom: int | Unset = 14,
     filter_: None | str | Unset = UNSET,
@@ -58,6 +59,8 @@ def _get_kwargs(
     else:
         json_cols = cols
     params["cols"] = json_cols
+
+    params["cols_only"] = cols_only
 
     params["cluster_radius"] = cluster_radius
 
@@ -157,6 +160,7 @@ def sync_detailed(
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
     cols: None | str | Unset = UNSET,
+    cols_only: bool | Unset = False,
     cluster_radius: int | Unset = 48,
     cluster_max_zoom: int | Unset = 14,
     filter_: None | str | Unset = UNSET,
@@ -217,6 +221,8 @@ def sync_detailed(
         exp (int | None | Unset):
         scope (None | str | Unset):
         cols (None | str | Unset):
+        cols_only (bool | Unset): Carry only the columns named by `cols`, at every zoom. Default:
+            False.
         cluster_radius (int | Unset):  Default: 48.
         cluster_max_zoom (int | Unset):  Default: 14.
         filter_ (None | str | Unset):
@@ -238,6 +244,7 @@ def sync_detailed(
         exp=exp,
         scope=scope,
         cols=cols,
+        cols_only=cols_only,
         cluster_radius=cluster_radius,
         cluster_max_zoom=cluster_max_zoom,
         filter_=filter_,
@@ -261,6 +268,7 @@ def sync(
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
     cols: None | str | Unset = UNSET,
+    cols_only: bool | Unset = False,
     cluster_radius: int | Unset = 48,
     cluster_max_zoom: int | Unset = 14,
     filter_: None | str | Unset = UNSET,
@@ -321,6 +329,8 @@ def sync(
         exp (int | None | Unset):
         scope (None | str | Unset):
         cols (None | str | Unset):
+        cols_only (bool | Unset): Carry only the columns named by `cols`, at every zoom. Default:
+            False.
         cluster_radius (int | Unset):  Default: 48.
         cluster_max_zoom (int | Unset):  Default: 14.
         filter_ (None | str | Unset):
@@ -343,6 +353,7 @@ def sync(
         exp=exp,
         scope=scope,
         cols=cols,
+        cols_only=cols_only,
         cluster_radius=cluster_radius,
         cluster_max_zoom=cluster_max_zoom,
         filter_=filter_,
@@ -360,6 +371,7 @@ async def asyncio_detailed(
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
     cols: None | str | Unset = UNSET,
+    cols_only: bool | Unset = False,
     cluster_radius: int | Unset = 48,
     cluster_max_zoom: int | Unset = 14,
     filter_: None | str | Unset = UNSET,
@@ -420,6 +432,8 @@ async def asyncio_detailed(
         exp (int | None | Unset):
         scope (None | str | Unset):
         cols (None | str | Unset):
+        cols_only (bool | Unset): Carry only the columns named by `cols`, at every zoom. Default:
+            False.
         cluster_radius (int | Unset):  Default: 48.
         cluster_max_zoom (int | Unset):  Default: 14.
         filter_ (None | str | Unset):
@@ -441,6 +455,7 @@ async def asyncio_detailed(
         exp=exp,
         scope=scope,
         cols=cols,
+        cols_only=cols_only,
         cluster_radius=cluster_radius,
         cluster_max_zoom=cluster_max_zoom,
         filter_=filter_,
@@ -462,6 +477,7 @@ async def asyncio(
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
     cols: None | str | Unset = UNSET,
+    cols_only: bool | Unset = False,
     cluster_radius: int | Unset = 48,
     cluster_max_zoom: int | Unset = 14,
     filter_: None | str | Unset = UNSET,
@@ -522,6 +538,8 @@ async def asyncio(
         exp (int | None | Unset):
         scope (None | str | Unset):
         cols (None | str | Unset):
+        cols_only (bool | Unset): Carry only the columns named by `cols`, at every zoom. Default:
+            False.
         cluster_radius (int | Unset):  Default: 48.
         cluster_max_zoom (int | Unset):  Default: 14.
         filter_ (None | str | Unset):
@@ -545,6 +563,7 @@ async def asyncio(
             exp=exp,
             scope=scope,
             cols=cols,
+            cols_only=cols_only,
             cluster_radius=cluster_radius,
             cluster_max_zoom=cluster_max_zoom,
             filter_=filter_,

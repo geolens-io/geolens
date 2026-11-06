@@ -3,6 +3,7 @@ import type { SharedLayerResponse } from '@/types/api';
 import { geometryBounds } from '@/lib/bbox';
 import { formatFeaturePropertyValue, groupsDigits } from '@/lib/feature-property-value';
 import { substitutePopupTemplate } from '@/lib/popup-template';
+import { featureGid } from '@/lib/tile-utils';
 
 const EXCLUDED_PROPERTY_KEYS = new Set(['geom', 'geometry']);
 
@@ -18,6 +19,12 @@ interface AccessibleMapFeature {
   properties: [key: string, value: unknown][];
   /** Properties whose numbers render without digit grouping. */
   ungroupedKeys: ReadonlySet<string>;
+  datasetId: string;
+  gid: number | undefined;
+  /** The layer's known columns; a fetched row lists only these, as the popup does. Null when unknown. */
+  columnNames: ReadonlySet<string> | null;
+  /** The tile carries only the columns the map draws with; opening the item reads the rest. */
+  fetchRow: boolean;
 }
 
 export interface AccessibleMapFeatureResult {
@@ -128,6 +135,7 @@ export function toAccessibleMapFeatures(
   renderedFeatures: MapGeoJSONFeature[],
   resolveLayer: ResolveAccessibleLayer,
   limit = ACCESSIBLE_FEATURE_LIMIT,
+  colsOnly = false,
 ): AccessibleMapFeatureResult {
   const unique = new Map<string, AccessibleMapFeature>();
 
@@ -160,6 +168,17 @@ export function toAccessibleMapFeatures(
       bounds,
       properties: visibleProperties(properties, layer),
       ungroupedKeys: ungroupedKeys(layer),
+      datasetId: layer.dataset_id,
+      columnNames: layer.column_info ? new Set(layer.column_info.map((column) => column.name)) : null,
+      gid: featureGid(feature),
+      // A gid beyond Number.MAX_SAFE_INTEGER reaches the map rounded, so it names no row.
+      // Bounded cluster GeoJSON has no source layer and already carries every property.
+      fetchRow: colsOnly
+        && layer.popup_config?.enabled !== false
+        && layer.popup_config?.visible_fields == null
+        && feature.sourceLayer !== undefined
+        && featureGid(feature) !== undefined
+        && clusterCount(properties) === null,
     });
   }
 

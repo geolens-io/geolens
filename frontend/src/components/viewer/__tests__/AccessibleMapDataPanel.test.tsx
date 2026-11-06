@@ -38,6 +38,10 @@ const RESULT: AccessibleMapFeatureResult = {
     bounds: [-76.6122, 39.2904, -76.6122, 39.2904],
     properties: [['street_name', 'Fayette Street'], ['lanes', 2]],
     ungroupedKeys: new Set(),
+    datasetId: 'dataset-1',
+    gid: 7,
+    columnNames: null,
+    fetchRow: false,
   }],
 };
 

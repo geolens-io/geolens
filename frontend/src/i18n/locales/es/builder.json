@@ -851,6 +851,9 @@
     "smallDemWarning": "Este DEM solo cubre una pequeña parte de la vista actual. Acérquese a la extensión del DEM o use como fuente de terreno un DEM que cubra toda el área del mapa."
   },
   "featurePopup": {
+    "rowGone": "Este elemento ya no está en el conjunto de datos.",
+    "loadingFields": "Cargando más campos…",
+    "fieldsFailed": "No se pudieron cargar los demás campos.",
     "noAttributes": "Sin atributos",
     "zoomForAttributes": "Sin atributos en este nivel de zoom",
     "booleanTrue": "Sí",

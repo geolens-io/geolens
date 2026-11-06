@@ -10,6 +10,7 @@ import { circleAdapter } from '@/components/builder/layer-adapters/circle-adapte
 import { fillAdapter } from '@/components/builder/layer-adapters/fill-adapter';
 import type { AdapterLayerInput } from '@/components/builder/layer-adapters/types';
 import { syncLayersToMap } from '@/components/builder/map-sync';
+import { syncMapComposition } from '@/components/builder/map-composition-sync';
 import { SAVED_LAYERS, toSharedLayer } from '@/test/fixtures/saved-layers';
 import type { SharedLayerResponse } from '@/types/api';
 import { ViewerMap, toViewerSyncInput } from '../ViewerMap';
@@ -198,5 +199,41 @@ describe('viewer sources', () => {
 
     await waitFor(() => expect(fetchBoundedGeoJson).toHaveBeenCalledWith(cluster.dataset_id, expect.anything()));
     expect(fetchBoundedGeoJson).not.toHaveBeenCalledWith(small3d.dataset_id, expect.anything());
+  });
+});
+
+describe('ViewerMap lean tiles', () => {
+  const syncedColsOnly = async () => {
+    await waitFor(() => expect(syncMapComposition).toHaveBeenCalled());
+    return vi.mocked(syncMapComposition).mock.calls.at(-1)![0].syncOptions?.colsOnly;
+  };
+  const embed = (showAttributeTable: boolean | undefined) => (
+    <ViewerMap
+      layers={[LAYER]}
+      basemapStyle={BLANK_BASEMAP_ID}
+      initialViewState={{ center_lng: 0, center_lat: 0, zoom: 2, bearing: 0, pitch: 0 }}
+      visibleLayers={new Set(['pt-layer'])}
+      embedToken="et-1"
+      showAttributeTable={showAttributeTable}
+    />
+  );
+
+  beforeEach(() => {
+    vi.mocked(syncMapComposition).mockClear();
+  });
+
+  it('asks for lean tiles outside an embed', async () => {
+    render(viewer(new Set(['pt-layer'])));
+    expect(await syncedColsOnly()).toBe(true);
+  });
+
+  it('keeps every column in the tile for an embed whose map hides the attribute table', async () => {
+    render(embed(false));
+    expect(await syncedColsOnly()).toBe(false);
+  });
+
+  it('asks for lean tiles for an embed whose map shows the attribute table', async () => {
+    render(embed(true));
+    expect(await syncedColsOnly()).toBe(true);
   });
 });

@@ -851,6 +851,9 @@
     "smallDemWarning": "Ce MNT ne couvre qu'une petite partie de la vue actuelle. Zoomez sur l'emprise du MNT, ou utilisez comme source de terrain un MNT qui couvre toute la zone de la carte."
   },
   "featurePopup": {
+    "rowGone": "Cet élément n'est plus dans le jeu de données.",
+    "loadingFields": "Chargement des autres champs…",
+    "fieldsFailed": "Impossible de charger les autres champs.",
     "noAttributes": "Aucun attribut",
     "zoomForAttributes": "Aucun attribut à ce niveau de zoom",
     "booleanTrue": "Oui",
