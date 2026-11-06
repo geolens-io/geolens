@@ -112,3 +112,13 @@ it('addresses entries by position when one image appears twice', async () => {
   await user.click(screen.getByRole('button', { name: 'Remove image 1' }));
   expect(order()).toEqual(['Photo 2']);
 });
+
+it('moves focus to the previous row when the last row is removed', async () => {
+  const user = userEvent.setup();
+  render(<Harness initial={chapterWith(3)} />);
+
+  await user.click(screen.getByRole('button', { name: 'Remove image 3' }));
+
+  expect(order()).toEqual(['Photo 1', 'Photo 2']);
+  expect(screen.getByRole('button', { name: 'Remove image 2' })).toHaveFocus();
+});

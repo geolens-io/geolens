@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef } from 'react';
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { chapterTitle } from '../StoryChapterBody';
@@ -89,6 +90,11 @@ export function ChapterEditor({
   const textRef = useRef<HTMLElement>(null);
   const blocks = chapter.blocks ?? [];
   const blocksFull = blocks.length >= MAX_BLOCKS_PER_CHAPTER;
+  // An upload can finish after the chapter filled up, so completion reads the current count.
+  const blockCount = useRef(blocks.length);
+  useEffect(() => {
+    blockCount.current = blocks.length;
+  });
   const kindCounts = new Map<string, number>();
   const kindNumbers = blocks.map((block) => {
     const n = (kindCounts.get(block.type) ?? 0) + 1;
@@ -252,9 +258,13 @@ export function ChapterEditor({
               disabled={blocksFull}
               upload={uploads.get(`add${kind}:${chapter.id}`)}
               onPick={(file) =>
-                uploads.start(`add${kind}:${chapter.id}`, file, (asset) =>
-                  edit({ type: 'addGalleryBlock', chapterId: chapter.id, blockId: randomId(), kind, assetId: asset.id }),
-                )
+                uploads.start(`add${kind}:${chapter.id}`, file, (asset) => {
+                  if (blockCount.current >= MAX_BLOCKS_PER_CHAPTER) {
+                    toast.error(t('editor.limits.blocks', { count: MAX_BLOCKS_PER_CHAPTER }));
+                    return;
+                  }
+                  edit({ type: 'addGalleryBlock', chapterId: chapter.id, blockId: randomId(), kind, assetId: asset.id });
+                })
               }
             />
           ))}

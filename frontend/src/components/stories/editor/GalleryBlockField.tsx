@@ -1,4 +1,4 @@
-import { useId, useRef } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { storyAssetPath } from '@/api/stories';
@@ -41,9 +41,10 @@ interface GalleryImageRowProps {
   count: number;
   edit: (change: DraftEdit) => void;
   onMove: (index: number, by: -1 | 1) => void;
+  onRemove: (index: number) => void;
 }
 
-function GalleryImageRow({ storyId, chapterId, blockId, image, index, count, edit, onMove }: GalleryImageRowProps) {
+function GalleryImageRow({ storyId, chapterId, blockId, image, index, count, edit, onMove, onRemove }: GalleryImageRowProps) {
   const { t } = useTranslation('stories');
   const altId = useId();
   const decorativeId = useId();
@@ -130,7 +131,8 @@ function GalleryImageRow({ storyId, chapterId, blockId, image, index, count, edi
           size="sm"
           className="text-muted-foreground hover:text-destructive"
           disabled={count === 1}
-          onClick={() => edit({ type: 'removeGalleryImage', chapterId, blockId, index })}
+          data-remove
+          onClick={() => onRemove(index)}
         >
           <Trash2 className="h-4 w-4" aria-hidden="true" />
           {t('editor.gallery.remove', { index: number })}
@@ -152,6 +154,13 @@ export function GalleryBlockField({ storyId, uploads, chapterId, block, label, e
   const full = images.length >= MAX_GALLERY_IMAGES;
   const markMoved = useMoveFocus(listRef, 'data-image-id', images);
   const key = `gallery:${block.id}`;
+  // Removing the last row unmounts the focused button, so focus moves to the row before it.
+  const focusRow = useRef<number | null>(null);
+  useEffect(() => {
+    if (focusRow.current === null) return;
+    listRef.current?.querySelector<HTMLButtonElement>(`[data-image-id="${focusRow.current}"] [data-remove]`)?.focus();
+    focusRow.current = null;
+  }, [images]);
 
   return (
     <fieldset className="space-y-3 rounded-md border p-3">
@@ -170,6 +179,10 @@ export function GalleryBlockField({ storyId, uploads, chapterId, block, label, e
             index={i}
             count={images.length}
             edit={edit}
+            onRemove={(at) => {
+              if (at === images.length - 1) focusRow.current = at - 1;
+              edit({ type: 'removeGalleryImage', chapterId, blockId: block.id, index: at });
+            }}
             onMove={(from, by) => {
               markMoved(String(from + by), by);
               edit({ type: 'moveGalleryImage', chapterId, blockId: block.id, index: from, by });
