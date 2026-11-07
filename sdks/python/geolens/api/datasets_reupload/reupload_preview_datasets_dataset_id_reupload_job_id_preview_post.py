@@ -119,7 +119,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: None | ReuploadPreviewRequest | Unset = UNSET,
 ) -> Response[ProblemDetail | ReuploadPreviewResponse]:
-    """Reupload Preview
+    """Preview a re-upload
 
      Preview the schema diff between old dataset and new upload.
 
@@ -162,7 +162,7 @@ def sync(
     client: AuthenticatedClient,
     body: None | ReuploadPreviewRequest | Unset = UNSET,
 ) -> ProblemDetail | ReuploadPreviewResponse | None:
-    """Reupload Preview
+    """Preview a re-upload
 
      Preview the schema diff between old dataset and new upload.
 
@@ -200,7 +200,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: None | ReuploadPreviewRequest | Unset = UNSET,
 ) -> Response[ProblemDetail | ReuploadPreviewResponse]:
-    """Reupload Preview
+    """Preview a re-upload
 
      Preview the schema diff between old dataset and new upload.
 
@@ -241,7 +241,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: None | ReuploadPreviewRequest | Unset = UNSET,
 ) -> ProblemDetail | ReuploadPreviewResponse | None:
-    """Reupload Preview
+    """Preview a re-upload
 
      Preview the schema diff between old dataset and new upload.
 

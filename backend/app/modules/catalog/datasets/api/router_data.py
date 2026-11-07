@@ -95,6 +95,7 @@ def _semantic_search_rate_limit(_request: Request | None = None) -> str:
     "/{dataset_id}/related/",
     response_model=RelatedDatasetsResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List related datasets",
 )
 @limiter.limit(_semantic_search_rate_limit)
 async def list_related_datasets(
@@ -160,6 +161,7 @@ async def _compile_rows_filter(
     "/{dataset_id}/rows/",
     response_model=DatasetRowsResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List dataset rows",
 )
 async def get_dataset_rows_endpoint(
     request: Request,
@@ -334,7 +336,11 @@ async def get_dataset_rows_endpoint(
     )
 
 
-@router.get("/{dataset_id}/validate/", response_model=ValidationResultResponse)
+@router.get(
+    "/{dataset_id}/validate/",
+    response_model=ValidationResultResponse,
+    summary="Get a dataset's validation status",
+)
 async def validate_dataset(
     dataset_id: uuid.UUID,
     refresh: bool = Query(
@@ -409,6 +415,7 @@ async def validate_dataset(
     response_model=MapListResponse,
     responses={403: FORBIDDEN_RESPONSE},
     dependencies=[Depends(map_visibility_contract)],
+    summary="List maps that use a dataset",
 )
 async def dataset_maps(
     dataset_id: uuid.UUID,
@@ -519,7 +526,11 @@ async def _require_publishable(db: AsyncSession, dataset: DatasetModel) -> None:
         )
 
 
-@router.patch("/{dataset_id}/status/", response_model=StatusUpdateResponse)
+@router.patch(
+    "/{dataset_id}/status/",
+    response_model=StatusUpdateResponse,
+    summary="Change a dataset's publication status",
+)
 async def update_publication_status(
     dataset_id: uuid.UUID,
     body: StatusUpdate,
@@ -592,7 +603,11 @@ async def update_publication_status(
     )
 
 
-@router.patch("/{dataset_id}/target-status/", response_model=StatusUpdateResponse)
+@router.patch(
+    "/{dataset_id}/target-status/",
+    response_model=StatusUpdateResponse,
+    summary="Move a dataset to a target publication status",
+)
 async def set_target_status(
     dataset_id: uuid.UUID,
     body: StatusUpdate,

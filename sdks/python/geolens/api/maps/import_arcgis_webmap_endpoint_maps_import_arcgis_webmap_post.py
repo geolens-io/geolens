@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: ArcgisWebmapImportRequest,
 ) -> Response[ArcgisWebmapImportResponse | ProblemDetail]:
-    """Import Arcgis Webmap Endpoint
+    """Import an ArcGIS web map
 
      Import an ArcGIS web map as a new GeoLens map.
 
@@ -144,7 +144,7 @@ def sync(
     client: AuthenticatedClient,
     body: ArcgisWebmapImportRequest,
 ) -> ArcgisWebmapImportResponse | ProblemDetail | None:
-    """Import Arcgis Webmap Endpoint
+    """Import an ArcGIS web map
 
      Import an ArcGIS web map as a new GeoLens map.
 
@@ -177,7 +177,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: ArcgisWebmapImportRequest,
 ) -> Response[ArcgisWebmapImportResponse | ProblemDetail]:
-    """Import Arcgis Webmap Endpoint
+    """Import an ArcGIS web map
 
      Import an ArcGIS web map as a new GeoLens map.
 
@@ -213,7 +213,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: ArcgisWebmapImportRequest,
 ) -> ArcgisWebmapImportResponse | ProblemDetail | None:
-    """Import Arcgis Webmap Endpoint
+    """Import an ArcGIS web map
 
      Import an ArcGIS web map as a new GeoLens map.
 

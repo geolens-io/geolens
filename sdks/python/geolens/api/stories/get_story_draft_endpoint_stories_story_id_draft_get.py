@@ -102,7 +102,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | StoryDraftResponse]:
-    """Get Story Draft Endpoint
+    """Get a story draft
 
      Read the draft with its revision (owner or admin).
 
@@ -137,7 +137,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | StoryDraftResponse | None:
-    """Get Story Draft Endpoint
+    """Get a story draft
 
      Read the draft with its revision (owner or admin).
 
@@ -167,7 +167,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | StoryDraftResponse]:
-    """Get Story Draft Endpoint
+    """Get a story draft
 
      Read the draft with its revision (owner or admin).
 
@@ -200,7 +200,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | StoryDraftResponse | None:
-    """Get Story Draft Endpoint
+    """Get a story draft
 
      Read the draft with its revision (owner or admin).
 

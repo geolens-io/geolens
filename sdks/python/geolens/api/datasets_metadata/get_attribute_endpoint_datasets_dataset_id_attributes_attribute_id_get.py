@@ -105,7 +105,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[AttributeMetadataResponse | ProblemDetail]:
-    """Get Attribute Endpoint
+    """Get an attribute
 
      Get a single attribute metadata entry.
 
@@ -139,7 +139,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> AttributeMetadataResponse | ProblemDetail | None:
-    """Get Attribute Endpoint
+    """Get an attribute
 
      Get a single attribute metadata entry.
 
@@ -168,7 +168,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[AttributeMetadataResponse | ProblemDetail]:
-    """Get Attribute Endpoint
+    """Get an attribute
 
      Get a single attribute metadata entry.
 
@@ -200,7 +200,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> AttributeMetadataResponse | ProblemDetail | None:
-    """Get Attribute Endpoint
+    """Get an attribute
 
      Get a single attribute metadata entry.
 

@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: GroupWrite,
 ) -> Response[GroupResponse | ProblemDetail]:
-    """Rename Group
+    """Rename a sharing group
 
      Rename a sharing group (admin only). A name already in use is 409.
 
@@ -146,7 +146,7 @@ def sync(
     client: AuthenticatedClient,
     body: GroupWrite,
 ) -> GroupResponse | ProblemDetail | None:
-    """Rename Group
+    """Rename a sharing group
 
      Rename a sharing group (admin only). A name already in use is 409.
 
@@ -175,7 +175,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: GroupWrite,
 ) -> Response[GroupResponse | ProblemDetail]:
-    """Rename Group
+    """Rename a sharing group
 
      Rename a sharing group (admin only). A name already in use is 409.
 
@@ -207,7 +207,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: GroupWrite,
 ) -> GroupResponse | ProblemDetail | None:
-    """Rename Group
+    """Rename a sharing group
 
      Rename a sharing group (admin only). A name already in use is 409.
 

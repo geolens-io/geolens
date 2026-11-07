@@ -106,7 +106,7 @@ def sync_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[GroupRefListResponse | ProblemDetail]:
-    """List My Groups
+    """List the sharing groups you can share with
 
      List the sharing groups the caller may share with, by name.
 
@@ -142,7 +142,7 @@ def sync(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> GroupRefListResponse | ProblemDetail | None:
-    """List My Groups
+    """List the sharing groups you can share with
 
      List the sharing groups the caller may share with, by name.
 
@@ -173,7 +173,7 @@ async def asyncio_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[GroupRefListResponse | ProblemDetail]:
-    """List My Groups
+    """List the sharing groups you can share with
 
      List the sharing groups the caller may share with, by name.
 
@@ -207,7 +207,7 @@ async def asyncio(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> GroupRefListResponse | ProblemDetail | None:
-    """List My Groups
+    """List the sharing groups you can share with
 
      List the sharing groups the caller may share with, by name.
 

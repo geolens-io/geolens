@@ -63,6 +63,7 @@ async def _found_dataset(db: AsyncSession, dataset_id: uuid.UUID):
     "/{dataset_id}/api-keys",
     response_model=ApiKeyCreateResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Create a dataset API key",
 )
 @limiter.limit("30/minute")
 async def create_dataset_api_key(
@@ -158,7 +159,11 @@ async def create_dataset_api_key(
     )
 
 
-@router.get("/{dataset_id}/api-keys", response_model=DatasetApiKeyListResponse)
+@router.get(
+    "/{dataset_id}/api-keys",
+    response_model=DatasetApiKeyListResponse,
+    summary="List a dataset's API keys",
+)
 async def list_dataset_api_keys(
     dataset_id: uuid.UUID,
     skip: int = Query(0, ge=0),
@@ -219,6 +224,7 @@ async def list_dataset_api_keys(
     "/{dataset_id}/api-keys/{key_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
+    summary="Revoke a dataset API key",
 )
 async def revoke_dataset_api_key(
     dataset_id: uuid.UUID,

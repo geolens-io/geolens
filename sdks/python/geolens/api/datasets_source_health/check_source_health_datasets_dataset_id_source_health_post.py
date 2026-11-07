@@ -102,7 +102,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | SourceHealthResponse]:
-    """Check Source Health
+    """Check a dataset's source
 
      Contact this dataset's origin and record what came back.
 
@@ -137,7 +137,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | SourceHealthResponse | None:
-    """Check Source Health
+    """Check a dataset's source
 
      Contact this dataset's origin and record what came back.
 
@@ -167,7 +167,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | SourceHealthResponse]:
-    """Check Source Health
+    """Check a dataset's source
 
      Contact this dataset's origin and record what came back.
 
@@ -200,7 +200,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | SourceHealthResponse | None:
-    """Check Source Health
+    """Check a dataset's source
 
      Contact this dataset's origin and record what came back.
 

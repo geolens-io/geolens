@@ -117,7 +117,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: CommitRequest,
 ) -> Response[CommitResponse | ProblemDetail]:
-    """Commit Import
+    """Commit a staged file for import
 
      Commit a staged file for ingestion with user-supplied metadata.
 
@@ -173,7 +173,7 @@ def sync(
     client: AuthenticatedClient,
     body: CommitRequest,
 ) -> CommitResponse | ProblemDetail | None:
-    """Commit Import
+    """Commit a staged file for import
 
      Commit a staged file for ingestion with user-supplied metadata.
 
@@ -224,7 +224,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: CommitRequest,
 ) -> Response[CommitResponse | ProblemDetail]:
-    """Commit Import
+    """Commit a staged file for import
 
      Commit a staged file for ingestion with user-supplied metadata.
 
@@ -278,7 +278,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: CommitRequest,
 ) -> CommitResponse | ProblemDetail | None:
-    """Commit Import
+    """Commit a staged file for import
 
      Commit a staged file for ingestion with user-supplied metadata.
 

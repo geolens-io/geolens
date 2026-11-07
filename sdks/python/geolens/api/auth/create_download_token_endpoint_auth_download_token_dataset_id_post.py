@@ -97,7 +97,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[DownloadTokenResponse | ProblemDetail]:
-    """Create Download Token Endpoint
+    """Create a download token for a dataset
 
      Mint a short-lived download-scoped JWT for a single dataset.
 
@@ -136,7 +136,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> DownloadTokenResponse | ProblemDetail | None:
-    """Create Download Token Endpoint
+    """Create a download token for a dataset
 
      Mint a short-lived download-scoped JWT for a single dataset.
 
@@ -170,7 +170,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[DownloadTokenResponse | ProblemDetail]:
-    """Create Download Token Endpoint
+    """Create a download token for a dataset
 
      Mint a short-lived download-scoped JWT for a single dataset.
 
@@ -207,7 +207,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> DownloadTokenResponse | ProblemDetail | None:
-    """Create Download Token Endpoint
+    """Create a download token for a dataset
 
      Mint a short-lived download-scoped JWT for a single dataset.
 

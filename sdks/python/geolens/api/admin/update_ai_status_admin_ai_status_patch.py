@@ -101,7 +101,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: AIStatusUpdate,
 ) -> Response[AIStatusResponse | ProblemDetail]:
-    """Update Ai Status
+    """Turn AI features on or off
 
      Toggle base AI features on/off at runtime; no provider-routing policy controls (admin only).
 
@@ -132,7 +132,7 @@ def sync(
     client: AuthenticatedClient,
     body: AIStatusUpdate,
 ) -> AIStatusResponse | ProblemDetail | None:
-    """Update Ai Status
+    """Turn AI features on or off
 
      Toggle base AI features on/off at runtime; no provider-routing policy controls (admin only).
 
@@ -158,7 +158,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: AIStatusUpdate,
 ) -> Response[AIStatusResponse | ProblemDetail]:
-    """Update Ai Status
+    """Turn AI features on or off
 
      Toggle base AI features on/off at runtime; no provider-routing policy controls (admin only).
 
@@ -187,7 +187,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: AIStatusUpdate,
 ) -> AIStatusResponse | ProblemDetail | None:
-    """Update Ai Status
+    """Turn AI features on or off
 
      Toggle base AI features on/off at runtime; no provider-routing policy controls (admin only).
 

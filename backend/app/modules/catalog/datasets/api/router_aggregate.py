@@ -62,6 +62,7 @@ def _aggregate_rate_key(request: Request) -> str:
     response_model=AggregateResponse,
     responses={**ERROR_RESPONSES_AUTH, 429: RATE_LIMIT_RESPONSE},
     dependencies=[Depends(_note_rate_limit_identity)],
+    summary="Compute a dataset aggregate",
 )
 @limiter.limit(
     _AGGREGATE_RATE_LIMIT, key_func=_aggregate_rate_key, override_defaults=False

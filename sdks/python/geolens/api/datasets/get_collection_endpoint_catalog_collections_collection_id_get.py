@@ -102,7 +102,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[CollectionResponse | ProblemDetail]:
-    """Get Collection Endpoint
+    """Get a collection
 
      Get a single collection with dataset_count and extent.
 
@@ -133,7 +133,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> CollectionResponse | ProblemDetail | None:
-    """Get Collection Endpoint
+    """Get a collection
 
      Get a single collection with dataset_count and extent.
 
@@ -159,7 +159,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[CollectionResponse | ProblemDetail]:
-    """Get Collection Endpoint
+    """Get a collection
 
      Get a single collection with dataset_count and extent.
 
@@ -188,7 +188,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> CollectionResponse | ProblemDetail | None:
-    """Get Collection Endpoint
+    """Get a collection
 
      Get a single collection with dataset_count and extent.
 

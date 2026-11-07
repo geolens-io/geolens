@@ -78,9 +78,13 @@ def _collection_to_response(
     response_model=CollectionResponse,
     status_code=status.HTTP_201_CREATED,
     include_in_schema=False,
+    summary="Create a collection",
 )
 @router.post(
-    "/", response_model=CollectionResponse, status_code=status.HTTP_201_CREATED
+    "/",
+    response_model=CollectionResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a collection",
 )
 async def create_collection_endpoint(
     body: CollectionCreate,
@@ -131,11 +135,13 @@ _CATALOG_CACHE_TTL = 60  # seconds
     response_model=CollectionListResponse,
     include_in_schema=False,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List collections",
 )
 @router.get(
     "/",
     response_model=CollectionListResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List collections",
 )
 async def list_collections_endpoint(
     skip: int = Query(0, ge=0),
@@ -188,6 +194,7 @@ async def list_collections_endpoint(
     "/{collection_id}",
     response_model=CollectionResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="Get a collection",
 )
 async def get_collection_endpoint(
     collection_id: uuid.UUID,
@@ -215,7 +222,9 @@ async def get_collection_endpoint(
     )
 
 
-@router.patch("/{collection_id}", response_model=CollectionResponse)
+@router.patch(
+    "/{collection_id}", response_model=CollectionResponse, summary="Update a collection"
+)
 async def update_collection_endpoint(
     collection_id: uuid.UUID,
     body: CollectionUpdate,
@@ -275,7 +284,11 @@ async def update_collection_endpoint(
     )
 
 
-@router.delete("/{collection_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{collection_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a collection",
+)
 async def delete_collection_endpoint(
     collection_id: uuid.UUID,
     request: Request,
@@ -316,7 +329,11 @@ async def delete_collection_endpoint(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/{collection_id}/datasets/", response_model=AddDatasetsResponse)
+@router.post(
+    "/{collection_id}/datasets/",
+    response_model=AddDatasetsResponse,
+    summary="Add datasets to a collection",
+)
 async def add_datasets_endpoint(
     collection_id: uuid.UUID,
     body: CollectionAddDatasetsRequest,
@@ -368,7 +385,9 @@ async def add_datasets_endpoint(
 
 
 @router.delete(
-    "/{collection_id}/datasets/{dataset_id}", status_code=status.HTTP_204_NO_CONTENT
+    "/{collection_id}/datasets/{dataset_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Remove a dataset from a collection",
 )
 async def remove_dataset_endpoint(
     collection_id: uuid.UUID,
@@ -415,6 +434,7 @@ async def remove_dataset_endpoint(
     "/{collection_id}/datasets/",
     response_model=DatasetListResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List a collection's datasets",
 )
 async def get_collection_datasets_endpoint(
     collection_id: uuid.UUID,

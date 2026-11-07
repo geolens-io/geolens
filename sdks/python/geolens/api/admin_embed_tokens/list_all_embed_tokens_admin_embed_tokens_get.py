@@ -145,7 +145,7 @@ def sync_detailed(
     creator: None | str | Unset = UNSET,
     status: None | str | Unset = UNSET,
 ) -> Response[AdminEmbedTokenListResponse | ProblemDetail]:
-    """List All Embed Tokens
+    """List embed tokens
 
      List basic embed-token inventory across maps; no quota or domain-policy controls (admin only).
 
@@ -191,7 +191,7 @@ def sync(
     creator: None | str | Unset = UNSET,
     status: None | str | Unset = UNSET,
 ) -> AdminEmbedTokenListResponse | ProblemDetail | None:
-    """List All Embed Tokens
+    """List embed tokens
 
      List basic embed-token inventory across maps; no quota or domain-policy controls (admin only).
 
@@ -232,7 +232,7 @@ async def asyncio_detailed(
     creator: None | str | Unset = UNSET,
     status: None | str | Unset = UNSET,
 ) -> Response[AdminEmbedTokenListResponse | ProblemDetail]:
-    """List All Embed Tokens
+    """List embed tokens
 
      List basic embed-token inventory across maps; no quota or domain-policy controls (admin only).
 
@@ -276,7 +276,7 @@ async def asyncio(
     creator: None | str | Unset = UNSET,
     status: None | str | Unset = UNSET,
 ) -> AdminEmbedTokenListResponse | ProblemDetail | None:
-    """List All Embed Tokens
+    """List embed tokens
 
      List basic embed-token inventory across maps; no quota or domain-policy controls (admin only).
 

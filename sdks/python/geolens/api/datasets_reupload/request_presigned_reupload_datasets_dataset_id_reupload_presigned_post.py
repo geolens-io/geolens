@@ -122,7 +122,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: PresignedUploadRequest,
 ) -> Response[PresignedUploadResponse | ProblemDetail]:
-    """Request Presigned Reupload
+    """Request a presigned re-upload
 
      Request presigned URL(s) for direct-to-S3 reupload.
 
@@ -156,7 +156,7 @@ def sync(
     client: AuthenticatedClient,
     body: PresignedUploadRequest,
 ) -> PresignedUploadResponse | ProblemDetail | None:
-    """Request Presigned Reupload
+    """Request a presigned re-upload
 
      Request presigned URL(s) for direct-to-S3 reupload.
 
@@ -185,7 +185,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: PresignedUploadRequest,
 ) -> Response[PresignedUploadResponse | ProblemDetail]:
-    """Request Presigned Reupload
+    """Request a presigned re-upload
 
      Request presigned URL(s) for direct-to-S3 reupload.
 
@@ -217,7 +217,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: PresignedUploadRequest,
 ) -> PresignedUploadResponse | ProblemDetail | None:
-    """Request Presigned Reupload
+    """Request a presigned re-upload
 
      Request presigned URL(s) for direct-to-S3 reupload.
 

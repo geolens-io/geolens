@@ -123,7 +123,7 @@ def sync_detailed(
     size: int | Unset = 256,
     v: None | str | Unset = UNSET,
 ) -> Response[File | ProblemDetail]:
-    """Get Quicklook
+    """Get a dataset quicklook image
 
      Serve a quicklook PNG image for a dataset.
 
@@ -161,7 +161,7 @@ def sync(
     size: int | Unset = 256,
     v: None | str | Unset = UNSET,
 ) -> File | ProblemDetail | None:
-    """Get Quicklook
+    """Get a dataset quicklook image
 
      Serve a quicklook PNG image for a dataset.
 
@@ -194,7 +194,7 @@ async def asyncio_detailed(
     size: int | Unset = 256,
     v: None | str | Unset = UNSET,
 ) -> Response[File | ProblemDetail]:
-    """Get Quicklook
+    """Get a dataset quicklook image
 
      Serve a quicklook PNG image for a dataset.
 
@@ -230,7 +230,7 @@ async def asyncio(
     size: int | Unset = 256,
     v: None | str | Unset = UNSET,
 ) -> File | ProblemDetail | None:
-    """Get Quicklook
+    """Get a dataset quicklook image
 
      Serve a quicklook PNG image for a dataset.
 

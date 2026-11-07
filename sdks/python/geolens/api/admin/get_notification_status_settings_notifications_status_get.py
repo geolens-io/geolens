@@ -90,7 +90,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[NotificationStatusResponse | ProblemDetail]:
-    """Get Notification Status
+    """Get notification channel status
 
      Return which notification channels are configured (booleans only — no secrets).
 
@@ -119,7 +119,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> NotificationStatusResponse | ProblemDetail | None:
-    """Get Notification Status
+    """Get notification channel status
 
      Return which notification channels are configured (booleans only — no secrets).
 
@@ -144,7 +144,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[NotificationStatusResponse | ProblemDetail]:
-    """Get Notification Status
+    """Get notification channel status
 
      Return which notification channels are configured (booleans only — no secrets).
 
@@ -171,7 +171,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> NotificationStatusResponse | ProblemDetail | None:
-    """Get Notification Status
+    """Get notification channel status
 
      Return which notification channels are configured (booleans only — no secrets).
 

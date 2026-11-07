@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: KeywordCreate,
 ) -> Response[KeywordResponse | ProblemDetail]:
-    """Create Keyword Endpoint
+    """Add a record keyword
 
      Create a new keyword for a record.
 
@@ -146,7 +146,7 @@ def sync(
     client: AuthenticatedClient,
     body: KeywordCreate,
 ) -> KeywordResponse | ProblemDetail | None:
-    """Create Keyword Endpoint
+    """Add a record keyword
 
      Create a new keyword for a record.
 
@@ -175,7 +175,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: KeywordCreate,
 ) -> Response[KeywordResponse | ProblemDetail]:
-    """Create Keyword Endpoint
+    """Add a record keyword
 
      Create a new keyword for a record.
 
@@ -207,7 +207,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: KeywordCreate,
 ) -> KeywordResponse | ProblemDetail | None:
-    """Create Keyword Endpoint
+    """Add a record keyword
 
      Create a new keyword for a record.
 

@@ -70,6 +70,7 @@ router = APIRouter(
     # Read-gated (check_dataset_access_or_anonymous
     # below), not write-gated -- see datasets/api/router.py:get_single_dataset.
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List a dataset's versions",
 )
 async def get_dataset_versions_endpoint(
     dataset_id: uuid.UUID,
@@ -124,6 +125,7 @@ async def get_dataset_versions_endpoint(
     "/{dataset_id}/attributes/",
     response_model=AttributeMetadataListResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List a dataset's attributes",
 )
 async def list_attributes_endpoint(
     dataset_id: uuid.UUID,
@@ -151,6 +153,7 @@ async def list_attributes_endpoint(
     "/{dataset_id}/attributes/{attribute_id}/",
     response_model=AttributeMetadataResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="Get an attribute",
 )
 async def get_attribute_endpoint(
     dataset_id: uuid.UUID,
@@ -176,7 +179,9 @@ async def get_attribute_endpoint(
 
 
 @router.patch(
-    "/{dataset_id}/attributes/{attribute_id}/", response_model=AttributeMetadataResponse
+    "/{dataset_id}/attributes/{attribute_id}/",
+    response_model=AttributeMetadataResponse,
+    summary="Update an attribute",
 )
 async def update_attribute_endpoint(
     dataset_id: uuid.UUID,
@@ -246,6 +251,7 @@ async def update_attribute_endpoint(
 @router.post(
     "/{dataset_id}/attributes/{attribute_id}/reset/",
     response_model=AttributeMetadataResponse,
+    summary="Reset an attribute to its detected values",
 )
 async def reset_attribute_endpoint(
     dataset_id: uuid.UUID,
@@ -321,6 +327,7 @@ async def reset_attribute_endpoint(
     "/{dataset_id}/columns/{column_name}/values/",
     response_model=ColumnValuesResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List a column's distinct values",
 )
 async def get_column_values(
     dataset_id: uuid.UUID,
@@ -375,6 +382,7 @@ async def get_column_values(
     "/{dataset_id}/columns/{column_name}/stats/",
     response_model=ColumnStatsResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="Get a numeric column's statistics",
 )
 async def get_column_stats_endpoint(
     dataset_id: uuid.UUID,
@@ -409,6 +417,7 @@ async def get_column_stats_endpoint(
     "/{dataset_id}/relationships/",
     response_model=DatasetRelationshipListResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List a dataset's relationships",
 )
 async def list_dataset_relationships(
     dataset_id: uuid.UUID,
@@ -454,6 +463,7 @@ async def list_dataset_relationships(
     "/{dataset_id}/relationships/",
     response_model=DatasetRelationshipResponse,
     status_code=201,
+    summary="Create a dataset relationship",
 )
 async def create_dataset_relationship(
     dataset_id: uuid.UUID,
@@ -527,7 +537,11 @@ async def create_dataset_relationship(
     )
 
 
-@router.delete("/relationships/{relationship_id}/", status_code=204)
+@router.delete(
+    "/relationships/{relationship_id}/",
+    status_code=204,
+    summary="Delete a dataset relationship",
+)
 async def delete_dataset_relationship(
     relationship_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -569,6 +583,7 @@ async def delete_dataset_relationship(
     "/{dataset_id}/features/{gid}/related/{relationship_id}/",
     response_model=DatasetRowsResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List a feature's related records",
 )
 async def get_feature_related_records(
     dataset_id: uuid.UUID,
@@ -641,11 +656,13 @@ async def get_feature_related_records(
     "/{dataset_id}/groups",
     response_model=DatasetGroupsResponse,
     include_in_schema=False,
+    summary="Set the sharing groups for a dataset",
 )
 @router.put(
     "/{dataset_id}/groups/",
     response_model=DatasetGroupsResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="Set the sharing groups for a dataset",
 )
 async def set_dataset_groups_endpoint(
     dataset_id: uuid.UUID,

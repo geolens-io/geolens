@@ -96,7 +96,7 @@ def sync_detailed(
     offset: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[OGCCollectionsResponse | ProblemDetail]:
-    """List Collections
+    """List OGC collections
 
      List available OGC collections (catalog + per-dataset feature collections).
 
@@ -130,7 +130,7 @@ def sync(
     offset: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> OGCCollectionsResponse | ProblemDetail | None:
-    """List Collections
+    """List OGC collections
 
      List available OGC collections (catalog + per-dataset feature collections).
 
@@ -159,7 +159,7 @@ async def asyncio_detailed(
     offset: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[OGCCollectionsResponse | ProblemDetail]:
-    """List Collections
+    """List OGC collections
 
      List available OGC collections (catalog + per-dataset feature collections).
 
@@ -191,7 +191,7 @@ async def asyncio(
     offset: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> OGCCollectionsResponse | ProblemDetail | None:
-    """List Collections
+    """List OGC collections
 
      List available OGC collections (catalog + per-dataset feature collections).
 

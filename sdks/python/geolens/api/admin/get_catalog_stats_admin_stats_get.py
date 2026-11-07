@@ -90,7 +90,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[CatalogStatsResponse | ProblemDetail]:
-    """Get Catalog Stats
+    """Get catalog statistics
 
      Return catalog statistics: counts, storage, breakdowns (admin only).
 
@@ -115,7 +115,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> CatalogStatsResponse | ProblemDetail | None:
-    """Get Catalog Stats
+    """Get catalog statistics
 
      Return catalog statistics: counts, storage, breakdowns (admin only).
 
@@ -136,7 +136,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[CatalogStatsResponse | ProblemDetail]:
-    """Get Catalog Stats
+    """Get catalog statistics
 
      Return catalog statistics: counts, storage, breakdowns (admin only).
 
@@ -159,7 +159,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> CatalogStatsResponse | ProblemDetail | None:
-    """Get Catalog Stats
+    """Get catalog statistics
 
      Return catalog statistics: counts, storage, breakdowns (admin only).
 

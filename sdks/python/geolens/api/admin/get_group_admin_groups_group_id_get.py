@@ -97,7 +97,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[GroupResponse | ProblemDetail]:
-    """Get Group
+    """Get a sharing group
 
      Get one sharing group with its member count (admin only).
 
@@ -128,7 +128,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> GroupResponse | ProblemDetail | None:
-    """Get Group
+    """Get a sharing group
 
      Get one sharing group with its member count (admin only).
 
@@ -154,7 +154,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[GroupResponse | ProblemDetail]:
-    """Get Group
+    """Get a sharing group
 
      Get one sharing group with its member count (admin only).
 
@@ -183,7 +183,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> GroupResponse | ProblemDetail | None:
-    """Get Group
+    """Get a sharing group
 
      Get one sharing group with its member count (admin only).
 

@@ -75,7 +75,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | StacCatalog]:
-    """Landing Page
+    """Get the STAC landing page
 
      STAC Catalog landing page.
 
@@ -100,7 +100,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> ProblemDetail | StacCatalog | None:
-    """Landing Page
+    """Get the STAC landing page
 
      STAC Catalog landing page.
 
@@ -121,7 +121,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | StacCatalog]:
-    """Landing Page
+    """Get the STAC landing page
 
      STAC Catalog landing page.
 
@@ -144,7 +144,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> ProblemDetail | StacCatalog | None:
-    """Landing Page
+    """Get the STAC landing page
 
      STAC Catalog landing page.
 

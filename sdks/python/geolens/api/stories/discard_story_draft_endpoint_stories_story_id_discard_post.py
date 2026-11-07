@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: StoryRevision,
 ) -> Response[ProblemDetail | StoryDraftResponse]:
-    """Discard Story Draft Endpoint
+    """Discard a story draft
 
      Revert the draft to the published document, or to an empty one for a
     story never published (owner or admin).
@@ -150,7 +150,7 @@ def sync(
     client: AuthenticatedClient,
     body: StoryRevision,
 ) -> ProblemDetail | StoryDraftResponse | None:
-    """Discard Story Draft Endpoint
+    """Discard a story draft
 
      Revert the draft to the published document, or to an empty one for a
     story never published (owner or admin).
@@ -183,7 +183,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: StoryRevision,
 ) -> Response[ProblemDetail | StoryDraftResponse]:
-    """Discard Story Draft Endpoint
+    """Discard a story draft
 
      Revert the draft to the published document, or to an empty one for a
     story never published (owner or admin).
@@ -219,7 +219,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: StoryRevision,
 ) -> ProblemDetail | StoryDraftResponse | None:
-    """Discard Story Draft Endpoint
+    """Discard a story draft
 
      Revert the draft to the published document, or to an empty one for a
     story never published (owner or admin).

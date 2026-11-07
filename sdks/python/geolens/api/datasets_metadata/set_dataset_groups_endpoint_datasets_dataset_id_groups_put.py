@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: DatasetGroupsUpdate,
 ) -> Response[DatasetGroupsResponse | ProblemDetail]:
-    """Set Dataset Groups Endpoint
+    """Set the sharing groups for a dataset
 
      Share a dataset with exactly these sharing groups (owner or admin).
 
@@ -153,7 +153,7 @@ def sync(
     client: AuthenticatedClient,
     body: DatasetGroupsUpdate,
 ) -> DatasetGroupsResponse | ProblemDetail | None:
-    """Set Dataset Groups Endpoint
+    """Set the sharing groups for a dataset
 
      Share a dataset with exactly these sharing groups (owner or admin).
 
@@ -189,7 +189,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: DatasetGroupsUpdate,
 ) -> Response[DatasetGroupsResponse | ProblemDetail]:
-    """Set Dataset Groups Endpoint
+    """Set the sharing groups for a dataset
 
      Share a dataset with exactly these sharing groups (owner or admin).
 
@@ -228,7 +228,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: DatasetGroupsUpdate,
 ) -> DatasetGroupsResponse | ProblemDetail | None:
-    """Set Dataset Groups Endpoint
+    """Set the sharing groups for a dataset
 
      Share a dataset with exactly these sharing groups (owner or admin).
 

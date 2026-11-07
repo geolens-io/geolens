@@ -100,7 +100,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Collection Endpoint
+    """Delete a collection
 
      Delete a collection. Owner or admin only.
 
@@ -131,7 +131,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Delete Collection Endpoint
+    """Delete a collection
 
      Delete a collection. Owner or admin only.
 
@@ -157,7 +157,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Collection Endpoint
+    """Delete a collection
 
      Delete a collection. Owner or admin only.
 
@@ -186,7 +186,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Delete Collection Endpoint
+    """Delete a collection
 
      Delete a collection. Owner or admin only.
 

@@ -103,7 +103,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Remove Dataset Endpoint
+    """Remove a dataset from a collection
 
      Remove a dataset from a collection. Collection owner or admin only.
 
@@ -137,7 +137,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Remove Dataset Endpoint
+    """Remove a dataset from a collection
 
      Remove a dataset from a collection. Collection owner or admin only.
 
@@ -166,7 +166,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Remove Dataset Endpoint
+    """Remove a dataset from a collection
 
      Remove a dataset from a collection. Collection owner or admin only.
 
@@ -198,7 +198,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Remove Dataset Endpoint
+    """Remove a dataset from a collection
 
      Remove a dataset from a collection. Collection owner or admin only.
 

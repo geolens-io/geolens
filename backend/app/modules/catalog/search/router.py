@@ -485,9 +485,14 @@ def _finalize_semantic_search_claim(request: Request) -> None:
 # The slash form is canonical (in OpenAPI); the no-slash alias is hidden and
 # covers redirect_slashes=False (api/main.py).
 @search_router.get(
-    "/facets", response_model=FacetCountResponse, include_in_schema=False
+    "/facets",
+    response_model=FacetCountResponse,
+    include_in_schema=False,
+    summary="Get search facet counts",
 )
-@search_router.get("/facets/", response_model=FacetCountResponse)
+@search_router.get(
+    "/facets/", response_model=FacetCountResponse, summary="Get search facet counts"
+)
 # Facets embed the query, so both routes draw on one semantic-search bucket. No
 # override_defaults: this limit_value is callable, so the global rate-limit
 # middleware already charges the global default for it
@@ -579,11 +584,13 @@ async def search_facets_endpoint(
     "/datasets",
     response_model=OGCFeatureCollectionResponse,
     include_in_schema=False,
+    summary="Search datasets",
 )
 @search_router.get(
     "/datasets/",
     response_model=OGCFeatureCollectionResponse,
     responses={400: BAD_REQUEST_RESPONSE},
+    summary="Search datasets",
 )
 # The facets route's callable-limit note above applies here too: this route
 # can be the second of the pair.
@@ -802,9 +809,14 @@ def _build_collection_links(public_api_url: str) -> list[dict]:
 # prevents the 307 + http://api:8000 Location-header leak from
 # redirect_slashes=False (api/main.py; mirrors catalog/maps/router.py).
 @collections_router.get(
-    "/", response_model=OGCCollectionsResponse, include_in_schema=False
+    "/",
+    response_model=OGCCollectionsResponse,
+    include_in_schema=False,
+    summary="List OGC collections",
 )
-@collections_router.get("", response_model=OGCCollectionsResponse)
+@collections_router.get(
+    "", response_model=OGCCollectionsResponse, summary="List OGC collections"
+)
 async def list_collections(
     request: Request,
     response: Response,
@@ -1010,7 +1022,11 @@ async def list_collections(
     return result
 
 
-@collections_router.get("/datasets", response_model=OGCCollectionMetadataResponse)
+@collections_router.get(
+    "/datasets",
+    response_model=OGCCollectionMetadataResponse,
+    summary="Get the datasets collection",
+)
 async def get_collection_metadata(
     request: Request,
     user: Identity | None = Depends(get_optional_user),
@@ -1022,7 +1038,11 @@ async def get_collection_metadata(
     return OGCCollectionMetadataResponse(**result)
 
 
-@collections_router.get("/datasets/queryables", response_class=JSONResponse)
+@collections_router.get(
+    "/datasets/queryables",
+    response_class=JSONResponse,
+    summary="Get the datasets collection queryables",
+)
 async def get_queryables(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -1035,7 +1055,11 @@ async def get_queryables(
     )
 
 
-@collections_router.get("/datasets/schema", response_class=JSONResponse)
+@collections_router.get(
+    "/datasets/schema",
+    response_class=JSONResponse,
+    summary="Get the catalog record schema",
+)
 async def get_record_schema(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -1048,7 +1072,11 @@ async def get_record_schema(
     )
 
 
-@collections_router.get("/datasets/sortables", response_class=JSONResponse)
+@collections_router.get(
+    "/datasets/sortables",
+    response_class=JSONResponse,
+    summary="Get the datasets collection sortables",
+)
 async def get_sortables(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -1101,6 +1129,7 @@ async def get_sortables(
         },
         **ERROR_RESPONSES_PUBLIC,
     },
+    summary="List catalog records",
 )
 async def collection_items(
     request: Request,
@@ -1238,6 +1267,7 @@ async def collection_items(
         },
         **ERROR_RESPONSES_PUBLIC,
     },
+    summary="Get a catalog record",
 )
 async def get_collection_item(
     record_id: uuid.UUID,

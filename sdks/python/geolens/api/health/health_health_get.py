@@ -65,7 +65,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[HealthResponse | ProblemDetail]:
-    """Health
+    """Check service health
 
      Health check endpoint for ALB, Docker, and Nginx.
 
@@ -90,7 +90,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> HealthResponse | ProblemDetail | None:
-    """Health
+    """Check service health
 
      Health check endpoint for ALB, Docker, and Nginx.
 
@@ -111,7 +111,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[HealthResponse | ProblemDetail]:
-    """Health
+    """Check service health
 
      Health check endpoint for ALB, Docker, and Nginx.
 
@@ -134,7 +134,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> HealthResponse | ProblemDetail | None:
-    """Health
+    """Check service health
 
      Health check endpoint for ALB, Docker, and Nginx.
 

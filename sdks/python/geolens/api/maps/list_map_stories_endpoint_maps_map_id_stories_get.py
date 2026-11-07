@@ -102,7 +102,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[MapStoriesResponse | ProblemDetail]:
-    """List Map Stories Endpoint
+    """List stories that use a map
 
      List the stories whose scenes use this map (owner or admin).
 
@@ -138,7 +138,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> MapStoriesResponse | ProblemDetail | None:
-    """List Map Stories Endpoint
+    """List stories that use a map
 
      List the stories whose scenes use this map (owner or admin).
 
@@ -169,7 +169,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[MapStoriesResponse | ProblemDetail]:
-    """List Map Stories Endpoint
+    """List stories that use a map
 
      List the stories whose scenes use this map (owner or admin).
 
@@ -203,7 +203,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> MapStoriesResponse | ProblemDetail | None:
-    """List Map Stories Endpoint
+    """List stories that use a map
 
      List the stories whose scenes use this map (owner or admin).
 

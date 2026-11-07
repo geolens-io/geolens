@@ -602,7 +602,12 @@ async def _anon_cache_put(key: str | None, result: BaseModel) -> None:
 # response_model_exclude_none (here and on the collection routes): optional
 # StacLink fields must be omitted rather than serialized as null — the STAC
 # link schema types `method` as a ^[A-Z]+$ string.
-@stac_router.get("/", response_model=StacCatalog, response_model_exclude_none=True)
+@stac_router.get(
+    "/",
+    response_model=StacCatalog,
+    response_model_exclude_none=True,
+    summary="Get the STAC landing page",
+)
 async def landing_page(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -698,7 +703,11 @@ async def service_desc(request: Request) -> Response:
     )
 
 
-@stac_router.get("/conformance", response_model=StacConformance)
+@stac_router.get(
+    "/conformance",
+    response_model=StacConformance,
+    summary="Get the STAC conformance classes",
+)
 async def conformance() -> StacConformance:
     """STAC API conformance classes."""
     return StacConformance(conformsTo=STAC_CONFORMANCE)
@@ -708,6 +717,7 @@ async def conformance() -> StacConformance:
     "/collections",
     response_model=StacCollectionListResponse,
     response_model_exclude_none=True,
+    summary="List STAC collections",
 )
 async def get_collections(
     request: Request,
@@ -899,6 +909,7 @@ async def _build_collection_list(
     response_model=StacCollection,
     response_model_exclude_none=True,
     responses={404: NOT_FOUND_RESPONSE},
+    summary="Get a STAC collection",
 )
 async def get_collection(
     collection_id: str,
@@ -1044,6 +1055,7 @@ async def get_collection(
     response_model=StacItemCollectionResponse,
     response_class=GeoJSONResponse,
     responses=ERROR_RESPONSES_PUBLIC,
+    summary="List STAC items in a collection",
 )
 async def get_collection_items(
     collection_id: str,
@@ -1266,6 +1278,7 @@ async def _build_item_response(
     response_model=StacItemResponse,
     response_class=GeoJSONResponse,
     responses={404: NOT_FOUND_RESPONSE},
+    summary="Get a STAC item in a collection",
 )
 async def get_collection_item(
     collection_id: str,
@@ -1312,6 +1325,7 @@ async def get_collection_item(
     response_model=StacItemResponse,
     response_class=GeoJSONResponse,
     responses={404: NOT_FOUND_RESPONSE},
+    summary="Get a STAC item",
 )
 async def get_item(
     item_id: uuid.UUID,
@@ -1701,6 +1715,7 @@ async def _execute_search(
     response_model=StacItemCollectionResponse,
     response_class=GeoJSONResponse,
     responses=ERROR_RESPONSES_PUBLIC,
+    summary="Search STAC items with GET",
 )
 async def search_get(
     request: Request,
@@ -1835,6 +1850,7 @@ class StacSearchBody(BaseModel):
     response_model=StacItemCollectionResponse,
     response_class=GeoJSONResponse,
     responses=ERROR_RESPONSES_PUBLIC,
+    summary="Search STAC items with POST",
 )
 async def search_post(
     body: StacSearchBody,

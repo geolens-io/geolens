@@ -65,7 +65,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[BrandingResponse | ProblemDetail]:
-    """Get Branding
+    """Get branding
 
      Return branding configuration (public, no auth required).
 
@@ -95,7 +95,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> BrandingResponse | ProblemDetail | None:
-    """Get Branding
+    """Get branding
 
      Return branding configuration (public, no auth required).
 
@@ -121,7 +121,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[BrandingResponse | ProblemDetail]:
-    """Get Branding
+    """Get branding
 
      Return branding configuration (public, no auth required).
 
@@ -149,7 +149,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> BrandingResponse | ProblemDetail | None:
-    """Get Branding
+    """Get branding
 
      Return branding configuration (public, no auth required).
 

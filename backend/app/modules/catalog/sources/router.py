@@ -299,9 +299,14 @@ def _validate_connector_job(job_id: object) -> ConnectorIngestResponse:
 
 
 @router.get(
-    "/connectors", response_model=ConnectorListResponse, include_in_schema=False
+    "/connectors",
+    response_model=ConnectorListResponse,
+    include_in_schema=False,
+    summary="List connectors",
 )
-@router.get("/connectors/", response_model=ConnectorListResponse)
+@router.get(
+    "/connectors/", response_model=ConnectorListResponse, summary="List connectors"
+)
 async def list_connectors_endpoint(
     _user: Identity = Depends(require_permission("upload")),
 ) -> ConnectorListResponse:
@@ -329,11 +334,13 @@ async def list_connectors_endpoint(
     response_model=ConnectorDiscoverResponse,
     responses=_CONNECTOR_OPERATION_RESPONSES,
     include_in_schema=False,
+    summary="Discover connector resources",
 )
 @router.post(
     "/connectors/{connector_name}/discover/",
     response_model=ConnectorDiscoverResponse,
     responses=_CONNECTOR_OPERATION_RESPONSES,
+    summary="Discover connector resources",
 )
 async def discover_connector_resources_endpoint(
     connector_name: str,
@@ -401,12 +408,14 @@ async def discover_connector_resources_endpoint(
     responses=_CONNECTOR_OPERATION_RESPONSES,
     status_code=status.HTTP_202_ACCEPTED,
     include_in_schema=False,
+    summary="Start a connector ingest",
 )
 @router.post(
     "/connectors/{connector_name}/ingest/",
     response_model=ConnectorIngestResponse,
     responses=_CONNECTOR_OPERATION_RESPONSES,
     status_code=status.HTTP_202_ACCEPTED,
+    summary="Start a connector ingest",
 )
 async def dispatch_connector_ingest_endpoint(
     connector_name: str,
@@ -867,8 +876,15 @@ def _build_preview_response(
 # Dual-shape decorator: the trailing-slash and bare forms register against
 # the same handler. The slash form is canonical (in OpenAPI); the bare form is
 # a hidden alias, since redirect_slashes=False (api/main.py) would 404 it.
-@router.post("/probe", response_model=ProbeResponse, include_in_schema=False)
-@router.post("/probe/", response_model=ProbeResponse)
+@router.post(
+    "/probe",
+    response_model=ProbeResponse,
+    include_in_schema=False,
+    summary="Probe a remote service URL",
+)
+@router.post(
+    "/probe/", response_model=ProbeResponse, summary="Probe a remote service URL"
+)
 async def probe_service_url(
     request: ProbeRequest,
     user: Identity = Depends(require_permission("create_layers")),
@@ -1110,8 +1126,17 @@ async def probe_service_url(
 
 
 # Dual-shape decorator; see /probe above.
-@router.post("/preview", response_model=ServicePreviewResponse, include_in_schema=False)
-@router.post("/preview/", response_model=ServicePreviewResponse)
+@router.post(
+    "/preview",
+    response_model=ServicePreviewResponse,
+    include_in_schema=False,
+    summary="Preview a remote service layer",
+)
+@router.post(
+    "/preview/",
+    response_model=ServicePreviewResponse,
+    summary="Preview a remote service layer",
+)
 async def preview_service_layer(
     request: ServicePreviewRequest,
     user: Identity = Depends(require_permission("create_layers")),
@@ -1579,11 +1604,13 @@ _ARCGIS_SIGNIN_RESPONSES = {
     response_model=ArcGISSignInResponse,
     responses=_ARCGIS_SIGNIN_RESPONSES,
     include_in_schema=False,
+    summary="Sign in to an ArcGIS portal",
 )
 @router.post(
     "/arcgis/signin/",
     response_model=ArcGISSignInResponse,
     responses=_ARCGIS_SIGNIN_RESPONSES,
+    summary="Sign in to an ArcGIS portal",
 )
 @limiter.limit(_arcgis_signin_user_limit, key_func=_signin_user_key)
 @limiter.limit(_arcgis_signin_portal_limit, key_func=_signin_portal_key)

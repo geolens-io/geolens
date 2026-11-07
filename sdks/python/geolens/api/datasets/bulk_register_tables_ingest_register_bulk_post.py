@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: BulkRegisterRequest,
 ) -> Response[BulkRegisterResponse | ProblemDetail]:
-    """Bulk Register Tables
+    """Register several PostGIS tables
 
      Bulk-register multiple existing PostGIS tables as datasets.
 
@@ -142,7 +142,7 @@ def sync(
     client: AuthenticatedClient,
     body: BulkRegisterRequest,
 ) -> BulkRegisterResponse | ProblemDetail | None:
-    """Bulk Register Tables
+    """Register several PostGIS tables
 
      Bulk-register multiple existing PostGIS tables as datasets.
 
@@ -173,7 +173,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: BulkRegisterRequest,
 ) -> Response[BulkRegisterResponse | ProblemDetail]:
-    """Bulk Register Tables
+    """Register several PostGIS tables
 
      Bulk-register multiple existing PostGIS tables as datasets.
 
@@ -207,7 +207,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: BulkRegisterRequest,
 ) -> BulkRegisterResponse | ProblemDetail | None:
-    """Bulk Register Tables
+    """Register several PostGIS tables
 
      Bulk-register multiple existing PostGIS tables as datasets.
 

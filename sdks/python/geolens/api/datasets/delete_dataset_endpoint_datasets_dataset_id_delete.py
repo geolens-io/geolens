@@ -110,7 +110,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: DatasetDeleteRequest,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Dataset Endpoint
+    """Delete a dataset
 
      Delete a dataset with cascade cleanup. Owner or admin only, requires confirm_title.
 
@@ -144,7 +144,7 @@ def sync(
     client: AuthenticatedClient,
     body: DatasetDeleteRequest,
 ) -> Any | ProblemDetail | None:
-    """Delete Dataset Endpoint
+    """Delete a dataset
 
      Delete a dataset with cascade cleanup. Owner or admin only, requires confirm_title.
 
@@ -173,7 +173,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: DatasetDeleteRequest,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Dataset Endpoint
+    """Delete a dataset
 
      Delete a dataset with cascade cleanup. Owner or admin only, requires confirm_title.
 
@@ -205,7 +205,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: DatasetDeleteRequest,
 ) -> Any | ProblemDetail | None:
-    """Delete Dataset Endpoint
+    """Delete a dataset
 
      Delete a dataset with cascade cleanup. Owner or admin only, requires confirm_title.
 

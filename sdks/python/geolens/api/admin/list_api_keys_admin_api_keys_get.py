@@ -118,7 +118,7 @@ def sync_detailed(
     limit: int | Unset = 50,
     user_id: None | Unset | UUID = UNSET,
 ) -> Response[AdminApiKeyListResponse | ProblemDetail]:
-    """List Api Keys
+    """List all API keys
 
      List all API keys (admin only). Never returns the raw key.
 
@@ -155,7 +155,7 @@ def sync(
     limit: int | Unset = 50,
     user_id: None | Unset | UUID = UNSET,
 ) -> AdminApiKeyListResponse | ProblemDetail | None:
-    """List Api Keys
+    """List all API keys
 
      List all API keys (admin only). Never returns the raw key.
 
@@ -187,7 +187,7 @@ async def asyncio_detailed(
     limit: int | Unset = 50,
     user_id: None | Unset | UUID = UNSET,
 ) -> Response[AdminApiKeyListResponse | ProblemDetail]:
-    """List Api Keys
+    """List all API keys
 
      List all API keys (admin only). Never returns the raw key.
 
@@ -222,7 +222,7 @@ async def asyncio(
     limit: int | Unset = 50,
     user_id: None | Unset | UUID = UNSET,
 ) -> AdminApiKeyListResponse | ProblemDetail | None:
-    """List Api Keys
+    """List all API keys
 
      List all API keys (admin only). Never returns the raw key.
 

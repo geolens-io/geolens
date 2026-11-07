@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: StacConnectRequest,
 ) -> Response[ProblemDetail | StacConnectResponse]:
-    """Stac Connect
+    """Connect to a STAC API
 
      Connect to a STAC API and validate the endpoint.
 
@@ -139,7 +139,7 @@ def sync(
     client: AuthenticatedClient,
     body: StacConnectRequest,
 ) -> ProblemDetail | StacConnectResponse | None:
-    """Stac Connect
+    """Connect to a STAC API
 
      Connect to a STAC API and validate the endpoint.
 
@@ -167,7 +167,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: StacConnectRequest,
 ) -> Response[ProblemDetail | StacConnectResponse]:
-    """Stac Connect
+    """Connect to a STAC API
 
      Connect to a STAC API and validate the endpoint.
 
@@ -198,7 +198,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: StacConnectRequest,
 ) -> ProblemDetail | StacConnectResponse | None:
-    """Stac Connect
+    """Connect to a STAC API
 
      Connect to a STAC API and validate the endpoint.
 

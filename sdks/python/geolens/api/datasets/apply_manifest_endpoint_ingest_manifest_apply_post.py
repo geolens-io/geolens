@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: ManifestApplyRequest,
 ) -> Response[ManifestApplyResponse | ProblemDetail]:
-    """Apply Manifest Endpoint
+    """Apply an ingest manifest
 
      Apply a versioned manifest through the ingest service layer.
 
@@ -137,7 +137,7 @@ def sync(
     client: AuthenticatedClient,
     body: ManifestApplyRequest,
 ) -> ManifestApplyResponse | ProblemDetail | None:
-    """Apply Manifest Endpoint
+    """Apply an ingest manifest
 
      Apply a versioned manifest through the ingest service layer.
 
@@ -163,7 +163,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: ManifestApplyRequest,
 ) -> Response[ManifestApplyResponse | ProblemDetail]:
-    """Apply Manifest Endpoint
+    """Apply an ingest manifest
 
      Apply a versioned manifest through the ingest service layer.
 
@@ -192,7 +192,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: ManifestApplyRequest,
 ) -> ManifestApplyResponse | ProblemDetail | None:
-    """Apply Manifest Endpoint
+    """Apply an ingest manifest
 
      Apply a versioned manifest through the ingest service layer.
 

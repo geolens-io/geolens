@@ -100,7 +100,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Story Endpoint
+    """Delete a story
 
      Delete a story and its images (owner or admin). The maps it uses are
     untouched.
@@ -132,7 +132,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Delete Story Endpoint
+    """Delete a story
 
      Delete a story and its images (owner or admin). The maps it uses are
     untouched.
@@ -159,7 +159,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Story Endpoint
+    """Delete a story
 
      Delete a story and its images (owner or admin). The maps it uses are
     untouched.
@@ -189,7 +189,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Delete Story Endpoint
+    """Delete a story
 
      Delete a story and its images (owner or admin). The maps it uses are
     untouched.

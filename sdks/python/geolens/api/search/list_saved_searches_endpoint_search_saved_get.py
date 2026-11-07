@@ -86,7 +86,7 @@ def sync_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[ProblemDetail | SavedSearchListResponse]:
-    """List Saved Searches Endpoint
+    """List saved searches
 
      List saved searches for the authenticated user.
 
@@ -120,7 +120,7 @@ def sync(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> ProblemDetail | SavedSearchListResponse | None:
-    """List Saved Searches Endpoint
+    """List saved searches
 
      List saved searches for the authenticated user.
 
@@ -149,7 +149,7 @@ async def asyncio_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[ProblemDetail | SavedSearchListResponse]:
-    """List Saved Searches Endpoint
+    """List saved searches
 
      List saved searches for the authenticated user.
 
@@ -181,7 +181,7 @@ async def asyncio(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> ProblemDetail | SavedSearchListResponse | None:
-    """List Saved Searches Endpoint
+    """List saved searches
 
      List saved searches for the authenticated user.
 

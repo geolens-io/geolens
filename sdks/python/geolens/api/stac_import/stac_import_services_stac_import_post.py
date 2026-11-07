@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: StacImportRequest,
 ) -> Response[ProblemDetail | StacImportResponse]:
-    """Stac Import
+    """Import STAC items as datasets
 
      Import selected STAC items as raster datasets.
 
@@ -141,7 +141,7 @@ def sync(
     client: AuthenticatedClient,
     body: StacImportRequest,
 ) -> ProblemDetail | StacImportResponse | None:
-    """Stac Import
+    """Import STAC items as datasets
 
      Import selected STAC items as raster datasets.
 
@@ -171,7 +171,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: StacImportRequest,
 ) -> Response[ProblemDetail | StacImportResponse]:
-    """Stac Import
+    """Import STAC items as datasets
 
      Import selected STAC items as raster datasets.
 
@@ -204,7 +204,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: StacImportRequest,
 ) -> ProblemDetail | StacImportResponse | None:
-    """Stac Import
+    """Import STAC items as datasets
 
      Import selected STAC items as raster datasets.
 

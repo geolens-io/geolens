@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: MapGenerateRequest,
 ) -> Response[MapGenerateResponse | ProblemDetail]:
-    """Generate Map Endpoint
+    """Generate a map from a prompt
 
      Generate a map from a natural language prompt using an LLM.
 
@@ -137,7 +137,7 @@ def sync(
     client: AuthenticatedClient,
     body: MapGenerateRequest,
 ) -> MapGenerateResponse | ProblemDetail | None:
-    """Generate Map Endpoint
+    """Generate a map from a prompt
 
      Generate a map from a natural language prompt using an LLM.
 
@@ -163,7 +163,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: MapGenerateRequest,
 ) -> Response[MapGenerateResponse | ProblemDetail]:
-    """Generate Map Endpoint
+    """Generate a map from a prompt
 
      Generate a map from a natural language prompt using an LLM.
 
@@ -192,7 +192,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: MapGenerateRequest,
 ) -> MapGenerateResponse | ProblemDetail | None:
-    """Generate Map Endpoint
+    """Generate a map from a prompt
 
      Generate a map from a natural language prompt using an LLM.
 

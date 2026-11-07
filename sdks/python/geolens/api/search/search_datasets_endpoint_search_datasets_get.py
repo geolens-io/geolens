@@ -280,7 +280,7 @@ def sync_detailed(
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
 ) -> Response[OGCFeatureCollectionResponse | ProblemDetail]:
-    """Search Datasets Endpoint
+    """Search datasets
 
      Search datasets with text, spatial, and faceted filters.
 
@@ -379,7 +379,7 @@ def sync(
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
 ) -> OGCFeatureCollectionResponse | ProblemDetail | None:
-    """Search Datasets Endpoint
+    """Search datasets
 
      Search datasets with text, spatial, and faceted filters.
 
@@ -473,7 +473,7 @@ async def asyncio_detailed(
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
 ) -> Response[OGCFeatureCollectionResponse | ProblemDetail]:
-    """Search Datasets Endpoint
+    """Search datasets
 
      Search datasets with text, spatial, and faceted filters.
 
@@ -570,7 +570,7 @@ async def asyncio(
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
 ) -> OGCFeatureCollectionResponse | ProblemDetail | None:
-    """Search Datasets Endpoint
+    """Search datasets
 
      Search datasets with text, spatial, and faceted filters.
 

@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: StoryDraftUpdate,
 ) -> Response[ProblemDetail | StoryDraftResponse]:
-    """Save Story Draft Endpoint
+    """Save a story draft
 
      Replace the whole draft (owner or admin). Readers keep the published
     document until Publish.
@@ -155,7 +155,7 @@ def sync(
     client: AuthenticatedClient,
     body: StoryDraftUpdate,
 ) -> ProblemDetail | StoryDraftResponse | None:
-    """Save Story Draft Endpoint
+    """Save a story draft
 
      Replace the whole draft (owner or admin). Readers keep the published
     document until Publish.
@@ -193,7 +193,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: StoryDraftUpdate,
 ) -> Response[ProblemDetail | StoryDraftResponse]:
-    """Save Story Draft Endpoint
+    """Save a story draft
 
      Replace the whole draft (owner or admin). Readers keep the published
     document until Publish.
@@ -234,7 +234,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: StoryDraftUpdate,
 ) -> ProblemDetail | StoryDraftResponse | None:
-    """Save Story Draft Endpoint
+    """Save a story draft
 
      Replace the whole draft (owner or admin). Readers keep the published
     document until Publish.

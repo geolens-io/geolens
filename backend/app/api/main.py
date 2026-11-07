@@ -1607,6 +1607,7 @@ async def health_live(request: Request):
             "model": HealthResponse,
         }
     },
+    summary="Check service health",
 )
 @limiter.limit("60/minute")
 async def health(request: Request):

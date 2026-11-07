@@ -87,7 +87,11 @@ async def _locked_cutoff(
         raise _refused(exc)
 
 
-@router.put("/{dataset_id}/retention/", response_model=DatasetRetentionResponse)
+@router.put(
+    "/{dataset_id}/retention/",
+    response_model=DatasetRetentionResponse,
+    summary="Set a dataset's row retention",
+)
 async def set_dataset_retention(
     dataset_id: uuid.UUID,
     body: DatasetRetentionUpdate,

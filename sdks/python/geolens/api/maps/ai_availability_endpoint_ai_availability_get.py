@@ -90,7 +90,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[AIAvailabilityResponse | ProblemDetail]:
-    """Ai Availability Endpoint
+    """Check whether AI chat is available
 
      Report whether builder AI chat is usable.
 
@@ -118,7 +118,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> AIAvailabilityResponse | ProblemDetail | None:
-    """Ai Availability Endpoint
+    """Check whether AI chat is available
 
      Report whether builder AI chat is usable.
 
@@ -142,7 +142,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[AIAvailabilityResponse | ProblemDetail]:
-    """Ai Availability Endpoint
+    """Check whether AI chat is available
 
      Report whether builder AI chat is usable.
 
@@ -168,7 +168,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> AIAvailabilityResponse | ProblemDetail | None:
-    """Ai Availability Endpoint
+    """Check whether AI chat is available
 
      Report whether builder AI chat is usable.
 

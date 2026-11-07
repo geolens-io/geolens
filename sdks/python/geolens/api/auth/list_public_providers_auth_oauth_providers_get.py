@@ -95,7 +95,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | list[OAuthProviderPublic]]:
-    """List Public Providers
+    """List sign-in providers
 
      Return the list of enabled OAuth providers for the login page.
 
@@ -120,7 +120,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> ProblemDetail | list[OAuthProviderPublic] | None:
-    """List Public Providers
+    """List sign-in providers
 
      Return the list of enabled OAuth providers for the login page.
 
@@ -141,7 +141,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | list[OAuthProviderPublic]]:
-    """List Public Providers
+    """List sign-in providers
 
      Return the list of enabled OAuth providers for the login page.
 
@@ -164,7 +164,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> ProblemDetail | list[OAuthProviderPublic] | None:
-    """List Public Providers
+    """List sign-in providers
 
      Return the list of enabled OAuth providers for the login page.
 

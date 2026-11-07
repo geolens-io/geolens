@@ -117,7 +117,7 @@ def sync_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 100,
 ) -> Response[DistributionListResponse | ProblemDetail]:
-    """List Distributions Endpoint
+    """List a record's distributions
 
      List all distributions for a record.
 
@@ -154,7 +154,7 @@ def sync(
     skip: int | Unset = 0,
     limit: int | Unset = 100,
 ) -> DistributionListResponse | ProblemDetail | None:
-    """List Distributions Endpoint
+    """List a record's distributions
 
      List all distributions for a record.
 
@@ -186,7 +186,7 @@ async def asyncio_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 100,
 ) -> Response[DistributionListResponse | ProblemDetail]:
-    """List Distributions Endpoint
+    """List a record's distributions
 
      List all distributions for a record.
 
@@ -221,7 +221,7 @@ async def asyncio(
     skip: int | Unset = 0,
     limit: int | Unset = 100,
 ) -> DistributionListResponse | ProblemDetail | None:
-    """List Distributions Endpoint
+    """List a record's distributions
 
      List all distributions for a record.
 

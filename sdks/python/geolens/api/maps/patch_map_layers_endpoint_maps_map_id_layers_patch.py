@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: MapLayerDiffRequest,
 ) -> Response[MapResponse | ProblemDetail]:
-    """Patch Map Layers Endpoint
+    """Change a map's layers
 
      Apply incremental layer additions, patches, removals, and ordering.
 
@@ -155,7 +155,7 @@ def sync(
     client: AuthenticatedClient,
     body: MapLayerDiffRequest,
 ) -> MapResponse | ProblemDetail | None:
-    """Patch Map Layers Endpoint
+    """Change a map's layers
 
      Apply incremental layer additions, patches, removals, and ordering.
 
@@ -193,7 +193,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: MapLayerDiffRequest,
 ) -> Response[MapResponse | ProblemDetail]:
-    """Patch Map Layers Endpoint
+    """Change a map's layers
 
      Apply incremental layer additions, patches, removals, and ordering.
 
@@ -234,7 +234,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: MapLayerDiffRequest,
 ) -> MapResponse | ProblemDetail | None:
-    """Patch Map Layers Endpoint
+    """Change a map's layers
 
      Apply incremental layer additions, patches, removals, and ordering.
 

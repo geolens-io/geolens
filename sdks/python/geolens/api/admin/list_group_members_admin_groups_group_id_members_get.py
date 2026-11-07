@@ -112,7 +112,7 @@ def sync_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[GroupMemberListResponse | ProblemDetail]:
-    """List Group Members
+    """List sharing group members
 
      List a sharing group's members by username (admin only).
 
@@ -149,7 +149,7 @@ def sync(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> GroupMemberListResponse | ProblemDetail | None:
-    """List Group Members
+    """List sharing group members
 
      List a sharing group's members by username (admin only).
 
@@ -181,7 +181,7 @@ async def asyncio_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[GroupMemberListResponse | ProblemDetail]:
-    """List Group Members
+    """List sharing group members
 
      List a sharing group's members by username (admin only).
 
@@ -216,7 +216,7 @@ async def asyncio(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> GroupMemberListResponse | ProblemDetail | None:
-    """List Group Members
+    """List sharing group members
 
      List a sharing group's members by username (admin only).
 

@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: BulkDeleteRequest,
 ) -> Response[BulkDeleteResponse | ProblemDetail]:
-    """Bulk Delete Datasets Endpoint
+    """Delete several datasets
 
      Delete multiple datasets in one request. Returns per-item results.
 
@@ -137,7 +137,7 @@ def sync(
     client: AuthenticatedClient,
     body: BulkDeleteRequest,
 ) -> BulkDeleteResponse | ProblemDetail | None:
-    """Bulk Delete Datasets Endpoint
+    """Delete several datasets
 
      Delete multiple datasets in one request. Returns per-item results.
 
@@ -163,7 +163,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: BulkDeleteRequest,
 ) -> Response[BulkDeleteResponse | ProblemDetail]:
-    """Bulk Delete Datasets Endpoint
+    """Delete several datasets
 
      Delete multiple datasets in one request. Returns per-item results.
 
@@ -192,7 +192,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: BulkDeleteRequest,
 ) -> BulkDeleteResponse | ProblemDetail | None:
-    """Bulk Delete Datasets Endpoint
+    """Delete several datasets
 
      Delete multiple datasets in one request. Returns per-item results.
 

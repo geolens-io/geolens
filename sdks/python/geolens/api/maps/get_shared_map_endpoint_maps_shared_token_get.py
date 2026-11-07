@@ -114,7 +114,7 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     x_embed_token: None | str | Unset = UNSET,
 ) -> Response[ProblemDetail | SharedMapResponse]:
-    """Get Shared Map Endpoint
+    """Get a shared map
 
      Get a shared map by token. Optionally authenticated for non-public layers.
 
@@ -157,7 +157,7 @@ def sync(
     client: AuthenticatedClient | Client,
     x_embed_token: None | str | Unset = UNSET,
 ) -> ProblemDetail | SharedMapResponse | None:
-    """Get Shared Map Endpoint
+    """Get a shared map
 
      Get a shared map by token. Optionally authenticated for non-public layers.
 
@@ -195,7 +195,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     x_embed_token: None | str | Unset = UNSET,
 ) -> Response[ProblemDetail | SharedMapResponse]:
-    """Get Shared Map Endpoint
+    """Get a shared map
 
      Get a shared map by token. Optionally authenticated for non-public layers.
 
@@ -236,7 +236,7 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     x_embed_token: None | str | Unset = UNSET,
 ) -> ProblemDetail | SharedMapResponse | None:
-    """Get Shared Map Endpoint
+    """Get a shared map
 
      Get a shared map by token. Optionally authenticated for non-public layers.
 

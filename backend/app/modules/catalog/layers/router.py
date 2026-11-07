@@ -102,6 +102,7 @@ layers_router = APIRouter(
     "/",
     response_model=CreateLayerResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Create an empty layer",
 )
 async def create_layer_endpoint(
     body: CreateLayerRequest,
@@ -156,6 +157,7 @@ async def create_layer_endpoint(
     "/{dataset_id}/columns/",
     response_model=ColumnListResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Add a column",
 )
 async def add_column_endpoint(
     dataset_id: uuid.UUID,
@@ -218,6 +220,7 @@ async def add_column_endpoint(
 @layers_router.patch(
     "/{dataset_id}/columns/{column_name}/name",
     response_model=ColumnListResponse,
+    summary="Rename a column",
 )
 async def rename_column_endpoint(
     dataset_id: uuid.UUID,
@@ -277,6 +280,7 @@ async def rename_column_endpoint(
 @layers_router.patch(
     "/{dataset_id}/columns/{column_name}/type",
     response_model=ColumnListResponse,
+    summary="Change a column's type",
 )
 async def alter_column_type_endpoint(
     dataset_id: uuid.UUID,
@@ -343,6 +347,7 @@ async def alter_column_type_endpoint(
 @layers_router.delete(
     "/{dataset_id}/columns/{column_name}",
     response_model=ColumnListResponse,
+    summary="Drop a column",
 )
 async def drop_column_endpoint(
     dataset_id: uuid.UUID,
@@ -401,6 +406,7 @@ async def drop_column_endpoint(
 @layers_router.get(
     "/{dataset_id}/columns/{column_name}/references",
     response_model=ColumnReferencesResponse,
+    summary="Count maps that reference a column",
 )
 async def column_references_endpoint(
     dataset_id: uuid.UUID,

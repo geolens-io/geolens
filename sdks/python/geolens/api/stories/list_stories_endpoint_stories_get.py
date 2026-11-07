@@ -128,7 +128,7 @@ def sync_detailed(
     search: None | str | Unset = UNSET,
     published_only: bool | Unset = False,
 ) -> Response[ProblemDetail | StoryListResponse]:
-    """List Stories Endpoint
+    """List stories
 
      List the stories the caller may read, most recently updated first.
 
@@ -175,7 +175,7 @@ def sync(
     search: None | str | Unset = UNSET,
     published_only: bool | Unset = False,
 ) -> ProblemDetail | StoryListResponse | None:
-    """List Stories Endpoint
+    """List stories
 
      List the stories the caller may read, most recently updated first.
 
@@ -217,7 +217,7 @@ async def asyncio_detailed(
     search: None | str | Unset = UNSET,
     published_only: bool | Unset = False,
 ) -> Response[ProblemDetail | StoryListResponse]:
-    """List Stories Endpoint
+    """List stories
 
      List the stories the caller may read, most recently updated first.
 
@@ -262,7 +262,7 @@ async def asyncio(
     search: None | str | Unset = UNSET,
     published_only: bool | Unset = False,
 ) -> ProblemDetail | StoryListResponse | None:
-    """List Stories Endpoint
+    """List stories
 
      List the stories the caller may read, most recently updated first.
 

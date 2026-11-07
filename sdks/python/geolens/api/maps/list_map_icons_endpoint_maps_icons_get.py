@@ -95,7 +95,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[MapIconListResponse | ProblemDetail]:
-    """List Map Icons Endpoint
+    """List map icons
 
      List reusable default and uploaded map icons.
 
@@ -120,7 +120,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> MapIconListResponse | ProblemDetail | None:
-    """List Map Icons Endpoint
+    """List map icons
 
      List reusable default and uploaded map icons.
 
@@ -141,7 +141,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[MapIconListResponse | ProblemDetail]:
-    """List Map Icons Endpoint
+    """List map icons
 
      List reusable default and uploaded map icons.
 
@@ -164,7 +164,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> MapIconListResponse | ProblemDetail | None:
-    """List Map Icons Endpoint
+    """List map icons
 
      List reusable default and uploaded map icons.
 

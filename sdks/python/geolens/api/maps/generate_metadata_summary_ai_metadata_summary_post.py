@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: MetadataAssistRequest,
 ) -> Response[ProblemDetail | SummaryDraftResponse]:
-    """Generate Metadata Summary
+    """Draft a dataset summary with AI
 
      Generate an AI-drafted summary for a dataset.
 
@@ -137,7 +137,7 @@ def sync(
     client: AuthenticatedClient,
     body: MetadataAssistRequest,
 ) -> ProblemDetail | SummaryDraftResponse | None:
-    """Generate Metadata Summary
+    """Draft a dataset summary with AI
 
      Generate an AI-drafted summary for a dataset.
 
@@ -163,7 +163,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: MetadataAssistRequest,
 ) -> Response[ProblemDetail | SummaryDraftResponse]:
-    """Generate Metadata Summary
+    """Draft a dataset summary with AI
 
      Generate an AI-drafted summary for a dataset.
 
@@ -192,7 +192,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: MetadataAssistRequest,
 ) -> ProblemDetail | SummaryDraftResponse | None:
-    """Generate Metadata Summary
+    """Draft a dataset summary with AI
 
      Generate an AI-drafted summary for a dataset.
 

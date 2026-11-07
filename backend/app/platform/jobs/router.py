@@ -193,7 +193,11 @@ async def _settle_stale(db: AsyncSession, jobs: Sequence[IngestJob]) -> None:
         await db.refresh(job)
 
 
-@router.post("/cleanup/stale/", response_model=StaleCleanupResponse)
+@router.post(
+    "/cleanup/stale/",
+    response_model=StaleCleanupResponse,
+    summary="Fail stale ingest jobs",
+)
 async def cleanup_stale_jobs(
     request: Request,
     user: Identity = Depends(
@@ -360,8 +364,17 @@ async def cleanup_stale_jobs(
     return StaleCleanupResponse(**details)
 
 
-@router.post("/status", response_model=JobStatusBatchResponse, include_in_schema=False)
-@router.post("/status/", response_model=JobStatusBatchResponse)
+@router.post(
+    "/status",
+    response_model=JobStatusBatchResponse,
+    include_in_schema=False,
+    summary="Get the status of several ingest jobs",
+)
+@router.post(
+    "/status/",
+    response_model=JobStatusBatchResponse,
+    summary="Get the status of several ingest jobs",
+)
 async def get_job_statuses(
     body: JobStatusBatchRequest,
     request: Request,
@@ -415,7 +428,9 @@ async def get_job_statuses(
     return JobStatusBatchResponse(jobs=entries)
 
 
-@router.get("/{job_id}", response_model=JobStatusResponse)
+@router.get(
+    "/{job_id}", response_model=JobStatusResponse, summary="Get an ingest job's status"
+)
 async def get_job_status(
     job_id: uuid.UUID,
     request: Request,
@@ -732,7 +747,11 @@ async def _job_to_status_response(
     )
 
 
-@router.get("/by-dataset/{dataset_id}", response_model=JobStatusResponse | None)
+@router.get(
+    "/by-dataset/{dataset_id}",
+    response_model=JobStatusResponse | None,
+    summary="Get a dataset's latest ingest job",
+)
 async def get_job_status_by_dataset(
     dataset_id: uuid.UUID,
     user: Identity = Depends(get_current_active_user),
@@ -825,6 +844,7 @@ async def get_job_status_by_dataset(
     response_model=UploadResponse,
     status_code=status.HTTP_202_ACCEPTED,
     responses={409: CONFLICT_RESPONSE},
+    summary="Retry a failed ingest job",
 )
 async def retry_job(
     job_id: uuid.UUID,
@@ -1011,6 +1031,7 @@ async def _may_cancel_job(
     "/{job_id}/cancel",
     response_model=JobCancelResponse,
     responses={409: CONFLICT_RESPONSE},
+    summary="Cancel an ingest job",
 )
 async def cancel_job(
     job_id: uuid.UUID,

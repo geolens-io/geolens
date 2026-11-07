@@ -111,7 +111,7 @@ def sync_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 500,
 ) -> Response[ProblemDetail | list[UserNameItem]]:
-    """List User Names
+    """List usernames
 
      Return lightweight id+username list for filter dropdowns.
 
@@ -150,7 +150,7 @@ def sync(
     skip: int | Unset = 0,
     limit: int | Unset = 500,
 ) -> ProblemDetail | list[UserNameItem] | None:
-    """List User Names
+    """List usernames
 
      Return lightweight id+username list for filter dropdowns.
 
@@ -184,7 +184,7 @@ async def asyncio_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 500,
 ) -> Response[ProblemDetail | list[UserNameItem]]:
-    """List User Names
+    """List usernames
 
      Return lightweight id+username list for filter dropdowns.
 
@@ -221,7 +221,7 @@ async def asyncio(
     skip: int | Unset = 0,
     limit: int | Unset = 500,
 ) -> ProblemDetail | list[UserNameItem] | None:
-    """List User Names
+    """List usernames
 
      Return lightweight id+username list for filter dropdowns.
 

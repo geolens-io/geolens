@@ -101,7 +101,7 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     body: ResendVerificationRequest,
 ) -> Response[ProblemDetail | RegisterResponse]:
-    """Resend Verification
+    """Resend the verification email
 
      Re-issue and re-send a verification email.
 
@@ -139,7 +139,7 @@ def sync(
     client: AuthenticatedClient | Client,
     body: ResendVerificationRequest,
 ) -> ProblemDetail | RegisterResponse | None:
-    """Resend Verification
+    """Resend the verification email
 
      Re-issue and re-send a verification email.
 
@@ -172,7 +172,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     body: ResendVerificationRequest,
 ) -> Response[ProblemDetail | RegisterResponse]:
-    """Resend Verification
+    """Resend the verification email
 
      Re-issue and re-send a verification email.
 
@@ -208,7 +208,7 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     body: ResendVerificationRequest,
 ) -> ProblemDetail | RegisterResponse | None:
-    """Resend Verification
+    """Resend the verification email
 
      Re-issue and re-send a verification email.
 

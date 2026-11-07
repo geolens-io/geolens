@@ -85,7 +85,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
-    """Validate Dcat3 Record
+    """Validate a dataset as DCAT 3
 
      Validate a single dataset as W3C DCAT 3.
 
@@ -116,7 +116,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
-    """Validate Dcat3 Record
+    """Validate a dataset as DCAT 3
 
      Validate a single dataset as W3C DCAT 3.
 
@@ -142,7 +142,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
-    """Validate Dcat3 Record
+    """Validate a dataset as DCAT 3
 
      Validate a single dataset as W3C DCAT 3.
 
@@ -171,7 +171,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
-    """Validate Dcat3 Record
+    """Validate a dataset as DCAT 3
 
      Validate a single dataset as W3C DCAT 3.
 

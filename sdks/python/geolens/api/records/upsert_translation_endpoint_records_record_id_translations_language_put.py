@@ -115,7 +115,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: TranslationUpsert,
 ) -> Response[ProblemDetail | TranslationResponse]:
-    """Upsert Translation Endpoint
+    """Set a record translation
 
      Create or replace one localized title/summary variant.
 
@@ -152,7 +152,7 @@ def sync(
     client: AuthenticatedClient,
     body: TranslationUpsert,
 ) -> ProblemDetail | TranslationResponse | None:
-    """Upsert Translation Endpoint
+    """Set a record translation
 
      Create or replace one localized title/summary variant.
 
@@ -184,7 +184,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: TranslationUpsert,
 ) -> Response[ProblemDetail | TranslationResponse]:
-    """Upsert Translation Endpoint
+    """Set a record translation
 
      Create or replace one localized title/summary variant.
 
@@ -219,7 +219,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: TranslationUpsert,
 ) -> ProblemDetail | TranslationResponse | None:
-    """Upsert Translation Endpoint
+    """Set a record translation
 
      Create or replace one localized title/summary variant.
 

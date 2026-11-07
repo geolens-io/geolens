@@ -124,7 +124,7 @@ def sync_detailed(
     | GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202
     | ProblemDetail
 ]:
-    """Get Collection Queryables
+    """Get a feature collection's queryables
 
      Queryable properties for one feature collection (OGC Features Part 3).
 
@@ -168,7 +168,7 @@ def sync(
     | ProblemDetail
     | None
 ):
-    """Get Collection Queryables
+    """Get a feature collection's queryables
 
      Queryable properties for one feature collection (OGC Features Part 3).
 
@@ -206,7 +206,7 @@ async def asyncio_detailed(
     | GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202
     | ProblemDetail
 ]:
-    """Get Collection Queryables
+    """Get a feature collection's queryables
 
      Queryable properties for one feature collection (OGC Features Part 3).
 
@@ -248,7 +248,7 @@ async def asyncio(
     | ProblemDetail
     | None
 ):
-    """Get Collection Queryables
+    """Get a feature collection's queryables
 
      Queryable properties for one feature collection (OGC Features Part 3).
 

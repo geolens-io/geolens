@@ -149,9 +149,16 @@ async def _me(
 
 
 @router.get(
-    "/capabilities", response_model=CapabilitiesResponse, include_in_schema=False
+    "/capabilities",
+    response_model=CapabilitiesResponse,
+    include_in_schema=False,
+    summary="Get server capabilities",
 )
-@router.get("/capabilities/", response_model=CapabilitiesResponse)
+@router.get(
+    "/capabilities/",
+    response_model=CapabilitiesResponse,
+    summary="Get server capabilities",
+)
 async def get_capabilities(
     request: Request,
     user: Identity | None = Depends(get_optional_user),

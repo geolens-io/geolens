@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: ProbeRequest,
 ) -> Response[ProbeResponse | ProblemDetail]:
-    """Probe Service Url
+    """Probe a remote service URL
 
      Probe a remote service URL to detect its type and list available layers.
 
@@ -140,7 +140,7 @@ def sync(
     client: AuthenticatedClient,
     body: ProbeRequest,
 ) -> ProbeResponse | ProblemDetail | None:
-    """Probe Service Url
+    """Probe a remote service URL
 
      Probe a remote service URL to detect its type and list available layers.
 
@@ -169,7 +169,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: ProbeRequest,
 ) -> Response[ProbeResponse | ProblemDetail]:
-    """Probe Service Url
+    """Probe a remote service URL
 
      Probe a remote service URL to detect its type and list available layers.
 
@@ -201,7 +201,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: ProbeRequest,
 ) -> ProbeResponse | ProblemDetail | None:
-    """Probe Service Url
+    """Probe a remote service URL
 
      Probe a remote service URL to detect its type and list available layers.
 

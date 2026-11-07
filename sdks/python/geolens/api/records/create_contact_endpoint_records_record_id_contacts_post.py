@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: ContactCreate,
 ) -> Response[ContactResponse | ProblemDetail]:
-    """Create Contact Endpoint
+    """Add a record contact
 
      Create a new contact for a record.
 
@@ -146,7 +146,7 @@ def sync(
     client: AuthenticatedClient,
     body: ContactCreate,
 ) -> ContactResponse | ProblemDetail | None:
-    """Create Contact Endpoint
+    """Add a record contact
 
      Create a new contact for a record.
 
@@ -175,7 +175,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: ContactCreate,
 ) -> Response[ContactResponse | ProblemDetail]:
-    """Create Contact Endpoint
+    """Add a record contact
 
      Create a new contact for a record.
 
@@ -207,7 +207,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: ContactCreate,
 ) -> ContactResponse | ProblemDetail | None:
-    """Create Contact Endpoint
+    """Add a record contact
 
      Create a new contact for a record.
 

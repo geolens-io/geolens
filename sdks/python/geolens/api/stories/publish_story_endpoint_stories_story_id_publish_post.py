@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: StoryPublish,
 ) -> Response[ProblemDetail | StoryResponse]:
-    """Publish Story Endpoint
+    """Publish a story
 
      Publish the draft (owner or admin): readers get it from now on.
 
@@ -154,7 +154,7 @@ def sync(
     client: AuthenticatedClient,
     body: StoryPublish,
 ) -> ProblemDetail | StoryResponse | None:
-    """Publish Story Endpoint
+    """Publish a story
 
      Publish the draft (owner or admin): readers get it from now on.
 
@@ -191,7 +191,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: StoryPublish,
 ) -> Response[ProblemDetail | StoryResponse]:
-    """Publish Story Endpoint
+    """Publish a story
 
      Publish the draft (owner or admin): readers get it from now on.
 
@@ -231,7 +231,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: StoryPublish,
 ) -> ProblemDetail | StoryResponse | None:
-    """Publish Story Endpoint
+    """Publish a story
 
      Publish the draft (owner or admin): readers get it from now on.
 

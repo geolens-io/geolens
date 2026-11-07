@@ -134,8 +134,17 @@ _CSRF_PARAM_DESCRIPTION = (
 # /login is canonical (in OpenAPI) and /login/ a hidden alias; both register
 # because api/main.py sets redirect_slashes=False. Elsewhere in this router the
 # trailing-slash form is canonical and the no-slash form the hidden alias.
-@router.post("/login/", response_model=TokenResponse, include_in_schema=False)
-@router.post("/login", response_model=TokenResponse)
+@router.post(
+    "/login/",
+    response_model=TokenResponse,
+    include_in_schema=False,
+    summary="Sign in with a username and password",
+)
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+    summary="Sign in with a username and password",
+)
 @limiter.limit(_login_rate_limit)
 async def login(
     request: Request,
@@ -400,8 +409,15 @@ def _refresh_session_key(request: Request) -> str:
     return f"refresh-session:{session_id}"
 
 
-@router.post("/refresh", response_model=TokenResponse, include_in_schema=False)
-@router.post("/refresh/", response_model=TokenResponse)
+@router.post(
+    "/refresh",
+    response_model=TokenResponse,
+    include_in_schema=False,
+    summary="Refresh the access token",
+)
+@router.post(
+    "/refresh/", response_model=TokenResponse, summary="Refresh the access token"
+)
 @limiter.limit("30/minute", key_func=_refresh_session_key)
 async def refresh(
     request: Request,
@@ -506,12 +522,14 @@ async def refresh(
     response_model=RegisterResponse,
     status_code=status.HTTP_201_CREATED,
     include_in_schema=False,
+    summary="Register an account",
 )
 @router.post(
     "/register/",
     response_model=RegisterResponse,
     status_code=status.HTTP_201_CREATED,
     responses={502: BAD_GATEWAY_RESPONSE},
+    summary="Register an account",
 )
 @limiter.limit("5/minute")
 async def register(
@@ -729,6 +747,7 @@ async def _email_link_activates(db: AsyncSession) -> bool:
     "/verify-email",
     response_model=RegisterResponse,
     include_in_schema=False,
+    summary="Verify an email address",
 )
 @router.post(
     "/verify-email/",
@@ -736,6 +755,7 @@ async def _email_link_activates(db: AsyncSession) -> bool:
     responses={
         409: {**PROBLEM_RESPONSE, "description": "The account can't be activated yet"}
     },
+    summary="Verify an email address",
 )
 @limiter.limit("10/minute")
 async def verify_email(
@@ -830,8 +850,13 @@ async def verify_email(
     "/resend-verification",
     response_model=RegisterResponse,
     include_in_schema=False,
+    summary="Resend the verification email",
 )
-@router.post("/resend-verification/", response_model=RegisterResponse)
+@router.post(
+    "/resend-verification/",
+    response_model=RegisterResponse,
+    summary="Resend the verification email",
+)
 @limiter.limit("5/minute")
 async def resend_verification(
     request: Request,
@@ -911,9 +936,16 @@ async def resend_verification(
 
 
 @router.post(
-    "/logout/session", status_code=status.HTTP_204_NO_CONTENT, include_in_schema=False
+    "/logout/session",
+    status_code=status.HTTP_204_NO_CONTENT,
+    include_in_schema=False,
+    summary="Sign out of the current session",
 )
-@router.post("/logout/session/", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/logout/session/",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Sign out of the current session",
+)
 async def logout_current_session(
     request: Request,
     body: RefreshRequest | None = None,
@@ -962,8 +994,15 @@ async def logout_current_session(
     return response
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, include_in_schema=False)
-@router.post("/logout/", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    include_in_schema=False,
+    summary="Sign out everywhere",
+)
+@router.post(
+    "/logout/", status_code=status.HTTP_204_NO_CONTENT, summary="Sign out everywhere"
+)
 async def logout(
     request: Request,
     # The ONE fail-open exception. Every other anonymous-capable
@@ -1054,7 +1093,11 @@ async def logout(
     return logout_response
 
 
-@router.post("/download-token/{dataset_id}", response_model=DownloadTokenResponse)
+@router.post(
+    "/download-token/{dataset_id}",
+    response_model=DownloadTokenResponse,
+    summary="Create a download token for a dataset",
+)
 @limiter.limit("60/minute")
 async def create_download_token_endpoint(
     request: Request,
@@ -1140,8 +1183,17 @@ async def create_download_token_endpoint(
     return DownloadTokenResponse(token=token, expires_in=120)
 
 
-@router.get("/config", response_model=ConfigResponse, include_in_schema=False)
-@router.get("/config/", response_model=ConfigResponse)
+@router.get(
+    "/config",
+    response_model=ConfigResponse,
+    include_in_schema=False,
+    summary="Get the public sign-in configuration",
+)
+@router.get(
+    "/config/",
+    response_model=ConfigResponse,
+    summary="Get the public sign-in configuration",
+)
 async def config(
     db: AsyncSession = Depends(get_db),
 ) -> ConfigResponse:
@@ -1172,8 +1224,13 @@ async def config(
     )
 
 
-@router.get("/me", response_model=UserResponse, include_in_schema=False)
-@router.get("/me/", response_model=UserResponse)
+@router.get(
+    "/me",
+    response_model=UserResponse,
+    include_in_schema=False,
+    summary="Get the signed-in user",
+)
+@router.get("/me/", response_model=UserResponse, summary="Get the signed-in user")
 async def me(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
@@ -1198,8 +1255,13 @@ async def me(
     "/me/permissions",
     response_model=PermissionsResponse,
     include_in_schema=False,
+    summary="Get the signed-in user's permissions",
 )
-@router.get("/me/permissions/", response_model=PermissionsResponse)
+@router.get(
+    "/me/permissions/",
+    response_model=PermissionsResponse,
+    summary="Get the signed-in user's permissions",
+)
 async def me_permissions(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
@@ -1211,8 +1273,17 @@ async def me_permissions(
     return PermissionsResponse(permissions=effective)
 
 
-@router.get("/me/usage", response_model=UserQuotaUsage, include_in_schema=False)
-@router.get("/me/usage/", response_model=UserQuotaUsage)
+@router.get(
+    "/me/usage",
+    response_model=UserQuotaUsage,
+    include_in_schema=False,
+    summary="Get the signed-in user's quota usage",
+)
+@router.get(
+    "/me/usage/",
+    response_model=UserQuotaUsage,
+    summary="Get the signed-in user's quota usage",
+)
 async def me_usage(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
@@ -1221,8 +1292,15 @@ async def me_usage(
     return await get_user_quota_usage(db, current_user.id)
 
 
-@router.get("/api-keys", response_model=ApiKeyListResponse, include_in_schema=False)
-@router.get("/api-keys/", response_model=ApiKeyListResponse)
+@router.get(
+    "/api-keys",
+    response_model=ApiKeyListResponse,
+    include_in_schema=False,
+    summary="List your API keys",
+)
+@router.get(
+    "/api-keys/", response_model=ApiKeyListResponse, summary="List your API keys"
+)
 async def list_my_api_keys(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
@@ -1260,11 +1338,13 @@ async def list_my_api_keys(
     response_model=ApiKeyCreateResponse,
     status_code=status.HTTP_201_CREATED,
     include_in_schema=False,
+    summary="Create an API key",
 )
 @router.post(
     "/api-keys/",
     response_model=ApiKeyCreateResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Create an API key",
 )
 async def create_my_api_key(
     body: ApiKeyCreateRequest,
@@ -1324,7 +1404,11 @@ async def create_my_api_key(
     )
 
 
-@router.delete("/api-keys/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/api-keys/{key_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Revoke an API key",
+)
 async def revoke_my_api_key(
     key_id: uuid.UUID,
     request: Request,
@@ -1367,8 +1451,13 @@ async def revoke_my_api_key(
     "/change-password",
     status_code=status.HTTP_204_NO_CONTENT,
     include_in_schema=False,
+    summary="Change your password",
 )
-@router.post("/change-password/", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/change-password/",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Change your password",
+)
 async def change_password(
     body: ChangePasswordRequest,
     request: Request,

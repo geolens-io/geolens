@@ -65,7 +65,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | StacConformance]:
-    """Conformance
+    """Get the STAC conformance classes
 
      STAC API conformance classes.
 
@@ -90,7 +90,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> ProblemDetail | StacConformance | None:
-    """Conformance
+    """Get the STAC conformance classes
 
      STAC API conformance classes.
 
@@ -111,7 +111,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | StacConformance]:
-    """Conformance
+    """Get the STAC conformance classes
 
      STAC API conformance classes.
 
@@ -134,7 +134,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> ProblemDetail | StacConformance | None:
-    """Conformance
+    """Get the STAC conformance classes
 
      STAC API conformance classes.
 

@@ -87,7 +87,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | StacItemResponse]:
-    """Get Item
+    """Get a STAC item
 
      Get a single STAC Item by dataset ID.
 
@@ -118,7 +118,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> ProblemDetail | StacItemResponse | None:
-    """Get Item
+    """Get a STAC item
 
      Get a single STAC Item by dataset ID.
 
@@ -144,7 +144,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | StacItemResponse]:
-    """Get Item
+    """Get a STAC item
 
      Get a single STAC Item by dataset ID.
 
@@ -173,7 +173,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> ProblemDetail | StacItemResponse | None:
-    """Get Item
+    """Get a STAC item
 
      Get a single STAC Item by dataset ID.
 

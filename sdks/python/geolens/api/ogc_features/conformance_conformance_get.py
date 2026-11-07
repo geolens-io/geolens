@@ -87,7 +87,7 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     f: None | str | Unset = UNSET,
 ) -> Response[ConformanceResponse | ProblemDetail]:
-    """Conformance
+    """Get the OGC conformance declaration
 
      OGC conformance declaration -- lists supported specification classes.
 
@@ -118,7 +118,7 @@ def sync(
     client: AuthenticatedClient | Client,
     f: None | str | Unset = UNSET,
 ) -> ConformanceResponse | ProblemDetail | None:
-    """Conformance
+    """Get the OGC conformance declaration
 
      OGC conformance declaration -- lists supported specification classes.
 
@@ -144,7 +144,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     f: None | str | Unset = UNSET,
 ) -> Response[ConformanceResponse | ProblemDetail]:
-    """Conformance
+    """Get the OGC conformance declaration
 
      OGC conformance declaration -- lists supported specification classes.
 
@@ -173,7 +173,7 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     f: None | str | Unset = UNSET,
 ) -> ConformanceResponse | ProblemDetail | None:
-    """Conformance
+    """Get the OGC conformance declaration
 
      OGC conformance declaration -- lists supported specification classes.
 

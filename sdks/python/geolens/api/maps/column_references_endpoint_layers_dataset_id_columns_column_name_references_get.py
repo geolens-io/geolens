@@ -105,7 +105,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ColumnReferencesResponse | ProblemDetail]:
-    """Column References Endpoint
+    """Count maps that reference a column
 
      Count saved maps whose layer config references a column.
 
@@ -142,7 +142,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> ColumnReferencesResponse | ProblemDetail | None:
-    """Column References Endpoint
+    """Count maps that reference a column
 
      Count saved maps whose layer config references a column.
 
@@ -174,7 +174,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ColumnReferencesResponse | ProblemDetail]:
-    """Column References Endpoint
+    """Count maps that reference a column
 
      Count saved maps whose layer config references a column.
 
@@ -209,7 +209,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> ColumnReferencesResponse | ProblemDetail | None:
-    """Column References Endpoint
+    """Count maps that reference a column
 
      Count saved maps whose layer config references a column.
 

@@ -95,7 +95,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | list[OAuthProviderResponse]]:
-    """List Oauth Providers
+    """List OAuth providers
 
      List all OAuth providers (admin only).
 
@@ -120,7 +120,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | list[OAuthProviderResponse] | None:
-    """List Oauth Providers
+    """List OAuth providers
 
      List all OAuth providers (admin only).
 
@@ -141,7 +141,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | list[OAuthProviderResponse]]:
-    """List Oauth Providers
+    """List OAuth providers
 
      List all OAuth providers (admin only).
 
@@ -164,7 +164,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | list[OAuthProviderResponse] | None:
-    """List Oauth Providers
+    """List OAuth providers
 
      List all OAuth providers (admin only).
 

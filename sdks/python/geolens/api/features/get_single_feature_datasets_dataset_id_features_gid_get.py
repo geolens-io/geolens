@@ -112,7 +112,7 @@ def sync_detailed(
 ) -> Response[
     GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature | ProblemDetail
 ]:
-    """Get Single Feature
+    """Get a feature
 
      Get a single GeoJSON feature by gid.
 
@@ -152,7 +152,7 @@ def sync(
 ) -> (
     GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature | ProblemDetail | None
 ):
-    """Get Single Feature
+    """Get a feature
 
      Get a single GeoJSON feature by gid.
 
@@ -187,7 +187,7 @@ async def asyncio_detailed(
 ) -> Response[
     GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature | ProblemDetail
 ]:
-    """Get Single Feature
+    """Get a feature
 
      Get a single GeoJSON feature by gid.
 
@@ -225,7 +225,7 @@ async def asyncio(
 ) -> (
     GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeature | ProblemDetail | None
 ):
-    """Get Single Feature
+    """Get a feature
 
      Get a single GeoJSON feature by gid.
 

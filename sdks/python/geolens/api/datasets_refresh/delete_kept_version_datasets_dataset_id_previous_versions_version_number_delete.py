@@ -103,7 +103,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Kept Version
+    """Delete a kept version
 
      Delete one of the dataset's kept previous versions, so it can no longer be restored.
 
@@ -142,7 +142,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Delete Kept Version
+    """Delete a kept version
 
      Delete one of the dataset's kept previous versions, so it can no longer be restored.
 
@@ -176,7 +176,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Kept Version
+    """Delete a kept version
 
      Delete one of the dataset's kept previous versions, so it can no longer be restored.
 
@@ -213,7 +213,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Delete Kept Version
+    """Delete a kept version
 
      Delete one of the dataset's kept previous versions, so it can no longer be restored.
 

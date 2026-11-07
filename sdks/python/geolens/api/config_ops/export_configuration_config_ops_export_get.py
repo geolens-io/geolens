@@ -88,7 +88,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Export Configuration
+    """Export the configuration
 
      Export full configuration as JSON (settings + OAuth providers, secrets redacted).
 
@@ -119,7 +119,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Export Configuration
+    """Export the configuration
 
      Export full configuration as JSON (settings + OAuth providers, secrets redacted).
 
@@ -146,7 +146,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Export Configuration
+    """Export the configuration
 
      Export full configuration as JSON (settings + OAuth providers, secrets redacted).
 
@@ -175,7 +175,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Export Configuration
+    """Export the configuration
 
      Export full configuration as JSON (settings + OAuth providers, secrets redacted).
 

@@ -948,6 +948,7 @@ def _refuse_publish_key_asset_repoint(db: AsyncSession, dataset) -> None:
     "/{dataset_id}/refresh",
     response_model=DatasetRefreshResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    summary="Refresh a dataset from its source",
 )
 async def refresh_dataset(
     dataset_id: uuid.UUID,

@@ -100,7 +100,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Revoke Map Share Endpoint
+    """Revoke a map share token
 
      Revoke share token(s) for a map. Owner or admin only.
 
@@ -131,7 +131,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Revoke Map Share Endpoint
+    """Revoke a map share token
 
      Revoke share token(s) for a map. Owner or admin only.
 
@@ -157,7 +157,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Revoke Map Share Endpoint
+    """Revoke a map share token
 
      Revoke share token(s) for a map. Owner or admin only.
 
@@ -186,7 +186,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Revoke Map Share Endpoint
+    """Revoke a map share token
 
      Revoke share token(s) for a map. Owner or admin only.
 

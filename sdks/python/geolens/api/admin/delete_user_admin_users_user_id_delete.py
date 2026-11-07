@@ -95,7 +95,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Delete User
+    """Delete a user
 
      Hard-delete a user (admin only). Returns 400 for self-deletion or last-admin.
 
@@ -126,7 +126,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Delete User
+    """Delete a user
 
      Hard-delete a user (admin only). Returns 400 for self-deletion or last-admin.
 
@@ -152,7 +152,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Delete User
+    """Delete a user
 
      Hard-delete a user (admin only). Returns 400 for self-deletion or last-admin.
 
@@ -181,7 +181,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Delete User
+    """Delete a user
 
      Hard-delete a user (admin only). Returns 400 for self-deletion or last-admin.
 

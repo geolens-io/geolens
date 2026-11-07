@@ -90,7 +90,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[PermissionsResponse | ProblemDetail]:
-    """Me Permissions
+    """Get the signed-in user's permissions
 
      Return the effective permissions for the currently authenticated user.
 
@@ -115,7 +115,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> PermissionsResponse | ProblemDetail | None:
-    """Me Permissions
+    """Get the signed-in user's permissions
 
      Return the effective permissions for the currently authenticated user.
 
@@ -136,7 +136,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[PermissionsResponse | ProblemDetail]:
-    """Me Permissions
+    """Get the signed-in user's permissions
 
      Return the effective permissions for the currently authenticated user.
 
@@ -159,7 +159,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> PermissionsResponse | ProblemDetail | None:
-    """Me Permissions
+    """Get the signed-in user's permissions
 
      Return the effective permissions for the currently authenticated user.
 

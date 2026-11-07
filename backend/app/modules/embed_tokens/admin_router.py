@@ -35,8 +35,15 @@ router = APIRouter(
 
 # Trailing slash is canonical (in OpenAPI); the no-slash form is a hidden alias
 # because api/main.py sets redirect_slashes=False.
-@router.get("", response_model=AdminEmbedTokenListResponse, include_in_schema=False)
-@router.get("/", response_model=AdminEmbedTokenListResponse)
+@router.get(
+    "",
+    response_model=AdminEmbedTokenListResponse,
+    include_in_schema=False,
+    summary="List embed tokens",
+)
+@router.get(
+    "/", response_model=AdminEmbedTokenListResponse, summary="List embed tokens"
+)
 async def list_all_embed_tokens(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
@@ -81,8 +88,17 @@ async def list_all_embed_tokens(
     return AdminEmbedTokenListResponse(tokens=tokens, total=total)
 
 
-@router.post("/bulk-revoke", response_model=BulkRevokeResponse, include_in_schema=False)
-@router.post("/bulk-revoke/", response_model=BulkRevokeResponse)
+@router.post(
+    "/bulk-revoke",
+    response_model=BulkRevokeResponse,
+    include_in_schema=False,
+    summary="Revoke several embed tokens",
+)
+@router.post(
+    "/bulk-revoke/",
+    response_model=BulkRevokeResponse,
+    summary="Revoke several embed tokens",
+)
 async def bulk_revoke(
     body: BulkRevokeRequest,
     request: Request,

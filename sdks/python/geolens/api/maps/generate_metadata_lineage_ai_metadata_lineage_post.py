@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: MetadataAssistRequest,
 ) -> Response[LineageDraftResponse | ProblemDetail]:
-    """Generate Metadata Lineage
+    """Draft dataset lineage with AI
 
      Generate an AI-drafted lineage summary for a dataset.
 
@@ -137,7 +137,7 @@ def sync(
     client: AuthenticatedClient,
     body: MetadataAssistRequest,
 ) -> LineageDraftResponse | ProblemDetail | None:
-    """Generate Metadata Lineage
+    """Draft dataset lineage with AI
 
      Generate an AI-drafted lineage summary for a dataset.
 
@@ -163,7 +163,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: MetadataAssistRequest,
 ) -> Response[LineageDraftResponse | ProblemDetail]:
-    """Generate Metadata Lineage
+    """Draft dataset lineage with AI
 
      Generate an AI-drafted lineage summary for a dataset.
 
@@ -192,7 +192,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: MetadataAssistRequest,
 ) -> LineageDraftResponse | ProblemDetail | None:
-    """Generate Metadata Lineage
+    """Draft dataset lineage with AI
 
      Generate an AI-drafted lineage summary for a dataset.
 

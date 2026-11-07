@@ -95,7 +95,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ConnectorListResponse | ProblemDetail]:
-    """List Connectors Endpoint
+    """List connectors
 
      List persistent connectors supplied by an installed overlay.
 
@@ -123,7 +123,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> ConnectorListResponse | ProblemDetail | None:
-    """List Connectors Endpoint
+    """List connectors
 
      List persistent connectors supplied by an installed overlay.
 
@@ -147,7 +147,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ConnectorListResponse | ProblemDetail]:
-    """List Connectors Endpoint
+    """List connectors
 
      List persistent connectors supplied by an installed overlay.
 
@@ -173,7 +173,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> ConnectorListResponse | ProblemDetail | None:
-    """List Connectors Endpoint
+    """List connectors
 
      List persistent connectors supplied by an installed overlay.
 

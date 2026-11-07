@@ -107,6 +107,7 @@ def _not_found(detail: str) -> HTTPException:
             ),
         },
     },
+    summary="Upload a story image",
 )
 async def upload_story_asset_endpoint(
     story_id: uuid.UUID,
@@ -192,6 +193,7 @@ async def upload_story_asset_endpoint(
         200: binary_response("The image", "image/webp", "image/jpeg"),
         304: {"description": "Your copy, named by `If-None-Match`, is current."},
     },
+    summary="Get a story image",
 )
 async def get_story_asset_endpoint(
     story_id: uuid.UUID,

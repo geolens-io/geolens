@@ -40,12 +40,16 @@ _CONFLICT = {
 
 
 @router.put(
-    "/{map_id}/groups", response_model=MapGroupsResponse, include_in_schema=False
+    "/{map_id}/groups",
+    response_model=MapGroupsResponse,
+    include_in_schema=False,
+    summary="Set the sharing groups for a map",
 )
 @router.put(
     "/{map_id}/groups/",
     response_model=MapGroupsResponse,
     responses={403: FORBIDDEN_RESPONSE, 409: _CONFLICT},
+    summary="Set the sharing groups for a map",
 )
 async def set_map_groups_endpoint(
     map_id: uuid.UUID,

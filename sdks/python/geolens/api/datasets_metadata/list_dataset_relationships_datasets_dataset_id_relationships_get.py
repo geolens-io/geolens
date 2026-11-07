@@ -117,7 +117,7 @@ def sync_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 100,
 ) -> Response[DatasetRelationshipListResponse | ProblemDetail]:
-    """List Dataset Relationships
+    """List a dataset's relationships
 
      List FK relationships for a dataset.
 
@@ -161,7 +161,7 @@ def sync(
     skip: int | Unset = 0,
     limit: int | Unset = 100,
 ) -> DatasetRelationshipListResponse | ProblemDetail | None:
-    """List Dataset Relationships
+    """List a dataset's relationships
 
      List FK relationships for a dataset.
 
@@ -200,7 +200,7 @@ async def asyncio_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 100,
 ) -> Response[DatasetRelationshipListResponse | ProblemDetail]:
-    """List Dataset Relationships
+    """List a dataset's relationships
 
      List FK relationships for a dataset.
 
@@ -242,7 +242,7 @@ async def asyncio(
     skip: int | Unset = 0,
     limit: int | Unset = 100,
 ) -> DatasetRelationshipListResponse | ProblemDetail | None:
-    """List Dataset Relationships
+    """List a dataset's relationships
 
      List FK relationships for a dataset.
 

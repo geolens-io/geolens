@@ -105,7 +105,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ColumnStatsResponse | ProblemDetail]:
-    """Get Column Stats Endpoint
+    """Get a numeric column's statistics
 
      Get statistics for a numeric dataset column (for graduated styling).
 
@@ -139,7 +139,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> ColumnStatsResponse | ProblemDetail | None:
-    """Get Column Stats Endpoint
+    """Get a numeric column's statistics
 
      Get statistics for a numeric dataset column (for graduated styling).
 
@@ -168,7 +168,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ColumnStatsResponse | ProblemDetail]:
-    """Get Column Stats Endpoint
+    """Get a numeric column's statistics
 
      Get statistics for a numeric dataset column (for graduated styling).
 
@@ -200,7 +200,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> ColumnStatsResponse | ProblemDetail | None:
-    """Get Column Stats Endpoint
+    """Get a numeric column's statistics
 
      Get statistics for a numeric dataset column (for graduated styling).
 

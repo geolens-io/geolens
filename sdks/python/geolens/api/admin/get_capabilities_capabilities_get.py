@@ -70,7 +70,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[CapabilitiesResponse | ProblemDetail]:
-    """Get Capabilities
+    """Get server capabilities
 
      Describe what this server offers, for a client's first call.
 
@@ -98,7 +98,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> CapabilitiesResponse | ProblemDetail | None:
-    """Get Capabilities
+    """Get server capabilities
 
      Describe what this server offers, for a client's first call.
 
@@ -122,7 +122,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[CapabilitiesResponse | ProblemDetail]:
-    """Get Capabilities
+    """Get server capabilities
 
      Describe what this server offers, for a client's first call.
 
@@ -148,7 +148,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> CapabilitiesResponse | ProblemDetail | None:
-    """Get Capabilities
+    """Get server capabilities
 
      Describe what this server offers, for a client's first call.
 

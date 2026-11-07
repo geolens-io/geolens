@@ -102,7 +102,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | TranslationListResponse]:
-    """List Translations Endpoint
+    """List a record's translations
 
      List localized title/summary variants visible with the parent record.
 
@@ -133,7 +133,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> ProblemDetail | TranslationListResponse | None:
-    """List Translations Endpoint
+    """List a record's translations
 
      List localized title/summary variants visible with the parent record.
 
@@ -159,7 +159,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | TranslationListResponse]:
-    """List Translations Endpoint
+    """List a record's translations
 
      List localized title/summary variants visible with the parent record.
 
@@ -188,7 +188,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> ProblemDetail | TranslationListResponse | None:
-    """List Translations Endpoint
+    """List a record's translations
 
      List localized title/summary variants visible with the parent record.
 

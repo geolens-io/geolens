@@ -489,7 +489,9 @@ def _stac_credential(
     return credential
 
 
-@router.post("/connect", response_model=StacConnectResponse)
+@router.post(
+    "/connect", response_model=StacConnectResponse, summary="Connect to a STAC API"
+)
 async def stac_connect(
     request: StacConnectRequest,
     user: Identity = Depends(require_permission("create_layers")),
@@ -559,6 +561,7 @@ def _conformance_classes(value: object) -> list[str]:
     "/collections",
     response_model=StacCollectionsResponse,
     responses={502: BAD_GATEWAY_RESPONSE},
+    summary="List collections in a STAC API",
 )
 async def stac_collections(
     request: StacConnectRequest,
@@ -625,6 +628,7 @@ async def _validate_next_page_href(catalog_url: str, href: str) -> None:
     "/search",
     response_model=StacSearchResponse,
     responses={502: BAD_GATEWAY_RESPONSE},
+    summary="Search items in a STAC API",
 )
 async def stac_search(
     request: StacSearchRequest,
@@ -698,7 +702,11 @@ def _parse_date(iso_str: str | None) -> date | None:
         return None
 
 
-@router.post("/import", response_model=StacImportResponse)
+@router.post(
+    "/import",
+    response_model=StacImportResponse,
+    summary="Import STAC items as datasets",
+)
 async def stac_import(
     request: StacImportRequest,
     user: Identity = Depends(require_permission("create_layers")),

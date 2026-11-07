@@ -102,7 +102,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | RelatedDatasetsResponse]:
-    """List Related Datasets
+    """List related datasets
 
      Return top-5 datasets similar to this one by embedding cosine similarity.
 
@@ -133,7 +133,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> ProblemDetail | RelatedDatasetsResponse | None:
-    """List Related Datasets
+    """List related datasets
 
      Return top-5 datasets similar to this one by embedding cosine similarity.
 
@@ -159,7 +159,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | RelatedDatasetsResponse]:
-    """List Related Datasets
+    """List related datasets
 
      Return top-5 datasets similar to this one by embedding cosine similarity.
 
@@ -188,7 +188,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> ProblemDetail | RelatedDatasetsResponse | None:
-    """List Related Datasets
+    """List related datasets
 
      Return top-5 datasets similar to this one by embedding cosine similarity.
 

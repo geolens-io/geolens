@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: ShareTokenRequest,
 ) -> Response[ProblemDetail | ShareTokenResponse]:
-    """Update Map Share Token Endpoint
+    """Update a map share token
 
      Update expiration on an existing share token. Owner or admin only.
 
@@ -148,7 +148,7 @@ def sync(
     client: AuthenticatedClient,
     body: ShareTokenRequest,
 ) -> ProblemDetail | ShareTokenResponse | None:
-    """Update Map Share Token Endpoint
+    """Update a map share token
 
      Update expiration on an existing share token. Owner or admin only.
 
@@ -179,7 +179,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: ShareTokenRequest,
 ) -> Response[ProblemDetail | ShareTokenResponse]:
-    """Update Map Share Token Endpoint
+    """Update a map share token
 
      Update expiration on an existing share token. Owner or admin only.
 
@@ -213,7 +213,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: ShareTokenRequest,
 ) -> ProblemDetail | ShareTokenResponse | None:
-    """Update Map Share Token Endpoint
+    """Update a map share token
 
      Update expiration on an existing share token. Owner or admin only.
 

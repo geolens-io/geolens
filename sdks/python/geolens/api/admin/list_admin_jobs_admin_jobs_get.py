@@ -156,7 +156,7 @@ def sync_detailed(
     sort: ListAdminJobsAdminJobsGetSort | Unset = "created_at",
     order: ListAdminJobsAdminJobsGetOrder | Unset = "desc",
 ) -> Response[AdminJobListResponse | ProblemDetail]:
-    """List Admin Jobs
+    """List all ingest jobs
 
      List all ingestion jobs with optional status/user/search/sort filters (admin only).
 
@@ -211,7 +211,7 @@ def sync(
     sort: ListAdminJobsAdminJobsGetSort | Unset = "created_at",
     order: ListAdminJobsAdminJobsGetOrder | Unset = "desc",
 ) -> AdminJobListResponse | ProblemDetail | None:
-    """List Admin Jobs
+    """List all ingest jobs
 
      List all ingestion jobs with optional status/user/search/sort filters (admin only).
 
@@ -261,7 +261,7 @@ async def asyncio_detailed(
     sort: ListAdminJobsAdminJobsGetSort | Unset = "created_at",
     order: ListAdminJobsAdminJobsGetOrder | Unset = "desc",
 ) -> Response[AdminJobListResponse | ProblemDetail]:
-    """List Admin Jobs
+    """List all ingest jobs
 
      List all ingestion jobs with optional status/user/search/sort filters (admin only).
 
@@ -314,7 +314,7 @@ async def asyncio(
     sort: ListAdminJobsAdminJobsGetSort | Unset = "created_at",
     order: ListAdminJobsAdminJobsGetOrder | Unset = "desc",
 ) -> AdminJobListResponse | ProblemDetail | None:
-    """List Admin Jobs
+    """List all ingest jobs
 
      List all ingestion jobs with optional status/user/search/sort filters (admin only).
 

@@ -187,7 +187,7 @@ def sync_detailed(
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
 ) -> Response[FacetCountResponse | ProblemDetail]:
-    """Search Facets Endpoint
+    """Get search facet counts
 
      Return record_type facet counts for the given filters.
 
@@ -250,7 +250,7 @@ def sync(
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
 ) -> FacetCountResponse | ProblemDetail | None:
-    """Search Facets Endpoint
+    """Get search facet counts
 
      Return record_type facet counts for the given filters.
 
@@ -308,7 +308,7 @@ async def asyncio_detailed(
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
 ) -> Response[FacetCountResponse | ProblemDetail]:
-    """Search Facets Endpoint
+    """Get search facet counts
 
      Return record_type facet counts for the given filters.
 
@@ -369,7 +369,7 @@ async def asyncio(
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
 ) -> FacetCountResponse | ProblemDetail | None:
-    """Search Facets Endpoint
+    """Get search facet counts
 
      Return record_type facet counts for the given filters.
 

@@ -104,7 +104,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | RasterTileToken | VectorTileToken]:
-    """Get Tile Token
+    """Create a tile token
 
      Generate a tile token for a dataset.
 
@@ -144,7 +144,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> ProblemDetail | RasterTileToken | VectorTileToken | None:
-    """Get Tile Token
+    """Create a tile token
 
      Generate a tile token for a dataset.
 
@@ -179,7 +179,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | RasterTileToken | VectorTileToken]:
-    """Get Tile Token
+    """Create a tile token
 
      Generate a tile token for a dataset.
 
@@ -217,7 +217,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> ProblemDetail | RasterTileToken | VectorTileToken | None:
-    """Get Tile Token
+    """Create a tile token
 
      Generate a tile token for a dataset.
 

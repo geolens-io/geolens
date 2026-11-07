@@ -142,7 +142,7 @@ def sync_detailed(
     | GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetResponse202
     | ProblemDetail
 ]:
-    """Get Collection Item Feature
+    """Get an OGC feature
 
      OGC API Features single feature endpoint -- returns a GeoJSON Feature.
 
@@ -187,7 +187,7 @@ def sync(
     | ProblemDetail
     | None
 ):
-    """Get Collection Item Feature
+    """Get an OGC feature
 
      OGC API Features single feature endpoint -- returns a GeoJSON Feature.
 
@@ -226,7 +226,7 @@ async def asyncio_detailed(
     | GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetResponse202
     | ProblemDetail
 ]:
-    """Get Collection Item Feature
+    """Get an OGC feature
 
      OGC API Features single feature endpoint -- returns a GeoJSON Feature.
 
@@ -269,7 +269,7 @@ async def asyncio(
     | ProblemDetail
     | None
 ):
-    """Get Collection Item Feature
+    """Get an OGC feature
 
      OGC API Features single feature endpoint -- returns a GeoJSON Feature.
 

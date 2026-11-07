@@ -18,8 +18,17 @@ router = APIRouter(prefix="/groups", tags=["Groups"], responses=ERROR_RESPONSES_
 
 
 # Trailing slash is canonical (in OpenAPI); the no-slash form is a hidden alias.
-@router.get("/mine", response_model=GroupRefListResponse, include_in_schema=False)
-@router.get("/mine/", response_model=GroupRefListResponse)
+@router.get(
+    "/mine",
+    response_model=GroupRefListResponse,
+    include_in_schema=False,
+    summary="List the sharing groups you can share with",
+)
+@router.get(
+    "/mine/",
+    response_model=GroupRefListResponse,
+    summary="List the sharing groups you can share with",
+)
 async def list_my_groups(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),

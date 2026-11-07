@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: MetadataAssistRequest,
 ) -> Response[KeywordSuggestionsResponse | ProblemDetail]:
-    """Generate Metadata Keywords
+    """Suggest dataset keywords with AI
 
      Generate AI-suggested keywords for a dataset.
 
@@ -137,7 +137,7 @@ def sync(
     client: AuthenticatedClient,
     body: MetadataAssistRequest,
 ) -> KeywordSuggestionsResponse | ProblemDetail | None:
-    """Generate Metadata Keywords
+    """Suggest dataset keywords with AI
 
      Generate AI-suggested keywords for a dataset.
 
@@ -163,7 +163,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: MetadataAssistRequest,
 ) -> Response[KeywordSuggestionsResponse | ProblemDetail]:
-    """Generate Metadata Keywords
+    """Suggest dataset keywords with AI
 
      Generate AI-suggested keywords for a dataset.
 
@@ -192,7 +192,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: MetadataAssistRequest,
 ) -> KeywordSuggestionsResponse | ProblemDetail | None:
-    """Generate Metadata Keywords
+    """Suggest dataset keywords with AI
 
      Generate AI-suggested keywords for a dataset.
 

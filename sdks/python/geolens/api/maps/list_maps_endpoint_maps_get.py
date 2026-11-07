@@ -153,7 +153,7 @@ def sync_detailed(
     visibility: None | str | Unset = UNSET,
     owned_only: bool | Unset = False,
 ) -> Response[MapListResponse | ProblemDetail]:
-    """List Maps Endpoint
+    """List maps
 
      List maps. Admins see all; authenticated users see own + internal + public + restricted maps shared
     with their groups; anonymous see public only.
@@ -207,7 +207,7 @@ def sync(
     visibility: None | str | Unset = UNSET,
     owned_only: bool | Unset = False,
 ) -> MapListResponse | ProblemDetail | None:
-    """List Maps Endpoint
+    """List maps
 
      List maps. Admins see all; authenticated users see own + internal + public + restricted maps shared
     with their groups; anonymous see public only.
@@ -256,7 +256,7 @@ async def asyncio_detailed(
     visibility: None | str | Unset = UNSET,
     owned_only: bool | Unset = False,
 ) -> Response[MapListResponse | ProblemDetail]:
-    """List Maps Endpoint
+    """List maps
 
      List maps. Admins see all; authenticated users see own + internal + public + restricted maps shared
     with their groups; anonymous see public only.
@@ -308,7 +308,7 @@ async def asyncio(
     visibility: None | str | Unset = UNSET,
     owned_only: bool | Unset = False,
 ) -> MapListResponse | ProblemDetail | None:
-    """List Maps Endpoint
+    """List maps
 
      List maps. Admins see all; authenticated users see own + internal + public + restricted maps shared
     with their groups; anonymous see public only.

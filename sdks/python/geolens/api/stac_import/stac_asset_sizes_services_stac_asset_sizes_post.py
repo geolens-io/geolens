@@ -111,7 +111,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: StacAssetSizesRequest,
 ) -> Response[ProblemDetail | StacAssetSizesResponse]:
-    """Stac Asset Sizes
+    """Look up STAC asset sizes
 
      Look up the size of data assets whose item publishes no ``file:size``.
 
@@ -145,7 +145,7 @@ def sync(
     client: AuthenticatedClient,
     body: StacAssetSizesRequest,
 ) -> ProblemDetail | StacAssetSizesResponse | None:
-    """Stac Asset Sizes
+    """Look up STAC asset sizes
 
      Look up the size of data assets whose item publishes no ``file:size``.
 
@@ -174,7 +174,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: StacAssetSizesRequest,
 ) -> Response[ProblemDetail | StacAssetSizesResponse]:
-    """Stac Asset Sizes
+    """Look up STAC asset sizes
 
      Look up the size of data assets whose item publishes no ``file:size``.
 
@@ -206,7 +206,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: StacAssetSizesRequest,
 ) -> ProblemDetail | StacAssetSizesResponse | None:
-    """Stac Asset Sizes
+    """Look up STAC asset sizes
 
      Look up the size of data assets whose item publishes no ``file:size``.
 

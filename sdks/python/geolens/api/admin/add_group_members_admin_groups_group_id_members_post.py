@@ -107,7 +107,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: GroupMembersAdd,
 ) -> Response[GroupResponse | ProblemDetail]:
-    """Add Group Members
+    """Add users to a sharing group
 
      Add users to a sharing group (admin only).
 
@@ -145,7 +145,7 @@ def sync(
     client: AuthenticatedClient,
     body: GroupMembersAdd,
 ) -> GroupResponse | ProblemDetail | None:
-    """Add Group Members
+    """Add users to a sharing group
 
      Add users to a sharing group (admin only).
 
@@ -178,7 +178,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: GroupMembersAdd,
 ) -> Response[GroupResponse | ProblemDetail]:
-    """Add Group Members
+    """Add users to a sharing group
 
      Add users to a sharing group (admin only).
 
@@ -214,7 +214,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: GroupMembersAdd,
 ) -> GroupResponse | ProblemDetail | None:
-    """Add Group Members
+    """Add users to a sharing group
 
      Add users to a sharing group (admin only).
 

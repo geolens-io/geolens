@@ -107,7 +107,7 @@ def sync_detailed(
     body: None | RefreshRequest | Unset = UNSET,
     x_csrf_token: None | str | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
-    """Logout
+    """Sign out everywhere
 
      Revoke all refresh tokens and bump token_version for the current user.
 
@@ -153,7 +153,7 @@ def sync(
     body: None | RefreshRequest | Unset = UNSET,
     x_csrf_token: None | str | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
-    """Logout
+    """Sign out everywhere
 
      Revoke all refresh tokens and bump token_version for the current user.
 
@@ -194,7 +194,7 @@ async def asyncio_detailed(
     body: None | RefreshRequest | Unset = UNSET,
     x_csrf_token: None | str | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
-    """Logout
+    """Sign out everywhere
 
      Revoke all refresh tokens and bump token_version for the current user.
 
@@ -238,7 +238,7 @@ async def asyncio(
     body: None | RefreshRequest | Unset = UNSET,
     x_csrf_token: None | str | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
-    """Logout
+    """Sign out everywhere
 
      Revoke all refresh tokens and bump token_version for the current user.
 

@@ -73,6 +73,7 @@ class StacAssetSizesResponse(BaseModel):
     "/asset-sizes",
     response_model=StacAssetSizesResponse,
     responses={504: GATEWAY_TIMEOUT_RESPONSE},
+    summary="Look up STAC asset sizes",
 )
 async def stac_asset_sizes(
     request: StacAssetSizesRequest,

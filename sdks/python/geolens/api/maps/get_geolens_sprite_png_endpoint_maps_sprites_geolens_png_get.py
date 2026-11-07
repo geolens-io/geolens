@@ -81,7 +81,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[File | ProblemDetail]:
-    """Get Geolens Sprite Png Endpoint
+    """Get the GeoLens sprite sheet
 
      Serve the generated GeoLens sprite sheet for stable icon IDs.
 
@@ -106,7 +106,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> File | ProblemDetail | None:
-    """Get Geolens Sprite Png Endpoint
+    """Get the GeoLens sprite sheet
 
      Serve the generated GeoLens sprite sheet for stable icon IDs.
 
@@ -127,7 +127,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[File | ProblemDetail]:
-    """Get Geolens Sprite Png Endpoint
+    """Get the GeoLens sprite sheet
 
      Serve the generated GeoLens sprite sheet for stable icon IDs.
 
@@ -150,7 +150,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> File | ProblemDetail | None:
-    """Get Geolens Sprite Png Endpoint
+    """Get the GeoLens sprite sheet
 
      Serve the generated GeoLens sprite sheet for stable icon IDs.
 

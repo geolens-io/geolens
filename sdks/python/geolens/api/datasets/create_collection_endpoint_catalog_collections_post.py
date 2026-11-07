@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: CollectionCreate,
 ) -> Response[CollectionResponse | ProblemDetail]:
-    """Create Collection Endpoint
+    """Create a collection
 
      Create a new collection.
 
@@ -137,7 +137,7 @@ def sync(
     client: AuthenticatedClient,
     body: CollectionCreate,
 ) -> CollectionResponse | ProblemDetail | None:
-    """Create Collection Endpoint
+    """Create a collection
 
      Create a new collection.
 
@@ -163,7 +163,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: CollectionCreate,
 ) -> Response[CollectionResponse | ProblemDetail]:
-    """Create Collection Endpoint
+    """Create a collection
 
      Create a new collection.
 
@@ -192,7 +192,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: CollectionCreate,
 ) -> CollectionResponse | ProblemDetail | None:
-    """Create Collection Endpoint
+    """Create a collection
 
      Create a new collection.
 

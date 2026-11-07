@@ -90,7 +90,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[EmbeddingStatsResponse | ProblemDetail]:
-    """Get Embedding Stats
+    """Get embedding coverage
 
      Return embedding coverage and the state of the backfill runs (admin only).
 
@@ -115,7 +115,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> EmbeddingStatsResponse | ProblemDetail | None:
-    """Get Embedding Stats
+    """Get embedding coverage
 
      Return embedding coverage and the state of the backfill runs (admin only).
 
@@ -136,7 +136,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[EmbeddingStatsResponse | ProblemDetail]:
-    """Get Embedding Stats
+    """Get embedding coverage
 
      Return embedding coverage and the state of the backfill runs (admin only).
 
@@ -159,7 +159,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> EmbeddingStatsResponse | ProblemDetail | None:
-    """Get Embedding Stats
+    """Get embedding coverage
 
      Return embedding coverage and the state of the backfill runs (admin only).
 

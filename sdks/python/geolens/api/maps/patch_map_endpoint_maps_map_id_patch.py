@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: MapPatch,
 ) -> Response[MapResponse | ProblemDetail]:
-    """Patch Map Endpoint
+    """Transfer a map to another owner
 
      Transfer a map to another owner. Admin only.
 
@@ -146,7 +146,7 @@ def sync(
     client: AuthenticatedClient,
     body: MapPatch,
 ) -> MapResponse | ProblemDetail | None:
-    """Patch Map Endpoint
+    """Transfer a map to another owner
 
      Transfer a map to another owner. Admin only.
 
@@ -175,7 +175,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: MapPatch,
 ) -> Response[MapResponse | ProblemDetail]:
-    """Patch Map Endpoint
+    """Transfer a map to another owner
 
      Transfer a map to another owner. Admin only.
 
@@ -207,7 +207,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: MapPatch,
 ) -> MapResponse | ProblemDetail | None:
-    """Patch Map Endpoint
+    """Transfer a map to another owner
 
      Transfer a map to another owner. Admin only.
 

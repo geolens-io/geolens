@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: DistributionCreate,
 ) -> Response[DistributionResponse | ProblemDetail]:
-    """Create Distribution Endpoint
+    """Add a record distribution
 
      Create a manual distribution for a record.
 
@@ -146,7 +146,7 @@ def sync(
     client: AuthenticatedClient,
     body: DistributionCreate,
 ) -> DistributionResponse | ProblemDetail | None:
-    """Create Distribution Endpoint
+    """Add a record distribution
 
      Create a manual distribution for a record.
 
@@ -175,7 +175,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: DistributionCreate,
 ) -> Response[DistributionResponse | ProblemDetail]:
-    """Create Distribution Endpoint
+    """Add a record distribution
 
      Create a manual distribution for a record.
 
@@ -207,7 +207,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: DistributionCreate,
 ) -> DistributionResponse | ProblemDetail | None:
-    """Create Distribution Endpoint
+    """Add a record distribution
 
      Create a manual distribution for a record.
 

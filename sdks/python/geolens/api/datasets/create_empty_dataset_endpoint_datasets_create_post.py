@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: CreateEmptyDatasetRequest,
 ) -> Response[DatasetResponse | ProblemDetail]:
-    """Create Empty Dataset Endpoint
+    """Create an empty dataset
 
      Create an empty dataset with user-defined columns.
 
@@ -139,7 +139,7 @@ def sync(
     client: AuthenticatedClient,
     body: CreateEmptyDatasetRequest,
 ) -> DatasetResponse | ProblemDetail | None:
-    """Create Empty Dataset Endpoint
+    """Create an empty dataset
 
      Create an empty dataset with user-defined columns.
 
@@ -167,7 +167,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: CreateEmptyDatasetRequest,
 ) -> Response[DatasetResponse | ProblemDetail]:
-    """Create Empty Dataset Endpoint
+    """Create an empty dataset
 
      Create an empty dataset with user-defined columns.
 
@@ -198,7 +198,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: CreateEmptyDatasetRequest,
 ) -> DatasetResponse | ProblemDetail | None:
-    """Create Empty Dataset Endpoint
+    """Create an empty dataset
 
      Create an empty dataset with user-defined columns.
 

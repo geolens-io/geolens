@@ -115,7 +115,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: ThumbnailUploadRequest,
 ) -> Response[Any | ProblemDetail]:
-    """Upload Thumbnail
+    """Upload a map thumbnail
 
      Upload a base64 thumbnail for a map.
 
@@ -169,7 +169,7 @@ def sync(
     client: AuthenticatedClient,
     body: ThumbnailUploadRequest,
 ) -> Any | ProblemDetail | None:
-    """Upload Thumbnail
+    """Upload a map thumbnail
 
      Upload a base64 thumbnail for a map.
 
@@ -218,7 +218,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: ThumbnailUploadRequest,
 ) -> Response[Any | ProblemDetail]:
-    """Upload Thumbnail
+    """Upload a map thumbnail
 
      Upload a base64 thumbnail for a map.
 
@@ -270,7 +270,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: ThumbnailUploadRequest,
 ) -> Any | ProblemDetail | None:
-    """Upload Thumbnail
+    """Upload a map thumbnail
 
      Upload a base64 thumbnail for a map.
 

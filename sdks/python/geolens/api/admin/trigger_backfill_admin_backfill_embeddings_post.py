@@ -111,7 +111,7 @@ def sync_detailed(
     force: bool | Unset = False,
     all_tenants: bool | Unset = False,
 ) -> Response[BackfillResponse | ProblemDetail]:
-    """Trigger Backfill
+    """Queue an embedding backfill
 
      Queue semantic-search embedding generation for records (admin only).
 
@@ -164,7 +164,7 @@ def sync(
     force: bool | Unset = False,
     all_tenants: bool | Unset = False,
 ) -> BackfillResponse | ProblemDetail | None:
-    """Trigger Backfill
+    """Queue an embedding backfill
 
      Queue semantic-search embedding generation for records (admin only).
 
@@ -212,7 +212,7 @@ async def asyncio_detailed(
     force: bool | Unset = False,
     all_tenants: bool | Unset = False,
 ) -> Response[BackfillResponse | ProblemDetail]:
-    """Trigger Backfill
+    """Queue an embedding backfill
 
      Queue semantic-search embedding generation for records (admin only).
 
@@ -263,7 +263,7 @@ async def asyncio(
     force: bool | Unset = False,
     all_tenants: bool | Unset = False,
 ) -> BackfillResponse | ProblemDetail | None:
-    """Trigger Backfill
+    """Queue an embedding backfill
 
      Queue semantic-search embedding generation for records (admin only).
 

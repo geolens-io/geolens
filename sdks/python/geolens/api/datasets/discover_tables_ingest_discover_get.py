@@ -107,7 +107,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     limit: int | Unset = 1000,
 ) -> Response[DiscoverResponse | ProblemDetail]:
-    """Discover Tables
+    """Discover unregistered PostGIS tables
 
      Discover unregistered tables in the data schema.
 
@@ -144,7 +144,7 @@ def sync(
     client: AuthenticatedClient,
     limit: int | Unset = 1000,
 ) -> DiscoverResponse | ProblemDetail | None:
-    """Discover Tables
+    """Discover unregistered PostGIS tables
 
      Discover unregistered tables in the data schema.
 
@@ -176,7 +176,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     limit: int | Unset = 1000,
 ) -> Response[DiscoverResponse | ProblemDetail]:
-    """Discover Tables
+    """Discover unregistered PostGIS tables
 
      Discover unregistered tables in the data schema.
 
@@ -211,7 +211,7 @@ async def asyncio(
     client: AuthenticatedClient,
     limit: int | Unset = 1000,
 ) -> DiscoverResponse | ProblemDetail | None:
-    """Discover Tables
+    """Discover unregistered PostGIS tables
 
      Discover unregistered tables in the data schema.
 

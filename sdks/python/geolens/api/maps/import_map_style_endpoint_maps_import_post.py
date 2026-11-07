@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: MapStyleImportRequest,
 ) -> Response[MapStyleImportResponse | ProblemDetail]:
-    r"""Import Map Style Endpoint
+    r"""Import a MapLibre style as a map
 
      Import a MapLibre style JSON document into a new GeoLens map.
 
@@ -150,7 +150,7 @@ def sync(
     client: AuthenticatedClient,
     body: MapStyleImportRequest,
 ) -> MapStyleImportResponse | ProblemDetail | None:
-    r"""Import Map Style Endpoint
+    r"""Import a MapLibre style as a map
 
      Import a MapLibre style JSON document into a new GeoLens map.
 
@@ -189,7 +189,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: MapStyleImportRequest,
 ) -> Response[MapStyleImportResponse | ProblemDetail]:
-    r"""Import Map Style Endpoint
+    r"""Import a MapLibre style as a map
 
      Import a MapLibre style JSON document into a new GeoLens map.
 
@@ -231,7 +231,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: MapStyleImportRequest,
 ) -> MapStyleImportResponse | ProblemDetail | None:
-    r"""Import Map Style Endpoint
+    r"""Import a MapLibre style as a map
 
      Import a MapLibre style JSON document into a new GeoLens map.
 

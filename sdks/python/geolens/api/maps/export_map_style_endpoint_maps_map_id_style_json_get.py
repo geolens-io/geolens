@@ -106,7 +106,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200 | ProblemDetail]:
-    """Export Map Style Endpoint
+    """Export a map as a MapLibre style
 
      Export a saved map as a complete MapLibre style JSON document.
 
@@ -137,7 +137,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200 | ProblemDetail | None:
-    """Export Map Style Endpoint
+    """Export a map as a MapLibre style
 
      Export a saved map as a complete MapLibre style JSON document.
 
@@ -163,7 +163,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200 | ProblemDetail]:
-    """Export Map Style Endpoint
+    """Export a map as a MapLibre style
 
      Export a saved map as a complete MapLibre style JSON document.
 
@@ -192,7 +192,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200 | ProblemDetail | None:
-    """Export Map Style Endpoint
+    """Export a map as a MapLibre style
 
      Export a saved map as a complete MapLibre style JSON document.
 

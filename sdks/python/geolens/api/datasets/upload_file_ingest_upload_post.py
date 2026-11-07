@@ -109,7 +109,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: BodyUploadFileIngestUploadPost,
 ) -> Response[ProblemDetail | UploadResponse]:
-    """Upload File
+    """Upload a file for staging
 
      Upload a geospatial file for staging.
 
@@ -143,7 +143,7 @@ def sync(
     client: AuthenticatedClient,
     body: BodyUploadFileIngestUploadPost,
 ) -> ProblemDetail | UploadResponse | None:
-    """Upload File
+    """Upload a file for staging
 
      Upload a geospatial file for staging.
 
@@ -172,7 +172,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: BodyUploadFileIngestUploadPost,
 ) -> Response[ProblemDetail | UploadResponse]:
-    """Upload File
+    """Upload a file for staging
 
      Upload a geospatial file for staging.
 
@@ -204,7 +204,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: BodyUploadFileIngestUploadPost,
 ) -> ProblemDetail | UploadResponse | None:
-    """Upload File
+    """Upload a file for staging
 
      Upload a geospatial file for staging.
 

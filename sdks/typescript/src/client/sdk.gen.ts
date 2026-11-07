@@ -19,14 +19,14 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
 };
 
 /**
- * Landing Page
+ * Get the OGC API landing page
  *
  * OGC API landing page -- entry point for machine clients.
  */
 export const landingPageGet = <ThrowOnError extends boolean = false>(options?: Options<LandingPageGetData, ThrowOnError>): RequestResult<LandingPageGetResponses, LandingPageGetErrors, ThrowOnError> => (options?.client ?? client).get<LandingPageGetResponses, LandingPageGetErrors, ThrowOnError>({ url: '/', ...options });
 
 /**
- * Get Ai Status
+ * Get the AI feature status
  *
  * Return single-deployment AI status; no provider-routing policy controls (admin only).
  */
@@ -45,7 +45,7 @@ export const getAiStatusAdminAiStatusGet = <ThrowOnError extends boolean = false
 });
 
 /**
- * Update Ai Status
+ * Turn AI features on or off
  *
  * Toggle base AI features on/off at runtime; no provider-routing policy controls (admin only).
  */
@@ -68,7 +68,7 @@ export const updateAiStatusAdminAiStatusPatch = <ThrowOnError extends boolean = 
 });
 
 /**
- * List Api Keys
+ * List all API keys
  *
  * List all API keys (admin only). Never returns the raw key.
  */
@@ -87,7 +87,7 @@ export const listApiKeysAdminApiKeysGet = <ThrowOnError extends boolean = false>
 });
 
 /**
- * Create Api Key
+ * Create an API key for a user
  *
  * Create an API key for a user (admin only).
  *
@@ -105,7 +105,7 @@ export const createApiKeyAdminApiKeysPost = <ThrowOnError extends boolean = fals
 });
 
 /**
- * Revoke Api Key
+ * Revoke any API key
  *
  * Revoke (soft-delete) an API key (admin only).
  */
@@ -124,7 +124,7 @@ export const revokeApiKeyAdminApiKeysKeyIdDelete = <ThrowOnError extends boolean
 });
 
 /**
- * List Audit Logs
+ * List audit log entries
  *
  * Query audit logs with optional filters and sort (admin only).
  *
@@ -165,7 +165,7 @@ export const exportAuditLogsAdminAuditLogsExportFormatGet = <ThrowOnError extend
 });
 
 /**
- * Trigger Backfill
+ * Queue an embedding backfill
  *
  * Queue semantic-search embedding generation for records (admin only).
  *
@@ -202,7 +202,7 @@ export const triggerBackfillAdminBackfillEmbeddingsPost = <ThrowOnError extends 
 });
 
 /**
- * List All Embed Tokens
+ * List embed tokens
  *
  * List basic embed-token inventory across maps; no quota or domain-policy controls (admin only).
  */
@@ -221,7 +221,7 @@ export const listAllEmbedTokensAdminEmbedTokensGet = <ThrowOnError extends boole
 });
 
 /**
- * Bulk Revoke
+ * Revoke several embed tokens
  *
  * Bulk-revoke basic embed tokens; no quota or domain-policy controls (admin only).
  */
@@ -244,7 +244,7 @@ export const bulkRevokeAdminEmbedTokensBulkRevokePost = <ThrowOnError extends bo
 });
 
 /**
- * Get Embedding Stats
+ * Get embedding coverage
  *
  * Return embedding coverage and the state of the backfill runs (admin only).
  */
@@ -263,7 +263,7 @@ export const getEmbeddingStatsAdminEmbeddingStatsGet = <ThrowOnError extends boo
 });
 
 /**
- * List Groups
+ * List sharing groups
  *
  * List sharing groups by name, with member counts (admin only).
  */
@@ -282,7 +282,7 @@ export const listGroupsAdminGroupsGet = <ThrowOnError extends boolean = false>(o
 });
 
 /**
- * Create Group
+ * Create a sharing group
  *
  * Create an empty sharing group (admin only). A duplicate name is 409.
  */
@@ -305,7 +305,7 @@ export const createGroupAdminGroupsPost = <ThrowOnError extends boolean = false>
 });
 
 /**
- * Delete Group
+ * Delete a sharing group
  *
  * Delete a sharing group and all its memberships (admin only).
  *
@@ -328,7 +328,7 @@ export const deleteGroupAdminGroupsGroupIdDelete = <ThrowOnError extends boolean
 });
 
 /**
- * Get Group
+ * Get a sharing group
  *
  * Get one sharing group with its member count (admin only).
  */
@@ -347,7 +347,7 @@ export const getGroupAdminGroupsGroupIdGet = <ThrowOnError extends boolean = fal
 });
 
 /**
- * Rename Group
+ * Rename a sharing group
  *
  * Rename a sharing group (admin only). A name already in use is 409.
  */
@@ -370,7 +370,7 @@ export const renameGroupAdminGroupsGroupIdPatch = <ThrowOnError extends boolean 
 });
 
 /**
- * List Group Members
+ * List sharing group members
  *
  * List a sharing group's members by username (admin only).
  */
@@ -389,7 +389,7 @@ export const listGroupMembersAdminGroupsGroupIdMembersGet = <ThrowOnError extend
 });
 
 /**
- * Add Group Members
+ * Add users to a sharing group
  *
  * Add users to a sharing group (admin only).
  *
@@ -416,7 +416,7 @@ export const addGroupMembersAdminGroupsGroupIdMembersPost = <ThrowOnError extend
 });
 
 /**
- * Remove Group Member
+ * Remove a user from a sharing group
  *
  * Remove one user from a sharing group (admin only).
  *
@@ -437,7 +437,7 @@ export const removeGroupMemberAdminGroupsGroupIdMembersUserIdDelete = <ThrowOnEr
 });
 
 /**
- * Get Infrastructure
+ * Get infrastructure status
  *
  * Return infrastructure configuration, live health status, and OIDC provider connectivity.
  */
@@ -456,7 +456,7 @@ export const getInfrastructureAdminInfrastructureGet = <ThrowOnError extends boo
 });
 
 /**
- * List Admin Jobs
+ * List all ingest jobs
  *
  * List all ingestion jobs with optional status/user/search/sort filters (admin only).
  *
@@ -478,7 +478,7 @@ export const listAdminJobsAdminJobsGet = <ThrowOnError extends boolean = false>(
 });
 
 /**
- * List Share Tokens Endpoint
+ * List share tokens
  *
  * List basic share-token inventory with map info; no quotas or domain controls (admin only).
  *
@@ -500,7 +500,7 @@ export const listShareTokensEndpointAdminShareTokensGet = <ThrowOnError extends 
 });
 
 /**
- * Admin Revoke Share Token
+ * Revoke a share token
  *
  * Revoke a basic share token and cascade to its embed tokens; no quota controls (admin only).
  */
@@ -519,7 +519,7 @@ export const adminRevokeShareTokenAdminShareTokensTokenIdDelete = <ThrowOnError 
 });
 
 /**
- * Get Catalog Stats
+ * Get catalog statistics
  *
  * Return catalog statistics: counts, storage, breakdowns (admin only).
  */
@@ -538,7 +538,7 @@ export const getCatalogStatsAdminStatsGet = <ThrowOnError extends boolean = fals
 });
 
 /**
- * List Users
+ * List users
  *
  * List users with optional status, role, search, and sort filters (admin only).
  *
@@ -560,7 +560,7 @@ export const listUsersAdminUsersGet = <ThrowOnError extends boolean = false>(opt
 });
 
 /**
- * Create User
+ * Create a user
  *
  * Create a new user with the specified role (admin only).
  */
@@ -606,7 +606,7 @@ export const exportUsersCsvAdminUsersExportCsvGet = <ThrowOnError extends boolea
 });
 
 /**
- * List User Names
+ * List usernames
  *
  * Return lightweight id+username list for filter dropdowns.
  *
@@ -630,7 +630,7 @@ export const listUserNamesAdminUsersNamesGet = <ThrowOnError extends boolean = f
 });
 
 /**
- * Delete User
+ * Delete a user
  *
  * Hard-delete a user (admin only). Returns 400 for self-deletion or last-admin.
  */
@@ -649,7 +649,7 @@ export const deleteUserAdminUsersUserIdDelete = <ThrowOnError extends boolean = 
 });
 
 /**
- * Get User
+ * Get a user
  *
  * Get a specific user by ID (admin only).
  */
@@ -668,7 +668,7 @@ export const getUserAdminUsersUserIdGet = <ThrowOnError extends boolean = false>
 });
 
 /**
- * Update User
+ * Update a user
  *
  * Update a user's fields and/or role (admin only).
  */
@@ -691,7 +691,7 @@ export const updateUserAdminUsersUserIdPatch = <ThrowOnError extends boolean = f
 });
 
 /**
- * Approve User
+ * Approve a pending user
  *
  * Approve a pending user with the specified role (admin only).
  */
@@ -714,7 +714,7 @@ export const approveUserAdminUsersUserIdApprovePost = <ThrowOnError extends bool
 });
 
 /**
- * Deactivate User
+ * Deactivate a user
  *
  * Deactivate a user (admin only).
  */
@@ -733,7 +733,7 @@ export const deactivateUserAdminUsersUserIdDeactivatePost = <ThrowOnError extend
 });
 
 /**
- * Reject User
+ * Reject a pending user
  *
  * Reject a pending user by hard-deleting them (admin only).
  */
@@ -752,7 +752,7 @@ export const rejectUserAdminUsersUserIdRejectPost = <ThrowOnError extends boolea
 });
 
 /**
- * Reset User Password
+ * Reset a user's password
  *
  * Set a user's password (admin only).
  *
@@ -786,7 +786,7 @@ export const resetUserPasswordAdminUsersUserIdResetPasswordPost = <ThrowOnError 
 });
 
 /**
- * Ai Availability Endpoint
+ * Check whether AI chat is available
  *
  * Report whether builder AI chat is usable.
  *
@@ -808,7 +808,7 @@ export const aiAvailabilityEndpointAiAvailabilityGet = <ThrowOnError extends boo
 });
 
 /**
- * Chat Endpoint
+ * Edit a map with AI chat
  *
  * Chat-based map editing: send a message and get back edit actions.
  */
@@ -831,7 +831,7 @@ export const chatEndpointAiChatPost = <ThrowOnError extends boolean = false>(opt
 });
 
 /**
- * Dataset Chat Stream Endpoint
+ * Ask AI about a dataset
  *
  * Dataset-scoped AI chat: ask questions about a single dataset's data.
  *
@@ -860,7 +860,7 @@ export const datasetChatStreamEndpointAiChatDatasetStreamPost = <ThrowOnError ex
 });
 
 /**
- * Chat Stream Endpoint
+ * Edit a map with AI chat as a stream
  *
  * Chat-based map editing with server-sent event streaming.
  */
@@ -883,7 +883,7 @@ export const chatStreamEndpointAiChatStreamPost = <ThrowOnError extends boolean 
 });
 
 /**
- * Generate Map Endpoint
+ * Generate a map from a prompt
  *
  * Generate a map from a natural language prompt using an LLM.
  */
@@ -906,7 +906,7 @@ export const generateMapEndpointAiGenerateMapPost = <ThrowOnError extends boolea
 });
 
 /**
- * Generate Map Stream Endpoint
+ * Generate a map from a prompt as a stream
  *
  * Generate a map from a natural language prompt with streaming progress events.
  */
@@ -929,7 +929,7 @@ export const generateMapStreamEndpointAiGenerateMapStreamPost = <ThrowOnError ex
 });
 
 /**
- * Generate Metadata Keywords
+ * Suggest dataset keywords with AI
  *
  * Generate AI-suggested keywords for a dataset.
  */
@@ -952,7 +952,7 @@ export const generateMetadataKeywordsAiMetadataKeywordsPost = <ThrowOnError exte
 });
 
 /**
- * Generate Metadata Lineage
+ * Draft dataset lineage with AI
  *
  * Generate an AI-drafted lineage summary for a dataset.
  */
@@ -975,7 +975,7 @@ export const generateMetadataLineageAiMetadataLineagePost = <ThrowOnError extend
 });
 
 /**
- * Generate Metadata Quality Statement
+ * Draft a dataset quality statement with AI
  *
  * Generate an AI-drafted quality statement for a dataset.
  */
@@ -998,7 +998,7 @@ export const generateMetadataQualityStatementAiMetadataQualityStatementPost = <T
 });
 
 /**
- * Generate Metadata Summary
+ * Draft a dataset summary with AI
  *
  * Generate an AI-drafted summary for a dataset.
  */
@@ -1021,7 +1021,7 @@ export const generateMetadataSummaryAiMetadataSummaryPost = <ThrowOnError extend
 });
 
 /**
- * Get Column Ddl Feed
+ * List a dataset's column change history
  *
  * Return the column-DDL audit history for a dataset.
  *
@@ -1051,7 +1051,7 @@ export const getColumnDdlFeedAuditDatasetsDatasetIdColumnDdlGet = <ThrowOnError 
 });
 
 /**
- * List My Api Keys
+ * List your API keys
  *
  * List the current user's API keys.
  */
@@ -1070,7 +1070,7 @@ export const listMyApiKeysAuthApiKeysGet = <ThrowOnError extends boolean = false
 });
 
 /**
- * Create My Api Key
+ * Create an API key
  *
  * Create an API key for the current user.
  *
@@ -1088,7 +1088,7 @@ export const createMyApiKeyAuthApiKeysPost = <ThrowOnError extends boolean = fal
 });
 
 /**
- * Revoke My Api Key
+ * Revoke an API key
  *
  * Revoke (soft-delete) one of the current user's API keys.
  */
@@ -1107,7 +1107,7 @@ export const revokeMyApiKeyAuthApiKeysKeyIdDelete = <ThrowOnError extends boolea
 });
 
 /**
- * Change Password
+ * Change your password
  *
  * Change the current user's password (requires current password).
  */
@@ -1130,14 +1130,14 @@ export const changePasswordAuthChangePasswordPost = <ThrowOnError extends boolea
 });
 
 /**
- * Config
+ * Get the public sign-in configuration
  *
  * Return public auth configuration (no authentication required).
  */
 export const configAuthConfigGet = <ThrowOnError extends boolean = false>(options?: Options<ConfigAuthConfigGetData, ThrowOnError>): RequestResult<ConfigAuthConfigGetResponses, ConfigAuthConfigGetErrors, ThrowOnError> => (options?.client ?? client).get<ConfigAuthConfigGetResponses, ConfigAuthConfigGetErrors, ThrowOnError>({ url: '/auth/config/', ...options });
 
 /**
- * Create Download Token Endpoint
+ * Create a download token for a dataset
  *
  * Mint a short-lived download-scoped JWT for a single dataset.
  *
@@ -1164,7 +1164,7 @@ export const createDownloadTokenEndpointAuthDownloadTokenDatasetIdPost = <ThrowO
 });
 
 /**
- * Login
+ * Sign in with a username and password
  *
  * Authenticate with username and password, receive a JWT token.
  *
@@ -1184,7 +1184,7 @@ export const loginAuthLoginPost = <ThrowOnError extends boolean = false>(options
 });
 
 /**
- * Logout
+ * Sign out everywhere
  *
  * Revoke all refresh tokens and bump token_version for the current user.
  *
@@ -1216,7 +1216,7 @@ export const logoutAuthLogoutPost = <ThrowOnError extends boolean = false>(optio
 });
 
 /**
- * Logout Current Session
+ * Sign out of the current session
  *
  * Revoke only the presented session's refresh-token family.
  *
@@ -1240,7 +1240,7 @@ export const logoutCurrentSessionAuthLogoutSessionPost = <ThrowOnError extends b
 });
 
 /**
- * Me
+ * Get the signed-in user
  *
  * Return the currently authenticated user's profile and roles.
  */
@@ -1259,7 +1259,7 @@ export const meAuthMeGet = <ThrowOnError extends boolean = false>(options?: Opti
 });
 
 /**
- * Me Permissions
+ * Get the signed-in user's permissions
  *
  * Return the effective permissions for the currently authenticated user.
  */
@@ -1278,7 +1278,7 @@ export const mePermissionsAuthMePermissionsGet = <ThrowOnError extends boolean =
 });
 
 /**
- * Me Usage
+ * Get the signed-in user's quota usage
  *
  * Return the authenticated user's own storage and dataset quota usage.
  */
@@ -1297,7 +1297,7 @@ export const meUsageAuthMeUsageGet = <ThrowOnError extends boolean = false>(opti
 });
 
 /**
- * Exchange Sign In Code
+ * Exchange a sign-in code for a session
  *
  * Exchange a single sign-on code for a browser session.
  *
@@ -1321,14 +1321,14 @@ export const exchangeSignInCodeAuthOauthExchangePost = <ThrowOnError extends boo
 });
 
 /**
- * List Public Providers
+ * List sign-in providers
  *
  * Return the list of enabled OAuth providers for the login page.
  */
 export const listPublicProvidersAuthOauthProvidersGet = <ThrowOnError extends boolean = false>(options?: Options<ListPublicProvidersAuthOauthProvidersGetData, ThrowOnError>): RequestResult<ListPublicProvidersAuthOauthProvidersGetResponses, ListPublicProvidersAuthOauthProvidersGetErrors, ThrowOnError> => (options?.client ?? client).get<ListPublicProvidersAuthOauthProvidersGetResponses, ListPublicProvidersAuthOauthProvidersGetErrors, ThrowOnError>({ url: '/auth/oauth/providers/', ...options });
 
 /**
- * Oauth Callback
+ * Finish OAuth sign-in
  *
  * Handle IdP callback: exchange code, find/create user, redirect to frontend.
  *
@@ -1341,7 +1341,7 @@ export const listPublicProvidersAuthOauthProvidersGet = <ThrowOnError extends bo
 export const oauthCallbackAuthOauthProviderSlugCallbackGet = <ThrowOnError extends boolean = false>(options: Options<OauthCallbackAuthOauthProviderSlugCallbackGetData, ThrowOnError>): RequestResult<OauthCallbackAuthOauthProviderSlugCallbackGetResponses, OauthCallbackAuthOauthProviderSlugCallbackGetErrors, ThrowOnError> => (options.client ?? client).get<OauthCallbackAuthOauthProviderSlugCallbackGetResponses, OauthCallbackAuthOauthProviderSlugCallbackGetErrors, ThrowOnError>({ url: '/auth/oauth/{provider_slug}/callback', ...options });
 
 /**
- * Oauth Login
+ * Start OAuth sign-in
  *
  * Redirect user to the IdP authorization URL with PKCE parameters.
  *
@@ -1354,7 +1354,7 @@ export const oauthCallbackAuthOauthProviderSlugCallbackGet = <ThrowOnError exten
 export const oauthLoginAuthOauthProviderSlugLoginGet = <ThrowOnError extends boolean = false>(options: Options<OauthLoginAuthOauthProviderSlugLoginGetData, ThrowOnError>): RequestResult<unknown, OauthLoginAuthOauthProviderSlugLoginGetErrors, ThrowOnError> => (options.client ?? client).get<unknown, OauthLoginAuthOauthProviderSlugLoginGetErrors, ThrowOnError>({ url: '/auth/oauth/{provider_slug}/login', ...options });
 
 /**
- * Refresh
+ * Refresh the access token
  *
  * Exchange a valid refresh token for a new access + refresh token pair.
  *
@@ -1381,7 +1381,7 @@ export const refreshAuthRefreshPost = <ThrowOnError extends boolean = false>(opt
 });
 
 /**
- * Register
+ * Register an account
  *
  * Create a password account.
  *
@@ -1405,7 +1405,7 @@ export const registerAuthRegisterPost = <ThrowOnError extends boolean = false>(o
 });
 
 /**
- * Resend Verification
+ * Resend the verification email
  *
  * Re-issue and re-send a verification email.
  *
@@ -1426,7 +1426,7 @@ export const resendVerificationAuthResendVerificationPost = <ThrowOnError extend
 });
 
 /**
- * Verify Email
+ * Verify an email address
  *
  * Redeem a verification token, confirming the address.
  *
@@ -1449,7 +1449,7 @@ export const verifyEmailAuthVerifyEmailPost = <ThrowOnError extends boolean = fa
 });
 
 /**
- * Get Capabilities
+ * Get server capabilities
  *
  * Describe what this server offers, for a client's first call.
  *
@@ -1471,7 +1471,7 @@ export const getCapabilitiesCapabilitiesGet = <ThrowOnError extends boolean = fa
 });
 
 /**
- * List Collections Endpoint
+ * List collections
  *
  * List all collections with dataset_count and extent computed per-user.
  */
@@ -1490,7 +1490,7 @@ export const listCollectionsEndpointCatalogCollectionsGet = <ThrowOnError extend
 });
 
 /**
- * Create Collection Endpoint
+ * Create a collection
  *
  * Create a new collection.
  */
@@ -1513,7 +1513,7 @@ export const createCollectionEndpointCatalogCollectionsPost = <ThrowOnError exte
 });
 
 /**
- * Delete Collection Endpoint
+ * Delete a collection
  *
  * Delete a collection. Owner or admin only.
  */
@@ -1532,7 +1532,7 @@ export const deleteCollectionEndpointCatalogCollectionsCollectionIdDelete = <Thr
 });
 
 /**
- * Get Collection Endpoint
+ * Get a collection
  *
  * Get a single collection with dataset_count and extent.
  */
@@ -1551,7 +1551,7 @@ export const getCollectionEndpointCatalogCollectionsCollectionIdGet = <ThrowOnEr
 });
 
 /**
- * Update Collection Endpoint
+ * Update a collection
  *
  * Update a collection's name and/or description. Owner or admin only.
  */
@@ -1574,7 +1574,7 @@ export const updateCollectionEndpointCatalogCollectionsCollectionIdPatch = <Thro
 });
 
 /**
- * Get Collection Datasets Endpoint
+ * List a collection's datasets
  *
  * Get datasets in a collection with RBAC filtering.
  */
@@ -1593,7 +1593,7 @@ export const getCollectionDatasetsEndpointCatalogCollectionsCollectionIdDatasets
 });
 
 /**
- * Add Datasets Endpoint
+ * Add datasets to a collection
  *
  * Add datasets to a collection. Collection owner or admin only.
  */
@@ -1616,7 +1616,7 @@ export const addDatasetsEndpointCatalogCollectionsCollectionIdDatasetsPost = <Th
 });
 
 /**
- * Remove Dataset Endpoint
+ * Remove a dataset from a collection
  *
  * Remove a dataset from a collection. Collection owner or admin only.
  */
@@ -1635,7 +1635,7 @@ export const removeDatasetEndpointCatalogCollectionsCollectionIdDatasetsDatasetI
 });
 
 /**
- * List Collections
+ * List OGC collections
  *
  * List available OGC collections (catalog + per-dataset feature collections).
  */
@@ -1654,7 +1654,7 @@ export const listCollectionsCollectionsGet = <ThrowOnError extends boolean = fal
 });
 
 /**
- * Get Collection Metadata
+ * Get the datasets collection
  *
  * Get metadata for the datasets collection.
  */
@@ -1673,7 +1673,7 @@ export const getCollectionMetadataCollectionsDatasetsGet = <ThrowOnError extends
 });
 
 /**
- * Collection Items
+ * List catalog records
  *
  * OGC API Records items endpoint -- mirrors /search/datasets.
  */
@@ -1697,7 +1697,7 @@ export const collectionItemsCollectionsDatasetsItemsGet = <ThrowOnError extends 
 });
 
 /**
- * Get Collection Item
+ * Get a catalog record
  *
  * Get a single dataset as an OGC Record Feature.
  */
@@ -1716,28 +1716,28 @@ export const getCollectionItemCollectionsDatasetsItemsRecordIdGet = <ThrowOnErro
 });
 
 /**
- * Get Queryables
+ * Get the datasets collection queryables
  *
  * Queryable properties for the datasets collection (OGC API Features Part 3).
  */
 export const getQueryablesCollectionsDatasetsQueryablesGet = <ThrowOnError extends boolean = false>(options?: Options<GetQueryablesCollectionsDatasetsQueryablesGetData, ThrowOnError>): RequestResult<GetQueryablesCollectionsDatasetsQueryablesGetResponses, GetQueryablesCollectionsDatasetsQueryablesGetErrors, ThrowOnError> => (options?.client ?? client).get<GetQueryablesCollectionsDatasetsQueryablesGetResponses, GetQueryablesCollectionsDatasetsQueryablesGetErrors, ThrowOnError>({ url: '/collections/datasets/queryables', ...options });
 
 /**
- * Get Record Schema
+ * Get the catalog record schema
  *
  * JSON Schema describing a catalog record (OGC API Common Part 3).
  */
 export const getRecordSchemaCollectionsDatasetsSchemaGet = <ThrowOnError extends boolean = false>(options?: Options<GetRecordSchemaCollectionsDatasetsSchemaGetData, ThrowOnError>): RequestResult<GetRecordSchemaCollectionsDatasetsSchemaGetResponses, GetRecordSchemaCollectionsDatasetsSchemaGetErrors, ThrowOnError> => (options?.client ?? client).get<GetRecordSchemaCollectionsDatasetsSchemaGetResponses, GetRecordSchemaCollectionsDatasetsSchemaGetErrors, ThrowOnError>({ url: '/collections/datasets/schema', ...options });
 
 /**
- * Get Sortables
+ * Get the datasets collection sortables
  *
  * Sortable properties for the datasets collection (OGC API Records).
  */
 export const getSortablesCollectionsDatasetsSortablesGet = <ThrowOnError extends boolean = false>(options?: Options<GetSortablesCollectionsDatasetsSortablesGetData, ThrowOnError>): RequestResult<GetSortablesCollectionsDatasetsSortablesGetResponses, GetSortablesCollectionsDatasetsSortablesGetErrors, ThrowOnError> => (options?.client ?? client).get<GetSortablesCollectionsDatasetsSortablesGetResponses, GetSortablesCollectionsDatasetsSortablesGetErrors, ThrowOnError>({ url: '/collections/datasets/sortables', ...options });
 
 /**
- * Get Dataset Collection
+ * Get a dataset's OGC feature collection
  *
  * Per-dataset OGC collection metadata with extent, CRS, and items link.
  */
@@ -1756,7 +1756,7 @@ export const getDatasetCollectionCollectionsDatasetIdGet = <ThrowOnError extends
 });
 
 /**
- * Get Collection Items
+ * List OGC features
  *
  * OGC API Features items endpoint -- returns GeoJSON FeatureCollection for a dataset.
  *
@@ -1781,7 +1781,7 @@ export const getCollectionItemsCollectionsDatasetIdItemsGet = <ThrowOnError exte
 });
 
 /**
- * Get Collection Item Feature
+ * Get an OGC feature
  *
  * OGC API Features single feature endpoint -- returns a GeoJSON Feature.
  */
@@ -1800,7 +1800,7 @@ export const getCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGet = <Th
 });
 
 /**
- * Get Collection Queryables
+ * Get a feature collection's queryables
  *
  * Queryable properties for one feature collection (OGC Features Part 3).
  *
@@ -1824,7 +1824,7 @@ export const getCollectionQueryablesCollectionsDatasetIdQueryablesGet = <ThrowOn
 });
 
 /**
- * Dry Run Configuration
+ * Preview a configuration import
  *
  * Preview what an import would change without applying any modifications.
  */
@@ -1847,7 +1847,7 @@ export const dryRunConfigurationConfigOpsDryRunPost = <ThrowOnError extends bool
 });
 
 /**
- * Export Configuration
+ * Export the configuration
  *
  * Export full configuration as JSON (settings + OAuth providers, secrets redacted).
  *
@@ -1872,7 +1872,7 @@ export const exportConfigurationConfigOpsExportGet = <ThrowOnError extends boole
 });
 
 /**
- * Import Configuration
+ * Import a configuration
  *
  * Import configuration in merge or overwrite mode.
  *
@@ -1898,7 +1898,7 @@ export const importConfigurationConfigOpsImportPost = <ThrowOnError extends bool
 });
 
 /**
- * Validate Configuration
+ * Validate the configuration
  *
  * Validate storage, cache, credential handoff, and enabled OIDC providers.
  *
@@ -1919,14 +1919,14 @@ export const validateConfigurationConfigOpsValidatePost = <ThrowOnError extends 
 });
 
 /**
- * Conformance
+ * Get the OGC conformance declaration
  *
  * OGC conformance declaration -- lists supported specification classes.
  */
 export const conformanceConformanceGet = <ThrowOnError extends boolean = false>(options?: Options<ConformanceConformanceGetData, ThrowOnError>): RequestResult<ConformanceConformanceGetResponses, ConformanceConformanceGetErrors, ThrowOnError> => (options?.client ?? client).get<ConformanceConformanceGetResponses, ConformanceConformanceGetErrors, ThrowOnError>({ url: '/conformance', ...options });
 
 /**
- * List All Datasets
+ * List datasets
  *
  * List datasets with visibility filtering and pagination.
  */
@@ -1945,7 +1945,7 @@ export const listAllDatasetsDatasetsGet = <ThrowOnError extends boolean = false>
 });
 
 /**
- * Bulk Delete Datasets Endpoint
+ * Delete several datasets
  *
  * Delete multiple datasets in one request. Returns per-item results.
  */
@@ -1968,7 +1968,7 @@ export const bulkDeleteDatasetsEndpointDatasetsBulkDeletePost = <ThrowOnError ex
 });
 
 /**
- * Create Empty Dataset Endpoint
+ * Create an empty dataset
  *
  * Create an empty dataset with user-defined columns.
  *
@@ -1993,7 +1993,7 @@ export const createEmptyDatasetEndpointDatasetsCreatePost = <ThrowOnError extend
 });
 
 /**
- * Get Dcat Us3 Catalog
+ * Get the DCAT-US 3 catalog
  *
  * DCAT-US Schema v3.0 catalog feed. Respects dataset visibility.
  */
@@ -2012,7 +2012,7 @@ export const getDcatUs3CatalogDatasetsDcatUs30Get = <ThrowOnError extends boolea
 });
 
 /**
- * Validate Dcat Us3 Catalog
+ * Validate the DCAT-US 3 catalog
  *
  * Validate the visible DCAT-US Schema v3.0 catalog feed.
  */
@@ -2031,7 +2031,7 @@ export const validateDcatUs3CatalogDatasetsDcatUs30ValidationGet = <ThrowOnError
 });
 
 /**
- * Get Dcat Catalog
+ * Get the DCAT 3 catalog
  *
  * DCAT 3 JSON-LD catalog feed. Respects dataset visibility.
  */
@@ -2050,7 +2050,7 @@ export const getDcatCatalogDatasetsDcatGet = <ThrowOnError extends boolean = fal
 });
 
 /**
- * Validate Dcat3 Catalog
+ * Validate the DCAT 3 catalog
  *
  * Validate the visible W3C DCAT 3 catalog feed.
  */
@@ -2069,7 +2069,7 @@ export const validateDcat3CatalogDatasetsDcatValidationGet = <ThrowOnError exten
 });
 
 /**
- * Get Geodcat Ap Catalog
+ * Get the GeoDCAT-AP catalog
  *
  * GeoDCAT-AP 2.0.0 catalog feed. Respects dataset visibility.
  */
@@ -2088,7 +2088,7 @@ export const getGeodcatApCatalogDatasetsGeodcatApGet = <ThrowOnError extends boo
 });
 
 /**
- * Validate Geodcat Ap Catalog
+ * Validate the GeoDCAT-AP catalog
  *
  * Validate the visible GeoDCAT-AP 2.0.0 catalog feed.
  */
@@ -2107,7 +2107,7 @@ export const validateGeodcatApCatalogDatasetsGeodcatApValidationGet = <ThrowOnEr
 });
 
 /**
- * Delete Dataset Relationship
+ * Delete a dataset relationship
  *
  * Delete a FK relationship. Editor+ required.
  */
@@ -2126,7 +2126,7 @@ export const deleteDatasetRelationshipDatasetsRelationshipsRelationshipIdDelete 
 });
 
 /**
- * Delete Dataset Endpoint
+ * Delete a dataset
  *
  * Delete a dataset with cascade cleanup. Owner or admin only, requires confirm_title.
  */
@@ -2149,7 +2149,7 @@ export const deleteDatasetEndpointDatasetsDatasetIdDelete = <ThrowOnError extend
 });
 
 /**
- * Get Single Dataset
+ * Get a dataset
  *
  * Get a single dataset by ID with visibility check.
  */
@@ -2168,7 +2168,7 @@ export const getSingleDatasetDatasetsDatasetIdGet = <ThrowOnError extends boolea
 });
 
 /**
- * Update Dataset Metadata
+ * Update dataset metadata
  *
  * Update user-editable dataset metadata.
  */
@@ -2191,7 +2191,7 @@ export const updateDatasetMetadataDatasetsDatasetIdPatch = <ThrowOnError extends
 });
 
 /**
- * Aggregate Endpoint
+ * Compute a dataset aggregate
  *
  * Compute one exact aggregate over a dataset's rows, for a widget.
  *
@@ -2235,7 +2235,7 @@ export const aggregateEndpointDatasetsDatasetIdAggregatePost = <ThrowOnError ext
 });
 
 /**
- * Analysis Materialize Endpoint
+ * Save a spatial analysis as a dataset
  *
  * Materialize an analysis result as a new private dataset (async job).
  *
@@ -2265,7 +2265,7 @@ export const analysisMaterializeEndpointDatasetsDatasetIdAnalysisMaterializePost
 });
 
 /**
- * Analysis Preview Endpoint
+ * Preview a spatial analysis
  *
  * Run a parameterized PostGIS operation and return a GeoJSON preview.
  *
@@ -2291,7 +2291,7 @@ export const analysisPreviewEndpointDatasetsDatasetIdAnalysisPreviewPost = <Thro
 });
 
 /**
- * List Dataset Api Keys
+ * List a dataset's API keys
  *
  * List the active keys bound to this dataset, newest first.
  *
@@ -2314,7 +2314,7 @@ export const listDatasetApiKeysDatasetsDatasetIdApiKeysGet = <ThrowOnError exten
 });
 
 /**
- * Create Dataset Api Key
+ * Create a dataset API key
  *
  * Create a key that reaches only this dataset's features.
  *
@@ -2343,7 +2343,7 @@ export const createDatasetApiKeyDatasetsDatasetIdApiKeysPost = <ThrowOnError ext
 });
 
 /**
- * Revoke Dataset Api Key
+ * Revoke a dataset API key
  *
  * Revoke a key bound to this dataset.
  *
@@ -2367,7 +2367,7 @@ export const revokeDatasetApiKeyDatasetsDatasetIdApiKeysKeyIdDelete = <ThrowOnEr
 });
 
 /**
- * List Attributes Endpoint
+ * List a dataset's attributes
  *
  * List all attribute metadata for a dataset.
  */
@@ -2386,7 +2386,7 @@ export const listAttributesEndpointDatasetsDatasetIdAttributesGet = <ThrowOnErro
 });
 
 /**
- * Get Attribute Endpoint
+ * Get an attribute
  *
  * Get a single attribute metadata entry.
  */
@@ -2405,7 +2405,7 @@ export const getAttributeEndpointDatasetsDatasetIdAttributesAttributeIdGet = <Th
 });
 
 /**
- * Update Attribute Endpoint
+ * Update an attribute
  *
  * Update user-editable attribute metadata fields.
  */
@@ -2428,7 +2428,7 @@ export const updateAttributeEndpointDatasetsDatasetIdAttributesAttributeIdPatch 
 });
 
 /**
- * Reset Attribute Endpoint
+ * Reset an attribute to its detected values
  *
  * Reset attribute metadata to auto-populated values, clearing user_modified_fields.
  */
@@ -2447,7 +2447,7 @@ export const resetAttributeEndpointDatasetsDatasetIdAttributesAttributeIdResetPo
 });
 
 /**
- * Get Column Stats Endpoint
+ * Get a numeric column's statistics
  *
  * Get statistics for a numeric dataset column (for graduated styling).
  */
@@ -2466,7 +2466,7 @@ export const getColumnStatsEndpointDatasetsDatasetIdColumnsColumnNameStatsGet = 
 });
 
 /**
- * Get Column Values
+ * List a column's distinct values
  *
  * Get distinct values for a dataset column (for categorical styling).
  */
@@ -2485,7 +2485,7 @@ export const getColumnValuesDatasetsDatasetIdColumnsColumnNameValuesGet = <Throw
 });
 
 /**
- * Get Pointcloud File
+ * Get a COPC point cloud file
  *
  * Serve a published COPC point cloud's file, whole or by HTTP byte range.
  *
@@ -2523,7 +2523,7 @@ export const getPointcloudFileDatasetsDatasetIdCopcAttemptIdNameCopcLazGet = <Th
 });
 
 /**
- * Get Dcat Us3 Record
+ * Get a DCAT-US 3 record
  *
  * DCAT-US Schema v3.0 JSON-LD for a single dataset.
  */
@@ -2542,7 +2542,7 @@ export const getDcatUs3RecordDatasetsDatasetIdDcatUs30Get = <ThrowOnError extend
 });
 
 /**
- * Validate Dcat Us3 Record
+ * Validate a dataset as DCAT-US 3
  *
  * Validate a single dataset as DCAT-US Schema v3.0.
  */
@@ -2561,7 +2561,7 @@ export const validateDcatUs3RecordDatasetsDatasetIdDcatUs30ValidationGet = <Thro
 });
 
 /**
- * Get Dcat Record
+ * Get a DCAT 3 record
  *
  * DCAT 3 JSON-LD for a single dataset.
  */
@@ -2580,7 +2580,7 @@ export const getDcatRecordDatasetsDatasetIdDcatGet = <ThrowOnError extends boole
 });
 
 /**
- * Validate Dcat3 Record
+ * Validate a dataset as DCAT 3
  *
  * Validate a single dataset as W3C DCAT 3.
  */
@@ -2599,7 +2599,7 @@ export const validateDcat3RecordDatasetsDatasetIdDcatValidationGet = <ThrowOnErr
 });
 
 /**
- * Download Cog
+ * Download a raster as a Cloud-Optimized GeoTIFF
  *
  * Download the Cloud-Optimized GeoTIFF for a raster dataset.
  *
@@ -2632,7 +2632,7 @@ export const downloadCogDatasetsDatasetIdDownloadCogGet = <ThrowOnError extends 
 });
 
 /**
- * Export Dataset Endpoint
+ * Export a dataset
  *
  * Export a dataset as a downloadable file.
  *
@@ -2656,7 +2656,7 @@ export const exportDatasetEndpointDatasetsDatasetIdExportGet = <ThrowOnError ext
 });
 
 /**
- * Get Features Geojson Z Endpoint
+ * Get features as GeoJSON with Z coordinates
  *
  * Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
  *
@@ -2687,7 +2687,7 @@ export const getFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGet = <T
 });
 
 /**
- * List Features
+ * List features
  *
  * Get paginated GeoJSON features for a dataset.
  *
@@ -2712,7 +2712,7 @@ export const listFeaturesDatasetsDatasetIdFeaturesGet = <ThrowOnError extends bo
 });
 
 /**
- * Create Feature
+ * Create a feature
  *
  * Insert a new GeoJSON feature into a dataset.
  *
@@ -2771,7 +2771,7 @@ export const createFeatureDatasetsDatasetIdFeaturesPost = <ThrowOnError extends 
 });
 
 /**
- * Delete Features Batch
+ * Delete several features
  *
  * Delete up to 1,000 features by gid in one transaction (hard delete).
  *
@@ -2800,7 +2800,7 @@ export const deleteFeaturesBatchDatasetsDatasetIdFeaturesDeletePost = <ThrowOnEr
 });
 
 /**
- * Dry Run Create Feature
+ * Check a feature create without saving
  *
  * Check a feature create without writing it.
  *
@@ -2839,7 +2839,7 @@ export const dryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPost = <ThrowOnEr
 });
 
 /**
- * Delete Single Feature
+ * Delete a feature
  *
  * Delete a feature by gid (hard delete).
  *
@@ -2863,7 +2863,7 @@ export const deleteSingleFeatureDatasetsDatasetIdFeaturesGidDelete = <ThrowOnErr
 });
 
 /**
- * Get Single Feature
+ * Get a feature
  *
  * Get a single GeoJSON feature by gid.
  *
@@ -2886,7 +2886,7 @@ export const getSingleFeatureDatasetsDatasetIdFeaturesGidGet = <ThrowOnError ext
 });
 
 /**
- * Patch Single Feature
+ * Update a feature
  *
  * Partial update of a feature (PATCH semantics).
  */
@@ -2909,7 +2909,7 @@ export const patchSingleFeatureDatasetsDatasetIdFeaturesGidPatch = <ThrowOnError
 });
 
 /**
- * Replace Single Feature
+ * Replace a feature
  *
  * Full replacement of a feature (PUT semantics).
  */
@@ -2932,7 +2932,7 @@ export const replaceSingleFeatureDatasetsDatasetIdFeaturesGidPut = <ThrowOnError
 });
 
 /**
- * Get Feature Related Records
+ * List a feature's related records
  *
  * Get related records for a feature via FK relationship.
  */
@@ -2951,7 +2951,7 @@ export const getFeatureRelatedRecordsDatasetsDatasetIdFeaturesGidRelatedRelation
 });
 
 /**
- * Get Geodcat Ap Record
+ * Get a GeoDCAT-AP record
  *
  * GeoDCAT-AP 2.0.0 JSON-LD for a single dataset.
  */
@@ -2970,7 +2970,7 @@ export const getGeodcatApRecordDatasetsDatasetIdGeodcatApGet = <ThrowOnError ext
 });
 
 /**
- * Validate Geodcat Ap Record
+ * Validate a dataset as GeoDCAT-AP
  *
  * Validate a single dataset as GeoDCAT-AP 2.0.0.
  */
@@ -2989,7 +2989,7 @@ export const validateGeodcatApRecordDatasetsDatasetIdGeodcatApValidationGet = <T
 });
 
 /**
- * Set Dataset Groups Endpoint
+ * Set the sharing groups for a dataset
  *
  * Share a dataset with exactly these sharing groups (owner or admin).
  *
@@ -3019,7 +3019,7 @@ export const setDatasetGroupsEndpointDatasetsDatasetIdGroupsPut = <ThrowOnError 
 });
 
 /**
- * Get Dataset History
+ * List a dataset's audit history
  *
  * Get audit log history for a specific dataset.
  */
@@ -3038,7 +3038,7 @@ export const getDatasetHistoryDatasetsDatasetIdHistoryGet = <ThrowOnError extend
 });
 
 /**
- * Dataset Maps
+ * List maps that use a dataset
  *
  * Return maps that contain this dataset, filtered by caller's RBAC visibility.
  */
@@ -3057,7 +3057,7 @@ export const datasetMapsDatasetsDatasetIdMapsGet = <ThrowOnError extends boolean
 });
 
 /**
- * Delete Previous Version
+ * Delete the previous version
  *
  * Delete the dataset's newest kept version, so it can no longer be restored.
  *
@@ -3082,7 +3082,7 @@ export const deletePreviousVersionDatasetsDatasetIdPreviousVersionDelete = <Thro
 });
 
 /**
- * Restore Previous Version
+ * Restore the previous version
  *
  * Publish the dataset's newest kept version as its live data again.
  *
@@ -3111,7 +3111,7 @@ export const restorePreviousVersionDatasetsDatasetIdPreviousVersionRestorePost =
 });
 
 /**
- * Delete Kept Version
+ * Delete a kept version
  *
  * Delete one of the dataset's kept previous versions, so it can no longer be restored.
  *
@@ -3135,7 +3135,7 @@ export const deleteKeptVersionDatasetsDatasetIdPreviousVersionsVersionNumberDele
 });
 
 /**
- * Restore Kept Version
+ * Restore a kept version
  *
  * Publish one of the dataset's kept previous versions as its live data again.
  *
@@ -3166,7 +3166,7 @@ export const restoreKeptVersionDatasetsDatasetIdPreviousVersionsVersionNumberRes
 });
 
 /**
- * Get Quicklook
+ * Get a dataset quicklook image
  *
  * Serve a quicklook PNG image for a dataset.
  */
@@ -3185,7 +3185,7 @@ export const getQuicklookDatasetsDatasetIdQuicklookGet = <ThrowOnError extends b
 });
 
 /**
- * Refresh Dataset
+ * Refresh a dataset from its source
  *
  * Re-pull this dataset's data from the origin it was imported from.
  *
@@ -3241,7 +3241,7 @@ export const refreshDatasetDatasetsDatasetIdRefreshPost = <ThrowOnError extends 
 });
 
 /**
- * List Dataset Refresh Runs
+ * List a dataset's refresh runs
  *
  * Return durable refresh history for a dataset.
  *
@@ -3264,7 +3264,7 @@ export const listDatasetRefreshRunsDatasetsDatasetIdRefreshRunsGet = <ThrowOnErr
 });
 
 /**
- * List Related Datasets
+ * List related datasets
  *
  * Return top-5 datasets similar to this one by embedding cosine similarity.
  */
@@ -3283,7 +3283,7 @@ export const listRelatedDatasetsDatasetsDatasetIdRelatedGet = <ThrowOnError exte
 });
 
 /**
- * List Dataset Relationships
+ * List a dataset's relationships
  *
  * List FK relationships for a dataset.
  *
@@ -3308,7 +3308,7 @@ export const listDatasetRelationshipsDatasetsDatasetIdRelationshipsGet = <ThrowO
 });
 
 /**
- * Create Dataset Relationship
+ * Create a dataset relationship
  *
  * Create a new FK relationship. Editor+ required.
  */
@@ -3331,7 +3331,7 @@ export const createDatasetRelationshipDatasetsDatasetIdRelationshipsPost = <Thro
 });
 
 /**
- * Set Dataset Retention
+ * Set a dataset's row retention
  *
  * Set or clear how many days of rows a feature dataset keeps.
  *
@@ -3361,7 +3361,7 @@ export const setDatasetRetentionDatasetsDatasetIdRetentionPut = <ThrowOnError ex
 });
 
 /**
- * Reupload Dataset
+ * Stage a file to replace a dataset's data
  *
  * Upload a new file to replace the data in an existing dataset.
  */
@@ -3385,7 +3385,7 @@ export const reuploadDatasetDatasetsDatasetIdReuploadPost = <ThrowOnError extend
 });
 
 /**
- * Request Presigned Reupload
+ * Request a presigned re-upload
  *
  * Request presigned URL(s) for direct-to-S3 reupload.
  */
@@ -3408,7 +3408,7 @@ export const requestPresignedReuploadDatasetsDatasetIdReuploadPresignedPost = <T
 });
 
 /**
- * Complete Presigned Reupload
+ * Complete a presigned re-upload
  *
  * Notify that direct-to-S3 reupload is complete.
  */
@@ -3431,7 +3431,7 @@ export const completePresignedReuploadDatasetsDatasetIdReuploadPresignedJobIdCom
 });
 
 /**
- * Reupload Service Preview
+ * Preview a service layer for re-upload
  *
  * Preview a remote service layer for dataset re-upload.
  */
@@ -3454,7 +3454,7 @@ export const reuploadServicePreviewDatasetsDatasetIdReuploadServicePreviewPost =
 });
 
 /**
- * Reupload Commit
+ * Commit a re-upload
  *
  * Commit a re-upload, queuing the background swap task.
  */
@@ -3477,7 +3477,7 @@ export const reuploadCommitDatasetsDatasetIdReuploadJobIdCommitPost = <ThrowOnEr
 });
 
 /**
- * Reupload Preview
+ * Preview a re-upload
  *
  * Preview the schema diff between old dataset and new upload.
  *
@@ -3506,7 +3506,7 @@ export const reuploadPreviewDatasetsDatasetIdReuploadJobIdPreviewPost = <ThrowOn
 });
 
 /**
- * Get Dataset Rows Endpoint
+ * List dataset rows
  *
  * Get keyset-paginated rows from a dataset's data table.
  *
@@ -3545,7 +3545,7 @@ export const getDatasetRowsEndpointDatasetsDatasetIdRowsGet = <ThrowOnError exte
 });
 
 /**
- * Check Source Health
+ * Check a dataset's source
  *
  * Contact this dataset's origin and record what came back.
  *
@@ -3568,7 +3568,7 @@ export const checkSourceHealthDatasetsDatasetIdSourceHealthPost = <ThrowOnError 
 });
 
 /**
- * Update Publication Status
+ * Change a dataset's publication status
  *
  * Transition a dataset's publication status following allowed paths.
  *
@@ -3595,7 +3595,7 @@ export const updatePublicationStatusDatasetsDatasetIdStatusPatch = <ThrowOnError
 });
 
 /**
- * Set Target Status
+ * Move a dataset to a target publication status
  *
  * Walk the publication chain from current status to target in one request.
  *
@@ -3623,7 +3623,7 @@ export const setTargetStatusDatasetsDatasetIdTargetStatusPatch = <ThrowOnError e
 });
 
 /**
- * Get Tileset File
+ * Get a 3D Tiles file
  *
  * Serve one file of a published 3D Tiles tileset.
  *
@@ -3658,7 +3658,7 @@ export const getTilesetFileDatasetsDatasetIdTiles3dPathGet = <ThrowOnError exten
 });
 
 /**
- * Validate Dataset
+ * Get a dataset's validation status
  *
  * Get validation status for a dataset. Shows hard errors and soft warnings.
  *
@@ -3682,7 +3682,7 @@ export const validateDatasetDatasetsDatasetIdValidateGet = <ThrowOnError extends
 });
 
 /**
- * Get Dataset Versions Endpoint
+ * List a dataset's versions
  *
  * Get paginated version history for a dataset.
  *
@@ -3706,7 +3706,7 @@ export const getDatasetVersionsEndpointDatasetsDatasetIdVersionsGet = <ThrowOnEr
 });
 
 /**
- * List Vrt Sources
+ * List a VRT dataset's sources
  *
  * Return ordered list of COG sources for a VRT dataset.
  */
@@ -3725,7 +3725,7 @@ export const listVrtSourcesDatasetsDatasetIdVrtSourcesGet = <ThrowOnError extend
 });
 
 /**
- * List Vrt Generations
+ * List a VRT dataset's generations
  *
  * Return paginated generation history for a VRT dataset.
  *
@@ -3749,7 +3749,7 @@ export const listVrtGenerationsDatasetsDatasetIdVrtGenerationsGet = <ThrowOnErro
 });
 
 /**
- * Regenerate Vrt Endpoint
+ * Regenerate a VRT dataset
  *
  * Trigger manual VRT regeneration with advisory lock to prevent concurrent rebuilds.
  */
@@ -3768,7 +3768,7 @@ export const regenerateVrtEndpointDatasetsDatasetIdVrtRegeneratePost = <ThrowOnE
 });
 
 /**
- * Get Vrt Status
+ * Get a VRT dataset's status
  *
  * Return VRT dataset status, last generation time, source count, and per-source health.
  */
@@ -3787,7 +3787,7 @@ export const getVrtStatusDatasetsDatasetIdVrtStatusGet = <ThrowOnError extends b
 });
 
 /**
- * List My Groups
+ * List the sharing groups you can share with
  *
  * List the sharing groups the caller may share with, by name.
  *
@@ -3808,14 +3808,14 @@ export const listMyGroupsGroupsMineGet = <ThrowOnError extends boolean = false>(
 });
 
 /**
- * Health
+ * Check service health
  *
  * Health check endpoint for ALB, Docker, and Nginx.
  */
 export const healthHealthGet = <ThrowOnError extends boolean = false>(options?: Options<HealthHealthGetData, ThrowOnError>): RequestResult<HealthHealthGetResponses, HealthHealthGetErrors, ThrowOnError> => (options?.client ?? client).get<HealthHealthGetResponses, HealthHealthGetErrors, ThrowOnError>({ url: '/health', ...options });
 
 /**
- * Commit Fan Out
+ * Commit a staged file as one import per layer
  *
  * Convert a single pending IngestJob into N independent per-layer ingest tasks.
  *
@@ -3853,7 +3853,7 @@ export const commitFanOutIngestCommitFanOutJobIdPost = <ThrowOnError extends boo
 });
 
 /**
- * Commit Import
+ * Commit a staged file for import
  *
  * Commit a staged file for ingestion with user-supplied metadata.
  *
@@ -3881,7 +3881,7 @@ export const commitImportIngestCommitJobIdPost = <ThrowOnError extends boolean =
 });
 
 /**
- * Discover Tables
+ * Discover unregistered PostGIS tables
  *
  * Discover unregistered tables in the data schema.
  *
@@ -3906,7 +3906,7 @@ export const discoverTablesIngestDiscoverGet = <ThrowOnError extends boolean = f
 });
 
 /**
- * Apply Manifest Endpoint
+ * Apply an ingest manifest
  *
  * Apply a versioned manifest through the ingest service layer.
  */
@@ -3929,7 +3929,7 @@ export const applyManifestEndpointIngestManifestApplyPost = <ThrowOnError extend
 });
 
 /**
- * Preview File
+ * Preview a staged file
  *
  * Run preview on a staged file and return preview data.
  *
@@ -3957,7 +3957,7 @@ export const previewFileIngestPreviewJobIdPost = <ThrowOnError extends boolean =
 });
 
 /**
- * Register Table
+ * Register a PostGIS table
  *
  * Register an existing PostGIS table as a dataset.
  *
@@ -3983,7 +3983,7 @@ export const registerTableIngestRegisterPost = <ThrowOnError extends boolean = f
 });
 
 /**
- * Bulk Register Tables
+ * Register several PostGIS tables
  *
  * Bulk-register multiple existing PostGIS tables as datasets.
  *
@@ -4011,7 +4011,7 @@ export const bulkRegisterTablesIngestRegisterBulkPost = <ThrowOnError extends bo
 });
 
 /**
- * Upload File
+ * Upload a file for staging
  *
  * Upload a geospatial file for staging.
  *
@@ -4038,7 +4038,7 @@ export const uploadFileIngestUploadPost = <ThrowOnError extends boolean = false>
 });
 
 /**
- * Get Upload Config
+ * Get the upload configuration
  *
  * Return upload configuration including presigned upload availability.
  */
@@ -4057,7 +4057,7 @@ export const getUploadConfigIngestUploadConfigGet = <ThrowOnError extends boolea
 });
 
 /**
- * Request Presigned Upload
+ * Request a presigned upload
  *
  * Request presigned URL(s) for direct-to-S3 file upload.
  */
@@ -4080,7 +4080,7 @@ export const requestPresignedUploadIngestUploadPresignedPost = <ThrowOnError ext
 });
 
 /**
- * Complete Presigned Upload
+ * Complete a presigned upload
  *
  * Notify that direct-to-S3 upload is complete.
  */
@@ -4103,7 +4103,7 @@ export const completePresignedUploadIngestUploadPresignedJobIdCompletePost = <Th
 });
 
 /**
- * Upload From Url
+ * Import a file from a URL
  *
  * Start importing a geospatial file from an HTTP(S) URL.
  *
@@ -4141,7 +4141,7 @@ export const uploadFromUrlIngestUploadUrlPost = <ThrowOnError extends boolean = 
 });
 
 /**
- * Create Vrt
+ * Create a VRT dataset
  *
  * Create a VRT dataset by combining existing raster datasets.
  *
@@ -4168,7 +4168,7 @@ export const createVrtIngestVrtCreatePost = <ThrowOnError extends boolean = fals
 });
 
 /**
- * Add Vrt Source
+ * Add a source to a VRT dataset
  *
  * Add a COG source to an existing VRT and trigger async regeneration.
  *
@@ -4196,7 +4196,7 @@ export const addVrtSourceIngestVrtDatasetIdSourcesPost = <ThrowOnError extends b
 });
 
 /**
- * Remove Vrt Source
+ * Remove a source from a VRT dataset
  *
  * Remove a COG source from an existing VRT and trigger async regeneration.
  *
@@ -4220,7 +4220,7 @@ export const removeVrtSourceIngestVrtDatasetIdSourcesSourceDatasetIdDelete = <Th
 });
 
 /**
- * Get Job Status By Dataset
+ * Get a dataset's latest ingest job
  *
  * Look up the most recent ingest job for a dataset.
  *
@@ -4262,7 +4262,7 @@ export const getJobStatusByDatasetJobsByDatasetDatasetIdGet = <ThrowOnError exte
 });
 
 /**
- * Cleanup Stale Jobs
+ * Fail stale ingest jobs
  *
  * Fail all stale jobs: pending >1h or running >1h.
  *
@@ -4287,7 +4287,7 @@ export const cleanupStaleJobsJobsCleanupStalePost = <ThrowOnError extends boolea
 });
 
 /**
- * Get Job Statuses
+ * Get the status of several ingest jobs
  *
  * Get the status of up to 100 ingestion jobs in one request.
  *
@@ -4315,7 +4315,7 @@ export const getJobStatusesJobsStatusPost = <ThrowOnError extends boolean = fals
 });
 
 /**
- * Get Job Status
+ * Get an ingest job's status
  *
  * Get the status of an ingestion job.
  *
@@ -4336,7 +4336,7 @@ export const getJobStatusJobsJobIdGet = <ThrowOnError extends boolean = false>(o
 });
 
 /**
- * Cancel Job
+ * Cancel an ingest job
  *
  * Cancel a pending or running ingest job.
  *
@@ -4362,7 +4362,7 @@ export const cancelJobJobsJobIdCancelPost = <ThrowOnError extends boolean = fals
 });
 
 /**
- * Retry Job
+ * Retry a failed ingest job
  *
  * Retry a failed ingestion job by re-queuing.
  *
@@ -4384,7 +4384,7 @@ export const retryJobJobsJobIdRetryPost = <ThrowOnError extends boolean = false>
 });
 
 /**
- * Create Layer Endpoint
+ * Create an empty layer
  *
  * Create a new empty spatial layer.
  *
@@ -4413,7 +4413,7 @@ export const createLayerEndpointLayersPost = <ThrowOnError extends boolean = fal
 });
 
 /**
- * Add Column Endpoint
+ * Add a column
  *
  * Add a column to an existing layer.
  */
@@ -4436,7 +4436,7 @@ export const addColumnEndpointLayersDatasetIdColumnsPost = <ThrowOnError extends
 });
 
 /**
- * Drop Column Endpoint
+ * Drop a column
  *
  * Remove a column from an existing layer.
  */
@@ -4455,7 +4455,7 @@ export const dropColumnEndpointLayersDatasetIdColumnsColumnNameDelete = <ThrowOn
 });
 
 /**
- * Rename Column Endpoint
+ * Rename a column
  *
  * Rename a column on an existing layer.
  */
@@ -4478,7 +4478,7 @@ export const renameColumnEndpointLayersDatasetIdColumnsColumnNameNamePatch = <Th
 });
 
 /**
- * Column References Endpoint
+ * Count maps that reference a column
  *
  * Count saved maps whose layer config references a column.
  *
@@ -4500,7 +4500,7 @@ export const columnReferencesEndpointLayersDatasetIdColumnsColumnNameReferencesG
 });
 
 /**
- * Alter Column Type Endpoint
+ * Change a column's type
  *
  * Change a column's type on an existing layer.
  *
@@ -4526,7 +4526,7 @@ export const alterColumnTypeEndpointLayersDatasetIdColumnsColumnNameTypePatch = 
 });
 
 /**
- * List Maps Endpoint
+ * List maps
  *
  * List maps. Admins see all; authenticated users see own + internal + public + restricted maps shared with their groups; anonymous see public only.
  *
@@ -4549,7 +4549,7 @@ export const listMapsEndpointMapsGet = <ThrowOnError extends boolean = false>(op
 });
 
 /**
- * Create Map Endpoint
+ * Create a map
  *
  * Create a new map.
  */
@@ -4572,7 +4572,7 @@ export const createMapEndpointMapsPost = <ThrowOnError extends boolean = false>(
 });
 
 /**
- * List Map Icons Endpoint
+ * List map icons
  *
  * List reusable default and uploaded map icons.
  */
@@ -4591,7 +4591,7 @@ export const listMapIconsEndpointMapsIconsGet = <ThrowOnError extends boolean = 
 });
 
 /**
- * Upload Map Icon Endpoint
+ * Upload a map icon
  *
  * Upload a reusable SVG or PNG icon for symbol layers.
  */
@@ -4615,7 +4615,7 @@ export const uploadMapIconEndpointMapsIconsPost = <ThrowOnError extends boolean 
 });
 
 /**
- * Get Map Icon Asset Endpoint
+ * Get a map icon image
  *
  * Serve an uploaded or bundled icon asset by stable icon ID.
  *
@@ -4629,7 +4629,7 @@ export const uploadMapIconEndpointMapsIconsPost = <ThrowOnError extends boolean 
 export const getMapIconAssetEndpointMapsIconsIconIdAssetGet = <ThrowOnError extends boolean = false>(options: Options<GetMapIconAssetEndpointMapsIconsIconIdAssetGetData, ThrowOnError>): RequestResult<GetMapIconAssetEndpointMapsIconsIconIdAssetGetResponses, GetMapIconAssetEndpointMapsIconsIconIdAssetGetErrors, ThrowOnError> => (options.client ?? client).get<GetMapIconAssetEndpointMapsIconsIconIdAssetGetResponses, GetMapIconAssetEndpointMapsIconsIconIdAssetGetErrors, ThrowOnError>({ url: '/maps/icons/{icon_id}/asset', ...options });
 
 /**
- * Import Map Style Endpoint
+ * Import a MapLibre style as a map
  *
  * Import a MapLibre style JSON document into a new GeoLens map.
  *
@@ -4658,7 +4658,7 @@ export const importMapStyleEndpointMapsImportPost = <ThrowOnError extends boolea
 });
 
 /**
- * Import Arcgis Webmap Endpoint
+ * Import an ArcGIS web map
  *
  * Import an ArcGIS web map as a new GeoLens map.
  *
@@ -4688,7 +4688,7 @@ export const importArcgisWebmapEndpointMapsImportArcgisWebmapPost = <ThrowOnErro
 });
 
 /**
- * Get Shared Map Endpoint
+ * Get a shared map
  *
  * Get a shared map by token. Optionally authenticated for non-public layers.
  *
@@ -4715,21 +4715,21 @@ export const getSharedMapEndpointMapsSharedTokenGet = <ThrowOnError extends bool
 });
 
 /**
- * Get Geolens Sprite Index Endpoint
+ * Get the GeoLens sprite index
  *
  * Serve the stable GeoLens sprite JSON index.
  */
 export const getGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGet = <ThrowOnError extends boolean = false>(options?: Options<GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetData, ThrowOnError>): RequestResult<GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetResponses, GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetErrors, ThrowOnError> => (options?.client ?? client).get<GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetResponses, GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetErrors, ThrowOnError>({ url: '/maps/sprites/geolens.json', ...options });
 
 /**
- * Get Geolens Sprite Png Endpoint
+ * Get the GeoLens sprite sheet
  *
  * Serve the generated GeoLens sprite sheet for stable icon IDs.
  */
 export const getGeolensSpritePngEndpointMapsSpritesGeolensPngGet = <ThrowOnError extends boolean = false>(options?: Options<GetGeolensSpritePngEndpointMapsSpritesGeolensPngGetData, ThrowOnError>): RequestResult<GetGeolensSpritePngEndpointMapsSpritesGeolensPngGetResponses, GetGeolensSpritePngEndpointMapsSpritesGeolensPngGetErrors, ThrowOnError> => (options?.client ?? client).get<GetGeolensSpritePngEndpointMapsSpritesGeolensPngGetResponses, GetGeolensSpritePngEndpointMapsSpritesGeolensPngGetErrors, ThrowOnError>({ url: '/maps/sprites/geolens.png', ...options });
 
 /**
- * Delete Map Endpoint
+ * Delete a map
  *
  * Delete a map. Only the owner or an admin can delete.
  */
@@ -4748,7 +4748,7 @@ export const deleteMapEndpointMapsMapIdDelete = <ThrowOnError extends boolean = 
 });
 
 /**
- * Get Map Endpoint
+ * Get a map
  *
  * Get a single map with its layers.
  */
@@ -4767,7 +4767,7 @@ export const getMapEndpointMapsMapIdGet = <ThrowOnError extends boolean = false>
 });
 
 /**
- * Patch Map Endpoint
+ * Transfer a map to another owner
  *
  * Transfer a map to another owner. Admin only.
  */
@@ -4790,7 +4790,7 @@ export const patchMapEndpointMapsMapIdPatch = <ThrowOnError extends boolean = fa
 });
 
 /**
- * Update Map Endpoint
+ * Update a map
  *
  * Update a map's metadata and/or replace its layers.
  */
@@ -4813,7 +4813,7 @@ export const updateMapEndpointMapsMapIdPut = <ThrowOnError extends boolean = fal
 });
 
 /**
- * Get Map Access Endpoint
+ * Get the caller's access to a map
  *
  * Return server-confirmed route access for the map viewer gate.
  */
@@ -4832,7 +4832,7 @@ export const getMapAccessEndpointMapsMapIdAccessGet = <ThrowOnError extends bool
 });
 
 /**
- * Duplicate Map Endpoint
+ * Duplicate a map
  *
  * Fork a map with RBAC-filtered layers. Any authenticated user can fork.
  */
@@ -4851,7 +4851,7 @@ export const duplicateMapEndpointMapsMapIdDuplicatePost = <ThrowOnError extends 
 });
 
 /**
- * List Embed Tokens Endpoint
+ * List a map's embed tokens
  *
  * List all embed tokens for a map.
  */
@@ -4870,7 +4870,7 @@ export const listEmbedTokensEndpointMapsMapIdEmbedTokensGet = <ThrowOnError exte
 });
 
 /**
- * Create Embed Token Endpoint
+ * Create an embed token
  *
  * Create an embed token scoped to a map's current layers.
  *
@@ -4896,7 +4896,7 @@ export const createEmbedTokenEndpointMapsMapIdEmbedTokensPost = <ThrowOnError ex
 });
 
 /**
- * Revoke Embed Token Endpoint
+ * Revoke an embed token
  *
  * Revoke an embed token.
  */
@@ -4915,7 +4915,7 @@ export const revokeEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdDelete = <ThrowO
 });
 
 /**
- * Update Embed Token Endpoint
+ * Update an embed token
  *
  * Update embed token allowed_origins.
  *
@@ -4940,7 +4940,7 @@ export const updateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatch = <ThrowOn
 });
 
 /**
- * Set Map Groups Endpoint
+ * Set the sharing groups for a map
  *
  * Share a map with exactly these sharing groups (owner or admin).
  *
@@ -4975,7 +4975,7 @@ export const setMapGroupsEndpointMapsMapIdGroupsPut = <ThrowOnError extends bool
 });
 
 /**
- * Get Map History Endpoint
+ * List a map's edit history
  *
  * Return recent builder edit history for a map.
  */
@@ -4994,7 +4994,7 @@ export const getMapHistoryEndpointMapsMapIdHistoryGet = <ThrowOnError extends bo
 });
 
 /**
- * Patch Map Layers Endpoint
+ * Change a map's layers
  *
  * Apply incremental layer additions, patches, removals, and ordering.
  *
@@ -5026,7 +5026,7 @@ export const patchMapLayersEndpointMapsMapIdLayersPatch = <ThrowOnError extends 
 });
 
 /**
- * Add Layer Endpoint
+ * Add a layer to a map
  *
  * Add a layer to a map.
  *
@@ -5058,7 +5058,7 @@ export const addLayerEndpointMapsMapIdLayersPost = <ThrowOnError extends boolean
 });
 
 /**
- * Bulk Delete Layers Endpoint
+ * Remove several layers from a map
  *
  * Batch-delete multiple layers from a map in a single request.
  *
@@ -5088,7 +5088,7 @@ export const bulkDeleteLayersEndpointMapsMapIdLayersBulkDeletePost = <ThrowOnErr
 });
 
 /**
- * Remove Layer Endpoint
+ * Remove a layer from a map
  *
  * Remove a layer from a map.
  */
@@ -5107,7 +5107,7 @@ export const removeLayerEndpointMapsMapIdLayersLayerIdDelete = <ThrowOnError ext
 });
 
 /**
- * Get Og Image
+ * Get a map social card image
  *
  * Serve the OG social-card image from storage (visibility-checked).
  *
@@ -5129,7 +5129,7 @@ export const getOgImageMapsMapIdOgImageGet = <ThrowOnError extends boolean = fal
 });
 
 /**
- * Upload Og Image
+ * Upload a map social card image
  *
  * Upload a base64 OG social-card image (up to 750KB) for a map.
  *
@@ -5163,7 +5163,7 @@ export const uploadOgImageMapsMapIdOgImagePut = <ThrowOnError extends boolean = 
 });
 
 /**
- * Revoke Map Share Endpoint
+ * Revoke a map share token
  *
  * Revoke share token(s) for a map. Owner or admin only.
  */
@@ -5182,7 +5182,7 @@ export const revokeMapShareEndpointMapsMapIdShareDelete = <ThrowOnError extends 
 });
 
 /**
- * Get Map Share Token Endpoint
+ * Get a map's share token
  *
  * Return the active share token for a map, or null if none exists.
  */
@@ -5201,7 +5201,7 @@ export const getMapShareTokenEndpointMapsMapIdShareGet = <ThrowOnError extends b
 });
 
 /**
- * Update Map Share Token Endpoint
+ * Update a map share token
  *
  * Update expiration on an existing share token. Owner or admin only.
  *
@@ -5226,7 +5226,7 @@ export const updateMapShareTokenEndpointMapsMapIdSharePatch = <ThrowOnError exte
 });
 
 /**
- * Share Map Endpoint
+ * Create a map share token
  *
  * Create or retrieve a share token for a public map.
  */
@@ -5249,7 +5249,7 @@ export const shareMapEndpointMapsMapIdSharePost = <ThrowOnError extends boolean 
 });
 
 /**
- * List Map Stories Endpoint
+ * List stories that use a map
  *
  * List the stories whose scenes use this map (owner or admin).
  *
@@ -5273,7 +5273,7 @@ export const listMapStoriesEndpointMapsMapIdStoriesGet = <ThrowOnError extends b
 });
 
 /**
- * Export Map Style Endpoint
+ * Export a map as a MapLibre style
  *
  * Export a saved map as a complete MapLibre style JSON document.
  */
@@ -5292,7 +5292,7 @@ export const exportMapStyleEndpointMapsMapIdStyleJsonGet = <ThrowOnError extends
 });
 
 /**
- * Get Thumbnail
+ * Get a map thumbnail
  *
  * Serve map thumbnail image from storage (visibility-checked).
  */
@@ -5311,7 +5311,7 @@ export const getThumbnailMapsMapIdThumbnailGet = <ThrowOnError extends boolean =
 });
 
 /**
- * Upload Thumbnail
+ * Upload a map thumbnail
  *
  * Upload a base64 thumbnail for a map.
  *
@@ -5337,7 +5337,7 @@ export const uploadThumbnailMapsMapIdThumbnailPut = <ThrowOnError extends boolea
 });
 
 /**
- * Visibility Check Endpoint
+ * Check which layers a map's audience cannot see
  *
  * Check which layers a map's audience can't see. Informational only.
  *
@@ -5390,7 +5390,7 @@ export const sandboxQueryEndpointQueryPost = <ThrowOnError extends boolean = fal
 });
 
 /**
- * List Contacts Endpoint
+ * List a record's contacts
  *
  * List all contacts for a record.
  */
@@ -5409,7 +5409,7 @@ export const listContactsEndpointRecordsRecordIdContactsGet = <ThrowOnError exte
 });
 
 /**
- * Create Contact Endpoint
+ * Add a record contact
  *
  * Create a new contact for a record.
  */
@@ -5432,7 +5432,7 @@ export const createContactEndpointRecordsRecordIdContactsPost = <ThrowOnError ex
 });
 
 /**
- * Delete Contact Endpoint
+ * Delete a record contact
  *
  * Delete a contact.
  */
@@ -5451,7 +5451,7 @@ export const deleteContactEndpointRecordsRecordIdContactsContactIdDelete = <Thro
 });
 
 /**
- * Update Contact Endpoint
+ * Update a record contact
  *
  * Update a contact.
  */
@@ -5474,7 +5474,7 @@ export const updateContactEndpointRecordsRecordIdContactsContactIdPatch = <Throw
 });
 
 /**
- * List Distributions Endpoint
+ * List a record's distributions
  *
  * List all distributions for a record.
  */
@@ -5493,7 +5493,7 @@ export const listDistributionsEndpointRecordsRecordIdDistributionsGet = <ThrowOn
 });
 
 /**
- * Create Distribution Endpoint
+ * Add a record distribution
  *
  * Create a manual distribution for a record.
  */
@@ -5516,7 +5516,7 @@ export const createDistributionEndpointRecordsRecordIdDistributionsPost = <Throw
 });
 
 /**
- * Delete Distribution Endpoint
+ * Delete a record distribution
  *
  * Delete a distribution (manual only; auto-generated distributions are immutable).
  */
@@ -5535,7 +5535,7 @@ export const deleteDistributionEndpointRecordsRecordIdDistributionsDistributionI
 });
 
 /**
- * Update Distribution Endpoint
+ * Update a record distribution
  *
  * Update a distribution (manual only; auto-generated distributions are immutable).
  */
@@ -5558,7 +5558,7 @@ export const updateDistributionEndpointRecordsRecordIdDistributionsDistributionI
 });
 
 /**
- * List Keywords Endpoint
+ * List a record's keywords
  *
  * List all keywords for a record, marking analysis-inherited ones.
  */
@@ -5577,7 +5577,7 @@ export const listKeywordsEndpointRecordsRecordIdKeywordsGet = <ThrowOnError exte
 });
 
 /**
- * Create Keyword Endpoint
+ * Add a record keyword
  *
  * Create a new keyword for a record.
  */
@@ -5600,7 +5600,7 @@ export const createKeywordEndpointRecordsRecordIdKeywordsPost = <ThrowOnError ex
 });
 
 /**
- * Delete Keyword Endpoint
+ * Delete a record keyword
  *
  * Delete a keyword.
  */
@@ -5619,7 +5619,7 @@ export const deleteKeywordEndpointRecordsRecordIdKeywordsKeywordIdDelete = <Thro
 });
 
 /**
- * List Translations Endpoint
+ * List a record's translations
  *
  * List localized title/summary variants visible with the parent record.
  */
@@ -5638,7 +5638,7 @@ export const listTranslationsEndpointRecordsRecordIdTranslationsGet = <ThrowOnEr
 });
 
 /**
- * Delete Translation Endpoint
+ * Delete a record translation
  *
  * Delete one localized title/summary variant.
  */
@@ -5657,7 +5657,7 @@ export const deleteTranslationEndpointRecordsRecordIdTranslationsLanguageDelete 
 });
 
 /**
- * Upsert Translation Endpoint
+ * Set a record translation
  *
  * Create or replace one localized title/summary variant.
  */
@@ -5680,7 +5680,7 @@ export const upsertTranslationEndpointRecordsRecordIdTranslationsLanguagePut = <
 });
 
 /**
- * Search Datasets Endpoint
+ * Search datasets
  *
  * Search datasets with text, spatial, and faceted filters.
  */
@@ -5699,7 +5699,7 @@ export const searchDatasetsEndpointSearchDatasetsGet = <ThrowOnError extends boo
 });
 
 /**
- * Search Facets Endpoint
+ * Get search facet counts
  *
  * Return record_type facet counts for the given filters.
  */
@@ -5718,7 +5718,7 @@ export const searchFacetsEndpointSearchFacetsGet = <ThrowOnError extends boolean
 });
 
 /**
- * List Saved Searches Endpoint
+ * List saved searches
  *
  * List saved searches for the authenticated user.
  */
@@ -5737,7 +5737,7 @@ export const listSavedSearchesEndpointSearchSavedGet = <ThrowOnError extends boo
 });
 
 /**
- * Create Saved Search Endpoint
+ * Save a search
  *
  * Save a search query with a name for later reuse.
  */
@@ -5760,7 +5760,7 @@ export const createSavedSearchEndpointSearchSavedPost = <ThrowOnError extends bo
 });
 
 /**
- * Delete Saved Search Endpoint
+ * Delete a saved search
  *
  * Delete a saved search.
  */
@@ -5779,7 +5779,7 @@ export const deleteSavedSearchEndpointSearchSavedSearchIdDelete = <ThrowOnError 
 });
 
 /**
- * Get Saved Search Endpoint
+ * Get a saved search
  *
  * Get a single saved search by ID.
  */
@@ -5798,7 +5798,7 @@ export const getSavedSearchEndpointSearchSavedSearchIdGet = <ThrowOnError extend
 });
 
 /**
- * Arcgis Signin
+ * Sign in to an ArcGIS portal
  *
  * Sign in to an ArcGIS portal and return a short-lived token.
  *
@@ -5831,7 +5831,7 @@ export const arcgisSigninServicesArcgisSigninPost = <ThrowOnError extends boolea
 });
 
 /**
- * List Connectors Endpoint
+ * List connectors
  *
  * List persistent connectors supplied by an installed overlay.
  *
@@ -5853,7 +5853,7 @@ export const listConnectorsEndpointServicesConnectorsGet = <ThrowOnError extends
 });
 
 /**
- * Discover Connector Resources Endpoint
+ * Discover connector resources
  *
  * Validate connector config and discover non-secret source resources.
  */
@@ -5876,7 +5876,7 @@ export const discoverConnectorResourcesEndpointServicesConnectorsConnectorNameDi
 });
 
 /**
- * Dispatch Connector Ingest Endpoint
+ * Start a connector ingest
  *
  * Dispatch an overlay-owned ingest and return its opaque job id.
  */
@@ -5899,7 +5899,7 @@ export const dispatchConnectorIngestEndpointServicesConnectorsConnectorNameInges
 });
 
 /**
- * Preview Service Layer
+ * Preview a remote service layer
  *
  * Preview a selected remote layer via ogrinfo and create a pending IngestJob.
  *
@@ -5926,7 +5926,7 @@ export const previewServiceLayerServicesPreviewPost = <ThrowOnError extends bool
 });
 
 /**
- * Probe Service Url
+ * Probe a remote service URL
  *
  * Probe a remote service URL to detect its type and list available layers.
  *
@@ -5952,7 +5952,7 @@ export const probeServiceUrlServicesProbePost = <ThrowOnError extends boolean = 
 });
 
 /**
- * Stac Asset Sizes
+ * Look up STAC asset sizes
  *
  * Look up the size of data assets whose item publishes no ``file:size``.
  *
@@ -5978,7 +5978,7 @@ export const stacAssetSizesServicesStacAssetSizesPost = <ThrowOnError extends bo
 });
 
 /**
- * Stac Collections
+ * List collections in a STAC API
  *
  * List collections from a connected STAC API.
  *
@@ -6003,7 +6003,7 @@ export const stacCollectionsServicesStacCollectionsPost = <ThrowOnError extends 
 });
 
 /**
- * Stac Connect
+ * Connect to a STAC API
  *
  * Connect to a STAC API and validate the endpoint.
  *
@@ -6028,7 +6028,7 @@ export const stacConnectServicesStacConnectPost = <ThrowOnError extends boolean 
 });
 
 /**
- * Stac Import
+ * Import STAC items as datasets
  *
  * Import selected STAC items as raster datasets.
  *
@@ -6055,7 +6055,7 @@ export const stacImportServicesStacImportPost = <ThrowOnError extends boolean = 
 });
 
 /**
- * Stac Search
+ * Search items in a STAC API
  *
  * Search items in a STAC API with spatial/temporal filters.
  *
@@ -6080,7 +6080,7 @@ export const stacSearchServicesStacSearchPost = <ThrowOnError extends boolean = 
 });
 
 /**
- * Update Settings
+ * Update settings
  *
  * Update one or more settings (admin only). Returns updated settings.
  */
@@ -6103,7 +6103,7 @@ export const updateSettingsSettingsPut = <ThrowOnError extends boolean = false>(
 });
 
 /**
- * Get All Settings
+ * Get all settings
  *
  * Return all settings grouped by tab with source indicators (admin only).
  */
@@ -6122,7 +6122,7 @@ export const getAllSettingsSettingsAllGet = <ThrowOnError extends boolean = fals
 });
 
 /**
- * Get Api Key Status
+ * Get LLM provider key status
  *
  * Return which LLM providers are configured (without exposing values).
  */
@@ -6141,7 +6141,7 @@ export const getApiKeyStatusSettingsApiKeyStatusGet = <ThrowOnError extends bool
 });
 
 /**
- * Get Basemaps
+ * Get basemaps
  *
  * Return the configured basemap list (public, no auth required).
  *
@@ -6160,7 +6160,7 @@ export const getApiKeyStatusSettingsApiKeyStatusGet = <ThrowOnError extends bool
 export const getBasemapsSettingsBasemapsGet = <ThrowOnError extends boolean = false>(options?: Options<GetBasemapsSettingsBasemapsGetData, ThrowOnError>): RequestResult<GetBasemapsSettingsBasemapsGetResponses, GetBasemapsSettingsBasemapsGetErrors, ThrowOnError> => (options?.client ?? client).get<GetBasemapsSettingsBasemapsGetResponses, GetBasemapsSettingsBasemapsGetErrors, ThrowOnError>({ url: '/settings/basemaps/', ...options });
 
 /**
- * Get Branding
+ * Get branding
  *
  * Return branding configuration (public, no auth required).
  *
@@ -6172,14 +6172,14 @@ export const getBasemapsSettingsBasemapsGet = <ThrowOnError extends boolean = fa
 export const getBrandingSettingsBrandingGet = <ThrowOnError extends boolean = false>(options?: Options<GetBrandingSettingsBrandingGetData, ThrowOnError>): RequestResult<GetBrandingSettingsBrandingGetResponses, GetBrandingSettingsBrandingGetErrors, ThrowOnError> => (options?.client ?? client).get<GetBrandingSettingsBrandingGetResponses, GetBrandingSettingsBrandingGetErrors, ThrowOnError>({ url: '/settings/branding/', ...options });
 
 /**
- * Get Config Mode
+ * Get the configuration mode
  *
  * Return whether the app is in env-only config mode (public, no auth).
  */
 export const getConfigModeSettingsConfigModeGet = <ThrowOnError extends boolean = false>(options?: Options<GetConfigModeSettingsConfigModeGetData, ThrowOnError>): RequestResult<GetConfigModeSettingsConfigModeGetResponses, GetConfigModeSettingsConfigModeGetErrors, ThrowOnError> => (options?.client ?? client).get<GetConfigModeSettingsConfigModeGetResponses, GetConfigModeSettingsConfigModeGetErrors, ThrowOnError>({ url: '/settings/config-mode/', ...options });
 
 /**
- * Detect Embedding Dims
+ * Detect embedding dimensions
  *
  * Probe the configured embedding model and return its output dimensions.
  */
@@ -6205,7 +6205,7 @@ export const detectEmbeddingDimsSettingsDetectEmbeddingDimsPost = <ThrowOnError 
 export const editionInfoSettingsEditionGet = <ThrowOnError extends boolean = false>(options?: Options<EditionInfoSettingsEditionGetData, ThrowOnError>): RequestResult<EditionInfoSettingsEditionGetResponses, EditionInfoSettingsEditionGetErrors, ThrowOnError> => (options?.client ?? client).get<EditionInfoSettingsEditionGetResponses, EditionInfoSettingsEditionGetErrors, ThrowOnError>({ url: '/settings/edition/', ...options });
 
 /**
- * Get Enabled Plugins
+ * Get enabled plugins
  *
  * Return enabled plugin IDs. null = no restriction (all shown), [] = none, [...ids] = only those.
  */
@@ -6236,21 +6236,21 @@ export const getEnterpriseOnlyTabsSettingsEnterpriseTabsGet = <ThrowOnError exte
 });
 
 /**
- * Get Feature Flags
+ * Get feature flags
  *
  * Return public feature flags (no auth required).
  */
 export const getFeatureFlagsSettingsFeatureFlagsGet = <ThrowOnError extends boolean = false>(options?: Options<GetFeatureFlagsSettingsFeatureFlagsGetData, ThrowOnError>): RequestResult<GetFeatureFlagsSettingsFeatureFlagsGetResponses, GetFeatureFlagsSettingsFeatureFlagsGetErrors, ThrowOnError> => (options?.client ?? client).get<GetFeatureFlagsSettingsFeatureFlagsGetResponses, GetFeatureFlagsSettingsFeatureFlagsGetErrors, ThrowOnError>({ url: '/settings/feature-flags/', ...options });
 
 /**
- * Get Map Defaults
+ * Get map defaults
  *
  * Return the default map center and zoom (public, no auth required).
  */
 export const getMapDefaultsSettingsMapDefaultsGet = <ThrowOnError extends boolean = false>(options?: Options<GetMapDefaultsSettingsMapDefaultsGetData, ThrowOnError>): RequestResult<GetMapDefaultsSettingsMapDefaultsGetResponses, GetMapDefaultsSettingsMapDefaultsGetErrors, ThrowOnError> => (options?.client ?? client).get<GetMapDefaultsSettingsMapDefaultsGetResponses, GetMapDefaultsSettingsMapDefaultsGetErrors, ThrowOnError>({ url: '/settings/map-defaults/', ...options });
 
 /**
- * Get Notification Status
+ * Get notification channel status
  *
  * Return which notification channels are configured (booleans only — no secrets).
  *
@@ -6273,7 +6273,7 @@ export const getNotificationStatusSettingsNotificationsStatusGet = <ThrowOnError
 });
 
 /**
- * Send Test Notification
+ * Send a test notification
  *
  * Send a canned test notification through each configured channel (admin only).
  *
@@ -6300,7 +6300,7 @@ export const sendTestNotificationSettingsNotificationsTestPost = <ThrowOnError e
 });
 
 /**
- * List Oauth Providers
+ * List OAuth providers
  *
  * List all OAuth providers (admin only).
  */
@@ -6319,7 +6319,7 @@ export const listOauthProvidersSettingsOauthProvidersGet = <ThrowOnError extends
 });
 
 /**
- * Create Oauth Provider
+ * Create an OAuth provider
  *
  * Create a new OAuth or SAML provider (admin only).
  *
@@ -6346,7 +6346,7 @@ export const createOauthProviderSettingsOauthProvidersPost = <ThrowOnError exten
 });
 
 /**
- * Delete Oauth Provider
+ * Delete an OAuth provider
  *
  * Delete an OAuth or SAML provider (admin only).
  *
@@ -6369,7 +6369,7 @@ export const deleteOauthProviderSettingsOauthProvidersProviderIdDelete = <ThrowO
 });
 
 /**
- * Update Oauth Provider
+ * Update an OAuth provider
  *
  * Update an existing OAuth or SAML provider (admin only).
  *
@@ -6397,7 +6397,7 @@ export const updateOauthProviderSettingsOauthProvidersProviderIdPut = <ThrowOnEr
 });
 
 /**
- * Reset Settings
+ * Reset settings to defaults
  *
  * Reset one or more settings to their defaults (admin only). Returns updated settings.
  */
@@ -6420,35 +6420,35 @@ export const resetSettingsSettingsResetPost = <ThrowOnError extends boolean = fa
 });
 
 /**
- * Get Tile Config
+ * Get tile configuration
  *
  * Return tile delivery configuration (public, no auth required).
  */
 export const getTileConfigSettingsTileConfigGet = <ThrowOnError extends boolean = false>(options?: Options<GetTileConfigSettingsTileConfigGetData, ThrowOnError>): RequestResult<GetTileConfigSettingsTileConfigGetResponses, GetTileConfigSettingsTileConfigGetErrors, ThrowOnError> => (options?.client ?? client).get<GetTileConfigSettingsTileConfigGetResponses, GetTileConfigSettingsTileConfigGetErrors, ThrowOnError>({ url: '/settings/tile-config/', ...options });
 
 /**
- * Landing Page
+ * Get the STAC landing page
  *
  * STAC Catalog landing page.
  */
 export const landingPageStacGet = <ThrowOnError extends boolean = false>(options?: Options<LandingPageStacGetData, ThrowOnError>): RequestResult<LandingPageStacGetResponses, LandingPageStacGetErrors, ThrowOnError> => (options?.client ?? client).get<LandingPageStacGetResponses, LandingPageStacGetErrors, ThrowOnError>({ url: '/stac/', ...options });
 
 /**
- * Get Collections
+ * List STAC collections
  *
  * List all STAC Collections.
  */
 export const getCollectionsStacCollectionsGet = <ThrowOnError extends boolean = false>(options?: Options<GetCollectionsStacCollectionsGetData, ThrowOnError>): RequestResult<GetCollectionsStacCollectionsGetResponses, GetCollectionsStacCollectionsGetErrors, ThrowOnError> => (options?.client ?? client).get<GetCollectionsStacCollectionsGetResponses, GetCollectionsStacCollectionsGetErrors, ThrowOnError>({ url: '/stac/collections', ...options });
 
 /**
- * Get Collection
+ * Get a STAC collection
  *
  * Get a single STAC Collection.
  */
 export const getCollectionStacCollectionsCollectionIdGet = <ThrowOnError extends boolean = false>(options: Options<GetCollectionStacCollectionsCollectionIdGetData, ThrowOnError>): RequestResult<GetCollectionStacCollectionsCollectionIdGetResponses, GetCollectionStacCollectionsCollectionIdGetErrors, ThrowOnError> => (options.client ?? client).get<GetCollectionStacCollectionsCollectionIdGetResponses, GetCollectionStacCollectionsCollectionIdGetErrors, ThrowOnError>({ url: '/stac/collections/{collection_id}', ...options });
 
 /**
- * Get Collection Items
+ * List STAC items in a collection
  *
  * List STAC Items within a collection.
  */
@@ -6467,7 +6467,7 @@ export const getCollectionItemsStacCollectionsCollectionIdItemsGet = <ThrowOnErr
 });
 
 /**
- * Get Collection Item
+ * Get a STAC item in a collection
  *
  * Get a single STAC Item within a collection.
  */
@@ -6486,14 +6486,14 @@ export const getCollectionItemStacCollectionsCollectionIdItemsItemIdGet = <Throw
 });
 
 /**
- * Conformance
+ * Get the STAC conformance classes
  *
  * STAC API conformance classes.
  */
 export const conformanceStacConformanceGet = <ThrowOnError extends boolean = false>(options?: Options<ConformanceStacConformanceGetData, ThrowOnError>): RequestResult<ConformanceStacConformanceGetResponses, ConformanceStacConformanceGetErrors, ThrowOnError> => (options?.client ?? client).get<ConformanceStacConformanceGetResponses, ConformanceStacConformanceGetErrors, ThrowOnError>({ url: '/stac/conformance', ...options });
 
 /**
- * Get Item
+ * Get a STAC item
  *
  * Get a single STAC Item by dataset ID.
  */
@@ -6512,7 +6512,7 @@ export const getItemStacItemsItemIdGet = <ThrowOnError extends boolean = false>(
 });
 
 /**
- * Search Get
+ * Search STAC items with GET
  *
  * STAC Item Search (GET).
  */
@@ -6531,7 +6531,7 @@ export const searchGetStacSearchGet = <ThrowOnError extends boolean = false>(opt
 });
 
 /**
- * Search Post
+ * Search STAC items with POST
  *
  * STAC Item Search (POST with JSON body).
  */
@@ -6554,7 +6554,7 @@ export const searchPostStacSearchPost = <ThrowOnError extends boolean = false>(o
 });
 
 /**
- * List Stories Endpoint
+ * List stories
  *
  * List the stories the caller may read, most recently updated first.
  *
@@ -6576,7 +6576,7 @@ export const listStoriesEndpointStoriesGet = <ThrowOnError extends boolean = fal
 });
 
 /**
- * Create Story Endpoint
+ * Create a story
  *
  * Create a private, unpublished story with an empty draft.
  */
@@ -6599,7 +6599,7 @@ export const createStoryEndpointStoriesPost = <ThrowOnError extends boolean = fa
 });
 
 /**
- * Story Frame Hosts Endpoint
+ * List hosts a story may embed
  *
  * The hosts story embed and video blocks may frame (public, no auth required).
  *
@@ -6609,7 +6609,7 @@ export const createStoryEndpointStoriesPost = <ThrowOnError extends boolean = fa
 export const storyFrameHostsEndpointStoriesFrameHostsGet = <ThrowOnError extends boolean = false>(options?: Options<StoryFrameHostsEndpointStoriesFrameHostsGetData, ThrowOnError>): RequestResult<StoryFrameHostsEndpointStoriesFrameHostsGetResponses, StoryFrameHostsEndpointStoriesFrameHostsGetErrors, ThrowOnError> => (options?.client ?? client).get<StoryFrameHostsEndpointStoriesFrameHostsGetResponses, StoryFrameHostsEndpointStoriesFrameHostsGetErrors, ThrowOnError>({ url: '/stories/frame-hosts/', ...options });
 
 /**
- * Delete Story Endpoint
+ * Delete a story
  *
  * Delete a story and its images (owner or admin). The maps it uses are
  * untouched.
@@ -6629,7 +6629,7 @@ export const deleteStoryEndpointStoriesStoryIdDelete = <ThrowOnError extends boo
 });
 
 /**
- * Get Story Endpoint
+ * Get a story
  *
  * Read a story's published document.
  *
@@ -6652,7 +6652,7 @@ export const getStoryEndpointStoriesStoryIdGet = <ThrowOnError extends boolean =
 });
 
 /**
- * Update Story Endpoint
+ * Update a story
  *
  * Change a story's title, summary, visibility or cover (owner or admin).
  *
@@ -6680,7 +6680,7 @@ export const updateStoryEndpointStoriesStoryIdPatch = <ThrowOnError extends bool
 });
 
 /**
- * Upload Story Asset Endpoint
+ * Upload a story image
  *
  * Upload an image, the multipart part `file`, for the story's blocks or
  * cover (owner or admin).
@@ -6711,7 +6711,7 @@ export const uploadStoryAssetEndpointStoriesStoryIdAssetsPost = <ThrowOnError ex
 });
 
 /**
- * Get Story Asset Endpoint
+ * Get a story image
  *
  * Serve one of the story's images, as WebP unless `variant` says otherwise.
  *
@@ -6733,7 +6733,7 @@ export const getStoryAssetEndpointStoriesStoryIdAssetsAssetIdGet = <ThrowOnError
 });
 
 /**
- * Discard Story Draft Endpoint
+ * Discard a story draft
  *
  * Revert the draft to the published document, or to an empty one for a
  * story never published (owner or admin).
@@ -6760,7 +6760,7 @@ export const discardStoryDraftEndpointStoriesStoryIdDiscardPost = <ThrowOnError 
 });
 
 /**
- * Get Story Draft Endpoint
+ * Get a story draft
  *
  * Read the draft with its revision (owner or admin).
  *
@@ -6783,7 +6783,7 @@ export const getStoryDraftEndpointStoriesStoryIdDraftGet = <ThrowOnError extends
 });
 
 /**
- * Save Story Draft Endpoint
+ * Save a story draft
  *
  * Replace the whole draft (owner or admin). Readers keep the published
  * document until Publish.
@@ -6815,7 +6815,7 @@ export const saveStoryDraftEndpointStoriesStoryIdDraftPut = <ThrowOnError extend
 });
 
 /**
- * Duplicate Story Endpoint
+ * Duplicate a story
  *
  * Copy a story you can read into a new private draft you own.
  *
@@ -6838,7 +6838,7 @@ export const duplicateStoryEndpointStoriesStoryIdDuplicatePost = <ThrowOnError e
 });
 
 /**
- * Set Story Groups Endpoint
+ * Set the sharing groups for a story
  *
  * Share a story with exactly these sharing groups (owner or admin).
  *
@@ -6872,7 +6872,7 @@ export const setStoryGroupsEndpointStoriesStoryIdGroupsPut = <ThrowOnError exten
 });
 
 /**
- * Publish Story Endpoint
+ * Publish a story
  *
  * Publish the draft (owner or admin): readers get it from now on.
  *
@@ -6903,7 +6903,7 @@ export const publishStoryEndpointStoriesStoryIdPublishPost = <ThrowOnError exten
 });
 
 /**
- * Cluster Tile Endpoint
+ * Get a clustered vector tile
  *
  * Serve a server-side clustered vector tile for a point dataset.
  *
@@ -6964,7 +6964,7 @@ export const clusterTileEndpointTilesClustersTablePathZXYPbfGet = <ThrowOnError 
 });
 
 /**
- * Raster Tile Proxy
+ * Get a raster tile
  *
  * Render one raster tile and return the image.
  *
@@ -7026,7 +7026,7 @@ export const rasterTileProxyTilesRasterProxyDatasetIdZXYFmtGet = <ThrowOnError e
 });
 
 /**
- * Get Tile Token
+ * Create a tile token
  *
  * Generate a tile token for a dataset.
  *
@@ -7054,7 +7054,7 @@ export const getTileTokenTilesTokenDatasetIdGet = <ThrowOnError extends boolean 
 });
 
 /**
- * Get Tile Tokens Batch
+ * Create tile tokens for several datasets
  *
  * Generate tile tokens for up to 50 datasets in one request.
  *
@@ -7096,7 +7096,7 @@ export const getTileTokensBatchTilesTokensPost = <ThrowOnError extends boolean =
 });
 
 /**
- * Tile Endpoint
+ * Get a vector tile
  *
  * Serve a vector tile as gzipped MVT binary.
  *

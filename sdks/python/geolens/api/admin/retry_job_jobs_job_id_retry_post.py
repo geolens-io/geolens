@@ -102,7 +102,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | UploadResponse]:
-    """Retry Job
+    """Retry a failed ingest job
 
      Retry a failed ingestion job by re-queuing.
 
@@ -136,7 +136,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | UploadResponse | None:
-    """Retry Job
+    """Retry a failed ingest job
 
      Retry a failed ingestion job by re-queuing.
 
@@ -165,7 +165,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | UploadResponse]:
-    """Retry Job
+    """Retry a failed ingest job
 
      Retry a failed ingestion job by re-queuing.
 
@@ -197,7 +197,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | UploadResponse | None:
-    """Retry Job
+    """Retry a failed ingest job
 
      Retry a failed ingestion job by re-queuing.
 

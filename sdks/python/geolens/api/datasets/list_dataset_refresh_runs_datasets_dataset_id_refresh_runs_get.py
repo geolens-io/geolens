@@ -117,7 +117,7 @@ def sync_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[DatasetRefreshRunListResponse | ProblemDetail]:
-    """List Dataset Refresh Runs
+    """List a dataset's refresh runs
 
      Return durable refresh history for a dataset.
 
@@ -158,7 +158,7 @@ def sync(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> DatasetRefreshRunListResponse | ProblemDetail | None:
-    """List Dataset Refresh Runs
+    """List a dataset's refresh runs
 
      Return durable refresh history for a dataset.
 
@@ -194,7 +194,7 @@ async def asyncio_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[DatasetRefreshRunListResponse | ProblemDetail]:
-    """List Dataset Refresh Runs
+    """List a dataset's refresh runs
 
      Return durable refresh history for a dataset.
 
@@ -233,7 +233,7 @@ async def asyncio(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> DatasetRefreshRunListResponse | ProblemDetail | None:
-    """List Dataset Refresh Runs
+    """List a dataset's refresh runs
 
      Return durable refresh history for a dataset.
 

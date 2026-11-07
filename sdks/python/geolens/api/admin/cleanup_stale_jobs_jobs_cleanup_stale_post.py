@@ -90,7 +90,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | StaleCleanupResponse]:
-    """Cleanup Stale Jobs
+    """Fail stale ingest jobs
 
      Fail all stale jobs: pending >1h or running >1h.
 
@@ -121,7 +121,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | StaleCleanupResponse | None:
-    """Cleanup Stale Jobs
+    """Fail stale ingest jobs
 
      Fail all stale jobs: pending >1h or running >1h.
 
@@ -148,7 +148,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | StaleCleanupResponse]:
-    """Cleanup Stale Jobs
+    """Fail stale ingest jobs
 
      Fail all stale jobs: pending >1h or running >1h.
 
@@ -177,7 +177,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | StaleCleanupResponse | None:
-    """Cleanup Stale Jobs
+    """Fail stale ingest jobs
 
      Fail all stale jobs: pending >1h or running >1h.
 
