@@ -258,8 +258,13 @@ class TestExportStreams:
         async def _wait_for_from_first_read(coro, timeout):
             task = asyncio.ensure_future(coro)
             started = asyncio.ensure_future(first_read.wait())
-            await asyncio.wait({task, started}, return_when=asyncio.FIRST_COMPLETED)
+            done, _ = await asyncio.wait(
+                {task, started}, timeout=30, return_when=asyncio.FIRST_COMPLETED
+            )
             started.cancel()
+            if not done:
+                task.cancel()
+                pytest.fail("the copy did not start within 30s")
             return await real_wait_for(task, timeout)
 
         monkeypatch.setattr(asyncio, "wait_for", _wait_for_from_first_read)
