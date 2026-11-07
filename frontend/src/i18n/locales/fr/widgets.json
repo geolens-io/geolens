@@ -29,6 +29,7 @@
       "above": "{{amount}} au-dessus de {{label}}",
       "below": "{{amount}} en dessous de {{label}}",
       "same": "Identique à {{label}}",
+      "outcome": "{{difference}}, {{outcome}}",
       "difference": "Écart",
       "measure": "Mesure",
       "value": "Valeur",

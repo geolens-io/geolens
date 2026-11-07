@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { dashboardPayload } from '@/components/builder/dashboard-draft';
+import { changeTestLanguage } from '@/test/i18n';
 import { render } from '@/test/test-utils';
 import { indicatorWidget, type IndicatorConfig } from '../indicator/definition';
 import IndicatorEditor from '../indicator/IndicatorEditor';
@@ -160,13 +161,13 @@ describe('indicator difference', () => {
   it('writes an exact difference past 2^53 without rounding it', () => {
     const data = { op: 'stats', approximate: false, cached: false, result: { sum: '9223372036854775807' } };
     render(<IndicatorRenderer config={{ stat: 'sum', column: 'id', reference: 0, comparison: 'value' }} data={data} />);
-    expect(screen.getByText(/^9,223,372,036,854,775,807 above the reference/)).toBeInTheDocument();
+    expect(screen.getByText(/^9,223,372,036,854,775,807 above the reference/, { ignore: '.sr-only' })).toBeInTheDocument();
   });
 
   it('displays an exact fractional difference without rounding it through a number', () => {
     const data = { op: 'stats', approximate: false, cached: false, result: { sum: '9007199254740991.1' } };
     render(<IndicatorRenderer config={{ stat: 'sum', column: 'id', reference: 0, comparison: 'value' }} data={data} />);
-    expect(screen.getByText(/^9,007,199,254,740,991\.1 above the reference/)).toBeInTheDocument();
+    expect(screen.getByText(/^9,007,199,254,740,991\.1 above the reference/, { ignore: '.sr-only' })).toBeInTheDocument();
   });
 
   it('keeps the difference when the scaled value would overflow a number', () => {
@@ -179,14 +180,14 @@ describe('indicator difference', () => {
     const data = { op: 'stats', approximate: false, cached: false, result: { sum: '9007199254740993' } };
     render(<IndicatorRenderer config={{ stat: 'sum', column: 'id', reference: 1e-300 }} data={data} />);
     expect(screen.queryByText(/∞/)).not.toBeInTheDocument();
-    expect(screen.getByText(/^9,007,199,254,740,993 above the reference/)).toBeInTheDocument();
+    expect(screen.getByText(/^9,007,199,254,740,993 above the reference/, { ignore: '.sr-only' })).toBeInTheDocument();
   });
 
   it('shows a tie only when the exact value equals the reference', () => {
     const data = { op: 'stats', approximate: false, cached: false, result: { sum: '9007199254740991.1' } };
     render(<IndicatorRenderer config={{ stat: 'sum', column: 'id', reference: 9007199254740991 }} data={data} />);
     expect(screen.queryByText(/Same as/)).not.toBeInTheDocument();
-    expect(screen.getByText(/above the reference/)).toBeInTheDocument();
+    expect(screen.getByText(/above the reference/, { ignore: '.sr-only' })).toBeInTheDocument();
   });
 
   it('reads an exact value sent as text, and has none without a number', () => {
@@ -206,8 +207,8 @@ describe('indicator reference display', () => {
     const difference = screen.getByText('25 (25%) above Target');
     expect(difference).toHaveClass('text-success');
     expect(difference).not.toHaveTextContent('+');
-    expect(difference.textContent).toMatch(/^▲ 25 \(25%\) above Target, favorable$/);
-    expect(within(difference).getByText(/favorable/)).toHaveClass('sr-only');
+    expect(difference.textContent).toMatch(/^▲ 25 \(25%\) above Target$/);
+    expect(screen.getByText('25 (25%) above Target, favorable')).toHaveClass('sr-only');
     expect(container.querySelector('[aria-hidden="true"]')).toHaveTextContent('▲');
   });
 
@@ -247,6 +248,20 @@ describe('indicator reference display', () => {
     expect(within(table).getByRole('row', { name: /^Count 125$/ })).toBeInTheDocument();
     expect(within(table).getByRole('row', { name: /^Target 100$/ })).toBeInTheDocument();
     expect(within(table).getByRole('row', { name: /^Difference 25 \(25%\) above Target, favorable$/ })).toBeInTheDocument();
+  });
+
+  it('joins the judgement the way the locale does and declines the German reference', async () => {
+    try {
+      await changeTestLanguage('zh');
+      const { unmount } = render(<IndicatorFallback config={{ ...base, reference: 100 }} data={countOf(125)} />);
+      expect(screen.getByRole('row', { name: /^差值 比参考值高 .*，有利$/ })).toBeInTheDocument();
+      unmount();
+      await changeTestLanguage('de');
+      render(<IndicatorRenderer config={{ ...base, reference: 100 }} data={countOf(125)} />);
+      expect(screen.getByText(/über dem Referenzwert$/, { ignore: '.sr-only' })).toHaveClass('text-success');
+    } finally {
+      await changeTestLanguage('en');
+    }
   });
 
   it('keeps the one-line alternative without a reference', () => {

@@ -29,6 +29,7 @@
       "above": "比{{label}}高 {{amount}}",
       "below": "比{{label}}低 {{amount}}",
       "same": "与{{label}}相同",
+      "outcome": "{{difference}}，{{outcome}}",
       "difference": "差值",
       "measure": "指标",
       "value": "数值",

@@ -263,7 +263,7 @@ export function dashboardLayout(config: PanelConfig | null | undefined): Dashboa
 }
 
 // Two 16rem columns and the gap between them: below this width the grid has one column.
-const WIDE_SPAN = '@[33rem]:col-span-2';
+const WIDE_SPAN = '@[32.75rem]:col-span-2';
 const WIDE_TYPES: ReadonlySet<string> = new Set(['bar_chart', 'pie_chart', 'histogram', 'table', 'feature_list']);
 
 /** The expanded panel's widgets; unmounted on collapse, so the view bbox starts over on reopen. */

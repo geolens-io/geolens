@@ -17,7 +17,7 @@ export function IndicatorFallback({ config, data, columnLabel }: WidgetRenderPro
       rows={[
         { label: text.label, text: text.value },
         { label: text.reference.label, text: text.reference.value },
-        ...(text.difference ? [{ label: t('types.indicator.difference'), text: [text.difference.text, text.difference.outcome].filter(Boolean).join(', ') }] : []),
+        ...(text.difference ? [{ label: t('types.indicator.difference'), text: text.difference.spoken ?? text.difference.text }] : []),
       ]}
     />
   );

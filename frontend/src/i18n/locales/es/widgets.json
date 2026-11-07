@@ -29,6 +29,7 @@
       "above": "{{amount}} por encima de {{label}}",
       "below": "{{amount}} por debajo de {{label}}",
       "same": "Igual que {{label}}",
+      "outcome": "{{difference}}, {{outcome}}",
       "difference": "Diferencia",
       "measure": "Medida",
       "value": "Valor",

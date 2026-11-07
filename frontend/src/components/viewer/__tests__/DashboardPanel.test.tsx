@@ -607,12 +607,12 @@ describe('DashboardPanel', () => {
     };
     for (const extra of [{ map_hidden: true }, { panel: 'bottom' }]) {
       const { indicatorItem, chartItem } = items(extra);
-      expect(chartItem).toHaveClass('@[33rem]:col-span-2');
-      expect(indicatorItem).not.toHaveClass('@[33rem]:col-span-2');
+      expect(chartItem).toHaveClass('@[32.75rem]:col-span-2');
+      expect(indicatorItem).not.toHaveClass('@[32.75rem]:col-span-2');
     }
     const right = items({ panel: 'right' });
-    expect(right.chartItem).not.toHaveClass('@[33rem]:col-span-2');
-    expect(right.indicatorItem).not.toHaveClass('@[33rem]:col-span-2');
+    expect(right.chartItem).not.toHaveClass('@[32.75rem]:col-span-2');
+    expect(right.indicatorItem).not.toHaveClass('@[32.75rem]:col-span-2');
   });
 
   it('renders nothing for a map without widgets', () => {

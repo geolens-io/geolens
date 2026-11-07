@@ -122,7 +122,8 @@ interface IndicatorText {
   /** The reference as a line of its own, when the config has one. */
   reference?: { label: string; line: string; value: string };
   /** The difference, once the value is known. */
-  difference?: { arrow: string; text: string; tone: Tone; outcome?: string };
+  /** `spoken` is the phrase with the judgement word joined the way the locale does, when there is one. */
+  difference?: { arrow: string; text: string; tone: Tone; spoken?: string };
 }
 
 /** The statistic's label and its value as text, with "no data" before the host has fetched it. */
@@ -163,11 +164,12 @@ export function useIndicatorText(
         : null;
     const shown = amount !== null && percent !== null ? `${amount} (${percent})` : (amount ?? percent ?? '');
     const phrase = t(`types.indicator.${difference.direction}`, { amount: shown, label: phraseLabel });
+    const outcome = difference.tone === 'neutral' ? undefined : t(`types.indicator.${difference.tone}`);
     text.difference = {
       arrow: ARROWS[difference.direction],
       tone: difference.tone,
       text: phrase,
-      outcome: difference.tone === 'neutral' ? undefined : t(`types.indicator.${difference.tone}`),
+      spoken: outcome && t('types.indicator.outcome', { difference: phrase, outcome }),
     };
   }
   return text;
