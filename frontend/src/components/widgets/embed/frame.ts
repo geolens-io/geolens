@@ -41,13 +41,19 @@ export function frameUrlHost(url: string): string | null {
   return host.includes(':') ? null : normalizeFrameHost(host);
 }
 
-/** The approved entry for the host `url` frames, if there is one. */
+/**
+ * The approved entry for the host `url` frames, if there is one. The page's own
+ * host never qualifies: a same-origin frame could reach the page and drop its
+ * sandbox, and the server's check only knows the configured public URL.
+ */
 export function approvedFrameHost(
   hosts: readonly StoryFrameHost[],
   url: string,
+  pageHost: string = window.location.hostname,
 ): StoryFrameHost | undefined {
   const host = frameUrlHost(url);
-  return host === null ? undefined : hosts.find((entry) => entry.host === host);
+  if (host === null || host === pageHost.toLowerCase()) return undefined;
+  return hosts.find((entry) => entry.host === host);
 }
 
 /**
