@@ -36,7 +36,7 @@ _Avoid_: Data tab, data drawer.
 
 **Attribute table**: A saved layer's rows as a table. It starts with the fields the layer's popup shows, and the reader can add or hide columns.
 
-**Column allowlist**: The columns of a dataset that anyone reaching it only through an embed may see. Map tiles carry no others.
+**Column allowlist**: The columns of a dataset that anyone reaching it only through an embed may see. Map tiles carry no others; row lists keep the row id.
 _Avoid_: Tile columns.
 
 **Source binding**: The system-managed record of where a dataset's current data came from and how to reach it again: the origin, the pointer and the details a refresh needs. It changes only when an import, replacement, refresh or restore publishes new data, and it never holds a credential.
@@ -73,7 +73,7 @@ _Avoid_: Team, role, layer group (layers grouped inside a map).
 **Block**: One piece of a chapter's content: text, an image, a gallery, a carousel, a video, a framed page, a button or a separator.
 _Avoid_: Widget, which is a dashboard's summary.
 
-**Scene**: What the map shows for a chapter: a saved map, its camera and which of its saved layers are visible. A scene never changes how a layer looks; a chapter that needs a different look shows another layer of the same map. A chapter without a scene keeps the one before it; chapters before the first scene show that first scene. A story with no scene is read as text alone.
+**Scene**: What the map shows for a chapter: a saved map, its camera and which of its saved layers are visible. A scene never changes how a layer looks; a chapter that needs a different look shows another layer of the same map. A chapter without a scene keeps the one before it; chapters before the first scene show that first scene. A story with no scene shows its chapters without a map.
 _Avoid_: Slide, view (a map's own saved camera).
 
 **Reader settings**: A story's choices for how readers see it: whether the chapter list shows above the story, the layout, the panel position, the theme and the default transition.

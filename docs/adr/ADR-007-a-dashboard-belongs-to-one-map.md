@@ -17,9 +17,10 @@ map widget, 59% with one and 14% with two or more.
 
 A dashboard stays part of one map. Dashboards that have no map are covered by
 letting an author hide the map so the widgets fill the page. Dashboards with
-two or more maps are an ArcGIS migration loss item: the migration report names
-them, and an operator converts each one to a single-map dashboard or splits
-it.
+two or more map widgets, on the same web map or not, are an ArcGIS migration
+loss item: the migration report names those it can count and lists one whose
+widgets it could not read for inspection, and an operator converts each one to
+a single-map dashboard or splits it.
 
 A standalone dashboard item was rejected. It would need its own visibility,
 group sharing, share links, embed tokens, catalog entry and a rule for
