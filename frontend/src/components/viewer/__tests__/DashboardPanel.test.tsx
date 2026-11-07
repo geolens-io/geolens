@@ -591,6 +591,30 @@ describe('DashboardPanel', () => {
     expect(screen.getByText('Open dashboard')).not.toHaveClass('md:sr-only');
   });
 
+  it('spans a chart two columns in the grid layouts and an indicator one, and neither beside the map', () => {
+    const items = (extra: object) => {
+      const { container, unmount } = render(
+        <DashboardPanel
+          config={{ ...dashboard([countWidget, chartWidget]), ...extra }}
+          layers={[layer()]}
+          map={null}
+          mapId="map-1"
+        />,
+      );
+      const [indicatorItem, chartItem] = Array.from(container.querySelectorAll('ul > li'));
+      unmount();
+      return { indicatorItem, chartItem };
+    };
+    for (const extra of [{ map_hidden: true }, { panel: 'bottom' }]) {
+      const { indicatorItem, chartItem } = items(extra);
+      expect(chartItem).toHaveClass('@[33rem]:col-span-2');
+      expect(indicatorItem).not.toHaveClass('@[33rem]:col-span-2');
+    }
+    const right = items({ panel: 'right' });
+    expect(right.chartItem).not.toHaveClass('@[33rem]:col-span-2');
+    expect(right.indicatorItem).not.toHaveClass('@[33rem]:col-span-2');
+  });
+
   it('renders nothing for a map without widgets', () => {
     const { container } = render(
       <DashboardPanel config={dashboard([])} layers={[layer()]} map={null} mapId="map-1" />,

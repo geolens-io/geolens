@@ -262,6 +262,10 @@ export function dashboardLayout(config: PanelConfig | null | undefined): Dashboa
   return config?.map_hidden ? 'page' : dashboardPanelPosition(config);
 }
 
+// Two 16rem columns and the gap between them: below this width the grid has one column.
+const WIDE_SPAN = '@[33rem]:col-span-2';
+const WIDE_TYPES: ReadonlySet<string> = new Set(['bar_chart', 'pie_chart', 'histogram', 'table', 'feature_list']);
+
 /** The expanded panel's widgets; unmounted on collapse, so the view bbox starts over on reopen. */
 function DashboardWidgetList({
   id,
@@ -324,7 +328,7 @@ function DashboardWidgetList({
       className={cn(
         'min-h-0 flex-1 overflow-y-auto p-3',
         layout !== 'right'
-          ? 'grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))] content-start gap-3'
+          ? '@container grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))] content-start gap-3'
           : 'space-y-3',
       )}
     >
@@ -352,7 +356,7 @@ function DashboardWidgetList({
               (mapCarriesColumn(layer, column) &&
                 (getClusterSourceStrategy(layer).kind !== 'server-tile' || isMvtSourceLayerConfigReady(tileConfig))));
           return (
-            <li key={key}>
+            <li key={key} className={layout !== 'right' && WIDE_TYPES.has(parsed.instance.type) ? WIDE_SPAN : undefined}>
               <DashboardWidget
                 parsed={parsed}
                 layer={layer}

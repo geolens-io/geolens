@@ -160,13 +160,13 @@ describe('indicator difference', () => {
   it('writes an exact difference past 2^53 without rounding it', () => {
     const data = { op: 'stats', approximate: false, cached: false, result: { sum: '9223372036854775807' } };
     render(<IndicatorRenderer config={{ stat: 'sum', column: 'id', reference: 0, comparison: 'value' }} data={data} />);
-    expect(screen.getByText(/^\+9,223,372,036,854,775,807 above Reference/)).toBeInTheDocument();
+    expect(screen.getByText(/^9,223,372,036,854,775,807 above the reference/)).toBeInTheDocument();
   });
 
   it('displays an exact fractional difference without rounding it through a number', () => {
     const data = { op: 'stats', approximate: false, cached: false, result: { sum: '9007199254740991.1' } };
     render(<IndicatorRenderer config={{ stat: 'sum', column: 'id', reference: 0, comparison: 'value' }} data={data} />);
-    expect(screen.getByText(/^\+9,007,199,254,740,991\.1 above Reference/)).toBeInTheDocument();
+    expect(screen.getByText(/^9,007,199,254,740,991\.1 above the reference/)).toBeInTheDocument();
   });
 
   it('keeps the difference when the scaled value would overflow a number', () => {
@@ -179,14 +179,14 @@ describe('indicator difference', () => {
     const data = { op: 'stats', approximate: false, cached: false, result: { sum: '9007199254740993' } };
     render(<IndicatorRenderer config={{ stat: 'sum', column: 'id', reference: 1e-300 }} data={data} />);
     expect(screen.queryByText(/∞/)).not.toBeInTheDocument();
-    expect(screen.getByText(/^\+9,007,199,254,740,993 above Reference/)).toBeInTheDocument();
+    expect(screen.getByText(/^9,007,199,254,740,993 above the reference/)).toBeInTheDocument();
   });
 
   it('shows a tie only when the exact value equals the reference', () => {
     const data = { op: 'stats', approximate: false, cached: false, result: { sum: '9007199254740991.1' } };
     render(<IndicatorRenderer config={{ stat: 'sum', column: 'id', reference: 9007199254740991 }} data={data} />);
     expect(screen.queryByText(/Same as/)).not.toBeInTheDocument();
-    expect(screen.getByText(/above Reference, favorable$/)).toBeInTheDocument();
+    expect(screen.getByText(/above the reference/)).toBeInTheDocument();
   });
 
   it('reads an exact value sent as text, and has none without a number', () => {
@@ -203,8 +203,11 @@ describe('indicator reference display', () => {
       <IndicatorRenderer config={{ ...base, reference: 100, reference_label: 'Target' }} data={countOf(125)} />,
     );
     expect(screen.getByText('Target: 100')).toBeInTheDocument();
-    const difference = screen.getByText('+25 (+25%) above Target, favorable');
+    const difference = screen.getByText('25 (25%) above Target');
     expect(difference).toHaveClass('text-success');
+    expect(difference).not.toHaveTextContent('+');
+    expect(difference.textContent).toMatch(/^▲ 25 \(25%\) above Target, favorable$/);
+    expect(within(difference).getByText(/favorable/)).toHaveClass('sr-only');
     expect(container.querySelector('[aria-hidden="true"]')).toHaveTextContent('▲');
   });
 
@@ -212,22 +215,23 @@ describe('indicator reference display', () => {
     const { rerender } = render(
       <IndicatorRenderer config={{ ...base, reference: 100 }} data={countOf(80)} />,
     );
-    expect(screen.getByText('-20 (-20%) below Reference, unfavorable')).toHaveClass('text-destructive');
+    expect(screen.getByText('20 (20%) below the reference')).toHaveClass('text-destructive');
+    expect(screen.getByText(/unfavorable/)).toHaveClass('sr-only');
     rerender(<IndicatorRenderer config={{ ...base, reference: 100, higher_is_better: false }} data={countOf(80)} />);
-    expect(screen.getByText('-20 (-20%) below Reference, favorable')).toHaveClass('text-success');
+    expect(screen.getByText('20 (20%) below the reference')).toHaveClass('text-success');
   });
 
   it('shows the chosen form of the difference, and no percent for a reference of 0', () => {
     const show = (config: IndicatorConfig, count: number) =>
       render(<IndicatorRenderer config={config} data={countOf(count)} />);
     show({ ...base, reference: 50, comparison: 'value' }, 60);
-    expect(screen.getByText('+10 above Reference, favorable')).toBeInTheDocument();
+    expect(screen.getByText('10 above the reference')).toBeInTheDocument();
     show({ ...base, reference: 50, comparison: 'percent' }, 60);
-    expect(screen.getByText('+20% above Reference, favorable')).toBeInTheDocument();
+    expect(screen.getByText('20% above the reference')).toBeInTheDocument();
     show({ ...base, reference: 0, comparison: 'percent' }, 7);
-    expect(screen.getByText('+7 above Reference, favorable')).toBeInTheDocument();
+    expect(screen.getByText('7 above the reference')).toBeInTheDocument();
     show({ ...base, reference: 7 }, 7);
-    expect(screen.getByText('Same as Reference')).toBeInTheDocument();
+    expect(screen.getByText('Same as the reference')).toBeInTheDocument();
   });
 
   it('looks as it did without a reference', () => {
@@ -242,7 +246,7 @@ describe('indicator reference display', () => {
     const table = screen.getByRole('table');
     expect(within(table).getByRole('row', { name: /^Count 125$/ })).toBeInTheDocument();
     expect(within(table).getByRole('row', { name: /^Target 100$/ })).toBeInTheDocument();
-    expect(within(table).getByRole('row', { name: /^Difference \+25 \(\+25%\) above Target, favorable$/ })).toBeInTheDocument();
+    expect(within(table).getByRole('row', { name: /^Difference 25 \(25%\) above Target, favorable$/ })).toBeInTheDocument();
   });
 
   it('keeps the one-line alternative without a reference', () => {

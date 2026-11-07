@@ -19,6 +19,7 @@ export default function IndicatorRenderer({ config, data, columnLabel }: WidgetR
         <p className={`text-sm font-medium tabular-nums break-words ${TONE_CLASSES[difference.tone]}`}>
           <span aria-hidden="true">{difference.arrow} </span>
           {difference.text}
+          {difference.outcome && <span className="sr-only">, {difference.outcome}</span>}
         </p>
       )}
     </div>
