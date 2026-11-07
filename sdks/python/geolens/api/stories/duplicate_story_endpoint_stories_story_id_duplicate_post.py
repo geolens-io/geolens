@@ -107,7 +107,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | StoryDraftResponse]:
-    """Duplicate Story Endpoint
+    """Duplicate a story
 
      Copy a story you can read into a new private draft you own.
 
@@ -142,7 +142,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | StoryDraftResponse | None:
-    """Duplicate Story Endpoint
+    """Duplicate a story
 
      Copy a story you can read into a new private draft you own.
 
@@ -172,7 +172,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | StoryDraftResponse]:
-    """Duplicate Story Endpoint
+    """Duplicate a story
 
      Copy a story you can read into a new private draft you own.
 
@@ -205,7 +205,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | StoryDraftResponse | None:
-    """Duplicate Story Endpoint
+    """Duplicate a story
 
      Copy a story you can read into a new private draft you own.
 

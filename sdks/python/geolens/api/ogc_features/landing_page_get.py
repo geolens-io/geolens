@@ -92,7 +92,7 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     f: None | str | Unset = UNSET,
 ) -> Response[LandingPage | ProblemDetail]:
-    """Landing Page
+    """Get the OGC API landing page
 
      OGC API landing page -- entry point for machine clients.
 
@@ -123,7 +123,7 @@ def sync(
     client: AuthenticatedClient | Client,
     f: None | str | Unset = UNSET,
 ) -> LandingPage | ProblemDetail | None:
-    """Landing Page
+    """Get the OGC API landing page
 
      OGC API landing page -- entry point for machine clients.
 
@@ -149,7 +149,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     f: None | str | Unset = UNSET,
 ) -> Response[LandingPage | ProblemDetail]:
-    """Landing Page
+    """Get the OGC API landing page
 
      OGC API landing page -- entry point for machine clients.
 
@@ -178,7 +178,7 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     f: None | str | Unset = UNSET,
 ) -> LandingPage | ProblemDetail | None:
-    """Landing Page
+    """Get the OGC API landing page
 
      OGC API landing page -- entry point for machine clients.
 

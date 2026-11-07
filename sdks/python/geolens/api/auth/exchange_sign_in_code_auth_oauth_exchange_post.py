@@ -106,7 +106,7 @@ def sync_detailed(
     body: SsoExchangeRequest,
     x_geo_lens_auth_mode: None | str | Unset = UNSET,
 ) -> Response[ProblemDetail | TokenResponse]:
-    """Exchange Sign In Code
+    """Exchange a sign-in code for a session
 
      Exchange a single sign-on code for a browser session.
 
@@ -151,7 +151,7 @@ def sync(
     body: SsoExchangeRequest,
     x_geo_lens_auth_mode: None | str | Unset = UNSET,
 ) -> ProblemDetail | TokenResponse | None:
-    """Exchange Sign In Code
+    """Exchange a sign-in code for a session
 
      Exchange a single sign-on code for a browser session.
 
@@ -191,7 +191,7 @@ async def asyncio_detailed(
     body: SsoExchangeRequest,
     x_geo_lens_auth_mode: None | str | Unset = UNSET,
 ) -> Response[ProblemDetail | TokenResponse]:
-    """Exchange Sign In Code
+    """Exchange a sign-in code for a session
 
      Exchange a single sign-on code for a browser session.
 
@@ -234,7 +234,7 @@ async def asyncio(
     body: SsoExchangeRequest,
     x_geo_lens_auth_mode: None | str | Unset = UNSET,
 ) -> ProblemDetail | TokenResponse | None:
-    """Exchange Sign In Code
+    """Exchange a sign-in code for a session
 
      Exchange a single sign-on code for a browser session.
 

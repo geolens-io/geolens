@@ -142,8 +142,14 @@ router.include_router(sharing_router)
     response_model=MapResponse,
     status_code=status.HTTP_201_CREATED,
     include_in_schema=False,
+    summary="Create a map",
 )
-@router.post("/", response_model=MapResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=MapResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a map",
+)
 async def create_map_endpoint(
     body: MapCreate,
     request: Request,
@@ -206,6 +212,7 @@ async def create_map_endpoint(
     response_model=MapListResponse,
     include_in_schema=False,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List maps",
 )
 @router.get(
     "/",
@@ -213,6 +220,7 @@ async def create_map_endpoint(
     # Read-gated (visibility filtering inside list_maps), not write-gated —
     # see get_map_endpoint below.
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List maps",
 )
 async def list_maps_endpoint(
     skip: int = Query(0, ge=0),
@@ -253,6 +261,7 @@ async def list_maps_endpoint(
     "/import",
     response_model=MapStyleImportResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Import a MapLibre style as a map",
 )
 async def import_map_style_endpoint(
     body: MapStyleImportRequest,
@@ -385,6 +394,7 @@ async def import_map_style_endpoint(
     # Read-gated, not write-gated, so the router's default 403 misdescribes
     # this route's cause. Every read-gated GET here overrides it.
     responses={403: FORBIDDEN_RESPONSE},
+    summary="Get a map",
 )
 async def get_map_endpoint(
     map_id: uuid.UUID,
@@ -424,6 +434,7 @@ async def get_map_endpoint(
     "/{map_id}/access/",
     response_model=MapAccessResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="Get the caller's access to a map",
 )
 async def get_map_access_endpoint(
     map_id: uuid.UUID,
@@ -444,7 +455,11 @@ async def get_map_access_endpoint(
     )
 
 
-@router.get("/{map_id}/history", response_model=MapHistoryListResponse)
+@router.get(
+    "/{map_id}/history",
+    response_model=MapHistoryListResponse,
+    summary="List a map's edit history",
+)
 async def get_map_history_endpoint(
     map_id: uuid.UUID,
     skip: int = Query(0, ge=0),
@@ -469,7 +484,7 @@ async def get_map_history_endpoint(
     )
 
 
-@router.put("/{map_id}", response_model=MapResponse)
+@router.put("/{map_id}", response_model=MapResponse, summary="Update a map")
 async def update_map_endpoint(
     map_id: uuid.UUID,
     body: MapUpdate,
@@ -666,11 +681,14 @@ async def update_map_endpoint(
     return response
 
 
-@router.patch("/{map_id}/layers", response_model=MapResponse)
+@router.patch(
+    "/{map_id}/layers", response_model=MapResponse, summary="Change a map's layers"
+)
 @router.patch(
     "/{map_id}/layers/",
     response_model=MapResponse,
     include_in_schema=False,
+    summary="Change a map's layers",
 )
 async def patch_map_layers_endpoint(
     map_id: uuid.UUID,
@@ -842,7 +860,9 @@ async def patch_map_layers_endpoint(
     return response
 
 
-@router.delete("/{map_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{map_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a map"
+)
 async def delete_map_endpoint(
     map_id: uuid.UUID,
     request: Request,
@@ -886,6 +906,7 @@ async def delete_map_endpoint(
     "/{map_id}/duplicate/",
     response_model=DuplicateMapResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Duplicate a map",
 )
 async def duplicate_map_endpoint(
     map_id: uuid.UUID,
@@ -974,6 +995,7 @@ async def _record_image_capture(
     "/{map_id}/thumbnail/",
     status_code=status.HTTP_204_NO_CONTENT,
     responses={502: BAD_GATEWAY_RESPONSE},
+    summary="Upload a map thumbnail",
 )
 async def upload_thumbnail(
     map_id: uuid.UUID,
@@ -1090,6 +1112,7 @@ async def upload_thumbnail(
         200: binary_response("The thumbnail image", "image/png", "image/jpeg"),
         403: FORBIDDEN_RESPONSE,
     },
+    summary="Get a map thumbnail",
 )
 async def get_thumbnail(
     map_id: uuid.UUID,
@@ -1122,6 +1145,7 @@ async def get_thumbnail(
     "/{map_id}/og-image/",
     status_code=status.HTTP_204_NO_CONTENT,
     responses={502: BAD_GATEWAY_RESPONSE},
+    summary="Upload a map social card image",
 )
 async def upload_og_image(
     map_id: uuid.UUID,
@@ -1237,6 +1261,7 @@ async def upload_og_image(
         200: binary_response("The social preview image", "image/png", "image/jpeg"),
         403: FORBIDDEN_RESPONSE,
     },
+    summary="Get a map social card image",
 )
 async def get_og_image(
     map_id: uuid.UUID,
@@ -1273,12 +1298,14 @@ async def get_og_image(
     "/{map_id}/layers",
     response_model=MapLayerResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Add a layer to a map",
 )
 @router.post(
     "/{map_id}/layers/",
     response_model=MapLayerResponse,
     status_code=status.HTTP_201_CREATED,
     include_in_schema=False,
+    summary="Add a layer to a map",
 )
 async def add_layer_endpoint(
     map_id: uuid.UUID,
@@ -1357,7 +1384,11 @@ async def add_layer_endpoint(
     return _build_layer_response(layer, _meta_to_kwargs(meta))
 
 
-@router.delete("/{map_id}/layers/{layer_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{map_id}/layers/{layer_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Remove a layer from a map",
+)
 async def remove_layer_endpoint(
     map_id: uuid.UUID,
     layer_id: uuid.UUID,
@@ -1429,6 +1460,7 @@ async def remove_layer_endpoint(
     "/{map_id}/layers/bulk-delete",
     response_model=BulkDeleteLayersResponse,
     status_code=status.HTTP_200_OK,
+    summary="Remove several layers from a map",
 )
 async def bulk_delete_layers_endpoint(
     map_id: uuid.UUID,

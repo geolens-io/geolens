@@ -95,7 +95,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Oauth Provider
+    """Delete an OAuth provider
 
      Delete an OAuth or SAML provider (admin only).
 
@@ -130,7 +130,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Delete Oauth Provider
+    """Delete an OAuth provider
 
      Delete an OAuth or SAML provider (admin only).
 
@@ -160,7 +160,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Oauth Provider
+    """Delete an OAuth provider
 
      Delete an OAuth or SAML provider (admin only).
 
@@ -193,7 +193,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Delete Oauth Provider
+    """Delete an OAuth provider
 
      Delete an OAuth or SAML provider (admin only).
 

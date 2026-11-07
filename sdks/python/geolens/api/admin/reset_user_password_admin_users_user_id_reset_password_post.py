@@ -107,7 +107,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: AdminPasswordReset,
 ) -> Response[ProblemDetail | UserResponse]:
-    """Reset User Password
+    """Reset a user's password
 
      Set a user's password (admin only).
 
@@ -157,7 +157,7 @@ def sync(
     client: AuthenticatedClient,
     body: AdminPasswordReset,
 ) -> ProblemDetail | UserResponse | None:
-    """Reset User Password
+    """Reset a user's password
 
      Set a user's password (admin only).
 
@@ -202,7 +202,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: AdminPasswordReset,
 ) -> Response[ProblemDetail | UserResponse]:
-    """Reset User Password
+    """Reset a user's password
 
      Set a user's password (admin only).
 
@@ -250,7 +250,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: AdminPasswordReset,
 ) -> ProblemDetail | UserResponse | None:
-    """Reset User Password
+    """Reset a user's password
 
      Set a user's password (admin only).
 

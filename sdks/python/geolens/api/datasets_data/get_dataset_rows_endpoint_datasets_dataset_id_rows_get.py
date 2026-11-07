@@ -165,7 +165,7 @@ def sync_detailed(
     with_bbox: bool | Unset = False,
     x_embed_token: None | str | Unset = UNSET,
 ) -> Response[DatasetRowsResponse | ProblemDetail]:
-    """Get Dataset Rows Endpoint
+    """List dataset rows
 
      Get keyset-paginated rows from a dataset's data table.
 
@@ -249,7 +249,7 @@ def sync(
     with_bbox: bool | Unset = False,
     x_embed_token: None | str | Unset = UNSET,
 ) -> DatasetRowsResponse | ProblemDetail | None:
-    """Get Dataset Rows Endpoint
+    """List dataset rows
 
      Get keyset-paginated rows from a dataset's data table.
 
@@ -328,7 +328,7 @@ async def asyncio_detailed(
     with_bbox: bool | Unset = False,
     x_embed_token: None | str | Unset = UNSET,
 ) -> Response[DatasetRowsResponse | ProblemDetail]:
-    """Get Dataset Rows Endpoint
+    """List dataset rows
 
      Get keyset-paginated rows from a dataset's data table.
 
@@ -410,7 +410,7 @@ async def asyncio(
     with_bbox: bool | Unset = False,
     x_embed_token: None | str | Unset = UNSET,
 ) -> DatasetRowsResponse | ProblemDetail | None:
-    """Get Dataset Rows Endpoint
+    """List dataset rows
 
      Get keyset-paginated rows from a dataset's data table.
 

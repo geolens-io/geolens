@@ -160,7 +160,7 @@ def sync_detailed(
     bbox: None | str | Unset = UNSET,
     where: None | str | Unset = UNSET,
 ) -> Response[Any | File | ProblemDetail]:
-    """Export Dataset Endpoint
+    """Export a dataset
 
      Export a dataset as a downloadable file.
 
@@ -208,7 +208,7 @@ def sync(
     bbox: None | str | Unset = UNSET,
     where: None | str | Unset = UNSET,
 ) -> Any | File | ProblemDetail | None:
-    """Export Dataset Endpoint
+    """Export a dataset
 
      Export a dataset as a downloadable file.
 
@@ -251,7 +251,7 @@ async def asyncio_detailed(
     bbox: None | str | Unset = UNSET,
     where: None | str | Unset = UNSET,
 ) -> Response[Any | File | ProblemDetail]:
-    """Export Dataset Endpoint
+    """Export a dataset
 
      Export a dataset as a downloadable file.
 
@@ -297,7 +297,7 @@ async def asyncio(
     bbox: None | str | Unset = UNSET,
     where: None | str | Unset = UNSET,
 ) -> Any | File | ProblemDetail | None:
-    """Export Dataset Endpoint
+    """Export a dataset
 
      Export a dataset as a downloadable file.
 

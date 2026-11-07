@@ -148,7 +148,7 @@ def sync_detailed(
     cols: None | str | Unset = UNSET,
     cols_only: bool | Unset = False,
 ) -> Response[File | ProblemDetail]:
-    """Tile Endpoint
+    """Get a vector tile
 
      Serve a vector tile as gzipped MVT binary.
 
@@ -245,7 +245,7 @@ def sync(
     cols: None | str | Unset = UNSET,
     cols_only: bool | Unset = False,
 ) -> File | ProblemDetail | None:
-    """Tile Endpoint
+    """Get a vector tile
 
      Serve a vector tile as gzipped MVT binary.
 
@@ -337,7 +337,7 @@ async def asyncio_detailed(
     cols: None | str | Unset = UNSET,
     cols_only: bool | Unset = False,
 ) -> Response[File | ProblemDetail]:
-    """Tile Endpoint
+    """Get a vector tile
 
      Serve a vector tile as gzipped MVT binary.
 
@@ -432,7 +432,7 @@ async def asyncio(
     cols: None | str | Unset = UNSET,
     cols_only: bool | Unset = False,
 ) -> File | ProblemDetail | None:
-    """Tile Endpoint
+    """Get a vector tile
 
      Serve a vector tile as gzipped MVT binary.
 

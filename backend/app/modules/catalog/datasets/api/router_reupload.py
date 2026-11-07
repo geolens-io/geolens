@@ -409,6 +409,7 @@ def _assert_compatible_record_type(
     response_model=ReuploadResponse,
     status_code=status.HTTP_201_CREATED,
     responses={413: PAYLOAD_TOO_LARGE_RESPONSE},
+    summary="Stage a file to replace a dataset's data",
 )
 async def reupload_dataset(
     dataset_id: uuid.UUID,
@@ -557,6 +558,7 @@ async def _refuse_featureless_arcgis_layer(
     "/{dataset_id}/reupload/service/preview",
     response_model=ReuploadPreviewResponse,
     responses={502: BAD_GATEWAY_RESPONSE},
+    summary="Preview a service layer for re-upload",
 )
 async def reupload_service_preview(
     dataset_id: uuid.UUID,
@@ -742,6 +744,7 @@ def _with_declared_native_types(columns: list[dict], meta: dict | None) -> list[
 @router.post(
     "/{dataset_id}/reupload/{job_id}/preview",
     response_model=ReuploadPreviewResponse,
+    summary="Preview a re-upload",
 )
 async def reupload_preview(
     dataset_id: uuid.UUID,
@@ -1146,6 +1149,7 @@ async def _dispatch_reupload_task(
     "/{dataset_id}/reupload/{job_id}/commit",
     response_model=ReuploadCommitResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    summary="Commit a re-upload",
 )
 async def reupload_commit(
     dataset_id: uuid.UUID,
@@ -1357,6 +1361,7 @@ async def reupload_commit(
         413: PAYLOAD_TOO_LARGE_RESPONSE,
         502: BAD_GATEWAY_RESPONSE,
     },
+    summary="Request a presigned re-upload",
 )
 async def request_presigned_reupload(
     dataset_id: uuid.UUID,
@@ -1563,6 +1568,7 @@ async def request_presigned_reupload(
         413: PAYLOAD_TOO_LARGE_RESPONSE,
         502: BAD_GATEWAY_RESPONSE,
     },
+    summary="Complete a presigned re-upload",
 )
 async def complete_presigned_reupload(
     dataset_id: uuid.UUID,

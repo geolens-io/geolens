@@ -99,7 +99,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: ChangePasswordRequest,
 ) -> Response[Any | ProblemDetail]:
-    """Change Password
+    """Change your password
 
      Change the current user's password (requires current password).
 
@@ -130,7 +130,7 @@ def sync(
     client: AuthenticatedClient,
     body: ChangePasswordRequest,
 ) -> Any | ProblemDetail | None:
-    """Change Password
+    """Change your password
 
      Change the current user's password (requires current password).
 
@@ -156,7 +156,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: ChangePasswordRequest,
 ) -> Response[Any | ProblemDetail]:
-    """Change Password
+    """Change your password
 
      Change the current user's password (requires current password).
 
@@ -185,7 +185,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: ChangePasswordRequest,
 ) -> Any | ProblemDetail | None:
-    """Change Password
+    """Change your password
 
      Change the current user's password (requires current password).
 

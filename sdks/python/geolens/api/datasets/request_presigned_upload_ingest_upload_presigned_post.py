@@ -116,7 +116,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: PresignedUploadRequest,
 ) -> Response[PresignedUploadResponse | ProblemDetail]:
-    """Request Presigned Upload
+    """Request a presigned upload
 
      Request presigned URL(s) for direct-to-S3 file upload.
 
@@ -147,7 +147,7 @@ def sync(
     client: AuthenticatedClient,
     body: PresignedUploadRequest,
 ) -> PresignedUploadResponse | ProblemDetail | None:
-    """Request Presigned Upload
+    """Request a presigned upload
 
      Request presigned URL(s) for direct-to-S3 file upload.
 
@@ -173,7 +173,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: PresignedUploadRequest,
 ) -> Response[PresignedUploadResponse | ProblemDetail]:
-    """Request Presigned Upload
+    """Request a presigned upload
 
      Request presigned URL(s) for direct-to-S3 file upload.
 
@@ -202,7 +202,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: PresignedUploadRequest,
 ) -> PresignedUploadResponse | ProblemDetail | None:
-    """Request Presigned Upload
+    """Request a presigned upload
 
      Request presigned URL(s) for direct-to-S3 file upload.
 

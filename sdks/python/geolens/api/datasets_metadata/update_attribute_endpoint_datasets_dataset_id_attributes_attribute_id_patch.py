@@ -115,7 +115,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: AttributeMetadataUpdate,
 ) -> Response[AttributeMetadataResponse | ProblemDetail]:
-    """Update Attribute Endpoint
+    """Update an attribute
 
      Update user-editable attribute metadata fields.
 
@@ -152,7 +152,7 @@ def sync(
     client: AuthenticatedClient,
     body: AttributeMetadataUpdate,
 ) -> AttributeMetadataResponse | ProblemDetail | None:
-    """Update Attribute Endpoint
+    """Update an attribute
 
      Update user-editable attribute metadata fields.
 
@@ -184,7 +184,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: AttributeMetadataUpdate,
 ) -> Response[AttributeMetadataResponse | ProblemDetail]:
-    """Update Attribute Endpoint
+    """Update an attribute
 
      Update user-editable attribute metadata fields.
 
@@ -219,7 +219,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: AttributeMetadataUpdate,
 ) -> AttributeMetadataResponse | ProblemDetail | None:
-    """Update Attribute Endpoint
+    """Update an attribute
 
      Update user-editable attribute metadata fields.
 

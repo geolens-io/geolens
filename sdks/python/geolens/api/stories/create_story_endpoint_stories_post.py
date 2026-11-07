@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: StoryCreate,
 ) -> Response[ProblemDetail | StoryDraftResponse]:
-    """Create Story Endpoint
+    """Create a story
 
      Create a private, unpublished story with an empty draft.
 
@@ -137,7 +137,7 @@ def sync(
     client: AuthenticatedClient,
     body: StoryCreate,
 ) -> ProblemDetail | StoryDraftResponse | None:
-    """Create Story Endpoint
+    """Create a story
 
      Create a private, unpublished story with an empty draft.
 
@@ -163,7 +163,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: StoryCreate,
 ) -> Response[ProblemDetail | StoryDraftResponse]:
-    """Create Story Endpoint
+    """Create a story
 
      Create a private, unpublished story with an empty draft.
 
@@ -192,7 +192,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: StoryCreate,
 ) -> ProblemDetail | StoryDraftResponse | None:
-    """Create Story Endpoint
+    """Create a story
 
      Create a private, unpublished story with an empty draft.
 

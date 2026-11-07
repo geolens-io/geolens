@@ -296,7 +296,11 @@ async def enforce_ai_token_budget(
             await get_cache().compare_and_delete(*claim)
 
 
-@router.get("/availability/", response_model=AIAvailabilityResponse)
+@router.get(
+    "/availability/",
+    response_model=AIAvailabilityResponse,
+    summary="Check whether AI chat is available",
+)
 async def ai_availability_endpoint(
     user: Identity = Depends(_require_ai_chat),
     db: AsyncSession = Depends(get_db),
@@ -413,6 +417,7 @@ async def _validate_chat_layers(
     "/generate-map/",
     response_model=MapGenerateResponse,
     responses={502: BAD_GATEWAY_RESPONSE},
+    summary="Generate a map from a prompt",
 )
 @limiter.limit(_AI_GENERATE_LIMIT)
 async def generate_map_endpoint(
@@ -444,6 +449,7 @@ async def generate_map_endpoint(
     "/generate-map/stream/",
     response_class=EventSourceResponse,
     responses=_MAP_STREAM_RESPONSES,
+    summary="Generate a map from a prompt as a stream",
 )
 @limiter.limit(_AI_GENERATE_LIMIT)
 async def generate_map_stream_endpoint(
@@ -498,7 +504,10 @@ async def generate_map_stream_endpoint(
 
 
 @router.post(
-    "/chat/", response_model=ChatResponse, responses={502: BAD_GATEWAY_RESPONSE}
+    "/chat/",
+    response_model=ChatResponse,
+    responses={502: BAD_GATEWAY_RESPONSE},
+    summary="Edit a map with AI chat",
 )
 @limiter.limit(_AI_GENERATE_LIMIT)
 async def chat_endpoint(
@@ -540,6 +549,7 @@ async def chat_endpoint(
     "/chat/stream/",
     response_class=EventSourceResponse,
     responses=_CHAT_STREAM_RESPONSES,
+    summary="Edit a map with AI chat as a stream",
 )
 @limiter.limit(_AI_GENERATE_LIMIT)
 async def chat_stream_endpoint(
@@ -675,6 +685,7 @@ async def _validate_chat_dataset(
     "/chat/dataset/stream/",
     response_class=EventSourceResponse,
     responses=_CHAT_STREAM_RESPONSES,
+    summary="Ask AI about a dataset",
 )
 @limiter.limit(_AI_GENERATE_LIMIT)
 async def dataset_chat_stream_endpoint(
@@ -853,6 +864,7 @@ async def _authorize_metadata_dataset(
     "/metadata/summary/",
     response_model=SummaryDraftResponse,
     responses={502: BAD_GATEWAY_RESPONSE},
+    summary="Draft a dataset summary with AI",
 )
 @limiter.limit(_AI_METADATA_LIMIT)
 async def generate_metadata_summary(
@@ -875,6 +887,7 @@ async def generate_metadata_summary(
     "/metadata/keywords/",
     response_model=KeywordSuggestionsResponse,
     responses={502: BAD_GATEWAY_RESPONSE},
+    summary="Suggest dataset keywords with AI",
 )
 @limiter.limit(_AI_METADATA_LIMIT)
 async def generate_metadata_keywords(
@@ -900,6 +913,7 @@ async def generate_metadata_keywords(
     "/metadata/lineage/",
     response_model=LineageDraftResponse,
     responses={502: BAD_GATEWAY_RESPONSE},
+    summary="Draft dataset lineage with AI",
 )
 @limiter.limit(_AI_METADATA_LIMIT)
 async def generate_metadata_lineage(
@@ -922,6 +936,7 @@ async def generate_metadata_lineage(
     "/metadata/quality-statement/",
     response_model=QualityStatementDraftResponse,
     responses={502: BAD_GATEWAY_RESPONSE},
+    summary="Draft a dataset quality statement with AI",
 )
 @limiter.limit(_AI_METADATA_LIMIT)
 async def generate_metadata_quality_statement(

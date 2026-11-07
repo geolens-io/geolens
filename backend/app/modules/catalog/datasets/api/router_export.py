@@ -389,8 +389,13 @@ async def _load_feed_inputs(
     return inputs
 
 
-@router.get("/dcat", response_class=JSONResponse, include_in_schema=False)
-@router.get("/dcat/", response_class=JSONResponse)
+@router.get(
+    "/dcat",
+    response_class=JSONResponse,
+    include_in_schema=False,
+    summary="Get the DCAT 3 catalog",
+)
+@router.get("/dcat/", response_class=JSONResponse, summary="Get the DCAT 3 catalog")
 async def get_dcat_catalog(
     request: Request,
     user: Identity | None = Depends(get_optional_user),
@@ -443,8 +448,13 @@ async def get_dcat_catalog(
     "/dcat/validation",
     response_class=JSONResponse,
     include_in_schema=False,
+    summary="Validate the DCAT 3 catalog",
 )
-@router.get("/dcat/validation/", response_class=JSONResponse)
+@router.get(
+    "/dcat/validation/",
+    response_class=JSONResponse,
+    summary="Validate the DCAT 3 catalog",
+)
 async def validate_dcat3_catalog(
     request: Request,
     user: Identity | None = Depends(get_optional_user),
@@ -485,11 +495,17 @@ async def validate_dcat3_catalog(
     )
 
 
-@router.get("/dcat-us/3.0", response_class=JSONResponse, include_in_schema=False)
+@router.get(
+    "/dcat-us/3.0",
+    response_class=JSONResponse,
+    include_in_schema=False,
+    summary="Get the DCAT-US 3 catalog",
+)
 @router.get(
     "/dcat-us/3.0/",
     response_class=JSONResponse,
     responses={503: SERVICE_UNAVAILABLE_RESPONSE},
+    summary="Get the DCAT-US 3 catalog",
 )
 async def get_dcat_us3_catalog(
     request: Request,
@@ -543,8 +559,13 @@ async def get_dcat_us3_catalog(
     "/dcat-us/3.0/validation",
     response_class=JSONResponse,
     include_in_schema=False,
+    summary="Validate the DCAT-US 3 catalog",
 )
-@router.get("/dcat-us/3.0/validation/", response_class=JSONResponse)
+@router.get(
+    "/dcat-us/3.0/validation/",
+    response_class=JSONResponse,
+    summary="Validate the DCAT-US 3 catalog",
+)
 async def validate_dcat_us3_catalog(
     request: Request,
     user: Identity | None = Depends(get_optional_user),
@@ -584,8 +605,15 @@ async def validate_dcat_us3_catalog(
     )
 
 
-@router.get("/geodcat-ap", response_class=JSONResponse, include_in_schema=False)
-@router.get("/geodcat-ap/", response_class=JSONResponse)
+@router.get(
+    "/geodcat-ap",
+    response_class=JSONResponse,
+    include_in_schema=False,
+    summary="Get the GeoDCAT-AP catalog",
+)
+@router.get(
+    "/geodcat-ap/", response_class=JSONResponse, summary="Get the GeoDCAT-AP catalog"
+)
 async def get_geodcat_ap_catalog(
     request: Request,
     user: Identity | None = Depends(get_optional_user),
@@ -628,8 +656,13 @@ async def get_geodcat_ap_catalog(
     "/geodcat-ap/validation",
     response_class=JSONResponse,
     include_in_schema=False,
+    summary="Validate the GeoDCAT-AP catalog",
 )
-@router.get("/geodcat-ap/validation/", response_class=JSONResponse)
+@router.get(
+    "/geodcat-ap/validation/",
+    response_class=JSONResponse,
+    summary="Validate the GeoDCAT-AP catalog",
+)
 async def validate_geodcat_ap_catalog(
     request: Request,
     user: Identity | None = Depends(get_optional_user),
@@ -674,8 +707,13 @@ async def validate_geodcat_ap_catalog(
     "/{dataset_id}/dcat/validation",
     response_class=JSONResponse,
     include_in_schema=False,
+    summary="Validate a dataset as DCAT 3",
 )
-@router.get("/{dataset_id}/dcat/validation/", response_class=JSONResponse)
+@router.get(
+    "/{dataset_id}/dcat/validation/",
+    response_class=JSONResponse,
+    summary="Validate a dataset as DCAT 3",
+)
 async def validate_dcat3_record(
     request: Request,
     dataset_id: uuid.UUID,
@@ -706,7 +744,9 @@ async def validate_dcat3_record(
     return JSONResponse(content=report)
 
 
-@router.get("/{dataset_id}/dcat/", response_class=JSONResponse)
+@router.get(
+    "/{dataset_id}/dcat/", response_class=JSONResponse, summary="Get a DCAT 3 record"
+)
 async def get_dcat_record(
     request: Request,
     dataset_id: uuid.UUID,
@@ -742,8 +782,13 @@ async def get_dcat_record(
     "/{dataset_id}/dcat-us/3.0/validation",
     response_class=JSONResponse,
     include_in_schema=False,
+    summary="Validate a dataset as DCAT-US 3",
 )
-@router.get("/{dataset_id}/dcat-us/3.0/validation/", response_class=JSONResponse)
+@router.get(
+    "/{dataset_id}/dcat-us/3.0/validation/",
+    response_class=JSONResponse,
+    summary="Validate a dataset as DCAT-US 3",
+)
 async def validate_dcat_us3_record(
     request: Request,
     dataset_id: uuid.UUID,
@@ -776,12 +821,16 @@ async def validate_dcat_us3_record(
 
 
 @router.get(
-    "/{dataset_id}/dcat-us/3.0", response_class=JSONResponse, include_in_schema=False
+    "/{dataset_id}/dcat-us/3.0",
+    response_class=JSONResponse,
+    include_in_schema=False,
+    summary="Get a DCAT-US 3 record",
 )
 @router.get(
     "/{dataset_id}/dcat-us/3.0/",
     response_class=JSONResponse,
     responses={503: SERVICE_UNAVAILABLE_RESPONSE},
+    summary="Get a DCAT-US 3 record",
 )
 async def get_dcat_us3_record(
     request: Request,
@@ -819,8 +868,13 @@ async def get_dcat_us3_record(
     "/{dataset_id}/geodcat-ap/validation",
     response_class=JSONResponse,
     include_in_schema=False,
+    summary="Validate a dataset as GeoDCAT-AP",
 )
-@router.get("/{dataset_id}/geodcat-ap/validation/", response_class=JSONResponse)
+@router.get(
+    "/{dataset_id}/geodcat-ap/validation/",
+    response_class=JSONResponse,
+    summary="Validate a dataset as GeoDCAT-AP",
+)
 async def validate_geodcat_ap_record(
     request: Request,
     dataset_id: uuid.UUID,
@@ -852,9 +906,16 @@ async def validate_geodcat_ap_record(
 
 
 @router.get(
-    "/{dataset_id}/geodcat-ap", response_class=JSONResponse, include_in_schema=False
+    "/{dataset_id}/geodcat-ap",
+    response_class=JSONResponse,
+    include_in_schema=False,
+    summary="Get a GeoDCAT-AP record",
 )
-@router.get("/{dataset_id}/geodcat-ap/", response_class=JSONResponse)
+@router.get(
+    "/{dataset_id}/geodcat-ap/",
+    response_class=JSONResponse,
+    summary="Get a GeoDCAT-AP record",
+)
 async def get_geodcat_ap_record(
     request: Request,
     dataset_id: uuid.UUID,
@@ -1057,7 +1118,11 @@ async def _resolve_download_user(
 #
 # include_in_schema=False: a derived route documents nothing the
 # canonical one doesn't, and publishing it would churn SDKs and the CLI.
-@router.head("/{dataset_id}/download/cog", include_in_schema=False)
+@router.head(
+    "/{dataset_id}/download/cog",
+    include_in_schema=False,
+    summary="Download a raster as a Cloud-Optimized GeoTIFF",
+)
 @router.get(
     "/{dataset_id}/download/cog",
     response_class=Response,
@@ -1071,6 +1136,7 @@ async def _resolve_download_user(
         403: FORBIDDEN_RESPONSE,
         412: PRECONDITION_FAILED_RESPONSE,
     },
+    summary="Download a raster as a Cloud-Optimized GeoTIFF",
 )
 async def download_cog(
     dataset_id: uuid.UUID,

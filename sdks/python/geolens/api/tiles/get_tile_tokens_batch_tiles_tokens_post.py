@@ -96,7 +96,7 @@ def sync_detailed(
     body: TileTokenBatchRequest,
     x_embed_token: None | str | Unset = UNSET,
 ) -> Response[ProblemDetail | TileTokenBatchResponse]:
-    r"""Get Tile Tokens Batch
+    r"""Create tile tokens for several datasets
 
      Generate tile tokens for up to 50 datasets in one request.
 
@@ -150,7 +150,7 @@ def sync(
     body: TileTokenBatchRequest,
     x_embed_token: None | str | Unset = UNSET,
 ) -> ProblemDetail | TileTokenBatchResponse | None:
-    r"""Get Tile Tokens Batch
+    r"""Create tile tokens for several datasets
 
      Generate tile tokens for up to 50 datasets in one request.
 
@@ -199,7 +199,7 @@ async def asyncio_detailed(
     body: TileTokenBatchRequest,
     x_embed_token: None | str | Unset = UNSET,
 ) -> Response[ProblemDetail | TileTokenBatchResponse]:
-    r"""Get Tile Tokens Batch
+    r"""Create tile tokens for several datasets
 
      Generate tile tokens for up to 50 datasets in one request.
 
@@ -251,7 +251,7 @@ async def asyncio(
     body: TileTokenBatchRequest,
     x_embed_token: None | str | Unset = UNSET,
 ) -> ProblemDetail | TileTokenBatchResponse | None:
-    r"""Get Tile Tokens Batch
+    r"""Create tile tokens for several datasets
 
      Generate tile tokens for up to 50 datasets in one request.
 

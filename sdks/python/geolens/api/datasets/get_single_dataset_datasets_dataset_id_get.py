@@ -102,7 +102,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[DatasetResponse | ProblemDetail]:
-    """Get Single Dataset
+    """Get a dataset
 
      Get a single dataset by ID with visibility check.
 
@@ -133,7 +133,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> DatasetResponse | ProblemDetail | None:
-    """Get Single Dataset
+    """Get a dataset
 
      Get a single dataset by ID with visibility check.
 
@@ -159,7 +159,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[DatasetResponse | ProblemDetail]:
-    """Get Single Dataset
+    """Get a dataset
 
      Get a single dataset by ID with visibility check.
 
@@ -188,7 +188,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> DatasetResponse | ProblemDetail | None:
-    """Get Single Dataset
+    """Get a dataset
 
      Get a single dataset by ID with visibility check.
 

@@ -91,7 +91,7 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     body: StacSearchBody,
 ) -> Response[ProblemDetail | StacItemCollectionResponse]:
-    """Search Post
+    """Search STAC items with POST
 
      STAC Item Search (POST with JSON body).
 
@@ -122,7 +122,7 @@ def sync(
     client: AuthenticatedClient | Client,
     body: StacSearchBody,
 ) -> ProblemDetail | StacItemCollectionResponse | None:
-    """Search Post
+    """Search STAC items with POST
 
      STAC Item Search (POST with JSON body).
 
@@ -148,7 +148,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     body: StacSearchBody,
 ) -> Response[ProblemDetail | StacItemCollectionResponse]:
-    """Search Post
+    """Search STAC items with POST
 
      STAC Item Search (POST with JSON body).
 
@@ -177,7 +177,7 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     body: StacSearchBody,
 ) -> ProblemDetail | StacItemCollectionResponse | None:
-    """Search Post
+    """Search STAC items with POST
 
      STAC Item Search (POST with JSON body).
 

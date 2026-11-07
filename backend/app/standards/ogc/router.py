@@ -243,7 +243,12 @@ async def _get_visible_dataset(
     return dataset
 
 
-@ogc_router.get("/", response_model=LandingPage, responses=ERROR_RESPONSES_PUBLIC)
+@ogc_router.get(
+    "/",
+    response_model=LandingPage,
+    responses=ERROR_RESPONSES_PUBLIC,
+    summary="Get the OGC API landing page",
+)
 async def landing_page(
     request: Request,
     response: Response,
@@ -335,7 +340,10 @@ async def desktop_entry(
 
 
 @ogc_router.get(
-    "/conformance", response_model=ConformanceResponse, responses=ERROR_RESPONSES_PUBLIC
+    "/conformance",
+    response_model=ConformanceResponse,
+    responses=ERROR_RESPONSES_PUBLIC,
+    summary="Get the OGC conformance declaration",
 )
 async def conformance(f: str | None = Query(None)) -> ConformanceResponse:
     """OGC conformance declaration -- lists supported specification classes."""
@@ -377,6 +385,7 @@ async def conformance(f: str | None = Query(None)) -> ConformanceResponse:
     "/collections/{dataset_id}",
     response_model=OGCCollectionMetadata,
     responses=ERROR_RESPONSES_PUBLIC,
+    summary="Get a dataset's OGC feature collection",
 )
 async def get_dataset_collection(
     request: Request,
@@ -544,6 +553,7 @@ async def get_dataset_collection(
     "/collections/{dataset_id}/queryables",
     response_class=JSONResponse,
     responses={**COLD_WARMING_RESPONSE, **ERROR_RESPONSES_PUBLIC},
+    summary="Get a feature collection's queryables",
 )
 async def get_collection_queryables(
     request: Request,
@@ -679,7 +689,7 @@ FILTER_BAD_REQUEST_RESPONSE = {
         **ERROR_RESPONSES_PUBLIC,
         400: FILTER_BAD_REQUEST_RESPONSE,
     },
-    include_in_schema=False,  # Trailing-slash alias hidden from OpenAPI.
+    include_in_schema=False,  # Trailing-slash alias hidden from OpenAPI., summary="List OGC features"
 )
 @ogc_features_router.get(
     "/collections/{dataset_id}/items",
@@ -696,6 +706,7 @@ FILTER_BAD_REQUEST_RESPONSE = {
         **ERROR_RESPONSES_PUBLIC,
         400: FILTER_BAD_REQUEST_RESPONSE,
     },
+    summary="List OGC features",
 )
 @limiter.limit(
     _FILTERED_ITEMS_RATE_LIMIT,
@@ -1092,6 +1103,7 @@ async def get_collection_items(
         **COLD_WARMING_RESPONSE,
         **ERROR_RESPONSES_PUBLIC,
     },
+    summary="Get an OGC feature",
 )
 async def get_collection_item_feature(
     request: Request,

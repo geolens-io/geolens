@@ -102,7 +102,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | VrtMutationResponse]:
-    """Regenerate Vrt Endpoint
+    """Regenerate a VRT dataset
 
      Trigger manual VRT regeneration with advisory lock to prevent concurrent rebuilds.
 
@@ -133,7 +133,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | VrtMutationResponse | None:
-    """Regenerate Vrt Endpoint
+    """Regenerate a VRT dataset
 
      Trigger manual VRT regeneration with advisory lock to prevent concurrent rebuilds.
 
@@ -159,7 +159,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | VrtMutationResponse]:
-    """Regenerate Vrt Endpoint
+    """Regenerate a VRT dataset
 
      Trigger manual VRT regeneration with advisory lock to prevent concurrent rebuilds.
 
@@ -188,7 +188,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | VrtMutationResponse | None:
-    """Regenerate Vrt Endpoint
+    """Regenerate a VRT dataset
 
      Trigger manual VRT regeneration with advisory lock to prevent concurrent rebuilds.
 

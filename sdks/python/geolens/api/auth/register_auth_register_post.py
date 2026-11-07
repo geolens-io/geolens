@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     body: UserCreate,
 ) -> Response[ProblemDetail | RegisterResponse]:
-    """Register
+    """Register an account
 
      Create a password account.
 
@@ -147,7 +147,7 @@ def sync(
     client: AuthenticatedClient | Client,
     body: UserCreate,
 ) -> ProblemDetail | RegisterResponse | None:
-    """Register
+    """Register an account
 
      Create a password account.
 
@@ -183,7 +183,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     body: UserCreate,
 ) -> Response[ProblemDetail | RegisterResponse]:
-    """Register
+    """Register an account
 
      Create a password account.
 
@@ -222,7 +222,7 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     body: UserCreate,
 ) -> ProblemDetail | RegisterResponse | None:
-    """Register
+    """Register an account
 
      Create a password account.
 

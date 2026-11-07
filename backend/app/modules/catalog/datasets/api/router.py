@@ -119,6 +119,7 @@ router = APIRouter(
     response_model=DatasetListResponse,
     include_in_schema=False,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List datasets",
 )
 @router.get(
     "/",
@@ -126,6 +127,7 @@ router = APIRouter(
     # Read-gated (visibility filtering inside get_datasets_list), not
     # write-gated -- see get_single_dataset below.
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List datasets",
 )
 async def list_all_datasets(
     request: Request,
@@ -144,7 +146,10 @@ async def list_all_datasets(
 
 
 @router.post(
-    "/create/", response_model=DatasetResponse, status_code=status.HTTP_201_CREATED
+    "/create/",
+    response_model=DatasetResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create an empty dataset",
 )
 async def create_empty_dataset_endpoint(
     body: CreateEmptyDatasetRequest,
@@ -185,6 +190,7 @@ async def create_empty_dataset_endpoint(
     # -- same override on every other read-gated GET in this file (quicklook,
     # history, refresh-runs).
     responses={403: FORBIDDEN_RESPONSE},
+    summary="Get a dataset",
 )
 async def get_single_dataset(
     dataset_id: uuid.UUID,
@@ -255,6 +261,7 @@ _QUICKLOOK_READ_ATTEMPTS = 3
         200: binary_response("The quicklook image", "image/png"),
         403: FORBIDDEN_RESPONSE,
     },
+    summary="Get a dataset quicklook image",
 )
 async def get_quicklook(
     dataset_id: uuid.UUID,
@@ -369,7 +376,9 @@ async def _refuse_stale_write(
     refuse_stale_write(dataset.record.updated_at, meta.expected_updated_at)
 
 
-@router.patch("/{dataset_id}", response_model=DatasetResponse)
+@router.patch(
+    "/{dataset_id}", response_model=DatasetResponse, summary="Update dataset metadata"
+)
 async def update_dataset_metadata(
     dataset_id: uuid.UUID,
     meta: DatasetMetaUpdate,
@@ -579,8 +588,17 @@ async def _rollback_failed_item(db: AsyncSession, user) -> None:
 # Dual-shape decorator: the no-slash variant is a hidden alias of the canonical
 # slash form (already in OpenAPI), closing the 404 from redirect_slashes=False
 # (api/main.py).
-@router.post("/bulk-delete", response_model=BulkDeleteResponse, include_in_schema=False)
-@router.post("/bulk-delete/", response_model=BulkDeleteResponse)
+@router.post(
+    "/bulk-delete",
+    response_model=BulkDeleteResponse,
+    include_in_schema=False,
+    summary="Delete several datasets",
+)
+@router.post(
+    "/bulk-delete/",
+    response_model=BulkDeleteResponse,
+    summary="Delete several datasets",
+)
 async def bulk_delete_datasets_endpoint(
     body: BulkDeleteRequest,
     request: Request,
@@ -713,7 +731,9 @@ async def bulk_delete_datasets_endpoint(
     )
 
 
-@router.delete("/{dataset_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{dataset_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a dataset"
+)
 async def delete_dataset_endpoint(
     dataset_id: uuid.UUID,
     body: DatasetDeleteRequest,
@@ -799,6 +819,7 @@ async def delete_dataset_endpoint(
     "/{dataset_id}/history",
     response_model=AuditLogListResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List a dataset's audit history",
 )
 async def get_dataset_history(
     dataset_id: uuid.UUID,
@@ -855,6 +876,7 @@ async def get_dataset_history(
     "/{dataset_id}/refresh-runs",
     response_model=DatasetRefreshRunListResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List a dataset's refresh runs",
 )
 async def list_dataset_refresh_runs(
     dataset_id: uuid.UUID,

@@ -55,7 +55,9 @@ class MapPatch(BaseModel):
     )
 
 
-@router.patch("/{map_id}", response_model=MapResponse)
+@router.patch(
+    "/{map_id}", response_model=MapResponse, summary="Transfer a map to another owner"
+)
 async def patch_map_endpoint(
     map_id: uuid.UUID,
     body: MapPatch,

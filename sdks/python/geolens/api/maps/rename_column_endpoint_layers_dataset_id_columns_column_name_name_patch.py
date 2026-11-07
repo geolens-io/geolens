@@ -115,7 +115,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: RenameColumnRequest,
 ) -> Response[ColumnListResponse | ProblemDetail]:
-    """Rename Column Endpoint
+    """Rename a column
 
      Rename a column on an existing layer.
 
@@ -152,7 +152,7 @@ def sync(
     client: AuthenticatedClient,
     body: RenameColumnRequest,
 ) -> ColumnListResponse | ProblemDetail | None:
-    """Rename Column Endpoint
+    """Rename a column
 
      Rename a column on an existing layer.
 
@@ -184,7 +184,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: RenameColumnRequest,
 ) -> Response[ColumnListResponse | ProblemDetail]:
-    """Rename Column Endpoint
+    """Rename a column
 
      Rename a column on an existing layer.
 
@@ -219,7 +219,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: RenameColumnRequest,
 ) -> ColumnListResponse | ProblemDetail | None:
-    """Rename Column Endpoint
+    """Rename a column
 
      Rename a column on an existing layer.
 

@@ -144,6 +144,7 @@ async def shared_map_card_endpoint(
     "/shared/{token}",
     response_model=SharedMapResponse,
     responses={403: FORBIDDEN_RESPONSE, 410: GONE_RESPONSE},
+    summary="Get a shared map",
 )
 async def get_shared_map_endpoint(
     token: str,
@@ -202,7 +203,11 @@ async def get_shared_map_endpoint(
     )
 
 
-@router.get("/{map_id}/visibility-check/", response_model=VisibilityCheckResponse)
+@router.get(
+    "/{map_id}/visibility-check/",
+    response_model=VisibilityCheckResponse,
+    summary="Check which layers a map's audience cannot see",
+)
 async def visibility_check_endpoint(
     map_id: uuid.UUID,
     user: Identity = Depends(require_permission("edit_metadata")),
@@ -259,6 +264,7 @@ async def visibility_check_endpoint(
         },
         403: FORBIDDEN_RESPONSE,
     },
+    summary="Export a map as a MapLibre style",
 )
 async def export_map_style_endpoint(
     map_id: uuid.UUID,
@@ -301,7 +307,11 @@ def _app_link(app_url: str | None, path: str) -> str | None:
     return f"{app_url}{path}" if app_url else None
 
 
-@router.get("/{map_id}/share/", response_model=ShareTokenResponse | None)
+@router.get(
+    "/{map_id}/share/",
+    response_model=ShareTokenResponse | None,
+    summary="Get a map's share token",
+)
 async def get_map_share_token_endpoint(
     map_id: uuid.UUID,
     request: Request,
@@ -327,7 +337,11 @@ async def get_map_share_token_endpoint(
     )
 
 
-@router.post("/{map_id}/share/", response_model=ShareTokenResponse)
+@router.post(
+    "/{map_id}/share/",
+    response_model=ShareTokenResponse,
+    summary="Create a map share token",
+)
 async def share_map_endpoint(
     map_id: uuid.UUID,
     request: Request,
@@ -387,7 +401,11 @@ async def share_map_endpoint(
     )
 
 
-@router.patch("/{map_id}/share/", response_model=ShareTokenResponse)
+@router.patch(
+    "/{map_id}/share/",
+    response_model=ShareTokenResponse,
+    summary="Update a map share token",
+)
 async def update_map_share_token_endpoint(
     map_id: uuid.UUID,
     body: ShareTokenRequest,
@@ -438,7 +456,11 @@ async def update_map_share_token_endpoint(
     )
 
 
-@router.delete("/{map_id}/share/", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{map_id}/share/",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Revoke a map share token",
+)
 async def revoke_map_share_endpoint(
     map_id: uuid.UUID,
     request: Request,

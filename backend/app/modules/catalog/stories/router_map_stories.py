@@ -18,7 +18,11 @@ from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 router = APIRouter(prefix="/maps", tags=["Maps"], responses=ERROR_RESPONSES_WRITE)
 
 
-@router.get("/{map_id}/stories/", response_model=MapStoriesResponse)
+@router.get(
+    "/{map_id}/stories/",
+    response_model=MapStoriesResponse,
+    summary="List stories that use a map",
+)
 async def list_map_stories_endpoint(
     map_id: uuid.UUID,
     user: Identity = Depends(require_permission("edit_metadata")),

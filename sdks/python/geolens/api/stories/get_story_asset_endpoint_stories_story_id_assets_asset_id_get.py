@@ -135,7 +135,7 @@ def sync_detailed(
     | None
     | Unset = UNSET,
 ) -> Response[Any | File | ProblemDetail]:
-    """Get Story Asset Endpoint
+    """Get a story image
 
      Serve one of the story's images, as WebP unless `variant` says otherwise.
 
@@ -179,7 +179,7 @@ def sync(
     | None
     | Unset = UNSET,
 ) -> Any | File | ProblemDetail | None:
-    """Get Story Asset Endpoint
+    """Get a story image
 
      Serve one of the story's images, as WebP unless `variant` says otherwise.
 
@@ -218,7 +218,7 @@ async def asyncio_detailed(
     | None
     | Unset = UNSET,
 ) -> Response[Any | File | ProblemDetail]:
-    """Get Story Asset Endpoint
+    """Get a story image
 
      Serve one of the story's images, as WebP unless `variant` says otherwise.
 
@@ -260,7 +260,7 @@ async def asyncio(
     | None
     | Unset = UNSET,
 ) -> Any | File | ProblemDetail | None:
-    """Get Story Asset Endpoint
+    """Get a story image
 
      Serve one of the story's images, as WebP unless `variant` says otherwise.
 

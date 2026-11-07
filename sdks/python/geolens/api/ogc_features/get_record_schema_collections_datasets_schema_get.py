@@ -73,7 +73,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
-    """Get Record Schema
+    """Get the catalog record schema
 
      JSON Schema describing a catalog record (OGC API Common Part 3).
 
@@ -98,7 +98,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
-    """Get Record Schema
+    """Get the catalog record schema
 
      JSON Schema describing a catalog record (OGC API Common Part 3).
 
@@ -119,7 +119,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
-    """Get Record Schema
+    """Get the catalog record schema
 
      JSON Schema describing a catalog record (OGC API Common Part 3).
 
@@ -142,7 +142,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
-    """Get Record Schema
+    """Get the catalog record schema
 
      JSON Schema describing a catalog record (OGC API Common Part 3).
 

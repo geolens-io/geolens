@@ -101,7 +101,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: JobStatusBatchRequest,
 ) -> Response[JobStatusBatchResponse | ProblemDetail]:
-    """Get Job Statuses
+    """Get the status of several ingest jobs
 
      Get the status of up to 100 ingestion jobs in one request.
 
@@ -137,7 +137,7 @@ def sync(
     client: AuthenticatedClient,
     body: JobStatusBatchRequest,
 ) -> JobStatusBatchResponse | ProblemDetail | None:
-    """Get Job Statuses
+    """Get the status of several ingest jobs
 
      Get the status of up to 100 ingestion jobs in one request.
 
@@ -168,7 +168,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: JobStatusBatchRequest,
 ) -> Response[JobStatusBatchResponse | ProblemDetail]:
-    """Get Job Statuses
+    """Get the status of several ingest jobs
 
      Get the status of up to 100 ingestion jobs in one request.
 
@@ -202,7 +202,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: JobStatusBatchRequest,
 ) -> JobStatusBatchResponse | ProblemDetail | None:
-    """Get Job Statuses
+    """Get the status of several ingest jobs
 
      Get the status of up to 100 ingestion jobs in one request.
 

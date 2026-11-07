@@ -102,7 +102,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[File | ProblemDetail]:
-    """Get Map Icon Asset Endpoint
+    """Get a map icon image
 
      Serve an uploaded or bundled icon asset by stable icon ID.
 
@@ -140,7 +140,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> File | ProblemDetail | None:
-    """Get Map Icon Asset Endpoint
+    """Get a map icon image
 
      Serve an uploaded or bundled icon asset by stable icon ID.
 
@@ -173,7 +173,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[File | ProblemDetail]:
-    """Get Map Icon Asset Endpoint
+    """Get a map icon image
 
      Serve an uploaded or bundled icon asset by stable icon ID.
 
@@ -209,7 +209,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> File | ProblemDetail | None:
-    """Get Map Icon Asset Endpoint
+    """Get a map icon image
 
      Serve an uploaded or bundled icon asset by stable icon ID.
 

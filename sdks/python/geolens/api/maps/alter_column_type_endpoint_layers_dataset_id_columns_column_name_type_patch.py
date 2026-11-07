@@ -115,7 +115,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: AlterColumnTypeRequest,
 ) -> Response[ColumnListResponse | ProblemDetail]:
-    """Alter Column Type Endpoint
+    """Change a column's type
 
      Change a column's type on an existing layer.
 
@@ -155,7 +155,7 @@ def sync(
     client: AuthenticatedClient,
     body: AlterColumnTypeRequest,
 ) -> ColumnListResponse | ProblemDetail | None:
-    """Alter Column Type Endpoint
+    """Change a column's type
 
      Change a column's type on an existing layer.
 
@@ -190,7 +190,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: AlterColumnTypeRequest,
 ) -> Response[ColumnListResponse | ProblemDetail]:
-    """Alter Column Type Endpoint
+    """Change a column's type
 
      Change a column's type on an existing layer.
 
@@ -228,7 +228,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: AlterColumnTypeRequest,
 ) -> ColumnListResponse | ProblemDetail | None:
-    """Alter Column Type Endpoint
+    """Change a column's type
 
      Change a column's type on an existing layer.
 

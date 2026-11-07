@@ -65,7 +65,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[MapDefaultsResponse | ProblemDetail]:
-    """Get Map Defaults
+    """Get map defaults
 
      Return the default map center and zoom (public, no auth required).
 
@@ -90,7 +90,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> MapDefaultsResponse | ProblemDetail | None:
-    """Get Map Defaults
+    """Get map defaults
 
      Return the default map center and zoom (public, no auth required).
 
@@ -111,7 +111,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[MapDefaultsResponse | ProblemDetail]:
-    """Get Map Defaults
+    """Get map defaults
 
      Return the default map center and zoom (public, no auth required).
 
@@ -134,7 +134,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> MapDefaultsResponse | ProblemDetail | None:
-    """Get Map Defaults
+    """Get map defaults
 
      Return the default map center and zoom (public, no auth required).
 

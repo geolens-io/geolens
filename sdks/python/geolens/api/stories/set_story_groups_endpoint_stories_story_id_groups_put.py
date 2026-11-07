@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: StoryGroupsUpdate,
 ) -> Response[ProblemDetail | StoryGroupsResponse]:
-    """Set Story Groups Endpoint
+    """Set the sharing groups for a story
 
      Share a story with exactly these sharing groups (owner or admin).
 
@@ -157,7 +157,7 @@ def sync(
     client: AuthenticatedClient,
     body: StoryGroupsUpdate,
 ) -> ProblemDetail | StoryGroupsResponse | None:
-    """Set Story Groups Endpoint
+    """Set the sharing groups for a story
 
      Share a story with exactly these sharing groups (owner or admin).
 
@@ -197,7 +197,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: StoryGroupsUpdate,
 ) -> Response[ProblemDetail | StoryGroupsResponse]:
-    """Set Story Groups Endpoint
+    """Set the sharing groups for a story
 
      Share a story with exactly these sharing groups (owner or admin).
 
@@ -240,7 +240,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: StoryGroupsUpdate,
 ) -> ProblemDetail | StoryGroupsResponse | None:
-    """Set Story Groups Endpoint
+    """Set the sharing groups for a story
 
      Share a story with exactly these sharing groups (owner or admin).
 

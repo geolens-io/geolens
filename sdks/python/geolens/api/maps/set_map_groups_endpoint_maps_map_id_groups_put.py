@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: MapGroupsUpdate,
 ) -> Response[MapGroupsResponse | ProblemDetail]:
-    """Set Map Groups Endpoint
+    """Set the sharing groups for a map
 
      Share a map with exactly these sharing groups (owner or admin).
 
@@ -158,7 +158,7 @@ def sync(
     client: AuthenticatedClient,
     body: MapGroupsUpdate,
 ) -> MapGroupsResponse | ProblemDetail | None:
-    """Set Map Groups Endpoint
+    """Set the sharing groups for a map
 
      Share a map with exactly these sharing groups (owner or admin).
 
@@ -199,7 +199,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: MapGroupsUpdate,
 ) -> Response[MapGroupsResponse | ProblemDetail]:
-    """Set Map Groups Endpoint
+    """Set the sharing groups for a map
 
      Share a map with exactly these sharing groups (owner or admin).
 
@@ -243,7 +243,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: MapGroupsUpdate,
 ) -> MapGroupsResponse | ProblemDetail | None:
-    """Set Map Groups Endpoint
+    """Set the sharing groups for a map
 
      Share a map with exactly these sharing groups (owner or admin).
 

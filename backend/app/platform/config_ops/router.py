@@ -58,6 +58,7 @@ router = APIRouter(
             "content": {"application/json": {}},
         }
     },
+    summary="Export the configuration",
 )
 async def export_configuration(
     request: Request,
@@ -106,6 +107,7 @@ async def export_configuration(
     "/import/",
     response_model=ImportResult,
     responses={409: CONFLICT_RESPONSE, 503: CONFIG_APPLY_UNAVAILABLE_RESPONSE},
+    summary="Import a configuration",
 )
 async def import_configuration(
     data: ConfigImportRequest,
@@ -173,7 +175,11 @@ async def import_configuration(
     return result
 
 
-@router.post("/validate/", response_model=ConnectivityResult)
+@router.post(
+    "/validate/",
+    response_model=ConnectivityResult,
+    summary="Validate the configuration",
+)
 async def validate_configuration(
     user: Identity = Depends(require_config_operator),
     db: AsyncSession = Depends(get_db),
@@ -186,7 +192,9 @@ async def validate_configuration(
     return result
 
 
-@router.post("/dry-run/", response_model=DryRunResponse)
+@router.post(
+    "/dry-run/", response_model=DryRunResponse, summary="Preview a configuration import"
+)
 async def dry_run_configuration(
     data: ConfigImportRequest,
     mode: ImportMode = Query("merge"),

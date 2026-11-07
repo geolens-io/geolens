@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: VrtCreateRequest,
 ) -> Response[ProblemDetail | VrtCreateResponse]:
-    """Create Vrt
+    """Create a VRT dataset
 
      Create a VRT dataset by combining existing raster datasets.
 
@@ -141,7 +141,7 @@ def sync(
     client: AuthenticatedClient,
     body: VrtCreateRequest,
 ) -> ProblemDetail | VrtCreateResponse | None:
-    """Create Vrt
+    """Create a VRT dataset
 
      Create a VRT dataset by combining existing raster datasets.
 
@@ -171,7 +171,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: VrtCreateRequest,
 ) -> Response[ProblemDetail | VrtCreateResponse]:
-    """Create Vrt
+    """Create a VRT dataset
 
      Create a VRT dataset by combining existing raster datasets.
 
@@ -204,7 +204,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: VrtCreateRequest,
 ) -> ProblemDetail | VrtCreateResponse | None:
-    """Create Vrt
+    """Create a VRT dataset
 
      Create a VRT dataset by combining existing raster datasets.
 

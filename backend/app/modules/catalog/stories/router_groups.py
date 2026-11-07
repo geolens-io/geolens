@@ -50,12 +50,16 @@ _CONFLICT = {
 
 
 @router.put(
-    "/{story_id}/groups", response_model=StoryGroupsResponse, include_in_schema=False
+    "/{story_id}/groups",
+    response_model=StoryGroupsResponse,
+    include_in_schema=False,
+    summary="Set the sharing groups for a story",
 )
 @router.put(
     "/{story_id}/groups/",
     response_model=StoryGroupsResponse,
     responses={403: FORBIDDEN_RESPONSE, 409: _CONFLICT},
+    summary="Set the sharing groups for a story",
 )
 async def set_story_groups_endpoint(
     story_id: uuid.UUID,

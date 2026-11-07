@@ -102,7 +102,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[EmbedTokenListResponse | ProblemDetail]:
-    """List Embed Tokens Endpoint
+    """List a map's embed tokens
 
      List all embed tokens for a map.
 
@@ -133,7 +133,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> EmbedTokenListResponse | ProblemDetail | None:
-    """List Embed Tokens Endpoint
+    """List a map's embed tokens
 
      List all embed tokens for a map.
 
@@ -159,7 +159,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[EmbedTokenListResponse | ProblemDetail]:
-    """List Embed Tokens Endpoint
+    """List a map's embed tokens
 
      List all embed tokens for a map.
 
@@ -188,7 +188,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> EmbedTokenListResponse | ProblemDetail | None:
-    """List Embed Tokens Endpoint
+    """List a map's embed tokens
 
      List all embed tokens for a map.
 

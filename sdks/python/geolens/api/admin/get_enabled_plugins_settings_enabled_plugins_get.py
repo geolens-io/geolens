@@ -78,7 +78,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | list[str] | None]:
-    """Get Enabled Plugins
+    """Get enabled plugins
 
      Return enabled plugin IDs. null = no restriction (all shown), [] = none, [...ids] = only those.
 
@@ -103,7 +103,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> ProblemDetail | list[str] | None | None:
-    """Get Enabled Plugins
+    """Get enabled plugins
 
      Return enabled plugin IDs. null = no restriction (all shown), [] = none, [...ids] = only those.
 
@@ -124,7 +124,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | list[str] | None]:
-    """Get Enabled Plugins
+    """Get enabled plugins
 
      Return enabled plugin IDs. null = no restriction (all shown), [] = none, [...ids] = only those.
 
@@ -147,7 +147,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> ProblemDetail | list[str] | None | None:
-    """Get Enabled Plugins
+    """Get enabled plugins
 
      Return enabled plugin IDs. null = no restriction (all shown), [] = none, [...ids] = only those.
 

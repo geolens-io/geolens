@@ -72,6 +72,7 @@ async def _load_source_datasets(
     "/{dataset_id}/vrt-sources/",
     response_model=VrtSourceListResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List a VRT dataset's sources",
 )
 async def list_vrt_sources(
     dataset_id: uuid.UUID,
@@ -143,6 +144,7 @@ async def list_vrt_sources(
     "/{dataset_id}/vrt/status/",
     response_model=VrtStatusResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="Get a VRT dataset's status",
 )
 async def get_vrt_status(
     dataset_id: uuid.UUID,
@@ -339,6 +341,7 @@ def _vrt_generation_item(generation: Any, *, include_detail: bool) -> VrtGenerat
     "/{dataset_id}/vrt/generations/",
     response_model=VrtGenerationListResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List a VRT dataset's generations",
 )
 async def list_vrt_generations(
     dataset_id: uuid.UUID,
@@ -403,6 +406,7 @@ async def list_vrt_generations(
     "/{dataset_id}/vrt/regenerate/",
     response_model=VrtMutationResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    summary="Regenerate a VRT dataset",
 )
 async def regenerate_vrt_endpoint(
     dataset_id: uuid.UUID,

@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: StoryUpdate,
 ) -> Response[ProblemDetail | StoryResponse]:
-    """Update Story Endpoint
+    """Update a story
 
      Change a story's title, summary, visibility or cover (owner or admin).
 
@@ -151,7 +151,7 @@ def sync(
     client: AuthenticatedClient,
     body: StoryUpdate,
 ) -> ProblemDetail | StoryResponse | None:
-    """Update Story Endpoint
+    """Update a story
 
      Change a story's title, summary, visibility or cover (owner or admin).
 
@@ -185,7 +185,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: StoryUpdate,
 ) -> Response[ProblemDetail | StoryResponse]:
-    """Update Story Endpoint
+    """Update a story
 
      Change a story's title, summary, visibility or cover (owner or admin).
 
@@ -222,7 +222,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: StoryUpdate,
 ) -> ProblemDetail | StoryResponse | None:
-    """Update Story Endpoint
+    """Update a story
 
      Change a story's title, summary, visibility or cover (owner or admin).
 

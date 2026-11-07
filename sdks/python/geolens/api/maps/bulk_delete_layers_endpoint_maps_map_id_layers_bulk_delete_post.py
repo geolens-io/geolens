@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: BulkDeleteLayersRequest,
 ) -> Response[BulkDeleteLayersResponse | ProblemDetail]:
-    """Bulk Delete Layers Endpoint
+    """Remove several layers from a map
 
      Batch-delete multiple layers from a map in a single request.
 
@@ -153,7 +153,7 @@ def sync(
     client: AuthenticatedClient,
     body: BulkDeleteLayersRequest,
 ) -> BulkDeleteLayersResponse | ProblemDetail | None:
-    """Bulk Delete Layers Endpoint
+    """Remove several layers from a map
 
      Batch-delete multiple layers from a map in a single request.
 
@@ -189,7 +189,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: BulkDeleteLayersRequest,
 ) -> Response[BulkDeleteLayersResponse | ProblemDetail]:
-    """Bulk Delete Layers Endpoint
+    """Remove several layers from a map
 
      Batch-delete multiple layers from a map in a single request.
 
@@ -228,7 +228,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: BulkDeleteLayersRequest,
 ) -> BulkDeleteLayersResponse | ProblemDetail | None:
-    """Bulk Delete Layers Endpoint
+    """Remove several layers from a map
 
      Batch-delete multiple layers from a map in a single request.
 

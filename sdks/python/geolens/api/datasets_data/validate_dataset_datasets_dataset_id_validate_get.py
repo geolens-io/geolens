@@ -113,7 +113,7 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     refresh: bool | Unset = False,
 ) -> Response[ProblemDetail | ValidationResultResponse]:
-    """Validate Dataset
+    """Get a dataset's validation status
 
      Get validation status for a dataset. Shows hard errors and soft warnings.
 
@@ -153,7 +153,7 @@ def sync(
     client: AuthenticatedClient | Client,
     refresh: bool | Unset = False,
 ) -> ProblemDetail | ValidationResultResponse | None:
-    """Validate Dataset
+    """Get a dataset's validation status
 
      Get validation status for a dataset. Shows hard errors and soft warnings.
 
@@ -188,7 +188,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     refresh: bool | Unset = False,
 ) -> Response[ProblemDetail | ValidationResultResponse]:
-    """Validate Dataset
+    """Get a dataset's validation status
 
      Get validation status for a dataset. Shows hard errors and soft warnings.
 
@@ -226,7 +226,7 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     refresh: bool | Unset = False,
 ) -> ProblemDetail | ValidationResultResponse | None:
-    """Validate Dataset
+    """Get a dataset's validation status
 
      Get validation status for a dataset. Shows hard errors and soft warnings.
 

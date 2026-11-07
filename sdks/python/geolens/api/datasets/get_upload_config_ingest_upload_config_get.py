@@ -95,7 +95,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | UploadConfigResponse]:
-    """Get Upload Config
+    """Get the upload configuration
 
      Return upload configuration including presigned upload availability.
 
@@ -120,7 +120,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | UploadConfigResponse | None:
-    """Get Upload Config
+    """Get the upload configuration
 
      Return upload configuration including presigned upload availability.
 
@@ -141,7 +141,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | UploadConfigResponse]:
-    """Get Upload Config
+    """Get the upload configuration
 
      Return upload configuration including presigned upload availability.
 
@@ -164,7 +164,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | UploadConfigResponse | None:
-    """Get Upload Config
+    """Get the upload configuration
 
      Return upload configuration including presigned upload availability.
 

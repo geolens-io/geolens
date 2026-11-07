@@ -32,7 +32,7 @@ require_icon_catalog_admin = require_mode_permission(
 )
 
 
-@router.get("/icons", response_model=MapIconListResponse)
+@router.get("/icons", response_model=MapIconListResponse, summary="List map icons")
 async def list_map_icons_endpoint(
     _user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
@@ -42,7 +42,10 @@ async def list_map_icons_endpoint(
 
 
 @router.post(
-    "/icons", response_model=MapIconResponse, status_code=status.HTTP_201_CREATED
+    "/icons",
+    response_model=MapIconResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload a map icon",
 )
 async def upload_map_icon_endpoint(
     file: UploadFile = File(...),
@@ -84,6 +87,7 @@ async def upload_map_icon_endpoint(
         200: binary_response("The icon image", "image/png", "image/svg+xml"),
         403: FORBIDDEN_RESPONSE,
     },
+    summary="Get a map icon image",
 )
 async def get_map_icon_asset_endpoint(
     icon_id: str,
@@ -116,7 +120,7 @@ sprites_router = APIRouter(
 )
 
 
-@sprites_router.get("/sprites/geolens.json")
+@sprites_router.get("/sprites/geolens.json", summary="Get the GeoLens sprite index")
 async def get_geolens_sprite_index_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> SpriteIndex:
@@ -136,6 +140,7 @@ async def get_geolens_sprite_index_2x_endpoint(
     "/sprites/geolens.png",
     response_class=Response,
     responses={200: binary_response("The sprite sheet", "image/png")},
+    summary="Get the GeoLens sprite sheet",
 )
 async def get_geolens_sprite_png_endpoint(
     db: AsyncSession = Depends(get_db),

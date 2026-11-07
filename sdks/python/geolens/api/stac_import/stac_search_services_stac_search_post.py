@@ -111,7 +111,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: StacSearchRequest,
 ) -> Response[ProblemDetail | StacSearchResponse]:
-    """Stac Search
+    """Search items in a STAC API
 
      Search items in a STAC API with spatial/temporal filters.
 
@@ -144,7 +144,7 @@ def sync(
     client: AuthenticatedClient,
     body: StacSearchRequest,
 ) -> ProblemDetail | StacSearchResponse | None:
-    """Stac Search
+    """Search items in a STAC API
 
      Search items in a STAC API with spatial/temporal filters.
 
@@ -172,7 +172,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: StacSearchRequest,
 ) -> Response[ProblemDetail | StacSearchResponse]:
-    """Stac Search
+    """Search items in a STAC API
 
      Search items in a STAC API with spatial/temporal filters.
 
@@ -203,7 +203,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: StacSearchRequest,
 ) -> ProblemDetail | StacSearchResponse | None:
-    """Stac Search
+    """Search items in a STAC API
 
      Search items in a STAC API with spatial/temporal filters.
 

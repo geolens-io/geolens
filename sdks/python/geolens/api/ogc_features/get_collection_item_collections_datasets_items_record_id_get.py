@@ -87,7 +87,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[OGCRecordResponse | ProblemDetail]:
-    """Get Collection Item
+    """Get a catalog record
 
      Get a single dataset as an OGC Record Feature.
 
@@ -118,7 +118,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> OGCRecordResponse | ProblemDetail | None:
-    """Get Collection Item
+    """Get a catalog record
 
      Get a single dataset as an OGC Record Feature.
 
@@ -144,7 +144,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[OGCRecordResponse | ProblemDetail]:
-    """Get Collection Item
+    """Get a catalog record
 
      Get a single dataset as an OGC Record Feature.
 
@@ -173,7 +173,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> OGCRecordResponse | ProblemDetail | None:
-    """Get Collection Item
+    """Get a catalog record
 
      Get a single dataset as an OGC Record Feature.
 

@@ -122,7 +122,7 @@ def sync_detailed(
     body: FeatureBatchDelete,
     table_id: str | Unset = UNSET,
 ) -> Response[FeatureBatchDeleted | ProblemDetail]:
-    """Delete Features Batch
+    """Delete several features
 
      Delete up to 1,000 features by gid in one transaction (hard delete).
 
@@ -167,7 +167,7 @@ def sync(
     body: FeatureBatchDelete,
     table_id: str | Unset = UNSET,
 ) -> FeatureBatchDeleted | ProblemDetail | None:
-    """Delete Features Batch
+    """Delete several features
 
      Delete up to 1,000 features by gid in one transaction (hard delete).
 
@@ -207,7 +207,7 @@ async def asyncio_detailed(
     body: FeatureBatchDelete,
     table_id: str | Unset = UNSET,
 ) -> Response[FeatureBatchDeleted | ProblemDetail]:
-    """Delete Features Batch
+    """Delete several features
 
      Delete up to 1,000 features by gid in one transaction (hard delete).
 
@@ -250,7 +250,7 @@ async def asyncio(
     body: FeatureBatchDelete,
     table_id: str | Unset = UNSET,
 ) -> FeatureBatchDeleted | ProblemDetail | None:
-    """Delete Features Batch
+    """Delete several features
 
      Delete up to 1,000 features by gid in one transaction (hard delete).
 

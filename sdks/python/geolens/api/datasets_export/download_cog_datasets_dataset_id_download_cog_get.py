@@ -116,7 +116,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any | File | ProblemDetail]:
-    """Download Cog
+    """Download a raster as a Cloud-Optimized GeoTIFF
 
      Download the Cloud-Optimized GeoTIFF for a raster dataset.
 
@@ -161,7 +161,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> Any | File | ProblemDetail | None:
-    """Download Cog
+    """Download a raster as a Cloud-Optimized GeoTIFF
 
      Download the Cloud-Optimized GeoTIFF for a raster dataset.
 
@@ -201,7 +201,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any | File | ProblemDetail]:
-    """Download Cog
+    """Download a raster as a Cloud-Optimized GeoTIFF
 
      Download the Cloud-Optimized GeoTIFF for a raster dataset.
 
@@ -244,7 +244,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> Any | File | ProblemDetail | None:
-    """Download Cog
+    """Download a raster as a Cloud-Optimized GeoTIFF
 
      Download the Cloud-Optimized GeoTIFF for a raster dataset.
 

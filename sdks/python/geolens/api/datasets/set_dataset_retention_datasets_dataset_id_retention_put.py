@@ -122,7 +122,7 @@ def sync_detailed(
     body: DatasetRetentionUpdate,
     dry_run: bool | Unset = False,
 ) -> Response[DatasetRetentionResponse | ProblemDetail]:
-    """Set Dataset Retention
+    """Set a dataset's row retention
 
      Set or clear how many days of rows a feature dataset keeps.
 
@@ -167,7 +167,7 @@ def sync(
     body: DatasetRetentionUpdate,
     dry_run: bool | Unset = False,
 ) -> DatasetRetentionResponse | ProblemDetail | None:
-    """Set Dataset Retention
+    """Set a dataset's row retention
 
      Set or clear how many days of rows a feature dataset keeps.
 
@@ -207,7 +207,7 @@ async def asyncio_detailed(
     body: DatasetRetentionUpdate,
     dry_run: bool | Unset = False,
 ) -> Response[DatasetRetentionResponse | ProblemDetail]:
-    """Set Dataset Retention
+    """Set a dataset's row retention
 
      Set or clear how many days of rows a feature dataset keeps.
 
@@ -250,7 +250,7 @@ async def asyncio(
     body: DatasetRetentionUpdate,
     dry_run: bool | Unset = False,
 ) -> DatasetRetentionResponse | ProblemDetail | None:
-    """Set Dataset Retention
+    """Set a dataset's row retention
 
      Set or clear how many days of rows a feature dataset keeps.
 

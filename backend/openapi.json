@@ -26969,7 +26969,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Landing Page",
+        "summary": "Get the OGC API landing page",
         "tags": [
           "OGC Features"
         ]
@@ -27105,7 +27105,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Ai Status",
+        "summary": "Get the AI feature status",
         "tags": [
           "Admin"
         ]
@@ -27235,7 +27235,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Update Ai Status",
+        "summary": "Turn AI features on or off",
         "tags": [
           "Admin"
         ]
@@ -27401,7 +27401,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Api Keys",
+        "summary": "List all API keys",
         "tags": [
           "Admin"
         ]
@@ -27535,7 +27535,7 @@
             "OAuth2PasswordBearer": []
           }
         ],
-        "summary": "Create Api Key",
+        "summary": "Create an API key for a user",
         "tags": [
           "Admin"
         ]
@@ -27662,7 +27662,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Revoke Api Key",
+        "summary": "Revoke any API key",
         "tags": [
           "Admin"
         ]
@@ -27963,7 +27963,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Audit Logs",
+        "summary": "List audit log entries",
         "tags": [
           "Admin"
         ]
@@ -28382,7 +28382,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Trigger Backfill",
+        "summary": "Queue an embedding backfill",
         "tags": [
           "Admin"
         ]
@@ -28594,7 +28594,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List All Embed Tokens",
+        "summary": "List embed tokens",
         "tags": [
           "Admin Embed Tokens"
         ]
@@ -28726,7 +28726,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Bulk Revoke",
+        "summary": "Revoke several embed tokens",
         "tags": [
           "Admin Embed Tokens"
         ]
@@ -28848,7 +28848,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Embedding Stats",
+        "summary": "Get embedding coverage",
         "tags": [
           "Admin"
         ]
@@ -28995,7 +28995,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Groups",
+        "summary": "List sharing groups",
         "tags": [
           "Admin"
         ]
@@ -29135,7 +29135,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Create Group",
+        "summary": "Create a sharing group",
         "tags": [
           "Admin"
         ]
@@ -29262,7 +29262,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Delete Group",
+        "summary": "Delete a sharing group",
         "tags": [
           "Admin"
         ]
@@ -29394,7 +29394,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Group",
+        "summary": "Get a sharing group",
         "tags": [
           "Admin"
         ]
@@ -29546,7 +29546,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Rename Group",
+        "summary": "Rename a sharing group",
         "tags": [
           "Admin"
         ]
@@ -29703,7 +29703,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Group Members",
+        "summary": "List sharing group members",
         "tags": [
           "Admin"
         ]
@@ -29845,7 +29845,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Add Group Members",
+        "summary": "Add users to a sharing group",
         "tags": [
           "Admin"
         ]
@@ -29982,7 +29982,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Remove Group Member",
+        "summary": "Remove a user from a sharing group",
         "tags": [
           "Admin"
         ]
@@ -30104,7 +30104,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Infrastructure",
+        "summary": "Get infrastructure status",
         "tags": [
           "Admin"
         ]
@@ -30337,7 +30337,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Admin Jobs",
+        "summary": "List all ingest jobs",
         "tags": [
           "Admin"
         ]
@@ -30553,7 +30553,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Share Tokens Endpoint",
+        "summary": "List share tokens",
         "tags": [
           "Admin"
         ]
@@ -30680,7 +30680,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Admin Revoke Share Token",
+        "summary": "Revoke a share token",
         "tags": [
           "Admin"
         ]
@@ -30802,7 +30802,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Catalog Stats",
+        "summary": "Get catalog statistics",
         "tags": [
           "Admin"
         ]
@@ -31041,7 +31041,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Users",
+        "summary": "List users",
         "tags": [
           "Admin"
         ]
@@ -31181,7 +31181,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Create User",
+        "summary": "Create a user",
         "tags": [
           "Admin"
         ]
@@ -31456,7 +31456,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List User Names",
+        "summary": "List usernames",
         "tags": [
           "Admin"
         ]
@@ -31583,7 +31583,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Delete User",
+        "summary": "Delete a user",
         "tags": [
           "Admin"
         ]
@@ -31715,7 +31715,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get User",
+        "summary": "Get a user",
         "tags": [
           "Admin"
         ]
@@ -31857,7 +31857,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Update User",
+        "summary": "Update a user",
         "tags": [
           "Admin"
         ]
@@ -32001,7 +32001,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Approve User",
+        "summary": "Approve a pending user",
         "tags": [
           "Admin"
         ]
@@ -32135,7 +32135,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Deactivate User",
+        "summary": "Deactivate a user",
         "tags": [
           "Admin"
         ]
@@ -32262,7 +32262,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Reject User",
+        "summary": "Reject a pending user",
         "tags": [
           "Admin"
         ]
@@ -32406,7 +32406,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Reset User Password",
+        "summary": "Reset a user's password",
         "tags": [
           "Admin"
         ]
@@ -32528,7 +32528,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Ai Availability Endpoint",
+        "summary": "Check whether AI chat is available",
         "tags": [
           "Maps"
         ]
@@ -32670,7 +32670,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Chat Endpoint",
+        "summary": "Edit a map with AI chat",
         "tags": [
           "Maps"
         ]
@@ -32826,7 +32826,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Dataset Chat Stream Endpoint",
+        "summary": "Ask AI about a dataset",
         "tags": [
           "Maps"
         ]
@@ -32982,7 +32982,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Chat Stream Endpoint",
+        "summary": "Edit a map with AI chat as a stream",
         "tags": [
           "Maps"
         ]
@@ -33124,7 +33124,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Generate Map Endpoint",
+        "summary": "Generate a map from a prompt",
         "tags": [
           "Maps"
         ]
@@ -33274,7 +33274,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Generate Map Stream Endpoint",
+        "summary": "Generate a map from a prompt as a stream",
         "tags": [
           "Maps"
         ]
@@ -33416,7 +33416,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Generate Metadata Keywords",
+        "summary": "Suggest dataset keywords with AI",
         "tags": [
           "Maps"
         ]
@@ -33558,7 +33558,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Generate Metadata Lineage",
+        "summary": "Draft dataset lineage with AI",
         "tags": [
           "Maps"
         ]
@@ -33700,7 +33700,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Generate Metadata Quality Statement",
+        "summary": "Draft a dataset quality statement with AI",
         "tags": [
           "Maps"
         ]
@@ -33842,7 +33842,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Generate Metadata Summary",
+        "summary": "Draft a dataset summary with AI",
         "tags": [
           "Maps"
         ]
@@ -34022,7 +34022,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Column Ddl Feed",
+        "summary": "List a dataset's column change history",
         "tags": [
           "Audit"
         ]
@@ -34169,7 +34169,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List My Api Keys",
+        "summary": "List your API keys",
         "tags": [
           "Auth"
         ]
@@ -34293,7 +34293,7 @@
             "OAuth2PasswordBearer": []
           }
         ],
-        "summary": "Create My Api Key",
+        "summary": "Create an API key",
         "tags": [
           "Auth"
         ]
@@ -34420,7 +34420,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Revoke My Api Key",
+        "summary": "Revoke an API key",
         "tags": [
           "Auth"
         ]
@@ -34545,7 +34545,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Change Password",
+        "summary": "Change your password",
         "tags": [
           "Auth"
         ]
@@ -34656,7 +34656,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Config",
+        "summary": "Get the public sign-in configuration",
         "tags": [
           "Auth"
         ]
@@ -34791,7 +34791,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Create Download Token Endpoint",
+        "summary": "Create a download token for a dataset",
         "tags": [
           "Auth"
         ]
@@ -34932,7 +34932,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Login",
+        "summary": "Sign in with a username and password",
         "tags": [
           "Auth"
         ]
@@ -35085,7 +35085,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Logout",
+        "summary": "Sign out everywhere",
         "tags": [
           "Auth"
         ]
@@ -35242,7 +35242,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Logout Current Session",
+        "summary": "Sign out of the current session",
         "tags": [
           "Auth"
         ]
@@ -35364,7 +35364,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Me",
+        "summary": "Get the signed-in user",
         "tags": [
           "Auth"
         ]
@@ -35486,7 +35486,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Me Permissions",
+        "summary": "Get the signed-in user's permissions",
         "tags": [
           "Auth"
         ]
@@ -35608,7 +35608,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Me Usage",
+        "summary": "Get the signed-in user's quota usage",
         "tags": [
           "Auth"
         ]
@@ -35749,7 +35749,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Exchange Sign In Code",
+        "summary": "Exchange a sign-in code for a session",
         "tags": [
           "Auth"
         ]
@@ -35864,7 +35864,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "List Public Providers",
+        "summary": "List sign-in providers",
         "tags": [
           "Auth"
         ]
@@ -35979,7 +35979,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Oauth Callback",
+        "summary": "Finish OAuth sign-in",
         "tags": [
           "Auth"
         ]
@@ -36106,7 +36106,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Oauth Login",
+        "summary": "Start OAuth sign-in",
         "tags": [
           "Auth"
         ]
@@ -36272,7 +36272,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Refresh",
+        "summary": "Refresh the access token",
         "tags": [
           "Auth"
         ]
@@ -36403,7 +36403,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Register",
+        "summary": "Register an account",
         "tags": [
           "Auth"
         ]
@@ -36524,7 +36524,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Resend Verification",
+        "summary": "Resend the verification email",
         "tags": [
           "Auth"
         ]
@@ -36655,7 +36655,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Verify Email",
+        "summary": "Verify an email address",
         "tags": [
           "Auth"
         ]
@@ -36738,7 +36738,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Capabilities",
+        "summary": "Get server capabilities",
         "tags": [
           "Admin"
         ]
@@ -36896,7 +36896,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Collections Endpoint",
+        "summary": "List collections",
         "tags": [
           "Datasets"
         ]
@@ -37036,7 +37036,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Create Collection Endpoint",
+        "summary": "Create a collection",
         "tags": [
           "Datasets"
         ]
@@ -37173,7 +37173,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Delete Collection Endpoint",
+        "summary": "Delete a collection",
         "tags": [
           "Datasets"
         ]
@@ -37316,7 +37316,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Collection Endpoint",
+        "summary": "Get a collection",
         "tags": [
           "Datasets"
         ]
@@ -37468,7 +37468,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Update Collection Endpoint",
+        "summary": "Update a collection",
         "tags": [
           "Datasets"
         ]
@@ -37636,7 +37636,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Collection Datasets Endpoint",
+        "summary": "List a collection's datasets",
         "tags": [
           "Datasets"
         ]
@@ -37788,7 +37788,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Add Datasets Endpoint",
+        "summary": "Add datasets to a collection",
         "tags": [
           "Datasets"
         ]
@@ -37935,7 +37935,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Remove Dataset Endpoint",
+        "summary": "Remove a dataset from a collection",
         "tags": [
           "Datasets"
         ]
@@ -38067,7 +38067,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Collections",
+        "summary": "List OGC collections",
         "tags": [
           "OGC Features"
         ]
@@ -38170,7 +38170,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Collection Metadata",
+        "summary": "Get the datasets collection",
         "tags": [
           "OGC Features"
         ]
@@ -38701,7 +38701,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Collection Items",
+        "summary": "List catalog records",
         "tags": [
           "OGC Features"
         ]
@@ -38819,7 +38819,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Collection Item",
+        "summary": "Get a catalog record",
         "tags": [
           "OGC Features"
         ]
@@ -38898,7 +38898,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Get Queryables",
+        "summary": "Get the datasets collection queryables",
         "tags": [
           "OGC Features"
         ]
@@ -38977,7 +38977,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Get Record Schema",
+        "summary": "Get the catalog record schema",
         "tags": [
           "OGC Features"
         ]
@@ -39056,7 +39056,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Get Sortables",
+        "summary": "Get the datasets collection sortables",
         "tags": [
           "OGC Features"
         ]
@@ -39187,7 +39187,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Dataset Collection",
+        "summary": "Get a dataset's OGC feature collection",
         "tags": [
           "OGC Features"
         ]
@@ -39612,7 +39612,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Collection Items",
+        "summary": "List OGC features",
         "tags": [
           "OGC Features"
         ]
@@ -39917,7 +39917,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Collection Item Feature",
+        "summary": "Get an OGC feature",
         "tags": [
           "OGC Features"
         ]
@@ -40064,7 +40064,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Collection Queryables",
+        "summary": "Get a feature collection's queryables",
         "tags": [
           "OGC Features"
         ]
@@ -40212,7 +40212,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Dry Run Configuration",
+        "summary": "Preview a configuration import",
         "tags": [
           "Config Ops"
         ]
@@ -40332,7 +40332,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Export Configuration",
+        "summary": "Export the configuration",
         "tags": [
           "Config Ops"
         ]
@@ -40508,7 +40508,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Import Configuration",
+        "summary": "Import a configuration",
         "tags": [
           "Config Ops"
         ]
@@ -40630,7 +40630,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Validate Configuration",
+        "summary": "Validate the configuration",
         "tags": [
           "Config Ops"
         ]
@@ -40719,7 +40719,7 @@
             "description": "Internal server error"
           }
         },
-        "summary": "Conformance",
+        "summary": "Get the OGC conformance declaration",
         "tags": [
           "OGC Features"
         ]
@@ -40876,7 +40876,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List All Datasets",
+        "summary": "List datasets",
         "tags": [
           "Datasets"
         ]
@@ -41018,7 +41018,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Bulk Delete Datasets Endpoint",
+        "summary": "Delete several datasets",
         "tags": [
           "Datasets"
         ]
@@ -41160,7 +41160,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Create Empty Dataset Endpoint",
+        "summary": "Create an empty dataset",
         "tags": [
           "Datasets"
         ]
@@ -41290,7 +41290,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Dcat Us3 Catalog",
+        "summary": "Get the DCAT-US 3 catalog",
         "tags": [
           "Datasets - Export"
         ]
@@ -41391,7 +41391,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Validate Dcat Us3 Catalog",
+        "summary": "Validate the DCAT-US 3 catalog",
         "tags": [
           "Datasets - Export"
         ]
@@ -41521,7 +41521,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Dcat Catalog",
+        "summary": "Get the DCAT 3 catalog",
         "tags": [
           "Datasets - Export"
         ]
@@ -41622,7 +41622,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Validate Dcat3 Catalog",
+        "summary": "Validate the DCAT 3 catalog",
         "tags": [
           "Datasets - Export"
         ]
@@ -41752,7 +41752,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Geodcat Ap Catalog",
+        "summary": "Get the GeoDCAT-AP catalog",
         "tags": [
           "Datasets - Export"
         ]
@@ -41853,7 +41853,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Validate Geodcat Ap Catalog",
+        "summary": "Validate the GeoDCAT-AP catalog",
         "tags": [
           "Datasets - Export"
         ]
@@ -41990,7 +41990,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Delete Dataset Relationship",
+        "summary": "Delete a dataset relationship",
         "tags": [
           "Datasets - Metadata"
         ]
@@ -42137,7 +42137,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Delete Dataset Endpoint",
+        "summary": "Delete a dataset",
         "tags": [
           "Datasets"
         ]
@@ -42280,7 +42280,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Single Dataset",
+        "summary": "Get a dataset",
         "tags": [
           "Datasets"
         ]
@@ -42432,7 +42432,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Update Dataset Metadata",
+        "summary": "Update dataset metadata",
         "tags": [
           "Datasets"
         ]
@@ -42657,7 +42657,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Aggregate Endpoint",
+        "summary": "Compute a dataset aggregate",
         "tags": [
           "Datasets - Analysis"
         ]
@@ -42811,7 +42811,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Analysis Materialize Endpoint",
+        "summary": "Save a spatial analysis as a dataset",
         "tags": [
           "Datasets - Analysis"
         ]
@@ -42965,7 +42965,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Analysis Preview Endpoint",
+        "summary": "Preview a spatial analysis",
         "tags": [
           "Datasets - Analysis"
         ]
@@ -43132,7 +43132,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Dataset Api Keys",
+        "summary": "List a dataset's API keys",
         "tags": [
           "Datasets"
         ]
@@ -43278,7 +43278,7 @@
             "OAuth2PasswordBearer": []
           }
         ],
-        "summary": "Create Dataset Api Key",
+        "summary": "Create a dataset API key",
         "tags": [
           "Datasets"
         ]
@@ -43425,7 +43425,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Revoke Dataset Api Key",
+        "summary": "Revoke a dataset API key",
         "tags": [
           "Datasets"
         ]
@@ -43580,7 +43580,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Attributes Endpoint",
+        "summary": "List a dataset's attributes",
         "tags": [
           "Datasets - Metadata"
         ]
@@ -43734,7 +43734,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Attribute Endpoint",
+        "summary": "Get an attribute",
         "tags": [
           "Datasets - Metadata"
         ]
@@ -43896,7 +43896,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Update Attribute Endpoint",
+        "summary": "Update an attribute",
         "tags": [
           "Datasets - Metadata"
         ]
@@ -44050,7 +44050,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Reset Attribute Endpoint",
+        "summary": "Reset an attribute to its detected values",
         "tags": [
           "Datasets - Metadata"
         ]
@@ -44203,7 +44203,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Column Stats Endpoint",
+        "summary": "Get a numeric column's statistics",
         "tags": [
           "Datasets - Metadata"
         ]
@@ -44368,7 +44368,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Column Values",
+        "summary": "List a column's distinct values",
         "tags": [
           "Datasets - Metadata"
         ]
@@ -44547,7 +44547,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Pointcloud File",
+        "summary": "Get a COPC point cloud file",
         "tags": [
           "Datasets"
         ]
@@ -44660,7 +44660,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Dcat Us3 Record",
+        "summary": "Get a DCAT-US 3 record",
         "tags": [
           "Datasets - Export"
         ]
@@ -44773,7 +44773,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Validate Dcat Us3 Record",
+        "summary": "Validate a dataset as DCAT-US 3",
         "tags": [
           "Datasets - Export"
         ]
@@ -44886,7 +44886,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Dcat Record",
+        "summary": "Get a DCAT 3 record",
         "tags": [
           "Datasets - Export"
         ]
@@ -44999,7 +44999,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Validate Dcat3 Record",
+        "summary": "Validate a dataset as DCAT 3",
         "tags": [
           "Datasets - Export"
         ]
@@ -45162,7 +45162,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Download Cog",
+        "summary": "Download a raster as a Cloud-Optimized GeoTIFF",
         "tags": [
           "Datasets - Export"
         ]
@@ -45457,7 +45457,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Export Dataset Endpoint",
+        "summary": "Export a dataset",
         "tags": [
           "Datasets"
         ]
@@ -45671,7 +45671,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Features Geojson Z Endpoint",
+        "summary": "Get features as GeoJSON with Z coordinates",
         "tags": [
           "Features"
         ]
@@ -46028,7 +46028,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Features",
+        "summary": "List features",
         "tags": [
           "Features"
         ]
@@ -46531,7 +46531,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Create Feature",
+        "summary": "Create a feature",
         "tags": [
           "Features"
         ]
@@ -46698,7 +46698,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Delete Features Batch",
+        "summary": "Delete several features",
         "tags": [
           "Features"
         ]
@@ -47104,7 +47104,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Dry Run Create Feature",
+        "summary": "Check a feature create without saving",
         "tags": [
           "Features"
         ]
@@ -47271,7 +47271,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Delete Single Feature",
+        "summary": "Delete a feature",
         "tags": [
           "Features"
         ]
@@ -47534,7 +47534,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Single Feature",
+        "summary": "Get a feature",
         "tags": [
           "Features"
         ]
@@ -47842,7 +47842,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Patch Single Feature",
+        "summary": "Update a feature",
         "tags": [
           "Features"
         ]
@@ -48150,7 +48150,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Replace Single Feature",
+        "summary": "Replace a feature",
         "tags": [
           "Features"
         ]
@@ -48337,7 +48337,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Feature Related Records",
+        "summary": "List a feature's related records",
         "tags": [
           "Datasets - Metadata"
         ]
@@ -48450,7 +48450,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Geodcat Ap Record",
+        "summary": "Get a GeoDCAT-AP record",
         "tags": [
           "Datasets - Export"
         ]
@@ -48563,7 +48563,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Validate Geodcat Ap Record",
+        "summary": "Validate a dataset as GeoDCAT-AP",
         "tags": [
           "Datasets - Export"
         ]
@@ -48717,7 +48717,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Set Dataset Groups Endpoint",
+        "summary": "Set the sharing groups for a dataset",
         "tags": [
           "Datasets - Metadata"
         ]
@@ -48885,7 +48885,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Dataset History",
+        "summary": "List a dataset's audit history",
         "tags": [
           "Datasets"
         ]
@@ -49053,7 +49053,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Dataset Maps",
+        "summary": "List maps that use a dataset",
         "tags": [
           "Datasets - Data"
         ]
@@ -49202,7 +49202,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Delete Previous Version",
+        "summary": "Delete the previous version",
         "tags": [
           "Datasets - Refresh"
         ]
@@ -49357,7 +49357,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Restore Previous Version",
+        "summary": "Restore the previous version",
         "tags": [
           "Datasets - Refresh"
         ]
@@ -49503,7 +49503,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Delete Kept Version",
+        "summary": "Delete a kept version",
         "tags": [
           "Datasets - Refresh"
         ]
@@ -49656,7 +49656,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Restore Kept Version",
+        "summary": "Restore a kept version",
         "tags": [
           "Datasets - Refresh"
         ]
@@ -49834,7 +49834,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Quicklook",
+        "summary": "Get a dataset quicklook image",
         "tags": [
           "Datasets"
         ]
@@ -49995,7 +49995,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Refresh Dataset",
+        "summary": "Refresh a dataset from its source",
         "tags": [
           "Datasets - Refresh"
         ]
@@ -50163,7 +50163,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Dataset Refresh Runs",
+        "summary": "List a dataset's refresh runs",
         "tags": [
           "Datasets"
         ]
@@ -50308,7 +50308,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Related Datasets",
+        "summary": "List related datasets",
         "tags": [
           "Datasets - Data"
         ]
@@ -50480,7 +50480,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Dataset Relationships",
+        "summary": "List a dataset's relationships",
         "tags": [
           "Datasets - Metadata"
         ]
@@ -50632,7 +50632,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Create Dataset Relationship",
+        "summary": "Create a dataset relationship",
         "tags": [
           "Datasets - Metadata"
         ]
@@ -50798,7 +50798,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Set Dataset Retention",
+        "summary": "Set a dataset's row retention",
         "tags": [
           "Datasets"
         ]
@@ -50962,7 +50962,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Reupload Dataset",
+        "summary": "Stage a file to replace a dataset's data",
         "tags": [
           "Datasets - Reupload"
         ]
@@ -51136,7 +51136,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Request Presigned Reupload",
+        "summary": "Request a presigned re-upload",
         "tags": [
           "Datasets - Reupload"
         ]
@@ -51320,7 +51320,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Complete Presigned Reupload",
+        "summary": "Complete a presigned re-upload",
         "tags": [
           "Datasets - Reupload"
         ]
@@ -51484,7 +51484,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Reupload Service Preview",
+        "summary": "Preview a service layer for re-upload",
         "tags": [
           "Datasets - Reupload"
         ]
@@ -51648,7 +51648,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Reupload Commit",
+        "summary": "Commit a re-upload",
         "tags": [
           "Datasets - Reupload"
         ]
@@ -51819,7 +51819,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Reupload Preview",
+        "summary": "Preview a re-upload",
         "tags": [
           "Datasets - Reupload"
         ]
@@ -52090,7 +52090,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Dataset Rows Endpoint",
+        "summary": "List dataset rows",
         "tags": [
           "Datasets - Data"
         ]
@@ -52234,7 +52234,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Check Source Health",
+        "summary": "Check a dataset's source",
         "tags": [
           "Datasets - Source Health"
         ]
@@ -52388,7 +52388,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Update Publication Status",
+        "summary": "Change a dataset's publication status",
         "tags": [
           "Datasets - Data"
         ]
@@ -52542,7 +52542,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Set Target Status",
+        "summary": "Move a dataset to a target publication status",
         "tags": [
           "Datasets - Data"
         ]
@@ -52707,7 +52707,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Tileset File",
+        "summary": "Get a 3D Tiles file",
         "tags": [
           "Datasets"
         ]
@@ -52864,7 +52864,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Validate Dataset",
+        "summary": "Get a dataset's validation status",
         "tags": [
           "Datasets - Data"
         ]
@@ -53032,7 +53032,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Dataset Versions Endpoint",
+        "summary": "List a dataset's versions",
         "tags": [
           "Datasets - Metadata"
         ]
@@ -53176,7 +53176,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Vrt Sources",
+        "summary": "List a VRT dataset's sources",
         "tags": [
           "Datasets - VRT"
         ]
@@ -53366,7 +53366,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Vrt Generations",
+        "summary": "List a VRT dataset's generations",
         "tags": [
           "Datasets - VRT"
         ]
@@ -53510,7 +53510,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Regenerate Vrt Endpoint",
+        "summary": "Regenerate a VRT dataset",
         "tags": [
           "Datasets - VRT"
         ]
@@ -53654,7 +53654,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Vrt Status",
+        "summary": "Get a VRT dataset's status",
         "tags": [
           "Datasets - VRT"
         ]
@@ -53801,7 +53801,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List My Groups",
+        "summary": "List the sharing groups you can share with",
         "tags": [
           "Groups"
         ]
@@ -53862,7 +53862,7 @@
             "description": "Health probes completed but one or more providers are degraded"
           }
         },
-        "summary": "Health",
+        "summary": "Check service health",
         "tags": [
           "Health"
         ]
@@ -54016,7 +54016,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Commit Fan Out",
+        "summary": "Commit a staged file as one import per layer",
         "tags": [
           "Datasets"
         ]
@@ -54180,7 +54180,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Commit Import",
+        "summary": "Commit a staged file for import",
         "tags": [
           "Datasets"
         ]
@@ -54328,7 +54328,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Discover Tables",
+        "summary": "Discover unregistered PostGIS tables",
         "tags": [
           "Datasets"
         ]
@@ -54470,7 +54470,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Apply Manifest Endpoint",
+        "summary": "Apply an ingest manifest",
         "tags": [
           "Datasets"
         ]
@@ -54646,7 +54646,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Preview File",
+        "summary": "Preview a staged file",
         "tags": [
           "Datasets"
         ]
@@ -54788,7 +54788,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Register Table",
+        "summary": "Register a PostGIS table",
         "tags": [
           "Datasets"
         ]
@@ -54930,7 +54930,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Bulk Register Tables",
+        "summary": "Register several PostGIS tables",
         "tags": [
           "Datasets"
         ]
@@ -55082,7 +55082,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Upload File",
+        "summary": "Upload a file for staging",
         "tags": [
           "Datasets"
         ]
@@ -55214,7 +55214,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Upload Config",
+        "summary": "Get the upload configuration",
         "tags": [
           "Datasets"
         ]
@@ -55376,7 +55376,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Request Presigned Upload",
+        "summary": "Request a presigned upload",
         "tags": [
           "Datasets"
         ]
@@ -55550,7 +55550,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Complete Presigned Upload",
+        "summary": "Complete a presigned upload",
         "tags": [
           "Datasets"
         ]
@@ -55712,7 +55712,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Upload From Url",
+        "summary": "Import a file from a URL",
         "tags": [
           "Datasets"
         ]
@@ -55854,7 +55854,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Create Vrt",
+        "summary": "Create a VRT dataset",
         "tags": [
           "Datasets"
         ]
@@ -56008,7 +56008,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Add Vrt Source",
+        "summary": "Add a source to a VRT dataset",
         "tags": [
           "Datasets"
         ]
@@ -56162,7 +56162,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Remove Vrt Source",
+        "summary": "Remove a source from a VRT dataset",
         "tags": [
           "Datasets"
         ]
@@ -56304,7 +56304,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Job Status By Dataset",
+        "summary": "Get a dataset's latest ingest job",
         "tags": [
           "Admin"
         ]
@@ -56426,7 +56426,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Cleanup Stale Jobs",
+        "summary": "Fail stale ingest jobs",
         "tags": [
           "Admin"
         ]
@@ -56558,7 +56558,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Job Statuses",
+        "summary": "Get the status of several ingest jobs",
         "tags": [
           "Admin"
         ]
@@ -56692,7 +56692,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Job Status",
+        "summary": "Get an ingest job's status",
         "tags": [
           "Admin"
         ]
@@ -56836,7 +56836,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Cancel Job",
+        "summary": "Cancel an ingest job",
         "tags": [
           "Admin"
         ]
@@ -56980,7 +56980,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Retry Job",
+        "summary": "Retry a failed ingest job",
         "tags": [
           "Admin"
         ]
@@ -57122,7 +57122,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Create Layer Endpoint",
+        "summary": "Create an empty layer",
         "tags": [
           "Maps"
         ]
@@ -57276,7 +57276,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Add Column Endpoint",
+        "summary": "Add a column",
         "tags": [
           "Maps"
         ]
@@ -57429,7 +57429,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Drop Column Endpoint",
+        "summary": "Drop a column",
         "tags": [
           "Maps"
         ]
@@ -57592,7 +57592,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Rename Column Endpoint",
+        "summary": "Rename a column",
         "tags": [
           "Maps"
         ]
@@ -57745,7 +57745,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Column References Endpoint",
+        "summary": "Count maps that reference a column",
         "tags": [
           "Maps"
         ]
@@ -57908,7 +57908,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Alter Column Type Endpoint",
+        "summary": "Change a column's type",
         "tags": [
           "Maps"
         ]
@@ -58137,7 +58137,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Maps Endpoint",
+        "summary": "List maps",
         "tags": [
           "Maps"
         ]
@@ -58277,7 +58277,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Create Map Endpoint",
+        "summary": "Create a map",
         "tags": [
           "Maps"
         ]
@@ -58409,7 +58409,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Map Icons Endpoint",
+        "summary": "List map icons",
         "tags": [
           "Maps"
         ]
@@ -58549,7 +58549,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Upload Map Icon Endpoint",
+        "summary": "Upload a map icon",
         "tags": [
           "Maps"
         ]
@@ -58688,7 +58688,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Get Map Icon Asset Endpoint",
+        "summary": "Get a map icon image",
         "tags": [
           "Maps"
         ]
@@ -58830,7 +58830,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Import Map Style Endpoint",
+        "summary": "Import a MapLibre style as a map",
         "tags": [
           "Maps"
         ]
@@ -58972,7 +58972,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Import Arcgis Webmap Endpoint",
+        "summary": "Import an ArcGIS web map",
         "tags": [
           "Maps"
         ]
@@ -59144,7 +59144,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Shared Map Endpoint",
+        "summary": "Get a shared map",
         "tags": [
           "Maps"
         ]
@@ -59252,7 +59252,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Get Geolens Sprite Index Endpoint",
+        "summary": "Get the GeoLens sprite index",
         "tags": [
           "Maps"
         ]
@@ -59344,7 +59344,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Get Geolens Sprite Png Endpoint",
+        "summary": "Get the GeoLens sprite sheet",
         "tags": [
           "Maps"
         ]
@@ -59481,7 +59481,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Delete Map Endpoint",
+        "summary": "Delete a map",
         "tags": [
           "Maps"
         ]
@@ -59624,7 +59624,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Map Endpoint",
+        "summary": "Get a map",
         "tags": [
           "Maps"
         ]
@@ -59776,7 +59776,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Patch Map Endpoint",
+        "summary": "Transfer a map to another owner",
         "tags": [
           "Maps"
         ]
@@ -59928,7 +59928,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Update Map Endpoint",
+        "summary": "Update a map",
         "tags": [
           "Maps"
         ]
@@ -60073,7 +60073,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Map Access Endpoint",
+        "summary": "Get the caller's access to a map",
         "tags": [
           "Maps"
         ]
@@ -60217,7 +60217,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Duplicate Map Endpoint",
+        "summary": "Duplicate a map",
         "tags": [
           "Maps"
         ]
@@ -60361,7 +60361,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Embed Tokens Endpoint",
+        "summary": "List a map's embed tokens",
         "tags": [
           "Embed Tokens"
         ]
@@ -60513,7 +60513,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Create Embed Token Endpoint",
+        "summary": "Create an embed token",
         "tags": [
           "Embed Tokens"
         ]
@@ -60667,7 +60667,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Revoke Embed Token Endpoint",
+        "summary": "Revoke an embed token",
         "tags": [
           "Embed Tokens"
         ]
@@ -60829,7 +60829,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Update Embed Token Endpoint",
+        "summary": "Update an embed token",
         "tags": [
           "Embed Tokens"
         ]
@@ -60983,7 +60983,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Set Map Groups Endpoint",
+        "summary": "Set the sharing groups for a map",
         "tags": [
           "Maps"
         ]
@@ -61150,7 +61150,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Map History Endpoint",
+        "summary": "List a map's edit history",
         "tags": [
           "Maps"
         ]
@@ -61304,7 +61304,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Patch Map Layers Endpoint",
+        "summary": "Change a map's layers",
         "tags": [
           "Maps"
         ]
@@ -61456,7 +61456,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Add Layer Endpoint",
+        "summary": "Add a layer to a map",
         "tags": [
           "Maps"
         ]
@@ -61610,7 +61610,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Bulk Delete Layers Endpoint",
+        "summary": "Remove several layers from a map",
         "tags": [
           "Maps"
         ]
@@ -61757,7 +61757,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Remove Layer Endpoint",
+        "summary": "Remove a layer from a map",
         "tags": [
           "Maps"
         ]
@@ -61909,7 +61909,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Og Image",
+        "summary": "Get a map social card image",
         "tags": [
           "Maps"
         ]
@@ -62064,7 +62064,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Upload Og Image",
+        "summary": "Upload a map social card image",
         "tags": [
           "Maps"
         ]
@@ -62201,7 +62201,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Revoke Map Share Endpoint",
+        "summary": "Revoke a map share token",
         "tags": [
           "Maps"
         ]
@@ -62351,7 +62351,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Map Share Token Endpoint",
+        "summary": "Get a map's share token",
         "tags": [
           "Maps"
         ]
@@ -62503,7 +62503,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Update Map Share Token Endpoint",
+        "summary": "Update a map share token",
         "tags": [
           "Maps"
         ]
@@ -62662,7 +62662,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Share Map Endpoint",
+        "summary": "Create a map share token",
         "tags": [
           "Maps"
         ]
@@ -62806,7 +62806,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Map Stories Endpoint",
+        "summary": "List stories that use a map",
         "tags": [
           "Maps"
         ]
@@ -62953,7 +62953,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Export Map Style Endpoint",
+        "summary": "Export a map as a MapLibre style",
         "tags": [
           "Maps"
         ]
@@ -63105,7 +63105,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Thumbnail",
+        "summary": "Get a map thumbnail",
         "tags": [
           "Maps"
         ]
@@ -63260,7 +63260,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Upload Thumbnail",
+        "summary": "Upload a map thumbnail",
         "tags": [
           "Maps"
         ]
@@ -63404,7 +63404,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Visibility Check Endpoint",
+        "summary": "Check which layers a map's audience cannot see",
         "tags": [
           "Maps"
         ]
@@ -63704,7 +63704,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Contacts Endpoint",
+        "summary": "List a record's contacts",
         "tags": [
           "Records"
         ]
@@ -63856,7 +63856,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Create Contact Endpoint",
+        "summary": "Add a record contact",
         "tags": [
           "Records"
         ]
@@ -64003,7 +64003,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Delete Contact Endpoint",
+        "summary": "Delete a record contact",
         "tags": [
           "Records"
         ]
@@ -64165,7 +64165,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Update Contact Endpoint",
+        "summary": "Update a record contact",
         "tags": [
           "Records"
         ]
@@ -64333,7 +64333,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Distributions Endpoint",
+        "summary": "List a record's distributions",
         "tags": [
           "Records"
         ]
@@ -64485,7 +64485,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Create Distribution Endpoint",
+        "summary": "Add a record distribution",
         "tags": [
           "Records"
         ]
@@ -64632,7 +64632,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Delete Distribution Endpoint",
+        "summary": "Delete a record distribution",
         "tags": [
           "Records"
         ]
@@ -64794,7 +64794,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Update Distribution Endpoint",
+        "summary": "Update a record distribution",
         "tags": [
           "Records"
         ]
@@ -65000,7 +65000,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Keywords Endpoint",
+        "summary": "List a record's keywords",
         "tags": [
           "Records"
         ]
@@ -65152,7 +65152,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Create Keyword Endpoint",
+        "summary": "Add a record keyword",
         "tags": [
           "Records"
         ]
@@ -65299,7 +65299,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Delete Keyword Endpoint",
+        "summary": "Delete a record keyword",
         "tags": [
           "Records"
         ]
@@ -65444,7 +65444,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Translations Endpoint",
+        "summary": "List a record's translations",
         "tags": [
           "Records"
         ]
@@ -65595,7 +65595,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Delete Translation Endpoint",
+        "summary": "Delete a record translation",
         "tags": [
           "Records"
         ]
@@ -65761,7 +65761,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Upsert Translation Endpoint",
+        "summary": "Set a record translation",
         "tags": [
           "Records"
         ]
@@ -66243,7 +66243,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Search Datasets Endpoint",
+        "summary": "Search datasets",
         "tags": [
           "Search"
         ]
@@ -66534,7 +66534,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Search Facets Endpoint",
+        "summary": "Get search facet counts",
         "tags": [
           "Search"
         ]
@@ -66641,7 +66641,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Saved Searches Endpoint",
+        "summary": "List saved searches",
         "tags": [
           "Search"
         ]
@@ -66741,7 +66741,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Create Saved Search Endpoint",
+        "summary": "Save a search",
         "tags": [
           "Search"
         ]
@@ -66838,7 +66838,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Delete Saved Search Endpoint",
+        "summary": "Delete a saved search",
         "tags": [
           "Search"
         ]
@@ -66940,7 +66940,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Saved Search Endpoint",
+        "summary": "Get a saved search",
         "tags": [
           "Search"
         ]
@@ -67102,7 +67102,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Arcgis Signin",
+        "summary": "Sign in to an ArcGIS portal",
         "tags": [
           "Datasets"
         ]
@@ -67234,7 +67234,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Connectors Endpoint",
+        "summary": "List connectors",
         "tags": [
           "Datasets"
         ]
@@ -67407,7 +67407,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Discover Connector Resources Endpoint",
+        "summary": "Discover connector resources",
         "tags": [
           "Datasets"
         ]
@@ -67580,7 +67580,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Dispatch Connector Ingest Endpoint",
+        "summary": "Start a connector ingest",
         "tags": [
           "Datasets"
         ]
@@ -67722,7 +67722,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Preview Service Layer",
+        "summary": "Preview a remote service layer",
         "tags": [
           "Datasets"
         ]
@@ -67864,7 +67864,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Probe Service Url",
+        "summary": "Probe a remote service URL",
         "tags": [
           "Datasets"
         ]
@@ -68016,7 +68016,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Stac Asset Sizes",
+        "summary": "Look up STAC asset sizes",
         "tags": [
           "STAC Import"
         ]
@@ -68168,7 +68168,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Stac Collections",
+        "summary": "List collections in a STAC API",
         "tags": [
           "STAC Import"
         ]
@@ -68310,7 +68310,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Stac Connect",
+        "summary": "Connect to a STAC API",
         "tags": [
           "STAC Import"
         ]
@@ -68452,7 +68452,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Stac Import",
+        "summary": "Import STAC items as datasets",
         "tags": [
           "STAC Import"
         ]
@@ -68604,7 +68604,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Stac Search",
+        "summary": "Search items in a STAC API",
         "tags": [
           "STAC Import"
         ]
@@ -68746,7 +68746,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Update Settings",
+        "summary": "Update settings",
         "tags": [
           "Admin"
         ]
@@ -68868,7 +68868,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get All Settings",
+        "summary": "Get all settings",
         "tags": [
           "Admin"
         ]
@@ -68990,7 +68990,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Api Key Status",
+        "summary": "Get LLM provider key status",
         "tags": [
           "Admin"
         ]
@@ -69055,7 +69055,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Get Basemaps",
+        "summary": "Get basemaps",
         "tags": [
           "Admin"
         ]
@@ -69116,7 +69116,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Get Branding",
+        "summary": "Get branding",
         "tags": [
           "Admin"
         ]
@@ -69217,7 +69217,7 @@
             "description": "Internal server error"
           }
         },
-        "summary": "Get Config Mode",
+        "summary": "Get the configuration mode",
         "tags": [
           "Admin"
         ]
@@ -69349,7 +69349,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Detect Embedding Dims",
+        "summary": "Detect embedding dimensions",
         "tags": [
           "Admin"
         ]
@@ -69472,7 +69472,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Get Enabled Plugins",
+        "summary": "Get enabled plugins",
         "tags": [
           "Admin"
         ]
@@ -69655,7 +69655,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Get Feature Flags",
+        "summary": "Get feature flags",
         "tags": [
           "Admin"
         ]
@@ -69716,7 +69716,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Get Map Defaults",
+        "summary": "Get map defaults",
         "tags": [
           "Admin"
         ]
@@ -69838,7 +69838,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Notification Status",
+        "summary": "Get notification channel status",
         "tags": [
           "Admin"
         ]
@@ -69960,7 +69960,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Send Test Notification",
+        "summary": "Send a test notification",
         "tags": [
           "Admin"
         ]
@@ -70086,7 +70086,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Oauth Providers",
+        "summary": "List OAuth providers",
         "tags": [
           "Admin"
         ]
@@ -70226,7 +70226,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Create Oauth Provider",
+        "summary": "Create an OAuth provider",
         "tags": [
           "Admin"
         ]
@@ -70353,7 +70353,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Delete Oauth Provider",
+        "summary": "Delete an OAuth provider",
         "tags": [
           "Admin"
         ]
@@ -70505,7 +70505,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Update Oauth Provider",
+        "summary": "Update an OAuth provider",
         "tags": [
           "Admin"
         ]
@@ -70647,7 +70647,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Reset Settings",
+        "summary": "Reset settings to defaults",
         "tags": [
           "Admin"
         ]
@@ -70708,7 +70708,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Get Tile Config",
+        "summary": "Get tile configuration",
         "tags": [
           "Admin"
         ]
@@ -70789,7 +70789,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Landing Page",
+        "summary": "Get the STAC landing page",
         "tags": [
           "STAC"
         ]
@@ -70870,7 +70870,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Get Collections",
+        "summary": "List STAC collections",
         "tags": [
           "STAC"
         ]
@@ -70972,7 +70972,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Get Collection",
+        "summary": "Get a STAC collection",
         "tags": [
           "STAC"
         ]
@@ -71148,7 +71148,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Collection Items",
+        "summary": "List STAC items in a collection",
         "tags": [
           "STAC"
         ]
@@ -71272,7 +71272,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Collection Item",
+        "summary": "Get a STAC item in a collection",
         "tags": [
           "STAC"
         ]
@@ -71333,7 +71333,7 @@
             "description": "Internal server error"
           }
         },
-        "summary": "Conformance",
+        "summary": "Get the STAC conformance classes",
         "tags": [
           "STAC"
         ]
@@ -71448,7 +71448,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Item",
+        "summary": "Get a STAC item",
         "tags": [
           "STAC"
         ]
@@ -71670,7 +71670,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Search Get",
+        "summary": "Search STAC items with GET",
         "tags": [
           "STAC"
         ]
@@ -71781,7 +71781,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Search Post",
+        "summary": "Search STAC items with POST",
         "tags": [
           "STAC"
         ]
@@ -71979,7 +71979,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "List Stories Endpoint",
+        "summary": "List stories",
         "tags": [
           "Stories"
         ]
@@ -72119,7 +72119,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Create Story Endpoint",
+        "summary": "Create a story",
         "tags": [
           "Stories"
         ]
@@ -72244,7 +72244,7 @@
             "description": "Service unavailable \u2014 the database could not serve the request"
           }
         },
-        "summary": "Story Frame Hosts Endpoint",
+        "summary": "List hosts a story may embed",
         "tags": [
           "Stories"
         ]
@@ -72381,7 +72381,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Delete Story Endpoint",
+        "summary": "Delete a story",
         "tags": [
           "Stories"
         ]
@@ -72524,7 +72524,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Story Endpoint",
+        "summary": "Get a story",
         "tags": [
           "Stories"
         ]
@@ -72676,7 +72676,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Update Story Endpoint",
+        "summary": "Update a story",
         "tags": [
           "Stories"
         ]
@@ -72869,7 +72869,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Upload Story Asset Endpoint",
+        "summary": "Upload a story image",
         "tags": [
           "Stories"
         ]
@@ -73056,7 +73056,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Story Asset Endpoint",
+        "summary": "Get a story image",
         "tags": [
           "Stories"
         ]
@@ -73210,7 +73210,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Discard Story Draft Endpoint",
+        "summary": "Discard a story draft",
         "tags": [
           "Stories"
         ]
@@ -73354,7 +73354,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Story Draft Endpoint",
+        "summary": "Get a story draft",
         "tags": [
           "Stories"
         ]
@@ -73506,7 +73506,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Save Story Draft Endpoint",
+        "summary": "Save a story draft",
         "tags": [
           "Stories"
         ]
@@ -73660,7 +73660,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Duplicate Story Endpoint",
+        "summary": "Duplicate a story",
         "tags": [
           "Stories"
         ]
@@ -73814,7 +73814,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Set Story Groups Endpoint",
+        "summary": "Set the sharing groups for a story",
         "tags": [
           "Stories"
         ]
@@ -73968,7 +73968,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Publish Story Endpoint",
+        "summary": "Publish a story",
         "tags": [
           "Stories"
         ]
@@ -74237,7 +74237,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Cluster Tile Endpoint",
+        "summary": "Get a clustered vector tile",
         "tags": [
           "Tiles"
         ]
@@ -74532,7 +74532,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Raster Tile Proxy",
+        "summary": "Get a raster tile",
         "tags": [
           "Tiles"
         ]
@@ -74646,7 +74646,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Tile Token",
+        "summary": "Create a tile token",
         "tags": [
           "Tiles"
         ]
@@ -74768,7 +74768,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Get Tile Tokens Batch",
+        "summary": "Create tile tokens for several datasets",
         "tags": [
           "Tiles"
         ]
@@ -74996,7 +74996,7 @@
             "ApiKeyQuery": []
           }
         ],
-        "summary": "Tile Endpoint",
+        "summary": "Get a vector tile",
         "tags": [
           "Tiles"
         ]

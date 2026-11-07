@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: ChatRequest,
 ) -> Response[ChatResponse | ProblemDetail]:
-    """Chat Endpoint
+    """Edit a map with AI chat
 
      Chat-based map editing: send a message and get back edit actions.
 
@@ -137,7 +137,7 @@ def sync(
     client: AuthenticatedClient,
     body: ChatRequest,
 ) -> ChatResponse | ProblemDetail | None:
-    """Chat Endpoint
+    """Edit a map with AI chat
 
      Chat-based map editing: send a message and get back edit actions.
 
@@ -163,7 +163,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: ChatRequest,
 ) -> Response[ChatResponse | ProblemDetail]:
-    """Chat Endpoint
+    """Edit a map with AI chat
 
      Chat-based map editing: send a message and get back edit actions.
 
@@ -192,7 +192,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: ChatRequest,
 ) -> ChatResponse | ProblemDetail | None:
-    """Chat Endpoint
+    """Edit a map with AI chat
 
      Chat-based map editing: send a message and get back edit actions.
 

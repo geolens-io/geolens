@@ -114,7 +114,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     table_id: str | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Single Feature
+    """Delete a feature
 
      Delete a feature by gid (hard delete).
 
@@ -158,7 +158,7 @@ def sync(
     client: AuthenticatedClient,
     table_id: str | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
-    """Delete Single Feature
+    """Delete a feature
 
      Delete a feature by gid (hard delete).
 
@@ -197,7 +197,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     table_id: str | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Single Feature
+    """Delete a feature
 
      Delete a feature by gid (hard delete).
 
@@ -239,7 +239,7 @@ async def asyncio(
     client: AuthenticatedClient,
     table_id: str | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
-    """Delete Single Feature
+    """Delete a feature
 
      Delete a feature by gid (hard delete).
 

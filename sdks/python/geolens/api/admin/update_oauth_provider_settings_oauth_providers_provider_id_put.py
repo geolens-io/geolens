@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: OAuthProviderUpdate,
 ) -> Response[OAuthProviderResponse | ProblemDetail]:
-    r"""Update Oauth Provider
+    r"""Update an OAuth provider
 
      Update an existing OAuth or SAML provider (admin only).
 
@@ -152,7 +152,7 @@ def sync(
     client: AuthenticatedClient,
     body: OAuthProviderUpdate,
 ) -> OAuthProviderResponse | ProblemDetail | None:
-    r"""Update Oauth Provider
+    r"""Update an OAuth provider
 
      Update an existing OAuth or SAML provider (admin only).
 
@@ -187,7 +187,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: OAuthProviderUpdate,
 ) -> Response[OAuthProviderResponse | ProblemDetail]:
-    r"""Update Oauth Provider
+    r"""Update an OAuth provider
 
      Update an existing OAuth or SAML provider (admin only).
 
@@ -225,7 +225,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: OAuthProviderUpdate,
 ) -> OAuthProviderResponse | ProblemDetail | None:
-    r"""Update Oauth Provider
+    r"""Update an OAuth provider
 
      Update an existing OAuth or SAML provider (admin only).
 

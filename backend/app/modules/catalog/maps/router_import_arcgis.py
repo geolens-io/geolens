@@ -78,11 +78,13 @@ def _refuse_non_public(titles: Iterable[str]) -> None:
     response_model=ArcgisWebmapImportResponse,
     status_code=status.HTTP_201_CREATED,
     include_in_schema=False,
+    summary="Import an ArcGIS web map",
 )
 @router.post(
     "/import/arcgis-webmap/",
     response_model=ArcgisWebmapImportResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Import an ArcGIS web map",
 )
 async def import_arcgis_webmap_endpoint(
     body: ArcgisWebmapImportRequest,

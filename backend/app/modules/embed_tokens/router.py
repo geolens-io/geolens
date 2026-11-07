@@ -87,9 +87,13 @@ async def _refuse_embed_beyond_map_audience(
     response_model=EmbedTokenCreatedResponse,
     status_code=status.HTTP_201_CREATED,
     include_in_schema=False,
+    summary="Create an embed token",
 )
 @router.post(
-    "/", response_model=EmbedTokenCreatedResponse, status_code=status.HTTP_201_CREATED
+    "/",
+    response_model=EmbedTokenCreatedResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create an embed token",
 )
 async def create_embed_token_endpoint(
     request: Request,
@@ -182,8 +186,15 @@ async def create_embed_token_endpoint(
     return EmbedTokenCreatedResponse.model_validate(token_data)
 
 
-@router.get("", response_model=EmbedTokenListResponse, include_in_schema=False)
-@router.get("/", response_model=EmbedTokenListResponse)
+@router.get(
+    "",
+    response_model=EmbedTokenListResponse,
+    include_in_schema=False,
+    summary="List a map's embed tokens",
+)
+@router.get(
+    "/", response_model=EmbedTokenListResponse, summary="List a map's embed tokens"
+)
 async def list_embed_tokens_endpoint(
     map_id: uuid.UUID,
     user: Identity = Depends(require_permission("edit_metadata")),
@@ -205,7 +216,9 @@ async def list_embed_tokens_endpoint(
     )
 
 
-@router.patch("/{token_id}/", response_model=EmbedTokenResponse)
+@router.patch(
+    "/{token_id}/", response_model=EmbedTokenResponse, summary="Update an embed token"
+)
 async def update_embed_token_endpoint(
     request: Request,
     map_id: uuid.UUID,
@@ -276,7 +289,9 @@ async def update_embed_token_endpoint(
     return EmbedTokenResponse.model_validate(token)
 
 
-@router.delete("/{token_id}/", response_model=EmbedTokenResponse)
+@router.delete(
+    "/{token_id}/", response_model=EmbedTokenResponse, summary="Revoke an embed token"
+)
 async def revoke_embed_token_endpoint(
     map_id: uuid.UUID,
     token_id: uuid.UUID,

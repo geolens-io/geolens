@@ -117,7 +117,7 @@ def sync_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[DatasetVersionListResponse | ProblemDetail]:
-    """Get Dataset Versions Endpoint
+    """List a dataset's versions
 
      Get paginated version history for a dataset.
 
@@ -159,7 +159,7 @@ def sync(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> DatasetVersionListResponse | ProblemDetail | None:
-    """Get Dataset Versions Endpoint
+    """List a dataset's versions
 
      Get paginated version history for a dataset.
 
@@ -196,7 +196,7 @@ async def asyncio_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[DatasetVersionListResponse | ProblemDetail]:
-    """Get Dataset Versions Endpoint
+    """List a dataset's versions
 
      Get paginated version history for a dataset.
 
@@ -236,7 +236,7 @@ async def asyncio(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> DatasetVersionListResponse | ProblemDetail | None:
-    """Get Dataset Versions Endpoint
+    """List a dataset's versions
 
      Get paginated version history for a dataset.
 

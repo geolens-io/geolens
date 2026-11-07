@@ -20,7 +20,9 @@ manifest_router = APIRouter(
 )
 
 
-@manifest_router.post("/apply", response_model=ManifestApplyResponse)
+@manifest_router.post(
+    "/apply", response_model=ManifestApplyResponse, summary="Apply an ingest manifest"
+)
 async def apply_manifest_endpoint(
     request: ManifestApplyRequest,
     http_request: Request,

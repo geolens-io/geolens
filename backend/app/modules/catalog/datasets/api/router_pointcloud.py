@@ -97,7 +97,7 @@ def _range_units(request: Request) -> int:
     return -(-(_small_range_bytes(request) or 0) // _RANGE_UNIT)
 
 
-@router.head(_PATH, include_in_schema=False)
+@router.head(_PATH, include_in_schema=False, summary="Get a COPC point cloud file")
 @router.get(
     _PATH,
     response_class=Response,
@@ -120,6 +120,7 @@ def _range_units(request: Request) -> int:
         },
         502: BAD_GATEWAY_RESPONSE,
     },
+    summary="Get a COPC point cloud file",
 )
 @limiter.limit(_WHOLE_FILE_LIMIT, exempt_when=_reads_one_small_range)
 @limiter.limit(_RANGE_BUDGET, cost=_range_units, exempt_when=_draws_no_range_bytes)

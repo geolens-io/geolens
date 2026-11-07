@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: StatusUpdate,
 ) -> Response[ProblemDetail | StatusUpdateResponse]:
-    """Update Publication Status
+    """Change a dataset's publication status
 
      Transition a dataset's publication status following allowed paths.
 
@@ -150,7 +150,7 @@ def sync(
     client: AuthenticatedClient,
     body: StatusUpdate,
 ) -> ProblemDetail | StatusUpdateResponse | None:
-    """Update Publication Status
+    """Change a dataset's publication status
 
      Transition a dataset's publication status following allowed paths.
 
@@ -183,7 +183,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: StatusUpdate,
 ) -> Response[ProblemDetail | StatusUpdateResponse]:
-    """Update Publication Status
+    """Change a dataset's publication status
 
      Transition a dataset's publication status following allowed paths.
 
@@ -219,7 +219,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: StatusUpdate,
 ) -> ProblemDetail | StatusUpdateResponse | None:
-    """Update Publication Status
+    """Change a dataset's publication status
 
      Transition a dataset's publication status following allowed paths.
 

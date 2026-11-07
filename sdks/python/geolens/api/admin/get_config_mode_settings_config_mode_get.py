@@ -85,7 +85,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ConfigModeResponse | ProblemDetail]:
-    """Get Config Mode
+    """Get the configuration mode
 
      Return whether the app is in env-only config mode (public, no auth).
 
@@ -110,7 +110,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> ConfigModeResponse | ProblemDetail | None:
-    """Get Config Mode
+    """Get the configuration mode
 
      Return whether the app is in env-only config mode (public, no auth).
 
@@ -131,7 +131,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ConfigModeResponse | ProblemDetail]:
-    """Get Config Mode
+    """Get the configuration mode
 
      Return whether the app is in env-only config mode (public, no auth).
 
@@ -154,7 +154,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> ConfigModeResponse | ProblemDetail | None:
-    """Get Config Mode
+    """Get the configuration mode
 
      Return whether the app is in env-only config mode (public, no auth).
 

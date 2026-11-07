@@ -111,7 +111,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[JobStatusResponse | None | ProblemDetail]:
-    r"""Get Job Status By Dataset
+    r"""Get a dataset's latest ingest job
 
      Look up the most recent ingest job for a dataset.
 
@@ -165,7 +165,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> JobStatusResponse | None | ProblemDetail | None:
-    r"""Get Job Status By Dataset
+    r"""Get a dataset's latest ingest job
 
      Look up the most recent ingest job for a dataset.
 
@@ -214,7 +214,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[JobStatusResponse | None | ProblemDetail]:
-    r"""Get Job Status By Dataset
+    r"""Get a dataset's latest ingest job
 
      Look up the most recent ingest job for a dataset.
 
@@ -266,7 +266,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> JobStatusResponse | None | ProblemDetail | None:
-    r"""Get Job Status By Dataset
+    r"""Get a dataset's latest ingest job
 
      Look up the most recent ingest job for a dataset.
 

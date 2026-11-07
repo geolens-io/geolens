@@ -115,7 +115,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: ReuploadCommitRequest,
 ) -> Response[ProblemDetail | ReuploadCommitResponse]:
-    """Reupload Commit
+    """Commit a re-upload
 
      Commit a re-upload, queuing the background swap task.
 
@@ -152,7 +152,7 @@ def sync(
     client: AuthenticatedClient,
     body: ReuploadCommitRequest,
 ) -> ProblemDetail | ReuploadCommitResponse | None:
-    """Reupload Commit
+    """Commit a re-upload
 
      Commit a re-upload, queuing the background swap task.
 
@@ -184,7 +184,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: ReuploadCommitRequest,
 ) -> Response[ProblemDetail | ReuploadCommitResponse]:
-    """Reupload Commit
+    """Commit a re-upload
 
      Commit a re-upload, queuing the background swap task.
 
@@ -219,7 +219,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: ReuploadCommitRequest,
 ) -> ProblemDetail | ReuploadCommitResponse | None:
-    """Reupload Commit
+    """Commit a re-upload
 
      Commit a re-upload, queuing the background swap task.
 

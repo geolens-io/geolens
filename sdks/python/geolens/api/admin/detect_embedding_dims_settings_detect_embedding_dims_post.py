@@ -95,7 +95,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[DetectEmbeddingDimsResponse | ProblemDetail]:
-    """Detect Embedding Dims
+    """Detect embedding dimensions
 
      Probe the configured embedding model and return its output dimensions.
 
@@ -120,7 +120,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> DetectEmbeddingDimsResponse | ProblemDetail | None:
-    """Detect Embedding Dims
+    """Detect embedding dimensions
 
      Probe the configured embedding model and return its output dimensions.
 
@@ -141,7 +141,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[DetectEmbeddingDimsResponse | ProblemDetail]:
-    """Detect Embedding Dims
+    """Detect embedding dimensions
 
      Probe the configured embedding model and return its output dimensions.
 
@@ -164,7 +164,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> DetectEmbeddingDimsResponse | ProblemDetail | None:
-    """Detect Embedding Dims
+    """Detect embedding dimensions
 
      Probe the configured embedding model and return its output dimensions.
 

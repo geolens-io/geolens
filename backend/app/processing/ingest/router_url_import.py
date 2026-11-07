@@ -105,6 +105,7 @@ def _url_import_filename(body: UrlUploadRequest) -> str:
         413: PAYLOAD_TOO_LARGE_RESPONSE,
         502: BAD_GATEWAY_RESPONSE,
     },
+    summary="Import a file from a URL",
 )
 async def upload_from_url(
     body: UrlUploadRequest,

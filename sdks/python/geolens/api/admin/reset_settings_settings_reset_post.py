@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: SettingsResetRequest,
 ) -> Response[ProblemDetail | SettingsAllResponse]:
-    """Reset Settings
+    """Reset settings to defaults
 
      Reset one or more settings to their defaults (admin only). Returns updated settings.
 
@@ -137,7 +137,7 @@ def sync(
     client: AuthenticatedClient,
     body: SettingsResetRequest,
 ) -> ProblemDetail | SettingsAllResponse | None:
-    """Reset Settings
+    """Reset settings to defaults
 
      Reset one or more settings to their defaults (admin only). Returns updated settings.
 
@@ -163,7 +163,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: SettingsResetRequest,
 ) -> Response[ProblemDetail | SettingsAllResponse]:
-    """Reset Settings
+    """Reset settings to defaults
 
      Reset one or more settings to their defaults (admin only). Returns updated settings.
 
@@ -192,7 +192,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: SettingsResetRequest,
 ) -> ProblemDetail | SettingsAllResponse | None:
-    """Reset Settings
+    """Reset settings to defaults
 
      Reset one or more settings to their defaults (admin only). Returns updated settings.
 

@@ -102,7 +102,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[DuplicateMapResponse | ProblemDetail]:
-    """Duplicate Map Endpoint
+    """Duplicate a map
 
      Fork a map with RBAC-filtered layers. Any authenticated user can fork.
 
@@ -133,7 +133,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> DuplicateMapResponse | ProblemDetail | None:
-    """Duplicate Map Endpoint
+    """Duplicate a map
 
      Fork a map with RBAC-filtered layers. Any authenticated user can fork.
 
@@ -159,7 +159,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[DuplicateMapResponse | ProblemDetail]:
-    """Duplicate Map Endpoint
+    """Duplicate a map
 
      Fork a map with RBAC-filtered layers. Any authenticated user can fork.
 
@@ -188,7 +188,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> DuplicateMapResponse | ProblemDetail | None:
-    """Duplicate Map Endpoint
+    """Duplicate a map
 
      Fork a map with RBAC-filtered layers. Any authenticated user can fork.
 

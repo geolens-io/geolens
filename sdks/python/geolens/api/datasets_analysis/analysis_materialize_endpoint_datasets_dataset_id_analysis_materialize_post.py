@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: AnalysisMaterializeRequest,
 ) -> Response[AnalysisMaterializeResponse | ProblemDetail]:
-    """Analysis Materialize Endpoint
+    """Save a spatial analysis as a dataset
 
      Materialize an analysis result as a new private dataset (async job).
 
@@ -154,7 +154,7 @@ def sync(
     client: AuthenticatedClient,
     body: AnalysisMaterializeRequest,
 ) -> AnalysisMaterializeResponse | ProblemDetail | None:
-    """Analysis Materialize Endpoint
+    """Save a spatial analysis as a dataset
 
      Materialize an analysis result as a new private dataset (async job).
 
@@ -191,7 +191,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: AnalysisMaterializeRequest,
 ) -> Response[AnalysisMaterializeResponse | ProblemDetail]:
-    """Analysis Materialize Endpoint
+    """Save a spatial analysis as a dataset
 
      Materialize an analysis result as a new private dataset (async job).
 
@@ -231,7 +231,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: AnalysisMaterializeRequest,
 ) -> AnalysisMaterializeResponse | ProblemDetail | None:
-    """Analysis Materialize Endpoint
+    """Save a spatial analysis as a dataset
 
      Materialize an analysis result as a new private dataset (async job).
 

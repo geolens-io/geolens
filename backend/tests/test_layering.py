@@ -1292,12 +1292,12 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/style_json.py": 1631,
     "backend/app/modules/catalog/maps/style_import.py": 605,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 151,
-    "backend/app/modules/catalog/maps/router_assets.py": 161,
-    "backend/app/modules/catalog/maps/router_sharing.py": 472,
+    "backend/app/modules/catalog/maps/router_assets.py": 165,
+    "backend/app/modules/catalog/maps/router_sharing.py": 494,
     "backend/app/modules/catalog/search/query_params.py": 205,
-    "backend/app/modules/catalog/search/router_saved.py": 104,
-    "backend/app/modules/admin/router_operations.py": 332,
-    "backend/app/modules/settings/router_public.py": 164,
+    "backend/app/modules/catalog/search/router_saved.py": 113,
+    "backend/app/modules/admin/router_operations.py": 348,
+    "backend/app/modules/settings/router_public.py": 189,
 }
 
 
@@ -1321,9 +1321,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/sources/adapters/arcgis.py": 1084,
     # Source API router debt; each credential door judges its URL's scheme in
     # place. Split discovery, preview and dispatch endpoints before raising further.
-    "backend/app/modules/catalog/sources/router.py": 1733,
+    "backend/app/modules/catalog/sources/router.py": 1760,
     # STAC import door: per-item refusals and failure codes sit beside the batch loop.
-    "backend/app/modules/catalog/sources/stac_router.py": 1010,
+    "backend/app/modules/catalog/sources/stac_router.py": 1018,
     # Adoption DDL mirrors the current schema without importing historical migrations.
     "backend/app/core/db/tenant_adoption_sql.py": 2088,
     # Adoption coordinates resumable tenant transactions with ownership and ACL repair.
@@ -1331,9 +1331,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # CQL2 parsing, feature-filter validation, record-filter literal handling and
     # the requester's spatial extent share one pygeofilter walk.
     "backend/app/standards/ogc/filtering.py": 1111,
+    # Auth routes (sign-in, sessions, API keys, password) share one router and its
+    # rate-limit and cookie helpers.
+    "backend/app/modules/auth/router.py": 1534,
     # Application composition debt; preserve lifespan and middleware ordering when
     # splitting.
-    "backend/app/api/main.py": 1645,
+    "backend/app/api/main.py": 1646,
     # Map request validation and published response contracts share this module,
     # including the visibility a client that hasn't opted in reads.
     "backend/app/modules/catalog/maps/schemas.py": 1606,
@@ -1343,7 +1346,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Ingest API router debt, including the commit door's token scheme check; split
     # upload, import and registration endpoints before raising further. Each upload
     # door branches once per 3D upload kind: a 3D Tiles tileset and a COPC point cloud.
-    "backend/app/processing/ingest/router.py": 1698,
+    "backend/app/processing/ingest/router.py": 1711,
     # One reader for untrusted COPC files: header, VLRs, hierarchy lookups,
     # chunk table, the checks before the decode child and the published extent.
     "backend/app/processing/ingest/pointcloud.py": 1085,
@@ -1365,7 +1368,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection and accepting a held run
     # by the door it came through, which records the capability it admitted under.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1384,
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1385,
     # Config planning, signed dry runs, application and the embedding column
     # rebuild an applied width needs share one import workflow.
     "backend/app/platform/config_ops/service.py": 1465,
@@ -1386,7 +1389,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/embeddings/backfill.py": 909,
     # Reupload preview, compatibility, the file and service review, and staged
     # commit share an endpoint lifecycle and the capability its jobs record.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1709,
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1715,
     # VRT creation and regeneration share publication, member and submitter
     # re-authorization and its refusal, owed-object records and superseded-object
     # cleanup.
@@ -1423,18 +1426,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1427,
     # Map endpoints share response assembly, visibility and ownership checks.
-    "backend/app/modules/catalog/maps/router.py": 1507,
+    "backend/app/modules/catalog/maps/router.py": 1539,
     # Feature writes, single and batch, share the dataset guards, the database
     # error mapping and the catalog refresh; create also carries idempotent
     # repeats and the dry run.
-    "backend/app/modules/catalog/features/router.py": 1757,
+    "backend/app/modules/catalog/features/router.py": 1766,
     # Native search and OGC Records share visibility, query parsing and pagination.
-    "backend/app/modules/catalog/search/router.py": 1419,
+    "backend/app/modules/catalog/search/router.py": 1449,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
-    "backend/app/standards/stac/router.py": 1919,
+    "backend/app/standards/stac/router.py": 1935,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
-    "backend/app/processing/tiles/router.py": 2934,
+    "backend/app/processing/tiles/router.py": 2945,
     # SQL allowlisting and cost validation must share canonical AST resolution.
     "backend/app/platform/sandbox/validator.py": 1766,
     # AI orchestration coordinates tool execution, usage accounting, pool-connection
@@ -1444,7 +1447,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/records/service.py": 853,
     # Export formats and catalog feeds share visibility, lineage, raster-asset
     # presence and private-artifact authorization.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1572,
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1638,
     # Artifact selection, atomic publication, range reads and eviction share one cache
     # protocol.
     "backend/app/processing/export/artifact_cache.py": 616,

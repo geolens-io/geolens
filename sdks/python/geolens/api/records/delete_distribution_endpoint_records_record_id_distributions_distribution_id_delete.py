@@ -103,7 +103,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Distribution Endpoint
+    """Delete a record distribution
 
      Delete a distribution (manual only; auto-generated distributions are immutable).
 
@@ -137,7 +137,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Delete Distribution Endpoint
+    """Delete a record distribution
 
      Delete a distribution (manual only; auto-generated distributions are immutable).
 
@@ -166,7 +166,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Distribution Endpoint
+    """Delete a record distribution
 
      Delete a distribution (manual only; auto-generated distributions are immutable).
 
@@ -198,7 +198,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Delete Distribution Endpoint
+    """Delete a record distribution
 
      Delete a distribution (manual only; auto-generated distributions are immutable).
 

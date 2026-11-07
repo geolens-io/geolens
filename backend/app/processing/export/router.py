@@ -253,7 +253,9 @@ def _head_export_response(dataset_title: str, format_key: str) -> Response:
 # HEAD alongside GET, which FastAPI's APIRoute doesn't add automatically;
 # GDAL/QGIS probe with it. include_in_schema=False: a derived route publishes
 # nothing new.
-@router.head("/{dataset_id}/export", include_in_schema=False)
+@router.head(
+    "/{dataset_id}/export", include_in_schema=False, summary="Export a dataset"
+)
 @router.get(
     "/{dataset_id}/export",
     response_class=FileResponse,
@@ -269,6 +271,7 @@ def _head_export_response(dataset_title: str, format_key: str) -> Response:
         412: PRECONDITION_FAILED_RESPONSE,
         429: RATE_LIMIT_RESPONSE,
     },
+    summary="Export a dataset",
 )
 async def export_dataset_endpoint(
     dataset_id: uuid.UUID,

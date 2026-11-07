@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: GroupWrite,
 ) -> Response[GroupResponse | ProblemDetail]:
-    """Create Group
+    """Create a sharing group
 
      Create an empty sharing group (admin only). A duplicate name is 409.
 
@@ -137,7 +137,7 @@ def sync(
     client: AuthenticatedClient,
     body: GroupWrite,
 ) -> GroupResponse | ProblemDetail | None:
-    """Create Group
+    """Create a sharing group
 
      Create an empty sharing group (admin only). A duplicate name is 409.
 
@@ -163,7 +163,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: GroupWrite,
 ) -> Response[GroupResponse | ProblemDetail]:
-    """Create Group
+    """Create a sharing group
 
      Create an empty sharing group (admin only). A duplicate name is 409.
 
@@ -192,7 +192,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: GroupWrite,
 ) -> GroupResponse | ProblemDetail | None:
-    """Create Group
+    """Create a sharing group
 
      Create an empty sharing group (admin only). A duplicate name is 409.
 

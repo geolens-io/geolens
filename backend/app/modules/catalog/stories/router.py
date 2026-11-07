@@ -157,8 +157,13 @@ async def _draft_response(
     )
 
 
-@router.get("", response_model=StoryListResponse, include_in_schema=False)
-@router.get("/", response_model=StoryListResponse)
+@router.get(
+    "",
+    response_model=StoryListResponse,
+    include_in_schema=False,
+    summary="List stories",
+)
+@router.get("/", response_model=StoryListResponse, summary="List stories")
 async def list_stories_endpoint(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
@@ -204,9 +209,13 @@ async def list_stories_endpoint(
     response_model=StoryDraftResponse,
     status_code=status.HTTP_201_CREATED,
     include_in_schema=False,
+    summary="Create a story",
 )
 @router.post(
-    "/", response_model=StoryDraftResponse, status_code=status.HTTP_201_CREATED
+    "/",
+    response_model=StoryDraftResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a story",
 )
 async def create_story_endpoint(
     body: StoryCreate,
@@ -235,9 +244,16 @@ async def create_story_endpoint(
 
 
 @router.get(
-    "/frame-hosts", response_model=list[StoryFrameHost], include_in_schema=False
+    "/frame-hosts",
+    response_model=list[StoryFrameHost],
+    include_in_schema=False,
+    summary="List hosts a story may embed",
 )
-@router.get("/frame-hosts/", response_model=list[StoryFrameHost])
+@router.get(
+    "/frame-hosts/",
+    response_model=list[StoryFrameHost],
+    summary="List hosts a story may embed",
+)
 async def story_frame_hosts_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> list[StoryFrameHost]:
@@ -271,7 +287,7 @@ async def story_frame_src_policy_endpoint(
     )
 
 
-@router.get("/{story_id}", response_model=StoryResponse)
+@router.get("/{story_id}", response_model=StoryResponse, summary="Get a story")
 async def get_story_endpoint(
     story_id: uuid.UUID,
     user: Identity | None = Depends(get_optional_user),
@@ -373,7 +389,9 @@ async def story_embed_frame_policy_endpoint(
     )
 
 
-@router.get("/{story_id}/draft", response_model=StoryDraftResponse)
+@router.get(
+    "/{story_id}/draft", response_model=StoryDraftResponse, summary="Get a story draft"
+)
 async def get_story_draft_endpoint(
     story_id: uuid.UUID,
     user: Identity = Depends(require_permission("edit_metadata")),
@@ -398,6 +416,7 @@ async def get_story_draft_endpoint(
     "/{story_id}/draft",
     response_model=StoryDraftResponse,
     responses={409: _REACH_CONFLICT},
+    summary="Save a story draft",
 )
 async def save_story_draft_endpoint(
     story_id: uuid.UUID,
@@ -437,7 +456,10 @@ async def save_story_draft_endpoint(
 
 
 @router.patch(
-    "/{story_id}", response_model=StoryResponse, responses={409: _REACH_CONFLICT}
+    "/{story_id}",
+    response_model=StoryResponse,
+    responses={409: _REACH_CONFLICT},
+    summary="Update a story",
 )
 async def update_story_endpoint(
     story_id: uuid.UUID,
@@ -512,6 +534,7 @@ async def update_story_endpoint(
     "/{story_id}/publish",
     response_model=StoryResponse,
     responses={409: _REACH_CONFLICT},
+    summary="Publish a story",
 )
 async def publish_story_endpoint(
     story_id: uuid.UUID,
@@ -573,7 +596,11 @@ async def publish_story_endpoint(
     )
 
 
-@router.post("/{story_id}/discard", response_model=StoryDraftResponse)
+@router.post(
+    "/{story_id}/discard",
+    response_model=StoryDraftResponse,
+    summary="Discard a story draft",
+)
 async def discard_story_draft_endpoint(
     story_id: uuid.UUID,
     body: StoryRevision,
@@ -606,7 +633,9 @@ async def discard_story_draft_endpoint(
     return await _draft_response(db, story, user, roles)
 
 
-@router.delete("/{story_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{story_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a story"
+)
 async def delete_story_endpoint(
     story_id: uuid.UUID,
     request: Request,
@@ -648,6 +677,7 @@ async def delete_story_endpoint(
         },
         502: BAD_GATEWAY_RESPONSE,
     },
+    summary="Duplicate a story",
 )
 async def duplicate_story_endpoint(
     story_id: uuid.UUID,

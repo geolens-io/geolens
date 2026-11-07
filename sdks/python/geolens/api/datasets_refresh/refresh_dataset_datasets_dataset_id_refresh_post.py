@@ -116,7 +116,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: DatasetRefreshRequest | None | Unset = UNSET,
 ) -> Response[DatasetRefreshResponse | ProblemDetail]:
-    """Refresh Dataset
+    """Refresh a dataset from its source
 
      Re-pull this dataset's data from the origin it was imported from.
 
@@ -183,7 +183,7 @@ def sync(
     client: AuthenticatedClient,
     body: DatasetRefreshRequest | None | Unset = UNSET,
 ) -> DatasetRefreshResponse | ProblemDetail | None:
-    """Refresh Dataset
+    """Refresh a dataset from its source
 
      Re-pull this dataset's data from the origin it was imported from.
 
@@ -245,7 +245,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: DatasetRefreshRequest | None | Unset = UNSET,
 ) -> Response[DatasetRefreshResponse | ProblemDetail]:
-    """Refresh Dataset
+    """Refresh a dataset from its source
 
      Re-pull this dataset's data from the origin it was imported from.
 
@@ -310,7 +310,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: DatasetRefreshRequest | None | Unset = UNSET,
 ) -> DatasetRefreshResponse | ProblemDetail | None:
-    """Refresh Dataset
+    """Refresh a dataset from its source
 
      Re-pull this dataset's data from the origin it was imported from.
 

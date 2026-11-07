@@ -86,7 +86,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: SavedSearchCreate,
 ) -> Response[ProblemDetail | SavedSearchResponse]:
-    """Create Saved Search Endpoint
+    """Save a search
 
      Save a search query with a name for later reuse.
 
@@ -117,7 +117,7 @@ def sync(
     client: AuthenticatedClient,
     body: SavedSearchCreate,
 ) -> ProblemDetail | SavedSearchResponse | None:
-    """Create Saved Search Endpoint
+    """Save a search
 
      Save a search query with a name for later reuse.
 
@@ -143,7 +143,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: SavedSearchCreate,
 ) -> Response[ProblemDetail | SavedSearchResponse]:
-    """Create Saved Search Endpoint
+    """Save a search
 
      Save a search query with a name for later reuse.
 
@@ -172,7 +172,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: SavedSearchCreate,
 ) -> ProblemDetail | SavedSearchResponse | None:
-    """Create Saved Search Endpoint
+    """Save a search
 
      Save a search query with a name for later reuse.
 

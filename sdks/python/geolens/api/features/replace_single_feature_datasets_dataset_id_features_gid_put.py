@@ -139,7 +139,7 @@ def sync_detailed(
 ) -> Response[
     ProblemDetail | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature
 ]:
-    """Replace Single Feature
+    """Replace a feature
 
      Full replacement of a feature (PUT semantics).
 
@@ -185,7 +185,7 @@ def sync(
     | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature
     | None
 ):
-    """Replace Single Feature
+    """Replace a feature
 
      Full replacement of a feature (PUT semantics).
 
@@ -224,7 +224,7 @@ async def asyncio_detailed(
 ) -> Response[
     ProblemDetail | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature
 ]:
-    """Replace Single Feature
+    """Replace a feature
 
      Full replacement of a feature (PUT semantics).
 
@@ -268,7 +268,7 @@ async def asyncio(
     | ReplaceSingleFeatureDatasetsDatasetIdFeaturesGidPutGeoJSONFeature
     | None
 ):
-    """Replace Single Feature
+    """Replace a feature
 
      Full replacement of a feature (PUT semantics).
 

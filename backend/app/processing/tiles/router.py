@@ -1150,6 +1150,7 @@ async def raster_auth_check(
         },
         429: RATE_LIMIT_RESPONSE,
     },
+    summary="Get a raster tile",
 )
 @limiter.exempt
 async def raster_tile_proxy(
@@ -1663,7 +1664,11 @@ async def _enforce_tile_token_access(
             )
 
 
-@router.get("/token/{dataset_id}/", response_model=VectorTileToken | RasterTileToken)
+@router.get(
+    "/token/{dataset_id}/",
+    response_model=VectorTileToken | RasterTileToken,
+    summary="Create a tile token",
+)
 @limiter.exempt
 async def get_tile_token(
     dataset_id: uuid.UUID,
@@ -1717,7 +1722,11 @@ async def get_tile_token(
     return token
 
 
-@router.post("/tokens/", response_model=TileTokenBatchResponse)
+@router.post(
+    "/tokens/",
+    response_model=TileTokenBatchResponse,
+    summary="Create tile tokens for several datasets",
+)
 @limiter.exempt
 async def get_tile_tokens_batch(
     body: TileTokenBatchRequest,
@@ -2520,6 +2529,7 @@ async def _acquire_and_serve_tile(
         200: binary_response("The vector tile", "application/vnd.mapbox-vector-tile"),
         429: RATE_LIMIT_RESPONSE,
     },
+    summary="Get a clustered vector tile",
 )
 @limiter.exempt
 async def cluster_tile_endpoint(
@@ -2739,6 +2749,7 @@ async def cluster_tile_endpoint(
         200: binary_response("The vector tile", "application/vnd.mapbox-vector-tile"),
         429: RATE_LIMIT_RESPONSE,
     },
+    summary="Get a vector tile",
 )
 @limiter.exempt
 async def tile_endpoint(

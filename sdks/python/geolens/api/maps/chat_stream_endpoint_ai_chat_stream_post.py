@@ -99,7 +99,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: ChatRequest,
 ) -> Response[ProblemDetail | str]:
-    """Chat Stream Endpoint
+    """Edit a map with AI chat as a stream
 
      Chat-based map editing with server-sent event streaming.
 
@@ -130,7 +130,7 @@ def sync(
     client: AuthenticatedClient,
     body: ChatRequest,
 ) -> ProblemDetail | str | None:
-    """Chat Stream Endpoint
+    """Edit a map with AI chat as a stream
 
      Chat-based map editing with server-sent event streaming.
 
@@ -156,7 +156,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: ChatRequest,
 ) -> Response[ProblemDetail | str]:
-    """Chat Stream Endpoint
+    """Edit a map with AI chat as a stream
 
      Chat-based map editing with server-sent event streaming.
 
@@ -185,7 +185,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: ChatRequest,
 ) -> ProblemDetail | str | None:
-    """Chat Stream Endpoint
+    """Edit a map with AI chat as a stream
 
      Chat-based map editing with server-sent event streaming.
 

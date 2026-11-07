@@ -100,7 +100,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any | File | ProblemDetail]:
-    """Get Tileset File
+    """Get a 3D Tiles file
 
      Serve one file of a published 3D Tiles tileset.
 
@@ -150,7 +150,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> Any | File | ProblemDetail | None:
-    """Get Tileset File
+    """Get a 3D Tiles file
 
      Serve one file of a published 3D Tiles tileset.
 
@@ -195,7 +195,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any | File | ProblemDetail]:
-    """Get Tileset File
+    """Get a 3D Tiles file
 
      Serve one file of a published 3D Tiles tileset.
 
@@ -243,7 +243,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> Any | File | ProblemDetail | None:
-    """Get Tileset File
+    """Get a 3D Tiles file
 
      Serve one file of a published 3D Tiles tileset.
 

@@ -268,6 +268,7 @@ async def _refuse_upload(db: AsyncSession, filename: str, kind: str | None) -> N
     "/upload/config",
     response_model=UploadConfigResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="Get the upload configuration",
 )
 async def get_upload_config(
     user: Identity = Depends(get_current_active_user),
@@ -285,6 +286,7 @@ async def get_upload_config(
         413: PAYLOAD_TOO_LARGE_RESPONSE,
         502: BAD_GATEWAY_RESPONSE,
     },
+    summary="Request a presigned upload",
 )
 async def request_presigned_upload(
     request: PresignedUploadRequest,
@@ -445,6 +447,7 @@ async def request_presigned_upload(
         413: PAYLOAD_TOO_LARGE_RESPONSE,
         502: BAD_GATEWAY_RESPONSE,
     },
+    summary="Complete a presigned upload",
 )
 async def complete_presigned_upload(
     job_id: uuid.UUID,
@@ -608,6 +611,7 @@ def _stamp_raster_metadata(job: "IngestJob", filename: str | None) -> None:
     response_model=UploadResponse,
     status_code=status.HTTP_201_CREATED,
     responses={413: PAYLOAD_TOO_LARGE_RESPONSE},
+    summary="Upload a file for staging",
 )
 async def upload_file(
     request: Request,
@@ -797,6 +801,7 @@ async def _preview_raster(
 @router.post(
     "/preview/{job_id}",
     response_model=StagedPreviewResponse,
+    summary="Preview a staged file",
 )
 async def preview_file(
     job_id: uuid.UUID,
@@ -951,6 +956,7 @@ def _pick_commit_subclass(job: "IngestJob") -> type[BaseCommitRequest]:
     response_model=CommitResponse,
     status_code=status.HTTP_202_ACCEPTED,
     responses={413: PAYLOAD_TOO_LARGE_RESPONSE},
+    summary="Commit a staged file for import",
 )
 async def commit_import(
     job_id: uuid.UUID,
@@ -1093,6 +1099,7 @@ async def commit_import(
     "/commit-fan-out/{job_id}",
     response_model=FanOutCommitResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    summary="Commit a staged file as one import per layer",
 )
 async def commit_fan_out(
     job_id: uuid.UUID,
@@ -1220,6 +1227,7 @@ async def commit_fan_out(
     "/register/",
     response_model=TableRegisterResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Register a PostGIS table",
 )
 async def register_table(
     request: RegisterRequest,
@@ -1267,6 +1275,7 @@ async def register_table(
 @router.get(
     "/discover/",
     response_model=DiscoverResponse,
+    summary="Discover unregistered PostGIS tables",
 )
 async def discover_tables(
     limit: int = Query(
@@ -1294,6 +1303,7 @@ async def discover_tables(
     "/register/bulk/",
     response_model=BulkRegisterResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Register several PostGIS tables",
 )
 async def bulk_register_tables(
     request: BulkRegisterRequest,
@@ -1356,6 +1366,7 @@ async def bulk_register_tables(
     "/vrt/create",
     response_model=VrtCreateResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    summary="Create a VRT dataset",
 )
 async def create_vrt(
     request: VrtCreateRequest,
@@ -1384,6 +1395,7 @@ async def create_vrt(
     "/vrt/{dataset_id}/sources/",
     response_model=VrtMutationResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    summary="Add a source to a VRT dataset",
 )
 async def add_vrt_source(
     dataset_id: uuid.UUID,
@@ -1573,6 +1585,7 @@ async def add_vrt_source(
     "/vrt/{dataset_id}/sources/{source_dataset_id}/",
     response_model=VrtMutationResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    summary="Remove a source from a VRT dataset",
 )
 async def remove_vrt_source(
     dataset_id: uuid.UUID,

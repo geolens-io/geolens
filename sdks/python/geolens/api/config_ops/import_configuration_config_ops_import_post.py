@@ -127,7 +127,7 @@ def sync_detailed(
     mode: ImportConfigurationConfigOpsImportPostMode | Unset = "merge",
     x_config_preview_token: None | str | Unset = UNSET,
 ) -> Response[ImportResult | ProblemDetail]:
-    """Import Configuration
+    """Import a configuration
 
      Import configuration in merge or overwrite mode.
 
@@ -168,7 +168,7 @@ def sync(
     mode: ImportConfigurationConfigOpsImportPostMode | Unset = "merge",
     x_config_preview_token: None | str | Unset = UNSET,
 ) -> ImportResult | ProblemDetail | None:
-    """Import Configuration
+    """Import a configuration
 
      Import configuration in merge or overwrite mode.
 
@@ -204,7 +204,7 @@ async def asyncio_detailed(
     mode: ImportConfigurationConfigOpsImportPostMode | Unset = "merge",
     x_config_preview_token: None | str | Unset = UNSET,
 ) -> Response[ImportResult | ProblemDetail]:
-    """Import Configuration
+    """Import a configuration
 
      Import configuration in merge or overwrite mode.
 
@@ -243,7 +243,7 @@ async def asyncio(
     mode: ImportConfigurationConfigOpsImportPostMode | Unset = "merge",
     x_config_preview_token: None | str | Unset = UNSET,
 ) -> ImportResult | ProblemDetail | None:
-    """Import Configuration
+    """Import a configuration
 
      Import configuration in merge or overwrite mode.
 

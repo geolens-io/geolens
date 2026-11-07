@@ -105,7 +105,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ColumnListResponse | ProblemDetail]:
-    """Drop Column Endpoint
+    """Drop a column
 
      Remove a column from an existing layer.
 
@@ -139,7 +139,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> ColumnListResponse | ProblemDetail | None:
-    """Drop Column Endpoint
+    """Drop a column
 
      Remove a column from an existing layer.
 
@@ -168,7 +168,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ColumnListResponse | ProblemDetail]:
-    """Drop Column Endpoint
+    """Drop a column
 
      Remove a column from an existing layer.
 
@@ -200,7 +200,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> ColumnListResponse | ProblemDetail | None:
-    """Drop Column Endpoint
+    """Drop a column
 
      Remove a column from an existing layer.
 

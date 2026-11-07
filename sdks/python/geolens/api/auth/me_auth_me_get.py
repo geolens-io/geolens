@@ -90,7 +90,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | UserResponse]:
-    """Me
+    """Get the signed-in user
 
      Return the currently authenticated user's profile and roles.
 
@@ -115,7 +115,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | UserResponse | None:
-    """Me
+    """Get the signed-in user
 
      Return the currently authenticated user's profile and roles.
 
@@ -136,7 +136,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | UserResponse]:
-    """Me
+    """Get the signed-in user
 
      Return the currently authenticated user's profile and roles.
 
@@ -159,7 +159,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | UserResponse | None:
-    """Me
+    """Get the signed-in user
 
      Return the currently authenticated user's profile and roles.
 

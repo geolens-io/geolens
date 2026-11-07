@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: OAuthProviderCreate,
 ) -> Response[OAuthProviderResponse | ProblemDetail]:
-    """Create Oauth Provider
+    """Create an OAuth provider
 
      Create a new OAuth or SAML provider (admin only).
 
@@ -141,7 +141,7 @@ def sync(
     client: AuthenticatedClient,
     body: OAuthProviderCreate,
 ) -> OAuthProviderResponse | ProblemDetail | None:
-    """Create Oauth Provider
+    """Create an OAuth provider
 
      Create a new OAuth or SAML provider (admin only).
 
@@ -171,7 +171,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: OAuthProviderCreate,
 ) -> Response[OAuthProviderResponse | ProblemDetail]:
-    """Create Oauth Provider
+    """Create an OAuth provider
 
      Create a new OAuth or SAML provider (admin only).
 
@@ -204,7 +204,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: OAuthProviderCreate,
 ) -> OAuthProviderResponse | ProblemDetail | None:
-    """Create Oauth Provider
+    """Create an OAuth provider
 
      Create a new OAuth or SAML provider (admin only).
 

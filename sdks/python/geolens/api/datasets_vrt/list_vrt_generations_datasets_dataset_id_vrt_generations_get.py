@@ -126,7 +126,7 @@ def sync_detailed(
     skip: int | Unset = 0,
     offset: int | None | Unset = UNSET,
 ) -> Response[ProblemDetail | VrtGenerationListResponse]:
-    """List Vrt Generations
+    """List a VRT dataset's generations
 
      Return paginated generation history for a VRT dataset.
 
@@ -171,7 +171,7 @@ def sync(
     skip: int | Unset = 0,
     offset: int | None | Unset = UNSET,
 ) -> ProblemDetail | VrtGenerationListResponse | None:
-    """List Vrt Generations
+    """List a VRT dataset's generations
 
      Return paginated generation history for a VRT dataset.
 
@@ -211,7 +211,7 @@ async def asyncio_detailed(
     skip: int | Unset = 0,
     offset: int | None | Unset = UNSET,
 ) -> Response[ProblemDetail | VrtGenerationListResponse]:
-    """List Vrt Generations
+    """List a VRT dataset's generations
 
      Return paginated generation history for a VRT dataset.
 
@@ -254,7 +254,7 @@ async def asyncio(
     skip: int | Unset = 0,
     offset: int | None | Unset = UNSET,
 ) -> ProblemDetail | VrtGenerationListResponse | None:
-    """List Vrt Generations
+    """List a VRT dataset's generations
 
      Return paginated generation history for a VRT dataset.
 

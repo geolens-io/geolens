@@ -301,7 +301,11 @@ def _validate_intersect_columns(source, overlay) -> None:
     # guard above stays: that one really does group by a user-chosen column.
 
 
-@router.post("/{dataset_id}/analysis/preview/", response_model=AnalysisPreviewResponse)
+@router.post(
+    "/{dataset_id}/analysis/preview/",
+    response_model=AnalysisPreviewResponse,
+    summary="Preview a spatial analysis",
+)
 async def analysis_preview_endpoint(
     dataset_id: uuid.UUID,
     body: AnalysisPreviewRequest,
@@ -477,6 +481,7 @@ def _build_analysis_job_metadata(
 @router.post(
     "/{dataset_id}/analysis/materialize/",
     response_model=AnalysisMaterializeResponse,
+    summary="Save a spatial analysis as a dataset",
 )
 async def analysis_materialize_endpoint(
     dataset_id: uuid.UUID,

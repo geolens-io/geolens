@@ -103,7 +103,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Remove Layer Endpoint
+    """Remove a layer from a map
 
      Remove a layer from a map.
 
@@ -137,7 +137,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Remove Layer Endpoint
+    """Remove a layer from a map
 
      Remove a layer from a map.
 
@@ -166,7 +166,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Remove Layer Endpoint
+    """Remove a layer from a map
 
      Remove a layer from a map.
 
@@ -198,7 +198,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Remove Layer Endpoint
+    """Remove a layer from a map
 
      Remove a layer from a map.
 

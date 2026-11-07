@@ -102,7 +102,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | VrtStatusResponse]:
-    """Get Vrt Status
+    """Get a VRT dataset's status
 
      Return VRT dataset status, last generation time, source count, and per-source health.
 
@@ -133,7 +133,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | VrtStatusResponse | None:
-    """Get Vrt Status
+    """Get a VRT dataset's status
 
      Return VRT dataset status, last generation time, source count, and per-source health.
 
@@ -159,7 +159,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | VrtStatusResponse]:
-    """Get Vrt Status
+    """Get a VRT dataset's status
 
      Return VRT dataset status, last generation time, source count, and per-source health.
 
@@ -188,7 +188,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | VrtStatusResponse | None:
-    """Get Vrt Status
+    """Get a VRT dataset's status
 
      Return VRT dataset status, last generation time, source count, and per-source health.
 

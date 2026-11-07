@@ -90,7 +90,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ConnectivityResult | ProblemDetail]:
-    """Validate Configuration
+    """Validate the configuration
 
      Validate storage, cache, credential handoff, and enabled OIDC providers.
 
@@ -117,7 +117,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> ConnectivityResult | ProblemDetail | None:
-    """Validate Configuration
+    """Validate the configuration
 
      Validate storage, cache, credential handoff, and enabled OIDC providers.
 
@@ -140,7 +140,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ConnectivityResult | ProblemDetail]:
-    """Validate Configuration
+    """Validate the configuration
 
      Validate storage, cache, credential handoff, and enabled OIDC providers.
 
@@ -165,7 +165,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> ConnectivityResult | ProblemDetail | None:
-    """Validate Configuration
+    """Validate the configuration
 
      Validate storage, cache, credential handoff, and enabled OIDC providers.
 

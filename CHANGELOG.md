@@ -59,6 +59,7 @@ and releases use semantic versioning.
 
 ### Changed
 
+- API reference: every operation has an action title ("Get the signed-in user") instead of one derived from its function name; generated SDK docstrings follow.
 - Stories: a chapter on a different map loads that map ahead of time and crossfades to it.
 - Stories: a gallery image opens full size in a dialog with its caption and Previous/Next, a carousel shows dots for its images, and the floating panel keeps a visible scrollbar.
 - Dashboards: indicator comparisons read "above <label>" with the judgement carried by colour; charts and tables take two columns when the map is hidden.

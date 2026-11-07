@@ -106,7 +106,7 @@ def sync_detailed(
     body: BodyLoginAuthLoginPost,
     x_geo_lens_auth_mode: None | str | Unset = UNSET,
 ) -> Response[ProblemDetail | TokenResponse]:
-    """Login
+    """Sign in with a username and password
 
      Authenticate with username and password, receive a JWT token.
 
@@ -149,7 +149,7 @@ def sync(
     body: BodyLoginAuthLoginPost,
     x_geo_lens_auth_mode: None | str | Unset = UNSET,
 ) -> ProblemDetail | TokenResponse | None:
-    """Login
+    """Sign in with a username and password
 
      Authenticate with username and password, receive a JWT token.
 
@@ -187,7 +187,7 @@ async def asyncio_detailed(
     body: BodyLoginAuthLoginPost,
     x_geo_lens_auth_mode: None | str | Unset = UNSET,
 ) -> Response[ProblemDetail | TokenResponse]:
-    """Login
+    """Sign in with a username and password
 
      Authenticate with username and password, receive a JWT token.
 
@@ -228,7 +228,7 @@ async def asyncio(
     body: BodyLoginAuthLoginPost,
     x_geo_lens_auth_mode: None | str | Unset = UNSET,
 ) -> ProblemDetail | TokenResponse | None:
-    """Login
+    """Sign in with a username and password
 
      Authenticate with username and password, receive a JWT token.
 

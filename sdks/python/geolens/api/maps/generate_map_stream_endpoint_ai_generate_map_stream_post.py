@@ -99,7 +99,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: MapGenerateRequest,
 ) -> Response[ProblemDetail | str]:
-    """Generate Map Stream Endpoint
+    """Generate a map from a prompt as a stream
 
      Generate a map from a natural language prompt with streaming progress events.
 
@@ -130,7 +130,7 @@ def sync(
     client: AuthenticatedClient,
     body: MapGenerateRequest,
 ) -> ProblemDetail | str | None:
-    """Generate Map Stream Endpoint
+    """Generate a map from a prompt as a stream
 
      Generate a map from a natural language prompt with streaming progress events.
 
@@ -156,7 +156,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: MapGenerateRequest,
 ) -> Response[ProblemDetail | str]:
-    """Generate Map Stream Endpoint
+    """Generate a map from a prompt as a stream
 
      Generate a map from a natural language prompt with streaming progress events.
 
@@ -185,7 +185,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: MapGenerateRequest,
 ) -> ProblemDetail | str | None:
-    """Generate Map Stream Endpoint
+    """Generate a map from a prompt as a stream
 
      Generate a map from a natural language prompt with streaming progress events.
 

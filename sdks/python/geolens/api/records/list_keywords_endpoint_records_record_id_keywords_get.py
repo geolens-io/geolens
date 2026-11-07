@@ -135,7 +135,7 @@ def sync_detailed(
     audience_visibility: None | str | Unset = UNSET,
     audience_record_status: None | str | Unset = UNSET,
 ) -> Response[KeywordListResponse | ProblemDetail]:
-    """List Keywords Endpoint
+    """List a record's keywords
 
      List all keywords for a record, marking analysis-inherited ones.
 
@@ -186,7 +186,7 @@ def sync(
     audience_visibility: None | str | Unset = UNSET,
     audience_record_status: None | str | Unset = UNSET,
 ) -> KeywordListResponse | ProblemDetail | None:
-    """List Keywords Endpoint
+    """List a record's keywords
 
      List all keywords for a record, marking analysis-inherited ones.
 
@@ -232,7 +232,7 @@ async def asyncio_detailed(
     audience_visibility: None | str | Unset = UNSET,
     audience_record_status: None | str | Unset = UNSET,
 ) -> Response[KeywordListResponse | ProblemDetail]:
-    """List Keywords Endpoint
+    """List a record's keywords
 
      List all keywords for a record, marking analysis-inherited ones.
 
@@ -281,7 +281,7 @@ async def asyncio(
     audience_visibility: None | str | Unset = UNSET,
     audience_record_status: None | str | Unset = UNSET,
 ) -> KeywordListResponse | ProblemDetail | None:
-    """List Keywords Endpoint
+    """List a record's keywords
 
      List all keywords for a record, marking analysis-inherited ones.
 

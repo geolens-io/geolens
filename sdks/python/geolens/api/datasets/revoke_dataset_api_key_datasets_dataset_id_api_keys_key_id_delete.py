@@ -103,7 +103,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Revoke Dataset Api Key
+    """Revoke a dataset API key
 
      Revoke a key bound to this dataset.
 
@@ -142,7 +142,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Revoke Dataset Api Key
+    """Revoke a dataset API key
 
      Revoke a key bound to this dataset.
 
@@ -176,7 +176,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Revoke Dataset Api Key
+    """Revoke a dataset API key
 
      Revoke a key bound to this dataset.
 
@@ -213,7 +213,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Revoke Dataset Api Key
+    """Revoke a dataset API key
 
      Revoke a key bound to this dataset.
 

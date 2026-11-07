@@ -141,7 +141,7 @@ def sync_detailed(
     limit: int | Unset = 10,
     offset: int | Unset = 0,
 ) -> Response[ProblemDetail | StacItemCollectionResponse]:
-    """Search Get
+    """Search STAC items with GET
 
      STAC Item Search (GET).
 
@@ -195,7 +195,7 @@ def sync(
     limit: int | Unset = 10,
     offset: int | Unset = 0,
 ) -> ProblemDetail | StacItemCollectionResponse | None:
-    """Search Get
+    """Search STAC items with GET
 
      STAC Item Search (GET).
 
@@ -244,7 +244,7 @@ async def asyncio_detailed(
     limit: int | Unset = 10,
     offset: int | Unset = 0,
 ) -> Response[ProblemDetail | StacItemCollectionResponse]:
-    """Search Get
+    """Search STAC items with GET
 
      STAC Item Search (GET).
 
@@ -296,7 +296,7 @@ async def asyncio(
     limit: int | Unset = 10,
     offset: int | Unset = 0,
 ) -> ProblemDetail | StacItemCollectionResponse | None:
-    """Search Get
+    """Search STAC items with GET
 
      STAC Item Search (GET).
 

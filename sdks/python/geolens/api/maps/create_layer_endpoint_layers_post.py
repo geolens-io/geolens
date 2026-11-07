@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: CreateLayerRequest,
 ) -> Response[CreateLayerResponse | ProblemDetail]:
-    """Create Layer Endpoint
+    """Create an empty layer
 
      Create a new empty spatial layer.
 
@@ -143,7 +143,7 @@ def sync(
     client: AuthenticatedClient,
     body: CreateLayerRequest,
 ) -> CreateLayerResponse | ProblemDetail | None:
-    """Create Layer Endpoint
+    """Create an empty layer
 
      Create a new empty spatial layer.
 
@@ -175,7 +175,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: CreateLayerRequest,
 ) -> Response[CreateLayerResponse | ProblemDetail]:
-    """Create Layer Endpoint
+    """Create an empty layer
 
      Create a new empty spatial layer.
 
@@ -210,7 +210,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: CreateLayerRequest,
 ) -> CreateLayerResponse | ProblemDetail | None:
-    """Create Layer Endpoint
+    """Create an empty layer
 
      Create a new empty spatial layer.
 

@@ -171,7 +171,7 @@ def sync_detailed(
     | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite
     | ProblemDetail
 ]:
-    """Create Feature
+    """Create a feature
 
      Insert a new GeoJSON feature into a dataset.
 
@@ -257,7 +257,7 @@ def sync(
     | ProblemDetail
     | None
 ):
-    """Create Feature
+    """Create a feature
 
      Insert a new GeoJSON feature into a dataset.
 
@@ -337,7 +337,7 @@ async def asyncio_detailed(
     | CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite
     | ProblemDetail
 ]:
-    """Create Feature
+    """Create a feature
 
      Insert a new GeoJSON feature into a dataset.
 
@@ -421,7 +421,7 @@ async def asyncio(
     | ProblemDetail
     | None
 ):
-    """Create Feature
+    """Create a feature
 
      Insert a new GeoJSON feature into a dataset.
 

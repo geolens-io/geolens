@@ -102,7 +102,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | VisibilityCheckResponse]:
-    """Visibility Check Endpoint
+    """Check which layers a map's audience cannot see
 
      Check which layers a map's audience can't see. Informational only.
 
@@ -136,7 +136,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | VisibilityCheckResponse | None:
-    """Visibility Check Endpoint
+    """Check which layers a map's audience cannot see
 
      Check which layers a map's audience can't see. Informational only.
 
@@ -165,7 +165,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | VisibilityCheckResponse]:
-    """Visibility Check Endpoint
+    """Check which layers a map's audience cannot see
 
      Check which layers a map's audience can't see. Informational only.
 
@@ -197,7 +197,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | VisibilityCheckResponse | None:
-    """Visibility Check Endpoint
+    """Check which layers a map's audience cannot see
 
      Check which layers a map's audience can't see. Informational only.
 

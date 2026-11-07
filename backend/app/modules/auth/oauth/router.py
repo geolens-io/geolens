@@ -357,7 +357,11 @@ async def build_oauth_client(provider_slug: str, db: AsyncSession) -> tuple:
     return client, provider
 
 
-@router.get("/{provider_slug}/login", response_class=RedirectResponse)
+@router.get(
+    "/{provider_slug}/login",
+    response_class=RedirectResponse,
+    summary="Start OAuth sign-in",
+)
 async def oauth_login(
     provider_slug: str,
     request: Request,
@@ -425,7 +429,9 @@ async def oauth_login(
     return await client.authorize_redirect(request, redirect_uri, sign_in_nonce=nonce)
 
 
-@router.get("/{provider_slug}/callback", response_class=Response)
+@router.get(
+    "/{provider_slug}/callback", response_class=Response, summary="Finish OAuth sign-in"
+)
 async def oauth_callback(
     provider_slug: str,
     request: Request,
@@ -661,8 +667,17 @@ async def oauth_callback(
 _INVALID_EXCHANGE_DETAIL = "Invalid or expired sign-in code"
 
 
-@router.post("/exchange", response_model=TokenResponse, include_in_schema=False)
-@router.post("/exchange/", response_model=TokenResponse)
+@router.post(
+    "/exchange",
+    response_model=TokenResponse,
+    include_in_schema=False,
+    summary="Exchange a sign-in code for a session",
+)
+@router.post(
+    "/exchange/",
+    response_model=TokenResponse,
+    summary="Exchange a sign-in code for a session",
+)
 @limiter.limit("30/minute")
 async def exchange_sign_in_code(
     request: Request,
@@ -729,8 +744,13 @@ async def exchange_sign_in_code(
     "/providers",
     response_model=list[OAuthProviderPublic],
     include_in_schema=False,
+    summary="List sign-in providers",
 )
-@router.get("/providers/", response_model=list[OAuthProviderPublic])
+@router.get(
+    "/providers/",
+    response_model=list[OAuthProviderPublic],
+    summary="List sign-in providers",
+)
 async def list_public_providers(
     db: AsyncSession = Depends(get_db),
 ) -> list[OAuthProviderPublic]:

@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: CollectionUpdate,
 ) -> Response[CollectionResponse | ProblemDetail]:
-    """Update Collection Endpoint
+    """Update a collection
 
      Update a collection's name and/or description. Owner or admin only.
 
@@ -146,7 +146,7 @@ def sync(
     client: AuthenticatedClient,
     body: CollectionUpdate,
 ) -> CollectionResponse | ProblemDetail | None:
-    """Update Collection Endpoint
+    """Update a collection
 
      Update a collection's name and/or description. Owner or admin only.
 
@@ -175,7 +175,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: CollectionUpdate,
 ) -> Response[CollectionResponse | ProblemDetail]:
-    """Update Collection Endpoint
+    """Update a collection
 
      Update a collection's name and/or description. Owner or admin only.
 
@@ -207,7 +207,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: CollectionUpdate,
 ) -> CollectionResponse | ProblemDetail | None:
-    """Update Collection Endpoint
+    """Update a collection
 
      Update a collection's name and/or description. Owner or admin only.
 

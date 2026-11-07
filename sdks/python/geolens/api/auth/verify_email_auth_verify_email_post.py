@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     body: VerifyEmailRequest,
 ) -> Response[ProblemDetail | RegisterResponse]:
-    r"""Verify Email
+    r"""Verify an email address
 
      Redeem a verification token, confirming the address.
 
@@ -146,7 +146,7 @@ def sync(
     client: AuthenticatedClient | Client,
     body: VerifyEmailRequest,
 ) -> ProblemDetail | RegisterResponse | None:
-    r"""Verify Email
+    r"""Verify an email address
 
      Redeem a verification token, confirming the address.
 
@@ -181,7 +181,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     body: VerifyEmailRequest,
 ) -> Response[ProblemDetail | RegisterResponse]:
-    r"""Verify Email
+    r"""Verify an email address
 
      Redeem a verification token, confirming the address.
 
@@ -219,7 +219,7 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     body: VerifyEmailRequest,
 ) -> ProblemDetail | RegisterResponse | None:
-    r"""Verify Email
+    r"""Verify an email address
 
      Redeem a verification token, confirming the address.
 

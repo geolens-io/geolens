@@ -156,7 +156,7 @@ def sync_detailed(
     sort: ListUsersAdminUsersGetSort | Unset = "created_at",
     order: ListUsersAdminUsersGetOrder | Unset = "asc",
 ) -> Response[ProblemDetail | UserListResponse]:
-    """List Users
+    """List users
 
      List users with optional status, role, search, and sort filters (admin only).
 
@@ -210,7 +210,7 @@ def sync(
     sort: ListUsersAdminUsersGetSort | Unset = "created_at",
     order: ListUsersAdminUsersGetOrder | Unset = "asc",
 ) -> ProblemDetail | UserListResponse | None:
-    """List Users
+    """List users
 
      List users with optional status, role, search, and sort filters (admin only).
 
@@ -259,7 +259,7 @@ async def asyncio_detailed(
     sort: ListUsersAdminUsersGetSort | Unset = "created_at",
     order: ListUsersAdminUsersGetOrder | Unset = "asc",
 ) -> Response[ProblemDetail | UserListResponse]:
-    """List Users
+    """List users
 
      List users with optional status, role, search, and sort filters (admin only).
 
@@ -311,7 +311,7 @@ async def asyncio(
     sort: ListUsersAdminUsersGetSort | Unset = "created_at",
     order: ListUsersAdminUsersGetOrder | Unset = "asc",
 ) -> ProblemDetail | UserListResponse | None:
-    """List Users
+    """List users
 
      List users with optional status, role, search, and sort filters (admin only).
 

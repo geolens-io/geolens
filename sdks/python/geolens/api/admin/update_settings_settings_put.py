@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: SettingsUpdateRequest,
 ) -> Response[ProblemDetail | SettingsAllResponse]:
-    """Update Settings
+    """Update settings
 
      Update one or more settings (admin only). Returns updated settings.
 
@@ -137,7 +137,7 @@ def sync(
     client: AuthenticatedClient,
     body: SettingsUpdateRequest,
 ) -> ProblemDetail | SettingsAllResponse | None:
-    """Update Settings
+    """Update settings
 
      Update one or more settings (admin only). Returns updated settings.
 
@@ -163,7 +163,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: SettingsUpdateRequest,
 ) -> Response[ProblemDetail | SettingsAllResponse]:
-    """Update Settings
+    """Update settings
 
      Update one or more settings (admin only). Returns updated settings.
 
@@ -192,7 +192,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: SettingsUpdateRequest,
 ) -> ProblemDetail | SettingsAllResponse | None:
-    """Update Settings
+    """Update settings
 
      Update one or more settings (admin only). Returns updated settings.
 

@@ -98,7 +98,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Remove Group Member
+    """Remove a user from a sharing group
 
      Remove one user from a sharing group (admin only).
 
@@ -134,7 +134,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Remove Group Member
+    """Remove a user from a sharing group
 
      Remove one user from a sharing group (admin only).
 
@@ -165,7 +165,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Remove Group Member
+    """Remove a user from a sharing group
 
      Remove one user from a sharing group (admin only).
 
@@ -199,7 +199,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Remove Group Member
+    """Remove a user from a sharing group
 
      Remove one user from a sharing group (admin only).
 

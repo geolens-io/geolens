@@ -225,7 +225,7 @@ def sync_detailed(
     | ValueCountsResponse
     | ProblemDetail
 ]:
-    """Aggregate Endpoint
+    """Compute a dataset aggregate
 
      Compute one exact aggregate over a dataset's rows, for a widget.
 
@@ -299,7 +299,7 @@ def sync(
     | ProblemDetail
     | None
 ):
-    """Aggregate Endpoint
+    """Compute a dataset aggregate
 
      Compute one exact aggregate over a dataset's rows, for a widget.
 
@@ -367,7 +367,7 @@ async def asyncio_detailed(
     | ValueCountsResponse
     | ProblemDetail
 ]:
-    """Aggregate Endpoint
+    """Compute a dataset aggregate
 
      Compute one exact aggregate over a dataset's rows, for a widget.
 
@@ -439,7 +439,7 @@ async def asyncio(
     | ProblemDetail
     | None
 ):
-    """Aggregate Endpoint
+    """Compute a dataset aggregate
 
      Compute one exact aggregate over a dataset's rows, for a widget.
 

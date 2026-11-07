@@ -180,7 +180,7 @@ def sync_detailed(
     pmax: float | None | Unset = UNSET,
     sigma: float | None | Unset = UNSET,
 ) -> Response[File | ProblemDetail]:
-    """Raster Tile Proxy
+    """Get a raster tile
 
      Render one raster tile and return the image.
 
@@ -293,7 +293,7 @@ def sync(
     pmax: float | None | Unset = UNSET,
     sigma: float | None | Unset = UNSET,
 ) -> File | ProblemDetail | None:
-    """Raster Tile Proxy
+    """Get a raster tile
 
      Render one raster tile and return the image.
 
@@ -401,7 +401,7 @@ async def asyncio_detailed(
     pmax: float | None | Unset = UNSET,
     sigma: float | None | Unset = UNSET,
 ) -> Response[File | ProblemDetail]:
-    """Raster Tile Proxy
+    """Get a raster tile
 
      Render one raster tile and return the image.
 
@@ -512,7 +512,7 @@ async def asyncio(
     pmax: float | None | Unset = UNSET,
     sigma: float | None | Unset = UNSET,
 ) -> File | ProblemDetail | None:
-    """Raster Tile Proxy
+    """Get a raster tile
 
      Render one raster tile and return the image.
 

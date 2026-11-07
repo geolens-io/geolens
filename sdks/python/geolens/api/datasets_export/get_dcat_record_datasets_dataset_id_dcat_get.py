@@ -85,7 +85,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
-    """Get Dcat Record
+    """Get a DCAT 3 record
 
      DCAT 3 JSON-LD for a single dataset.
 
@@ -116,7 +116,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
-    """Get Dcat Record
+    """Get a DCAT 3 record
 
      DCAT 3 JSON-LD for a single dataset.
 
@@ -142,7 +142,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
-    """Get Dcat Record
+    """Get a DCAT 3 record
 
      DCAT 3 JSON-LD for a single dataset.
 
@@ -171,7 +171,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
-    """Get Dcat Record
+    """Get a DCAT 3 record
 
      DCAT 3 JSON-LD for a single dataset.
 

@@ -82,7 +82,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | SavedSearchResponse]:
-    """Get Saved Search Endpoint
+    """Get a saved search
 
      Get a single saved search by ID.
 
@@ -113,7 +113,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | SavedSearchResponse | None:
-    """Get Saved Search Endpoint
+    """Get a saved search
 
      Get a single saved search by ID.
 
@@ -139,7 +139,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | SavedSearchResponse]:
-    """Get Saved Search Endpoint
+    """Get a saved search
 
      Get a single saved search by ID.
 
@@ -168,7 +168,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | SavedSearchResponse | None:
-    """Get Saved Search Endpoint
+    """Get a saved search
 
      Get a single saved search by ID.
 

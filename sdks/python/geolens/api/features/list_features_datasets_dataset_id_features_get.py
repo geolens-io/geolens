@@ -139,7 +139,7 @@ def sync_detailed(
 ) -> Response[
     ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollection | ProblemDetail
 ]:
-    """List Features
+    """List features
 
      Get paginated GeoJSON features for a dataset.
 
@@ -193,7 +193,7 @@ def sync(
     | ProblemDetail
     | None
 ):
-    """List Features
+    """List features
 
      Get paginated GeoJSON features for a dataset.
 
@@ -240,7 +240,7 @@ async def asyncio_detailed(
 ) -> Response[
     ListFeaturesDatasetsDatasetIdFeaturesGetGeoJSONFeatureCollection | ProblemDetail
 ]:
-    """List Features
+    """List features
 
      Get paginated GeoJSON features for a dataset.
 
@@ -292,7 +292,7 @@ async def asyncio(
     | ProblemDetail
     | None
 ):
-    """List Features
+    """List features
 
      Get paginated GeoJSON features for a dataset.
 

@@ -103,7 +103,7 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     f: None | str | Unset = UNSET,
 ) -> Response[OGCCollectionMetadata | ProblemDetail]:
-    """Get Dataset Collection
+    """Get a dataset's OGC feature collection
 
      Per-dataset OGC collection metadata with extent, CRS, and items link.
 
@@ -137,7 +137,7 @@ def sync(
     client: AuthenticatedClient | Client,
     f: None | str | Unset = UNSET,
 ) -> OGCCollectionMetadata | ProblemDetail | None:
-    """Get Dataset Collection
+    """Get a dataset's OGC feature collection
 
      Per-dataset OGC collection metadata with extent, CRS, and items link.
 
@@ -166,7 +166,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     f: None | str | Unset = UNSET,
 ) -> Response[OGCCollectionMetadata | ProblemDetail]:
-    """Get Dataset Collection
+    """Get a dataset's OGC feature collection
 
      Per-dataset OGC collection metadata with extent, CRS, and items link.
 
@@ -198,7 +198,7 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     f: None | str | Unset = UNSET,
 ) -> OGCCollectionMetadata | ProblemDetail | None:
-    """Get Dataset Collection
+    """Get a dataset's OGC feature collection
 
      Per-dataset OGC collection metadata with extent, CRS, and items link.
 

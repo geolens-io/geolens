@@ -12,7 +12,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Landing Page
+         * Get the OGC API landing page
          * @description OGC API landing page -- entry point for machine clients.
          */
         get: operations["landing_page__get"];
@@ -32,7 +32,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Ai Status
+         * Get the AI feature status
          * @description Return single-deployment AI status; no provider-routing policy controls (admin only).
          */
         get: operations["get_ai_status_admin_ai_status__get"];
@@ -42,7 +42,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Update Ai Status
+         * Turn AI features on or off
          * @description Toggle base AI features on/off at runtime; no provider-routing policy controls (admin only).
          */
         patch: operations["update_ai_status_admin_ai_status__patch"];
@@ -56,13 +56,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Api Keys
+         * List all API keys
          * @description List all API keys (admin only). Never returns the raw key.
          */
         get: operations["list_api_keys_admin_api_keys__get"];
         put?: never;
         /**
-         * Create Api Key
+         * Create an API key for a user
          * @description Create an API key for a user (admin only).
          *
          *     The raw key is returned only in this response and cannot be retrieved again.
@@ -86,7 +86,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Revoke Api Key
+         * Revoke any API key
          * @description Revoke (soft-delete) an API key (admin only).
          */
         delete: operations["revoke_api_key_admin_api_keys__key_id__delete"];
@@ -103,7 +103,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Audit Logs
+         * List audit log entries
          * @description Query audit logs with optional filters and sort (admin only).
          *
          *     `sort` and `order` are closed enums, so an unrecognised value is refused
@@ -148,7 +148,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Trigger Backfill
+         * Queue an embedding backfill
          * @description Queue semantic-search embedding generation for records (admin only).
          *
          *     Pass ?force=true to regenerate every record and replace its stored vectors.
@@ -184,7 +184,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List All Embed Tokens
+         * List embed tokens
          * @description List basic embed-token inventory across maps; no quota or domain-policy controls (admin only).
          */
         get: operations["list_all_embed_tokens_admin_embed_tokens__get"];
@@ -206,7 +206,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Bulk Revoke
+         * Revoke several embed tokens
          * @description Bulk-revoke basic embed tokens; no quota or domain-policy controls (admin only).
          */
         post: operations["bulk_revoke_admin_embed_tokens_bulk_revoke__post"];
@@ -224,7 +224,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Embedding Stats
+         * Get embedding coverage
          * @description Return embedding coverage and the state of the backfill runs (admin only).
          */
         get: operations["get_embedding_stats_admin_embedding_stats__get"];
@@ -244,13 +244,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Groups
+         * List sharing groups
          * @description List sharing groups by name, with member counts (admin only).
          */
         get: operations["list_groups_admin_groups__get"];
         put?: never;
         /**
-         * Create Group
+         * Create a sharing group
          * @description Create an empty sharing group (admin only). A duplicate name is 409.
          */
         post: operations["create_group_admin_groups__post"];
@@ -268,14 +268,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Group
+         * Get a sharing group
          * @description Get one sharing group with its member count (admin only).
          */
         get: operations["get_group_admin_groups__group_id__get"];
         put?: never;
         post?: never;
         /**
-         * Delete Group
+         * Delete a sharing group
          * @description Delete a sharing group and all its memberships (admin only).
          *
          *     Its members lose the group's datasets, maps and stories at once, signed
@@ -286,7 +286,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Rename Group
+         * Rename a sharing group
          * @description Rename a sharing group (admin only). A name already in use is 409.
          */
         patch: operations["rename_group_admin_groups__group_id__patch"];
@@ -300,13 +300,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Group Members
+         * List sharing group members
          * @description List a sharing group's members by username (admin only).
          */
         get: operations["list_group_members_admin_groups__group_id__members__get"];
         put?: never;
         /**
-         * Add Group Members
+         * Add users to a sharing group
          * @description Add users to a sharing group (admin only).
          *
          *     Users already in the group are skipped. If any id matches no user, the
@@ -331,7 +331,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Remove Group Member
+         * Remove a user from a sharing group
          * @description Remove one user from a sharing group (admin only).
          *
          *     The user loses the group's datasets at once, signed tile URLs included.
@@ -350,7 +350,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Infrastructure
+         * Get infrastructure status
          * @description Return infrastructure configuration, live health status, and OIDC provider connectivity.
          */
         get: operations["get_infrastructure_admin_infrastructure__get"];
@@ -370,7 +370,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Admin Jobs
+         * List all ingest jobs
          * @description List all ingestion jobs with optional status/user/search/sort filters (admin only).
          *
          *     `sort` and `order` are closed enums, so an unrecognised value is refused
@@ -393,7 +393,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Share Tokens Endpoint
+         * List share tokens
          * @description List basic share-token inventory with map info; no quotas or domain controls (admin only).
          *
          *     `sort` and `order` are closed enums, so an unrecognised value is refused
@@ -419,7 +419,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Admin Revoke Share Token
+         * Revoke a share token
          * @description Revoke a basic share token and cascade to its embed tokens; no quota controls (admin only).
          */
         delete: operations["admin_revoke_share_token_admin_share_tokens__token_id__delete"];
@@ -436,7 +436,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Catalog Stats
+         * Get catalog statistics
          * @description Return catalog statistics: counts, storage, breakdowns (admin only).
          */
         get: operations["get_catalog_stats_admin_stats__get"];
@@ -456,7 +456,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Users
+         * List users
          * @description List users with optional status, role, search, and sort filters (admin only).
          *
          *     `sort` and `order` are closed enums, so an unrecognised value is refused
@@ -465,7 +465,7 @@ export interface paths {
         get: operations["list_users_admin_users__get"];
         put?: never;
         /**
-         * Create User
+         * Create a user
          * @description Create a new user with the specified role (admin only).
          */
         post: operations["create_user_admin_users__post"];
@@ -507,7 +507,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List User Names
+         * List usernames
          * @description Return lightweight id+username list for filter dropdowns.
          *
          *     Paginated to bound response size on deployments with many users. Default
@@ -532,21 +532,21 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get User
+         * Get a user
          * @description Get a specific user by ID (admin only).
          */
         get: operations["get_user_admin_users__user_id__get"];
         put?: never;
         post?: never;
         /**
-         * Delete User
+         * Delete a user
          * @description Hard-delete a user (admin only). Returns 400 for self-deletion or last-admin.
          */
         delete: operations["delete_user_admin_users__user_id__delete"];
         options?: never;
         head?: never;
         /**
-         * Update User
+         * Update a user
          * @description Update a user's fields and/or role (admin only).
          */
         patch: operations["update_user_admin_users__user_id__patch"];
@@ -562,7 +562,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Approve User
+         * Approve a pending user
          * @description Approve a pending user with the specified role (admin only).
          */
         post: operations["approve_user_admin_users__user_id__approve__post"];
@@ -582,7 +582,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Deactivate User
+         * Deactivate a user
          * @description Deactivate a user (admin only).
          */
         post: operations["deactivate_user_admin_users__user_id__deactivate__post"];
@@ -602,7 +602,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reject User
+         * Reject a pending user
          * @description Reject a pending user by hard-deleting them (admin only).
          */
         post: operations["reject_user_admin_users__user_id__reject__post"];
@@ -622,7 +622,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reset User Password
+         * Reset a user's password
          * @description Set a user's password (admin only).
          *
          *     The ``manage_users`` permission authorizes this recovery path, so no current
@@ -651,7 +651,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Ai Availability Endpoint
+         * Check whether AI chat is available
          * @description Report whether builder AI chat is usable.
          *
          *     Requires ``use_ai_chat``. Returns ``available=false`` when provider keys
@@ -676,7 +676,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Chat Endpoint
+         * Edit a map with AI chat
          * @description Chat-based map editing: send a message and get back edit actions.
          */
         post: operations["chat_endpoint_ai_chat__post"];
@@ -696,7 +696,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Dataset Chat Stream Endpoint
+         * Ask AI about a dataset
          * @description Dataset-scoped AI chat: ask questions about a single dataset's data.
          *
          *     Read-only by construction — ``can_edit=False`` selects the query_data-only
@@ -722,7 +722,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Chat Stream Endpoint
+         * Edit a map with AI chat as a stream
          * @description Chat-based map editing with server-sent event streaming.
          */
         post: operations["chat_stream_endpoint_ai_chat_stream__post"];
@@ -742,7 +742,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Generate Map Endpoint
+         * Generate a map from a prompt
          * @description Generate a map from a natural language prompt using an LLM.
          */
         post: operations["generate_map_endpoint_ai_generate_map__post"];
@@ -762,7 +762,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Generate Map Stream Endpoint
+         * Generate a map from a prompt as a stream
          * @description Generate a map from a natural language prompt with streaming progress events.
          */
         post: operations["generate_map_stream_endpoint_ai_generate_map_stream__post"];
@@ -782,7 +782,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Generate Metadata Keywords
+         * Suggest dataset keywords with AI
          * @description Generate AI-suggested keywords for a dataset.
          */
         post: operations["generate_metadata_keywords_ai_metadata_keywords__post"];
@@ -802,7 +802,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Generate Metadata Lineage
+         * Draft dataset lineage with AI
          * @description Generate an AI-drafted lineage summary for a dataset.
          */
         post: operations["generate_metadata_lineage_ai_metadata_lineage__post"];
@@ -822,7 +822,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Generate Metadata Quality Statement
+         * Draft a dataset quality statement with AI
          * @description Generate an AI-drafted quality statement for a dataset.
          */
         post: operations["generate_metadata_quality_statement_ai_metadata_quality_statement__post"];
@@ -842,7 +842,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Generate Metadata Summary
+         * Draft a dataset summary with AI
          * @description Generate an AI-drafted summary for a dataset.
          */
         post: operations["generate_metadata_summary_ai_metadata_summary__post"];
@@ -860,7 +860,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Column Ddl Feed
+         * List a dataset's column change history
          * @description Return the column-DDL audit history for a dataset.
          *
          *     Surfaces the column-DDL events to dataset owners so they can detect
@@ -891,13 +891,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List My Api Keys
+         * List your API keys
          * @description List the current user's API keys.
          */
         get: operations["list_my_api_keys_auth_api_keys__get"];
         put?: never;
         /**
-         * Create My Api Key
+         * Create an API key
          * @description Create an API key for the current user.
          *
          *     The raw key is returned only in this response and cannot be retrieved again.
@@ -921,7 +921,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Revoke My Api Key
+         * Revoke an API key
          * @description Revoke (soft-delete) one of the current user's API keys.
          */
         delete: operations["revoke_my_api_key_auth_api_keys__key_id__delete"];
@@ -940,7 +940,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Change Password
+         * Change your password
          * @description Change the current user's password (requires current password).
          */
         post: operations["change_password_auth_change_password__post"];
@@ -958,7 +958,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Config
+         * Get the public sign-in configuration
          * @description Return public auth configuration (no authentication required).
          */
         get: operations["config_auth_config__get"];
@@ -980,7 +980,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Create Download Token Endpoint
+         * Create a download token for a dataset
          * @description Mint a short-lived download-scoped JWT for a single dataset.
          *
          *     The COG download URL path requires a
@@ -1008,7 +1008,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Login
+         * Sign in with a username and password
          * @description Authenticate with username and password, receive a JWT token.
          *
          *     GH-1302: a caller sending ``X-GeoLens-Auth-Mode: cookie`` receives the
@@ -1033,7 +1033,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Logout
+         * Sign out everywhere
          * @description Revoke all refresh tokens and bump token_version for the current user.
          *
          *     Logout invalidates the access JWT used for this call and all other active
@@ -1062,7 +1062,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Logout Current Session
+         * Sign out of the current session
          * @description Revoke only the presented session's refresh-token family.
          *
          *     Other devices and API keys survive. Access JWTs remain usable until their
@@ -1090,7 +1090,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Me
+         * Get the signed-in user
          * @description Return the currently authenticated user's profile and roles.
          */
         get: operations["me_auth_me__get"];
@@ -1110,7 +1110,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Me Permissions
+         * Get the signed-in user's permissions
          * @description Return the effective permissions for the currently authenticated user.
          */
         get: operations["me_permissions_auth_me_permissions__get"];
@@ -1130,7 +1130,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Me Usage
+         * Get the signed-in user's quota usage
          * @description Return the authenticated user's own storage and dataset quota usage.
          */
         get: operations["me_usage_auth_me_usage__get"];
@@ -1152,7 +1152,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Exchange Sign In Code
+         * Exchange a sign-in code for a session
          * @description Exchange a single sign-on code for a browser session.
          *
          *     When the SPA shares the API's origin, an OAuth or SAML callback redirects
@@ -1180,7 +1180,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Public Providers
+         * List sign-in providers
          * @description Return the list of enabled OAuth providers for the login page.
          */
         get: operations["list_public_providers_auth_oauth_providers__get"];
@@ -1200,7 +1200,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Oauth Callback
+         * Finish OAuth sign-in
          * @description Handle IdP callback: exchange code, find/create user, redirect to frontend.
          *
          *     The frontend redirect carries a one-time sign-in code, or on a
@@ -1226,7 +1226,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Oauth Login
+         * Start OAuth sign-in
          * @description Redirect user to the IdP authorization URL with PKCE parameters.
          *
          *     The redirect_uri is handed to the IdP, where an
@@ -1254,7 +1254,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Refresh
+         * Refresh the access token
          * @description Exchange a valid refresh token for a new access + refresh token pair.
          *
          *     Multi-tenant clients must call this endpoint on their tenant host. Refresh
@@ -1287,7 +1287,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Register
+         * Register an account
          * @description Create a password account.
          *
          *     Needs both self-registration and password login enabled; otherwise 403.
@@ -1317,7 +1317,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Resend Verification
+         * Resend the verification email
          * @description Re-issue and re-send a verification email.
          *
          *     Sends nothing unless self-registration is on and requires email
@@ -1344,7 +1344,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Verify Email
+         * Verify an email address
          * @description Redeem a verification token, confirming the address.
          *
          *     A valid single-use expiring token sets email_verified=True. While
@@ -1371,7 +1371,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Capabilities
+         * Get server capabilities
          * @description Describe what this server offers, for a client's first call.
          *
          *     Anonymous callers get the server, sign-in, basemap, workflow and rate-limit
@@ -1394,13 +1394,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Collections Endpoint
+         * List collections
          * @description List all collections with dataset_count and extent computed per-user.
          */
         get: operations["list_collections_endpoint_catalog_collections__get"];
         put?: never;
         /**
-         * Create Collection Endpoint
+         * Create a collection
          * @description Create a new collection.
          */
         post: operations["create_collection_endpoint_catalog_collections__post"];
@@ -1418,21 +1418,21 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Collection Endpoint
+         * Get a collection
          * @description Get a single collection with dataset_count and extent.
          */
         get: operations["get_collection_endpoint_catalog_collections__collection_id__get"];
         put?: never;
         post?: never;
         /**
-         * Delete Collection Endpoint
+         * Delete a collection
          * @description Delete a collection. Owner or admin only.
          */
         delete: operations["delete_collection_endpoint_catalog_collections__collection_id__delete"];
         options?: never;
         head?: never;
         /**
-         * Update Collection Endpoint
+         * Update a collection
          * @description Update a collection's name and/or description. Owner or admin only.
          */
         patch: operations["update_collection_endpoint_catalog_collections__collection_id__patch"];
@@ -1446,13 +1446,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Collection Datasets Endpoint
+         * List a collection's datasets
          * @description Get datasets in a collection with RBAC filtering.
          */
         get: operations["get_collection_datasets_endpoint_catalog_collections__collection_id__datasets__get"];
         put?: never;
         /**
-         * Add Datasets Endpoint
+         * Add datasets to a collection
          * @description Add datasets to a collection. Collection owner or admin only.
          */
         post: operations["add_datasets_endpoint_catalog_collections__collection_id__datasets__post"];
@@ -1473,7 +1473,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Remove Dataset Endpoint
+         * Remove a dataset from a collection
          * @description Remove a dataset from a collection. Collection owner or admin only.
          */
         delete: operations["remove_dataset_endpoint_catalog_collections__collection_id__datasets__dataset_id__delete"];
@@ -1490,7 +1490,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Collections
+         * List OGC collections
          * @description List available OGC collections (catalog + per-dataset feature collections).
          */
         get: operations["list_collections_collections_get"];
@@ -1510,7 +1510,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Collection Metadata
+         * Get the datasets collection
          * @description Get metadata for the datasets collection.
          */
         get: operations["get_collection_metadata_collections_datasets_get"];
@@ -1530,7 +1530,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Collection Items
+         * List catalog records
          * @description OGC API Records items endpoint -- mirrors /search/datasets.
          */
         get: operations["collection_items_collections_datasets_items_get"];
@@ -1550,7 +1550,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Collection Item
+         * Get a catalog record
          * @description Get a single dataset as an OGC Record Feature.
          */
         get: operations["get_collection_item_collections_datasets_items__record_id__get"];
@@ -1570,7 +1570,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Queryables
+         * Get the datasets collection queryables
          * @description Queryable properties for the datasets collection (OGC API Features Part 3).
          */
         get: operations["get_queryables_collections_datasets_queryables_get"];
@@ -1590,7 +1590,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Record Schema
+         * Get the catalog record schema
          * @description JSON Schema describing a catalog record (OGC API Common Part 3).
          */
         get: operations["get_record_schema_collections_datasets_schema_get"];
@@ -1610,7 +1610,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Sortables
+         * Get the datasets collection sortables
          * @description Sortable properties for the datasets collection (OGC API Records).
          */
         get: operations["get_sortables_collections_datasets_sortables_get"];
@@ -1630,7 +1630,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Dataset Collection
+         * Get a dataset's OGC feature collection
          * @description Per-dataset OGC collection metadata with extent, CRS, and items link.
          */
         get: operations["get_dataset_collection_collections__dataset_id__get"];
@@ -1650,7 +1650,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Collection Items
+         * List OGC features
          * @description OGC API Features items endpoint -- returns GeoJSON FeatureCollection for a dataset.
          *
          *     Note: ``datetime`` is accepted per OGC API Features Core but acts as a
@@ -1676,7 +1676,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Collection Item Feature
+         * Get an OGC feature
          * @description OGC API Features single feature endpoint -- returns a GeoJSON Feature.
          */
         get: operations["get_collection_item_feature_collections__dataset_id__items__feature_id__get"];
@@ -1696,7 +1696,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Collection Queryables
+         * Get a feature collection's queryables
          * @description Queryable properties for one feature collection (OGC Features Part 3).
          *
          *     Derived from the live table schema rather than the stored column_info
@@ -1723,7 +1723,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Dry Run Configuration
+         * Preview a configuration import
          * @description Preview what an import would change without applying any modifications.
          */
         post: operations["dry_run_configuration_config_ops_dry_run__post"];
@@ -1741,7 +1741,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Export Configuration
+         * Export the configuration
          * @description Export full configuration as JSON (settings + OAuth providers, secrets redacted).
          *
          *     Returns a downloadable JSON payload with Content-Disposition header. This is a
@@ -1769,7 +1769,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Import Configuration
+         * Import a configuration
          * @description Import configuration in merge or overwrite mode.
          *
          *     Merge mode: updates existing settings and OAuth providers, adds new ones.
@@ -1792,7 +1792,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Validate Configuration
+         * Validate the configuration
          * @description Validate storage, cache, credential handoff, and enabled OIDC providers.
          *
          *     Returns pass/fail with latency and error details for each service.
@@ -1812,7 +1812,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Conformance
+         * Get the OGC conformance declaration
          * @description OGC conformance declaration -- lists supported specification classes.
          */
         get: operations["conformance_conformance_get"];
@@ -1832,7 +1832,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List All Datasets
+         * List datasets
          * @description List datasets with visibility filtering and pagination.
          */
         get: operations["list_all_datasets_datasets__get"];
@@ -1854,7 +1854,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Bulk Delete Datasets Endpoint
+         * Delete several datasets
          * @description Delete multiple datasets in one request. Returns per-item results.
          */
         post: operations["bulk_delete_datasets_endpoint_datasets_bulk_delete__post"];
@@ -1874,7 +1874,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Create Empty Dataset Endpoint
+         * Create an empty dataset
          * @description Create an empty dataset with user-defined columns.
          *
          *     Creates a PostGIS table in the data schema and a catalog record.
@@ -1894,7 +1894,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Dcat Us3 Catalog
+         * Get the DCAT-US 3 catalog
          * @description DCAT-US Schema v3.0 catalog feed. Respects dataset visibility.
          */
         get: operations["get_dcat_us3_catalog_datasets_dcat_us_3_0__get"];
@@ -1914,7 +1914,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Validate Dcat Us3 Catalog
+         * Validate the DCAT-US 3 catalog
          * @description Validate the visible DCAT-US Schema v3.0 catalog feed.
          */
         get: operations["validate_dcat_us3_catalog_datasets_dcat_us_3_0_validation__get"];
@@ -1934,7 +1934,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Dcat Catalog
+         * Get the DCAT 3 catalog
          * @description DCAT 3 JSON-LD catalog feed. Respects dataset visibility.
          */
         get: operations["get_dcat_catalog_datasets_dcat__get"];
@@ -1954,7 +1954,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Validate Dcat3 Catalog
+         * Validate the DCAT 3 catalog
          * @description Validate the visible W3C DCAT 3 catalog feed.
          */
         get: operations["validate_dcat3_catalog_datasets_dcat_validation__get"];
@@ -1974,7 +1974,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Geodcat Ap Catalog
+         * Get the GeoDCAT-AP catalog
          * @description GeoDCAT-AP 2.0.0 catalog feed. Respects dataset visibility.
          */
         get: operations["get_geodcat_ap_catalog_datasets_geodcat_ap__get"];
@@ -1994,7 +1994,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Validate Geodcat Ap Catalog
+         * Validate the GeoDCAT-AP catalog
          * @description Validate the visible GeoDCAT-AP 2.0.0 catalog feed.
          */
         get: operations["validate_geodcat_ap_catalog_datasets_geodcat_ap_validation__get"];
@@ -2017,7 +2017,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete Dataset Relationship
+         * Delete a dataset relationship
          * @description Delete a FK relationship. Editor+ required.
          */
         delete: operations["delete_dataset_relationship_datasets_relationships__relationship_id___delete"];
@@ -2034,21 +2034,21 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Single Dataset
+         * Get a dataset
          * @description Get a single dataset by ID with visibility check.
          */
         get: operations["get_single_dataset_datasets__dataset_id__get"];
         put?: never;
         post?: never;
         /**
-         * Delete Dataset Endpoint
+         * Delete a dataset
          * @description Delete a dataset with cascade cleanup. Owner or admin only, requires confirm_title.
          */
         delete: operations["delete_dataset_endpoint_datasets__dataset_id__delete"];
         options?: never;
         head?: never;
         /**
-         * Update Dataset Metadata
+         * Update dataset metadata
          * @description Update user-editable dataset metadata.
          */
         patch: operations["update_dataset_metadata_datasets__dataset_id__patch"];
@@ -2064,7 +2064,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Aggregate Endpoint
+         * Compute a dataset aggregate
          * @description Compute one exact aggregate over a dataset's rows, for a widget.
          *
          *     Anonymous callers can read public, published datasets; ``X-Embed-Token``
@@ -2105,7 +2105,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Analysis Materialize Endpoint
+         * Save a spatial analysis as a dataset
          * @description Materialize an analysis result as a new private dataset (async job).
          *
          *     Requires the ``upload`` and ``export`` permissions (this endpoint
@@ -2132,7 +2132,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Analysis Preview Endpoint
+         * Preview a spatial analysis
          * @description Run a parameterized PostGIS operation and return a GeoJSON preview.
          *
          *     Synchronous, read-only, and capped: results are for on-map preview, not
@@ -2153,7 +2153,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Dataset Api Keys
+         * List a dataset's API keys
          * @description List the active keys bound to this dataset, newest first.
          *
          *     Requires write access to the dataset. The dataset's owner and admins see
@@ -2163,7 +2163,7 @@ export interface paths {
         get: operations["list_dataset_api_keys_datasets__dataset_id__api_keys_get"];
         put?: never;
         /**
-         * Create Dataset Api Key
+         * Create a dataset API key
          * @description Create a key that reaches only this dataset's features.
          *
          *     A ``dataset_write`` key, the default, authenticates the dataset's feature
@@ -2198,7 +2198,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Revoke Dataset Api Key
+         * Revoke a dataset API key
          * @description Revoke a key bound to this dataset.
          *
          *     The key's creator may revoke it while they can see the dataset, even
@@ -2220,7 +2220,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Attributes Endpoint
+         * List a dataset's attributes
          * @description List all attribute metadata for a dataset.
          */
         get: operations["list_attributes_endpoint_datasets__dataset_id__attributes__get"];
@@ -2240,7 +2240,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Attribute Endpoint
+         * Get an attribute
          * @description Get a single attribute metadata entry.
          */
         get: operations["get_attribute_endpoint_datasets__dataset_id__attributes__attribute_id___get"];
@@ -2250,7 +2250,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Update Attribute Endpoint
+         * Update an attribute
          * @description Update user-editable attribute metadata fields.
          */
         patch: operations["update_attribute_endpoint_datasets__dataset_id__attributes__attribute_id___patch"];
@@ -2266,7 +2266,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reset Attribute Endpoint
+         * Reset an attribute to its detected values
          * @description Reset attribute metadata to auto-populated values, clearing user_modified_fields.
          */
         post: operations["reset_attribute_endpoint_datasets__dataset_id__attributes__attribute_id__reset__post"];
@@ -2284,7 +2284,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Column Stats Endpoint
+         * Get a numeric column's statistics
          * @description Get statistics for a numeric dataset column (for graduated styling).
          */
         get: operations["get_column_stats_endpoint_datasets__dataset_id__columns__column_name__stats__get"];
@@ -2304,7 +2304,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Column Values
+         * List a column's distinct values
          * @description Get distinct values for a dataset column (for categorical styling).
          */
         get: operations["get_column_values_datasets__dataset_id__columns__column_name__values__get"];
@@ -2324,7 +2324,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Pointcloud File
+         * Get a COPC point cloud file
          * @description Serve a published COPC point cloud's file, whole or by HTTP byte range.
          *
          *     Point a client at the dataset's ``pointcloud.url``. The path names the
@@ -2363,7 +2363,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Dcat Us3 Record
+         * Get a DCAT-US 3 record
          * @description DCAT-US Schema v3.0 JSON-LD for a single dataset.
          */
         get: operations["get_dcat_us3_record_datasets__dataset_id__dcat_us_3_0__get"];
@@ -2383,7 +2383,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Validate Dcat Us3 Record
+         * Validate a dataset as DCAT-US 3
          * @description Validate a single dataset as DCAT-US Schema v3.0.
          */
         get: operations["validate_dcat_us3_record_datasets__dataset_id__dcat_us_3_0_validation__get"];
@@ -2403,7 +2403,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Dcat Record
+         * Get a DCAT 3 record
          * @description DCAT 3 JSON-LD for a single dataset.
          */
         get: operations["get_dcat_record_datasets__dataset_id__dcat__get"];
@@ -2423,7 +2423,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Validate Dcat3 Record
+         * Validate a dataset as DCAT 3
          * @description Validate a single dataset as W3C DCAT 3.
          */
         get: operations["validate_dcat3_record_datasets__dataset_id__dcat_validation__get"];
@@ -2443,7 +2443,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Download Cog
+         * Download a raster as a Cloud-Optimized GeoTIFF
          * @description Download the Cloud-Optimized GeoTIFF for a raster dataset.
          *
          *     On S3 storage with presigned downloads enabled, answers 302 to a
@@ -2477,7 +2477,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Export Dataset Endpoint
+         * Export a dataset
          * @description Export a dataset as a downloadable file.
          *
          *     Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet,
@@ -2502,7 +2502,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Features Geojson Z Endpoint
+         * Get features as GeoJSON with Z coordinates
          * @description Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
          *
          *     ``X-Embed-Token`` authorizes private datasets in the token's scope through
@@ -2534,7 +2534,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Features
+         * List features
          * @description Get paginated GeoJSON features for a dataset.
          *
          *     Offset pagination can skip or duplicate rows during concurrent writes,
@@ -2546,7 +2546,7 @@ export interface paths {
         get: operations["list_features_datasets__dataset_id__features__get"];
         put?: never;
         /**
-         * Create Feature
+         * Create a feature
          * @description Insert a new GeoJSON feature into a dataset.
          *
          *     Send the same `Idempotency-Key` on every attempt to create one feature, and
@@ -2602,7 +2602,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Delete Features Batch
+         * Delete several features
          * @description Delete up to 1,000 features by gid in one transaction (hard delete).
          *
          *     Either every listed feature is deleted or none is. If any gid does not
@@ -2628,7 +2628,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Dry Run Create Feature
+         * Check a feature create without saving
          * @description Check a feature create without writing it.
          *
          *     Takes the body `POST /datasets/{dataset_id}/features/` takes and runs
@@ -2662,7 +2662,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Single Feature
+         * Get a feature
          * @description Get a single GeoJSON feature by gid.
          *
          *     `table_id` identifies the data table the feature was read from. Send it
@@ -2671,13 +2671,13 @@ export interface paths {
          */
         get: operations["get_single_feature_datasets__dataset_id__features__gid__get"];
         /**
-         * Replace Single Feature
+         * Replace a feature
          * @description Full replacement of a feature (PUT semantics).
          */
         put: operations["replace_single_feature_datasets__dataset_id__features__gid__put"];
         post?: never;
         /**
-         * Delete Single Feature
+         * Delete a feature
          * @description Delete a feature by gid (hard delete).
          *
          *     The X-GeoLens-Tile-Cache-Version response header carries the dataset's
@@ -2689,7 +2689,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Patch Single Feature
+         * Update a feature
          * @description Partial update of a feature (PATCH semantics).
          */
         patch: operations["patch_single_feature_datasets__dataset_id__features__gid__patch"];
@@ -2703,7 +2703,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Feature Related Records
+         * List a feature's related records
          * @description Get related records for a feature via FK relationship.
          */
         get: operations["get_feature_related_records_datasets__dataset_id__features__gid__related__relationship_id___get"];
@@ -2723,7 +2723,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Geodcat Ap Record
+         * Get a GeoDCAT-AP record
          * @description GeoDCAT-AP 2.0.0 JSON-LD for a single dataset.
          */
         get: operations["get_geodcat_ap_record_datasets__dataset_id__geodcat_ap__get"];
@@ -2743,7 +2743,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Validate Geodcat Ap Record
+         * Validate a dataset as GeoDCAT-AP
          * @description Validate a single dataset as GeoDCAT-AP 2.0.0.
          */
         get: operations["validate_geodcat_ap_record_datasets__dataset_id__geodcat_ap_validation__get"];
@@ -2764,7 +2764,7 @@ export interface paths {
         };
         get?: never;
         /**
-         * Set Dataset Groups Endpoint
+         * Set the sharing groups for a dataset
          * @description Share a dataset with exactly these sharing groups (owner or admin).
          *
          *     An owner may add only groups they belong to (403); an admin may add any.
@@ -2790,7 +2790,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Dataset History
+         * List a dataset's audit history
          * @description Get audit log history for a specific dataset.
          */
         get: operations["get_dataset_history_datasets__dataset_id__history_get"];
@@ -2810,7 +2810,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Dataset Maps
+         * List maps that use a dataset
          * @description Return maps that contain this dataset, filtered by caller's RBAC visibility.
          */
         get: operations["dataset_maps_datasets__dataset_id__maps__get"];
@@ -2833,7 +2833,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete Previous Version
+         * Delete the previous version
          * @deprecated
          * @description Delete the dataset's newest kept version, so it can no longer be restored.
          *
@@ -2857,7 +2857,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Restore Previous Version
+         * Restore the previous version
          * @deprecated
          * @description Publish the dataset's newest kept version as its live data again.
          *
@@ -2883,7 +2883,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete Kept Version
+         * Delete a kept version
          * @description Delete one of the dataset's kept previous versions, so it can no longer be restored.
          *
          *     Refuses with 404 ``no_previous_version`` when the dataset does not keep
@@ -2907,7 +2907,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Restore Kept Version
+         * Restore a kept version
          * @description Publish one of the dataset's kept previous versions as its live data again.
          *
          *     The dataset detail lists the kept versions in ``previous_versions``. The
@@ -2937,7 +2937,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Quicklook
+         * Get a dataset quicklook image
          * @description Serve a quicklook PNG image for a dataset.
          */
         get: operations["get_quicklook_datasets__dataset_id__quicklook_get"];
@@ -2959,7 +2959,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Refresh Dataset
+         * Refresh a dataset from its source
          * @description Re-pull this dataset's data from the origin it was imported from.
          *
          *     One request, no source pointer, no layer selection. The dataset keeps
@@ -3010,7 +3010,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Dataset Refresh Runs
+         * List a dataset's refresh runs
          * @description Return durable refresh history for a dataset.
          *
          *     Readers can see the timeline and outcomes. Only the dataset owner and
@@ -3034,7 +3034,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Related Datasets
+         * List related datasets
          * @description Return top-5 datasets similar to this one by embedding cosine similarity.
          */
         get: operations["list_related_datasets_datasets__dataset_id__related__get"];
@@ -3054,7 +3054,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Dataset Relationships
+         * List a dataset's relationships
          * @description List FK relationships for a dataset.
          *
          *     Paginated via ``skip`` and ``limit`` to bound response size for datasets
@@ -3066,7 +3066,7 @@ export interface paths {
         get: operations["list_dataset_relationships_datasets__dataset_id__relationships__get"];
         put?: never;
         /**
-         * Create Dataset Relationship
+         * Create a dataset relationship
          * @description Create a new FK relationship. Editor+ required.
          */
         post: operations["create_dataset_relationship_datasets__dataset_id__relationships__post"];
@@ -3085,7 +3085,7 @@ export interface paths {
         };
         get?: never;
         /**
-         * Set Dataset Retention
+         * Set a dataset's row retention
          * @description Set or clear how many days of rows a feature dataset keeps.
          *
          *     Hourly worker runs delete rows whose retention column is older than the
@@ -3113,7 +3113,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reupload Dataset
+         * Stage a file to replace a dataset's data
          * @description Upload a new file to replace the data in an existing dataset.
          */
         post: operations["reupload_dataset_datasets__dataset_id__reupload_post"];
@@ -3133,7 +3133,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Request Presigned Reupload
+         * Request a presigned re-upload
          * @description Request presigned URL(s) for direct-to-S3 reupload.
          */
         post: operations["request_presigned_reupload_datasets__dataset_id__reupload_presigned_post"];
@@ -3153,7 +3153,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Complete Presigned Reupload
+         * Complete a presigned re-upload
          * @description Notify that direct-to-S3 reupload is complete.
          */
         post: operations["complete_presigned_reupload_datasets__dataset_id__reupload_presigned__job_id__complete_post"];
@@ -3173,7 +3173,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reupload Service Preview
+         * Preview a service layer for re-upload
          * @description Preview a remote service layer for dataset re-upload.
          */
         post: operations["reupload_service_preview_datasets__dataset_id__reupload_service_preview_post"];
@@ -3193,7 +3193,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reupload Commit
+         * Commit a re-upload
          * @description Commit a re-upload, queuing the background swap task.
          */
         post: operations["reupload_commit_datasets__dataset_id__reupload__job_id__commit_post"];
@@ -3213,7 +3213,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reupload Preview
+         * Preview a re-upload
          * @description Preview the schema diff between old dataset and new upload.
          *
          *     When the uploaded file contains multiple layers, the response includes
@@ -3237,7 +3237,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Dataset Rows Endpoint
+         * List dataset rows
          * @description Get keyset-paginated rows from a dataset's data table.
          *
          *     Uses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to
@@ -3279,7 +3279,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Check Source Health
+         * Check a dataset's source
          * @description Contact this dataset's origin and record what came back.
          *
          *     Owner-or-admin: this makes GeoLens issue an outbound request on the
@@ -3307,7 +3307,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Update Publication Status
+         * Change a dataset's publication status
          * @description Transition a dataset's publication status following allowed paths.
          *
          *     The allowed set comes from the workflow extension's
@@ -3331,7 +3331,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Set Target Status
+         * Move a dataset to a target publication status
          * @description Walk the publication chain from current status to target in one request.
          *
          *     Executes each intermediate transition so the full chain completes
@@ -3350,7 +3350,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Tileset File
+         * Get a 3D Tiles file
          * @description Serve one file of a published 3D Tiles tileset.
          *
          *     Point a client at the dataset's ``tileset.url``, this route's
@@ -3386,7 +3386,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Validate Dataset
+         * Get a dataset's validation status
          * @description Get validation status for a dataset. Shows hard errors and soft warnings.
          *
          *     By default returns the quality score persisted at ingest time. Pass
@@ -3411,7 +3411,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Dataset Versions Endpoint
+         * List a dataset's versions
          * @description Get paginated version history for a dataset.
          *
          *     A caller who is neither the owner nor an administrator gets the version
@@ -3436,7 +3436,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Vrt Sources
+         * List a VRT dataset's sources
          * @description Return ordered list of COG sources for a VRT dataset.
          */
         get: operations["list_vrt_sources_datasets__dataset_id__vrt_sources__get"];
@@ -3456,7 +3456,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Vrt Generations
+         * List a VRT dataset's generations
          * @description Return paginated generation history for a VRT dataset.
          *
          *     Not every caller gets every field. Seeing the dataset decides whether there
@@ -3483,7 +3483,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Regenerate Vrt Endpoint
+         * Regenerate a VRT dataset
          * @description Trigger manual VRT regeneration with advisory lock to prevent concurrent rebuilds.
          */
         post: operations["regenerate_vrt_endpoint_datasets__dataset_id__vrt_regenerate__post"];
@@ -3501,7 +3501,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Vrt Status
+         * Get a VRT dataset's status
          * @description Return VRT dataset status, last generation time, source count, and per-source health.
          */
         get: operations["get_vrt_status_datasets__dataset_id__vrt_status__get"];
@@ -3521,7 +3521,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List My Groups
+         * List the sharing groups you can share with
          * @description List the sharing groups the caller may share with, by name.
          *
          *     That is the groups the caller belongs to, or every group for an admin.
@@ -3543,7 +3543,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Health
+         * Check service health
          * @description Health check endpoint for ALB, Docker, and Nginx.
          */
         get: operations["health_health_get"];
@@ -3565,7 +3565,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Commit Fan Out
+         * Commit a staged file as one import per layer
          * @description Convert a single pending IngestJob into N independent per-layer ingest tasks.
          *
          *     For multi-layer sources (e.g. GeoPackage with 2+ layers), this endpoint
@@ -3600,7 +3600,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Commit Import
+         * Commit a staged file for import
          * @description Commit a staged file for ingestion with user-supplied metadata.
          *
          *     Stores user metadata on the job and queues the ingest task.
@@ -3623,7 +3623,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Discover Tables
+         * Discover unregistered PostGIS tables
          * @description Discover unregistered tables in the data schema.
          *
          *     Returns tables not yet in the catalog, excluding staging, old, and
@@ -3651,7 +3651,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Apply Manifest Endpoint
+         * Apply an ingest manifest
          * @description Apply a versioned manifest through the ingest service layer.
          */
         post: operations["apply_manifest_endpoint_ingest_manifest_apply_post"];
@@ -3671,7 +3671,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Preview File
+         * Preview a staged file
          * @description Run preview on a staged file and return preview data.
          *
          *     For vector files: returns columns, CRS, geometry type, feature count, sample rows.
@@ -3700,7 +3700,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Register Table
+         * Register a PostGIS table
          * @description Register an existing PostGIS table as a dataset.
          *
          *     Verifies the table exists, extracts metadata, and creates a
@@ -3723,7 +3723,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Bulk Register Tables
+         * Register several PostGIS tables
          * @description Bulk-register multiple existing PostGIS tables as datasets.
          *
          *     Administrators only. Each table is registered independently -- one
@@ -3748,7 +3748,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Upload File
+         * Upload a file for staging
          * @description Upload a geospatial file for staging.
          *
          *     Validates the file extension, creates an ingest job, and saves the file
@@ -3769,7 +3769,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Upload Config
+         * Get the upload configuration
          * @description Return upload configuration including presigned upload availability.
          */
         get: operations["get_upload_config_ingest_upload_config_get"];
@@ -3791,7 +3791,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Request Presigned Upload
+         * Request a presigned upload
          * @description Request presigned URL(s) for direct-to-S3 file upload.
          */
         post: operations["request_presigned_upload_ingest_upload_presigned_post"];
@@ -3811,7 +3811,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Complete Presigned Upload
+         * Complete a presigned upload
          * @description Notify that direct-to-S3 upload is complete.
          */
         post: operations["complete_presigned_upload_ingest_upload_presigned__job_id__complete_post"];
@@ -3831,7 +3831,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Upload From Url
+         * Import a file from a URL
          * @description Start importing a geospatial file from an HTTP(S) URL.
          *
          *     The server fetches the file and sends the staged bytes through the same
@@ -3866,7 +3866,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Create Vrt
+         * Create a VRT dataset
          * @description Create a VRT dataset by combining existing raster datasets.
          *
          *     Validates sources synchronously, then defers VRT assembly to an async task.
@@ -3890,7 +3890,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Add Vrt Source
+         * Add a source to a VRT dataset
          * @description Add a COG source to an existing VRT and trigger async regeneration.
          *
          *     Validates the new source against existing sources synchronously.
@@ -3916,7 +3916,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Remove Vrt Source
+         * Remove a source from a VRT dataset
          * @description Remove a COG source from an existing VRT and trigger async regeneration.
          *
          *     Returns 202 Accepted with a job_id for polling.
@@ -3938,7 +3938,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Job Status By Dataset
+         * Get a dataset's latest ingest job
          * @description Look up the most recent ingest job for a dataset.
          *
          *     Used by the dataset detail page to surface ingest warnings permanently
@@ -3983,7 +3983,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Cleanup Stale Jobs
+         * Fail stale ingest jobs
          * @description Fail all stale jobs: pending >1h or running >1h.
          *
          *     **Ops-only.** Not used by the GeoLens UI — invoke from `curl`/`gh api`/cron
@@ -4009,7 +4009,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Get Job Statuses
+         * Get the status of several ingest jobs
          * @description Get the status of up to 100 ingestion jobs in one request.
          *
          *     Applies the same access rule as `GET /jobs/{id}`: the job creator, or a
@@ -4032,7 +4032,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Job Status
+         * Get an ingest job's status
          * @description Get the status of an ingestion job.
          *
          *     Only the job creator or an admin can view job status.
@@ -4056,7 +4056,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Cancel Job
+         * Cancel an ingest job
          * @description Cancel a pending or running ingest job.
          *
          *     The database marks the job and any bound refresh run as cancelled before
@@ -4083,7 +4083,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Retry Job
+         * Retry a failed ingest job
          * @description Retry a failed ingestion job by re-queuing.
          *
          *     Only callable on jobs with status 'failed'. The staging file must
@@ -4106,7 +4106,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Create Layer Endpoint
+         * Create an empty layer
          * @description Create a new empty spatial layer.
          *
          *     Creates a PostGIS table with a typed geometry column, runs the full
@@ -4132,7 +4132,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Add Column Endpoint
+         * Add a column
          * @description Add a column to an existing layer.
          */
         post: operations["add_column_endpoint_layers__dataset_id__columns__post"];
@@ -4153,7 +4153,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Drop Column Endpoint
+         * Drop a column
          * @description Remove a column from an existing layer.
          */
         delete: operations["drop_column_endpoint_layers__dataset_id__columns__column_name__delete"];
@@ -4176,7 +4176,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Rename Column Endpoint
+         * Rename a column
          * @description Rename a column on an existing layer.
          */
         patch: operations["rename_column_endpoint_layers__dataset_id__columns__column_name__name_patch"];
@@ -4190,7 +4190,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Column References Endpoint
+         * Count maps that reference a column
          * @description Count saved maps whose layer config references a column.
          *
          *     The schema editor uses this count before a rename or drop. Map titles are
@@ -4219,7 +4219,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Alter Column Type Endpoint
+         * Change a column's type
          * @description Change a column's type on an existing layer.
          *
          *     Postgres performs an implicit ``column::TYPE`` cast; values that cannot be
@@ -4236,7 +4236,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Maps Endpoint
+         * List maps
          * @description List maps. Admins see all; authenticated users see own + internal + public + restricted maps shared with their groups; anonymous see public only.
          *
          *     Supports search (ILIKE on name+description), sort_by (name/created_at/updated_at),
@@ -4246,7 +4246,7 @@ export interface paths {
         get: operations["list_maps_endpoint_maps__get"];
         put?: never;
         /**
-         * Create Map Endpoint
+         * Create a map
          * @description Create a new map.
          */
         post: operations["create_map_endpoint_maps__post"];
@@ -4264,13 +4264,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Map Icons Endpoint
+         * List map icons
          * @description List reusable default and uploaded map icons.
          */
         get: operations["list_map_icons_endpoint_maps_icons_get"];
         put?: never;
         /**
-         * Upload Map Icon Endpoint
+         * Upload a map icon
          * @description Upload a reusable SVG or PNG icon for symbol layers.
          */
         post: operations["upload_map_icon_endpoint_maps_icons_post"];
@@ -4288,7 +4288,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Map Icon Asset Endpoint
+         * Get a map icon image
          * @description Serve an uploaded or bundled icon asset by stable icon ID.
          *
          *     SVG responses carry Content-Security-Policy
@@ -4317,7 +4317,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Import Map Style Endpoint
+         * Import a MapLibre style as a map
          * @description Import a MapLibre style JSON document into a new GeoLens map.
          *
          *     The request body is a typed Pydantic model rather than a bare ``dict``. ``MapStyleImportRequest`` mirrors the MapLibre style
@@ -4343,7 +4343,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Import Arcgis Webmap Endpoint
+         * Import an ArcGIS web map
          * @description Import an ArcGIS web map as a new GeoLens map.
          *
          *     Translates the web map's operational layers, renderers, labels, popups and
@@ -4368,7 +4368,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Shared Map Endpoint
+         * Get a shared map
          * @description Get a shared map by token. Optionally authenticated for non-public layers.
          *
          *     Emits ``Content-Security-Policy: frame-ancestors
@@ -4396,7 +4396,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Geolens Sprite Index Endpoint
+         * Get the GeoLens sprite index
          * @description Serve the stable GeoLens sprite JSON index.
          */
         get: operations["get_geolens_sprite_index_endpoint_maps_sprites_geolens_json_get"];
@@ -4416,7 +4416,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Geolens Sprite Png Endpoint
+         * Get the GeoLens sprite sheet
          * @description Serve the generated GeoLens sprite sheet for stable icon IDs.
          */
         get: operations["get_geolens_sprite_png_endpoint_maps_sprites_geolens_png_get"];
@@ -4436,25 +4436,25 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Map Endpoint
+         * Get a map
          * @description Get a single map with its layers.
          */
         get: operations["get_map_endpoint_maps__map_id__get"];
         /**
-         * Update Map Endpoint
+         * Update a map
          * @description Update a map's metadata and/or replace its layers.
          */
         put: operations["update_map_endpoint_maps__map_id__put"];
         post?: never;
         /**
-         * Delete Map Endpoint
+         * Delete a map
          * @description Delete a map. Only the owner or an admin can delete.
          */
         delete: operations["delete_map_endpoint_maps__map_id__delete"];
         options?: never;
         head?: never;
         /**
-         * Patch Map Endpoint
+         * Transfer a map to another owner
          * @description Transfer a map to another owner. Admin only.
          */
         patch: operations["patch_map_endpoint_maps__map_id__patch"];
@@ -4468,7 +4468,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Map Access Endpoint
+         * Get the caller's access to a map
          * @description Return server-confirmed route access for the map viewer gate.
          */
         get: operations["get_map_access_endpoint_maps__map_id__access__get"];
@@ -4490,7 +4490,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Duplicate Map Endpoint
+         * Duplicate a map
          * @description Fork a map with RBAC-filtered layers. Any authenticated user can fork.
          */
         post: operations["duplicate_map_endpoint_maps__map_id__duplicate__post"];
@@ -4508,13 +4508,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Embed Tokens Endpoint
+         * List a map's embed tokens
          * @description List all embed tokens for a map.
          */
         get: operations["list_embed_tokens_endpoint_maps__map_id__embed_tokens__get"];
         put?: never;
         /**
-         * Create Embed Token Endpoint
+         * Create an embed token
          * @description Create an embed token scoped to a map's current layers.
          *
          *     The default 30-day unrestricted token is always available. Custom lifetimes
@@ -4538,14 +4538,14 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Revoke Embed Token Endpoint
+         * Revoke an embed token
          * @description Revoke an embed token.
          */
         delete: operations["revoke_embed_token_endpoint_maps__map_id__embed_tokens__token_id___delete"];
         options?: never;
         head?: never;
         /**
-         * Update Embed Token Endpoint
+         * Update an embed token
          * @description Update embed token allowed_origins.
          *
          *     Null clears restrictions. Non-empty origin restrictions require advanced sharing controls.
@@ -4562,7 +4562,7 @@ export interface paths {
         };
         get?: never;
         /**
-         * Set Map Groups Endpoint
+         * Set the sharing groups for a map
          * @description Share a map with exactly these sharing groups (owner or admin).
          *
          *     An owner may add only groups they belong to (403); an admin may add any.
@@ -4593,7 +4593,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Map History Endpoint
+         * List a map's edit history
          * @description Return recent builder edit history for a map.
          */
         get: operations["get_map_history_endpoint_maps__map_id__history_get"];
@@ -4615,7 +4615,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Add Layer Endpoint
+         * Add a layer to a map
          * @description Add a layer to a map.
          *
          *     Declared on both slash variants directly so neither emits a 307.
@@ -4632,7 +4632,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Patch Map Layers Endpoint
+         * Change a map's layers
          * @description Apply incremental layer additions, patches, removals, and ordering.
          *
          *     Declared on both slash variants directly, mirroring the POST route
@@ -4657,7 +4657,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Bulk Delete Layers Endpoint
+         * Remove several layers from a map
          * @description Batch-delete multiple layers from a map in a single request.
          *
          *     One additive endpoint that reduces N sequential DELETEs to a single
@@ -4685,7 +4685,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Remove Layer Endpoint
+         * Remove a layer from a map
          * @description Remove a layer from a map.
          */
         delete: operations["remove_layer_endpoint_maps__map_id__layers__layer_id__delete"];
@@ -4702,7 +4702,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Og Image
+         * Get a map social card image
          * @description Serve the OG social-card image from storage (visibility-checked).
          *
          *     Mirrors get_thumbnail but reads ``og_image_uri`` and uses the
@@ -4710,7 +4710,7 @@ export interface paths {
          */
         get: operations["get_og_image_maps__map_id__og_image__get"];
         /**
-         * Upload Og Image
+         * Upload a map social card image
          * @description Upload a base64 OG social-card image (up to 750KB) for a map.
          *
          *     Accepts a data:image/ URI, decodes the base64 payload, validates the
@@ -4740,25 +4740,25 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Map Share Token Endpoint
+         * Get a map's share token
          * @description Return the active share token for a map, or null if none exists.
          */
         get: operations["get_map_share_token_endpoint_maps__map_id__share__get"];
         put?: never;
         /**
-         * Share Map Endpoint
+         * Create a map share token
          * @description Create or retrieve a share token for a public map.
          */
         post: operations["share_map_endpoint_maps__map_id__share__post"];
         /**
-         * Revoke Map Share Endpoint
+         * Revoke a map share token
          * @description Revoke share token(s) for a map. Owner or admin only.
          */
         delete: operations["revoke_map_share_endpoint_maps__map_id__share__delete"];
         options?: never;
         head?: never;
         /**
-         * Update Map Share Token Endpoint
+         * Update a map share token
          * @description Update expiration on an existing share token. Owner or admin only.
          *
          *     A fixed-day preset is always available. Null clears expiration.
@@ -4774,7 +4774,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Map Stories Endpoint
+         * List stories that use a map
          * @description List the stories whose scenes use this map (owner or admin).
          *
          *     Stories you can't read are only counted, in `hidden_count`. Deleting the
@@ -4799,7 +4799,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Export Map Style Endpoint
+         * Export a map as a MapLibre style
          * @description Export a saved map as a complete MapLibre style JSON document.
          */
         get: operations["export_map_style_endpoint_maps__map_id__style_json_get"];
@@ -4819,12 +4819,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Thumbnail
+         * Get a map thumbnail
          * @description Serve map thumbnail image from storage (visibility-checked).
          */
         get: operations["get_thumbnail_maps__map_id__thumbnail__get"];
         /**
-         * Upload Thumbnail
+         * Upload a map thumbnail
          * @description Upload a base64 thumbnail for a map.
          *
          *     Accepts a data:image/ URI, decodes the base64 payload, writes the image
@@ -4846,7 +4846,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Visibility Check Endpoint
+         * Check which layers a map's audience cannot see
          * @description Check which layers a map's audience can't see. Informational only.
          *
          *     Owner-or-admin, since the answer names datasets that read access alone
@@ -4897,13 +4897,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Contacts Endpoint
+         * List a record's contacts
          * @description List all contacts for a record.
          */
         get: operations["list_contacts_endpoint_records__record_id__contacts__get"];
         put?: never;
         /**
-         * Create Contact Endpoint
+         * Add a record contact
          * @description Create a new contact for a record.
          */
         post: operations["create_contact_endpoint_records__record_id__contacts__post"];
@@ -4924,14 +4924,14 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete Contact Endpoint
+         * Delete a record contact
          * @description Delete a contact.
          */
         delete: operations["delete_contact_endpoint_records__record_id__contacts__contact_id___delete"];
         options?: never;
         head?: never;
         /**
-         * Update Contact Endpoint
+         * Update a record contact
          * @description Update a contact.
          */
         patch: operations["update_contact_endpoint_records__record_id__contacts__contact_id___patch"];
@@ -4945,13 +4945,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Distributions Endpoint
+         * List a record's distributions
          * @description List all distributions for a record.
          */
         get: operations["list_distributions_endpoint_records__record_id__distributions__get"];
         put?: never;
         /**
-         * Create Distribution Endpoint
+         * Add a record distribution
          * @description Create a manual distribution for a record.
          */
         post: operations["create_distribution_endpoint_records__record_id__distributions__post"];
@@ -4972,14 +4972,14 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete Distribution Endpoint
+         * Delete a record distribution
          * @description Delete a distribution (manual only; auto-generated distributions are immutable).
          */
         delete: operations["delete_distribution_endpoint_records__record_id__distributions__distribution_id___delete"];
         options?: never;
         head?: never;
         /**
-         * Update Distribution Endpoint
+         * Update a record distribution
          * @description Update a distribution (manual only; auto-generated distributions are immutable).
          */
         patch: operations["update_distribution_endpoint_records__record_id__distributions__distribution_id___patch"];
@@ -4993,13 +4993,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Keywords Endpoint
+         * List a record's keywords
          * @description List all keywords for a record, marking analysis-inherited ones.
          */
         get: operations["list_keywords_endpoint_records__record_id__keywords__get"];
         put?: never;
         /**
-         * Create Keyword Endpoint
+         * Add a record keyword
          * @description Create a new keyword for a record.
          */
         post: operations["create_keyword_endpoint_records__record_id__keywords__post"];
@@ -5020,7 +5020,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete Keyword Endpoint
+         * Delete a record keyword
          * @description Delete a keyword.
          */
         delete: operations["delete_keyword_endpoint_records__record_id__keywords__keyword_id___delete"];
@@ -5037,7 +5037,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Translations Endpoint
+         * List a record's translations
          * @description List localized title/summary variants visible with the parent record.
          */
         get: operations["list_translations_endpoint_records__record_id__translations__get"];
@@ -5058,13 +5058,13 @@ export interface paths {
         };
         get?: never;
         /**
-         * Upsert Translation Endpoint
+         * Set a record translation
          * @description Create or replace one localized title/summary variant.
          */
         put: operations["upsert_translation_endpoint_records__record_id__translations__language___put"];
         post?: never;
         /**
-         * Delete Translation Endpoint
+         * Delete a record translation
          * @description Delete one localized title/summary variant.
          */
         delete: operations["delete_translation_endpoint_records__record_id__translations__language___delete"];
@@ -5081,7 +5081,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Search Datasets Endpoint
+         * Search datasets
          * @description Search datasets with text, spatial, and faceted filters.
          */
         get: operations["search_datasets_endpoint_search_datasets__get"];
@@ -5101,7 +5101,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Search Facets Endpoint
+         * Get search facet counts
          * @description Return record_type facet counts for the given filters.
          */
         get: operations["search_facets_endpoint_search_facets__get"];
@@ -5121,13 +5121,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Saved Searches Endpoint
+         * List saved searches
          * @description List saved searches for the authenticated user.
          */
         get: operations["list_saved_searches_endpoint_search_saved__get"];
         put?: never;
         /**
-         * Create Saved Search Endpoint
+         * Save a search
          * @description Save a search query with a name for later reuse.
          */
         post: operations["create_saved_search_endpoint_search_saved__post"];
@@ -5145,14 +5145,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Saved Search Endpoint
+         * Get a saved search
          * @description Get a single saved search by ID.
          */
         get: operations["get_saved_search_endpoint_search_saved__search_id__get"];
         put?: never;
         post?: never;
         /**
-         * Delete Saved Search Endpoint
+         * Delete a saved search
          * @description Delete a saved search.
          */
         delete: operations["delete_saved_search_endpoint_search_saved__search_id__delete"];
@@ -5171,7 +5171,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Arcgis Signin
+         * Sign in to an ArcGIS portal
          * @description Sign in to an ArcGIS portal and return a short-lived token.
          *
          *     Asks the portal's own token service for a token valid for 60 minutes and
@@ -5199,7 +5199,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Connectors Endpoint
+         * List connectors
          * @description List persistent connectors supplied by an installed overlay.
          *
          *     Community's no-op extension returns an empty list; one-shot WFS, OGC API,
@@ -5224,7 +5224,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Discover Connector Resources Endpoint
+         * Discover connector resources
          * @description Validate connector config and discover non-secret source resources.
          */
         post: operations["discover_connector_resources_endpoint_services_connectors__connector_name__discover__post"];
@@ -5244,7 +5244,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Dispatch Connector Ingest Endpoint
+         * Start a connector ingest
          * @description Dispatch an overlay-owned ingest and return its opaque job id.
          */
         post: operations["dispatch_connector_ingest_endpoint_services_connectors__connector_name__ingest__post"];
@@ -5264,7 +5264,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Preview Service Layer
+         * Preview a remote service layer
          * @description Preview a selected remote layer via ogrinfo and create a pending IngestJob.
          *
          *     Validates the URL against SSRF, builds the GDAL driver source string,
@@ -5288,7 +5288,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Probe Service Url
+         * Probe a remote service URL
          * @description Probe a remote service URL to detect its type and list available layers.
          *
          *     Validates the URL against SSRF, detects whether it is a WFS or ArcGIS
@@ -5311,7 +5311,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Stac Asset Sizes
+         * Look up STAC asset sizes
          * @description Look up the size of data assets whose item publishes no ``file:size``.
          *
          *     Asks each asset's server for its length (HEAD, then a one-byte range
@@ -5334,7 +5334,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Stac Collections
+         * List collections in a STAC API
          * @description List collections from a connected STAC API.
          *
          *     Accepts a credential for a protected catalog, applied to this call.
@@ -5356,7 +5356,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Stac Connect
+         * Connect to a STAC API
          * @description Connect to a STAC API and validate the endpoint.
          *
          *     Accepts a credential for a protected catalog, applied to this call.
@@ -5378,7 +5378,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Stac Import
+         * Import STAC items as datasets
          * @description Import selected STAC items as raster datasets.
          *
          *     Each item is registered as a raster_dataset record referencing the
@@ -5402,7 +5402,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Stac Search
+         * Search items in a STAC API
          * @description Search items in a STAC API with spatial/temporal filters.
          *
          *     Accepts a credential for a protected catalog, applied to this call.
@@ -5423,7 +5423,7 @@ export interface paths {
         };
         get?: never;
         /**
-         * Update Settings
+         * Update settings
          * @description Update one or more settings (admin only). Returns updated settings.
          */
         put: operations["update_settings_settings__put"];
@@ -5442,7 +5442,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get All Settings
+         * Get all settings
          * @description Return all settings grouped by tab with source indicators (admin only).
          */
         get: operations["get_all_settings_settings_all__get"];
@@ -5462,7 +5462,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Api Key Status
+         * Get LLM provider key status
          * @description Return which LLM providers are configured (without exposing values).
          */
         get: operations["get_api_key_status_settings_api_key_status__get"];
@@ -5482,7 +5482,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Basemaps
+         * Get basemaps
          * @description Return the configured basemap list (public, no auth required).
          *
          *     Basemaps with ``{api_key}`` in the URL are filtered out when no key is
@@ -5514,7 +5514,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Branding
+         * Get branding
          * @description Return branding configuration (public, no auth required).
          *
          *     The active ``BrandingExtension`` provides initial defaults for branding
@@ -5539,7 +5539,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Config Mode
+         * Get the configuration mode
          * @description Return whether the app is in env-only config mode (public, no auth).
          */
         get: operations["get_config_mode_settings_config_mode__get"];
@@ -5561,7 +5561,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Detect Embedding Dims
+         * Detect embedding dimensions
          * @description Probe the configured embedding model and return its output dimensions.
          */
         post: operations["detect_embedding_dims_settings_detect_embedding_dims__post"];
@@ -5599,7 +5599,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Enabled Plugins
+         * Get enabled plugins
          * @description Return enabled plugin IDs. null = no restriction (all shown), [] = none, [...ids] = only those.
          */
         get: operations["get_enabled_plugins_settings_enabled_plugins__get"];
@@ -5644,7 +5644,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Feature Flags
+         * Get feature flags
          * @description Return public feature flags (no auth required).
          */
         get: operations["get_feature_flags_settings_feature_flags__get"];
@@ -5664,7 +5664,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Map Defaults
+         * Get map defaults
          * @description Return the default map center and zoom (public, no auth required).
          */
         get: operations["get_map_defaults_settings_map_defaults__get"];
@@ -5684,7 +5684,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Notification Status
+         * Get notification channel status
          * @description Return which notification channels are configured (booleans only — no secrets).
          *
          *     Mirrors get_api_key_status: returns presence flags derived from env/settings
@@ -5710,7 +5710,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Send Test Notification
+         * Send a test notification
          * @description Send a canned test notification through each configured channel (admin only).
          *
          *     Mirrors detect_embedding_dims: admin-gated probe that reports per-channel
@@ -5736,13 +5736,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Oauth Providers
+         * List OAuth providers
          * @description List all OAuth providers (admin only).
          */
         get: operations["list_oauth_providers_settings_oauth_providers__get"];
         put?: never;
         /**
-         * Create Oauth Provider
+         * Create an OAuth provider
          * @description Create a new OAuth or SAML provider (admin only).
          *
          *     Audit-log payload includes the full ``created`` snapshot with non-secret
@@ -5765,7 +5765,7 @@ export interface paths {
         };
         get?: never;
         /**
-         * Update Oauth Provider
+         * Update an OAuth provider
          * @description Update an existing OAuth or SAML provider (admin only).
          *
          *     Audit-log payload contains ``details.changes`` with per-field
@@ -5776,7 +5776,7 @@ export interface paths {
         put: operations["update_oauth_provider_settings_oauth_providers__provider_id__put"];
         post?: never;
         /**
-         * Delete Oauth Provider
+         * Delete an OAuth provider
          * @description Delete an OAuth or SAML provider (admin only).
          *
          *     Audit-log payload contains a ``deleted`` snapshot with the pre-delete
@@ -5799,7 +5799,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reset Settings
+         * Reset settings to defaults
          * @description Reset one or more settings to their defaults (admin only). Returns updated settings.
          */
         post: operations["reset_settings_settings_reset__post"];
@@ -5817,7 +5817,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Tile Config
+         * Get tile configuration
          * @description Return tile delivery configuration (public, no auth required).
          */
         get: operations["get_tile_config_settings_tile_config__get"];
@@ -5837,7 +5837,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Landing Page
+         * Get the STAC landing page
          * @description STAC Catalog landing page.
          */
         get: operations["landing_page_stac__get"];
@@ -5857,7 +5857,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Collections
+         * List STAC collections
          * @description List all STAC Collections.
          */
         get: operations["get_collections_stac_collections_get"];
@@ -5877,7 +5877,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Collection
+         * Get a STAC collection
          * @description Get a single STAC Collection.
          */
         get: operations["get_collection_stac_collections__collection_id__get"];
@@ -5897,7 +5897,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Collection Items
+         * List STAC items in a collection
          * @description List STAC Items within a collection.
          */
         get: operations["get_collection_items_stac_collections__collection_id__items_get"];
@@ -5917,7 +5917,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Collection Item
+         * Get a STAC item in a collection
          * @description Get a single STAC Item within a collection.
          */
         get: operations["get_collection_item_stac_collections__collection_id__items__item_id__get"];
@@ -5937,7 +5937,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Conformance
+         * Get the STAC conformance classes
          * @description STAC API conformance classes.
          */
         get: operations["conformance_stac_conformance_get"];
@@ -5957,7 +5957,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Item
+         * Get a STAC item
          * @description Get a single STAC Item by dataset ID.
          */
         get: operations["get_item_stac_items__item_id__get"];
@@ -5977,13 +5977,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Search Get
+         * Search STAC items with GET
          * @description STAC Item Search (GET).
          */
         get: operations["search_get_stac_search_get"];
         put?: never;
         /**
-         * Search Post
+         * Search STAC items with POST
          * @description STAC Item Search (POST with JSON body).
          */
         post: operations["search_post_stac_search_post"];
@@ -6001,7 +6001,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Stories Endpoint
+         * List stories
          * @description List the stories the caller may read, most recently updated first.
          *
          *     Anyone sees published public stories, signed-in users also published
@@ -6010,7 +6010,7 @@ export interface paths {
         get: operations["list_stories_endpoint_stories__get"];
         put?: never;
         /**
-         * Create Story Endpoint
+         * Create a story
          * @description Create a private, unpublished story with an empty draft.
          */
         post: operations["create_story_endpoint_stories__post"];
@@ -6028,7 +6028,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Story Frame Hosts Endpoint
+         * List hosts a story may embed
          * @description The hosts story embed and video blocks may frame (public, no auth required).
          *
          *     An admin sets them in `story_frame_hosts`. Empty means neither block can
@@ -6051,7 +6051,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Story Endpoint
+         * Get a story
          * @description Read a story's published document.
          *
          *     Scenes on maps the caller can't read come back without their scene. An
@@ -6062,7 +6062,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete Story Endpoint
+         * Delete a story
          * @description Delete a story and its images (owner or admin). The maps it uses are
          *     untouched.
          */
@@ -6070,7 +6070,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Update Story Endpoint
+         * Update a story
          * @description Change a story's title, summary, visibility or cover (owner or admin).
          *
          *     These apply at once, without Publish. A visibility wider than a map the
@@ -6091,7 +6091,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Upload Story Asset Endpoint
+         * Upload a story image
          * @description Upload an image, the multipart part `file`, for the story's blocks or
          *     cover (owner or admin).
          *
@@ -6116,7 +6116,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Story Asset Endpoint
+         * Get a story image
          * @description Serve one of the story's images, as WebP unless `variant` says otherwise.
          *
          *     Its owner and admins get any of them. Anyone else who can read the story
@@ -6141,7 +6141,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Discard Story Draft Endpoint
+         * Discard a story draft
          * @description Revert the draft to the published document, or to an empty one for a
          *     story never published (owner or admin).
          *
@@ -6163,7 +6163,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Story Draft Endpoint
+         * Get a story draft
          * @description Read the draft with its revision (owner or admin).
          *
          *     Scenes on maps you can't read come back without their scene, marked
@@ -6172,7 +6172,7 @@ export interface paths {
          */
         get: operations["get_story_draft_endpoint_stories__story_id__draft_get"];
         /**
-         * Save Story Draft Endpoint
+         * Save a story draft
          * @description Replace the whole draft (owner or admin). Readers keep the published
          *     document until Publish.
          *
@@ -6202,7 +6202,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Duplicate Story Endpoint
+         * Duplicate a story
          * @description Copy a story you can read into a new private draft you own.
          *
          *     Its owner or an admin copies the draft; anyone else the published
@@ -6225,7 +6225,7 @@ export interface paths {
         };
         get?: never;
         /**
-         * Set Story Groups Endpoint
+         * Set the sharing groups for a story
          * @description Share a story with exactly these sharing groups (owner or admin).
          *
          *     An owner may add only groups they belong to (403); an admin may add any.
@@ -6257,7 +6257,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Publish Story Endpoint
+         * Publish a story
          * @description Publish the draft (owner or admin): readers get it from now on.
          *
          *     `revision` must match the stored draft's, or 409 `stale_revision`. 409
@@ -6283,7 +6283,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Cluster Tile Endpoint
+         * Get a clustered vector tile
          * @description Serve a server-side clustered vector tile for a point dataset.
          *
          *     URL pattern: ``/tiles/clusters/data.{table_name}/{z}/{x}/{y}.pbf``
@@ -6345,7 +6345,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Raster Tile Proxy
+         * Get a raster tile
          * @description Render one raster tile and return the image.
          *
          *     Returns the image itself rather than a redirect: the dataset is
@@ -6408,7 +6408,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Tile Token
+         * Create a tile token
          * @description Generate a tile token for a dataset.
          *
          *     For vector datasets: returns HMAC-signed token (sig, exp, scope, expires_in).
@@ -6439,7 +6439,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Get Tile Tokens Batch
+         * Create tile tokens for several datasets
          * @description Generate tile tokens for up to 50 datasets in one request.
          *
          *     The list must hold between 1 and 50 ids, and a request outside that is 422.
@@ -6476,7 +6476,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Tile Endpoint
+         * Get a vector tile
          * @description Serve a vector tile as gzipped MVT binary.
          *
          *     URL pattern: ``/tiles/data.{table_name}/{z}/{x}/{y}.pbf``

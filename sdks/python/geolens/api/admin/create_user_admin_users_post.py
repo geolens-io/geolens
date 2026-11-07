@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: AdminUserCreate,
 ) -> Response[ProblemDetail | UserResponse]:
-    """Create User
+    """Create a user
 
      Create a new user with the specified role (admin only).
 
@@ -137,7 +137,7 @@ def sync(
     client: AuthenticatedClient,
     body: AdminUserCreate,
 ) -> ProblemDetail | UserResponse | None:
-    """Create User
+    """Create a user
 
      Create a new user with the specified role (admin only).
 
@@ -163,7 +163,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: AdminUserCreate,
 ) -> Response[ProblemDetail | UserResponse]:
-    """Create User
+    """Create a user
 
      Create a new user with the specified role (admin only).
 
@@ -192,7 +192,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: AdminUserCreate,
 ) -> ProblemDetail | UserResponse | None:
-    """Create User
+    """Create a user
 
      Create a new user with the specified role (admin only).
 

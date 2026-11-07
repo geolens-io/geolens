@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: EmbedTokenCreate,
 ) -> Response[EmbedTokenCreatedResponse | ProblemDetail]:
-    """Create Embed Token Endpoint
+    """Create an embed token
 
      Create an embed token scoped to a map's current layers.
 
@@ -149,7 +149,7 @@ def sync(
     client: AuthenticatedClient,
     body: EmbedTokenCreate,
 ) -> EmbedTokenCreatedResponse | ProblemDetail | None:
-    """Create Embed Token Endpoint
+    """Create an embed token
 
      Create an embed token scoped to a map's current layers.
 
@@ -181,7 +181,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: EmbedTokenCreate,
 ) -> Response[EmbedTokenCreatedResponse | ProblemDetail]:
-    """Create Embed Token Endpoint
+    """Create an embed token
 
      Create an embed token scoped to a map's current layers.
 
@@ -216,7 +216,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: EmbedTokenCreate,
 ) -> EmbedTokenCreatedResponse | ProblemDetail | None:
-    """Create Embed Token Endpoint
+    """Create an embed token
 
      Create an embed token scoped to a map's current layers.
 

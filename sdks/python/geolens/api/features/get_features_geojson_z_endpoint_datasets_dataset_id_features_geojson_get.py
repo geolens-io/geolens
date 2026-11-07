@@ -119,7 +119,7 @@ def sync_detailed(
     GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200
     | ProblemDetail
 ]:
-    """Get Features Geojson Z Endpoint
+    """Get features as GeoJSON with Z coordinates
 
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
@@ -170,7 +170,7 @@ def sync(
     | ProblemDetail
     | None
 ):
-    """Get Features Geojson Z Endpoint
+    """Get features as GeoJSON with Z coordinates
 
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
@@ -215,7 +215,7 @@ async def asyncio_detailed(
     GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponse200
     | ProblemDetail
 ]:
-    """Get Features Geojson Z Endpoint
+    """Get features as GeoJSON with Z coordinates
 
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
@@ -264,7 +264,7 @@ async def asyncio(
     | ProblemDetail
     | None
 ):
-    """Get Features Geojson Z Endpoint
+    """Get features as GeoJSON with Z coordinates
 
      Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 

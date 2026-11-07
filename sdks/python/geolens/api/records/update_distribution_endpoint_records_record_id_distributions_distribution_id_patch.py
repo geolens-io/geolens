@@ -115,7 +115,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: DistributionUpdate,
 ) -> Response[DistributionResponse | ProblemDetail]:
-    """Update Distribution Endpoint
+    """Update a record distribution
 
      Update a distribution (manual only; auto-generated distributions are immutable).
 
@@ -152,7 +152,7 @@ def sync(
     client: AuthenticatedClient,
     body: DistributionUpdate,
 ) -> DistributionResponse | ProblemDetail | None:
-    """Update Distribution Endpoint
+    """Update a record distribution
 
      Update a distribution (manual only; auto-generated distributions are immutable).
 
@@ -184,7 +184,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: DistributionUpdate,
 ) -> Response[DistributionResponse | ProblemDetail]:
-    """Update Distribution Endpoint
+    """Update a record distribution
 
      Update a distribution (manual only; auto-generated distributions are immutable).
 
@@ -219,7 +219,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: DistributionUpdate,
 ) -> DistributionResponse | ProblemDetail | None:
-    """Update Distribution Endpoint
+    """Update a record distribution
 
      Update a distribution (manual only; auto-generated distributions are immutable).
 

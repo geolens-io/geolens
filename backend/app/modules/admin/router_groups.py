@@ -76,11 +76,13 @@ def _name_taken(name: str) -> HTTPException:
     response_model=GroupListResponse,
     dependencies=[Depends(require_group_admin)],
     include_in_schema=False,
+    summary="List sharing groups",
 )
 @router.get(
     "/groups/",
     response_model=GroupListResponse,
     dependencies=[Depends(require_group_admin)],
+    summary="List sharing groups",
 )
 async def list_groups(
     skip: int = Query(0, ge=0),
@@ -101,12 +103,14 @@ async def list_groups(
     response_model=GroupResponse,
     status_code=status.HTTP_201_CREATED,
     include_in_schema=False,
+    summary="Create a sharing group",
 )
 @router.post(
     "/groups/",
     response_model=GroupResponse,
     status_code=status.HTTP_201_CREATED,
     responses={409: CONFLICT_RESPONSE},
+    summary="Create a sharing group",
 )
 @limiter.limit("30/minute")
 async def create_group(
@@ -141,6 +145,7 @@ async def create_group(
     response_model=GroupResponse,
     dependencies=[Depends(require_group_admin)],
     responses={404: NOT_FOUND_RESPONSE},
+    summary="Get a sharing group",
 )
 async def get_group(
     group_id: uuid.UUID,
@@ -159,6 +164,7 @@ async def get_group(
     "/groups/{group_id}",
     response_model=GroupResponse,
     responses={404: NOT_FOUND_RESPONSE, 409: CONFLICT_RESPONSE},
+    summary="Rename a sharing group",
 )
 @limiter.limit("30/minute")
 async def rename_group(
@@ -197,6 +203,7 @@ async def rename_group(
     "/groups/{group_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     responses={404: NOT_FOUND_RESPONSE},
+    summary="Delete a sharing group",
 )
 @limiter.limit("30/minute")
 async def delete_group(
@@ -252,12 +259,14 @@ async def delete_group(
     response_model=GroupMemberListResponse,
     dependencies=[Depends(require_group_admin)],
     include_in_schema=False,
+    summary="List sharing group members",
 )
 @router.get(
     "/groups/{group_id}/members/",
     response_model=GroupMemberListResponse,
     dependencies=[Depends(require_group_admin)],
     responses={404: NOT_FOUND_RESPONSE},
+    summary="List sharing group members",
 )
 async def list_group_members(
     group_id: uuid.UUID,
@@ -284,11 +293,13 @@ async def list_group_members(
     "/groups/{group_id}/members",
     response_model=GroupResponse,
     include_in_schema=False,
+    summary="Add users to a sharing group",
 )
 @router.post(
     "/groups/{group_id}/members/",
     response_model=GroupResponse,
     responses={404: NOT_FOUND_RESPONSE},
+    summary="Add users to a sharing group",
 )
 @limiter.limit("30/minute")
 async def add_group_members(
@@ -334,6 +345,7 @@ async def add_group_members(
     "/groups/{group_id}/members/{user_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     responses={404: NOT_FOUND_RESPONSE},
+    summary="Remove a user from a sharing group",
 )
 @limiter.limit("30/minute")
 async def remove_group_member(

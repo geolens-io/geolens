@@ -100,7 +100,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Map Endpoint
+    """Delete a map
 
      Delete a map. Only the owner or an admin can delete.
 
@@ -131,7 +131,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Delete Map Endpoint
+    """Delete a map
 
      Delete a map. Only the owner or an admin can delete.
 
@@ -157,7 +157,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Map Endpoint
+    """Delete a map
 
      Delete a map. Only the owner or an admin can delete.
 
@@ -186,7 +186,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Delete Map Endpoint
+    """Delete a map
 
      Delete a map. Only the owner or an admin can delete.
 

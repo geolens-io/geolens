@@ -128,6 +128,7 @@ async def _drop(
     "/{dataset_id}/previous-versions/{version_number}/restore",
     response_model=RestorePreviousVersionResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    summary="Restore a kept version",
 )
 async def restore_kept_version(
     dataset_id: uuid.UUID,
@@ -156,6 +157,7 @@ async def restore_kept_version(
     "/{dataset_id}/previous-versions/{version_number}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
+    summary="Delete a kept version",
 )
 async def delete_kept_version(
     dataset_id: uuid.UUID,
@@ -178,6 +180,7 @@ async def delete_kept_version(
     response_model=RestorePreviousVersionResponse,
     status_code=status.HTTP_202_ACCEPTED,
     deprecated=True,
+    summary="Restore the previous version",
 )
 async def restore_previous_version(
     dataset_id: uuid.UUID,
@@ -201,6 +204,7 @@ async def restore_previous_version(
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
     deprecated=True,
+    summary="Delete the previous version",
 )
 async def delete_previous_version(
     dataset_id: uuid.UUID,

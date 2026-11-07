@@ -165,7 +165,7 @@ def sync_detailed(
     cluster_max_zoom: int | Unset = 14,
     filter_: None | str | Unset = UNSET,
 ) -> Response[File | ProblemDetail]:
-    """Cluster Tile Endpoint
+    """Get a clustered vector tile
 
      Serve a server-side clustered vector tile for a point dataset.
 
@@ -273,7 +273,7 @@ def sync(
     cluster_max_zoom: int | Unset = 14,
     filter_: None | str | Unset = UNSET,
 ) -> File | ProblemDetail | None:
-    """Cluster Tile Endpoint
+    """Get a clustered vector tile
 
      Serve a server-side clustered vector tile for a point dataset.
 
@@ -376,7 +376,7 @@ async def asyncio_detailed(
     cluster_max_zoom: int | Unset = 14,
     filter_: None | str | Unset = UNSET,
 ) -> Response[File | ProblemDetail]:
-    """Cluster Tile Endpoint
+    """Get a clustered vector tile
 
      Serve a server-side clustered vector tile for a point dataset.
 
@@ -482,7 +482,7 @@ async def asyncio(
     cluster_max_zoom: int | Unset = 14,
     filter_: None | str | Unset = UNSET,
 ) -> File | ProblemDetail | None:
-    """Cluster Tile Endpoint
+    """Get a clustered vector tile
 
      Serve a server-side clustered vector tile for a point dataset.
 

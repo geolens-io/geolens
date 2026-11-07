@@ -106,7 +106,7 @@ def sync_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[ApiKeyListResponse | ProblemDetail]:
-    """List My Api Keys
+    """List your API keys
 
      List the current user's API keys.
 
@@ -140,7 +140,7 @@ def sync(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> ApiKeyListResponse | ProblemDetail | None:
-    """List My Api Keys
+    """List your API keys
 
      List the current user's API keys.
 
@@ -169,7 +169,7 @@ async def asyncio_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[ApiKeyListResponse | ProblemDetail]:
-    """List My Api Keys
+    """List your API keys
 
      List the current user's API keys.
 
@@ -201,7 +201,7 @@ async def asyncio(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> ApiKeyListResponse | ProblemDetail | None:
-    """List My Api Keys
+    """List your API keys
 
      List the current user's API keys.
 

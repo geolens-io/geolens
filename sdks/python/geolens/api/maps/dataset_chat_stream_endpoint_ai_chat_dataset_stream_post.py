@@ -99,7 +99,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: DatasetChatRequest,
 ) -> Response[ProblemDetail | str]:
-    """Dataset Chat Stream Endpoint
+    """Ask AI about a dataset
 
      Dataset-scoped AI chat: ask questions about a single dataset's data.
 
@@ -139,7 +139,7 @@ def sync(
     client: AuthenticatedClient,
     body: DatasetChatRequest,
 ) -> ProblemDetail | str | None:
-    """Dataset Chat Stream Endpoint
+    """Ask AI about a dataset
 
      Dataset-scoped AI chat: ask questions about a single dataset's data.
 
@@ -174,7 +174,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: DatasetChatRequest,
 ) -> Response[ProblemDetail | str]:
-    """Dataset Chat Stream Endpoint
+    """Ask AI about a dataset
 
      Dataset-scoped AI chat: ask questions about a single dataset's data.
 
@@ -212,7 +212,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: DatasetChatRequest,
 ) -> ProblemDetail | str | None:
-    """Dataset Chat Stream Endpoint
+    """Ask AI about a dataset
 
      Dataset-scoped AI chat: ask questions about a single dataset's data.
 

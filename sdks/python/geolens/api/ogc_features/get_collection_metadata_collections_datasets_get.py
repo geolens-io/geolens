@@ -80,7 +80,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[OGCCollectionMetadataResponse | ProblemDetail]:
-    """Get Collection Metadata
+    """Get the datasets collection
 
      Get metadata for the datasets collection.
 
@@ -105,7 +105,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> OGCCollectionMetadataResponse | ProblemDetail | None:
-    """Get Collection Metadata
+    """Get the datasets collection
 
      Get metadata for the datasets collection.
 
@@ -126,7 +126,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[OGCCollectionMetadataResponse | ProblemDetail]:
-    """Get Collection Metadata
+    """Get the datasets collection
 
      Get metadata for the datasets collection.
 
@@ -149,7 +149,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> OGCCollectionMetadataResponse | ProblemDetail | None:
-    """Get Collection Metadata
+    """Get the datasets collection
 
      Get metadata for the datasets collection.
 

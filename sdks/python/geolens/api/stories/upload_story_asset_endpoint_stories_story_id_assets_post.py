@@ -127,7 +127,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: UploadStoryAssetEndpointStoriesStoryIdAssetsPostBody,
 ) -> Response[ProblemDetail | StoryAssetResponse]:
-    """Upload Story Asset Endpoint
+    """Upload a story image
 
      Upload an image, the multipart part `file`, for the story's blocks or
     cover (owner or admin).
@@ -168,7 +168,7 @@ def sync(
     client: AuthenticatedClient,
     body: UploadStoryAssetEndpointStoriesStoryIdAssetsPostBody,
 ) -> ProblemDetail | StoryAssetResponse | None:
-    """Upload Story Asset Endpoint
+    """Upload a story image
 
      Upload an image, the multipart part `file`, for the story's blocks or
     cover (owner or admin).
@@ -204,7 +204,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: UploadStoryAssetEndpointStoriesStoryIdAssetsPostBody,
 ) -> Response[ProblemDetail | StoryAssetResponse]:
-    """Upload Story Asset Endpoint
+    """Upload a story image
 
      Upload an image, the multipart part `file`, for the story's blocks or
     cover (owner or admin).
@@ -243,7 +243,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: UploadStoryAssetEndpointStoriesStoryIdAssetsPostBody,
 ) -> ProblemDetail | StoryAssetResponse | None:
-    """Upload Story Asset Endpoint
+    """Upload a story image
 
      Upload an image, the multipart part `file`, for the story's blocks or
     cover (owner or admin).

@@ -90,7 +90,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | UserQuotaUsage]:
-    """Me Usage
+    """Get the signed-in user's quota usage
 
      Return the authenticated user's own storage and dataset quota usage.
 
@@ -115,7 +115,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | UserQuotaUsage | None:
-    """Me Usage
+    """Get the signed-in user's quota usage
 
      Return the authenticated user's own storage and dataset quota usage.
 
@@ -136,7 +136,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | UserQuotaUsage]:
-    """Me Usage
+    """Get the signed-in user's quota usage
 
      Return the authenticated user's own storage and dataset quota usage.
 
@@ -159,7 +159,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | UserQuotaUsage | None:
-    """Me Usage
+    """Get the signed-in user's quota usage
 
      Return the authenticated user's own storage and dataset quota usage.
 

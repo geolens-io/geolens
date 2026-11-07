@@ -166,7 +166,11 @@ def _service_probe_target(dataset: Dataset) -> str:
     return target
 
 
-@router.post("/{dataset_id}/source-health/", response_model=SourceHealthResponse)
+@router.post(
+    "/{dataset_id}/source-health/",
+    response_model=SourceHealthResponse,
+    summary="Check a dataset's source",
+)
 async def check_source_health(
     dataset_id: uuid.UUID,
     user: Identity = Depends(get_current_active_user),

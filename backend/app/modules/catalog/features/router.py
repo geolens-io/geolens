@@ -699,6 +699,7 @@ _FEATURES_GEOJSON_Z_SCHEMA = {
         },
         **ERROR_RESPONSES_AUTH,
     },
+    summary="Get features as GeoJSON with Z coordinates",
 )
 async def get_features_geojson_z_endpoint(
     dataset_id: uuid.UUID,
@@ -817,6 +818,7 @@ async def get_features_geojson_z_endpoint(
         },
         **ERROR_RESPONSES_AUTH,
     },
+    summary="List features",
 )
 async def list_features(
     dataset_id: uuid.UUID,
@@ -1004,6 +1006,7 @@ async def list_features(
         },
         **ERROR_RESPONSES_AUTH,
     },
+    summary="Get a feature",
 )
 async def get_single_feature(
     dataset_id: uuid.UUID,
@@ -1081,6 +1084,7 @@ async def get_single_feature(
         },
         **ERROR_RESPONSES_WRITE,
     },
+    summary="Create a feature",
 )
 async def create_feature(
     dataset_id: uuid.UUID,
@@ -1179,6 +1183,7 @@ async def create_feature(
         **ERROR_RESPONSES_WRITE,
         413: PAYLOAD_TOO_LARGE_RESPONSE,
     },
+    summary="Check a feature create without saving",
 )
 async def dry_run_create_feature(
     dataset_id: uuid.UUID,
@@ -1357,6 +1362,7 @@ async def _create(
         },
         **ERROR_RESPONSES_WRITE,
     },
+    summary="Replace a feature",
 )
 async def replace_single_feature(
     dataset_id: uuid.UUID,
@@ -1473,6 +1479,7 @@ async def replace_single_feature(
         },
         **ERROR_RESPONSES_WRITE,
     },
+    summary="Update a feature",
 )
 async def patch_single_feature(
     dataset_id: uuid.UUID,
@@ -1596,6 +1603,7 @@ async def patch_single_feature(
         },
         **ERROR_RESPONSES_WRITE,
     },
+    summary="Delete a feature",
 )
 async def delete_single_feature(
     dataset_id: uuid.UUID,
@@ -1685,6 +1693,7 @@ async def delete_single_feature(
     "/{dataset_id}/features/delete/",
     response_model=FeatureBatchDeleted,
     responses=ERROR_RESPONSES_WRITE,
+    summary="Delete several features",
 )
 async def delete_features_batch(
     dataset_id: uuid.UUID,

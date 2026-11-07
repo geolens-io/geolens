@@ -102,7 +102,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[JobCancelResponse | ProblemDetail]:
-    """Cancel Job
+    """Cancel an ingest job
 
      Cancel a pending or running ingest job.
 
@@ -140,7 +140,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> JobCancelResponse | ProblemDetail | None:
-    """Cancel Job
+    """Cancel an ingest job
 
      Cancel a pending or running ingest job.
 
@@ -173,7 +173,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[JobCancelResponse | ProblemDetail]:
-    """Cancel Job
+    """Cancel an ingest job
 
      Cancel a pending or running ingest job.
 
@@ -209,7 +209,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> JobCancelResponse | ProblemDetail | None:
-    """Cancel Job
+    """Cancel an ingest job
 
      Cancel a pending or running ingest job.
 

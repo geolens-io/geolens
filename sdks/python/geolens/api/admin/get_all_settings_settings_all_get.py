@@ -90,7 +90,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | SettingsAllResponse]:
-    """Get All Settings
+    """Get all settings
 
      Return all settings grouped by tab with source indicators (admin only).
 
@@ -115,7 +115,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | SettingsAllResponse | None:
-    """Get All Settings
+    """Get all settings
 
      Return all settings grouped by tab with source indicators (admin only).
 
@@ -136,7 +136,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | SettingsAllResponse]:
-    """Get All Settings
+    """Get all settings
 
      Return all settings grouped by tab with source indicators (admin only).
 
@@ -159,7 +159,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | SettingsAllResponse | None:
-    """Get All Settings
+    """Get all settings
 
      Return all settings grouped by tab with source indicators (admin only).
 

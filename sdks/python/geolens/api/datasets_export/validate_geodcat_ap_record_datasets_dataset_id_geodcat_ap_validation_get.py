@@ -85,7 +85,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
-    """Validate Geodcat Ap Record
+    """Validate a dataset as GeoDCAT-AP
 
      Validate a single dataset as GeoDCAT-AP 2.0.0.
 
@@ -116,7 +116,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
-    """Validate Geodcat Ap Record
+    """Validate a dataset as GeoDCAT-AP
 
      Validate a single dataset as GeoDCAT-AP 2.0.0.
 
@@ -142,7 +142,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
-    """Validate Geodcat Ap Record
+    """Validate a dataset as GeoDCAT-AP
 
      Validate a single dataset as GeoDCAT-AP 2.0.0.
 
@@ -171,7 +171,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
-    """Validate Geodcat Ap Record
+    """Validate a dataset as GeoDCAT-AP
 
      Validate a single dataset as GeoDCAT-AP 2.0.0.
 

@@ -111,7 +111,7 @@ def sync_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[CollectionListResponse | ProblemDetail]:
-    """List Collections Endpoint
+    """List collections
 
      List all collections with dataset_count and extent computed per-user.
 
@@ -145,7 +145,7 @@ def sync(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> CollectionListResponse | ProblemDetail | None:
-    """List Collections Endpoint
+    """List collections
 
      List all collections with dataset_count and extent computed per-user.
 
@@ -174,7 +174,7 @@ async def asyncio_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[CollectionListResponse | ProblemDetail]:
-    """List Collections Endpoint
+    """List collections
 
      List all collections with dataset_count and extent computed per-user.
 
@@ -206,7 +206,7 @@ async def asyncio(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> CollectionListResponse | ProblemDetail | None:
-    """List Collections Endpoint
+    """List collections
 
      List all collections with dataset_count and extent computed per-user.
 

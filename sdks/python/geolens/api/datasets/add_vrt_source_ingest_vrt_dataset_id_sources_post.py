@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: VrtAddSourceRequest,
 ) -> Response[ProblemDetail | VrtMutationResponse]:
-    """Add Vrt Source
+    """Add a source to a VRT dataset
 
      Add a COG source to an existing VRT and trigger async regeneration.
 
@@ -151,7 +151,7 @@ def sync(
     client: AuthenticatedClient,
     body: VrtAddSourceRequest,
 ) -> ProblemDetail | VrtMutationResponse | None:
-    """Add Vrt Source
+    """Add a source to a VRT dataset
 
      Add a COG source to an existing VRT and trigger async regeneration.
 
@@ -185,7 +185,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: VrtAddSourceRequest,
 ) -> Response[ProblemDetail | VrtMutationResponse]:
-    """Add Vrt Source
+    """Add a source to a VRT dataset
 
      Add a COG source to an existing VRT and trigger async regeneration.
 
@@ -222,7 +222,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: VrtAddSourceRequest,
 ) -> ProblemDetail | VrtMutationResponse | None:
-    """Add Vrt Source
+    """Add a source to a VRT dataset
 
      Add a COG source to an existing VRT and trigger async regeneration.
 

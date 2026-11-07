@@ -94,7 +94,7 @@ def sync_detailed(
     limit: int | Unset = 10000,
     offset: int | Unset = 0,
 ) -> Response[Any | ProblemDetail]:
-    """Get Dcat Catalog
+    """Get the DCAT 3 catalog
 
      DCAT 3 JSON-LD catalog feed. Respects dataset visibility.
 
@@ -128,7 +128,7 @@ def sync(
     limit: int | Unset = 10000,
     offset: int | Unset = 0,
 ) -> Any | ProblemDetail | None:
-    """Get Dcat Catalog
+    """Get the DCAT 3 catalog
 
      DCAT 3 JSON-LD catalog feed. Respects dataset visibility.
 
@@ -157,7 +157,7 @@ async def asyncio_detailed(
     limit: int | Unset = 10000,
     offset: int | Unset = 0,
 ) -> Response[Any | ProblemDetail]:
-    """Get Dcat Catalog
+    """Get the DCAT 3 catalog
 
      DCAT 3 JSON-LD catalog feed. Respects dataset visibility.
 
@@ -189,7 +189,7 @@ async def asyncio(
     limit: int | Unset = 10000,
     offset: int | Unset = 0,
 ) -> Any | ProblemDetail | None:
-    """Get Dcat Catalog
+    """Get the DCAT 3 catalog
 
      DCAT 3 JSON-LD catalog feed. Respects dataset visibility.
 

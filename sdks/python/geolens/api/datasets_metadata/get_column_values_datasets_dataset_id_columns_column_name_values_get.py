@@ -116,7 +116,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     limit: int | Unset = 100,
 ) -> Response[ColumnValuesResponse | ProblemDetail]:
-    """Get Column Values
+    """List a column's distinct values
 
      Get distinct values for a dataset column (for categorical styling).
 
@@ -153,7 +153,7 @@ def sync(
     client: AuthenticatedClient,
     limit: int | Unset = 100,
 ) -> ColumnValuesResponse | ProblemDetail | None:
-    """Get Column Values
+    """List a column's distinct values
 
      Get distinct values for a dataset column (for categorical styling).
 
@@ -185,7 +185,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     limit: int | Unset = 100,
 ) -> Response[ColumnValuesResponse | ProblemDetail]:
-    """Get Column Values
+    """List a column's distinct values
 
      Get distinct values for a dataset column (for categorical styling).
 
@@ -220,7 +220,7 @@ async def asyncio(
     client: AuthenticatedClient,
     limit: int | Unset = 100,
 ) -> ColumnValuesResponse | ProblemDetail | None:
-    """Get Column Values
+    """List a column's distinct values
 
      Get distinct values for a dataset column (for categorical styling).
 
