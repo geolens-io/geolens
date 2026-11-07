@@ -351,7 +351,7 @@ async def export_dataset_endpoint(
 
     # 4. Validate target_crs
     if target_crs is not None:
-        if not re.match(r"^EPSG:\d+$", target_crs, re.IGNORECASE):
+        if not re.fullmatch(r"EPSG:[0-9]{1,6}", target_crs, re.IGNORECASE):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid target_crs: must match EPSG:<code> (e.g. EPSG:3857)",

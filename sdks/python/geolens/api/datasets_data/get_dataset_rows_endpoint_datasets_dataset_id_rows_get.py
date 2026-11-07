@@ -174,13 +174,15 @@ def sync_detailed(
     Supports column filtering via query params: ``filter[column_name]=value``.
     An optional CQL2-JSON ``filter`` expression ANDs with them.
 
-    Anonymous callers can read public, published datasets. ``X-Embed-Token``
-    authorizes datasets in the token's scope while the token's map has
-    ``show_attribute_table`` on. Other datasets return 404. A request only the
-    embed token authorizes reads only the columns in the dataset's tile column
-    allowlist, when it has one: any other column is treated as one the table
-    lacks, in the returned columns, ``sort``, ``filter`` and
-    ``filter[column]``.
+    Anonymous callers can read public, published datasets. This route answers
+    an ``X-Embed-Token`` for datasets in the token's scope while the token's map
+    has ``show_attribute_table`` on. That flag only decides whether viewers offer
+    the table: tiles, ``features.geojson`` and ``aggregate`` return the same
+    allowlisted values to the token either way. Other datasets return 404. A
+    request only the embed token authorizes reads only the columns in the
+    dataset's tile column allowlist, when it has one: any other column is
+    treated as one the table lacks, in the returned columns, ``sort``,
+    ``filter`` and ``filter[column]``.
 
     Args:
         dataset_id (UUID):
@@ -197,8 +199,8 @@ def sync_detailed(
             the `filter[column]` filters. The total counts it like a filter.
         with_bbox (bool | Unset): Also return `bboxes`, each row's bounding box in EPSG:4326.
             Default: False.
-        x_embed_token (None | str | Unset): Optional embed token. Datasets in the token's scope
-            are authorized when the token's map has `show_attribute_table` on.
+        x_embed_token (None | str | Unset): Optional embed token. This route answers it for
+            datasets in the token's scope while the token's map has `show_attribute_table` on.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -249,13 +251,15 @@ def sync(
     Supports column filtering via query params: ``filter[column_name]=value``.
     An optional CQL2-JSON ``filter`` expression ANDs with them.
 
-    Anonymous callers can read public, published datasets. ``X-Embed-Token``
-    authorizes datasets in the token's scope while the token's map has
-    ``show_attribute_table`` on. Other datasets return 404. A request only the
-    embed token authorizes reads only the columns in the dataset's tile column
-    allowlist, when it has one: any other column is treated as one the table
-    lacks, in the returned columns, ``sort``, ``filter`` and
-    ``filter[column]``.
+    Anonymous callers can read public, published datasets. This route answers
+    an ``X-Embed-Token`` for datasets in the token's scope while the token's map
+    has ``show_attribute_table`` on. That flag only decides whether viewers offer
+    the table: tiles, ``features.geojson`` and ``aggregate`` return the same
+    allowlisted values to the token either way. Other datasets return 404. A
+    request only the embed token authorizes reads only the columns in the
+    dataset's tile column allowlist, when it has one: any other column is
+    treated as one the table lacks, in the returned columns, ``sort``,
+    ``filter`` and ``filter[column]``.
 
     Args:
         dataset_id (UUID):
@@ -272,8 +276,8 @@ def sync(
             the `filter[column]` filters. The total counts it like a filter.
         with_bbox (bool | Unset): Also return `bboxes`, each row's bounding box in EPSG:4326.
             Default: False.
-        x_embed_token (None | str | Unset): Optional embed token. Datasets in the token's scope
-            are authorized when the token's map has `show_attribute_table` on.
+        x_embed_token (None | str | Unset): Optional embed token. This route answers it for
+            datasets in the token's scope while the token's map has `show_attribute_table` on.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -319,13 +323,15 @@ async def asyncio_detailed(
     Supports column filtering via query params: ``filter[column_name]=value``.
     An optional CQL2-JSON ``filter`` expression ANDs with them.
 
-    Anonymous callers can read public, published datasets. ``X-Embed-Token``
-    authorizes datasets in the token's scope while the token's map has
-    ``show_attribute_table`` on. Other datasets return 404. A request only the
-    embed token authorizes reads only the columns in the dataset's tile column
-    allowlist, when it has one: any other column is treated as one the table
-    lacks, in the returned columns, ``sort``, ``filter`` and
-    ``filter[column]``.
+    Anonymous callers can read public, published datasets. This route answers
+    an ``X-Embed-Token`` for datasets in the token's scope while the token's map
+    has ``show_attribute_table`` on. That flag only decides whether viewers offer
+    the table: tiles, ``features.geojson`` and ``aggregate`` return the same
+    allowlisted values to the token either way. Other datasets return 404. A
+    request only the embed token authorizes reads only the columns in the
+    dataset's tile column allowlist, when it has one: any other column is
+    treated as one the table lacks, in the returned columns, ``sort``,
+    ``filter`` and ``filter[column]``.
 
     Args:
         dataset_id (UUID):
@@ -342,8 +348,8 @@ async def asyncio_detailed(
             the `filter[column]` filters. The total counts it like a filter.
         with_bbox (bool | Unset): Also return `bboxes`, each row's bounding box in EPSG:4326.
             Default: False.
-        x_embed_token (None | str | Unset): Optional embed token. Datasets in the token's scope
-            are authorized when the token's map has `show_attribute_table` on.
+        x_embed_token (None | str | Unset): Optional embed token. This route answers it for
+            datasets in the token's scope while the token's map has `show_attribute_table` on.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -392,13 +398,15 @@ async def asyncio(
     Supports column filtering via query params: ``filter[column_name]=value``.
     An optional CQL2-JSON ``filter`` expression ANDs with them.
 
-    Anonymous callers can read public, published datasets. ``X-Embed-Token``
-    authorizes datasets in the token's scope while the token's map has
-    ``show_attribute_table`` on. Other datasets return 404. A request only the
-    embed token authorizes reads only the columns in the dataset's tile column
-    allowlist, when it has one: any other column is treated as one the table
-    lacks, in the returned columns, ``sort``, ``filter`` and
-    ``filter[column]``.
+    Anonymous callers can read public, published datasets. This route answers
+    an ``X-Embed-Token`` for datasets in the token's scope while the token's map
+    has ``show_attribute_table`` on. That flag only decides whether viewers offer
+    the table: tiles, ``features.geojson`` and ``aggregate`` return the same
+    allowlisted values to the token either way. Other datasets return 404. A
+    request only the embed token authorizes reads only the columns in the
+    dataset's tile column allowlist, when it has one: any other column is
+    treated as one the table lacks, in the returned columns, ``sort``,
+    ``filter`` and ``filter[column]``.
 
     Args:
         dataset_id (UUID):
@@ -415,8 +423,8 @@ async def asyncio(
             the `filter[column]` filters. The total counts it like a filter.
         with_bbox (bool | Unset): Also return `bboxes`, each row's bounding box in EPSG:4326.
             Default: False.
-        x_embed_token (None | str | Unset): Optional embed token. Datasets in the token's scope
-            are authorized when the token's map has `show_attribute_table` on.
+        x_embed_token (None | str | Unset): Optional embed token. This route answers it for
+            datasets in the token's scope while the token's map has `show_attribute_table` on.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

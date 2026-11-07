@@ -97,6 +97,19 @@ and releases use semantic versioning.
   to read rather than rewrite without the owner it follows or a web map's
   unconfirmed save.
 
+### Deprecated
+
+- The `offset` query parameter on `GET /audit/datasets/{id}/column-ddl` and
+  `GET /datasets/{id}/vrt/generations/`, an alias of `skip`, stays until at
+  least 2027-02-05. Use `skip` instead.
+- The `externalId` query parameter on `GET /collections/datasets/items` stays
+  until at least 2027-02-05. Use `externalIds` instead.
+- Sending an API key as the `?api_key=` query parameter stays supported until
+  at least 2027-02-05. Send it in the `X-Api-Key` header, or as the password
+  of an HTTP Basic login, instead.
+- The `PUBLIC_BASE_URL` setting stays until at least 2027-02-05. Use
+  `PUBLIC_API_URL` instead.
+
 ### Fixed
 
 - Dashboards: the orange, teal and amber chart colours are darker in the light theme so bars, slices and legend swatches keep a 3:1 contrast against cards.
@@ -127,6 +140,8 @@ and releases use semantic versioning.
 
 - An API key, dataset key or admin-issued key created while the creator's
   password was being reset no longer stays usable after the reset.
+- Deactivating or suspending a user now ends their sessions and retires their
+  API keys, so reactivating the account no longer brings either back.
 
 ## [1.29.2] - 2026-11-01
 

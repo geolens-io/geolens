@@ -96,10 +96,12 @@ class StoryFrameHost(BaseModel):
         return normalize_frame_host(value)
 
 
-def parse_frame_hosts(raw: Any) -> list[dict[str, Any]]:
+def parse_frame_hosts(raw: Any, *, own_host: str | None = None) -> list[dict[str, Any]]:
     """The setting's value, lower-cased, with later repeats of a host dropped.
 
-    Raises ValueError for anything but a list of at most 50 host entries.
+    Raises ValueError for anything but a list of at most 50 host entries, and
+    for a list naming ``own_host``: a frame on this site's own origin that keeps
+    it could reach into the story page and lift its own sandbox.
     """
     if not isinstance(raw, list):
         raise ValueError("story_frame_hosts must be a list")
@@ -111,7 +113,17 @@ def parse_frame_hosts(raw: Any) -> list[dict[str, Any]]:
         raise ValueError(
             f"story_frame_hosts holds at most {MAX_STORY_FRAME_HOSTS} hosts"
         )
+    if own_host is not None and own_host.lower() in entries:
+        raise ValueError(f"{own_host.lower()} is this site's own host")
     return [entry.model_dump() for entry in entries.values()]
+
+
+async def own_frame_host(db: AsyncSession) -> str | None:
+    """The host of the configured public app URL, or None when it is unset."""
+    from app.core.public_urls import get_configured_public_app_url
+
+    app_url = await get_configured_public_app_url(db)
+    return urlsplit(app_url).hostname if app_url else None
 
 
 async def approved_frame_hosts(db: AsyncSession) -> list[StoryFrameHost]:
@@ -119,7 +131,9 @@ async def approved_frame_hosts(db: AsyncSession) -> list[StoryFrameHost]:
     from app.core.persistent_config import STORY_FRAME_HOSTS
 
     try:
-        entries = parse_frame_hosts(await STORY_FRAME_HOSTS.get(db))
+        entries = parse_frame_hosts(
+            await STORY_FRAME_HOSTS.get(db), own_host=await own_frame_host(db)
+        )
     except ValueError:
         logger.warning("story_frame_hosts.invalid_stored_value_ignored")
         return []

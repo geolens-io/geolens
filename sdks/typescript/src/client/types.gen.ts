@@ -26011,7 +26011,7 @@ export type GetDatasetRowsEndpointDatasetsDatasetIdRowsGetData = {
         /**
          * X-Embed-Token
          *
-         * Optional embed token. Datasets in the token's scope are authorized when the token's map has `show_attribute_table` on.
+         * Optional embed token. This route answers it for datasets in the token's scope while the token's map has `show_attribute_table` on.
          */
         'X-Embed-Token'?: string | null;
     };

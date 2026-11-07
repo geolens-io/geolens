@@ -1408,6 +1408,29 @@ async def add_vrt_source(
     Dataset = _port.get_dataset_orm_class()
     Record = _port.get_record_orm_class()
 
+    # Authorize both datasets before the type-filtered lookups, so an id the
+    # caller can't read answers 404 whatever its type.
+    from app.modules.catalog.authorization import (
+        check_dataset_access,
+        check_dataset_write_access,
+        check_vrt_members,
+        get_user_roles,
+        lock_dataset_rows_for_write,
+    )
+    from app.modules.catalog.datasets.domain.service import get_dataset
+
+    user_roles = await get_user_roles(db, user)
+    source_dataset = await get_dataset(db, request.source_dataset_id)
+    # The source only needs to be readable by the caller (it is being linked, not
+    # modified); the VRT itself is being mutated, so it requires owner-or-admin.
+    await check_dataset_access(
+        db, source_dataset, request.source_dataset_id, user, user_roles=user_roles
+    )
+    vrt_dataset = await get_dataset(db, dataset_id)
+    await check_dataset_write_access(
+        db, vrt_dataset, dataset_id, user, user_roles=user_roles
+    )
+
     vrt_result = await db.execute(
         select(RasterAsset)
         .join(Dataset, RasterAsset.dataset_id == Dataset.id)
@@ -1437,28 +1460,6 @@ async def add_vrt_source(
             detail=f"Source dataset {request.source_dataset_id} not found or not a raster dataset",
         )
 
-    # Authorize the new source before the duplicate-link check, so a source the
-    # caller can't read gets a 404 rather than a 409 confirming it is linked.
-    from app.modules.catalog.authorization import (
-        check_dataset_access,
-        check_dataset_write_access,
-        check_vrt_members,
-        get_user_roles,
-        lock_dataset_rows_for_write,
-    )
-    from app.modules.catalog.datasets.domain.service import get_dataset
-
-    user_roles = await get_user_roles(db, user)
-    source_dataset = await get_dataset(db, request.source_dataset_id)
-    # The source only needs to be readable by the caller (it is being linked, not
-    # modified); the VRT itself is being mutated, so it requires owner-or-admin.
-    await check_dataset_access(
-        db, source_dataset, request.source_dataset_id, user, user_roles=user_roles
-    )
-    vrt_dataset = await get_dataset(db, dataset_id)
-    await check_dataset_write_access(
-        db, vrt_dataset, dataset_id, user, user_roles=user_roles
-    )
     await check_vrt_members(db, vrt_dataset, adding=request.source_dataset_id)
 
     # Admission, not a status read: the check and the flip are one sequence,

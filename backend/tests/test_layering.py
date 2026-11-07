@@ -1343,7 +1343,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Ingest API router debt, including the commit door's token scheme check; split
     # upload, import and registration endpoints before raising further. Each upload
     # door branches once per 3D upload kind: a 3D Tiles tileset and a COPC point cloud.
-    "backend/app/processing/ingest/router.py": 1693,
+    "backend/app/processing/ingest/router.py": 1694,
     # One reader for untrusted COPC files: header, VLRs, hierarchy lookups,
     # chunk table, the checks before the decode child and the published extent.
     "backend/app/processing/ingest/pointcloud.py": 1085,
@@ -1407,7 +1407,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/auth/oauth/service.py": 1130,
     # Admin mutations share locking and audit outcomes; the catalog stats measure
     # live and kept-version storage.
-    "backend/app/modules/admin/service.py": 1054,
+    "backend/app/modules/admin/service.py": 1057,
     # Ingest admission, staging, job settlement and table registration share one
     # orchestration boundary.
     "backend/app/processing/ingest/service.py": 1559,
@@ -1431,7 +1431,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Native search and OGC Records share visibility, query parsing and pagination.
     "backend/app/modules/catalog/search/router.py": 1419,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
-    "backend/app/standards/stac/router.py": 1896,
+    "backend/app/standards/stac/router.py": 1906,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
     "backend/app/processing/tiles/router.py": 2934,

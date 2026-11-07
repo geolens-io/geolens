@@ -30,7 +30,7 @@ from sqlalchemy import text
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.processing.raster.models import RasterAsset
 
-from tests.factories import create_raster_dataset, get_user_id
+from tests.factories import create_dataset, create_raster_dataset, get_user_id
 
 
 # ---------------------------------------------------------------------------
@@ -510,3 +510,29 @@ async def test_vrt_member_count_covers_more_members_than_bind_parameters(
             {"vrt": vrt_id},
         )
         await test_db_session.commit()
+
+
+async def test_add_vrt_source_unreadable_non_raster_is_404(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """An unreadable source id answers 404 whatever its record type, so the
+    response can't tell a caller that a private dataset exists and isn't a
+    raster."""
+    admin_id = await _get_admin_id(test_db_session)
+    editor_headers, editor_id = await _make_editor(client, admin_auth_header)
+
+    vrt_id = await _create_vrt_dataset(test_db_session, created_by=editor_id)
+    private_vector = await create_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name=f"VRT Authz Vector {uuid.uuid4().hex[:6]}",
+        visibility="private",
+    )
+
+    resp = await client.post(
+        f"/ingest/vrt/{vrt_id}/sources/",
+        json={"source_dataset_id": str(private_vector.id)},
+        headers=editor_headers,
+    )
+
+    assert resp.status_code == 404, resp.text
