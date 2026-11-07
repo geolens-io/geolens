@@ -116,4 +116,19 @@ describe('frame block renderer', () => {
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
     expect(container.querySelector('iframe')).toBeNull();
   });
+
+  it('asks for the approved hosts again every half minute while mounted', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      approved = [{ host: 'media.example.org', allow_same_origin: false }];
+      renderBlock(block('video'));
+      await screen.findByTitle('Field visit');
+      approved = [];
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(await screen.findByText(/This video can't be shown here/)).toBeInTheDocument();
+      expect(screen.queryByTitle('Field visit')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

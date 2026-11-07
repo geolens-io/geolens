@@ -66,11 +66,16 @@ export function parseFrameConfig(config: unknown): FrameConfig | null {
   return { url, title };
 }
 
-/** The hosts an admin approved for story frames, as anyone may read them. */
+/**
+ * The hosts an admin approved for story frames, as anyone may read them.
+ * A mounted page asks again every half minute, so a host an admin adds or
+ * removes reaches open editors and readers without a reload.
+ */
 export function useStoryFrameHosts() {
   return useQuery({
     queryKey: queryKeys.stories.frameHosts,
     queryFn: getStoryFrameHosts,
     staleTime: 30_000,
+    refetchInterval: 30_000,
   });
 }
