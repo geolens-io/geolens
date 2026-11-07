@@ -233,23 +233,36 @@ class TestExportStreams:
         """The final copy runs within the export's time budget and checks it
         between row groups, so it doesn't finish every group first."""
         monkeypatch.setattr(export_parquet_module, "_BATCH_MAX_ROWS", 1)
-        # The budget also covers writing the ten segments, which a loaded CI
-        # runner has stretched past a second; it must outlast that but not
-        # the ten half-second reads.
         monkeypatch.setattr(
             export_parquet_module,
             "export_subprocess_timeout_seconds",
-            lambda deadline: 3.0,
+            lambda deadline: 1.0,
         )
         reads: list[int] = []
         real_read_row_group = pq.ParquetFile.read_row_group
+        loop = asyncio.get_running_loop()
+        first_read = asyncio.Event()
 
         def _slow_read_row_group(self, i, *args, **kwargs):
             reads.append(i)
+            loop.call_soon_threadsafe(first_read.set)
             time.sleep(0.5)
             return real_read_row_group(self, i, *args, **kwargs)
 
         monkeypatch.setattr(pq.ParquetFile, "read_row_group", _slow_read_row_group)
+
+        # The budget starts at the first read, so slow segment writes on a
+        # loaded runner cannot spend it before the copy begins.
+        real_wait_for = asyncio.wait_for
+
+        async def _wait_for_from_first_read(coro, timeout):
+            task = asyncio.ensure_future(coro)
+            started = asyncio.ensure_future(first_read.wait())
+            await asyncio.wait({task, started}, return_when=asyncio.FIRST_COMPLETED)
+            started.cancel()
+            return await real_wait_for(task, timeout)
+
+        monkeypatch.setattr(asyncio, "wait_for", _wait_for_from_first_read)
         names = [f"c{i}" for i in range(10)]
         # Each row gives one more column its first value, so each starts a segment.
         rows = [
@@ -268,7 +281,7 @@ class TestExportStreams:
             )
 
         assert 0 < len(reads) < 10
-        assert time.monotonic() - started < 6
+        assert time.monotonic() - started < 4
         assert os.listdir(staging / "exports") == []
 
     @pytest.mark.anyio
