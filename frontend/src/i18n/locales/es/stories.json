@@ -219,6 +219,7 @@
       "transition": "Transición",
       "transitionHint": "Cómo se mueve el mapa hasta la vista de este capítulo.",
       "transitions": {
+        "default": "Predeterminada de la historia",
         "fly": "Vuelo",
         "glide": "Deslizamiento",
         "cut": "Corte"
@@ -351,6 +352,8 @@
       "left": "Izquierda",
       "right": "Derecha",
       "center": "Centro"
-    }
+    },
+    "transition": "Transición",
+    "transitionHint": "Los capítulos sin transición propia usan esta."
   }
 }

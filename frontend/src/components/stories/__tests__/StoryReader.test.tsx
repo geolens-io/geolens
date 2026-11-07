@@ -11,6 +11,7 @@ const pane = vi.hoisted(() => ({
   hint: undefined as string | undefined,
   legendSide: undefined as string | undefined,
   panel: undefined as string | undefined,
+  defaultTransition: undefined as string | undefined,
 }));
 
 const prefetch = vi.hoisted(() => vi.fn());
@@ -22,11 +23,12 @@ vi.mock('@/api/client', async (importOriginal) => ({
 }));
 vi.mock('@/hooks/use-maps', () => ({ prefetchMap: (_qc: unknown, id: string) => prefetch(id) }));
 vi.mock('../StoryMapPane', () => ({
-  StoryMapPane: ({ resolved, next, emptyHint, legendSide, panel }: { resolved: ResolvedScene | null; next?: ResolvedScene | null; emptyHint?: string; legendSide?: string; panel?: string }) => {
+  StoryMapPane: ({ resolved, next, emptyHint, legendSide, panel, defaultTransition }: { resolved: ResolvedScene | null; next?: ResolvedScene | null; emptyHint?: string; legendSide?: string; panel?: string; defaultTransition?: string }) => {
     pane.resolved = resolved;
     pane.next = next ?? null;
     pane.legendSide = legendSide;
     pane.panel = panel;
+    pane.defaultTransition = defaultTransition;
     pane.hint = emptyHint;
     return <div data-testid="story-map" />;
   },
@@ -52,6 +54,7 @@ function renderReader() {
 }
 
 beforeEach(() => {
+  pane.defaultTransition = undefined;
   layout.narrow = true;
   pane.resolved = null;
   prefetch.mockReset();
@@ -339,7 +342,7 @@ describe('reader theme', () => {
   });
 });
 
-const SETTINGS: StorySettings = { navigation: false, layout: 'side', panel_position: 'left', theme: 'follow' };
+const SETTINGS: StorySettings = { navigation: false, layout: 'side', panel_position: 'left', theme: 'follow', transition: 'fly' };
 
 function renderWith(settings: Partial<StorySettings> | null, chapters = CHAPTERS) {
   return render(
@@ -583,7 +586,7 @@ describe('chromeless', () => {
         chapters={CHAPTERS}
         editHref="/stories/s1/edit"
         headerActions={<button type="button">Embed</button>}
-        settings={{ navigation: true, layout: 'side', panel_position: 'right', theme: 'follow' }}
+        settings={{ navigation: true, layout: 'side', panel_position: 'right', theme: 'follow', transition: 'fly' }}
       />,
     );
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
@@ -663,4 +666,10 @@ describe('chromeless', () => {
     expect(within(header).getByRole('button', { name: 'Embed' })).toBeInTheDocument();
     expect(within(header).getByRole('link', { name: 'Edit' })).toHaveAttribute('href', '/stories/s1/edit');
   });
+});
+
+it("gives the map the story's default transition", () => {
+  const settings = { navigation: false, layout: 'side', panel_position: 'left', theme: 'follow', transition: 'cut' } as const;
+  render(<StoryReader storyId="s1" title="Hurricanes" summary={null} chapters={CHAPTERS} settings={settings} />);
+  expect(pane.defaultTransition).toBe('cut');
 });

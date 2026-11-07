@@ -75,7 +75,7 @@ it('reads the published story', async () => {
 });
 
 it("hands the published document's reader settings to the reader", async () => {
-  const settings = { navigation: true, layout: 'floating', panel_position: 'right', theme: 'follow' } as const;
+  const settings = { navigation: true, layout: 'floating', panel_position: 'right', theme: 'follow', transition: 'fly' } as const;
   vi.mocked(getStory).mockResolvedValue({ ...STORY, document: { ...STORY.document!, settings } });
   renderPage();
   expect(await screen.findByTestId('story-reader')).toHaveAttribute('data-layout', 'floating');
@@ -139,7 +139,7 @@ describe('reader theme', () => {
   it('shows a dark story dark to a reader on light', async () => {
     vi.mocked(getStory).mockResolvedValue({
       ...STORY,
-      document: { ...STORY.document!, settings: { navigation: true, layout: 'side', panel_position: 'right', theme: 'dark' } },
+      document: { ...STORY.document!, settings: { navigation: true, layout: 'side', panel_position: 'right', theme: 'dark', transition: 'fly' } },
     });
     renderThemed();
     await screen.findByTestId('story-reader');

@@ -219,6 +219,7 @@
       "transition": "Transition",
       "transitionHint": "Comment la carte se déplace vers la vue de ce chapitre.",
       "transitions": {
+        "default": "Par défaut de l'histoire",
         "fly": "Vol",
         "glide": "Glissement",
         "cut": "Coupe"
@@ -351,6 +352,8 @@
       "left": "Gauche",
       "right": "Droite",
       "center": "Centre"
-    }
+    },
+    "transition": "Transition",
+    "transitionHint": "Les chapitres sans transition propre utilisent celle-ci."
   }
 }

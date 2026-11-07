@@ -4,7 +4,7 @@ import { render } from '@/test/test-utils';
 import { StoryReaderSettingsDialog } from '../StoryReaderSettingsDialog';
 import type { StorySettings } from '@/types/api';
 
-const base: StorySettings = { navigation: false, layout: 'side', panel_position: 'left', theme: 'follow' };
+const base: StorySettings = { navigation: false, layout: 'side', panel_position: 'left', theme: 'follow', transition: 'fly' };
 
 function renderDialog(settings: StorySettings | null, onChange = vi.fn()) {
   render(<StoryReaderSettingsDialog settings={settings} open onOpenChange={vi.fn()} onChange={onChange} />);
@@ -49,5 +49,23 @@ describe('StoryReaderSettingsDialog panel position hint', () => {
   it('says nothing for a panel at the side', () => {
     renderDialog({ ...floating, panel_position: 'right' });
     expect(screen.queryByText(/A centred panel/)).not.toBeInTheDocument();
+  });
+});
+
+describe('StoryReaderSettingsDialog transition', () => {
+  beforeAll(() => {
+    Element.prototype.hasPointerCapture ??= () => false;
+    Element.prototype.releasePointerCapture ??= () => undefined;
+    Element.prototype.scrollIntoView ??= () => undefined;
+  });
+
+  it('shows the story default and reports the chosen one', async () => {
+    const user = userEvent.setup();
+    const onChange = renderDialog(base);
+    const select = screen.getByRole('combobox', { name: 'Transition' });
+    expect(select).toHaveTextContent('Fly');
+    await user.click(select);
+    await user.click(await screen.findByRole('option', { name: 'Glide' }));
+    expect(onChange).toHaveBeenCalledWith({ transition: 'glide' });
   });
 });

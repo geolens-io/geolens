@@ -23,6 +23,7 @@ and releases use semantic versioning.
 - Stories: embed and video blocks from hosts an admin approves.
 - Stories: scene transitions and reader settings (navigation bar, layout, theme) in the story document; the reader applies them in 1.30.
 - Stories: a public story can be embedded in another site with an iframe snippet.
+- Stories: a default transition in Reader settings; chapters can keep their own.
 - The dashboard API accepts feature list, table and pie chart widgets, bar
   charts by feature, by fields or by date, and per-dashboard settings to hide
   the map and set a light or dark theme.

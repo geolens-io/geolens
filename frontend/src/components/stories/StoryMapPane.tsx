@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { motionDuration } from '@/lib/reduced-motion';
 import { readMapCamera } from '@/components/builder/builder-camera';
-import type { StoryCamera, StoryScene } from '@/types/api';
+import type { StoryCamera, StoryScene, StorySettings } from '@/types/api';
 import {
   applySceneVisibility,
   cameraDiffers,
@@ -63,6 +63,8 @@ interface StoryMapPaneProps {
   legendSide?: 'start' | 'end';
   /** Where a floating chapter panel sits, so the map's own controls stay out from under it. */
   panel?: 'left' | 'right' | 'center';
+  /** The story's transition for a scene that sets none. */
+  defaultTransition?: StorySettings['transition'];
   ref?: Ref<StoryMapPaneHandle>;
 }
 
@@ -70,7 +72,7 @@ interface StoryMapPaneProps {
  * The story's map. A scene on another map crossfades from a copy loaded
  * ahead; without one ready, the map remounts. A scene on the same map flies there.
  */
-export const StoryMapPane = memo(function StoryMapPane({ resolved, next, emptyHint, resetKey, legendSide, panel, ref }: StoryMapPaneProps) {
+export const StoryMapPane = memo(function StoryMapPane({ resolved, next, emptyHint, resetKey, legendSide, panel, defaultTransition, ref }: StoryMapPaneProps) {
   const [shown, setShown] = useState(resolved);
   // The map that just lost the view, kept underneath while the next one fades in.
   const [outgoing, setOutgoing] = useState<ResolvedScene | null>(null);
@@ -145,6 +147,7 @@ export const StoryMapPane = memo(function StoryMapPane({ resolved, next, emptyHi
             resetKey={resetKey}
             legendSide={legendSide}
             panel={panel}
+            defaultTransition={defaultTransition}
             handleRef={role === 'active' ? ref : undefined}
           />
         </div>
@@ -168,6 +171,7 @@ function StoryMap({
   resetKey,
   legendSide,
   panel,
+  defaultTransition,
   handleRef,
 }: {
   resolved: ResolvedScene;
@@ -178,6 +182,7 @@ function StoryMap({
   resetKey?: number;
   legendSide?: 'start' | 'end';
   panel?: 'left' | 'right' | 'center';
+  defaultTransition?: StorySettings['transition'];
   handleRef?: Ref<StoryMapPaneHandle>;
 }) {
   const { t } = useTranslation('stories');
@@ -206,6 +211,11 @@ function StoryMap({
     sceneRef.current = scene;
   }, [scene]);
 
+  const defaultRef = useRef(defaultTransition);
+  useEffect(() => {
+    defaultRef.current = defaultTransition;
+  }, [defaultTransition]);
+
   const [away, setAway] = useState(false);
   // Our own moves not yet ended by a moveend, so one that ends them isn't taken for the reader's.
   const inFlight = useRef(0);
@@ -216,7 +226,8 @@ function StoryMap({
 
   // Cut is a zero-length move, as is every move under reduced motion.
   const playTransition = useCallback((map: MaplibreMap, target: StoryScene = sceneRef.current) => {
-    const { camera, transition } = target;
+    const { camera } = target;
+    const transition = target.transition ?? defaultRef.current ?? 'fly';
     const duration = transition === 'cut' ? 0 : motionDuration(transitionDuration(cameraGap(map, camera)));
     const options = { ...camera, duration };
     // Before the call: starting a move first ends the one running, and a zero-length move ends inside the call.
@@ -258,7 +269,7 @@ function StoryMap({
   useEffect(() => {
     const map = mapRef.current;
     if (role !== 'outgoing' || !map || !exitRef.current) return;
-    if (exitRef.current.scene.transition === 'cut') map.stop();
+    if ((exitRef.current.scene.transition ?? defaultRef.current ?? 'fly') === 'cut') map.stop();
     else playTransition(map, exitRef.current.scene);
   }, [role, playTransition]);
 

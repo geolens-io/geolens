@@ -1047,6 +1047,7 @@ from .story_settings import StorySettings
 from .story_settings_layout import StorySettingsLayout
 from .story_settings_panel_position import StorySettingsPanelPosition
 from .story_settings_theme import StorySettingsTheme
+from .story_settings_transition import StorySettingsTransition
 from .story_summary import StorySummary
 from .story_update import StoryUpdate
 from .story_visibility import StoryVisibility
@@ -1878,6 +1879,7 @@ __all__ = (
     "StorySettingsLayout",
     "StorySettingsPanelPosition",
     "StorySettingsTheme",
+    "StorySettingsTransition",
     "StorySummary",
     "StoryUpdate",
     "StoryVisibility",
