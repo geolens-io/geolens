@@ -124,6 +124,18 @@
     "video": {
       "label": "Vidéo",
       "unavailable": "Cette vidéo ne peut pas s’afficher ici, car son site n’est plus approuvé."
+    },
+    "pie_chart": {
+      "label": "Diagramme circulaire",
+      "summary": "{{stat}} par {{column}}",
+      "keyboardHint": "Utilisez les flèches pour passer d’un secteur à l’autre.",
+      "keyboardHintPick": "Utilisez les flèches pour passer d’un secteur à l’autre. Appuyez sur Entrée pour filtrer la carte selon un secteur, puis de nouveau pour retirer le filtre.",
+      "keyboardHintPickPage": "Utilisez les flèches pour passer d’un secteur à l’autre. Appuyez sur Entrée pour filtrer le tableau de bord selon un secteur, puis de nouveau pour retirer le filtre.",
+      "slice": "{{label}} : {{value}} ({{share}})",
+      "roleDescription": "diagramme circulaire",
+      "sliceValue": "{{label}} : {{value}}",
+      "truncated": "Affichage des {{shown}} premières valeurs. La couche en compte davantage, les secteurs ne forment donc pas le tout.",
+      "signed": "Les secteurs ne peuvent pas représenter de valeurs négatives ou non numériques ; ce diagramme est donc affiché sous forme de tableau."
     }
   },
   "dashboard": {
@@ -257,6 +269,7 @@
     "fields": "Champs",
     "layerColors": "Utiliser les couleurs de la couche",
     "layerColorsHelp": "S’applique lorsque la colonne est celle par laquelle le style de la couche colore la carte.",
-    "fieldUnavailable": "{{column}} (n’est pas une colonne numérique de cette couche)"
+    "fieldUnavailable": "{{column}} (n’est pas une colonne numérique de cette couche)",
+    "slices": "Secteurs"
   }
 }

@@ -124,6 +124,18 @@
     "video": {
       "label": "Video",
       "unavailable": "Dieses Video kann hier nicht angezeigt werden, weil seine Website nicht mehr freigegeben ist."
+    },
+    "pie_chart": {
+      "label": "Kreisdiagramm",
+      "summary": "{{stat}} nach {{column}}",
+      "keyboardHint": "Mit den Pfeiltasten zwischen den Segmenten wechseln.",
+      "keyboardHintPick": "Mit den Pfeiltasten wechseln Sie zwischen den Segmenten. Drücken Sie die Eingabetaste, um die Karte nach einem Segment zu filtern, und erneut, um den Filter zu entfernen.",
+      "keyboardHintPickPage": "Mit den Pfeiltasten wechseln Sie zwischen den Segmenten. Drücken Sie die Eingabetaste, um das Dashboard nach einem Segment zu filtern, und erneut, um den Filter zu entfernen.",
+      "slice": "{{label}}: {{value}} ({{share}})",
+      "roleDescription": "Kreisdiagramm",
+      "sliceValue": "{{label}}: {{value}}",
+      "truncated": "Die obersten {{shown}} Werte werden angezeigt. Die Ebene hat mehr, die Segmente ergeben daher nicht das Ganze.",
+      "signed": "Segmente können keine negativen oder nicht numerischen Werte darstellen, daher wird dieses Diagramm als Tabelle angezeigt."
     }
   },
   "dashboard": {
@@ -257,6 +269,7 @@
     "fields": "Felder",
     "layerColors": "Farben der Ebene verwenden",
     "layerColorsHelp": "Gilt, wenn die Spalte diejenige ist, nach der der Kartenstil der Ebene einfärbt.",
-    "fieldUnavailable": "{{column}} (keine numerische Spalte dieser Ebene)"
+    "fieldUnavailable": "{{column}} (keine numerische Spalte dieser Ebene)",
+    "slices": "Segmente"
   }
 }

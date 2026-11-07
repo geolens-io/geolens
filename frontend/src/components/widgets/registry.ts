@@ -14,6 +14,7 @@ import { separatorWidget } from './separator/definition';
 import { tableWidget } from './table/definition';
 import { featureListWidget } from './feature-list/definition';
 import { videoWidget } from './video/definition';
+import { pieChartWidget } from './pie-chart/definition';
 
 /** Every widget type this build knows. Add new types here; see README.md. */
 export const widgetDefinitions: readonly AnyWidgetDefinition[] = [
@@ -31,6 +32,7 @@ export const widgetDefinitions: readonly AnyWidgetDefinition[] = [
   categorySelectorWidget,
   tableWidget,
   featureListWidget,
+  pieChartWidget,
 ];
 
 const byType = new Map(widgetDefinitions.map((definition) => [definition.type, definition]));

@@ -30,6 +30,10 @@ const examples: Record<string, { config: unknown; fallbackText: string | RegExp 
     fallbackText: /No data yet/,
   },
   histogram: { config: { column: 'height', bins: 12 }, fallbackText: /No data yet/ },
+  pie_chart: {
+    config: { column: 'land_use', stat: 'count', stat_column: null, limit: 6, use_layer_colors: true },
+    fallbackText: /No data yet/,
+  },
   category_selector: { config: { column: 'land_use', multiple: false }, fallbackText: /No data yet/ },
   table: {
     config: { group_column: 'land_use', stats: [{ stat: 'count', column: null }, { stat: 'sum', column: 'area' }], sort_by: 1, sort: 'desc', limit: 5 },
