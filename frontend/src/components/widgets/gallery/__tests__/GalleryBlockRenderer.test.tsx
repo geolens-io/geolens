@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event';
-import { render, screen, within } from '@/test/test-utils';
+import { render, screen, within, fireEvent } from '@/test/test-utils';
 import { apiFetchBlob } from '@/api/client';
 import GalleryBlockRenderer from '../GalleryBlockRenderer';
 import type { GalleryConfig } from '../definition';
@@ -86,6 +86,12 @@ describe('gallery block lightbox', () => {
     await user.keyboard('{ArrowLeft}');
     expect(within(dialog).getByText('Image 1 of 3')).toBeInTheDocument();
     expect(outside).not.toHaveBeenCalled();
+
+    // A modified arrow is the browser's (Alt+Left goes back), so it passes untouched.
+    for (const modifier of ['altKey', 'ctrlKey', 'metaKey', 'shiftKey'] as const) {
+      expect(fireEvent.keyDown(dialog, { key: 'ArrowRight', [modifier]: true })).toBe(true);
+      expect(within(dialog).getByText('Image 1 of 3')).toBeInTheDocument();
+    }
   });
 
   it('offers no Previous or Next for a single image', async () => {
