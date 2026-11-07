@@ -9,7 +9,10 @@ const FULL = Math.PI * 2;
 
 /** The slices for `amounts`; a value that isn't a positive number takes no room. */
 export function pieArcs(amounts: readonly number[]): PieArc[] {
-  const sizes = amounts.map((amount) => (Number.isFinite(amount) && amount > 0 ? amount : 0));
+  const positive = amounts.map((amount) => (Number.isFinite(amount) && amount > 0 ? amount : 0));
+  // Scaled by the largest first, so a sum of huge values can't overflow to Infinity.
+  const largest = Math.max(0, ...positive);
+  const sizes = positive.map((size) => (largest > 0 ? size / largest : 0));
   const total = sizes.reduce((sum, size) => sum + size, 0);
   let angle = 0;
   return sizes.map((size) => {

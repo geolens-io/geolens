@@ -63,6 +63,10 @@ describe('pie geometry', () => {
     expect(arcPath(60, 60, 50, arcs[2])).toBe('');
   });
 
+  it('shares huge values without overflowing their sum', () => {
+    expect(pieArcs([1e308, 1e308]).map((arc) => arc.share)).toEqual([0.5, 0.5]);
+  });
+
   it('draws a lone slice as a whole disc', () => {
     const [only] = pieArcs([7]);
     expect(arcPath(60, 60, 50, only).match(/A/g)).toHaveLength(2);
@@ -165,6 +169,24 @@ describe('PieChartRenderer', () => {
     expect(within(screen.getByRole('table')).getAllByRole('row').slice(1).map((row) => row.textContent)).toEqual([
       'park50',
       'road-30',
+    ]);
+    expect(container.textContent).not.toMatch(/%/);
+  });
+
+  it('shows the table when every value is zero, since shares of nothing mean nothing', () => {
+    const zeros = {
+      op: 'group_by',
+      approximate: false,
+      cached: false,
+      result: { groups: [{ key: 'park', value: 0 }, { key: 'road', value: 0 }], truncated: false },
+    };
+    const { container } = render(
+      <PieChartRenderer config={{ ...config, stat: 'sum', stat_column: 'area' }} data={zeros} />,
+    );
+    expect(container.querySelector('svg')).toBeNull();
+    expect(within(screen.getByRole('table')).getAllByRole('row').slice(1).map((row) => row.textContent)).toEqual([
+      'park0',
+      'road0',
     ]);
     expect(container.textContent).not.toMatch(/%/);
   });
