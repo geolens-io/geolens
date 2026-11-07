@@ -341,7 +341,11 @@ function StoryScrollPanel({
     let last = panel.clientHeight;
     const observer = new ResizeObserver(() => {
       const now = panel.clientHeight;
-      if (now !== last) panel.scrollTop += (last - now) * ACTIVE_LINE;
+      if (now !== last) {
+        panel.scrollTop += (last - now) * ACTIVE_LINE;
+        // A jump's settle guard follows the compensated position; only the reader's own scroll clears it.
+        if (jumpedTo.current !== null) jumpedTo.current = panel.scrollTop;
+      }
       last = now;
     });
     observer.observe(panel);

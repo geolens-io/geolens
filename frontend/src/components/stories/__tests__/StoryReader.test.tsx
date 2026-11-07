@@ -500,6 +500,44 @@ describe('floating layout', () => {
     }
   });
 
+  it('keeps a jumped-to chapter selected when the panel gets shorter', async () => {
+    const user = userEvent.setup();
+    layout.narrow = false;
+    const observers: Array<() => void> = [];
+    const Original = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+      constructor(callback: () => void) {
+        observers.push(callback);
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+    try {
+      renderWith({ layout: 'floating', navigation: true });
+      const panel = screen.getByRole('region', { name: 'Story chapters' });
+      panel.scrollTo = vi.fn();
+      Object.defineProperty(panel, 'clientHeight', { configurable: true, value: 1000 });
+      panel.getBoundingClientRect = () => ({ top: 100 }) as DOMRect;
+      // Every chapter starts within the first 40% of the panel, so the jump clamps to the top.
+      panel.querySelectorAll('section').forEach((section, i) => {
+        section.getBoundingClientRect = () => ({ top: 100 + i * 100 }) as DOMRect;
+      });
+      observers[0]();
+      await user.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'The coasts' }));
+      expect(screen.getByRole('region', { name: 'The coasts' })).toHaveAttribute('aria-current', 'step');
+
+      // Map data docks: the panel loses 200px and the scroll moves 80px with it, which is not the reader scrolling.
+      Object.defineProperty(panel, 'clientHeight', { configurable: true, value: 800 });
+      observers[0]();
+      fireEvent.scroll(panel);
+      await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+      expect(screen.getByRole('region', { name: 'The coasts' })).toHaveAttribute('aria-current', 'step');
+    } finally {
+      globalThis.ResizeObserver = Original;
+    }
+  });
+
   it('keeps a thin scrollbar visible on the floating panel only', () => {
     layout.narrow = false;
     const { unmount } = renderWith({ layout: 'floating' });
