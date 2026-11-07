@@ -109,6 +109,10 @@ _STAC_RECORD_TYPES = RASTER_FAMILY_RECORD_TYPES
 # enforces it. One constant so a future ceiling change cannot miss a handler.
 _STAC_MAX_LIMIT = 200
 
+# Each id becomes a bind parameter, and asyncpg refuses a query with more
+# than 32,767 of them.
+_STAC_MAX_LIST_ITEMS = 1000
+
 # STAC Items must be collection-scoped to remain browsable by machine clients.
 # This virtual collection does not create or mutate a catalog Collection; it is
 # a deterministic protocol view over published raster/VRT datasets with no
@@ -1706,8 +1710,20 @@ async def search_get(
     datetime_param: str | None = Query(
         None, alias="datetime", description="OGC datetime interval"
     ),
-    collections: str | None = Query(None, description="Comma-separated collection IDs"),
-    ids: str | None = Query(None, description="Comma-separated item IDs"),
+    collections: str | None = Query(
+        None,
+        description=(
+            f"Comma-separated collection IDs, at most {_STAC_MAX_LIST_ITEMS}; "
+            "more answer 400."
+        ),
+    ),
+    ids: str | None = Query(
+        None,
+        description=(
+            f"Comma-separated item IDs, at most {_STAC_MAX_LIST_ITEMS}; "
+            "more answer 400."
+        ),
+    ),
     intersects: str | None = Query(
         None,
         max_length=10000,
@@ -1736,6 +1752,13 @@ async def search_get(
     ),
 ) -> JSONResponse:
     """STAC Item Search (GET)."""
+    for name, value in (("ids", ids), ("collections", collections)):
+        count = sum(1 for part in (value or "").split(",") if part.strip())
+        if count > _STAC_MAX_LIST_ITEMS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{name} accepts at most {_STAC_MAX_LIST_ITEMS} values",
+            )
     stac_api_url, public_api_url = await _resolve_urls(db, request)
     public_app_url = await get_public_app_url(db, request=request)
     user_roles = await _resolve_roles(db, user)
@@ -1775,8 +1798,8 @@ class StacSearchBody(BaseModel):
 
     bbox: list[float] | None = None
     datetime: str | None = None
-    collections: list[str] | None = None
-    ids: list[str] | None = None
+    collections: list[str] | None = Field(default=None, max_length=_STAC_MAX_LIST_ITEMS)
+    ids: list[str] | None = Field(default=None, max_length=_STAC_MAX_LIST_ITEMS)
     intersects: dict | None = None
     limit: int = Field(
         default=10,

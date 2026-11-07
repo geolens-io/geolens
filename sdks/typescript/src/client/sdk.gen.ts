@@ -3515,13 +3515,20 @@ export const reuploadPreviewDatasetsDatasetIdReuploadJobIdPreviewPost = <ThrowOn
  * Supports column filtering via query params: ``filter[column_name]=value``.
  * An optional CQL2-JSON ``filter`` expression ANDs with them.
  *
- * Anonymous callers can read public, published datasets. ``X-Embed-Token``
- * authorizes datasets in the token's scope while the token's map has
- * ``show_attribute_table`` on. Other datasets return 404. A request only the
- * embed token authorizes reads only the columns in the dataset's tile column
- * allowlist, when it has one: any other column is treated as one the table
- * lacks, in the returned columns, ``sort``, ``filter`` and
- * ``filter[column]``.
+ * Anonymous callers can read public, published datasets, and a signed-in
+ * caller reads what their own permissions allow; an embed token that doesn't
+ * cover the dataset changes neither. This route also answers an
+ * ``X-Embed-Token`` for datasets in the token's scope while the token's map
+ * has ``show_attribute_table`` on. That flag only decides whether viewers
+ * offer the table: tiles, ``features.geojson`` and ``aggregate`` return the
+ * same allowlisted values to the token either way. Any other caller gets 404.
+ *
+ * A request only the embed token authorizes reads only the columns in the
+ * dataset's tile column allowlist, when it has one: any other column is
+ * treated as one the table lacks, in the returned columns, ``sort``,
+ * ``filter`` and ``filter[column]``. ``gid`` is kept even when the allowlist
+ * leaves it out: it stays in the rows, in ``sortable_columns`` and, when the
+ * stored metadata lists it, in ``columns``.
  */
 export const getDatasetRowsEndpointDatasetsDatasetIdRowsGet = <ThrowOnError extends boolean = false>(options: Options<GetDatasetRowsEndpointDatasetsDatasetIdRowsGetData, ThrowOnError>): RequestResult<GetDatasetRowsEndpointDatasetsDatasetIdRowsGetResponses, GetDatasetRowsEndpointDatasetsDatasetIdRowsGetErrors, ThrowOnError> => (options.client ?? client).get<GetDatasetRowsEndpointDatasetsDatasetIdRowsGetResponses, GetDatasetRowsEndpointDatasetsDatasetIdRowsGetErrors, ThrowOnError>({
     security: [

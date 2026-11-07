@@ -4,6 +4,7 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, NoReturn
+from urllib.parse import urlsplit
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -39,6 +40,7 @@ from app.core.persistent_config import (
     is_unset_model,
 )
 from app.platform.ratelimit import limiter
+from app.platform.story_frames import own_frame_host, parse_frame_hosts
 from app.core.public_urls import (
     _is_env_only,
     get_public_api_url,
@@ -517,6 +519,23 @@ async def update_settings(
         _require_enterprise_for_key(key)
 
         validated_settings[key] = _canonicalize_setting_value(key, value, cfg)
+
+    if "story_frame_hosts" in validated_settings:
+        new_app_url = validated_settings.get("public_app_url")
+        own_host = (
+            urlsplit(str(new_app_url)).hostname
+            if new_app_url
+            else await own_frame_host(db)
+        )
+        try:
+            parse_frame_hosts(
+                validated_settings["story_frame_hosts"], own_host=own_host
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Validation error for 'story_frame_hosts': {exc}",
+            ) from exc
 
     # Answered read-only before the lock as well, so the lockout 422 never
     # depends on lock contention; the row-locked check below is authoritative.
