@@ -24620,7 +24620,7 @@
                 "type": "null"
               }
             ],
-            "description": "How the map moves into this scene; absent plays as fly.",
+            "description": "How the map moves into this scene; absent uses the story setting.",
             "title": "Transition"
           }
         },
@@ -24670,6 +24670,17 @@
               "dark"
             ],
             "title": "Theme",
+            "type": "string"
+          },
+          "transition": {
+            "default": "fly",
+            "description": "How the map moves into a chapter whose scene sets no transition.",
+            "enum": [
+              "fly",
+              "glide",
+              "cut"
+            ],
+            "title": "Transition",
             "type": "string"
           }
         },

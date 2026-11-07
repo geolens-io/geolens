@@ -41,7 +41,7 @@ export type DraftEdit =
   | { type: 'clearScene'; chapterId: string }
   | { type: 'setCamera'; chapterId: string; camera: StoryCamera }
   | { type: 'setLayerVisible'; chapterId: string; layerId: string; visible: boolean }
-  | { type: 'setTransition'; chapterId: string; transition: SceneTransition }
+  | { type: 'setTransition'; chapterId: string; transition: SceneTransition | null }
   | { type: 'addTextBlock'; chapterId: string; blockId: string }
   | { type: 'setBlockText'; chapterId: string; blockId: string; text: string }
   | { type: 'addImageBlock'; chapterId: string; blockId: string; assetId: string }
@@ -82,6 +82,7 @@ const DEFAULT_STORY_SETTINGS: StorySettings = {
   layout: 'side',
   panel_position: 'left',
   theme: 'follow',
+  transition: 'fly',
 };
 
 /** Stored settings with every default filled in. */
@@ -96,7 +97,10 @@ export type SettingsEdit = Partial<StorySettings>;
 export function applySettingsEdit(settings: StorySettings | null | undefined, edit: SettingsEdit): StorySettings | null | undefined {
   const current = readSettings(settings);
   const changed = (Object.keys(edit) as (keyof SettingsEdit)[]).some((key) => edit[key] !== current[key]);
-  return changed ? { ...current, ...edit } : settings;
+  if (!changed) return settings;
+  const { transition, ...rest } = { ...current, ...edit };
+  // A server from before this setting rejects the key, so it is sent only once stored or chosen.
+  return (settings && 'transition' in settings) || 'transition' in edit ? { ...rest, transition } : rest as StorySettings;
 }
 
 function textBlock(id: string): Block {
@@ -233,7 +237,12 @@ export function applyDraftEdit(chapters: StoryChapter[], edit: DraftEdit): Story
     case 'setCamera':
       return updateScene(chapters, edit.chapterId, (scene) => ({ ...scene, camera: edit.camera }));
     case 'setTransition':
-      return updateScene(chapters, edit.chapterId, (scene) => ({ ...scene, transition: edit.transition }));
+      return updateScene(chapters, edit.chapterId, (scene) => {
+        const next = { ...scene };
+        if (edit.transition === null) delete next.transition;
+        else next.transition = edit.transition;
+        return next;
+      });
     case 'setLayerVisible':
       return updateScene(chapters, edit.chapterId, (scene) => ({
         ...scene,

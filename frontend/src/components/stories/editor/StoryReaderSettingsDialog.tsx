@@ -15,6 +15,7 @@ import { readSettings, type SettingsEdit } from './story-draft';
 
 const LAYOUTS: StorySettings['layout'][] = ['side', 'floating'];
 const POSITIONS: StorySettings['panel_position'][] = ['left', 'right', 'center'];
+const TRANSITIONS: StorySettings['transition'][] = ['fly', 'glide', 'cut'];
 const THEMES: StorySettings['theme'][] = ['follow', 'light', 'dark'];
 
 interface StoryReaderSettingsDialogProps {
@@ -61,6 +62,13 @@ export function StoryReaderSettingsDialog({ settings, open, onOpenChange, onChan
               label: value === 'follow' ? tWidgets('editor.themeFollow') : tCommon(`theme.${value}`),
             }))}
             onChange={(theme) => onChange({ theme })}
+          />
+          <SettingSelect
+            label={t('readerSettings.transition')}
+            hint={t('readerSettings.transitionHint')}
+            value={current.transition}
+            options={TRANSITIONS.map((value) => ({ value, label: t(`editor.scene.transitions.${value}`) }))}
+            onChange={(transition) => onChange({ transition })}
           />
           {current.layout === 'floating' && (
             <SettingSelect

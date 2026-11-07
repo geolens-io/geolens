@@ -73,7 +73,7 @@ class StoryScene(_Strict):
     transition: Literal["fly", "glide", "cut"] | None = Field(
         default=None,
         exclude_if=lambda transition: transition is None,
-        description="How the map moves into this scene; absent plays as fly.",
+        description="How the map moves into this scene; absent uses the story setting.",
     )
 
 
@@ -89,6 +89,10 @@ class StorySettings(_Strict):
     )
     theme: Literal["follow", "light", "dark"] = Field(
         default="follow", description="Reader page theme; follow uses the reader's."
+    )
+    transition: Literal["fly", "glide", "cut"] = Field(
+        default="fly",
+        description="How the map moves into a chapter whose scene sets no transition.",
     )
 
 

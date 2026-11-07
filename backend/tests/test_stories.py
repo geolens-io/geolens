@@ -1083,6 +1083,7 @@ _SETTINGS = {
     "layout": "floating",
     "panel_position": "right",
     "theme": "dark",
+    "transition": "glide",
 }
 
 
@@ -1114,6 +1115,29 @@ async def test_settings_round_trip_through_draft_publish_and_read(
     assert published.status_code == 200, published.text
     read = await client.get(f"/stories/{story['id']}", headers=owner)
     assert read.json()["document"]["settings"] == _SETTINGS
+
+
+async def test_story_default_transition_applies_to_a_scene_without_one(
+    client: AsyncClient, people
+):
+    owner = people["owner"]
+    story = await _story(client, owner)
+    map_id = await _map(client, owner)
+    saved = await _save_document(
+        client,
+        owner,
+        story,
+        {
+            "version": 1,
+            "chapters": [_chapter(map_id)],
+            "settings": {"transition": "glide"},
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    draft = await client.get(f"/stories/{story['id']}/draft", headers=owner)
+    document = draft.json()["document"]
+    assert document["settings"]["transition"] == "glide"
+    assert "transition" not in document["chapters"][0]["scene"]
 
 
 async def test_a_draft_settings_change_is_unseen_until_publish(
@@ -1150,7 +1174,12 @@ async def test_a_draft_settings_change_is_unseen_until_publish(
 async def test_unknown_or_invalid_settings_are_refused(client: AsyncClient, people):
     owner = people["owner"]
     story = await _story(client, owner)
-    for settings in ({"colour": "red"}, {"theme": "sepia"}, {"layout": "grid"}):
+    for settings in (
+        {"colour": "red"},
+        {"theme": "sepia"},
+        {"layout": "grid"},
+        {"transition": "wobble"},
+    ):
         resp = await _save_document(
             client,
             owner,

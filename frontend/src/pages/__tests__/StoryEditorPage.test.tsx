@@ -238,7 +238,7 @@ it('saves edits to the draft against the revision it loaded', async () => {
 });
 
 it('sends the draft settings back unchanged on a save', async () => {
-  const settings = { navigation: true, layout: 'floating', panel_position: 'right', theme: 'dark' } as const;
+  const settings = { navigation: true, layout: 'floating', panel_position: 'right', theme: 'dark', transition: 'fly' } as const;
   vi.mocked(getStoryDraft).mockResolvedValue(draft({ document: { version: 1, chapters: CHAPTERS, settings } }));
   vi.mocked(getStory).mockResolvedValue(published(CHAPTERS, settings));
   const user = userEvent.setup();
@@ -253,7 +253,7 @@ it('sends the draft settings back unchanged on a save', async () => {
 });
 
 it('saves reader settings chosen in the dialog with the draft, keeping the stored theme', async () => {
-  const settings = { navigation: false, layout: 'side', panel_position: 'left', theme: 'dark' } as const;
+  const settings = { navigation: false, layout: 'side', panel_position: 'left', theme: 'dark', transition: 'fly' } as const;
   vi.mocked(getStoryDraft).mockResolvedValue(draft({ document: { version: 1, chapters: CHAPTERS, settings } }));
   vi.mocked(getStory).mockResolvedValue(published(CHAPTERS, settings));
   const user = userEvent.setup();
@@ -278,6 +278,7 @@ it('saves reader settings chosen in the dialog with the draft, keeping the store
       layout: 'floating',
       panel_position: 'right',
       theme: 'dark',
+      transition: 'fly',
     }),
   );
   expect(await screen.findByText('Draft saved. Readers still see the last published version.')).toBeInTheDocument();
@@ -328,14 +329,14 @@ it('picks a map, keeps the current view and sets the scene layers', async () => 
   });
 });
 
-it("sets the scene's transition from the select, showing Fly until one is chosen", async () => {
+it("sets the scene's transition from the select, showing the story default until one is chosen", async () => {
   const user = userEvent.setup();
   renderEditor();
   await ready();
   await pickMap(user, /^Tracks/);
 
   const select = await screen.findByRole('combobox', { name: 'Transition' });
-  expect(select).toHaveTextContent('Fly');
+  expect(select).toHaveTextContent('Story default');
   await user.click(select);
   await user.click(screen.getByRole('option', { name: 'Glide' }));
   expect(screen.getByRole('combobox', { name: 'Transition' })).toHaveTextContent('Glide');

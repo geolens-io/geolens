@@ -13,6 +13,8 @@ from ..models.story_settings_panel_position import check_story_settings_panel_po
 from ..models.story_settings_panel_position import StorySettingsPanelPosition
 from ..models.story_settings_theme import check_story_settings_theme
 from ..models.story_settings_theme import StorySettingsTheme
+from ..models.story_settings_transition import check_story_settings_transition
+from ..models.story_settings_transition import StorySettingsTransition
 
 
 T = TypeVar("T", bound="StorySettings")
@@ -26,12 +28,15 @@ class StorySettings:
         layout (StorySettingsLayout | Unset): Chapter panel beside the map or floating over it. Default: 'side'.
         panel_position (StorySettingsPanelPosition | Unset): Where a floating panel sits. Default: 'left'.
         theme (StorySettingsTheme | Unset): Reader page theme; follow uses the reader's. Default: 'follow'.
+        transition (StorySettingsTransition | Unset): How the map moves into a chapter whose scene sets no transition.
+            Default: 'fly'.
     """
 
     navigation: bool | Unset = False
     layout: StorySettingsLayout | Unset = "side"
     panel_position: StorySettingsPanelPosition | Unset = "left"
     theme: StorySettingsTheme | Unset = "follow"
+    transition: StorySettingsTransition | Unset = "fly"
 
     def to_dict(self) -> dict[str, Any]:
         navigation = self.navigation
@@ -48,6 +53,10 @@ class StorySettings:
         if not isinstance(self.theme, Unset):
             theme = self.theme
 
+        transition: str | Unset = UNSET
+        if not isinstance(self.transition, Unset):
+            transition = self.transition
+
         field_dict: dict[str, Any] = {}
 
         field_dict.update({})
@@ -59,6 +68,8 @@ class StorySettings:
             field_dict["panel_position"] = panel_position
         if theme is not UNSET:
             field_dict["theme"] = theme
+        if transition is not UNSET:
+            field_dict["transition"] = transition
 
         return field_dict
 
@@ -88,11 +99,19 @@ class StorySettings:
         else:
             theme = check_story_settings_theme(_theme)
 
+        _transition = d.pop("transition", UNSET)
+        transition: StorySettingsTransition | Unset
+        if isinstance(_transition, Unset):
+            transition = UNSET
+        else:
+            transition = check_story_settings_transition(_transition)
+
         story_settings = cls(
             navigation=navigation,
             layout=layout,
             panel_position=panel_position,
             theme=theme,
+            transition=transition,
         )
 
         return story_settings

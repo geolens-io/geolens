@@ -98,6 +98,9 @@ describe('scene transition', () => {
     expect(glide[0].scene?.transition).toBe('glide');
     expect(glide[0].scene?.camera).toEqual(camera);
 
+    const cleared = applyDraftEdit(glide, { type: 'setTransition', chapterId: 'a', transition: null });
+    expect(cleared[0].scene).not.toHaveProperty('transition');
+
     const textOnly = [chapter('b')];
     expect(applyDraftEdit(textOnly, { type: 'setTransition', chapterId: 'b', transition: 'cut' })[0].scene).toBeNull();
   });
@@ -167,7 +170,7 @@ describe('document caps', () => {
   });
 
   it('counts the settings the save sends, null included', () => {
-    const settings = { navigation: true, layout: 'floating', panel_position: 'right', theme: 'dark' } as const;
+    const settings = { navigation: true, layout: 'floating', panel_position: 'right', theme: 'dark', transition: 'fly' } as const;
     expect(documentBytes([], settings)).toBe(documentBytes([]) + JSON.stringify(settings).length - 'null'.length);
     expect(documentBytes([], null)).toBe(documentBytes([]));
   });
@@ -179,7 +182,7 @@ describe('document caps', () => {
 });
 
 describe('storyDocumentChanged', () => {
-  const base = { navigation: false, layout: 'side', panel_position: 'left', theme: 'follow' } as const;
+  const base = { navigation: false, layout: 'side', panel_position: 'left', theme: 'follow', transition: 'fly' } as const;
 
   it('compares chapters', () => {
     expect(storyDocumentChanged({ chapters: [chapter('a')] }, { chapters: [chapter('a')] })).toBe(false);
@@ -308,7 +311,8 @@ describe('button and separator block edits', () => {
 });
 
 describe('reader settings edits', () => {
-  const stored = { navigation: false, layout: 'side', panel_position: 'left', theme: 'dark' } as const;
+  // A story saved before the transition setting has no such key.
+  const stored = { navigation: false, layout: 'side', panel_position: 'left', theme: 'dark' } as unknown as StorySettings;
 
   it('fills the defaults when a story has none stored', () => {
     expect(applySettingsEdit(null, { navigation: true })).toEqual({
@@ -323,6 +327,12 @@ describe('reader settings edits', () => {
     });
   });
 
+  it('leaves the transition out until the story has one or the author picks one', () => {
+    expect(applySettingsEdit(stored, { layout: 'floating' })).not.toHaveProperty('transition');
+    expect(applySettingsEdit(null, { transition: 'glide' })).toMatchObject({ transition: 'glide' });
+    expect(applySettingsEdit({ ...stored, transition: 'cut' }, { layout: 'floating' })).toMatchObject({ transition: 'cut' });
+  });
+
   it('keeps the stored theme', () => {
     expect(applySettingsEdit(stored, { layout: 'floating' })).toEqual({ ...stored, layout: 'floating' });
   });
@@ -334,10 +344,11 @@ describe('reader settings edits', () => {
 });
 
 describe('reader theme edits', () => {
-  const stored: StorySettings = { navigation: false, layout: 'side', panel_position: 'left', theme: 'dark' };
+  const stored: StorySettings = { navigation: false, layout: 'side', panel_position: 'left', theme: 'dark', transition: 'fly' };
 
   it('store the whole settings object with the chosen theme', () => {
-    expect(applySettingsEdit(null, { theme: 'light' })).toEqual({ ...stored, theme: 'light' });
+    const { transition: _omitted, ...withoutTransition } = stored;
+    expect(applySettingsEdit(null, { theme: 'light' })).toEqual({ ...withoutTransition, theme: 'light' });
   });
 
   it('send follow explicitly to reset a stored light or dark', () => {

@@ -222,6 +222,7 @@ export function StoryReader({
               emptyHint={sceneChapter?.scene_hidden ? t('reader.sceneUnavailable') : undefined}
               legendSide={floating === 'left' ? 'end' : undefined}
               panel={floating}
+              defaultTransition={settings?.transition}
             />
           </div>
         )}

@@ -357,6 +357,7 @@ function StoryEditor({ initial }: { initial: StoryDraftResponse }) {
             resolved={resolved}
             emptyHint={t('editor.mapHint')}
             resetKey={editor.generation}
+            defaultTransition={editor.settings?.transition}
           />
         </div>
       </div>

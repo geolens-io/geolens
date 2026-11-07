@@ -14212,7 +14212,7 @@ export type StoryScene = {
     /**
      * Transition
      *
-     * How the map moves into this scene; absent plays as fly.
+     * How the map moves into this scene; absent uses the story setting.
      */
     transition?: 'fly' | 'glide' | 'cut' | null;
 };
@@ -14245,6 +14245,12 @@ export type StorySettings = {
      * Reader page theme; follow uses the reader's.
      */
     theme?: 'follow' | 'light' | 'dark';
+    /**
+     * Transition
+     *
+     * How the map moves into a chapter whose scene sets no transition.
+     */
+    transition?: 'fly' | 'glide' | 'cut';
 };
 
 /**

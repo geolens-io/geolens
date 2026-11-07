@@ -219,6 +219,7 @@
       "transition": "过渡",
       "transitionHint": "地图如何移动到本章节的视图。",
       "transitions": {
+        "default": "故事默认",
         "fly": "飞行",
         "glide": "滑行",
         "cut": "切换"
@@ -351,6 +352,8 @@
       "left": "左侧",
       "right": "右侧",
       "center": "居中"
-    }
+    },
+    "transition": "过渡",
+    "transitionHint": "没有自己过渡效果的章节使用此项。"
   }
 }

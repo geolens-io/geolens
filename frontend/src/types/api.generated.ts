@@ -17307,7 +17307,7 @@ export interface components {
             };
             /**
              * Transition
-             * @description How the map moves into this scene; absent plays as fly.
+             * @description How the map moves into this scene; absent uses the story setting.
              */
             transition?: ("fly" | "glide" | "cut") | null;
         };
@@ -17340,6 +17340,13 @@ export interface components {
              * @enum {string}
              */
             theme: "follow" | "light" | "dark";
+            /**
+             * Transition
+             * @description How the map moves into a chapter whose scene sets no transition.
+             * @default fly
+             * @enum {string}
+             */
+            transition: "fly" | "glide" | "cut";
         };
         /** StorySummary */
         StorySummary: {

@@ -219,6 +219,7 @@
       "transition": "Übergang",
       "transitionHint": "Wie sich die Karte zur Ansicht dieses Kapitels bewegt.",
       "transitions": {
+        "default": "Standard der Story",
         "fly": "Flug",
         "glide": "Gleiten",
         "cut": "Schnitt"
@@ -351,6 +352,8 @@
       "left": "Links",
       "right": "Rechts",
       "center": "Mitte"
-    }
+    },
+    "transition": "Übergang",
+    "transitionHint": "Kapitel ohne eigenen Übergang verwenden diesen."
   }
 }

@@ -702,3 +702,16 @@ describe('crossfade to a map loaded ahead', () => {
     expect(ref.current?.getView()).toMatchObject({ center: [10, 20] });
   });
 });
+
+it("uses the story's default transition for a scene that sets none, and the scene's own over it", async () => {
+  viewAt(-70, 25, 3);
+  const { rerender } = render(<StoryMapPane resolved={resolved('c1', 'map-a', 3)} defaultTransition="glide" />);
+  await screen.findByTestId('viewer-map');
+  act(() => viewer.props!.onMapReady!(fakeMap as never));
+  rerender(<StoryMapPane resolved={resolved('c2', 'map-a', 4)} defaultTransition="glide" />);
+  expect(fakeMap.easeTo).toHaveBeenCalledWith(expect.objectContaining({ zoom: 4 }));
+  expect(fakeMap.flyTo).not.toHaveBeenCalled();
+
+  rerender(<StoryMapPane resolved={resolved('c3', 'map-a', 5, {}, 'fly')} defaultTransition="glide" />);
+  expect(fakeMap.flyTo).toHaveBeenCalledWith(expect.objectContaining({ zoom: 5 }));
+});

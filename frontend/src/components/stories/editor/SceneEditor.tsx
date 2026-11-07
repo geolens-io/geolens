@@ -19,6 +19,8 @@ import { MapPicker } from './MapPicker';
 import type { DraftEdit, SceneTransition } from './story-draft';
 
 const TRANSITIONS: readonly SceneTransition[] = ['fly', 'glide', 'cut'];
+// Select values can't be empty, so a scene without a transition is this one.
+const STORY_DEFAULT = 'default';
 
 const WORLD_VIEW: StoryCamera = { center: [0, 0], zoom: 2, bearing: 0, pitch: 0 };
 
@@ -166,15 +168,20 @@ export const SceneEditor = memo(function SceneEditor({
           <div className="space-y-1">
             <Label htmlFor={transitionId}>{t('editor.scene.transition')}</Label>
             <Select
-              value={scene.transition ?? 'fly'}
+              value={scene.transition ?? STORY_DEFAULT}
               onValueChange={(value) =>
-                edit({ type: 'setTransition', chapterId, transition: value as SceneTransition })
+                edit({
+                  type: 'setTransition',
+                  chapterId,
+                  transition: value === STORY_DEFAULT ? null : (value as SceneTransition),
+                })
               }
             >
               <SelectTrigger id={transitionId} className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value={STORY_DEFAULT}>{t('editor.scene.transitions.default')}</SelectItem>
                 {TRANSITIONS.map((value) => (
                   <SelectItem key={value} value={value}>
                     {t(`editor.scene.transitions.${value}`)}

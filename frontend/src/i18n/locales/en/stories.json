@@ -219,6 +219,7 @@
       "transition": "Transition",
       "transitionHint": "How the map moves to this chapter's view.",
       "transitions": {
+        "default": "Story default",
         "fly": "Fly",
         "glide": "Glide",
         "cut": "Cut"
@@ -351,6 +352,8 @@
       "left": "Left",
       "right": "Right",
       "center": "Centre"
-    }
+    },
+    "transition": "Transition",
+    "transitionHint": "Chapters without their own transition use this one."
   }
 }

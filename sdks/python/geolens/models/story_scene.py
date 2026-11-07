@@ -28,7 +28,8 @@ class StoryScene:
         camera (StoryCamera):
         layer_visibility (StorySceneLayerVisibility | Unset): Visibility by map layer id. Layers the map no longer has
             are ignored, and a layer left out keeps its saved visibility.
-        transition (None | StorySceneTransitionType0 | Unset): How the map moves into this scene; absent plays as fly.
+        transition (None | StorySceneTransitionType0 | Unset): How the map moves into this scene; absent uses the story
+            setting.
     """
 
     map_id: UUID
