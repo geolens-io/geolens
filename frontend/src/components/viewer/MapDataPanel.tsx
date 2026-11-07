@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -331,7 +331,8 @@ export function MapDataPanel({
   const attachContent = useCallback((el: HTMLElement | null) => {
     if (el && contentHost.parentNode !== el) el.appendChild(contentHost);
   }, [contentHost]);
-  useEffect(() => {
+  // Before paint, so a panel floating over the map never covers the dock for a frame.
+  useLayoutEffect(() => {
     onHeightChange?.(isExpanded ? 0 : size.height);
     return () => onHeightChange?.(0);
   }, [onHeightChange, isExpanded, size.height]);

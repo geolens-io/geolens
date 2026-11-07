@@ -466,17 +466,38 @@ describe('floating layout', () => {
     act(() => pane.onDataPanelHeightChange!(0));
     expect(panel().style.height).toMatch(/48rem.*0px/);
 
-    // Shrinking keeps the text on the activation line: the line moves up by 40% of the lost height, and so does the scroll.
-    Object.defineProperty(panel(), 'clientHeight', { configurable: true, value: 1000 });
-    act(() => pane.onDataPanelHeightChange!(1));
-    panel().scrollTop = 500;
-    Object.defineProperty(panel(), 'clientHeight', { configurable: true, value: 800 });
-    act(() => pane.onDataPanelHeightChange!(201));
-    expect(panel().scrollTop).toBe(580);
     unmount();
     renderWith({ layout: 'side' });
     expect(pane.onDataPanelHeightChange).toBeUndefined();
     expect(screen.getByRole('region', { name: 'Story chapters' }).style.height).toBe('');
+  });
+
+  it('keeps the text on the activation line when the panel gets shorter', () => {
+    layout.narrow = false;
+    const observers: Array<() => void> = [];
+    const Original = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+      constructor(callback: () => void) {
+        observers.push(callback);
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+    try {
+      renderWith({ layout: 'floating' });
+      const panel = screen.getByRole('region', { name: 'Story chapters' });
+      expect(observers).toHaveLength(1);
+      // The line sits 40% down the panel; losing 200px of height moves it up 80px, and so does the scroll.
+      Object.defineProperty(panel, 'clientHeight', { configurable: true, value: 1000 });
+      observers[0]();
+      panel.scrollTop = 500;
+      Object.defineProperty(panel, 'clientHeight', { configurable: true, value: 800 });
+      observers[0]();
+      expect(panel.scrollTop).toBe(580);
+    } finally {
+      globalThis.ResizeObserver = Original;
+    }
   });
 
   it('keeps a thin scrollbar visible on the floating panel only', () => {

@@ -332,18 +332,21 @@ function StoryScrollPanel({
   }, []);
   useImperativeHandle(ref, () => ({ scrollToChapter }), [scrollToChapter]);
 
-  // A shorter panel moves the activation line up; scrolling by the same amount
-  // keeps the text that was on the line there, or the next scroll would hand the
-  // chapter back to the one before.
-  const lastHeight = useRef<number | null>(null);
+  // A change of the panel's height (the Map data panel docking, a resize) moves
+  // the activation line; scrolling by the same amount keeps the text that was on
+  // the line there, or the next scroll would hand the chapter back to the one before.
   useLayoutEffect(() => {
     const panel = panelRef.current;
-    if (!panel) return;
-    const prev = lastHeight.current;
-    const now = panel.clientHeight;
-    lastHeight.current = now;
-    if (prev !== null && prev !== now) panel.scrollTop += (prev - now) * ACTIVE_LINE;
-  }, [clearance]);
+    if (!panel || typeof ResizeObserver === 'undefined') return;
+    let last = panel.clientHeight;
+    const observer = new ResizeObserver(() => {
+      const now = panel.clientHeight;
+      if (now !== last) panel.scrollTop += (last - now) * ACTIVE_LINE;
+      last = now;
+    });
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, []);
 
   // Opening this layout on a later chapter (a phone stepper widened past the
   // breakpoint) starts with that chapter in view, so text and scene agree.
@@ -381,7 +384,8 @@ function StoryScrollPanel({
       inert={bare}
       role="region"
       aria-label={t('reader.chaptersLabel')}
-      style={floating ? { height: `min(48rem, calc(100% - 5rem - ${clearance}px))` } : undefined}
+      // A floor keeps the chapters readable in a short embed, over the docked panel if it must.
+      style={floating ? { height: `max(8rem, min(48rem, calc(100% - 5rem - ${clearance}px)))` } : undefined}
       className={cn(
         // Positioned, so a block's visually hidden live region stays in the scroll box instead of stretching the page.
         'relative min-h-0 overflow-y-auto focus-visible:outline-2 focus-visible:outline-ring',
