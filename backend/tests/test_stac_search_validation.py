@@ -186,6 +186,14 @@ class TestStacSearchListCounts:
         assert param in resp.json()["detail"]
 
     @pytest.mark.parametrize("param", ["ids", "collections"])
+    async def test_get_trailing_comma_does_not_count(
+        self, client: AsyncClient, param: str
+    ):
+        values = ",".join(f"00000000-0000-0000-0000-{i:012d}" for i in range(1000))
+        resp = await client.get("/stac/search", params={param: values + ","})
+        assert resp.status_code == 200, resp.text
+
+    @pytest.mark.parametrize("param", ["ids", "collections"])
     async def test_post_over_limit_rejected(self, client: AsyncClient, param: str):
         values = [f"00000000-0000-0000-0000-{i:012d}" for i in range(1001)]
         resp = await client.post("/stac/search", json={param: values})

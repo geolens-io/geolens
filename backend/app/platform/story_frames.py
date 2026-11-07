@@ -127,17 +127,21 @@ async def own_frame_host(db: AsyncSession) -> str | None:
 
 
 async def approved_frame_hosts(db: AsyncSession) -> list[StoryFrameHost]:
-    """The hosts stories may frame now; none when the stored value doesn't parse."""
+    """The hosts stories may frame now, never this site's own host; none when
+    the stored value doesn't parse."""
     from app.core.persistent_config import STORY_FRAME_HOSTS
 
     try:
-        entries = parse_frame_hosts(
-            await STORY_FRAME_HOSTS.get(db), own_host=await own_frame_host(db)
-        )
+        entries = parse_frame_hosts(await STORY_FRAME_HOSTS.get(db))
     except ValueError:
         logger.warning("story_frame_hosts.invalid_stored_value_ignored")
         return []
-    return [StoryFrameHost.model_validate(entry) for entry in entries]
+    own_host = await own_frame_host(db)
+    return [
+        StoryFrameHost.model_validate(entry)
+        for entry in entries
+        if entry["host"] != own_host
+    ]
 
 
 def frame_src_directive(hosts: list[StoryFrameHost]) -> str:

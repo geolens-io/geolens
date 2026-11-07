@@ -51827,7 +51827,7 @@
     },
     "/datasets/{dataset_id}/rows/": {
       "get": {
-        "description": "Get keyset-paginated rows from a dataset's data table.\n\nUses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to\nfetch the next page, with or without ``sort``.\nSupports column filtering via query params: ``filter[column_name]=value``.\nAn optional CQL2-JSON ``filter`` expression ANDs with them.\n\nAnonymous callers can read public, published datasets. This route answers\nan ``X-Embed-Token`` for datasets in the token's scope while the token's map\nhas ``show_attribute_table`` on. That flag only decides whether viewers offer\nthe table: tiles, ``features.geojson`` and ``aggregate`` return the same\nallowlisted values to the token either way. Other datasets return 404. A\nrequest only the embed token authorizes reads only the columns in the\ndataset's tile column allowlist, when it has one: any other column is\ntreated as one the table lacks, in the returned columns, ``sort``,\n``filter`` and ``filter[column]``.",
+        "description": "Get keyset-paginated rows from a dataset's data table.\n\nUses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to\nfetch the next page, with or without ``sort``.\nSupports column filtering via query params: ``filter[column_name]=value``.\nAn optional CQL2-JSON ``filter`` expression ANDs with them.\n\nAnonymous callers can read public, published datasets, and a signed-in\ncaller reads what their own permissions allow; an embed token that doesn't\ncover the dataset changes neither. This route also answers an\n``X-Embed-Token`` for datasets in the token's scope while the token's map\nhas ``show_attribute_table`` on. That flag only decides whether viewers\noffer the table: tiles, ``features.geojson`` and ``aggregate`` return the\nsame allowlisted values to the token either way. Any other caller gets 404.\n\nA request only the embed token authorizes reads only the columns in the\ndataset's tile column allowlist, when it has one: any other column is\ntreated as one the table lacks, in the returned columns, ``sort``,\n``filter`` and ``filter[column]``. ``gid`` is kept even when the allowlist\nleaves it out: it stays in the rows, in ``sortable_columns`` and, when the\nstored metadata lists it, in ``columns``.",
         "operationId": "get_dataset_rows_endpoint_datasets__dataset_id__rows__get",
         "parameters": [
           {
@@ -51949,7 +51949,7 @@
             }
           },
           {
-            "description": "Optional embed token. This route answers it for datasets in the token's scope while the token's map has `show_attribute_table` on.",
+            "description": "Optional embed token. This route answers it for datasets in the token's scope while the token's map has `show_attribute_table` on. A caller who can read the dataset is served by their own permissions whatever the token covers.",
             "in": "header",
             "name": "X-Embed-Token",
             "required": false,
@@ -51962,7 +51962,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Optional embed token. This route answers it for datasets in the token's scope while the token's map has `show_attribute_table` on.",
+              "description": "Optional embed token. This route answers it for datasets in the token's scope while the token's map has `show_attribute_table` on. A caller who can read the dataset is served by their own permissions whatever the token covers.",
               "title": "X-Embed-Token"
             }
           }
@@ -71496,7 +71496,7 @@
             }
           },
           {
-            "description": "Comma-separated collection IDs",
+            "description": "Comma-separated collection IDs, at most 1000; more answer 400.",
             "in": "query",
             "name": "collections",
             "required": false,
@@ -71509,12 +71509,12 @@
                   "type": "null"
                 }
               ],
-              "description": "Comma-separated collection IDs",
+              "description": "Comma-separated collection IDs, at most 1000; more answer 400.",
               "title": "Collections"
             }
           },
           {
-            "description": "Comma-separated item IDs",
+            "description": "Comma-separated item IDs, at most 1000; more answer 400.",
             "in": "query",
             "name": "ids",
             "required": false,
@@ -71527,7 +71527,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Comma-separated item IDs",
+              "description": "Comma-separated item IDs, at most 1000; more answer 400.",
               "title": "Ids"
             }
           },

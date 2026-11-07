@@ -238,15 +238,42 @@ async def test_the_sites_own_host_cannot_be_approved(
 
 
 @pytest.mark.anyio
-async def test_a_stored_own_host_frames_nothing(
+async def test_a_stored_own_host_is_dropped_and_the_rest_kept(
     client: AsyncClient, admin_auth_header: dict, owner: dict, monkeypatch
 ):
-    await _set_hosts(client, admin_auth_header, [{"host": OWN_HOST}])
-    assert (await client.get("/stories/frame-hosts/")).json() != []
-
+    await _set_hosts(
+        client, admin_auth_header, [{"host": OWN_HOST}, {"host": "www.youtube.com"}]
+    )
     _serve_from_own_host(monkeypatch)
-    assert (await client.get("/stories/frame-hosts/")).json() == []
-    assert await _policy(client) == "frame-src 'self' blob:"
+    assert (await client.get("/stories/frame-hosts/")).json() == [
+        {"host": "www.youtube.com", "allow_same_origin": False}
+    ]
+    assert await _policy(client) == "frame-src 'self' blob: https://www.youtube.com"
+
+
+@pytest.mark.anyio
+async def test_a_public_app_url_set_in_the_same_request_is_checked(
+    client: AsyncClient, admin_auth_header: dict, owner: dict, monkeypatch
+):
+    async def _no_persisted_overrides(db):
+        return {}
+
+    monkeypatch.setattr(
+        public_urls, "_load_public_url_overrides", _no_persisted_overrides
+    )
+    monkeypatch.setattr(settings, "public_app_url", None)
+    public_urls.invalidate_public_url_cache()
+    resp = await client.put(
+        "/settings/",
+        json={
+            "settings": {
+                "public_app_url": f"https://{OWN_HOST}",
+                "story_frame_hosts": [{"host": OWN_HOST}],
+            }
+        },
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 422, resp.text
 
 
 @pytest.mark.anyio

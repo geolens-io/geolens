@@ -148,8 +148,9 @@ def sync_detailed(
     Args:
         bbox (None | str | Unset): Bounding box: west,south,east,north
         datetime_ (None | str | Unset): OGC datetime interval
-        collections (None | str | Unset): Comma-separated collection IDs
-        ids (None | str | Unset): Comma-separated item IDs
+        collections (None | str | Unset): Comma-separated collection IDs, at most 1000; more
+            answer 400.
+        ids (None | str | Unset): Comma-separated item IDs, at most 1000; more answer 400.
         intersects (None | str | Unset): GeoJSON geometry for spatial intersection. At most 10000
             characters, which fits a polygon of several hundred vertices at 2-decimal-place lat/lon
             coordinates.
@@ -201,8 +202,9 @@ def sync(
     Args:
         bbox (None | str | Unset): Bounding box: west,south,east,north
         datetime_ (None | str | Unset): OGC datetime interval
-        collections (None | str | Unset): Comma-separated collection IDs
-        ids (None | str | Unset): Comma-separated item IDs
+        collections (None | str | Unset): Comma-separated collection IDs, at most 1000; more
+            answer 400.
+        ids (None | str | Unset): Comma-separated item IDs, at most 1000; more answer 400.
         intersects (None | str | Unset): GeoJSON geometry for spatial intersection. At most 10000
             characters, which fits a polygon of several hundred vertices at 2-decimal-place lat/lon
             coordinates.
@@ -249,8 +251,9 @@ async def asyncio_detailed(
     Args:
         bbox (None | str | Unset): Bounding box: west,south,east,north
         datetime_ (None | str | Unset): OGC datetime interval
-        collections (None | str | Unset): Comma-separated collection IDs
-        ids (None | str | Unset): Comma-separated item IDs
+        collections (None | str | Unset): Comma-separated collection IDs, at most 1000; more
+            answer 400.
+        ids (None | str | Unset): Comma-separated item IDs, at most 1000; more answer 400.
         intersects (None | str | Unset): GeoJSON geometry for spatial intersection. At most 10000
             characters, which fits a polygon of several hundred vertices at 2-decimal-place lat/lon
             coordinates.
@@ -300,8 +303,9 @@ async def asyncio(
     Args:
         bbox (None | str | Unset): Bounding box: west,south,east,north
         datetime_ (None | str | Unset): OGC datetime interval
-        collections (None | str | Unset): Comma-separated collection IDs
-        ids (None | str | Unset): Comma-separated item IDs
+        collections (None | str | Unset): Comma-separated collection IDs, at most 1000; more
+            answer 400.
+        ids (None | str | Unset): Comma-separated item IDs, at most 1000; more answer 400.
         intersects (None | str | Unset): GeoJSON geometry for spatial intersection. At most 10000
             characters, which fits a polygon of several hundred vertices at 2-decimal-place lat/lon
             coordinates.

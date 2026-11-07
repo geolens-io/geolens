@@ -26011,7 +26011,7 @@ export type GetDatasetRowsEndpointDatasetsDatasetIdRowsGetData = {
         /**
          * X-Embed-Token
          *
-         * Optional embed token. This route answers it for datasets in the token's scope while the token's map has `show_attribute_table` on.
+         * Optional embed token. This route answers it for datasets in the token's scope while the token's map has `show_attribute_table` on. A caller who can read the dataset is served by their own permissions whatever the token covers.
          */
         'X-Embed-Token'?: string | null;
     };
@@ -34282,13 +34282,13 @@ export type SearchGetStacSearchGetData = {
         /**
          * Collections
          *
-         * Comma-separated collection IDs
+         * Comma-separated collection IDs, at most 1000; more answer 400.
          */
         collections?: string | null;
         /**
          * Ids
          *
-         * Comma-separated item IDs
+         * Comma-separated item IDs, at most 1000; more answer 400.
          */
         ids?: string | null;
         /**

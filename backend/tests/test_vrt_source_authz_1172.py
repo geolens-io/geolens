@@ -536,3 +536,26 @@ async def test_add_vrt_source_unreadable_non_raster_is_404(
     )
 
     assert resp.status_code == 404, resp.text
+
+
+async def test_add_vrt_source_unknown_ids_are_404(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """An id that names no dataset answers 404, for the source and for the VRT."""
+    editor_headers, editor_id = await _make_editor(client, admin_auth_header)
+    vrt_id = await _create_vrt_dataset(test_db_session, created_by=editor_id)
+    source_id = await _create_raster_dataset(test_db_session, created_by=editor_id)
+
+    unknown_source = await client.post(
+        f"/ingest/vrt/{vrt_id}/sources/",
+        json={"source_dataset_id": str(uuid.uuid4())},
+        headers=editor_headers,
+    )
+    unknown_vrt = await client.post(
+        f"/ingest/vrt/{uuid.uuid4()}/sources/",
+        json={"source_dataset_id": str(source_id)},
+        headers=editor_headers,
+    )
+
+    assert unknown_source.status_code == 404, unknown_source.text
+    assert unknown_vrt.status_code == 404, unknown_vrt.text

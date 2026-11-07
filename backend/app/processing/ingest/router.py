@@ -1421,12 +1421,16 @@ async def add_vrt_source(
 
     user_roles = await get_user_roles(db, user)
     source_dataset = await get_dataset(db, request.source_dataset_id)
+    vrt_dataset = await get_dataset(db, dataset_id)
+    if source_dataset is None or vrt_dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+        )
     # The source only needs to be readable by the caller (it is being linked, not
     # modified); the VRT itself is being mutated, so it requires owner-or-admin.
     await check_dataset_access(
         db, source_dataset, request.source_dataset_id, user, user_roles=user_roles
     )
-    vrt_dataset = await get_dataset(db, dataset_id)
     await check_dataset_write_access(
         db, vrt_dataset, dataset_id, user, user_roles=user_roles
     )

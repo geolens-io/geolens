@@ -1710,8 +1710,20 @@ async def search_get(
     datetime_param: str | None = Query(
         None, alias="datetime", description="OGC datetime interval"
     ),
-    collections: str | None = Query(None, description="Comma-separated collection IDs"),
-    ids: str | None = Query(None, description="Comma-separated item IDs"),
+    collections: str | None = Query(
+        None,
+        description=(
+            f"Comma-separated collection IDs, at most {_STAC_MAX_LIST_ITEMS}; "
+            "more answer 400."
+        ),
+    ),
+    ids: str | None = Query(
+        None,
+        description=(
+            f"Comma-separated item IDs, at most {_STAC_MAX_LIST_ITEMS}; "
+            "more answer 400."
+        ),
+    ),
     intersects: str | None = Query(
         None,
         max_length=10000,
@@ -1741,7 +1753,8 @@ async def search_get(
 ) -> JSONResponse:
     """STAC Item Search (GET)."""
     for name, value in (("ids", ids), ("collections", collections)):
-        if value is not None and value.count(",") >= _STAC_MAX_LIST_ITEMS:
+        count = sum(1 for part in (value or "").split(",") if part.strip())
+        if count > _STAC_MAX_LIST_ITEMS:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"{name} accepts at most {_STAC_MAX_LIST_ITEMS} values",

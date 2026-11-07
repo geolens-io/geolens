@@ -4,6 +4,7 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, NoReturn
+from urllib.parse import urlsplit
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -520,10 +521,15 @@ async def update_settings(
         validated_settings[key] = _canonicalize_setting_value(key, value, cfg)
 
     if "story_frame_hosts" in validated_settings:
+        new_app_url = validated_settings.get("public_app_url")
+        own_host = (
+            urlsplit(str(new_app_url)).hostname
+            if new_app_url
+            else await own_frame_host(db)
+        )
         try:
             parse_frame_hosts(
-                validated_settings["story_frame_hosts"],
-                own_host=await own_frame_host(db),
+                validated_settings["story_frame_hosts"], own_host=own_host
             )
         except ValueError as exc:
             raise HTTPException(
