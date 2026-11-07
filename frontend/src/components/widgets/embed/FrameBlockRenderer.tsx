@@ -30,7 +30,7 @@ export function FrameBlockRenderer({ config, kind }: WidgetRenderProps<FrameConf
         title={config.title}
         loading="lazy"
         sandbox={frameSandbox(entry)}
-        referrerPolicy="strict-origin-when-cross-origin"
+        referrerPolicy="strict-origin"
         allowFullScreen={kind === 'video'}
         className={cn('w-full rounded-md border', kind === 'video' ? 'aspect-video' : 'h-[28rem]')}
       />

@@ -24,7 +24,8 @@ export function normalizeFrameHost(value: string): string | null {
   const host = value.trim().toLowerCase();
   const labels = host.split('.');
   if (host.length > 253 || labels.length < 2 || !labels.every((label) => LABEL.test(label))) return null;
-  return /^\d+$/.test(labels[labels.length - 1]) ? null : host;
+  // A last label browsers read as a number (decimal or 0x hex) makes the host an IPv4 address.
+  return /^([0-9]+|0x[0-9a-f]*)$/.test(labels[labels.length - 1]) ? null : host;
 }
 
 /**
@@ -33,7 +34,7 @@ export function normalizeFrameHost(value: string): string | null {
  * plain host name rather than an IP address.
  */
 export function frameUrlHost(url: string): string | null {
-  if (url.length > FRAME_URL_MAX_LENGTH || UNSAFE_URL_CHARS.test(url)) return null;
+  if ([...url].length > FRAME_URL_MAX_LENGTH || UNSAFE_URL_CHARS.test(url)) return null;
   const authority = /^https:\/\/([^/?#]*)/i.exec(url)?.[1].toLowerCase();
   if (authority === undefined || authority.includes('@')) return null;
   const host = authority.endsWith(':443') ? authority.slice(0, -4) : authority;

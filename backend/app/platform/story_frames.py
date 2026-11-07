@@ -21,23 +21,26 @@ MAX_STORY_FRAME_HOSTS = 50
 MAX_FRAME_URL_LENGTH = 2048
 FRAME_SRC_BASE = "frame-src 'self' blob:"
 
-_LABEL = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+_LABEL = re.compile(r"[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?")
+# A last label browsers read as a number (decimal or 0x hex) makes the host an IPv4 address.
+_NUMERIC_LABEL = re.compile(r"[0-9]+|0x[0-9a-f]*")
 _UNSAFE_URL_CHARS = re.compile(r"[\s\\\x00-\x1f\x7f]")
 
 
 def normalize_frame_host(value: str) -> str:
     """A lower-cased DNS host name with at least two labels; ValueError otherwise.
 
-    No scheme, port, path or wildcard, and no IP literal: a numeric last label
-    is refused, so ``10.0.0.1`` never passes as a name.
+    No scheme, port, path or wildcard, and no IP literal: a last label that
+    browsers read as a number is refused, so neither ``10.0.0.1`` nor
+    ``0x7f.0x0.0x0.0x1`` passes as a name.
     """
     host = value.strip().lower()
     labels = host.split(".")
     if (
         len(host) > 253
         or len(labels) < 2
-        or not all(_LABEL.match(label) for label in labels)
-        or labels[-1].isdigit()
+        or not all(_LABEL.fullmatch(label) for label in labels)
+        or _NUMERIC_LABEL.fullmatch(labels[-1])
     ):
         raise ValueError(f"{value!r} is not a host name like media.example.org")
     return host

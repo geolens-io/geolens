@@ -31,6 +31,7 @@ describe('frame addresses', () => {
       'https://user@media.example.org/a',
       'https://media.example.org:8443/a',
       'https://10.0.0.1/a',
+      'https://0x7f.0x0.0x0.0x1/a',
       'https://[::1]/a',
       'https://localhost/a',
       'https://media.example.org\\@evil.example.com/',
@@ -44,9 +45,17 @@ describe('frame addresses', () => {
 
   it('name hosts the way the admin setting stores them', () => {
     expect(normalizeFrameHost(' Media.Example.ORG ')).toBe('media.example.org');
-    for (const host of ['*.example.org', 'https://media.example.org', 'media.example.org:8443', 'localhost', '10.0.0.1']) {
+    for (const host of ['*.example.org', 'https://media.example.org', 'media.example.org:8443', 'localhost', '10.0.0.1', '0x7f.1']) {
       expect(normalizeFrameHost(host), host).toBeNull();
     }
+  });
+
+  it('measure the address in code points, as the server does', () => {
+    const base = 'https://media.example.org/';
+    const url = base + '\u{1F30D}'.repeat(2048 - base.length);
+    expect([...url].length).toBe(2048);
+    expect(frameUrlHost(url)).toBe('media.example.org');
+    expect(frameUrlHost(url + 'x')).toBeNull();
   });
 });
 
@@ -78,7 +87,7 @@ describe('frame block renderer', () => {
     expect(frame).toHaveAttribute('src', URL_ON_MEDIA);
     expect(frame).toHaveAttribute('loading', 'lazy');
     expect(frame).toHaveAttribute('sandbox', 'allow-scripts allow-popups');
-    expect(frame).toHaveAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+    expect(frame).toHaveAttribute('referrerpolicy', 'strict-origin');
     // A frame the browser blocks still leaves the reader a way to the page.
     expect(screen.getByText(/If the frame stays empty, open the original/)).toBeInTheDocument();
     const link = screen.getByRole('link', { name: /Field visit/ });
