@@ -806,6 +806,20 @@
       "registrationAdminConfirmDescription": "Todo registro con contraseña que verifique su correo se convertirá en administrador. Asegúrate de que es lo que quieres.",
       "signupAdminActivationDescription": "Después de este cambio, quienes se registren pueden convertirse en administradores sin que un administrador los apruebe. Asegúrate de que es lo que quieres.",
       "verificationNeedsRegistration": "Se aplica cuando el autorregistro está activado."
+    },
+    "storyFrames": {
+      "title": "Páginas incrustadas y vídeos en historias",
+      "description": "Sitios cuyas páginas y reproductores de vídeo pueden mostrar las historias en un marco. Los navegadores de los lectores los cargan directamente desde estos sitios. Sin sitios, los bloques de páginas incrustadas y vídeo están desactivados.",
+      "empty": "Todavía no hay sitios, así que los bloques de páginas incrustadas y vídeo están desactivados.",
+      "hostLabel": "Nombre de host del sitio",
+      "add": "Añadir sitio",
+      "invalid": "Introduce un nombre de host como media.example.org, sin https:// ni ruta. No se aceptan comodines.",
+      "duplicate": "Ese sitio ya está en la lista.",
+      "full": "La lista admite como máximo {{max}} sitios.",
+      "sameOrigin": "Conservar el origen del sitio",
+      "sameOriginHint": "Algunos reproductores de vídeo necesitan su propio origen para reproducir. El marco conserva ese origen adonde lo lleve el sitio, así que cualquier otro sitio aprobado que abra también lo recibe. Actívalo solo para un sitio en el que confíes con todos los sitios aprobados.",
+      "remove": "Quitar {{host}}",
+      "reloadHint": "Las páginas ya abiertas aplican la lista después de recargarlas."
     }
   },
   "infrastructure": {

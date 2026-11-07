@@ -328,6 +328,7 @@ const STORY_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   story_asset_limit: 'errors.storyAssetLimit',
   story_asset_owner_limit: 'errors.storyAssetOwnerLimit',
   story_assets_not_found: 'errors.storyAssetsNotFound',
+  story_frame_host_not_allowed: 'errors.storyFrameHostNotAllowed',
 };
 
 function descriptorForMessage(message: string, status: number): ApiErrorDescriptor {

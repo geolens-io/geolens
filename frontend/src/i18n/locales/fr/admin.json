@@ -806,6 +806,20 @@
       "registrationAdminConfirmDescription": "Chaque inscription par mot de passe dont l'e-mail est vérifié deviendra administrateur. Assurez-vous que c'est bien voulu.",
       "signupAdminActivationDescription": "Après cette modification, les personnes qui s'inscrivent peuvent devenir administratrices sans l'approbation d'un administrateur. Assurez-vous que c'est bien ce que vous voulez.",
       "verificationNeedsRegistration": "S'applique lorsque l'auto-inscription est activée."
+    },
+    "storyFrames": {
+      "title": "Intégrations et vidéos des récits",
+      "description": "Sites dont les récits peuvent afficher les pages et les lecteurs vidéo dans un cadre. Les navigateurs des lecteurs les chargent directement depuis ces sites. Sans site, les blocs d’intégration et de vidéo sont désactivés.",
+      "empty": "Aucun site pour l’instant : les blocs d’intégration et de vidéo sont désactivés.",
+      "hostLabel": "Nom d’hôte du site",
+      "add": "Ajouter le site",
+      "invalid": "Saisissez un nom d’hôte comme media.example.org, sans https:// ni chemin. Les jokers ne sont pas acceptés.",
+      "duplicate": "Ce site figure déjà dans la liste.",
+      "full": "La liste contient au plus {{max}} sites.",
+      "sameOrigin": "Conserver l’origine du site",
+      "sameOriginHint": "Certains lecteurs vidéo ont besoin de leur propre origine pour lire. Le cadre garde cette origine où que le site l’emmène, donc tout autre site approuvé qu’il ouvre la reçoit aussi. À activer seulement pour un site auquel vous confiez tous les sites approuvés.",
+      "remove": "Retirer {{host}}",
+      "reloadHint": "Les pages déjà ouvertes prennent en compte la liste après un rechargement."
     }
   },
   "infrastructure": {

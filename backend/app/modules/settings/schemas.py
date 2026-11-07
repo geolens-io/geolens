@@ -13,6 +13,7 @@ from app.core.public_urls import (
     is_usable_public_origin,
 )
 from app.modules.auth.schemas import validate_role_name
+from app.platform.story_frames import parse_frame_hosts
 
 
 class BasemapEntry(BaseModel):
@@ -704,4 +705,5 @@ SETTING_VALIDATORS: dict[str, Any] = {
     "max_ai_tokens_per_user_per_day": validate_max_ai_tokens_per_user_per_day,
     "allowed_email_domains": validate_allowed_email_domains,
     "registration_default_role": validate_role_name,
+    "story_frame_hosts": parse_frame_hosts,
 }

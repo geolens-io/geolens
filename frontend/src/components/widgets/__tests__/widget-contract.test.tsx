@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import { render as renderWithProviders } from '@/test/test-utils';
 import { supportedLngs } from '@/i18n/config';
 import { loadAllResources } from '@/i18n/resources';
 import { WidgetView } from '../WidgetView';
@@ -9,6 +10,12 @@ import {
   parseStoredWidget,
   widgetDefinitions,
 } from '../registry';
+
+// Frame renderers read the approved hosts; none are approved here, so they show their link.
+vi.mock('@/api/stories', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/stories')>()),
+  getStoryFrameHosts: vi.fn(async () => []),
+}));
 
 // A typical config for each registered type, with visible text in the
 // fallback. A new widget type adds its entry here.
@@ -40,11 +47,13 @@ const examples: Record<string, { config: unknown; fallbackText: string | RegExp 
     config: { title_column: 'name', subtitle_column: 'kind', sort_column: 'name', sort: 'desc', page_size: 40 },
     fallbackText: /No data yet/,
   },
+  embed: { config: { url: 'https://media.example.org/chart', title: 'Rainfall chart' }, fallbackText: /Rainfall chart/ },
+  video: { config: { url: 'https://media.example.org/v/1', title: 'Field visit' }, fallbackText: /Field visit/ },
 };
 
 // Defaults the author has to finish before the instance is valid: an image's
-// alt text, a gallery's images, or a button's label and address, is theirs to write.
-const INCOMPLETE_DEFAULTS = new Set(['image', 'gallery', 'carousel', 'button']);
+// alt text, a gallery's images, a button's or a frame's address and text, is theirs to write.
+const INCOMPLETE_DEFAULTS = new Set(['image', 'gallery', 'carousel', 'button', 'embed', 'video']);
 
 // An image block names the image it shows.
 const assetId = '9a3e5c71-2b4d-4f86-8e1a-7c5d3b2f4e60';
@@ -130,7 +139,7 @@ describe.each(widgetDefinitions.map((definition) => [definition.type, definition
 
     it('loads a renderer that renders its example config', async () => {
       const { default: Renderer } = await definition.loadRenderer();
-      const { container } = render(<Renderer config={example.config} />);
+      const { container } = renderWithProviders(<Renderer config={example.config} />);
       if (example.fallbackText === null) expect(container.firstChild).not.toBeNull();
       else expect(container.textContent).not.toBe('');
     });

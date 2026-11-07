@@ -137,7 +137,8 @@
       "retry": "Retry",
       "waitingForUpload": "Waiting for the image upload",
       "waitingForAlt": "Add alt text to save",
-      "waitingForButtons": "Complete the buttons to save"
+      "waitingForButtons": "Complete the buttons to save",
+      "waitingForFrames": "Complete the embeds and videos to save"
     },
     "chapters": {
       "label": "Chapters",
@@ -181,7 +182,17 @@
       "moveGalleryUp": "Move gallery {{index}} up",
       "moveGalleryDown": "Move gallery {{index}} down",
       "moveCarouselUp": "Move carousel {{index}} up",
-      "moveCarouselDown": "Move carousel {{index}} down"
+      "moveCarouselDown": "Move carousel {{index}} down",
+      "addEmbed": "Add embed",
+      "addVideo": "Add video",
+      "embedBlock": "Embed {{index}}",
+      "videoBlock": "Video {{index}}",
+      "removeEmbed": "Remove embed {{index}}",
+      "removeVideo": "Remove video {{index}}",
+      "moveEmbedUp": "Move embed {{index}} up",
+      "moveEmbedDown": "Move embed {{index}} down",
+      "moveVideoUp": "Move video {{index}} up",
+      "moveVideoDown": "Move video {{index}} down"
     },
     "scene": {
       "heading": "Map scene",
@@ -242,7 +253,9 @@
       "altMissing_one": "{{count}} image needs alt text before you can save.",
       "altMissing_other": "{{count}} images need alt text before you can save.",
       "buttonsIncomplete_one": "{{count}} button needs a label and a web address before you can save.",
-      "buttonsIncomplete_other": "{{count}} buttons need a label and a web address before you can save."
+      "buttonsIncomplete_other": "{{count}} buttons need a label and a web address before you can save.",
+      "framesIncomplete_one": "{{count}} embed or video needs a title and an address on an approved site before you can save.",
+      "framesIncomplete_other": "{{count}} embeds and videos need a title and an address on an approved site before you can save."
     },
     "image": {
       "alt": "Alt text",
@@ -282,6 +295,18 @@
       "addImage": "Add another image",
       "limit_one": "Up to {{count}} image in this block.",
       "limit_other": "Up to {{count}} images in this block."
+    },
+    "frame": {
+      "embedUrl": "Page address",
+      "videoUrl": "Video player address",
+      "urlHint": "An https address on a site an admin approved: {{hosts}}.",
+      "noHosts": "An admin hasn't approved any sites for embeds and videos.",
+      "noHostsToAdd": "Embeds and videos are off until an admin approves the sites they may come from.",
+      "urlInvalid": "Enter an https address, such as https://media.example.org/page.",
+      "hostNotApproved": "{{host}} isn't an approved site. Fix the address or remove this block to save.",
+      "title": "Title",
+      "titleHint": "Screen readers announce it for the frame.",
+      "titleRequired": "Write a title before saving."
     }
   },
   "groups": {

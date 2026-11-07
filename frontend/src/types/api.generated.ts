@@ -6013,6 +6013,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stories/frame-hosts/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Story Frame Hosts Endpoint
+         * @description The hosts story embed and video blocks may frame (public, no auth required).
+         *
+         *     An admin sets them in `story_frame_hosts`. Empty means neither block can
+         *     be added, and none is shown to readers.
+         */
+        get: operations["story_frame_hosts_endpoint_stories_frame_hosts__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stories/{story_id}": {
         parameters: {
             query?: never;
@@ -6148,9 +6171,11 @@ export interface paths {
          *
          *     `revision` must match the stored draft's, or 409 `stale_revision`. 422
          *     for an unknown or invalid block, for a scene on a map you can't read
-         *     (`detail.code` `story_maps_not_found`), or for an image block naming an
-         *     image this story doesn't have (`story_assets_not_found`). Blocks you
-         *     can't see and scenes sent back with `scene_hidden` are kept as stored.
+         *     (`detail.code` `story_maps_not_found`), for an image block naming an
+         *     image this story doesn't have (`story_assets_not_found`), or for an
+         *     embed or video block whose host isn't approved
+         *     (`story_frame_host_not_allowed`, the blocks under `detail.blocks`). Blocks
+         *     you can't see and scenes sent back with `scene_hidden` are kept as stored.
          */
         put: operations["save_story_draft_endpoint_stories__story_id__draft_put"];
         post?: never;
@@ -6233,6 +6258,8 @@ export interface paths {
          *     everyone the story's visibility reaches: `detail.maps` names the ones you
          *     can read and `detail.unreadable_maps` counts the rest. For a restricted
          *     story, a map only some of its groups lack is `can_share`; see `confirm`.
+         *     422 `story_frame_host_not_allowed` when an embed or video block frames a
+         *     host that isn't approved now; `detail.blocks` names each one.
          */
         post: operations["publish_story_endpoint_stories__story_id__publish_post"];
         delete?: never;
@@ -10831,6 +10858,28 @@ export interface components {
              */
             allowed_origins?: string[] | null;
         };
+        /** EmbedWidget */
+        EmbedWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "embed";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            config: components["schemas"]["FrameConfig"];
+        };
         /** EmbeddingStatsResponse */
         EmbeddingStatsResponse: {
             /**
@@ -11179,6 +11228,19 @@ export interface components {
             properties?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /** FrameConfig */
+        FrameConfig: {
+            /**
+             * Url
+             * @description An https address on a host an admin approved for stories. Stored as given and never fetched by the server.
+             */
+            url: string;
+            /**
+             * Title
+             * @description Names the frame for screen readers.
+             */
+            title: string;
         };
         /** GalleryConfig */
         GalleryConfig: {
@@ -17010,7 +17072,7 @@ export interface components {
              */
             scene_hidden: boolean;
             /** Blocks */
-            blocks?: (components["schemas"]["MarkdownWidget"] | components["schemas"]["ImageWidget"] | components["schemas"]["GalleryWidget"] | components["schemas"]["CarouselWidget"] | components["schemas"]["ButtonWidget"] | components["schemas"]["SeparatorWidget"])[];
+            blocks?: (components["schemas"]["MarkdownWidget"] | components["schemas"]["ImageWidget"] | components["schemas"]["GalleryWidget"] | components["schemas"]["CarouselWidget"] | components["schemas"]["ButtonWidget"] | components["schemas"]["SeparatorWidget"] | components["schemas"]["EmbedWidget"] | components["schemas"]["VideoWidget"])[];
         };
         /** StoryChapterInput */
         StoryChapterInput: {
@@ -17030,7 +17092,7 @@ export interface components {
              */
             scene_hidden: boolean;
             /** Blocks */
-            blocks?: (components["schemas"]["MarkdownWidget"] | components["schemas"]["ImageWidget"] | components["schemas"]["GalleryWidget"] | components["schemas"]["CarouselWidget"] | components["schemas"]["ButtonWidget"] | components["schemas"]["SeparatorWidget"])[];
+            blocks?: (components["schemas"]["MarkdownWidget"] | components["schemas"]["ImageWidget"] | components["schemas"]["GalleryWidget"] | components["schemas"]["CarouselWidget"] | components["schemas"]["ButtonWidget"] | components["schemas"]["SeparatorWidget"] | components["schemas"]["EmbedWidget"] | components["schemas"]["VideoWidget"])[];
         };
         /** StoryCreate */
         StoryCreate: {
@@ -17113,6 +17175,23 @@ export interface components {
              */
             revision: number;
             document: components["schemas"]["StoryDocumentInput"];
+        };
+        /**
+         * StoryFrameHost
+         * @description One approved host.
+         */
+        StoryFrameHost: {
+            /**
+             * Host
+             * @description An exact host name, such as media.example.org.
+             */
+            host: string;
+            /**
+             * Allow Same Origin
+             * @description Let this host's frames keep their origin, which some video players need. The frame keeps it wherever the page sends it, so any other approved host it opens gets the same.
+             * @default false
+             */
+            allow_same_origin: boolean;
         };
         /** StoryGroupsResponse */
         StoryGroupsResponse: {
@@ -18040,6 +18119,28 @@ export interface components {
              * @description Raw opaque verification token from the email link
              */
             token: string;
+        };
+        /** VideoWidget */
+        VideoWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "video";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            config: components["schemas"]["FrameConfig"];
         };
         /** VisibilityCheckResponse */
         VisibilityCheckResponse: {
@@ -48393,6 +48494,109 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StoryDraftResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    story_frame_hosts_endpoint_stories_frame_hosts__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryFrameHost"][];
                 };
             };
             /** @description Bad request — invalid payload */

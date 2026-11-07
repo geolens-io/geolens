@@ -55,6 +55,10 @@ from app.modules.catalog.stories.assets import (
     mentioned_ids,
     require_story_assets,
 )
+from app.modules.catalog.stories.frames import (
+    document_blocks,
+    refuse_unapproved_frames,
+)
 from app.modules.catalog.stories.models import Story, StoryGroupGrant, StoryMap
 from app.modules.catalog.stories.schemas import (
     MAX_STORY_DOCUMENT_BYTES,
@@ -770,11 +774,13 @@ async def publish(
     db: AsyncSession, story: Story, publisher: Identity, roles: set[str]
 ) -> set[uuid.UUID]:
     """Copy the draft to the published document, if every map it uses reaches
-    the story's audience, and return the images the replaced published
-    document showed. Call holding ``lock_story``."""
+    the story's audience and every block it frames is on an approved host,
+    and return the images the replaced published document showed. Call
+    holding ``lock_story``."""
     _refuse_newer_document(story.draft)
     document = await _without_deleted_maps(db, copy.deepcopy(story.draft))
     _refuse_unplaced_scenes(document)
+    await refuse_unapproved_frames(db, document_blocks(document))
     await check_reach(
         db,
         scene_map_ids(document),
@@ -855,7 +861,8 @@ async def save_draft(
 ) -> set[uuid.UUID]:
     """Replace the draft and return the images it shows. Call holding
     ``lock_story``; 409 on a stale revision, 422 ``story_assets_not_found``
-    for an image block naming an image this story doesn't have.
+    for an image block naming an image this story doesn't have, and 422
+    ``story_frame_host_not_allowed`` for a block framing an unapproved host.
     """
     refuse_stale_revision(story, revision)
     images = {
@@ -865,6 +872,7 @@ async def save_draft(
         for asset_id in block_asset_ids(block)
     }
     await require_story_assets(db, story.id, images)
+    await refuse_unapproved_frames(db, (chapter.blocks for chapter in sent.chapters))
     merged, kept_ids = await merge_document(db, sent, story.draft, editor, roles)
     # Kept unreadable settings are not in the size the input model checked.
     if (

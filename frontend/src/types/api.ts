@@ -582,6 +582,7 @@ export type StoryCamera = components['schemas']['StoryCamera'];
 export type StoryDraftResponse = components['schemas']['StoryDraftResponse'];
 export type StoryCreate = components['schemas']['StoryCreate'];
 export type StoryUpdate = components['schemas']['StoryUpdate'];
+export type StoryFrameHost = components['schemas']['StoryFrameHost'];
 export type StoryVisibility = components['schemas']['StoryVisibility'];
 export type StoryAssetResponse = components['schemas']['StoryAssetResponse'];
 export type StoryGroupsResponse = components['schemas']['StoryGroupsResponse'];

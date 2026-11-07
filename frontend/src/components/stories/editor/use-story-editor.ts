@@ -11,6 +11,7 @@ import {
   type ShareBlockingMaps,
   type StoryConflict,
 } from '@/api/stories';
+import { useStoryFrameHosts } from '@/components/widgets/embed/frame';
 import { queryKeys } from '@/lib/query-keys';
 import type { StoryDraftResponse, StorySettings, StoryGroupsResponse, StoryResponse } from '@/types/api';
 import { captureAccount } from './same-account';
@@ -19,6 +20,7 @@ import {
   applySettingsEdit,
   documentBytes,
   buttonsNeedingAttention,
+  framesNeedingAttention,
   imagesMissingAlt,
   MAX_DOCUMENT_BYTES,
   type DraftEdit,
@@ -67,8 +69,10 @@ export function useStoryEditor(initial: StoryDraftResponse) {
 
   const missingAlt = useMemo(() => imagesMissingAlt(chapters), [chapters]);
   const incompleteButtons = useMemo(() => buttonsNeedingAttention(chapters), [chapters]);
+  const { data: frameHosts } = useStoryFrameHosts();
+  const incompleteFrames = useMemo(() => framesNeedingAttention(chapters, frameHosts), [chapters, frameHosts]);
   const tooLarge = useMemo(() => documentBytes(chapters, settings) > MAX_DOCUMENT_BYTES, [chapters, settings]);
-  const unsaveable = tooLarge || missingAlt > 0 || incompleteButtons > 0;
+  const unsaveable = tooLarge || missingAlt > 0 || incompleteButtons > 0 || incompleteFrames > 0;
   const stale = conflict?.code === 'stale_revision';
 
   const edit = useCallback((change: DraftEdit) => {
@@ -282,6 +286,7 @@ export function useStoryEditor(initial: StoryDraftResponse) {
     uploads,
     missingAlt,
     incompleteButtons,
+    incompleteFrames,
     tooLarge,
     unsaveable,
     canAutosave,

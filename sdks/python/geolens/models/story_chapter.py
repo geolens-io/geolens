@@ -14,11 +14,13 @@ from uuid import UUID
 if TYPE_CHECKING:
     from ..models.button_widget import ButtonWidget
     from ..models.carousel_widget import CarouselWidget
+    from ..models.embed_widget import EmbedWidget
     from ..models.gallery_widget import GalleryWidget
     from ..models.image_widget import ImageWidget
     from ..models.markdown_widget import MarkdownWidget
     from ..models.separator_widget import SeparatorWidget
     from ..models.story_scene import StoryScene
+    from ..models.video_widget import VideoWidget
 
 
 T = TypeVar("T", bound="StoryChapter")
@@ -33,8 +35,8 @@ class StoryChapter:
         scene (None | StoryScene | Unset):
         scene_hidden (bool | Unset): The chapter has a scene on a map you can't read, so it's shown without one.
             Default: False.
-        blocks (list[ButtonWidget | CarouselWidget | GalleryWidget | ImageWidget | MarkdownWidget | SeparatorWidget] |
-            Unset):
+        blocks (list[ButtonWidget | CarouselWidget | EmbedWidget | GalleryWidget | ImageWidget | MarkdownWidget |
+            SeparatorWidget | VideoWidget] | Unset):
     """
 
     id: UUID
@@ -45,10 +47,12 @@ class StoryChapter:
         list[
             ButtonWidget
             | CarouselWidget
+            | EmbedWidget
             | GalleryWidget
             | ImageWidget
             | MarkdownWidget
             | SeparatorWidget
+            | VideoWidget
         ]
         | Unset
     ) = UNSET
@@ -57,9 +61,11 @@ class StoryChapter:
     def to_dict(self) -> dict[str, Any]:
         from ..models.button_widget import ButtonWidget
         from ..models.carousel_widget import CarouselWidget
+        from ..models.embed_widget import EmbedWidget
         from ..models.gallery_widget import GalleryWidget
         from ..models.image_widget import ImageWidget
         from ..models.markdown_widget import MarkdownWidget
+        from ..models.separator_widget import SeparatorWidget
         from ..models.story_scene import StoryScene
 
         id = str(self.id)
@@ -95,6 +101,10 @@ class StoryChapter:
                     blocks_item = blocks_item_data.to_dict()
                 elif isinstance(blocks_item_data, ButtonWidget):
                     blocks_item = blocks_item_data.to_dict()
+                elif isinstance(blocks_item_data, SeparatorWidget):
+                    blocks_item = blocks_item_data.to_dict()
+                elif isinstance(blocks_item_data, EmbedWidget):
+                    blocks_item = blocks_item_data.to_dict()
                 else:
                     blocks_item = blocks_item_data.to_dict()
 
@@ -122,11 +132,13 @@ class StoryChapter:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.button_widget import ButtonWidget
         from ..models.carousel_widget import CarouselWidget
+        from ..models.embed_widget import EmbedWidget
         from ..models.gallery_widget import GalleryWidget
         from ..models.image_widget import ImageWidget
         from ..models.markdown_widget import MarkdownWidget
         from ..models.separator_widget import SeparatorWidget
         from ..models.story_scene import StoryScene
+        from ..models.video_widget import VideoWidget
 
         d = dict(src_dict)
         id = UUID(d.pop("id"))
@@ -164,10 +176,12 @@ class StoryChapter:
             list[
                 ButtonWidget
                 | CarouselWidget
+                | EmbedWidget
                 | GalleryWidget
                 | ImageWidget
                 | MarkdownWidget
                 | SeparatorWidget
+                | VideoWidget
             ]
             | Unset
         ) = UNSET
@@ -180,10 +194,12 @@ class StoryChapter:
                 ) -> (
                     ButtonWidget
                     | CarouselWidget
+                    | EmbedWidget
                     | GalleryWidget
                     | ImageWidget
                     | MarkdownWidget
                     | SeparatorWidget
+                    | VideoWidget
                 ):
                     try:
                         if not isinstance(data, dict):
@@ -225,11 +241,27 @@ class StoryChapter:
                         return blocks_item_type_4
                     except (TypeError, ValueError, AttributeError, KeyError):
                         pass
+                    try:
+                        if not isinstance(data, dict):
+                            raise TypeError()
+                        blocks_item_type_5 = SeparatorWidget.from_dict(data)
+
+                        return blocks_item_type_5
+                    except (TypeError, ValueError, AttributeError, KeyError):
+                        pass
+                    try:
+                        if not isinstance(data, dict):
+                            raise TypeError()
+                        blocks_item_type_6 = EmbedWidget.from_dict(data)
+
+                        return blocks_item_type_6
+                    except (TypeError, ValueError, AttributeError, KeyError):
+                        pass
                     if not isinstance(data, dict):
                         raise TypeError()
-                    blocks_item_type_5 = SeparatorWidget.from_dict(data)
+                    blocks_item_type_7 = VideoWidget.from_dict(data)
 
-                    return blocks_item_type_5
+                    return blocks_item_type_7
 
                 blocks_item = _parse_blocks_item(blocks_item_data)
 

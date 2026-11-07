@@ -119,9 +119,11 @@ def sync_detailed(
 
     `revision` must match the stored draft's, or 409 `stale_revision`. 422
     for an unknown or invalid block, for a scene on a map you can't read
-    (`detail.code` `story_maps_not_found`), or for an image block naming an
-    image this story doesn't have (`story_assets_not_found`). Blocks you
-    can't see and scenes sent back with `scene_hidden` are kept as stored.
+    (`detail.code` `story_maps_not_found`), for an image block naming an
+    image this story doesn't have (`story_assets_not_found`), or for an
+    embed or video block whose host isn't approved
+    (`story_frame_host_not_allowed`, the blocks under `detail.blocks`). Blocks
+    you can't see and scenes sent back with `scene_hidden` are kept as stored.
 
     Args:
         story_id (UUID):
@@ -160,9 +162,11 @@ def sync(
 
     `revision` must match the stored draft's, or 409 `stale_revision`. 422
     for an unknown or invalid block, for a scene on a map you can't read
-    (`detail.code` `story_maps_not_found`), or for an image block naming an
-    image this story doesn't have (`story_assets_not_found`). Blocks you
-    can't see and scenes sent back with `scene_hidden` are kept as stored.
+    (`detail.code` `story_maps_not_found`), for an image block naming an
+    image this story doesn't have (`story_assets_not_found`), or for an
+    embed or video block whose host isn't approved
+    (`story_frame_host_not_allowed`, the blocks under `detail.blocks`). Blocks
+    you can't see and scenes sent back with `scene_hidden` are kept as stored.
 
     Args:
         story_id (UUID):
@@ -196,9 +200,11 @@ async def asyncio_detailed(
 
     `revision` must match the stored draft's, or 409 `stale_revision`. 422
     for an unknown or invalid block, for a scene on a map you can't read
-    (`detail.code` `story_maps_not_found`), or for an image block naming an
-    image this story doesn't have (`story_assets_not_found`). Blocks you
-    can't see and scenes sent back with `scene_hidden` are kept as stored.
+    (`detail.code` `story_maps_not_found`), for an image block naming an
+    image this story doesn't have (`story_assets_not_found`), or for an
+    embed or video block whose host isn't approved
+    (`story_frame_host_not_allowed`, the blocks under `detail.blocks`). Blocks
+    you can't see and scenes sent back with `scene_hidden` are kept as stored.
 
     Args:
         story_id (UUID):
@@ -235,9 +241,11 @@ async def asyncio(
 
     `revision` must match the stored draft's, or 409 `stale_revision`. 422
     for an unknown or invalid block, for a scene on a map you can't read
-    (`detail.code` `story_maps_not_found`), or for an image block naming an
-    image this story doesn't have (`story_assets_not_found`). Blocks you
-    can't see and scenes sent back with `scene_hidden` are kept as stored.
+    (`detail.code` `story_maps_not_found`), for an image block naming an
+    image this story doesn't have (`story_assets_not_found`), or for an
+    embed or video block whose host isn't approved
+    (`story_frame_host_not_allowed`, the blocks under `detail.blocks`). Blocks
+    you can't see and scenes sent back with `scene_hidden` are kept as stored.
 
     Args:
         story_id (UUID):

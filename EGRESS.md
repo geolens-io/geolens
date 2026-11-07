@@ -32,6 +32,7 @@ checklist below to close that off.
 | Verification emails (self-serve signup) | `SMTP_HOST` (plus the other `SMTP_*` vars) | SMTP server | Optional | Two triggers: registration sends when the admin "email verification required" setting is on and `SMTP_HOST` is set; the resend-verification endpoint sends for any unverified account whenever `SMTP_HOST` is set, without checking that setting. `NOTIFICATIONS_ENABLED` gates neither. Leave `SMTP_HOST` unset to keep all SMTP egress off. |
 | Edge analytics script | `CSP_SCRIPT_SRC_EXTRA` | Script host the edge injects (Cloudflare Web Analytics: `https://static.cloudflareinsights.com`, which serves a versioned beacon path) | Optional | Empty by default, so the page policy allows no third-party script. Set it only when a Cloudflare-proxied deployment has Web Analytics on. |
 | Reader theme logo | None; a registered branding extension returns `reader_theme.logo_url` | The https host the operator chooses for the logo; each reader's browser requests it on story and dashboard pages | Optional | Off without a branding extension. The request is the image fetch only, sent with no referrer and no GeoLens credentials or page data. Return no logo, or serve it from the app's own origin, to keep it in-network. |
+| Story embeds and videos | None; Admin Settings > Network lists the approved hosts (`story_frame_hosts`, empty by default) | Each approved host, loaded by the reader's browser in a sandboxed iframe on story pages, sending this site's origin (no path) as the referrer; the server never fetches these addresses | Optional | Empty by default, so no story can frame another site and the page policy admits no other frame host. A framed page makes its own requests, for its scripts, images and video, which the sandbox and this site's policy do not limit, so approve only pages whose own requests you accept. |
 | Webhook notifications | `NOTIFICATIONS_ENABLED`, `NOTIFICATION_WEBHOOK_URL`, `NOTIFICATION_WEBHOOK_SECRET`, plus at least one `NOTIFY_ON_*` event switch | Webhook receiver (Slack / Teams / custom) | Optional | Off by default: event alerts need `NOTIFICATIONS_ENABLED=true` and a `NOTIFY_ON_*` switch (all default off); the admin test-send needs only the toggle plus channel config. Point at an in-network receiver, or leave unset. |
 
 ## Air-gap checklist
@@ -40,6 +41,7 @@ checklist below to close that off.
 - Keep `BACKUP_S3_ENABLED=false` (the default); backups then never leave the local `backup_data` volume.
 - Use `STORAGE_PROVIDER=local`, or in-cluster MinIO for S3-compatible storage.
 - Register only local datasets (uploaded files); skip remote COG/STAC sources.
+- Leave the story embed and video host list (Admin Settings > Network) empty, or list only hosts on your network.
 - Replace the default basemap list (Admin Settings > Map) with self-hosted tiles; the OpenFreeMap/OpenStreetMap presets are enabled out of the box. A self-hosted vector style must name glyphs on your network; blank and raster basemaps use the bundled label fonts.
 - Pull the release images into a private registry; the installer pulls prebuilt
   images, so no build-time egress is required.

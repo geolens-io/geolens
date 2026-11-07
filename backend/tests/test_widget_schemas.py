@@ -43,6 +43,8 @@ SAMPLES: dict[str, dict[str, Any]] = {
     },
     "button": {"config": {"label": "Read the report", "url": "https://example.com/r"}},
     "separator": {"config": {}},
+    "embed": {"config": {"url": "https://media.example.org/c", "title": "A chart"}},
+    "video": {"config": {"url": "https://media.example.org/v", "title": "A talk"}},
 }
 
 

@@ -7,6 +7,7 @@ import type {
   StoryChapter,
   StoryCreate,
   StoryDraftResponse,
+  StoryFrameHost,
   StoryGroupsResponse,
   StoryListResponse,
   StoryResponse,
@@ -21,6 +22,11 @@ export async function listStories(
   if (params.limit !== undefined) query.set('limit', String(params.limit));
   const qs = query.toString();
   return apiFetch<StoryListResponse>(`/stories/${qs ? `?${qs}` : ''}`);
+}
+
+/** The hosts story embed and video blocks may frame; empty turns both blocks off. */
+export async function getStoryFrameHosts(): Promise<StoryFrameHost[]> {
+  return apiFetch<StoryFrameHost[]>('/stories/frame-hosts/');
 }
 
 export async function getStory(id: string): Promise<StoryResponse> {

@@ -9937,6 +9937,50 @@
         "title": "EmbedTokenUpdate",
         "type": "object"
       },
+      "EmbedWidget": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Made by the client and stable across saves.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "type": {
+            "const": "embed",
+            "title": "Type",
+            "type": "string"
+          },
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "config": {
+            "$ref": "#/components/schemas/FrameConfig"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "v",
+          "config"
+        ],
+        "title": "EmbedWidget",
+        "type": "object"
+      },
       "EmbeddingStatsResponse": {
         "properties": {
           "total_records": {
@@ -10586,6 +10630,30 @@
           }
         },
         "title": "FeatureUpdate",
+        "type": "object"
+      },
+      "FrameConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "description": "An https address on a host an admin approved for stories. Stored as given and never fetched by the server.",
+            "maxLength": 2048,
+            "title": "Url",
+            "type": "string"
+          },
+          "title": {
+            "description": "Names the frame for screen readers.",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "title"
+        ],
+        "title": "FrameConfig",
         "type": "object"
       },
       "GalleryConfig": {
@@ -23893,10 +23961,12 @@
                 "mapping": {
                   "button": "#/components/schemas/ButtonWidget",
                   "carousel": "#/components/schemas/CarouselWidget",
+                  "embed": "#/components/schemas/EmbedWidget",
                   "gallery": "#/components/schemas/GalleryWidget",
                   "image": "#/components/schemas/ImageWidget",
                   "markdown": "#/components/schemas/MarkdownWidget",
-                  "separator": "#/components/schemas/SeparatorWidget"
+                  "separator": "#/components/schemas/SeparatorWidget",
+                  "video": "#/components/schemas/VideoWidget"
                 },
                 "propertyName": "type"
               },
@@ -23918,6 +23988,12 @@
                 },
                 {
                   "$ref": "#/components/schemas/SeparatorWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/EmbedWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/VideoWidget"
                 }
               ]
             },
@@ -23974,10 +24050,12 @@
                 "mapping": {
                   "button": "#/components/schemas/ButtonWidget",
                   "carousel": "#/components/schemas/CarouselWidget",
+                  "embed": "#/components/schemas/EmbedWidget",
                   "gallery": "#/components/schemas/GalleryWidget",
                   "image": "#/components/schemas/ImageWidget",
                   "markdown": "#/components/schemas/MarkdownWidget",
-                  "separator": "#/components/schemas/SeparatorWidget"
+                  "separator": "#/components/schemas/SeparatorWidget",
+                  "video": "#/components/schemas/VideoWidget"
                 },
                 "propertyName": "type"
               },
@@ -23999,6 +24077,12 @@
                 },
                 {
                   "$ref": "#/components/schemas/SeparatorWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/EmbedWidget"
+                },
+                {
+                  "$ref": "#/components/schemas/VideoWidget"
                 }
               ]
             },
@@ -24231,6 +24315,28 @@
           "document"
         ],
         "title": "StoryDraftUpdate",
+        "type": "object"
+      },
+      "StoryFrameHost": {
+        "additionalProperties": false,
+        "description": "One approved host.",
+        "properties": {
+          "host": {
+            "description": "An exact host name, such as media.example.org.",
+            "title": "Host",
+            "type": "string"
+          },
+          "allow_same_origin": {
+            "default": false,
+            "description": "Let this host's frames keep their origin, which some video players need. The frame keeps it wherever the page sends it, so any other approved host it opens gets the same.",
+            "title": "Allow Same Origin",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "host"
+        ],
+        "title": "StoryFrameHost",
         "type": "object"
       },
       "StoryGroupsResponse": {
@@ -26182,6 +26288,50 @@
           "token"
         ],
         "title": "VerifyEmailRequest",
+        "type": "object"
+      },
+      "VideoWidget": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Made by the client and stable across saves.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "type": {
+            "const": "video",
+            "title": "Type",
+            "type": "string"
+          },
+          "v": {
+            "const": 1,
+            "title": "V",
+            "type": "integer"
+          },
+          "config": {
+            "$ref": "#/components/schemas/FrameConfig"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "v",
+          "config"
+        ],
+        "title": "VideoWidget",
         "type": "object"
       },
       "VisibilityCheckResponse": {
@@ -71961,6 +72111,131 @@
         ]
       }
     },
+    "/stories/frame-hosts/": {
+      "get": {
+        "description": "The hosts story embed and video blocks may frame (public, no auth required).\n\nAn admin sets them in `story_frame_hosts`. Empty means neither block can\nbe added, and none is shown to readers.",
+        "operationId": "story_frame_hosts_endpoint_stories_frame_hosts__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StoryFrameHost"
+                  },
+                  "title": "Response Story Frame Hosts Endpoint Stories Frame Hosts  Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "summary": "Story Frame Hosts Endpoint",
+        "tags": [
+          "Stories"
+        ]
+      }
+    },
     "/stories/{story_id}": {
       "delete": {
         "description": "Delete a story and its images (owner or admin). The maps it uses are\nuntouched.",
@@ -73071,7 +73346,7 @@
         ]
       },
       "put": {
-        "description": "Replace the whole draft (owner or admin). Readers keep the published\ndocument until Publish.\n\n`revision` must match the stored draft's, or 409 `stale_revision`. 422\nfor an unknown or invalid block, for a scene on a map you can't read\n(`detail.code` `story_maps_not_found`), or for an image block naming an\nimage this story doesn't have (`story_assets_not_found`). Blocks you\ncan't see and scenes sent back with `scene_hidden` are kept as stored.",
+        "description": "Replace the whole draft (owner or admin). Readers keep the published\ndocument until Publish.\n\n`revision` must match the stored draft's, or 409 `stale_revision`. 422\nfor an unknown or invalid block, for a scene on a map you can't read\n(`detail.code` `story_maps_not_found`), for an image block naming an\nimage this story doesn't have (`story_assets_not_found`), or for an\nembed or video block whose host isn't approved\n(`story_frame_host_not_allowed`, the blocks under `detail.blocks`). Blocks\nyou can't see and scenes sent back with `scene_hidden` are kept as stored.",
         "operationId": "save_story_draft_endpoint_stories__story_id__draft_put",
         "parameters": [
           {
@@ -73533,7 +73808,7 @@
     },
     "/stories/{story_id}/publish": {
       "post": {
-        "description": "Publish the draft (owner or admin): readers get it from now on.\n\n`revision` must match the stored draft's, or 409 `stale_revision`. 409\n`maps_narrower_than_story` when a map a scene uses can't be read by\neveryone the story's visibility reaches: `detail.maps` names the ones you\ncan read and `detail.unreadable_maps` counts the rest. For a restricted\nstory, a map only some of its groups lack is `can_share`; see `confirm`.",
+        "description": "Publish the draft (owner or admin): readers get it from now on.\n\n`revision` must match the stored draft's, or 409 `stale_revision`. 409\n`maps_narrower_than_story` when a map a scene uses can't be read by\neveryone the story's visibility reaches: `detail.maps` names the ones you\ncan read and `detail.unreadable_maps` counts the rest. For a restricted\nstory, a map only some of its groups lack is `can_share`; see `confirm`.\n422 `story_frame_host_not_allowed` when an embed or video block frames a\nhost that isn't approved now; `detail.blocks` names each one.",
         "operationId": "publish_story_endpoint_stories__story_id__publish_post",
         "parameters": [
           {

@@ -121,6 +121,8 @@ def sync_detailed(
     everyone the story's visibility reaches: `detail.maps` names the ones you
     can read and `detail.unreadable_maps` counts the rest. For a restricted
     story, a map only some of its groups lack is `can_share`; see `confirm`.
+    422 `story_frame_host_not_allowed` when an embed or video block frames a
+    host that isn't approved now; `detail.blocks` names each one.
 
     Args:
         story_id (UUID):
@@ -161,6 +163,8 @@ def sync(
     everyone the story's visibility reaches: `detail.maps` names the ones you
     can read and `detail.unreadable_maps` counts the rest. For a restricted
     story, a map only some of its groups lack is `can_share`; see `confirm`.
+    422 `story_frame_host_not_allowed` when an embed or video block frames a
+    host that isn't approved now; `detail.blocks` names each one.
 
     Args:
         story_id (UUID):
@@ -196,6 +200,8 @@ async def asyncio_detailed(
     everyone the story's visibility reaches: `detail.maps` names the ones you
     can read and `detail.unreadable_maps` counts the rest. For a restricted
     story, a map only some of its groups lack is `can_share`; see `confirm`.
+    422 `story_frame_host_not_allowed` when an embed or video block frames a
+    host that isn't approved now; `detail.blocks` names each one.
 
     Args:
         story_id (UUID):
@@ -234,6 +240,8 @@ async def asyncio(
     everyone the story's visibility reaches: `detail.maps` names the ones you
     can read and `detail.unreadable_maps` counts the rest. For a restricted
     story, a map only some of its groups lack is `can_share`; see `confirm`.
+    422 `story_frame_host_not_allowed` when an embed or video block frames a
+    host that isn't approved now; `detail.blocks` names each one.
 
     Args:
         story_id (UUID):

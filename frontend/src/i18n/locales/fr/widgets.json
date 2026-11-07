@@ -115,6 +115,15 @@
       "noMap": "Ce tableau de bord n’a pas de carte, il est donc impossible de zoomer sur les entités.",
       "loadFailed": "Impossible de charger d’autres entités.",
       "retryLoadMore": "Réessayer"
+    },
+    "embed": {
+      "label": "Intégration",
+      "unavailable": "Cette page intégrée ne peut pas s’afficher ici, car son site n’est plus approuvé.",
+      "originalLink": "Si le cadre reste vide, ouvrez l’original :"
+    },
+    "video": {
+      "label": "Vidéo",
+      "unavailable": "Cette vidéo ne peut pas s’afficher ici, car son site n’est plus approuvé."
     }
   },
   "dashboard": {

@@ -115,6 +115,15 @@
       "noMap": "Dieses Dashboard hat keine Karte, daher kann nicht zu Objekten gezoomt werden.",
       "loadFailed": "Weitere Objekte konnten nicht geladen werden.",
       "retryLoadMore": "Erneut versuchen"
+    },
+    "embed": {
+      "label": "Einbettung",
+      "unavailable": "Diese eingebettete Seite kann hier nicht angezeigt werden, weil ihre Website nicht mehr freigegeben ist.",
+      "originalLink": "Bleibt der Rahmen leer, öffnen Sie das Original:"
+    },
+    "video": {
+      "label": "Video",
+      "unavailable": "Dieses Video kann hier nicht angezeigt werden, weil seine Website nicht mehr freigegeben ist."
     }
   },
   "dashboard": {

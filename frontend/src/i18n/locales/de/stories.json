@@ -137,7 +137,8 @@
       "retry": "Erneut versuchen",
       "waitingForUpload": "Warten auf das Hochladen des Bilds",
       "waitingForAlt": "Alternativtext hinzufügen, um zu speichern",
-      "waitingForButtons": "Schaltflächen vervollständigen, um zu speichern"
+      "waitingForButtons": "Schaltflächen vervollständigen, um zu speichern",
+      "waitingForFrames": "Vervollständigen Sie Einbettungen und Videos, um zu speichern"
     },
     "chapters": {
       "label": "Kapitel",
@@ -181,7 +182,17 @@
       "moveGalleryUp": "Galerie {{index}} nach oben",
       "moveGalleryDown": "Galerie {{index}} nach unten",
       "moveCarouselUp": "Karussell {{index}} nach oben",
-      "moveCarouselDown": "Karussell {{index}} nach unten"
+      "moveCarouselDown": "Karussell {{index}} nach unten",
+      "addEmbed": "Einbettung hinzufügen",
+      "addVideo": "Video hinzufügen",
+      "embedBlock": "Einbettung {{index}}",
+      "videoBlock": "Video {{index}}",
+      "removeEmbed": "Einbettung {{index}} entfernen",
+      "removeVideo": "Video {{index}} entfernen",
+      "moveEmbedUp": "Einbettung {{index}} nach oben verschieben",
+      "moveEmbedDown": "Einbettung {{index}} nach unten verschieben",
+      "moveVideoUp": "Video {{index}} nach oben verschieben",
+      "moveVideoDown": "Video {{index}} nach unten verschieben"
     },
     "scene": {
       "heading": "Kartenszene",
@@ -242,7 +253,9 @@
       "altMissing_one": "{{count}} Bild braucht vor dem Speichern einen Alternativtext.",
       "altMissing_other": "{{count}} Bilder brauchen vor dem Speichern einen Alternativtext.",
       "buttonsIncomplete_one": "{{count}} Schaltfläche braucht vor dem Speichern eine Beschriftung und eine Webadresse.",
-      "buttonsIncomplete_other": "{{count}} Schaltflächen brauchen vor dem Speichern eine Beschriftung und eine Webadresse."
+      "buttonsIncomplete_other": "{{count}} Schaltflächen brauchen vor dem Speichern eine Beschriftung und eine Webadresse.",
+      "framesIncomplete_one": "{{count}} Einbettung oder Video braucht einen Titel und eine Adresse auf einer freigegebenen Website, bevor Sie speichern können.",
+      "framesIncomplete_other": "{{count}} Einbettungen und Videos brauchen einen Titel und eine Adresse auf einer freigegebenen Website, bevor Sie speichern können."
     },
     "image": {
       "alt": "Alternativtext",
@@ -282,6 +295,18 @@
       "addImage": "Weiteres Bild hinzufügen",
       "limit_one": "Bis zu {{count}} Bild in diesem Block.",
       "limit_other": "Bis zu {{count}} Bilder in diesem Block."
+    },
+    "frame": {
+      "embedUrl": "Adresse der Seite",
+      "videoUrl": "Adresse des Videoplayers",
+      "urlHint": "Eine https-Adresse auf einer von einem Admin freigegebenen Website: {{hosts}}.",
+      "noHosts": "Ein Admin hat noch keine Websites für Einbettungen und Videos freigegeben.",
+      "noHostsToAdd": "Einbettungen und Videos sind aus, bis ein Admin die Websites freigibt, von denen sie stammen dürfen.",
+      "urlInvalid": "Geben Sie eine https-Adresse ein, etwa https://media.example.org/page.",
+      "hostNotApproved": "{{host}} ist keine freigegebene Website. Korrigieren Sie die Adresse oder entfernen Sie diesen Block, um zu speichern.",
+      "title": "Titel",
+      "titleHint": "Screenreader lesen ihn für den Rahmen vor.",
+      "titleRequired": "Geben Sie vor dem Speichern einen Titel ein."
     }
   },
   "groups": {
