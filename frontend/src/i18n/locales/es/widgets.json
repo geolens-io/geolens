@@ -86,7 +86,8 @@
       "label": "Separador"
     },
     "gallery": {
-      "label": "Galería"
+      "label": "Galería",
+      "open": "Abrir imagen {{current}} de {{total}}"
     },
     "carousel": {
       "label": "Carrusel",

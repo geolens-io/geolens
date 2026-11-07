@@ -772,3 +772,23 @@ div:has(> [data-group-drop-target="true"]) > [id^="folder-group-children"] {
     );
   }
 }
+
+/* macOS hides overlay scrollbars until hover; the floating chapter panel keeps one visible.
+   Chrome drops the ::-webkit-scrollbar styles once scrollbar-width is set, so the standard
+   properties serve only browsers without that pseudo-element. */
+@supports not selector(::-webkit-scrollbar) {
+  .story-floating-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--muted-foreground) transparent;
+  }
+}
+.story-floating-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.story-floating-scroll::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background: var(--muted-foreground);
+}
+.story-floating-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}

@@ -86,7 +86,8 @@
       "label": "分隔线"
     },
     "gallery": {
-      "label": "图库"
+      "label": "图库",
+      "open": "打开第 {{current}} 张图片，共 {{total}} 张"
     },
     "carousel": {
       "label": "轮播",

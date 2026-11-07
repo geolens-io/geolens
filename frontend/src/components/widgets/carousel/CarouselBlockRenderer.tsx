@@ -2,6 +2,7 @@ import { useId, useState, type KeyboardEvent } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import type { WidgetRenderProps } from '../contract';
 import { GalleryBlockFallback } from '../gallery/GalleryBlockFallback';
 import type { GalleryConfig } from '../gallery/definition';
@@ -68,6 +69,30 @@ export default function CarouselBlockRenderer(props: WidgetRenderProps<GalleryCo
           />
         </ImageFigure>
       </div>
+      {total > 1 && (
+        <div className="flex flex-wrap justify-center">
+          {config.images.map((_, i) => {
+            const label = t('types.carousel.position', { current: i + 1, total });
+            return (
+              <button
+                key={i}
+                type="button"
+                aria-label={label}
+                aria-current={i === current ? 'true' : undefined}
+                className="group p-3 focus-visible:outline-none"
+                onClick={() => setIndex(i)}
+              >
+                <span
+                  className={cn(
+                    'block size-2 rounded-full group-focus-visible:ring-2 group-focus-visible:ring-ring group-focus-visible:ring-offset-2 group-focus-visible:ring-offset-background',
+                    i === current ? 'bg-foreground' : 'bg-muted-foreground/40',
+                  )}
+                />
+              </button>
+            );
+          })}
+        </div>
+      )}
       {total > 1 && (
         <div className="flex items-center justify-center gap-3">
           <Button type="button" variant="outline" size="icon" aria-label={t('types.carousel.previous')} onClick={() => go(-1)}>

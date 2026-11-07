@@ -450,6 +450,15 @@ describe('floating layout', () => {
     expect(screen.getByTestId('story-map').parentElement).not.toHaveClass('absolute');
   });
 
+  it('keeps a thin scrollbar visible on the floating panel only', () => {
+    layout.narrow = false;
+    const { unmount } = renderWith({ layout: 'floating' });
+    expect(screen.getByRole('region', { name: 'Story chapters' })).toHaveClass('story-floating-scroll');
+    unmount();
+    renderWith({ layout: 'side' });
+    expect(screen.getByRole('region', { name: 'Story chapters' })).not.toHaveClass('story-floating-scroll');
+  });
+
   it.each([
     ['left', 'left-14'],
     ['right', 'right-14'],
@@ -518,6 +527,9 @@ describe('floating layout', () => {
     expect(panel).toHaveClass('pointer-events-none');
     expect(panel).toHaveAttribute('inert');
     expect(panel).not.toHaveAttribute('tabindex');
+    // Nothing shows in a bare panel, so no scrollbar may sit over the map either.
+    expect(panel).not.toHaveClass('story-floating-scroll', 'overflow-y-auto');
+    expect(panel).toHaveClass('overflow-y-hidden');
 
     // With the panel out of the way, its own buttons advance the story.
     await user.click(screen.getByRole('button', { name: /Next/ }));
