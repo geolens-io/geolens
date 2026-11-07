@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -54,6 +54,8 @@ interface MapDataPanelProps {
   onClose: () => void;
   /** Told whether the List view shows, the only view that needs the rendered features. */
   onListShownChange: (shown: boolean) => void;
+  /** Told the docked panel's height, and 0 once it leaves, so a panel floating over the map can end above it. */
+  onHeightChange?: (height: number) => void;
 }
 
 function RowsSkeleton({ label }: { label: string }) {
@@ -104,6 +106,7 @@ export function MapDataPanel({
   embedToken,
   onClose,
   onListShownChange,
+  onHeightChange,
 }: MapDataPanelProps) {
   const { t, i18n } = useTranslation('common');
   const titleId = useId();
@@ -328,6 +331,11 @@ export function MapDataPanel({
   const attachContent = useCallback((el: HTMLElement | null) => {
     if (el && contentHost.parentNode !== el) el.appendChild(contentHost);
   }, [contentHost]);
+  // Before paint, so a panel floating over the map never covers the dock for a frame.
+  useLayoutEffect(() => {
+    onHeightChange?.(isExpanded ? 0 : size.height);
+    return () => onHeightChange?.(0);
+  }, [onHeightChange, isExpanded, size.height]);
 
   return (
     <>

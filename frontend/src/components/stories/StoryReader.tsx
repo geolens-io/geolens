@@ -64,6 +64,8 @@ interface PanelProps extends Omit<StoryReaderProps, 'settings' | 'chromeless'> {
   floating?: PanelPosition;
   /** A floating panel with nothing to show leaves the map clear but stays scrollable. */
   bare?: boolean;
+  /** Height of the docked Map data panel a floating panel must end above. */
+  clearance?: number;
 }
 
 interface ScrollPanelHandle {
@@ -158,6 +160,7 @@ export function StoryReader({
     : '';
 
   const bare = floating !== undefined && isTextless(chapter);
+  const [dataPanelHeight, setDataPanelHeight] = useState(0);
   const selectChapter = (index: number) => {
     changeChapter(index);
     scroller.current?.scrollToChapter(index);
@@ -191,7 +194,7 @@ export function StoryReader({
         {isNarrow ? (
           <StoryStepper {...panelProps} />
         ) : (
-          <StoryScrollPanel ref={scroller} {...panelProps} floating={floating} bare={bare} />
+          <StoryScrollPanel ref={scroller} {...panelProps} floating={floating} bare={bare} clearance={floating ? dataPanelHeight : 0} />
         )}
         {bare && floating && (
           // The hidden panel no longer takes the wheel, so these move between chapters instead.
@@ -223,6 +226,7 @@ export function StoryReader({
               legendSide={floating === 'left' ? 'end' : undefined}
               panel={floating}
               defaultTransition={settings?.transition}
+              onDataPanelHeightChange={floating ? setDataPanelHeight : undefined}
             />
           </div>
         )}
@@ -302,6 +306,7 @@ function StoryScrollPanel({
   ref,
   floating,
   bare,
+  clearance = 0,
 }: PanelProps) {
   const { t } = useTranslation('stories');
   const panelRef = useRef<HTMLDivElement>(null);
@@ -326,6 +331,26 @@ function StoryScrollPanel({
     jumpedTo.current = panel.scrollTop;
   }, []);
   useImperativeHandle(ref, () => ({ scrollToChapter }), [scrollToChapter]);
+
+  // A change of the panel's height (the Map data panel docking, a resize) moves
+  // the activation line; scrolling by the same amount keeps the text that was on
+  // the line there, or the next scroll would hand the chapter back to the one before.
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!panel || typeof ResizeObserver === 'undefined') return;
+    let last = panel.clientHeight;
+    const observer = new ResizeObserver(() => {
+      const now = panel.clientHeight;
+      if (now !== last) {
+        panel.scrollTop += (last - now) * ACTIVE_LINE;
+        // A jump's settle guard follows the compensated position; only the reader's own scroll clears it.
+        if (jumpedTo.current !== null) jumpedTo.current = panel.scrollTop;
+      }
+      last = now;
+    });
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, []);
 
   // Opening this layout on a later chapter (a phone stepper widened past the
   // breakpoint) starts with that chapter in view, so text and scene agree.
@@ -363,6 +388,8 @@ function StoryScrollPanel({
       inert={bare}
       role="region"
       aria-label={t('reader.chaptersLabel')}
+      // A floor keeps the chapters readable in a short embed, over the docked panel if it must.
+      style={floating ? { height: `max(8rem, min(48rem, calc(100% - 5rem - ${clearance}px)))` } : undefined}
       className={cn(
         // Positioned, so a block's visually hidden live region stays in the scroll box instead of stretching the page.
         'relative min-h-0 overflow-y-auto focus-visible:outline-2 focus-visible:outline-ring',
@@ -372,7 +399,7 @@ function StoryScrollPanel({
               // A bare panel shows nothing, so its scrollbar must not sit over the map.
               !bare && 'story-floating-scroll',
               FLOATING_PLACEMENT[floating],
-              'h-[min(48rem,calc(100%-5rem))] w-[26rem] lg:w-[30rem]',
+              'w-[26rem] lg:w-[30rem]',
               bare && 'pointer-events-none overflow-y-hidden border-transparent bg-transparent shadow-none [&>*]:opacity-0',
             )
           : cn('bg-background', textOnly ? 'flex-1' : 'w-[26rem] shrink-0 border-e lg:w-[30rem]'),

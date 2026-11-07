@@ -88,9 +88,10 @@ interface HarnessProps {
   layers?: SharedLayerResponse[];
   onClose?: () => void;
   onListShownChange?: (shown: boolean) => void;
+  onHeightChange?: (height: number) => void;
 }
 
-function Harness({ map, tableEnabled = true, embedToken, datasetLinksAllowed = false, layers = [LAYER], onClose = vi.fn(), onListShownChange = vi.fn() }: HarnessProps) {
+function Harness({ map, tableEnabled = true, embedToken, datasetLinksAllowed = false, layers = [LAYER], onClose = vi.fn(), onListShownChange = vi.fn(), onHeightChange }: HarnessProps) {
   const mapRef = useRef<MaplibreMap | null>(map);
   const paneRef = useRef<HTMLDivElement | null>(null);
   const tableEntries = tableEnabled ? createViewerLayerEntries(layers).filter(({ layer }) => offersTable(layer)) : [];
@@ -109,6 +110,7 @@ function Harness({ map, tableEnabled = true, embedToken, datasetLinksAllowed = f
         embedToken={embedToken}
         onClose={onClose}
         onListShownChange={onListShownChange}
+        onHeightChange={onHeightChange}
       />
     </div>
   );
@@ -164,6 +166,17 @@ describe('MapDataPanel', () => {
 
     expect(screen.queryByRole('radio', { name: 'Table' })).not.toBeInTheDocument();
     expect(getDatasetRows).not.toHaveBeenCalled();
+  });
+
+  it('reports its docked height and 0 when it leaves', async () => {
+    const onHeightChange = vi.fn();
+    const { unmount } = render(<Harness map={fakeMap()} onHeightChange={onHeightChange} />);
+    await screen.findByText('Main St');
+    const height = onHeightChange.mock.calls.at(-1)![0] as number;
+    expect(height).toBeGreaterThan(0);
+    expect(screen.getByRole('region', { name: 'Map data' })).toHaveStyle({ height: `${height}px` });
+    unmount();
+    expect(onHeightChange).toHaveBeenLastCalledWith(0);
   });
 
   it('switches between the Table and List views and keeps focus on the switch', async () => {

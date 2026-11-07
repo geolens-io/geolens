@@ -12,6 +12,7 @@ const pane = vi.hoisted(() => ({
   legendSide: undefined as string | undefined,
   panel: undefined as string | undefined,
   defaultTransition: undefined as string | undefined,
+  onDataPanelHeightChange: undefined as ((height: number) => void) | undefined,
 }));
 
 const prefetch = vi.hoisted(() => vi.fn());
@@ -23,8 +24,9 @@ vi.mock('@/api/client', async (importOriginal) => ({
 }));
 vi.mock('@/hooks/use-maps', () => ({ prefetchMap: (_qc: unknown, id: string) => prefetch(id) }));
 vi.mock('../StoryMapPane', () => ({
-  StoryMapPane: ({ resolved, next, emptyHint, legendSide, panel, defaultTransition }: { resolved: ResolvedScene | null; next?: ResolvedScene | null; emptyHint?: string; legendSide?: string; panel?: string; defaultTransition?: string }) => {
+  StoryMapPane: ({ resolved, next, emptyHint, legendSide, panel, defaultTransition, onDataPanelHeightChange }: { resolved: ResolvedScene | null; next?: ResolvedScene | null; emptyHint?: string; legendSide?: string; panel?: string; defaultTransition?: string; onDataPanelHeightChange?: (height: number) => void }) => {
     pane.resolved = resolved;
+    pane.onDataPanelHeightChange = onDataPanelHeightChange;
     pane.next = next ?? null;
     pane.legendSide = legendSide;
     pane.panel = panel;
@@ -451,6 +453,89 @@ describe('floating layout', () => {
     renderWith({ layout: 'side', panel_position: 'right' });
     expect(screen.getByRole('region', { name: 'Story chapters' })).not.toHaveClass('absolute');
     expect(screen.getByTestId('story-map').parentElement).not.toHaveClass('absolute');
+  });
+
+  it('ends the floating panel above the docked Map data panel', () => {
+    layout.narrow = false;
+    const { unmount } = renderWith({ layout: 'floating' });
+    const panel = () => screen.getByRole('region', { name: 'Story chapters' });
+    // jsdom rewrites calc(), so match the clearance term rather than the whole expression.
+    expect(panel().style.height).toMatch(/48rem.*0px/);
+    act(() => pane.onDataPanelHeightChange!(240));
+    expect(panel().style.height).toMatch(/48rem.*240px/);
+    act(() => pane.onDataPanelHeightChange!(0));
+    expect(panel().style.height).toMatch(/48rem.*0px/);
+
+    unmount();
+    renderWith({ layout: 'side' });
+    expect(pane.onDataPanelHeightChange).toBeUndefined();
+    expect(screen.getByRole('region', { name: 'Story chapters' }).style.height).toBe('');
+  });
+
+  it('keeps the text on the activation line when the panel gets shorter', () => {
+    layout.narrow = false;
+    const observers: Array<() => void> = [];
+    const Original = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+      constructor(callback: () => void) {
+        observers.push(callback);
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+    try {
+      renderWith({ layout: 'floating' });
+      const panel = screen.getByRole('region', { name: 'Story chapters' });
+      expect(observers).toHaveLength(1);
+      // The line sits 40% down the panel; losing 200px of height moves it up 80px, and so does the scroll.
+      Object.defineProperty(panel, 'clientHeight', { configurable: true, value: 1000 });
+      observers[0]();
+      panel.scrollTop = 500;
+      Object.defineProperty(panel, 'clientHeight', { configurable: true, value: 800 });
+      observers[0]();
+      expect(panel.scrollTop).toBe(580);
+    } finally {
+      globalThis.ResizeObserver = Original;
+    }
+  });
+
+  it('keeps a jumped-to chapter selected when the panel gets shorter', async () => {
+    const user = userEvent.setup();
+    layout.narrow = false;
+    const observers: Array<() => void> = [];
+    const Original = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+      constructor(callback: () => void) {
+        observers.push(callback);
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+    try {
+      renderWith({ layout: 'floating', navigation: true });
+      const panel = screen.getByRole('region', { name: 'Story chapters' });
+      panel.scrollTo = vi.fn();
+      Object.defineProperty(panel, 'clientHeight', { configurable: true, value: 1000 });
+      panel.getBoundingClientRect = () => ({ top: 100 }) as DOMRect;
+      // Every chapter starts within the first 40% of the panel, so the jump clamps to the top.
+      panel.querySelectorAll('section').forEach((section, i) => {
+        section.getBoundingClientRect = () => ({ top: 100 + i * 100 }) as DOMRect;
+      });
+      observers[0]();
+      await user.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'The coasts' }));
+      expect(screen.getByRole('region', { name: 'The coasts' })).toHaveAttribute('aria-current', 'step');
+
+      // Map data docks: the panel loses 200px and the scroll moves 80px with it, which is not the reader scrolling.
+      Object.defineProperty(panel, 'clientHeight', { configurable: true, value: 800 });
+      observers[0]();
+      fireEvent.scroll(panel);
+      await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+      expect(screen.getByRole('region', { name: 'The coasts' })).toHaveAttribute('aria-current', 'step');
+    } finally {
+      globalThis.ResizeObserver = Original;
+    }
   });
 
   it('keeps a thin scrollbar visible on the floating panel only', () => {

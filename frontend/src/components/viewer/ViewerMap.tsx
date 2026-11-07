@@ -118,6 +118,8 @@ interface ViewerMapProps {
   onReadyChange?: (ready: boolean) => void;
   /** Which top corner the coordinate readout takes; 'start' clears a panel floating on the right, 'past-legend' a legend toggle on the end. */
   coordReadoutSide?: 'start' | 'end' | 'past-legend';
+  /** Told the docked Map data panel's height, 0 while it is closed, so a panel floating over the map can end above it. */
+  onDataPanelHeightChange?: (height: number) => void;
 }
 
 /** Convert a SharedLayerResponse to the normalized SyncLayerInput.
@@ -198,6 +200,7 @@ export const ViewerMap = memo(function ViewerMap({
   fadeLayerChanges = false,
   onReadyChange,
   coordReadoutSide,
+  onDataPanelHeightChange,
 }: ViewerMapProps) {
   const { t } = useTranslation('common');
   const mapLocale = useMapLocale();
@@ -1308,6 +1311,7 @@ export const ViewerMap = memo(function ViewerMap({
           embedToken={embedToken}
           onClose={closeDataPanel}
           onListShownChange={setDataListShown}
+          onHeightChange={onDataPanelHeightChange}
         />
       )}
     </div>
