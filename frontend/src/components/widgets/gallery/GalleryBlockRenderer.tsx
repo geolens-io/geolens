@@ -61,6 +61,13 @@ export default function GalleryBlockRenderer(props: WidgetRenderProps<GalleryCon
           <DialogContent
             aria-describedby={undefined}
             className="max-h-[95vh] w-auto max-w-[95vw] justify-items-center overflow-y-auto sm:max-w-[95vw]"
+            // Arrow keys step the images and stop here, or the story stepper behind the dialog would change chapter.
+            onKeyDown={(event) => {
+              if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+              event.preventDefault();
+              event.stopPropagation();
+              if (total > 1) go(event.key === 'ArrowRight' ? 1 : -1);
+            }}
           >
             <DialogTitle className="sr-only">{shown.caption || shownAlt || position}</DialogTitle>
             <AssetImage

@@ -69,6 +69,25 @@ describe('gallery block lightbox', () => {
     expect(within(dialog).getByText('Image 1 of 2')).toBeInTheDocument();
   });
 
+  it('steps images with the arrow keys and keeps them from the story behind the dialog', async () => {
+    const user = userEvent.setup();
+    const outside = vi.fn();
+    render(
+      // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- a keydown spy standing in for the story stepper
+      <div onKeyDown={outside}>
+        <GalleryBlockRenderer config={{ images }} assetPathFor={(assetId: string) => `/stories/s1/assets/${assetId}`} />
+      </div>,
+    );
+    await screen.findByRole('img', { name: 'Second view' });
+    await user.click(screen.getByRole('button', { name: 'Open image 1 of 3' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.keyboard('{ArrowRight}');
+    expect(within(dialog).getByText('Image 2 of 3')).toBeInTheDocument();
+    await user.keyboard('{ArrowLeft}');
+    expect(within(dialog).getByText('Image 1 of 3')).toBeInTheDocument();
+    expect(outside).not.toHaveBeenCalled();
+  });
+
   it('offers no Previous or Next for a single image', async () => {
     const user = userEvent.setup();
     renderGallery({ images: [images[0]] });
