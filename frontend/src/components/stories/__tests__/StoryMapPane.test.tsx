@@ -160,7 +160,7 @@ async function renderReady(scene: ResolvedScene) {
 
 it.each([
   ['right', 'start', 'left-[calc((100%-3.5rem-26rem)/2)]'],
-  ['left', undefined, 'left-[calc((100%+3.5rem+26rem)/2)]'],
+  ['left', 'past-legend', 'left-[calc((100%+3.5rem+26rem)/2)]'],
 ] as const)('keeps the readout and return button clear of a floating panel on the %s', async (panel, readoutSide, cls) => {
   viewAt(-70, 25, 3);
   render(<StoryMapPane resolved={resolved('c1', 'map-a', 3)} panel={panel} />);

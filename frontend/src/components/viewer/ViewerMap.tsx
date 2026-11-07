@@ -116,8 +116,8 @@ interface ViewerMapProps {
   fadeLayerChanges?: boolean;
   /** Follows the `data-map-ready` signal: style, tiles, layers and terrain all settled. */
   onReadyChange?: (ready: boolean) => void;
-  /** Which top corner the coordinate readout takes; 'start' clears a panel floating on the right. */
-  coordReadoutSide?: 'start' | 'end';
+  /** Which top corner the coordinate readout takes; 'start' clears a panel floating on the right, 'past-legend' a legend toggle on the end. */
+  coordReadoutSide?: 'start' | 'end' | 'past-legend';
 }
 
 /** Convert a SharedLayerResponse to the normalized SyncLayerInput.

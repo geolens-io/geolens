@@ -74,7 +74,7 @@ export default function GalleryBlockRenderer(props: WidgetRenderProps<GalleryCon
             <AssetImage
               path={assetPathFor(shown.asset_id)}
               alt={shownAlt}
-              className="max-h-[70vh] max-w-[90vw] object-contain"
+              className="max-h-[70vh] max-w-[calc(95vw-3rem)] object-contain"
               placeholderClassName="h-64 w-96 max-w-full"
               loadingLabel={shownAlt ? t('types.image.loading', { alt: shownAlt }) : undefined}
               fallback={shownAlt ? <ImageDescription alt={shownAlt} /> : null}

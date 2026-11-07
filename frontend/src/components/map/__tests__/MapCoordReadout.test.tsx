@@ -91,6 +91,14 @@ describe('MapCoordReadout move-event subscription', () => {
     expect(screen.getByText(/9\.7/)).toBeInTheDocument();
   });
 
+  it('sits left of a legend toggle that shares its corner', () => {
+    const { map } = makeFakeMap({ lat: 36.2, lng: -112.3, zoom: 9.7 });
+    const { container } = render(<MapCoordReadout map={map} side="past-legend" />);
+    const box = container.querySelector('[data-coord-readout]');
+    expect(box).toHaveClass('right-24');
+    expect(box).not.toHaveClass('right-14');
+  });
+
   it('moves to the top-left when asked to take the start side', () => {
     const { map } = makeFakeMap({ lat: 36.2, lng: -112.3, zoom: 9.7 });
     const { container } = render(<MapCoordReadout map={map} side="start" />);

@@ -6,8 +6,11 @@ interface MapCoordReadoutProps {
   map: MaplibreMap | null;
   /** When true, appends a "1:N" representative-fraction segment. Default: false. */
   showScale?: boolean;
-  /** 'start' moves the readout to the top-left, clear of the layers button, when a panel covers the right. */
-  side?: 'start' | 'end';
+  /**
+   * 'start' moves the readout to the top-left, clear of the layers button, when a panel covers the
+   * right; 'past-legend' keeps it top-right but left of a legend toggle sitting in that corner.
+   */
+  side?: 'start' | 'end' | 'past-legend';
 }
 
 /**
@@ -103,7 +106,7 @@ export const MapCoordReadout = memo(function MapCoordReadout({
   return (
     <div
       data-coord-readout="true"
-      className={`pointer-events-none absolute top-2 z-10 hidden sm:block ${side === 'start' ? 'left-14' : 'right-14'}`}
+      className={`pointer-events-none absolute top-2 z-10 hidden sm:block ${side === 'start' ? 'left-14' : side === 'past-legend' ? 'right-24' : 'right-14'}`}
     >
       <div className="rounded-sm border border-border bg-popover px-1.5 py-0.5 font-mono text-2xs tracking-wide text-popover-foreground shadow-sm">
         {Math.abs(coords.lat).toFixed(2)}° {latDir}

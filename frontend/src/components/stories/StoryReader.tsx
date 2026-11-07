@@ -364,7 +364,8 @@ function StoryScrollPanel({
       role="region"
       aria-label={t('reader.chaptersLabel')}
       className={cn(
-        'min-h-0 overflow-y-auto focus-visible:outline-2 focus-visible:outline-ring',
+        // Positioned, so a block's visually hidden live region stays in the scroll box instead of stretching the page.
+        'relative min-h-0 overflow-y-auto focus-visible:outline-2 focus-visible:outline-ring',
         floating
           ? cn(
               FLOATING_BASE,
@@ -451,7 +452,7 @@ function StoryStepper({
         // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- the named overflow region must be keyboard-scrollable
         tabIndex={0}
         aria-labelledby={chapterHeadingId(chapter)}
-        className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 focus-visible:outline-2 focus-visible:outline-ring"
+        className="relative min-h-0 flex-1 space-y-4 overflow-y-auto p-4 focus-visible:outline-2 focus-visible:outline-ring"
       >
         <StoryHeader
           storyId={storyId}

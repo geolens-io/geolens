@@ -48,8 +48,9 @@ export function useChartMarks(count: number, onPick?: (index: number) => void) {
       onKeyDown,
       onFocus: () => setActive((value) => value ?? 0),
       onBlur: () => setActive(null),
+      // Drawn in viewBox units, so a wide card would scale the labels with it; the chart stops growing at 24rem.
       className:
-        'h-auto w-full rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+        'mx-auto h-auto w-full max-w-[24rem] rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
     },
     markProps: (index: number) => ({
       ref: index === current ? activeMark : undefined,
