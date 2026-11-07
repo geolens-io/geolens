@@ -12,7 +12,6 @@ import { MapErrorBoundary } from '@/components/error';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { motionDuration } from '@/lib/reduced-motion';
-import { cn } from '@/lib/utils';
 import { readMapCamera } from '@/components/builder/builder-camera';
 import type { StoryCamera, StoryScene } from '@/types/api';
 import {
