@@ -322,15 +322,18 @@ class AdminService:
         await self._ensure_not_last_admin(user, "deactivate", lock_held=True)
 
         await self._retire_member_tiles(user)
-        user.status = "deactivated"
-        user.is_active = False
-        await self.db.flush()
+        await self._set_status(user, "deactivated")
         await self.db.refresh(user)
         return user
 
     async def _set_status(self, user: User, status: str) -> None:
         user.status = status
         user.is_active = status == "active"
+        if status != "active":
+            # Reactivation must not revive sessions or API keys issued before.
+            await AuthService(self.db).revoke_all_tokens(
+                user.id, commit=False, bump_key_epoch=True
+            )
         await self.db.flush()
 
     async def reset_user_password(self, user_id: uuid.UUID, password: str) -> User:

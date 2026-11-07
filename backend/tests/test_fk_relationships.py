@@ -4,6 +4,7 @@ Tests cover CRUD operations, auth enforcement, and visibility checks
 for the /datasets/{dataset_id}/relationships/ endpoints.
 """
 
+import base64
 import uuid
 
 import pytest
@@ -615,11 +616,13 @@ class TestFKRelationships:
         )
         assert listed.json()["relationships"][0]["broken"] is False
 
+    @pytest.mark.parametrize("transport", ["header", "basic"])
     async def test_related_records_column_dropped_live_read_with_api_key_does_not_write(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
         test_db_session,
+        transport: str,
     ):
         """An API key never reaches the catalog repair, even for the dataset owner."""
         admin_id = await get_user_id(test_db_session, "admin")
@@ -690,10 +693,16 @@ class TestFKRelationships:
         assert key.status_code == 201, key.text
         # Revoked here: an active read_only key makes the 0032 downgrade refuse,
         # failing any later migration test in the same database.
+        raw_key = key.json()["key"]
+        if transport == "basic":
+            basic = base64.b64encode(f"anyone:{raw_key}".encode()).decode()
+            key_headers = {"Authorization": f"Basic {basic}"}
+        else:
+            key_headers = {"X-Api-Key": raw_key}
         try:
             resp = await client.get(
                 f"/datasets/{source.id}/features/1/related/{rel_id}/",
-                headers={"X-Api-Key": key.json()["key"]},
+                headers=key_headers,
             )
         finally:
             revoked = await client.delete(

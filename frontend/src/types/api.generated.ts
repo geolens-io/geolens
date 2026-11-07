@@ -3245,13 +3245,20 @@ export interface paths {
          *     Supports column filtering via query params: ``filter[column_name]=value``.
          *     An optional CQL2-JSON ``filter`` expression ANDs with them.
          *
-         *     Anonymous callers can read public, published datasets. ``X-Embed-Token``
-         *     authorizes datasets in the token's scope while the token's map has
-         *     ``show_attribute_table`` on. Other datasets return 404. A request only the
-         *     embed token authorizes reads only the columns in the dataset's tile column
-         *     allowlist, when it has one: any other column is treated as one the table
-         *     lacks, in the returned columns, ``sort``, ``filter`` and
-         *     ``filter[column]``.
+         *     Anonymous callers can read public, published datasets, and a signed-in
+         *     caller reads what their own permissions allow; an embed token that doesn't
+         *     cover the dataset changes neither. This route also answers an
+         *     ``X-Embed-Token`` for datasets in the token's scope while the token's map
+         *     has ``show_attribute_table`` on. That flag only decides whether viewers
+         *     offer the table: tiles, ``features.geojson`` and ``aggregate`` return the
+         *     same allowlisted values to the token either way. Any other caller gets 404.
+         *
+         *     A request only the embed token authorizes reads only the columns in the
+         *     dataset's tile column allowlist, when it has one: any other column is
+         *     treated as one the table lacks, in the returned columns, ``sort``,
+         *     ``filter`` and ``filter[column]``. ``gid`` is kept even when the allowlist
+         *     leaves it out: it stays in the rows, in ``sortable_columns`` and, when the
+         *     stored metadata lists it, in ``columns``.
          */
         get: operations["get_dataset_rows_endpoint_datasets__dataset_id__rows__get"];
         put?: never;
@@ -34580,7 +34587,7 @@ export interface operations {
                 with_bbox?: boolean;
             };
             header?: {
-                /** @description Optional embed token. Datasets in the token's scope are authorized when the token's map has `show_attribute_table` on. */
+                /** @description Optional embed token. This route answers it for datasets in the token's scope while the token's map has `show_attribute_table` on. A caller who can read the dataset is served by their own permissions whatever the token covers. */
                 "X-Embed-Token"?: string | null;
             };
             path: {
@@ -48206,9 +48213,9 @@ export interface operations {
                 bbox?: string | null;
                 /** @description OGC datetime interval */
                 datetime?: string | null;
-                /** @description Comma-separated collection IDs */
+                /** @description Comma-separated collection IDs, at most 1000; more answer 400. */
                 collections?: string | null;
-                /** @description Comma-separated item IDs */
+                /** @description Comma-separated item IDs, at most 1000; more answer 400. */
                 ids?: string | null;
                 /** @description GeoJSON geometry for spatial intersection. At most 10000 characters, which fits a polygon of several hundred vertices at 2-decimal-place lat/lon coordinates. */
                 intersects?: string | null;

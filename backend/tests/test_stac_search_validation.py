@@ -171,3 +171,39 @@ class TestStacSearchBodyBounds:
         """limit=200 (at the le=200 ceiling) must pass schema validation."""
         resp = await client.post("/stac/search", json={"limit": 200, "offset": 0})
         assert resp.status_code == 200, resp.text
+
+
+@pytest.mark.anyio
+class TestStacSearchListCounts:
+    """ids and collections accept at most 1000 values on GET and POST."""
+
+    @pytest.mark.parametrize("param", ["ids", "collections"])
+    async def test_get_over_limit_rejected(self, client: AsyncClient, param: str):
+        values = ",".join(f"00000000-0000-0000-0000-{i:012d}" for i in range(1001))
+        resp = await client.get("/stac/search", params={param: values})
+        assert resp.status_code == 400, resp.text
+        assert resp.headers["content-type"].startswith("application/problem+json")
+        assert param in resp.json()["detail"]
+
+    @pytest.mark.parametrize("param", ["ids", "collections"])
+    async def test_get_trailing_comma_does_not_count(
+        self, client: AsyncClient, param: str
+    ):
+        values = ",".join(f"00000000-0000-0000-0000-{i:012d}" for i in range(1000))
+        resp = await client.get("/stac/search", params={param: values + ","})
+        assert resp.status_code == 200, resp.text
+
+    @pytest.mark.parametrize("param", ["ids", "collections"])
+    async def test_post_over_limit_rejected(self, client: AsyncClient, param: str):
+        values = [f"00000000-0000-0000-0000-{i:012d}" for i in range(1001)]
+        resp = await client.post("/stac/search", json={param: values})
+        assert resp.status_code == 400, resp.text
+        assert resp.headers["content-type"].startswith("application/problem+json")
+
+    @pytest.mark.parametrize("param", ["ids", "collections"])
+    async def test_at_limit_accepted(self, client: AsyncClient, param: str):
+        values = [f"00000000-0000-0000-0000-{i:012d}" for i in range(1000)]
+        get = await client.get("/stac/search", params={param: ",".join(values)})
+        assert get.status_code == 200, get.text
+        post = await client.post("/stac/search", json={param: values})
+        assert post.status_code == 200, post.text
