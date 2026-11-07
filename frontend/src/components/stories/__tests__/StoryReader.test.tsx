@@ -450,6 +450,15 @@ describe('floating layout', () => {
     expect(screen.getByTestId('story-map').parentElement).not.toHaveClass('absolute');
   });
 
+  it('keeps a thin scrollbar visible on the floating panel only', () => {
+    layout.narrow = false;
+    const { unmount } = renderWith({ layout: 'floating' });
+    expect(screen.getByRole('region', { name: 'Story chapters' })).toHaveClass('story-floating-scroll');
+    unmount();
+    renderWith({ layout: 'side' });
+    expect(screen.getByRole('region', { name: 'Story chapters' })).not.toHaveClass('story-floating-scroll');
+  });
+
   it.each([
     ['left', 'left-14'],
     ['right', 'right-14'],

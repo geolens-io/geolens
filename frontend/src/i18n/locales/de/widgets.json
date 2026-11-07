@@ -86,7 +86,8 @@
       "label": "Trenner"
     },
     "gallery": {
-      "label": "Galerie"
+      "label": "Galerie",
+      "open": "Bild {{current}} von {{total}} öffnen"
     },
     "carousel": {
       "label": "Karussell",

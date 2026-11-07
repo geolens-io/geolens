@@ -368,6 +368,7 @@ function StoryScrollPanel({
         floating
           ? cn(
               FLOATING_BASE,
+              'story-floating-scroll',
               FLOATING_PLACEMENT[floating],
               'h-[min(48rem,calc(100%-5rem))] w-[26rem] lg:w-[30rem]',
               bare && 'pointer-events-none border-transparent bg-transparent shadow-none [&>*]:opacity-0',
