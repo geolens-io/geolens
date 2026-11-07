@@ -122,7 +122,8 @@ interface IndicatorText {
   /** The reference as a line of its own, when the config has one. */
   reference?: { label: string; line: string; value: string };
   /** The difference, once the value is known. */
-  difference?: { arrow: string; text: string; tone: Tone };
+  /** `spoken` is the phrase with the judgement word joined the way the locale does, when there is one. */
+  difference?: { arrow: string; text: string; tone: Tone; spoken?: string };
 }
 
 /** The statistic's label and its value as text, with "no data" before the host has fetched it. */
@@ -146,29 +147,29 @@ export function useIndicatorText(
   if (config.reference === undefined) return text;
 
   const label = config.reference_label ?? t('types.indicator.referenceDefault');
+  const phraseLabel = config.reference_label ?? t('types.indicator.referenceDefaultPhrase');
   const referenceValue = formatAggregateValue(config.reference);
   text.reference = { label, value: referenceValue, line: t('types.indicator.reference', { label, value: referenceValue }) };
   const difference = indicatorDifference(value, config);
   if (difference) {
-    const signed = { signDisplay: 'exceptZero' } as const;
+    const unsigned = { signDisplay: 'never' } as const;
     const comparison = config.comparison ?? 'both';
     const amount =
       difference.amount !== null && (comparison !== 'percent' || difference.percent === null)
-        ? (new Intl.NumberFormat(i18n.language, { ...signed, maximumFractionDigits: 2 }).format as (v: unknown) => string)(difference.amount)
+        ? (new Intl.NumberFormat(i18n.language, { ...unsigned, maximumFractionDigits: 2 }).format as (v: unknown) => string)(difference.amount)
         : null;
     const percent =
       comparison !== 'value' && difference.percent !== null
-        ? formatNumber(difference.percent, { ...signed, style: 'percent', maximumFractionDigits: 1 })
+        ? formatNumber(difference.percent, { ...unsigned, style: 'percent', maximumFractionDigits: 1 })
         : null;
     const shown = amount !== null && percent !== null ? `${amount} (${percent})` : (amount ?? percent ?? '');
-    const phrase = t(`types.indicator.${difference.direction}`, { amount: shown, label });
+    const phrase = t(`types.indicator.${difference.direction}`, { amount: shown, label: phraseLabel });
+    const outcome = difference.tone === 'neutral' ? undefined : t(`types.indicator.${difference.tone}`);
     text.difference = {
       arrow: ARROWS[difference.direction],
       tone: difference.tone,
-      text:
-        difference.tone === 'neutral'
-          ? phrase
-          : t('types.indicator.outcome', { difference: phrase, outcome: t(`types.indicator.${difference.tone}`) }),
+      text: phrase,
+      spoken: outcome && t('types.indicator.outcome', { difference: phrase, outcome }),
     };
   }
   return text;

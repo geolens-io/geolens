@@ -61,6 +61,7 @@ and releases use semantic versioning.
 
 - Stories: a chapter on a different map loads that map ahead of time and crossfades to it.
 - Stories: a gallery image opens full size in a dialog with its caption and Previous/Next, a carousel shows dots for its images, and the floating panel keeps a visible scrollbar.
+- Dashboards: indicator comparisons read "above <label>" with the judgement carried by colour; charts and tables take two columns when the map is hidden.
 - CI cancels merge-queue runs left behind when a queue entry is rebuilt, so superseded runs no longer hold runners.
 - Jobs: the storage sweeps share one orphan-object scan.
 - Overlay authors: `EXTENSION_API_VERSION` is now 22. `BrandingExtension`

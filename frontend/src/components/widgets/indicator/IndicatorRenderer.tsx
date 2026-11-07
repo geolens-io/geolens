@@ -16,10 +16,13 @@ export default function IndicatorRenderer({ config, data, columnLabel }: WidgetR
       <p className="text-sm text-muted-foreground">{label}</p>
       {reference && <p className="text-sm tabular-nums break-words">{reference.line}</p>}
       {difference && (
-        <p className={`text-sm font-medium tabular-nums break-words ${TONE_CLASSES[difference.tone]}`}>
-          <span aria-hidden="true">{difference.arrow} </span>
-          {difference.text}
-        </p>
+        <>
+          <p aria-hidden={difference.spoken ? true : undefined} className={`text-sm font-medium tabular-nums break-words ${TONE_CLASSES[difference.tone]}`}>
+            <span aria-hidden="true">{difference.arrow} </span>
+            {difference.text}
+          </p>
+          {difference.spoken && <p className="sr-only">{difference.spoken}</p>}
+        </>
       )}
     </div>
   );

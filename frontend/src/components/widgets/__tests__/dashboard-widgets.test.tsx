@@ -200,6 +200,22 @@ describe('bar chart widget', () => {
     expect(screen.getByText('Residential: 40', { selector: 'figcaption span' })).toBeInTheDocument();
   });
 
+  it('scrolls the active bar into view when the chart is taller than its panel', () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    try {
+      render(<BarChartRenderer config={chart} data={counts} />);
+      const svg = screen.getByRole('group', { name: 'Count by land_use' });
+      fireEvent.focus(svg);
+      fireEvent.keyDown(svg, { key: 'End' });
+      const bars = svg.querySelectorAll('g');
+      expect(scrollIntoView).toHaveBeenLastCalledWith({ block: 'nearest' });
+      expect(scrollIntoView.mock.instances.at(-1)).toBe(bars[bars.length - 1]);
+    } finally {
+      delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
+  });
+
   it('draws bars in theme colours, scaled to the largest, with an outline on the active one', () => {
     const { container } = render(<BarChartRenderer config={chart} data={counts} />);
     const bars = [...container.querySelectorAll('svg rect')];
