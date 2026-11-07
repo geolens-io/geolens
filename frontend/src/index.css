@@ -779,7 +779,7 @@ div:has(> [data-group-drop-target="true"]) > [id^="folder-group-children"] {
 @supports not selector(::-webkit-scrollbar) {
   .story-floating-scroll {
     scrollbar-width: thin;
-    scrollbar-color: color-mix(in oklab, var(--muted-foreground) 45%, transparent) transparent;
+    scrollbar-color: var(--muted-foreground) transparent;
   }
 }
 .story-floating-scroll::-webkit-scrollbar {
@@ -787,7 +787,7 @@ div:has(> [data-group-drop-target="true"]) > [id^="folder-group-children"] {
 }
 .story-floating-scroll::-webkit-scrollbar-thumb {
   border-radius: 9999px;
-  background: color-mix(in oklab, var(--muted-foreground) 45%, transparent);
+  background: var(--muted-foreground);
 }
 .story-floating-scroll::-webkit-scrollbar-track {
   background: transparent;

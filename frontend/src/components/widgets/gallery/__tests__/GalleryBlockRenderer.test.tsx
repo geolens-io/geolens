@@ -53,6 +53,22 @@ describe('gallery block lightbox', () => {
     expect(vi.mocked(apiFetchBlob)).toHaveBeenCalled();
   });
 
+  it('keeps the open image inside a gallery that a refresh shortened', async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderGallery({ images });
+    await screen.findByRole('img', { name: 'Third view' });
+    await user.click(screen.getByRole('button', { name: 'Open image 3 of 3' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('Image 3 of 3')).toBeInTheDocument();
+
+    rerender(
+      <GalleryBlockRenderer config={{ images: images.slice(0, 2) }} assetPathFor={(assetId: string) => `/stories/s1/assets/${assetId}`} />,
+    );
+    expect(within(dialog).getByText('Image 2 of 2')).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Next image' }));
+    expect(within(dialog).getByText('Image 1 of 2')).toBeInTheDocument();
+  });
+
   it('offers no Previous or Next for a single image', async () => {
     const user = userEvent.setup();
     renderGallery({ images: [images[0]] });

@@ -527,6 +527,8 @@ describe('floating layout', () => {
     expect(panel).toHaveClass('pointer-events-none');
     expect(panel).toHaveAttribute('inert');
     expect(panel).not.toHaveAttribute('tabindex');
+    // Nothing shows in a bare panel, so no scrollbar may sit over the map either.
+    expect(panel).not.toHaveClass('story-floating-scroll');
 
     // With the panel out of the way, its own buttons advance the story.
     await user.click(screen.getByRole('button', { name: /Next/ }));

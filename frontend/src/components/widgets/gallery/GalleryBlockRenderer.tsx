@@ -15,13 +15,17 @@ export default function GalleryBlockRenderer(props: WidgetRenderProps<GalleryCon
   const { config, assetPathFor } = props;
   const { t } = useTranslation('widgets');
   const [open, setOpen] = useState<number | null>(null);
+  // The image stays chosen while the dialog closes, so it can animate out.
+  const [dialogOpen, setDialogOpen] = useState(false);
   if (!assetPathFor) return <GalleryBlockFallback {...props} />;
   const keys = entryKeys(config.images);
   const total = config.images.length;
-  const shown = open === null ? null : config.images[Math.min(open, total - 1)];
+  // A refresh may have shortened the gallery under an open dialog.
+  const index = open === null ? null : Math.min(open, total - 1);
+  const shown = index === null ? null : config.images[index];
   const shownAlt = shown ? readerAlt(shown) : '';
-  const position = open === null ? '' : t('types.carousel.position', { current: open + 1, total });
-  const go = (by: -1 | 1) => setOpen((open! + by + total) % total);
+  const position = index === null ? '' : t('types.carousel.position', { current: index + 1, total });
+  const go = (by: -1 | 1) => setOpen((index! + by + total) % total);
   return (
     <>
       <div className="grid grid-cols-1 items-start gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -33,7 +37,10 @@ export default function GalleryBlockRenderer(props: WidgetRenderProps<GalleryCon
                 type="button"
                 className="block w-full cursor-zoom-in rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 aria-label={t('types.gallery.open', { current: i + 1, total })}
-                onClick={() => setOpen(i)}
+                onClick={() => {
+                  setOpen(i);
+                  setDialogOpen(true);
+                }}
               >
                 <AssetImage
                   path={assetPathFor(image.asset_id)}
@@ -49,7 +56,7 @@ export default function GalleryBlockRenderer(props: WidgetRenderProps<GalleryCon
           );
         })}
       </div>
-      <Dialog open={shown !== null} onOpenChange={(next) => !next && setOpen(null)}>
+      <Dialog open={dialogOpen && shown !== null} onOpenChange={setDialogOpen}>
         {shown && (
           <DialogContent
             aria-describedby={undefined}
