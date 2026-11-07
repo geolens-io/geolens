@@ -25,10 +25,19 @@ _Avoid_: 3D Tiles dataset, mesh.
 _Avoid_: Chart, when the widget is a number.
 
 **Pick**: A reader's choice of a bar, a histogram bin or selector values in a dashboard. It filters that layer on the map and its other widgets for the session, never the widget it came from, and is never saved.
+_Avoid_: Selection.
 
 **View scope**: A widget's choice to cover only the features in the current map view rather than the whole layer. A layer with no geometry is always covered whole.
 
 **Reference**: A value an author gives an indicator to compare with, named by its label. The difference shows as an amount, a percentage or both, and is judged by whether a higher value is better.
+
+**Map data**: A reader's panel of a map's data, docked under the map; on a phone it expands to full screen. It shows a layer's attribute table or a list of the features in view.
+_Avoid_: Data tab, data drawer.
+
+**Attribute table**: A saved layer's rows as a table. It starts with the fields the layer's popup shows, and the reader can add or hide columns.
+
+**Column allowlist**: The columns of a dataset that anyone reaching it only through an embed may see. Map tiles carry no others; row lists keep the row id.
+_Avoid_: Tile columns.
 
 **Source binding**: The system-managed record of where a dataset's current data came from and how to reach it again: the origin, the pointer and the details a refresh needs. It changes only when an import, replacement, refresh or restore publishes new data, and it never holds a credential.
 _Avoid_: Origin (the derived kind alone), source URL (owner-editable text), `origin_ref`.
@@ -59,9 +68,12 @@ _Avoid_: Team, role, layer group (layers grouped inside a map).
 
 **Story**: An ordered list of chapters told over saved maps. It has its own owner and visibility, and it can't be published more widely than any map it uses can be read.
 
-**Chapter**: One step of a story: a title, blocks (text, images, galleries, carousels, video, framed pages, buttons and separators) and an optional scene.
+**Chapter**: One step of a story: a title, its blocks and an optional scene.
 
-**Scene**: What the map shows for a chapter: a saved map, its camera and which of its saved layers are visible. A scene never changes how a layer looks; a chapter that needs a different look shows another layer of the same map. A chapter without a scene keeps the one before it; chapters before the first scene show that first scene.
+**Block**: One piece of a chapter's content: text, an image, a gallery, a carousel, a video, a framed page, a button or a separator.
+_Avoid_: Widget, which is a dashboard's summary.
+
+**Scene**: What the map shows for a chapter: a saved map, its camera and which of its saved layers are visible. A scene never changes how a layer looks; a chapter that needs a different look shows another layer of the same map. A chapter without a scene keeps the one before it; chapters before the first scene show that first scene. A story with no scene shows its chapters without a map.
 _Avoid_: Slide, view (a map's own saved camera).
 
 **Reader settings**: A story's choices for how readers see it: whether the chapter list shows above the story, the layout, the panel position, the theme and the default transition.
