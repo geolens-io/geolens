@@ -45,6 +45,8 @@ describe('gallery block lightbox', () => {
     expect(within(dialog).getByText('Looking east', { selector: 'p' })).toBeInTheDocument();
     // The whole dialog, not only the image, stays inside a short screen.
     expect(dialog).toHaveClass('max-h-[95vh]', 'overflow-y-auto');
+    // The image starts below the close control rather than running behind it.
+    expect(dialog).toHaveClass('pt-10');
 
     await user.click(within(dialog).getByRole('button', { name: 'Next image' }));
     expect(await within(dialog).findByRole('img', { name: 'Third view' })).toBeInTheDocument();

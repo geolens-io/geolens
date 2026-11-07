@@ -60,7 +60,8 @@ export default function GalleryBlockRenderer(props: WidgetRenderProps<GalleryCon
         {shown && (
           <DialogContent
             aria-describedby={undefined}
-            className="max-h-[95vh] w-auto max-w-[95vw] justify-items-center overflow-y-auto sm:max-w-[95vw]"
+            // The close control sits in the top padding, so the content starts below it instead of under it.
+            className="max-h-[95vh] w-auto max-w-[95vw] justify-items-center overflow-y-auto pt-10 sm:max-w-[95vw]"
             // Arrow keys step the images and stop here, or the story stepper behind the dialog would change chapter.
             onKeyDown={(event) => {
               if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
