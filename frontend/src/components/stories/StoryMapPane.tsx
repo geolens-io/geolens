@@ -65,6 +65,8 @@ interface StoryMapPaneProps {
   panel?: 'left' | 'right' | 'center';
   /** The story's transition for a scene that sets none. */
   defaultTransition?: StorySettings['transition'];
+  /** Told the active map's docked Map data panel height, 0 while it is closed. */
+  onDataPanelHeightChange?: (height: number) => void;
   ref?: Ref<StoryMapPaneHandle>;
 }
 
@@ -72,7 +74,7 @@ interface StoryMapPaneProps {
  * The story's map. A scene on another map crossfades from a copy loaded
  * ahead; without one ready, the map remounts. A scene on the same map flies there.
  */
-export const StoryMapPane = memo(function StoryMapPane({ resolved, next, emptyHint, resetKey, legendSide, panel, defaultTransition, ref }: StoryMapPaneProps) {
+export const StoryMapPane = memo(function StoryMapPane({ resolved, next, emptyHint, resetKey, legendSide, panel, defaultTransition, onDataPanelHeightChange, ref }: StoryMapPaneProps) {
   const [shown, setShown] = useState(resolved);
   // The map that just lost the view, kept underneath while the next one fades in.
   const [outgoing, setOutgoing] = useState<ResolvedScene | null>(null);
@@ -144,6 +146,7 @@ export const StoryMapPane = memo(function StoryMapPane({ resolved, next, emptyHi
             role={role}
             exit={role === 'outgoing' ? resolved : null}
             onReady={role === 'standby' ? setStandbyReady : undefined}
+            onDataPanelHeightChange={role === 'active' ? onDataPanelHeightChange : undefined}
             resetKey={resetKey}
             legendSide={legendSide}
             panel={panel}
@@ -172,6 +175,7 @@ function StoryMap({
   legendSide,
   panel,
   defaultTransition,
+  onDataPanelHeightChange,
   handleRef,
 }: {
   resolved: ResolvedScene;
@@ -183,6 +187,7 @@ function StoryMap({
   legendSide?: 'start' | 'end';
   panel?: 'left' | 'right' | 'center';
   defaultTransition?: StorySettings['transition'];
+  onDataPanelHeightChange?: (height: number) => void;
   handleRef?: Ref<StoryMapPaneHandle>;
 }) {
   const { t } = useTranslation('stories');
@@ -381,6 +386,7 @@ function StoryMap({
             showAttributeTable={data.show_attribute_table}
             fadeLayerChanges
             coordReadoutSide={panel === 'right' || panel === 'center' ? 'start' : panel === 'left' ? 'past-legend' : undefined}
+            onDataPanelHeightChange={onDataPanelHeightChange}
           />
         </Suspense>
         {loadedAhead && role === 'active' && !coverDone && !viewerReady && (

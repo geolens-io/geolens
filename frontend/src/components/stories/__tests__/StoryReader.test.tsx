@@ -12,6 +12,7 @@ const pane = vi.hoisted(() => ({
   legendSide: undefined as string | undefined,
   panel: undefined as string | undefined,
   defaultTransition: undefined as string | undefined,
+  onDataPanelHeightChange: undefined as ((height: number) => void) | undefined,
 }));
 
 const prefetch = vi.hoisted(() => vi.fn());
@@ -23,8 +24,9 @@ vi.mock('@/api/client', async (importOriginal) => ({
 }));
 vi.mock('@/hooks/use-maps', () => ({ prefetchMap: (_qc: unknown, id: string) => prefetch(id) }));
 vi.mock('../StoryMapPane', () => ({
-  StoryMapPane: ({ resolved, next, emptyHint, legendSide, panel, defaultTransition }: { resolved: ResolvedScene | null; next?: ResolvedScene | null; emptyHint?: string; legendSide?: string; panel?: string; defaultTransition?: string }) => {
+  StoryMapPane: ({ resolved, next, emptyHint, legendSide, panel, defaultTransition, onDataPanelHeightChange }: { resolved: ResolvedScene | null; next?: ResolvedScene | null; emptyHint?: string; legendSide?: string; panel?: string; defaultTransition?: string; onDataPanelHeightChange?: (height: number) => void }) => {
     pane.resolved = resolved;
+    pane.onDataPanelHeightChange = onDataPanelHeightChange;
     pane.next = next ?? null;
     pane.legendSide = legendSide;
     pane.panel = panel;
@@ -451,6 +453,30 @@ describe('floating layout', () => {
     renderWith({ layout: 'side', panel_position: 'right' });
     expect(screen.getByRole('region', { name: 'Story chapters' })).not.toHaveClass('absolute');
     expect(screen.getByTestId('story-map').parentElement).not.toHaveClass('absolute');
+  });
+
+  it('ends the floating panel above the docked Map data panel', () => {
+    layout.narrow = false;
+    const { unmount } = renderWith({ layout: 'floating' });
+    const panel = () => screen.getByRole('region', { name: 'Story chapters' });
+    // jsdom rewrites calc(), so match the clearance term rather than the whole expression.
+    expect(panel().style.height).toMatch(/48rem.*0px/);
+    act(() => pane.onDataPanelHeightChange!(240));
+    expect(panel().style.height).toMatch(/48rem.*240px/);
+    act(() => pane.onDataPanelHeightChange!(0));
+    expect(panel().style.height).toMatch(/48rem.*0px/);
+
+    // Shrinking keeps the text on the activation line: the line moves up by 40% of the lost height, and so does the scroll.
+    Object.defineProperty(panel(), 'clientHeight', { configurable: true, value: 1000 });
+    act(() => pane.onDataPanelHeightChange!(1));
+    panel().scrollTop = 500;
+    Object.defineProperty(panel(), 'clientHeight', { configurable: true, value: 800 });
+    act(() => pane.onDataPanelHeightChange!(201));
+    expect(panel().scrollTop).toBe(580);
+    unmount();
+    renderWith({ layout: 'side' });
+    expect(pane.onDataPanelHeightChange).toBeUndefined();
+    expect(screen.getByRole('region', { name: 'Story chapters' }).style.height).toBe('');
   });
 
   it('keeps a thin scrollbar visible on the floating panel only', () => {
