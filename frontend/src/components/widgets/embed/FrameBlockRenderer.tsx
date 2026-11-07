@@ -23,13 +23,16 @@ export function FrameBlockRenderer({ config, kind }: WidgetRenderProps<FrameConf
     );
   }
   // A browser that blocks the frame reports nothing to the page, so the link always stays.
+  // Keyed on the sandbox: a browser applies a changed one only to a fresh frame.
+  const sandbox = frameSandbox(entry);
   return (
     <figure className="space-y-1">
       <iframe
+        key={sandbox}
         src={config.url}
         title={config.title}
         loading="lazy"
-        sandbox={frameSandbox(entry)}
+        sandbox={sandbox}
         referrerPolicy="strict-origin"
         allowFullScreen={kind === 'video'}
         className={cn('w-full rounded-md border', kind === 'video' ? 'aspect-video' : 'h-[28rem]')}

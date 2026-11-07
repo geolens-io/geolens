@@ -131,4 +131,20 @@ describe('frame block renderer', () => {
       vi.useRealTimers();
     }
   });
+
+  it("loads a fresh frame when the host's sandbox permission changes", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      approved = [{ host: 'media.example.org', allow_same_origin: false }];
+      renderBlock(block('video'));
+      const first = await screen.findByTitle('Field visit');
+      approved = [{ host: 'media.example.org', allow_same_origin: true }];
+      await vi.advanceTimersByTimeAsync(30_000);
+      const frame = await screen.findByTitle('Field visit');
+      expect(frame).not.toBe(first);
+      expect(frame).toHaveAttribute('sandbox', 'allow-scripts allow-popups allow-same-origin');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
