@@ -7,6 +7,8 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.30.0] - 2026-11-07
+
 ### Added
 - Stories: the story list takes `search` and `published_only`, and each item reports its published `chapter_count`.
 - MCP: list_stories, get_story and aggregate tools read published stories and run dataset aggregates.
@@ -14,7 +16,6 @@ and releases use semantic versioning.
 - Dashboards: bar charts by feature, by field or by date, layer colours on category bar charts, and histogram axis ticks.
 - Dashboards: pie charts, with the layer's colours when grouped by its style column.
 - Stories: an optional navigation bar listing the chapters, and a floating panel layout that puts the chapter text over a full-bleed map, placed left, right or centre.
-
 - Stories: chapters can move the map with Fly, Glide or Cut, timed by the distance of the move, layers fade in and out, and a button returns a reader to the chapter's view.
 - Dashboards can hide their map so the widgets fill the page, in the viewer, share links and embeds; the ArcGIS migration report points a dashboard without a map to this layout and names one with several maps.
 - Stories and dashboards can be shown to readers in light or dark, or follow the reader's setting.
@@ -7346,7 +7347,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.29.2...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.30.0...HEAD
+[1.30.0]: https://github.com/geolens-io/geolens/compare/v1.29.2...v1.30.0
 [1.29.2]: https://github.com/geolens-io/geolens/compare/v1.29.1...v1.29.2
 [1.29.1]: https://github.com/geolens-io/geolens/compare/v1.29.0...v1.29.1
 [1.29.0]: https://github.com/geolens-io/geolens/compare/v1.28.0...v1.29.0

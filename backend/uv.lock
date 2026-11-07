@@ -913,7 +913,7 @@ wheels = [
 
 [[package]]
 name = "geolens-backend"
-version = "1.29.2"
+version = "1.30.0"
 source = { virtual = "." }
 dependencies = [
     { name = "alembic" },
