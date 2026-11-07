@@ -70,7 +70,7 @@ export default function CarouselBlockRenderer(props: WidgetRenderProps<GalleryCo
         </ImageFigure>
       </div>
       {total > 1 && (
-        <div className="flex justify-center">
+        <div className="flex flex-wrap justify-center">
           {config.images.map((_, i) => {
             const label = t('types.carousel.position', { current: i + 1, total });
             return (

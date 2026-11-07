@@ -51,12 +51,15 @@ export default function GalleryBlockRenderer(props: WidgetRenderProps<GalleryCon
       </div>
       <Dialog open={shown !== null} onOpenChange={(next) => !next && setOpen(null)}>
         {shown && (
-          <DialogContent aria-describedby={undefined} className="w-auto max-w-[95vw] justify-items-center sm:max-w-[95vw]">
+          <DialogContent
+            aria-describedby={undefined}
+            className="max-h-[95vh] w-auto max-w-[95vw] justify-items-center overflow-y-auto sm:max-w-[95vw]"
+          >
             <DialogTitle className="sr-only">{shown.caption || shownAlt || position}</DialogTitle>
             <AssetImage
               path={assetPathFor(shown.asset_id)}
               alt={shownAlt}
-              className="max-h-[85vh] max-w-[90vw] object-contain"
+              className="max-h-[70vh] max-w-[90vw] object-contain"
               placeholderClassName="h-64 w-96 max-w-full"
               loadingLabel={shownAlt ? t('types.image.loading', { alt: shownAlt }) : undefined}
               fallback={shownAlt ? <ImageDescription alt={shownAlt} /> : null}

@@ -29,6 +29,7 @@ describe('carousel dots', () => {
     renderCarousel({ images });
     const dots = screen.getAllByRole('button', { name: /^Image \d of 3$/ });
     expect(dots).toHaveLength(3);
+    expect(dots[0].parentElement).toHaveClass('flex-wrap');
     expect(dots[0]).toHaveAttribute('aria-current', 'true');
 
     await user.click(dots[2]);

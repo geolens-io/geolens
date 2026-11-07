@@ -41,6 +41,8 @@ describe('gallery block lightbox', () => {
     const shown = await within(dialog).findByRole('img', { name: 'Second view' });
     expect(shown.getAttribute('src')).toBe(thumbSrc);
     expect(within(dialog).getByText('Looking east', { selector: 'p' })).toBeInTheDocument();
+    // The whole dialog, not only the image, stays inside a short screen.
+    expect(dialog).toHaveClass('max-h-[95vh]', 'overflow-y-auto');
 
     await user.click(within(dialog).getByRole('button', { name: 'Next image' }));
     expect(await within(dialog).findByRole('img', { name: 'Third view' })).toBeInTheDocument();
