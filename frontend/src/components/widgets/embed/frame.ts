@@ -50,7 +50,10 @@ export function approvedFrameHost(
   return host === null ? undefined : hosts.find((entry) => entry.host === host);
 }
 
-/** The iframe sandbox: scripts and popups, and the frame's own origin only for a host an admin opted in. */
+/**
+ * The iframe sandbox: scripts and popups, and the frame's own origin for a host an
+ * admin opted in. The origin stays with the frame wherever the page sends it.
+ */
 export function frameSandbox(entry: StoryFrameHost): string {
   return entry.allow_same_origin ? 'allow-scripts allow-popups allow-same-origin' : 'allow-scripts allow-popups';
 }

@@ -17188,7 +17188,7 @@ export interface components {
             host: string;
             /**
              * Allow Same Origin
-             * @description Let this host's frames keep their own origin, which some video players need for playback.
+             * @description Let this host's frames keep their origin, which some video players need. The frame keeps it wherever the page sends it, so any other approved host it opens gets the same.
              * @default false
              */
             allow_same_origin: boolean;

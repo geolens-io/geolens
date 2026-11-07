@@ -817,7 +817,7 @@
       "duplicate": "Ce site figure déjà dans la liste.",
       "full": "La liste contient au plus {{max}} sites.",
       "sameOrigin": "Conserver l’origine du site",
-      "sameOriginHint": "Certains lecteurs vidéo ont besoin de leur propre origine pour lire. Les cadres de ce site peuvent alors utiliser ses cookies et son stockage : ne l’activez que pour des sites de confiance.",
+      "sameOriginHint": "Certains lecteurs vidéo ont besoin de leur propre origine pour lire. Le cadre garde cette origine où que le site l’emmène, donc tout autre site approuvé qu’il ouvre la reçoit aussi. À activer seulement pour un site auquel vous confiez tous les sites approuvés.",
       "remove": "Retirer {{host}}",
       "reloadHint": "Les pages déjà ouvertes prennent en compte la liste après un rechargement."
     }

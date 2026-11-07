@@ -817,7 +817,7 @@
       "duplicate": "Ese sitio ya está en la lista.",
       "full": "La lista admite como máximo {{max}} sitios.",
       "sameOrigin": "Conservar el origen del sitio",
-      "sameOriginHint": "Algunos reproductores de vídeo necesitan su propio origen para reproducir. Permite que los marcos de ese sitio usen sus cookies y su almacenamiento, así que actívalo solo para sitios de confianza.",
+      "sameOriginHint": "Algunos reproductores de vídeo necesitan su propio origen para reproducir. El marco conserva ese origen adonde lo lleve el sitio, así que cualquier otro sitio aprobado que abra también lo recibe. Actívalo solo para un sitio en el que confíes con todos los sitios aprobados.",
       "remove": "Quitar {{host}}",
       "reloadHint": "Las páginas ya abiertas aplican la lista después de recargarlas."
     }

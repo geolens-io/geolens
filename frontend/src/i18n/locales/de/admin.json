@@ -817,7 +817,7 @@
       "duplicate": "Diese Website steht bereits auf der Liste.",
       "full": "Die Liste fasst höchstens {{max}} Websites.",
       "sameOrigin": "Herkunft der Website beibehalten",
-      "sameOriginHint": "Manche Videoplayer brauchen ihre eigene Herkunft zum Abspielen. Die Rahmen dieser Website können dann ihre Cookies und ihren Speicher nutzen, also aktivieren Sie es nur für vertrauenswürdige Websites.",
+      "sameOriginHint": "Manche Videoplayer brauchen ihre eigene Herkunft zum Abspielen. Der Rahmen behält diese Herkunft, wohin die Website ihn auch führt, also erhält sie auch jede andere freigegebene Website, die er öffnet. Nur für eine Website einschalten, der Sie mit allen freigegebenen Websites vertrauen.",
       "remove": "{{host}} entfernen",
       "reloadHint": "Bereits geöffnete Seiten übernehmen die Liste nach dem Neuladen."
     }

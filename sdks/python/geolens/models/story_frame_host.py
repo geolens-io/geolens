@@ -17,8 +17,8 @@ class StoryFrameHost:
 
     Attributes:
         host (str): An exact host name, such as media.example.org.
-        allow_same_origin (bool | Unset): Let this host's frames keep their own origin, which some video players need
-            for playback. Default: False.
+        allow_same_origin (bool | Unset): Let this host's frames keep their origin, which some video players need. The
+            frame keeps it wherever the page sends it, so any other approved host it opens gets the same. Default: False.
     """
 
     host: str
