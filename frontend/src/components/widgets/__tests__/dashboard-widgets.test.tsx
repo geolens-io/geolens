@@ -184,6 +184,8 @@ describe('bar chart widget', () => {
     render(<BarChartRenderer config={chart} data={counts} />);
     const svg = screen.getByRole('group', { name: 'Count by land_use' });
     expect(svg).toHaveAttribute('aria-roledescription', 'bar chart');
+    // A card two columns wide must not scale the labels with it.
+    expect(svg).toHaveClass('max-w-[24rem]', 'mx-auto');
     expect(svg).toHaveAttribute('tabindex', '0');
     expect(svg).toHaveAccessibleDescription('Use the arrow keys to move between bars.');
     expect(document.querySelectorAll('[tabindex]')).toHaveLength(1);

@@ -380,7 +380,7 @@ function StoryMap({
             onDrawnChange={setDrawnLayers}
             showAttributeTable={data.show_attribute_table}
             fadeLayerChanges
-            coordReadoutSide={panel === 'right' || panel === 'center' ? 'start' : undefined}
+            coordReadoutSide={panel === 'right' || panel === 'center' ? 'start' : panel === 'left' ? 'past-legend' : undefined}
           />
         </Suspense>
         {loadedAhead && role === 'active' && !coverDone && !viewerReady && (

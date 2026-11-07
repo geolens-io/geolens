@@ -82,6 +82,8 @@ describe('narrow stepper', () => {
     renderReader();
     expect(screen.getByRole('heading', { level: 2, name: 'The tracks' })).toBeInTheDocument();
     expect(pane.resolved?.chapterId).toBe('c1');
+    // A carousel's hidden live region is positioned; the pane must contain it or it stretches the page.
+    expect(screen.getByRole('region', { name: 'The tracks' })).toHaveClass('relative', 'overflow-y-auto');
 
     await user.click(screen.getByRole('region', { name: 'The tracks' }));
     await user.keyboard('{ArrowRight}');
@@ -161,6 +163,7 @@ describe('wide scrolling panel', () => {
     layout.narrow = false;
     renderReader();
     expect(pane.resolved?.chapterId).toBe('c1');
+    expect(screen.getByRole('region', { name: 'Story chapters' })).toHaveClass('relative', 'overflow-y-auto');
 
     await scrollTo([-500, 300, 1400, 2400]);
     expect(pane.resolved?.chapterId).toBe('c2');

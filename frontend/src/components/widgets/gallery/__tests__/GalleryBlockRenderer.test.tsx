@@ -40,9 +40,13 @@ describe('gallery block lightbox', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Looking east' });
     const shown = await within(dialog).findByRole('img', { name: 'Second view' });
     expect(shown.getAttribute('src')).toBe(thumbSrc);
+    // The dialog is 95vw at most with 1.5rem of padding a side, so the image fits inside it on a phone.
+    expect(shown).toHaveClass('max-w-[calc(95vw-3rem)]');
     expect(within(dialog).getByText('Looking east', { selector: 'p' })).toBeInTheDocument();
     // The whole dialog, not only the image, stays inside a short screen.
     expect(dialog).toHaveClass('max-h-[95vh]', 'overflow-y-auto');
+    // The image starts below the close control rather than running behind it.
+    expect(dialog).toHaveClass('pt-10');
 
     await user.click(within(dialog).getByRole('button', { name: 'Next image' }));
     expect(await within(dialog).findByRole('img', { name: 'Third view' })).toBeInTheDocument();
