@@ -903,6 +903,18 @@ class TestRowsValidation:
         )
         assert resp.status_code == 422
 
+    @pytest.mark.anyio
+    async def test_rows_after_past_bigint_is_422(
+        self, client: AsyncClient, admin_auth_header: dict, rows_dataset
+    ):
+        """An ``after`` cursor past the bigint range is refused, not sent to SQL."""
+        resp = await client.get(
+            f"/datasets/{rows_dataset.id}/rows/",
+            params={"after": 2**63},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422, resp.text
+
 
 # ---------------------------------------------------------------------------
 # Value serialization

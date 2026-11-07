@@ -1,6 +1,6 @@
 import { render, screen } from '@/test/test-utils';
 import type { StoryFrameHost } from '@/types/api';
-import { frameUrlHost, normalizeFrameHost } from '../embed/frame';
+import { approvedFrameHost, frameUrlHost, normalizeFrameHost } from '../embed/frame';
 import { parseStoredWidget } from '../registry';
 import { WidgetView } from '../WidgetView';
 
@@ -71,6 +71,16 @@ describe.each(['embed', 'video'] as const)('%s block instances', (type) => {
     ]) {
       expect(parseStoredWidget(block(type, config), 'story').ok, JSON.stringify(config)).toBe(false);
     }
+  });
+
+  it('never resolve to the page\'s own host, whatever the admin list says', () => {
+    const hosts: StoryFrameHost[] = [
+      { host: 'media.example.org', allow_same_origin: true },
+      { host: 'maps.example.org', allow_same_origin: true },
+    ];
+    expect(approvedFrameHost(hosts, URL_ON_MEDIA, 'maps.example.org')).toEqual(hosts[0]);
+    expect(approvedFrameHost(hosts, 'https://maps.example.org/stories/1', 'maps.example.org')).toBeUndefined();
+    expect(approvedFrameHost(hosts, 'https://maps.example.org/stories/1', 'Maps.Example.org')).toBeUndefined();
   });
 
   it('are not dashboard widgets', () => {

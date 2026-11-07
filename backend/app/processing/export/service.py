@@ -209,8 +209,14 @@ def normalize_gpkg_timestamps(path: str) -> None:
 
 
 def safe_content_disposition(filename: str) -> str:
-    """Build Content-Disposition header with RFC 5987 encoding for non-ASCII filenames."""
-    ascii_name = filename.encode("ascii", "replace").decode()
+    """Build Content-Disposition header with RFC 5987 encoding for non-ASCII filenames.
+
+    The ASCII ``filename=`` maps quotes, backslashes and control characters to ``_``.
+    """
+    ascii_name = "".join(
+        "_" if c in '"\\' or ord(c) < 0x20 or ord(c) == 0x7F else c
+        for c in filename.encode("ascii", "replace").decode()
+    )
     encoded = quote(filename)
     return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded}"
 
