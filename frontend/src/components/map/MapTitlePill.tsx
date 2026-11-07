@@ -14,7 +14,7 @@ export function MapTitlePill({ name, description }: MapTitlePillProps) {
   const hasDescription = !!description?.trim();
 
   return (
-    <div className="absolute top-3 left-14 z-20 max-w-[calc(100%-7.5rem)] sm:max-w-[400px]">
+    <div className="absolute top-3 left-14 z-20 max-w-[calc(100%-7.5rem)] sm:max-w-[min(400px,calc(100%-21rem))]">
       <div className="bg-background/80 backdrop-blur-sm rounded-lg px-3 py-1.5 shadow-sm border border-border/50">
         <div className="flex items-center gap-1.5">
           <h1

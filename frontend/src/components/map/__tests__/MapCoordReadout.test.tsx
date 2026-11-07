@@ -91,6 +91,14 @@ describe('MapCoordReadout move-event subscription', () => {
     expect(screen.getByText(/9\.7/)).toBeInTheDocument();
   });
 
+  it('moves to the top-left when asked to take the start side', () => {
+    const { map } = makeFakeMap({ lat: 36.2, lng: -112.3, zoom: 9.7 });
+    const { container } = render(<MapCoordReadout map={map} side="start" />);
+    const box = container.querySelector('[data-coord-readout]');
+    expect(box).toHaveClass('left-14');
+    expect(box).not.toHaveClass('right-14');
+  });
+
   it('subscribes to the `move` event', () => {
     const { map, state } = makeFakeMap({ lat: 0, lng: 0, zoom: 2 });
     render(<MapCoordReadout map={map} />);

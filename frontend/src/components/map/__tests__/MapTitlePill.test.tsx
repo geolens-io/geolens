@@ -3,6 +3,15 @@ import { describe, it, expect } from 'vitest';
 import { MapTitlePill } from '../MapTitlePill';
 
 describe('MapTitlePill', () => {
+  it('truncates at wider widths to leave the coordinate readout its space', () => {
+    render(<MapTitlePill name="A very long shared map name" />);
+
+    const heading = screen.getByRole('heading', { name: 'A very long shared map name' });
+    expect(heading.closest('div.absolute')?.className).toContain('sm:max-w-[min(400px,calc(100%-21rem))]');
+    expect(heading).toHaveClass('truncate');
+    expect(heading).toHaveAttribute('title', 'A very long shared map name');
+  });
+
   it('stays clear of the right-hand controls at narrow widths', () => {
     render(<MapTitlePill name="A very long shared map name" />);
 

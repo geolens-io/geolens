@@ -10,8 +10,8 @@ import type { DrawnLayer } from '@/components/map/legend-facts';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { MapErrorBoundary } from '@/components/error';
 import { Button } from '@/components/ui/button';
-import { motionDuration } from '@/lib/reduced-motion';
 import { cn } from '@/lib/utils';
+import { motionDuration } from '@/lib/reduced-motion';
 import { readMapCamera } from '@/components/builder/builder-camera';
 import type { StoryCamera, StoryScene } from '@/types/api';
 import {
@@ -33,6 +33,14 @@ const ViewerMap = lazy(() =>
 /** How long the next map takes to fade in over the current one. */
 const CROSSFADE_MS = 400;
 const COVER_MAX_MS = 4000;
+// Centres the button in the map the floating panel leaves free (panel widths
+// and offsets match StoryReader's FLOATING_PLACEMENT), one row below the
+// coordinate readout, which shares that strip at narrow desktop widths.
+const BACK_BUTTON_PLACEMENT = {
+  left: 'top-10 left-[calc((100%+3.5rem+26rem)/2)] lg:left-[calc((100%+3.5rem+30rem)/2)]',
+  right: 'top-10 left-[calc((100%-3.5rem-26rem)/2)] lg:left-[calc((100%-3.5rem-30rem)/2)]',
+  center: 'top-10 left-[calc((100%-3.5rem-26rem)/2)] lg:left-[calc((50%-15rem)/2)]',
+};
 
 export interface StoryMapPaneHandle {
   /** The map's current view as a scene stores it, or null while no map is ready. */
@@ -53,6 +61,8 @@ interface StoryMapPaneProps {
   resetKey?: number;
   /** The edge the legend sits on, so a floating chapter panel never covers it. */
   legendSide?: 'start' | 'end';
+  /** Where a floating chapter panel sits, so the map's own controls stay out from under it. */
+  panel?: 'left' | 'right' | 'center';
   ref?: Ref<StoryMapPaneHandle>;
 }
 
@@ -60,7 +70,7 @@ interface StoryMapPaneProps {
  * The story's map. A scene on another map crossfades from a copy loaded
  * ahead; without one ready, the map remounts. A scene on the same map flies there.
  */
-export const StoryMapPane = memo(function StoryMapPane({ resolved, next, emptyHint, resetKey, legendSide, ref }: StoryMapPaneProps) {
+export const StoryMapPane = memo(function StoryMapPane({ resolved, next, emptyHint, resetKey, legendSide, panel, ref }: StoryMapPaneProps) {
   const [shown, setShown] = useState(resolved);
   // The map that just lost the view, kept underneath while the next one fades in.
   const [outgoing, setOutgoing] = useState<ResolvedScene | null>(null);
@@ -134,6 +144,7 @@ export const StoryMapPane = memo(function StoryMapPane({ resolved, next, emptyHi
             onReady={role === 'standby' ? setStandbyReady : undefined}
             resetKey={resetKey}
             legendSide={legendSide}
+            panel={panel}
             handleRef={role === 'active' ? ref : undefined}
           />
         </div>
@@ -156,6 +167,7 @@ function StoryMap({
   onReady,
   resetKey,
   legendSide,
+  panel,
   handleRef,
 }: {
   resolved: ResolvedScene;
@@ -165,6 +177,7 @@ function StoryMap({
   onReady?: (ready: boolean) => void;
   resetKey?: number;
   legendSide?: 'start' | 'end';
+  panel?: 'left' | 'right' | 'center';
   handleRef?: Ref<StoryMapPaneHandle>;
 }) {
   const { t } = useTranslation('stories');
@@ -356,6 +369,7 @@ function StoryMap({
             onDrawnChange={setDrawnLayers}
             showAttributeTable={data.show_attribute_table}
             fadeLayerChanges
+            coordReadoutSide={panel === 'right' || panel === 'center' ? 'start' : undefined}
           />
         </Suspense>
         {loadedAhead && role === 'active' && !coverDone && !viewerReady && (
@@ -369,7 +383,7 @@ function StoryMap({
           type="button"
           variant="secondary"
           size="sm"
-          className="absolute left-1/2 top-3 z-10 -translate-x-1/2 shadow-md"
+          className={cn('absolute z-10 -translate-x-1/2 shadow-md', panel ? BACK_BUTTON_PLACEMENT[panel] : 'top-3 left-1/2')}
           onClick={returnToChapterView}
         >
           <Undo2 className="h-4 w-4" aria-hidden="true" />

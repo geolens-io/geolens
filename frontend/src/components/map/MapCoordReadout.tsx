@@ -6,6 +6,8 @@ interface MapCoordReadoutProps {
   map: MaplibreMap | null;
   /** When true, appends a "1:N" representative-fraction segment. Default: false. */
   showScale?: boolean;
+  /** 'start' moves the readout to the top-left, clear of the layers button, when a panel covers the right. */
+  side?: 'start' | 'end';
 }
 
 /**
@@ -17,6 +19,7 @@ interface MapCoordReadoutProps {
 export const MapCoordReadout = memo(function MapCoordReadout({
   map,
   showScale = false,
+  side = 'end',
 }: MapCoordReadoutProps) {
   const [coords, setCoords] = useState<{ lat: number; lng: number; zoom: number } | null>(null);
   const rafRef = useRef(0);
@@ -100,7 +103,7 @@ export const MapCoordReadout = memo(function MapCoordReadout({
   return (
     <div
       data-coord-readout="true"
-      className="pointer-events-none absolute right-14 top-2 z-10 hidden sm:block"
+      className={`pointer-events-none absolute top-2 z-10 hidden sm:block ${side === 'start' ? 'left-14' : 'right-14'}`}
     >
       <div className="rounded-sm border border-border bg-popover px-1.5 py-0.5 font-mono text-2xs tracking-wide text-popover-foreground shadow-sm">
         {Math.abs(coords.lat).toFixed(2)}° {latDir}
