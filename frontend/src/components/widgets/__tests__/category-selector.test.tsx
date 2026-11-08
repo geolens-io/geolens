@@ -126,6 +126,20 @@ describe('category selector widget', () => {
     expect(screen.getByRole('radio', { name: /no value/ })).toBeChecked();
   });
 
+  it('clears every held blank spelling from the one listed no-value row', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const picked = { column: 'land_use', label: '(no value)', values: [null, '', '  '] };
+    const partly = {
+      ...data,
+      result: { values: [{ value: 'Residential', count: 40 }, { value: null, count: 5 }, { value: '', count: 2 }], other_count: 0 },
+    };
+    render(<CategorySelectorRenderer config={config} data={partly} selection={picked} onSelect={onSelect} />);
+    expect(screen.getAllByRole('checkbox').map((box) => box.closest('li')?.textContent)).toEqual(['Residential40', '(no value)7']);
+    await user.click(screen.getByRole('checkbox', { name: /no value/ }));
+    expect(onSelect).toHaveBeenLastCalledWith(null);
+  });
+
   it('offers radio buttons headed by All when the reader picks one value', async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();

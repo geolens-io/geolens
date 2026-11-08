@@ -41,14 +41,21 @@ export default function CategorySelectorRenderer({
   }
 
   // Another widget's pick can leave a picked value out of the list; it stays, so it can be cleared here.
+  // Held blank spellings join the listed no-value row, so one action clears them all.
   const missing = picked.filter((value) => !rows.some((row) => row.keys.includes(value)));
   const missingBlanks = missing.filter(isBlankValue);
+  const blankRow = missingBlanks.length > 0 ? rows.find((row) => isBlankValue(row.key)) : undefined;
   const options: SelectorOption[] = [
-    ...rows.map((row) => ({ key: row.key, keys: row.keys, label: row.label, count: row.text })),
+    ...rows.map((row) => ({
+      key: row.key,
+      keys: row === blankRow ? [...row.keys, ...missingBlanks] : row.keys,
+      label: row.label,
+      count: row.text,
+    })),
     ...missing
       .filter((value) => !isBlankValue(value))
       .map((value) => ({ key: value, keys: [value], label: categoryLabel(value, t, labelOf) })),
-    ...(missingBlanks.length > 0
+    ...(missingBlanks.length > 0 && !blankRow
       ? [{ key: missingBlanks[0], keys: missingBlanks, label: categoryLabel(missingBlanks[0], t, labelOf) }]
       : []),
   ];
