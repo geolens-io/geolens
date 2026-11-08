@@ -2562,7 +2562,7 @@ jobs:
   # a core user flow merge green, and the breakage surfaces days later (the
   # nightly was once silently cancelled; see the
   # concurrency comment at the top of this file). This job runs the small
-  # `e2e:smoke:core` script (root package.json; ~1 min of specs against the
+  # `e2e:smoke:core` script (root package.json; a few minutes of specs against the
   # composed stack) on PRs whose changes can affect it, per the `e2e` path
   # filter. It needs only `changes` so it starts in parallel with the
   # lint/test jobs instead of stacking on top of them; ci-ok still blocks the
