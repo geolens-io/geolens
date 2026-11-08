@@ -2,7 +2,7 @@ import { Component, Suspense, type ErrorInfo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { logger } from '@/lib/logger';
 import { pushReportEntry } from '@/lib/report';
-import type { ColumnLabel, WidgetRenderProps, WidgetSelection } from './contract';
+import type { ColumnLabel, ValueLabel, WidgetRenderProps, WidgetSelection } from './contract';
 import type { ParsedWidget } from './registry';
 
 /** Shows the widget's fallback when its renderer fails to load or crashes. */
@@ -46,7 +46,7 @@ function UnavailableWidget() {
  * links widgets; see `WidgetRenderProps`. A host that serves uploaded images
  * passes the path of the one an image instance names (`assetPathFor` for the several a gallery names), and a text widget starts
  * its headings at `headingLevel`. `columnLabel` names the columns a widget
- * shows; see `WidgetRenderProps`.
+ * shows and `valueLabel` the values; see `WidgetRenderProps`.
  */
 export function WidgetView({
   parsed,
@@ -61,6 +61,7 @@ export function WidgetView({
   assetPath,
   assetPathFor,
   columnLabel,
+  valueLabel,
   headingLevel,
   loadingFallback,
 }: {
@@ -76,6 +77,7 @@ export function WidgetView({
   assetPath?: string;
   assetPathFor?: WidgetRenderProps<unknown>['assetPathFor'];
   columnLabel?: ColumnLabel;
+  valueLabel?: ValueLabel;
   headingLevel?: WidgetRenderProps<unknown>['headingLevel'];
   /** Shown while the renderer loads, in place of the text fallback, which still covers a failed load. */
   loadingFallback?: ReactNode;
@@ -90,6 +92,7 @@ export function WidgetView({
       assetPath={assetPath}
       assetPathFor={assetPathFor}
       columnLabel={columnLabel}
+      valueLabel={valueLabel}
       headingLevel={headingLevel}
     />
   );
@@ -109,6 +112,7 @@ export function WidgetView({
           assetPath={assetPath}
           assetPathFor={assetPathFor}
           columnLabel={columnLabel}
+          valueLabel={valueLabel}
           headingLevel={headingLevel}
         />
       </Suspense>

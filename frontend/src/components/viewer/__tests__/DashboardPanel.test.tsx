@@ -733,4 +733,28 @@ describe('DashboardPanel text widget', () => {
     expect(container.querySelector('script, img, [onerror]')).toBeNull();
     expect(container.textContent).toContain('<script>');
   });
+
+  it('gives widgets the value labels of the layer\'s columns', async () => {
+    fetchMock.mockImplementation(
+      async () =>
+        ({
+          op: 'value_counts',
+          approximate: false,
+          cached: false,
+          result: { values: [{ value: 1, count: 40 }], other_count: 0 },
+        }) as never,
+    );
+    render(
+      <DashboardPanel
+        config={dashboard([chartWidget])}
+        layers={[
+          layer({ column_info: [{ name: 'land_use', type: 'integer', value_labels: { '1': 'City' } }] }),
+        ]}
+        map={null}
+        mapId="map-1"
+      />,
+    );
+    expect((await screen.findAllByText(/^City( \(1\))?$/, undefined, { timeout: 3000 })).length).toBeGreaterThan(0);
+    expect(screen.queryByText('1', { selector: 'th' })).toBeNull();
+  });
 });

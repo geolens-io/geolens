@@ -48,9 +48,10 @@ export default function PieChartRenderer({
   onSelect,
   mapHidden,
   columnLabel,
+  valueLabel,
 }: WidgetRenderProps<PieChartConfig>) {
   const { t, i18n } = useTranslation('widgets');
-  const text = usePieChartText(config, data, columnLabel);
+  const text = usePieChartText(config, data, columnLabel, valueLabel);
   const hintId = useId();
   const colorOf = useLayerColors(config.use_layer_colors ? config.column : null);
   const rows = text.rows ?? [];

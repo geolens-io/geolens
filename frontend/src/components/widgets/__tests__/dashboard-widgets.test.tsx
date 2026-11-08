@@ -385,3 +385,29 @@ describe('bar chart widget', () => {
     expect(screen.queryByRole('table')).toBeNull();
   });
 });
+
+describe('bar chart value labels', () => {
+  const coded = {
+    op: 'value_counts',
+    approximate: false,
+    cached: false,
+    result: { values: [{ value: 1, count: 40 }, { value: 2, count: 25 }], other_count: 0 },
+  };
+  const valueLabel = (column: string, value: unknown) =>
+    column === 'land_use' && value === 1 ? 'City' : undefined;
+
+  it('names a bar by its label, picks the stored value, and adds the code in the table', () => {
+    const onSelect = vi.fn();
+    const { unmount } = render(<BarChartRenderer config={chart} data={coded} valueLabel={valueLabel} onSelect={onSelect} />);
+    const svg = screen.getByRole('group', { name: 'Count by land_use' });
+    fireEvent.focus(svg);
+    fireEvent.keyDown(svg, { key: 'Enter' });
+    expect(onSelect).toHaveBeenLastCalledWith({ column: 'land_use', label: 'City', values: [1] });
+    expect(screen.getByText('City: 40', { selector: 'figcaption span' })).toBeInTheDocument();
+    unmount();
+
+    render(<BarChartFallback config={chart} data={coded} valueLabel={valueLabel} />);
+    const rows = within(screen.getByRole('table')).getAllByRole('row').slice(1);
+    expect(rows.map((row) => row.textContent)).toEqual(['City (1)40', '225']);
+  });
+});

@@ -20,9 +20,10 @@ export default function FeatureListRenderer({
   loadingMore,
   loadMoreFailed,
   onZoomTo,
+  valueLabel,
 }: WidgetRenderProps<FeatureListConfig>) {
   const { t } = useTranslation('widgets');
-  const { rows, hasMore } = useFeatureRows(config, data);
+  const { rows, hasMore } = useFeatureRows(config, data, valueLabel);
   const end = useRef<HTMLLIElement>(null);
   const loadMore = useRef(onLoadMore);
   loadMore.current = onLoadMore;

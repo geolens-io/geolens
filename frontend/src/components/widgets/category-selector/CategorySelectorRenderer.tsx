@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Checkbox } from '@/components/ui/checkbox';
 import { columnName, type SelectionValue, type WidgetRenderProps } from '../contract';
 import { selectedValues } from '../selection';
-import { categoryLabel, useCategoryRows } from '../value-counts';
+import { categoryLabel, labelOfColumn, useCategoryRows } from '../value-counts';
 import type { CategorySelectorConfig } from './definition';
 
 interface SelectorOption {
@@ -27,9 +27,11 @@ export default function CategorySelectorRenderer({
   selection,
   onSelect,
   columnLabel,
+  valueLabel,
 }: WidgetRenderProps<CategorySelectorConfig>) {
   const { t } = useTranslation('widgets');
-  const { rows, other } = useCategoryRows(data);
+  const labelOf = labelOfColumn(valueLabel, config.column);
+  const { rows, other } = useCategoryRows(data, labelOf);
   const idPrefix = useId();
   const picked = selectedValues(selection, config.column);
 
@@ -42,7 +44,7 @@ export default function CategorySelectorRenderer({
     ...rows.map((row) => ({ key: row.key, label: row.label, count: row.text })),
     ...picked
       .filter((value) => !rows.some((row) => row.key === value))
-      .map((value) => ({ key: value, label: categoryLabel(value, t) })),
+      .map((value) => ({ key: value, label: categoryLabel(value, t, labelOf) })),
   ];
   const disabled = !onSelect;
   const choose = (key: SelectionValue, checked: boolean) => {
@@ -51,7 +53,7 @@ export default function CategorySelectorRenderer({
         ? [...picked, key]
         : picked.filter((value) => value !== key)
       : [key];
-    const label = values.map((value) => categoryLabel(value, t)).join(', ');
+    const label = values.map((value) => categoryLabel(value, t, labelOf)).join(', ');
     onSelect?.(values.length > 0 ? { column: config.column, label, values } : null);
   };
 

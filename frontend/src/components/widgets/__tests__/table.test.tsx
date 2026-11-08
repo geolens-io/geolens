@@ -238,3 +238,22 @@ describe('TableEditor', () => {
     expect(screen.getByRole('spinbutton', { name: 'Rows' })).toHaveValue(30);
   });
 });
+
+describe('table value labels', () => {
+  const coded = groupBy([{ key: '1', values: [4, 2] }, { key: '2', values: [3, 1] }]);
+  const valueLabel = (column: string, value: unknown) =>
+    column === 'land_use' && value === '1' ? 'City' : undefined;
+
+  it('shows the label, picks the stored value, and adds the code in the fallback', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const { unmount } = render(<TableRenderer config={config} data={coded} valueLabel={valueLabel} onSelect={onSelect} />);
+    await user.click(screen.getByRole('button', { name: 'City' }));
+    expect(onSelect).toHaveBeenLastCalledWith({ column: 'land_use', label: 'City', values: ['1'] });
+    expect(screen.getByRole('button', { name: '2' })).toBeInTheDocument();
+    unmount();
+
+    render(<TableFallback config={config} data={coded} valueLabel={valueLabel} />);
+    expect(screen.getAllByRole('rowheader').map((header) => header.textContent)).toEqual(['City (1)', '2']);
+  });
+});

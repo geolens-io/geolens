@@ -18,6 +18,7 @@ and releases use semantic versioning.
 
 ### Fixed
 - Collection thumbnails and the collection page's spatial extent map now zoom to a city-sized extent instead of showing a dot on a world map, the viewer legend shows a chevron while rows are cut off below the visible part of the panel, and a map card's title wraps to two lines instead of cutting a long name short beside its visibility badge.
+- Dashboard widgets: pie slices, bars, table groups, category selector options and feature list titles show a column's value labels, such as a coded-value domain's descriptions, instead of the stored codes. The text alternatives show "Label (code)", and picks and filters still match the stored value (#3679).
 - Stories and dashboard text: a wide code block scrolls inside its own shaded box instead of widening the whole chapter panel or widget.
 - Stories: in the floating layout each scene centres in the part of the map the chapter panel leaves free, instead of partly under the panel.
 - The story reader on a phone shows the cover, title and summary on the first chapter only, so later chapters keep the sheet for their text; the actions sit beside the chapter count on every chapter, and later chapters show a one-line title when the navigation bar doesn't. "Back to this chapter's view" no longer shows on arrival at a scene that asks for more pitch or zoom than the map allows, and the chapter navigation bar fades only the side that has more tabs hidden past it.

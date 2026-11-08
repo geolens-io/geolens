@@ -79,12 +79,17 @@ export interface WidgetRenderProps<C> {
   assetPathFor?: (assetId: string) => string;
   /** A column's display label, its attribute title else its name; `columnName` without it. */
   columnLabel?: ColumnLabel;
+  /** The label the layer gives a stored value of a column; stored values read as they are without it. */
+  valueLabel?: ValueLabel;
   /** The level of the first heading a text widget may draw, one below the heading it sits under. Stories use 3. */
   headingLevel?: 3 | 4 | 5;
 }
 
 /** Names a column for readers, by its attribute title where the host has one. */
 export type ColumnLabel = (column: string) => string;
+
+/** The label the layer gives a stored value of a column, where it has one. */
+export type ValueLabel = (column: string, value: unknown) => string | undefined;
 
 /** The label of a column when the host has no titles: its name. */
 export const columnName: ColumnLabel = (column) => column;

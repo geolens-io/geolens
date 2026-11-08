@@ -258,3 +258,28 @@ describe('PieChartRenderer', () => {
     expect(within(table).getAllByRole('row').slice(1).map((row) => row.textContent)).toEqual(['park50', 'road30', 'Other20']);
   });
 });
+
+describe('pie chart value labels', () => {
+  const coded = {
+    op: 'value_counts',
+    approximate: false,
+    cached: false,
+    result: { values: [{ value: 1, count: 50 }, { value: 2, count: 30 }], other_count: 0 },
+  };
+  const valueLabel = (column: string, value: unknown) =>
+    column === 'kind' && value === 1 ? 'City' : undefined;
+
+  it('names a slice by its label, picks the stored value, and shows the code in the table', () => {
+    const onSelect = vi.fn();
+    const { container } = render(<PieChartRenderer config={config} data={coded} valueLabel={valueLabel} onSelect={onSelect} />);
+    expect(screen.getAllByRole('listitem').map((item) => item.textContent)).toEqual(['City5062.5%', '23037.5%']);
+    fireEvent.click(container.querySelectorAll('svg[role="group"] g')[0]);
+    expect(onSelect).toHaveBeenLastCalledWith({ column: 'kind', label: 'City', values: [1] });
+  });
+
+  it('writes a labelled value as Label (code) in the table', () => {
+    render(<PieChartFallback config={config} data={coded} valueLabel={valueLabel} />);
+    const rows = within(screen.getByRole('table')).getAllByRole('row').slice(1);
+    expect(rows.map((row) => row.textContent)).toEqual(['City (1)50', '230']);
+  });
+});
