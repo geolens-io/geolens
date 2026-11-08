@@ -14,6 +14,7 @@ and releases use semantic versioning.
 ### Changed
 - `scripts/seed-showcase.py` binds the USGS earthquake layer once and draws Restless Earth's circles and heat surface from that one dataset; a seed run moves an already-seeded instance's heat layer onto it and retires the second copy.
 - `scripts/seed-showcase.py` shows the 1.30 features on the demo: the two dashboard maps gain a pie chart, a table, a feature list, a bar chart by date and indicator references, the skyline dashboard moves to the bottom panel, the stories get reader settings, a cover image each and a photo gallery, and stale catalog text about 3D Tiles, COPC and collections is corrected.
+- `scripts/seed-showcase.py` fills the Matterhorn terrain south of the Swiss border, where swissALTI3D has no data, with the Copernicus GLO-30 elevation model, reprojected to the Swiss grid and mosaicked under the swissALTI3D tiles; a seed run moves an already-seeded map onto the new terrain and keeps the Swiss-only mosaic.
 - `scripts/seed-showcase.py` opens "The Matterhorn in 3D" on a wider view of the whole mountain from the north-east, and a seed run moves a map still on the previous seeded view, or on none, to it.
 - `scripts/seed-showcase.py` corrects the demo's written content: Cambridge's story counts records and standing trees apart and its tree dashboard gains a species chart, the zoning map colors the twelve districts with the most parcels, datasets on public maps carry an attribution, seeded text uses US spelling, and a rerun applies the fixes to an already-seeded instance.
 
