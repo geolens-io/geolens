@@ -1108,6 +1108,18 @@ def land_dashboard_description() -> str:
     )
 
 
+# A widget counts what its layer's filter lets through, so each filtered count
+# needs a hidden layer of its own. The collapsed group tells a builder user why
+# three layers are never drawn.
+_WIDGET_INPUTS = {
+    "builder": {
+        "folder_group_id": "cambridge-widget-inputs",
+        "folder_group_name": "Widget inputs (hidden)",
+        "folder_group_expanded": False,
+    }
+}
+
+
 def _tree_layers(trees_ds: str) -> list[dict]:
     fill, style = _categorical(
         "sitetype", [(v, label, c) for v, label, c in SITE_TYPES], _OTHER_COLOR
@@ -1159,6 +1171,7 @@ def _tree_layers(trees_ds: str) -> list[dict]:
             "display_name": f"Trees planted {RECENT_LABEL}",
             "show_in_legend": False,
             "visible": False,
+            "style_config": _WIDGET_INPUTS,
             "filter": _plant_years_layer_filter(*RECENT_YEARS),
             "paint": quiet,
             "popup_config": {"enabled": False},
@@ -1169,6 +1182,7 @@ def _tree_layers(trees_ds: str) -> list[dict]:
             "display_name": "Trees planted since 2008",
             "show_in_legend": False,
             "visible": False,
+            "style_config": _WIDGET_INPUTS,
             "filter": [">=", ["get", "plantdate"], "2008-01-01T00:00:00+00:00"],
             "paint": quiet,
             "popup_config": {"enabled": False},
@@ -1179,6 +1193,7 @@ def _tree_layers(trees_ds: str) -> list[dict]:
             "display_name": "Trees with a recorded trunk diameter",
             "show_in_legend": False,
             "visible": False,
+            "style_config": _WIDGET_INPUTS,
             "filter": _MEASURED_DIAMETER,
             "paint": quiet,
             "popup_config": {"enabled": False},
@@ -1653,17 +1668,21 @@ STORY_IMAGES = (
 # belong to the run date and are not read at seed time.
 INVENTORY_RUN_DATE = "7 November 2026"
 INVENTORY_EXCERPT = """\
-Portal   City of Cambridge (ArcGIS Online), read anonymously
-Items    1248   supported 506, partial 345, unsupported 397
+Portal   City of Cambridge (ArcGIS Online)
+Items    1248
+  supported     506
+  partial       345
+  unsupported   397
 
-Feature Service            505  (464 hosted feature layers)
-Web Map                    265
-Web Mapping Application    110
-StoryMap                    69
-Map Service                 59
-Dashboard                   37
+Feature Service          505 (464 hosted)
+Web Map                  265
+Web Mapping Application  110
+StoryMap                  69
+Map Service               59
+Dashboard                 37
 
-Retiring: 52 classic Esri Story Maps, 9 Web AppBuilder apps"""
+Retiring: 52 classic Esri Story Maps,
+          9 Web AppBuilder apps"""
 
 
 def _count(api, dataset_id: str, what: str, **body) -> int:
@@ -1830,9 +1849,9 @@ def seed_cambridge_story(
                         "inventory",
                         "Before moving anything, list it. This command ran against the "
                         f"public organization on {INVENTORY_RUN_DATE}, with no sign-in:"
-                        "\n\n```\ngeolens arcgis inventory \\\n"
-                        "  --portal-url https://cambridgegis.maps.arcgis.com \\\n"
-                        "  --scope org\n```\n\n"
+                        "\n\n```\ngeolens arcgis inventory --scope org \\\n"
+                        "  --portal-url \\\n"
+                        "  https://cambridgegis.maps.arcgis.com\n```\n\n"
                         f"```\n{INVENTORY_EXCERPT}\n```\n\n"
                         "Run it against your own organization with a sign-in, then "
                         "`geolens arcgis plan` and `geolens arcgis migrate`.",
@@ -1937,7 +1956,7 @@ def seed_cambridge_story(
                         "clients",
                         "Every dataset is an OGC API Features collection and a vector "
                         "tile set. The trees collection is at:\n\n"
-                        f"```\n{collection_url}\n```\n\n"
+                        f"`{collection_url}`\n\n"
                         'The QGIS plugin "GeoLens" on plugins.qgis.org browses the '
                         "catalog. ArcGIS Pro opens the OGC API Features address "
                         "through Add Data.",
