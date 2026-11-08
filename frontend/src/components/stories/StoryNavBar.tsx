@@ -47,7 +47,7 @@ export function StoryNavBar({ title, chapters, active, onSelect, collapsed }: St
       listEl.removeEventListener('scroll', update);
       observer?.disconnect();
     };
-  }, [listEl, collapsed, chapters.length]);
+  }, [listEl, collapsed, chapters]);
 
   const list = (
     <ol

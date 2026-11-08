@@ -45,7 +45,9 @@ describe('StoryNavBar', () => {
     const widths = vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockReturnValue(300);
     const client = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(300);
     try {
-      render(<StoryNavBar title="Story" chapters={chapters} active={0} onSelect={vi.fn()} collapsed={false} />);
+      const { rerender } = render(
+        <StoryNavBar title="Story" chapters={chapters} active={0} onSelect={vi.fn()} collapsed={false} />,
+      );
       const list = screen.getByRole('list');
       expect(list.className).not.toContain('mask-image');
       // A web font lands: a tab widens, the list keeps its box.
@@ -53,6 +55,11 @@ describe('StoryNavBar', () => {
       expect(observed).toContain(list.querySelector('li'));
       act(() => notify());
       expect(list).toHaveClass('[mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)]');
+
+      // Replacement chapters with the same count get their new tabs observed.
+      const renamed = chapters.map((chapter) => ({ ...chapter, id: `${chapter.id}-b` }));
+      rerender(<StoryNavBar title="Story" chapters={renamed} active={0} onSelect={vi.fn()} collapsed={false} />);
+      expect(observed).toContain(list.querySelector('li'));
     } finally {
       widths.mockRestore();
       client.mockRestore();
