@@ -1,4 +1,4 @@
-import { useMemo, type ComponentProps } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
 import Markdown, { defaultUrlTransform, type Components, type ExtraProps } from 'react-markdown';
 import { useTranslation } from 'react-i18next';
 import type { WidgetRenderProps } from '../contract';
@@ -22,9 +22,34 @@ function heading(level: number) {
   };
 }
 
+// A wide block scrolls inside its box, and is a tab stop only then, so a keyboard can reach the cut-off text.
+function CodeBlock({ node: _node, ...props }: ComponentProps<'pre'> & ExtraProps) {
+  const box = useRef<HTMLPreElement>(null);
+  const [scrolls, setScrolls] = useState(false);
+  useLayoutEffect(() => {
+    const node = box.current;
+    if (!node) return;
+    const measure = () => setScrolls(node.scrollWidth > node.clientWidth);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  return (
+    <pre
+      {...props}
+      ref={box}
+      tabIndex={scrolls ? 0 : undefined} // eslint-disable-line jsx-a11y/no-noninteractive-tabindex -- scrollable region must be keyboard-focusable when it overflows
+      className="overflow-x-auto rounded-md bg-muted px-3 py-2 text-xs focus-visible:outline-2 focus-visible:outline-ring"
+    />
+  );
+}
+
 function componentsFor(firstHeading: number): Components {
   return {
     ...Object.fromEntries([0, 1, 2, 3, 4, 5].map((rank) => [`h${rank + 1}`, heading(firstHeading + rank)])),
+    pre: CodeBlock,
     // A link whose target the transform dropped reads as its text.
     a: ({ node: _node, children, ...props }) =>
       props.href ? (

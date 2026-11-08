@@ -18,6 +18,8 @@ export interface ChapterSpec {
   transition?: 'fly' | 'glide' | 'cut';
   /** Paragraphs of text, so a chapter has height to scroll through. */
   paragraphs?: number;
+  /** Markdown that replaces the paragraphs. */
+  text?: string;
 }
 
 export interface StorySettingsSpec {
@@ -54,7 +56,9 @@ export async function createPublishedStory(
           type: 'markdown',
           v: 1,
           config: {
-            text: Array.from({ length: chapter.paragraphs ?? 6 }, (_, i) => `${chapter.title} paragraph ${i + 1}.`).join('\n\n'),
+            text:
+              chapter.text ??
+              Array.from({ length: chapter.paragraphs ?? 6 }, (_, i) => `${chapter.title} paragraph ${i + 1}.`).join('\n\n'),
           },
         },
       ],
