@@ -138,6 +138,17 @@ export async function readMapCamera(page: Page): Promise<MapCamera> {
   })()`) as Promise<MapCamera>;
 }
 
+/** Where a place falls on the page, in CSS pixels from the viewport's top left. */
+export async function projectOnPage(page: Page, lngLat: [number, number]): Promise<{ x: number; y: number }> {
+  const box = await page.locator('canvas.maplibregl-canvas').boundingBox();
+  if (!box) throw new Error('The map canvas has no box');
+  const point = (await page.evaluate(`(() => {
+    const map = ${FIND_MAP};
+    return map ? map.project(${JSON.stringify(lngLat)}) : null;
+  })()`)) as { x: number; y: number };
+  return { x: box.x + point.x, y: box.y + point.y };
+}
+
 /** Waits until the story map exists and has settled at the camera's first position. */
 export async function waitForStoryMap(page: Page, camera: SceneCamera): Promise<void> {
   // The viewer sets this once the story pane holds the map, so a chapter change then plays its transition.

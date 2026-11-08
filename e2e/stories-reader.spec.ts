@@ -6,6 +6,7 @@ import {
   createPublishedStory,
   deleteStory,
   dragMap,
+  projectOnPage,
   readMapCamera,
   waitForStoryMap,
   type ChapterSpec,
@@ -244,6 +245,19 @@ test.describe('story floating layout', () => {
     await expect(panel.locator('pre')).toBeVisible();
     const overflow = await panel.evaluate((el) => el.scrollWidth - el.clientWidth);
     expect(overflow, 'The chapter panel scrolls sideways').toBeLessThanOrEqual(1);
+  });
+
+  test('centres the scene in the map a left panel leaves free', async ({ page, playwright }) => {
+    const id = await publishStory(playwright, 'FloatingLeft', chapters, { layout: 'floating', panel_position: 'left' });
+    await page.goto(`/stories/${id}`);
+    await expect(chapterPanel(page)).toBeVisible();
+    await waitForStoryMap(page, FIRST);
+
+    const box = (await chapterPanel(page).boundingBox())!;
+    const centre = await projectOnPage(page, FIRST.center);
+    // The middle of the strip between the panel and the map's right edge, give or take its gap.
+    const free = (box.x + box.width + page.viewportSize()!.width) / 2;
+    expect(Math.abs(centre.x - free)).toBeLessThan(40);
   });
 
   test('keeps the stepper on a phone', async ({ page, playwright }) => {

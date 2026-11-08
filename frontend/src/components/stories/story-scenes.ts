@@ -122,10 +122,10 @@ export function cameraGap(map: CameraProbe, target: StoryCamera): CameraGap {
   // The target in the world the centre is in, so a pan across the antimeridian takes the short way.
   const lng = center.lng + lngOffset(target.center[0], center.lng);
   const to = map.project([lng, target.center[1]]);
-  // The map's centre is the middle of its container.
-  const { clientWidth, clientHeight } = map.getContainer();
+  // Padding moves the camera's centre off the middle of the container, so measure from where the centre projects.
+  const from = map.project([center.lng, center.lat]);
   return {
-    panPx: Math.hypot(to.x - clientWidth / 2, to.y - clientHeight / 2),
+    panPx: Math.hypot(to.x - from.x, to.y - from.y),
     zoom: Math.abs(map.getZoom() - target.zoom),
     bearing: Math.abs(lngOffset(map.getBearing(), target.bearing)),
     pitch: Math.abs(map.getPitch() - target.pitch),

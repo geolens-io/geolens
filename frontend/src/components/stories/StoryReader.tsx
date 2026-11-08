@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode, type Ref } from 'react';
+import type { PaddingOptions } from 'maplibre-gl';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { ChevronLeft, ChevronRight, Pencil } from 'lucide-react';
@@ -71,6 +72,8 @@ interface PanelProps extends Omit<StoryReaderProps, 'settings' | 'chromeless'> {
 interface ScrollPanelHandle {
   /** Scrolls so the chapter is the one the reader is on. */
   scrollToChapter(index: number): void;
+  /** The scrolling panel, for measuring how much map it covers. */
+  element(): HTMLElement | null;
 }
 
 // Floating panels sit clear of the map's layers button at the top left and its
@@ -93,6 +96,21 @@ function openLinkOutsideFrame(event: MouseEvent<HTMLElement>) {
   if (!(link instanceof HTMLAnchorElement) || link.getAttribute('href')!.startsWith('#')) return;
   event.preventDefault();
   window.open(link.href, '_blank', 'noopener,noreferrer');
+}
+
+// Space kept between a floating panel and the scene's centre area.
+const PANEL_GAP_PX = 16;
+const NO_PADDING: PaddingOptions = { top: 0, bottom: 0, left: 0, right: 0 };
+
+/** The side padding that centres a scene in the map a floating panel leaves free. */
+function panelPadding(panel: DOMRect, map: DOMRect): PaddingOptions {
+  if (panel.width === 0 || map.width === 0) return NO_PADDING;
+  // A centred panel leaves both sides the same, so it asks for none.
+  if (Math.abs(panel.left + panel.width / 2 - (map.left + map.width / 2)) < 1) return NO_PADDING;
+  const onLeft = panel.left + panel.width / 2 < map.left + map.width / 2;
+  return onLeft
+    ? { ...NO_PADDING, left: Math.round(panel.right - map.left + PANEL_GAP_PX) }
+    : { ...NO_PADDING, right: Math.round(map.right - panel.left + PANEL_GAP_PX) };
 }
 
 function isTextless(chapter: StoryChapter): boolean {
@@ -161,6 +179,29 @@ export function StoryReader({
 
   const bare = floating !== undefined && isTextless(chapter);
   const [dataPanelHeight, setDataPanelHeight] = useState(0);
+  const mapArea = useRef<HTMLDivElement>(null);
+  const [measured, setMeasured] = useState(NO_PADDING);
+  // Measured, not derived from rem widths: the panel's width changes at lg and its max-width caps it.
+  useLayoutEffect(() => {
+    const panel = floating ? scroller.current?.element() : null;
+    const area = mapArea.current;
+    if (!panel || !area) {
+      setMeasured(NO_PADDING);
+      return;
+    }
+    const measure = () => {
+      const next = panelPadding(panel.getBoundingClientRect(), area.getBoundingClientRect());
+      setMeasured((prev) => (prev.left === next.left && prev.right === next.right ? prev : next));
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(panel);
+    observer.observe(area);
+    return () => observer.disconnect();
+  }, [floating, textOnly]);
+  // A textless chapter hides the panel, so its scene fills the map.
+  const padding = bare ? NO_PADDING : measured;
   const selectChapter = (index: number) => {
     changeChapter(index);
     scroller.current?.scrollToChapter(index);
@@ -215,6 +256,7 @@ export function StoryReader({
         )}
         {!textOnly && (
           <div
+            ref={mapArea}
             className={cn(
               floating ? 'absolute inset-0' : 'relative h-[45vh] shrink-0 md:h-auto md:min-w-0 md:flex-1',
             )}
@@ -226,6 +268,7 @@ export function StoryReader({
               legendSide={floating === 'left' ? 'end' : undefined}
               panel={floating}
               defaultTransition={settings?.transition}
+              padding={floating ? padding : undefined}
               onDataPanelHeightChange={floating ? setDataPanelHeight : undefined}
             />
           </div>
@@ -330,7 +373,7 @@ function StoryScrollPanel({
     panel.scrollTo?.({ top: Math.max(0, top), behavior: 'instant' });
     jumpedTo.current = panel.scrollTop;
   }, []);
-  useImperativeHandle(ref, () => ({ scrollToChapter }), [scrollToChapter]);
+  useImperativeHandle(ref, () => ({ scrollToChapter, element: () => panelRef.current }), [scrollToChapter]);
 
   // A change of the panel's height (the Map data panel docking, a resize) moves
   // the activation line; scrolling by the same amount keeps the text that was on
