@@ -285,7 +285,7 @@ def _main_with_failed_builder(
         "apply_showcase_styling",
     ):
         monkeypatch.setattr(seeder, name, lambda _api, **_kw: [])
-    monkeypatch.setattr(seeder, "_rename_map_if_needed", lambda *_a: None)
+    monkeypatch.setattr(seeder, "rename_legacy_maps", lambda _api: None)
     monkeypatch.setattr(seeder, "refresh_sentinel2_scenes", lambda _api: None)
     steps = post_steps if post_steps is not None else []
     monkeypatch.setattr(

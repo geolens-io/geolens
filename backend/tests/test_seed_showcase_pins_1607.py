@@ -75,9 +75,9 @@ def test_pinned_map_names_are_the_four_the_examples_address_by_id():
         # /m/NDuwpSJc3yx4Exic5Na48xO-8bpjWiaIofJefpjqfbU (embed/iframe.html)
         "Restless Earth",
         # the three the gallery deep-links by UUID from index.html
-        "Manhattan - A Century of Skyline",
+        "Manhattan: A Century of Skyline",
         "The Matterhorn in 3D",
-        "New York From Orbit - Sentinel-2, by Reference",
+        "New York From Orbit: Sentinel-2 by Reference",
     )
 
 
@@ -301,7 +301,7 @@ def test_prune_userdata_hard_keeps_a_pinned_map_whoever_owns_it():
             {"id": "m1", "name": PINNED, "created_by_username": "admin"},
             {
                 "id": "m2",
-                "name": "Manhattan - A Century of Skyline",
+                "name": "Manhattan: A Century of Skyline",
                 "created_by_username": "visitor",
             },
             {"id": "m3", "name": "A visitor's map", "created_by_username": "visitor"},
@@ -725,7 +725,7 @@ def test_pinned_summary_flags_only_the_token_embedded_map(capsys, monkeypatch):
     monkeypatch.setattr(
         seeder,
         "PINNED_MAP_NAMES",
-        ("Restless Earth", "Manhattan - A Century of Skyline"),
+        ("Restless Earth", "Manhattan: A Century of Skyline"),
     )
     monkeypatch.setattr(seeder, "PINNED_MAP_EMBEDDED_BY_TOKEN", "Restless Earth")
     monkeypatch.setattr(
@@ -734,7 +734,7 @@ def test_pinned_summary_flags_only_the_token_embedded_map(capsys, monkeypatch):
     api = _SummaryApi(
         maps={
             "Restless Earth": "m-restless",
-            "Manhattan - A Century of Skyline": "m-manhattan",
+            "Manhattan: A Century of Skyline": "m-manhattan",
         },
         datasets={},  # the pinned dataset is missing this run
         share_tokens={},  # neither map has an active link

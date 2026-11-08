@@ -196,8 +196,9 @@ def unrestorable_changes(api):
     # Rebuilding a missing map reuses and rewrites its existing datasets.
     for name in sorted(MAP_NAMES - {seed.CITY_SHADE_MAP} - set(maps)):
         problems.append(f"map {name!r} is missing")
-    if seed.HURRICANE_MAP_LEGACY in maps:
-        problems.append(f"legacy map name {seed.HURRICANE_MAP_LEGACY!r}")
+    for _, legacy in seed.LEGACY_MAP_NAMES:
+        if legacy in maps:
+            problems.append(f"legacy map name {legacy!r}")
     if seed.QUAKES_TITLE_LEGACY in titles:
         problems.append(f"legacy dataset title {seed.QUAKES_TITLE_LEGACY!r}")
     if seed.STATES_TITLE_LEGACY in titles:

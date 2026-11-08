@@ -296,11 +296,48 @@ QUAKES_TITLE = "Recent Earthquakes (M2.5+, last 30 days)"
 QUAKES_TITLE_LEGACY = "Recent Earthquakes (M4.5+, last 30 days)"
 QUAKES_HEAT_LEGACY_TITLE = "Recent Earthquakes - Heatmap source"
 
-HURRICANE_MAP = "Hurricane Alley - Major Atlantic Storms Since 1950"
+HURRICANE_MAP = "Hurricane Alley: Major Atlantic Storms Since 1950"
 HURRICANE_MAP_LEGACY = "Hurricane Alley - 75 Years of Major Atlantic Storms"
 
+# Map names before the showcase settled on title case with a colon before a
+# subtitle, as (current, legacy). Literals, because several current names are
+# defined further down or in the Cambridge module.
+LEGACY_MAP_NAMES = (
+    (HURRICANE_MAP, HURRICANE_MAP_LEGACY),
+    (HURRICANE_MAP, "Hurricane Alley - Major Atlantic Storms Since 1950"),
+    ("Manhattan: A Century of Skyline", "Manhattan - A Century of Skyline"),
+    (
+        "New York From Orbit: Sentinel-2 by Reference",
+        "New York From Orbit - Sentinel-2, by Reference",
+    ),
+    (
+        "Earthquake Dashboard: USGS M2.5+ Snapshot",
+        "Earthquake Dashboard - USGS M2.5+ Snapshot",
+    ),
+    (
+        "Hurricane Exposure: Which Coasts the Major Storms Reach",
+        "Hurricane Exposure - Which Coasts the Major Storms Reach",
+    ),
+    (
+        "Cambridge Open Data: Street Trees From an ArcGIS Online Web Map",
+        "Cambridge open data: street trees, from an ArcGIS Online web map",
+    ),
+    (
+        "Cambridge Open Data: Parcels, Zoning and the Floodplain",
+        "Cambridge open data: parcels, zoning and the floodplain",
+    ),
+    (
+        "Cambridge Open Data: Street Tree Operations",
+        "Cambridge open data: street tree operations",
+    ),
+    (
+        "Cambridge Open Data: Land and Zoning in Numbers",
+        "Cambridge open data: land and zoning in numbers",
+    ),
+)
+
 STORY_TITLE = "Where the Atlantic's Major Hurricanes Go"
-SKYLINE_MAP = "Manhattan - A Century of Skyline"
+SKYLINE_MAP = "Manhattan: A Century of Skyline"
 SKYLINE_BUILDINGS_TITLE = "Manhattan Building Heights"
 SKYLINE_STORY_TITLE = "A Century of Manhattan's Skyline"
 SKYLINE_DASHBOARD_MAP = "Manhattan Skyline Dashboard"
@@ -387,7 +424,7 @@ SKYLINE_CAMERAS = {
     "method": {"center": [-73.99, 40.735], "zoom": 13.6, "pitch": 40, "bearing": 0},
     "dashboard": {"center": [-74.0, 40.718], "zoom": 14.2, "pitch": 55, "bearing": -20},
 }
-ORBIT_MAP = "New York From Orbit - Sentinel-2, by Reference"
+ORBIT_MAP = "New York From Orbit: Sentinel-2 by Reference"
 STATES_TITLE = "States & Provinces of Nine Large Countries (Natural Earth 1:50m)"
 STATES_TITLE_LEGACY = "World States & Provinces (Natural Earth 1:50m)"
 # The 1:50m admin-1 file subdivides nine countries only (verified against the
@@ -417,7 +454,7 @@ NYC_STORY_SUMMARY = (
     "From Sentinel-2 imagery of the whole city to Manhattan's skyline, its "
     "subway, and the trees of one East Village park."
 )
-DASHBOARD_MAP = "Earthquake Dashboard - USGS M2.5+ Snapshot"
+DASHBOARD_MAP = "Earthquake Dashboard: USGS M2.5+ Snapshot"
 # The legend titles a size or colour class by the stored column's label, and
 # falls back to the raw column name ("Size: mag") when the style names no
 # column or none of the layer's own.
@@ -517,7 +554,7 @@ MAP_DESCRIPTIONS: dict[str, str] = {
         "larger subset. Click a polygon for its gain, loss, or no-change class. "
         "The data does not measure current shade or temperature."
     ),
-    "Manhattan - A Century of Skyline": (
+    "Manhattan: A Century of Skyline": (
         "How did Manhattan's building eras shape its skyline? Roof height sets "
         "the 3D form and construction year sets the color. Start with the older "
         "blocks, then click a building to compare its surveyed height and year. "
@@ -531,7 +568,7 @@ MAP_DESCRIPTIONS: dict[str, str] = {
         "only, so the terrain stops at the Swiss border just south of the "
         "summit. See the DEM dataset page for its source and access options."
     ),
-    "Hurricane Exposure - Which Coasts the Major Storms Reach": (
+    "Hurricane Exposure: Which Coasts the Major Storms Reach": (
         "Which Atlantic coastal regions lie within 100 km of historical major "
         "hurricane tracks? GeoLens buffered Category 3+ HURDAT2 storm legs "
         "since 1950, intersected them with Natural Earth regions, then "
@@ -539,7 +576,7 @@ MAP_DESCRIPTIONS: dict[str, str] = {
         "provenance. The corridor is a screening measure, not a damage or "
         "future-risk forecast. Turn on the input tracks to inspect the source."
     ),
-    "New York From Orbit - Sentinel-2, by Reference": (
+    "New York From Orbit: Sentinel-2 by Reference": (
         "Compare dated Sentinel-2 true-color acquisitions around New York. "
         "Toggle scenes to see their different coverage and clouds. GeoLens "
         "catalogs these fixed acquisitions by remote COG reference and reads "
@@ -556,11 +593,11 @@ MATTERHORN_CAMERA = {
 }
 
 MAP_VIEW_FIXES = {
-    "Manhattan - A Century of Skyline": {
+    "Manhattan: A Century of Skyline": {
         "expected": {"center_lng": -73.978, "center_lat": 40.753, "zoom": 15.0},
         "wanted": {"center_lng": -73.980, "center_lat": 40.754, "zoom": 14.4},
     },
-    "New York From Orbit - Sentinel-2, by Reference": {
+    "New York From Orbit: Sentinel-2 by Reference": {
         "expected": {"center_lng": -73.97, "center_lat": 40.72, "zoom": 10.2},
         "wanted": {"center_lng": -74.015, "center_lat": 40.725, "zoom": 11.1},
     },
@@ -708,9 +745,9 @@ PINNED_DATASET_TITLES = (
 # the old row and let the new one sit beside it.
 PINNED_MAP_NAMES = (
     "Restless Earth",
-    "Manhattan - A Century of Skyline",
+    "Manhattan: A Century of Skyline",
     "The Matterhorn in 3D",
-    "New York From Orbit - Sentinel-2, by Reference",
+    "New York From Orbit: Sentinel-2 by Reference",
 )
 
 # The one pinned map geolens-examples embeds by share token rather than
@@ -2378,19 +2415,20 @@ def _announce_kept_map(name: str, force: bool, note: str = "") -> str:
     return "(skipped)"
 
 
-def _rename_map_if_needed(api: Api, name: str, legacy: str) -> None:
-    """Migrate a map that was created under an older name.
+def rename_legacy_maps(api: Api) -> None:
+    """Migrate maps that were created under an older name, keeping their ids.
 
-    Builders skip by NAME, so a rename without this leaves the old map sitting
-    there under its old name while the builder happily creates a second one
-    beside it - two Hurricane Alleys, one of them stale, on every instance that
-    was seeded before the rename. Renaming only when the old name exists AND the
-    new one does not keeps that from happening in either direction.
+    Builders and the passes after them find maps by NAME, so a rename without
+    this leaves the old map sitting there under its old name while the builder
+    creates a second one beside it. Renaming only when the old name exists AND
+    the new one does not keeps that from happening in either direction.
     """
     maps = api.list_maps()
-    if legacy in maps and name not in maps:
-        api.set_view(maps[legacy], name=name)
-        print(f"  renamed map {legacy!r} -> {name!r}")
+    for name, legacy in LEGACY_MAP_NAMES:
+        if legacy in maps and name not in maps:
+            api.set_view(maps[legacy], name=name)
+            maps[name] = maps.pop(legacy)
+            print(f"  renamed map {legacy!r} -> {name!r}")
 
 
 def _replace_map_layers(api: Api, map_id: str, layers: list[dict]) -> int:
@@ -2951,17 +2989,16 @@ def _showcase_map_names() -> set[str]:
     """Every map name this seeder creates or has created."""
     names = {
         "Restless Earth",
-        "Manhattan - A Century of Skyline",
+        "Manhattan: A Century of Skyline",
         HURRICANE_MAP,
-        HURRICANE_MAP_LEGACY,
         EXPOSURE_MAP,
         DASHBOARD_MAP,
         SKYLINE_DASHBOARD_MAP,
         "Everything That Fell From the Sky",
         "The Matterhorn in 3D",
-        "New York From Orbit - Sentinel-2, by Reference",
+        "New York From Orbit: Sentinel-2 by Reference",
         "Private Embed Demo",
-    } | set(RETIRED_MAPS)
+    } | set(RETIRED_MAPS) | {legacy for _, legacy in LEGACY_MAP_NAMES}
     # The pinned names are folded in separately, so one of them can
     # never read as a stray if the literals above are ever edited apart from
     # PINNED_MAP_NAMES.
@@ -4035,7 +4072,7 @@ def build_manhattan(api: Api, force: bool = False, force_pinned: bool = False) -
     * Era is a precomputed STRING column: the graduated legend abbreviates
       numeric breaks (1900 -> "1.9K"), so year breaks are unreadable there.
     """
-    name = "Manhattan - A Century of Skyline"
+    name = "Manhattan: A Century of Skyline"
     if _keep_existing_map(name, _map_exists(api, name), force, force_pinned):
         return _announce_kept_map(name, force)
     print("\n[manhattan] Manhattan (3D by height, colored by era, + subway)")
@@ -4552,9 +4589,6 @@ def build_hurricanes(api: Api, force: bool = False, force_pinned: bool = False) 
     line color, data-driven line width, line-center name labels.
     """
     name = HURRICANE_MAP
-    # Migrate before the exists-check, or the check misses the renamed map and
-    # builds a duplicate next to it.
-    _rename_map_if_needed(api, name, HURRICANE_MAP_LEGACY)
     if _keep_existing_map(name, _map_exists(api, name), force, force_pinned):
         return _announce_kept_map(name, force)
     print("\n[hurricanes] Hurricane Alley (HURDAT2 majors since 1950)")
@@ -4770,7 +4804,7 @@ EXPOSURE_CHAIN_TITLES = (
     "Coastal Regions Inside a Major Hurricane Corridor",
     "Hurricane Exposure by Coastal Region",
 )
-EXPOSURE_MAP = "Hurricane Exposure - Which Coasts the Major Storms Reach"
+EXPOSURE_MAP = "Hurricane Exposure: Which Coasts the Major Storms Reach"
 # The graded layer's display name, and the only stable handle on it. A refresh
 # has to find the layer it is REPLACING, and it cannot do that by dataset id:
 # the id it would look for comes from a title lookup, and a refresh that died
@@ -7323,7 +7357,7 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
     by REUSING the row: the force preflight, the scene deletion and the STAC
     import all run exactly as they do without a pin, and only create_map is
     skipped, in favour of rebinding the existing map's layers in place."""
-    name = "New York From Orbit - Sentinel-2, by Reference"
+    name = "New York From Orbit: Sentinel-2 by Reference"
     keep_pinned_row = _keep_existing_map(
         name, _map_exists(api, name), force, force_pinned
     )
@@ -8470,7 +8504,7 @@ MAP_LEGEND_AND_NOTES: dict[str, tuple[str, str]] = {
         "Eruptions are NOAA NCEI significant events since 4360 BC, filtered "
         "to VEI 4+ or 100+ deaths. Boundaries are PB2002; relief is ETOPO 2022.",
     ),
-    "Manhattan - A Century of Skyline": (
+    "Manhattan: A Century of Skyline": (
         "Skyline and subway",
         "Buildings are extruded to their surveyed roof height (NYC Open Data, "
         "feet converted to meters) and colored by construction year. Subway "
@@ -8505,7 +8539,7 @@ MAP_LEGEND_AND_NOTES: dict[str, tuple[str, str]] = {
         "tiles, which is what the clustering here demonstrates. Source: NASA "
         "open data / The Meteoritical Society.",
     ),
-    "New York From Orbit - Sentinel-2, by Reference": (
+    "New York From Orbit: Sentinel-2 by Reference": (
         "Sentinel-2 true color",
         "Fixed-date Sentinel-2 true-color acquisitions are referenced "
         "from the AWS Earth Search archive. Toggle them to compare coverage. "
@@ -8570,7 +8604,7 @@ MAP_PITCH_ALIGNED_CIRCLES: dict[str, tuple[str, ...]] = {
 # Values come from the shared constants, so the builder and this repair cannot
 # disagree about what "correct" is.
 MAP_LAYER_STYLE_FIXES: dict[str, dict[str, dict]] = {
-    "Manhattan - A Century of Skyline": {
+    "Manhattan: A Century of Skyline": {
         "Subway (official MTA colors)": {"fields": {"show_in_legend": False}},
     },
     "Restless Earth": {
@@ -9716,6 +9750,7 @@ def main() -> int:
         # snapshot, so a rollback could not withdraw them.
         if not args.expected_state:
             builders.append(("embed", fns["embed"]))
+    rename_legacy_maps(api)
     for bname, fn in builders:
         # One flaky upstream must not kill the whole seed (e.g. the NYC
         # buildings table mid-replace): isolate each builder, report at end.
@@ -9753,13 +9788,6 @@ def main() -> int:
     unenriched = enrich_showcase_metadata(api, include_cambridge=not args.expected_state)
     if unenriched and args.expected_state:
         failed["metadata"] = ", ".join(unenriched)
-
-    # Rename before the passes below, not only inside build_hurricanes. Both
-    # passes look the map up by its CURRENT name, and the builder that renames
-    # it does not run under --only or after a builder failure - so without this
-    # the map would keep its legacy name and silently miss its legend, notes
-    # and globe projection. Guarded, so running it twice does nothing.
-    _rename_map_if_needed(api, HURRICANE_MAP, HURRICANE_MAP_LEGACY)
 
     # Same shape and the same reason: applied to whatever showcase maps exist,
     # so an instance seeded before this landed gets the globe too.

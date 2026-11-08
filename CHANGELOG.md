@@ -8,7 +8,7 @@ and releases use semantic versioning.
 ## [Unreleased]
 
 ### Added
-- `scripts/seed-showcase.py` seeds a nine-chapter story over the Cambridge section, "Cambridge's open data in GeoLens", and `--refresh-services` re-pulls every service-bound showcase dataset in one call, the street trees last.
+- `scripts/seed-showcase.py` seeds a nine-chapter story over the Cambridge section, "Cambridge's Open Data in GeoLens", and `--refresh-services` re-pulls every service-bound showcase dataset in one call, the street trees last.
 - `scripts/seed-showcase.py` seeds a section built from the City of Cambridge, MA open data (PDDL): five layers bound to the city's public ArcGIS Online hosted feature layers, a pinned parcels upload, parcels joined to zoning and the 1% floodplain, a street-tree map translated from an ArcGIS web map, a tree-operations dashboard and a land-and-zoning dashboard with its map hidden.
 
 ### Changed
@@ -16,6 +16,7 @@ and releases use semantic versioning.
 - `scripts/seed-showcase.py` shows the 1.30 features on the demo: the two dashboard maps gain a pie chart, a table, a feature list, a bar chart by date and indicator references, the skyline dashboard moves to the bottom panel, the stories get reader settings, a cover image each and a photo gallery, and stale catalog text about 3D Tiles, COPC and collections is corrected.
 - `scripts/seed-showcase.py` opens "The Matterhorn in 3D" on a wider view of the whole mountain from the north-east, and a seed run moves a map still on the previous seeded view, or on none, to it.
 - `scripts/seed-showcase.py` corrects the demo's written content: Cambridge's story counts records and standing trees apart and its tree dashboard gains a species chart, the zoning map colors the twelve districts with the most parcels, datasets on public maps carry an attribution, seeded text uses US spelling, and a rerun applies the fixes to an already-seeded instance.
+- `scripts/seed-showcase.py` gives the showcase maps and stories one title style, title case with a colon before a subtitle, such as "Manhattan: A Century of Skyline"; a seed run renames an already-seeded map or story in place, so its id and links keep working.
 
 ### Fixed
 - Collection thumbnails and the collection page's spatial extent map now zoom to a city-sized extent instead of showing a dot on a world map, the viewer legend shows a chevron while rows are cut off below the visible part of the panel, and a map card's title wraps to two lines instead of cutting a long name short beside its visibility badge.
