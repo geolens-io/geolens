@@ -4,7 +4,8 @@
 The default seed builds seven public maps, their source datasets, themed
 collections, and a private embed demo. ``--showcase-121`` also builds City in
 Shade, a real COPC sample, and a real 3D Tiles sample. GeoLens serves the 3D
-assets to external clients; its map viewer does not render them natively.
+assets to external clients. Their dataset pages draw them; the map builder
+does not layer them.
 
 A published story over the two hurricane maps, a dashboard map over the USGS
 earthquake layer, and a skyline story and dashboard map over the Manhattan
@@ -285,16 +286,59 @@ SKYLINE_BUILDINGS_TITLE = "Manhattan Building Heights"
 SKYLINE_STORY_TITLE = "A Century of Manhattan's Skyline"
 SKYLINE_DASHBOARD_MAP = "Manhattan Skyline Dashboard"
 SKYLINE_DASHBOARD_DESCRIPTION = (
-    "A dashboard over the Manhattan building footprints, extruded to surveyed "
-    "roof height and colored by construction era: how many buildings are in "
-    "view, the tallest roof, how the buildings split by era and how their "
-    "heights spread. Click an era to filter the map. The dashboard follows the "
-    "map view, so pan and zoom to ask about a block. Source: NYC Open Data."
+    "Pan and zoom to a block and the panel follows: how many buildings are in "
+    "view, how the tallest roof compares with the Empire State Building, and "
+    "how the buildings split by era. Click an era to filter the map. Source: "
+    "NYC Open Data."
 )
-SKYLINE_PHOTO_URL = (
-    "https://cdn.loc.gov/service/pnp/fsa/8b16000/8b16200/8b16269v.jpg"
-)
-SKYLINE_PHOTO_SHA256 = "42696910409373efc0b2f5c6a1b4db8336c201cec38e1465b37e1756f776b844"
+_LOC_CDN = "https://cdn.loc.gov/service/pnp/fsa/8b16000/8b16200/"
+_LOC_CREDIT = "Library of Congress, Prints & Photographs Division, FSA/OWI Collection"
+# The story's gallery, in reading order. Each file is pinned by SHA-256, and all
+# are marked "No known restrictions" by the Library of Congress.
+SKYLINE_PHOTOS = [
+    {
+        "filename": "skyline-8b16269.jpg",
+        "url": _LOC_CDN + "8b16269v.jpg",
+        "sha256": "42696910409373efc0b2f5c6a1b4db8336c201cec38e1465b37e1756f776b844",
+        "alt": "Black-and-white photograph of Midtown Manhattan in haze, with a "
+        "slender tower topped by a mast at left and the flank of a larger "
+        "tower at right.",
+        "caption": f"Midtown Manhattan, December 1941. {_LOC_CREDIT}, "
+        "LC-DIG-fsa-8b16269. No known restrictions on publication.",
+    },
+    {
+        "filename": "skyline-8b16273.jpg",
+        "url": _LOC_CDN + "8b16273v.jpg",
+        "sha256": "2f086b2587331c8d8dd66ac2e99c88608b80c2d647178cb2cbacabeb2d0a52c7",
+        "alt": "Black-and-white photograph looking over Midtown Manhattan "
+        "rooftops, with hotel signs painted on the walls of older buildings, "
+        "water towers, and a tall tower rising in the haze at upper left.",
+        "caption": f"Midtown rooftops, December 1941. {_LOC_CREDIT}, "
+        "LC-USF34-024554-D. No known restrictions on publication.",
+    },
+    {
+        "filename": "skyline-8b16284.jpg",
+        "url": _LOC_CDN + "8b16284v.jpg",
+        "sha256": "70413a512535ddf85b4e5aa08f763ff82844112a663684f4b52fae8689b13bb8",
+        "alt": "Black-and-white photograph of Midtown Manhattan towers in haze, "
+        "with a spired tower and a pyramid-roofed tower in the middle and a "
+        "flag flying at upper right.",
+        "caption": f"Towers of Midtown, December 1941. {_LOC_CREDIT}, "
+        "LC-DIG-fsa-8b16284. No known restrictions on publication.",
+    },
+]
+HURRICANE_PHOTO = {
+    "filename": "hurricane-ian-iss067e382116.jpg",
+    "url": "https://images-assets.nasa.gov/image/iss067e382116/"
+    "iss067e382116~large.jpg",
+    "sha256": "7cfb480cae7ed99e6bcb46884865ab560af30c0987de0b4ecd536a7eec34f1a1",
+    "alt": "The white spiral of Hurricane Ian seen from orbit, its eye near the "
+    "centre of the cloud shield, with the dark edge of space above and a robotic "
+    "arm of the space station at right.",
+    "caption": "Hurricane Ian approaching the west coast of Florida as a "
+    "Category 4 storm, 28 September 2022, photographed from the International "
+    "Space Station. NASA, image iss067e382116.",
+}
 # west, south, east, north
 SKYLINE_FIDI_BBOX = [-74.020, 40.700, -73.995, 40.718]
 SKYLINE_MIDTOWN_BBOX = [-73.995, 40.740, -73.960, 40.765]
@@ -308,6 +352,17 @@ SKYLINE_CAMERAS = {
     "dashboard": {"center": [-74.0, 40.718], "zoom": 14.2, "pitch": 55, "bearing": -20},
 }
 ORBIT_MAP = "New York From Orbit - Sentinel-2, by Reference"
+STATES_TITLE = "States & Provinces of Nine Large Countries (Natural Earth 1:50m)"
+STATES_TITLE_LEGACY = "World States & Provinces (Natural Earth 1:50m)"
+# The 1:50m admin-1 file subdivides nine countries only (verified against the
+# pinned v5.1.2 file: 294 features), so the title names that coverage.
+STATES_SUMMARY = (
+    "First-order states and provinces of the nine countries Natural Earth "
+    "subdivides at 1:50m: the United States, Canada, Russia, China, India, "
+    "Brazil, Australia, Indonesia and South Africa (294 features). Smaller "
+    "countries have no admin-1 polygons at this scale. Natural Earth data is "
+    "public domain."
+)
 NYC_STORY_TITLE = "New York, From Orbit to the Street Tree"
 NYC_STORY_SUMMARY = (
     "From Sentinel-2 imagery of the whole city to Manhattan's skyline, its "
@@ -315,14 +370,11 @@ NYC_STORY_SUMMARY = (
 )
 DASHBOARD_MAP = "Earthquake Dashboard - USGS M2.5+ Snapshot"
 DASHBOARD_MAP_DESCRIPTION = (
-    "A dashboard over the USGS M2.5+ earthquake service: how many quakes are "
-    "in view, the strongest one, how their magnitudes spread, and which "
-    "magnitude types and networks report them. Pick a bar or a network to "
-    "filter the map. The dashboard follows the map view, so pan and zoom to "
-    "ask about a region. "
-    "The earthquake layer is a refreshed snapshot of the 30-day USGS service, "
-    "not a streaming layer; check the dataset's Source panel for its actual "
-    "refresh time before treating it as current."
+    "Pan and zoom to any region and the panel follows: the quakes in view, the "
+    "strongest against the damaging-quake threshold, the busiest days and the "
+    "strongest events. Click a bar or pick a network to filter the map. The "
+    "layer is a refreshed snapshot of the 30-day USGS service, not a live "
+    "stream; the dataset page shows when it was last refreshed."
 )
 # Widget, chapter and block ids are derived rather than random so a rerun
 # writes the same document instead of replacing every id.
@@ -379,7 +431,7 @@ MAP_DESCRIPTIONS: dict[str, str] = {
         "future-risk forecast. Turn on the input tracks to inspect the source."
     ),
     "New York From Orbit - Sentinel-2, by Reference": (
-        "Compare four dated Sentinel-2 true-color acquisitions around New York. "
+        "Compare dated Sentinel-2 true-color acquisitions around New York. "
         "Toggle scenes to see their different coverage and clouds. GeoLens "
         "catalogs these fixed acquisitions by remote COG reference and reads "
         "them from S3 at view time; their dates are not a live update cadence."
@@ -2709,10 +2761,7 @@ def _showcase_dataset_titles() -> set[str]:
     """
     titles = set(SHOWCASE_METADATA) | set(PINNED_DATASET_TITLES) | set(RETIRED_DATASETS)
     titles |= {QUAKES_TITLE, QUAKES_TITLE_LEGACY, QUAKES_HEAT_LEGACY_TITLE}
-    titles |= {
-        "World States & Provinces (Natural Earth 1:50m)",
-        "Private Embed Demo - VIP Sites",
-    }
+    titles |= {STATES_TITLE, STATES_TITLE_LEGACY, "Private Embed Demo - VIP Sites"}
     for _description, members in COLLECTIONS.values():
         titles |= set(members)
     return titles
@@ -3102,19 +3151,32 @@ def build_catalog(api: Api, force: bool = False, force_pinned: bool = False) -> 
         "scale rank. Source: Natural Earth 1:50m (public domain).",
         force=force,
     )
-    if force or "World States & Provinces (Natural Earth 1:50m)" not in by_title:
+    ensure_states_dataset(api, by_title, force)
+    return "(catalog)"
+
+
+def ensure_states_dataset(api: Api, by_title: dict, force: bool = False) -> None:
+    """The Natural Earth states and provinces, under the title that names them.
+
+    The 1:50m file subdivides nine countries, so the title says so. An
+    instance seeded under the old, world-wide title keeps its dataset id and
+    takes the new title in place.
+    """
+    states, under_legacy = _find_under_either_title(
+        by_title, STATES_TITLE, STATES_TITLE_LEGACY
+    )
+    if force or states is None:
         print("  ingesting Natural Earth states and provinces...")
         api.ingest_geojson(
             "world_admin1.geojson",
             fetch(NE_ADMIN1),
-            "World States & Provinces (Natural Earth 1:50m)",
-            "First-order states and provinces in the United States and Canada "
-            "from Natural Earth 1:50m admin-1. This scale does not cover every "
-            "country. Natural Earth data is public domain.",
+            STATES_TITLE,
+            STATES_SUMMARY,
         )
-    else:
-        print("  [reuse] World States & Provinces (Natural Earth 1:50m)")
-    return "(catalog)"
+        return
+    print(f"  [reuse] {STATES_TITLE}")
+    if under_legacy:
+        _adopt_title(api, by_title, states, STATES_TITLE, STATES_TITLE_LEGACY)
 
 
 def build_restless_earth(
@@ -4845,6 +4907,49 @@ def _story_blocks_chapter(
     }
 
 
+def _pinned_photos(
+    api: Api, story_id: str, existing: bool, block_id: str, photos: list[dict]
+) -> list[str]:
+    """Asset ids of *photos* on the story, in the order given.
+
+    The API doesn't list a story's assets or their file names, so the published
+    block is the only record of what a previous run uploaded. A stored image is
+    reused only when its alt text and caption are the pinned ones, wherever an
+    editor has moved it; any photo without such an image is uploaded again.
+    Every download is checked against its pinned SHA-256 before it is stored.
+    """
+    stored: list[dict] = []
+    if existing:
+        for chapter in api.story_document(story_id).get("chapters", []):
+            for block in chapter.get("blocks", []):
+                if block.get("id") != block_id:
+                    continue
+                if "asset_id" in block:
+                    stored.append({**block["config"], "asset_id": block["asset_id"]})
+                else:
+                    stored.extend(block["config"].get("images", []))
+    ids = []
+    for photo in photos:
+        found = next(
+            (
+                image["asset_id"]
+                for image in stored
+                if (image.get("alt"), image.get("caption"))
+                == (photo["alt"], photo["caption"])
+            ),
+            None,
+        )
+        if found is None:
+            data = fetch(photo["url"])
+            if hashlib.sha256(data).hexdigest() != photo["sha256"]:
+                raise RuntimeError(
+                    f"{photo['filename']} differs from its pinned checksum"
+                )
+            found = api.upload_story_asset(story_id, photo["filename"], data)
+        ids.append(found)
+    return ids
+
+
 def seed_hurricane_story(
     api: Api, force: bool = False, force_pinned: bool = False
 ) -> str:
@@ -4930,26 +5035,6 @@ def seed_hurricane_story(
         "derived dataset's provenance panel records the operation and its "
         "parameters."
     )
-    document = {
-        "version": 1,
-        "chapters": [
-            _story_chapter(
-                "tracks", "The tracks", _story_scene(tracks_map), tracks_text
-            ),
-            _story_chapter(
-                "coasts",
-                "The coasts they reach",
-                _story_scene(exposure_map),
-                coasts_text,
-            ),
-            _story_chapter(
-                "data",
-                "Where the data comes from",
-                _story_scene(exposure_map, {legs_layer: True}),
-                data_text,
-            ),
-        ],
-    }
     summary = (
         "Every Atlantic storm since 1950 that reached Category 3, and the "
         "coasts that lie within 100 km of their tracks."
@@ -4959,7 +5044,54 @@ def seed_hurricane_story(
     if story_id is None:
         story_id = api.create_story(STORY_TITLE, summary)
         verb = "created"
-    api.publish_story(story_id, STORY_TITLE, summary, document)
+    photo_block_id = _seed_id("story", "tracks", "photo", HURRICANE_PHOTO["sha256"])
+    (photo_asset,) = _pinned_photos(
+        api, story_id, verb == "updated", photo_block_id, [HURRICANE_PHOTO]
+    )
+    document = {
+        "version": 1,
+        "settings": {
+            "navigation": True,
+            "layout": "floating",
+            "panel_position": "left",
+            "transition": "glide",
+        },
+        "chapters": [
+            _story_chapter(
+                "tracks",
+                "The tracks",
+                _story_scene(tracks_map),
+                tracks_text,
+            ),
+            _story_chapter(
+                "coasts",
+                "The coasts they reach",
+                _story_scene(exposure_map),
+                coasts_text,
+                [
+                    {
+                        "id": photo_block_id,
+                        "type": "image",
+                        "v": 1,
+                        "asset_id": photo_asset,
+                        "config": {
+                            "alt": HURRICANE_PHOTO["alt"],
+                            "caption": HURRICANE_PHOTO["caption"],
+                        },
+                    }
+                ],
+            ),
+            _story_chapter(
+                "data",
+                "Where the data comes from",
+                _story_scene(exposure_map, {legs_layer: True}),
+                data_text,
+            ),
+        ],
+    }
+    api.publish_story(
+        story_id, STORY_TITLE, summary, document, cover_asset_id=photo_asset
+    )
     print(f"  -> story {story_id} ({verb}, published, public)")
     return story_id
 
@@ -4990,14 +5122,41 @@ def _dashboard_map(
     return map_id, current, created, found["id"]
 
 
+# The widget type:version pairs the seeder reads back. A save that leaves this
+# out is taken to read only the earlier kinds, so the server refuses to replace
+# a stored newer widget.
+DASHBOARD_READABLE = [
+    "markdown:1",
+    "indicator:1",
+    "indicator:2",
+    "bar_chart:1",
+    "bar_chart:2",
+    "histogram:1",
+    "category_selector:1",
+    "pie_chart:1",
+    "feature_list:1",
+    "table:1",
+]
+
+
 def _dashboard_widget(
-    prefix: str, layer_id: str, key: str, kind: str, title: str, config: dict
+    prefix: str,
+    layer_id: str,
+    key: str,
+    kind: str,
+    title: str,
+    config: dict,
+    v: int = 1,
 ) -> dict:
-    """A data widget scoped to the map view, with an id stable across reruns."""
+    """A data widget scoped to the map view, with an id stable across reruns.
+
+    ``v`` is 2 for an indicator with a reference and for a bar chart that is
+    not a plain category chart.
+    """
     return {
         "id": _seed_id(prefix, key),
         "type": kind,
-        "v": 1,
+        "v": v,
         "title": title,
         "layer_id": layer_id,
         "scope": "view",
@@ -5042,8 +5201,8 @@ def seed_quake_dashboard(
         },
     )
 
-    def widget(key: str, kind: str, title: str, config: dict) -> dict:
-        return _dashboard_widget("dashboard", layer_id, key, kind, title, config)
+    def widget(key: str, kind: str, title: str, config: dict, v: int = 1) -> dict:
+        return _dashboard_widget("dashboard", layer_id, key, kind, title, config, v)
 
     camera = (
         {
@@ -5066,13 +5225,34 @@ def seed_quake_dashboard(
         visibility="public",
         dashboard_config={
             "version": 1,
+            "readable": DASHBOARD_READABLE,
             "widgets": [
                 widget("count", "indicator", "Earthquakes in view", {"stat": "count"}),
                 widget(
                     "strongest",
                     "indicator",
                     "Strongest earthquake in view (magnitude)",
-                    {"stat": "max", "column": "mag"},
+                    {
+                        "stat": "max",
+                        "column": "mag",
+                        "reference": 6.0,
+                        "reference_label": "Damaging-quake threshold",
+                        "higher_is_better": False,
+                    },
+                    v=2,
+                ),
+                widget(
+                    "daily",
+                    "bar_chart",
+                    "Earthquakes per week",
+                    {
+                        "mode": "date",
+                        "column": "event_time_utc_date_fmt",
+                        "date_bucket": "week",
+                        "stat": "count",
+                        "limit": 8,
+                    },
+                    v=2,
                 ),
                 widget(
                     "magnitudes",
@@ -5091,6 +5271,18 @@ def seed_quake_dashboard(
                     "category_selector",
                     "Reporting network",
                     {"column": "net"},
+                ),
+                widget(
+                    "top",
+                    "feature_list",
+                    "Strongest earthquakes in view",
+                    {
+                        "title_column": "place",
+                        "subtitle_column": "mag",
+                        "sort_column": "mag",
+                        "sort": "desc",
+                        "page_size": 10,
+                    },
                 ),
             ],
         },
@@ -5128,9 +5320,9 @@ def seed_skyline_dashboard(
         popup = {**layer["popup_config"], **current_popup, "visible_fields": fields}
         api.update_layer(map_id, {"id": layer_id, "popup_config": popup})
 
-    def widget(key: str, kind: str, title: str, config: dict) -> dict:
+    def widget(key: str, kind: str, title: str, config: dict, v: int = 1) -> dict:
         return _dashboard_widget(
-            "skyline-dashboard", layer_id, key, kind, title, config
+            "skyline-dashboard", layer_id, key, kind, title, config, v
         )
 
     camera = SKYLINE_CAMERAS["dashboard"]
@@ -5147,19 +5339,41 @@ def seed_skyline_dashboard(
         visibility="public",
         dashboard_config={
             "version": 1,
+            "panel": "bottom",
+            "readable": DASHBOARD_READABLE,
             "widgets": [
                 widget("count", "indicator", "Buildings in view", {"stat": "count"}),
                 widget(
                     "tallest",
                     "indicator",
                     "Tallest roof in view (ft)",
-                    {"stat": "max", "column": "height_roof"},
+                    {
+                        "stat": "max",
+                        "column": "height_roof",
+                        "reference": 1250,
+                        "reference_label": "Empire State roof",
+                    },
+                    v=2,
                 ),
                 widget(
                     "eras",
-                    "bar_chart",
+                    "pie_chart",
                     "Buildings by era",
                     {"column": "era", "stat": "count", "limit": 8},
+                ),
+                widget(
+                    "era-table",
+                    "table",
+                    "Eras by tallest roof",
+                    {
+                        "group_column": "era",
+                        "stats": [
+                            {"stat": "count"},
+                            {"stat": "max", "column": "height_roof"},
+                        ],
+                        "sort_by": 1,
+                        "sort": "desc",
+                    },
                 ),
                 widget(
                     "heights",
@@ -5337,29 +5551,12 @@ def seed_skyline_story(
         story_id = api.create_story(SKYLINE_STORY_TITLE, summary)
         verb = "created"
 
-    # Keyed on the pin, so a rerun reuses the uploaded photo and a new pin
-    # uploads a new one.
-    photo_block_id = _seed_id(
-        "story", "skyline-midtown", "photo", SKYLINE_PHOTO_SHA256
+    gallery_id = _seed_id(
+        "story", "skyline-midtown", "gallery", *(p["sha256"] for p in SKYLINE_PHOTOS)
     )
-    asset_id = None
-    if verb == "updated":
-        asset_id = next(
-            (
-                block.get("asset_id")
-                for chapter in api.story_document(story_id).get("chapters", [])
-                for block in chapter.get("blocks", [])
-                if block.get("id") == photo_block_id
-            ),
-            None,
-        )
-    if asset_id is None:
-        photo = fetch(SKYLINE_PHOTO_URL)
-        if hashlib.sha256(photo).hexdigest() != SKYLINE_PHOTO_SHA256:
-            raise RuntimeError(
-                "skyline photo checksum differs from the pinned value"
-            )
-        asset_id = api.upload_story_asset(story_id, "midtown-1941.jpg", photo)
+    asset_ids = _pinned_photos(
+        api, story_id, verb == "updated", gallery_id, SKYLINE_PHOTOS
+    )
 
     def scene(camera: str, show_subway: bool = False) -> dict:
         visibility = {layer_id: show_subway for layer_id in subway}
@@ -5367,6 +5564,7 @@ def seed_skyline_story(
 
     document = {
         "version": 1,
+        "settings": {"navigation": True},
         "chapters": [
             _story_chapter(
                 "skyline-overview",
@@ -5387,19 +5585,18 @@ def seed_skyline_story(
                 midtown_text,
                 [
                     {
-                        "id": photo_block_id,
-                        "type": "image",
+                        "id": gallery_id,
+                        "type": "gallery",
                         "v": 1,
-                        "asset_id": asset_id,
                         "config": {
-                            "alt": "Black-and-white photograph of Midtown "
-                            "Manhattan in haze, with a slender tower topped by a "
-                            "mast at left and the flank of a larger tower at "
-                            "right.",
-                            "caption": "Midtown Manhattan, December 1941. Library "
-                            "of Congress, Prints & Photographs Division, FSA/OWI "
-                            "Collection, LC-DIG-fsa-8b16269. No known "
-                            "restrictions on publication.",
+                            "images": [
+                                {
+                                    "asset_id": asset_id,
+                                    "alt": photo["alt"],
+                                    "caption": photo["caption"],
+                                }
+                                for asset_id, photo in zip(asset_ids, SKYLINE_PHOTOS)
+                            ]
                         },
                     }
                 ],
@@ -5413,7 +5610,7 @@ def seed_skyline_story(
             _story_chapter(
                 "skyline-method",
                 "Where the data comes from",
-                scene("method", show_subway=True),
+                {**scene("method", show_subway=True), "transition": "cut"},
                 method_text,
                 [
                     {
@@ -5429,7 +5626,9 @@ def seed_skyline_story(
             ),
         ],
     }
-    api.publish_story(story_id, SKYLINE_STORY_TITLE, summary, document)
+    api.publish_story(
+        story_id, SKYLINE_STORY_TITLE, summary, document, cover_asset_id=asset_ids[0]
+    )
     print(f"  -> story {story_id} ({verb}, published, public)")
     return story_id
 
@@ -5869,6 +6068,7 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
         ]
     document = {
         "version": 1,
+        "settings": {"navigation": True},
         "chapters": [
             _story_blocks_chapter(
                 "nyc-orbit",
@@ -6563,6 +6763,10 @@ _SENTINEL2_SCENE_ID = re.compile(
 )
 
 
+# The MGRS tiles that cover the New York metro area the seeder imports.
+_NEW_YORK_TILES = frozenset({"18TWK", "18TWL", "18TXK", "18TXL"})
+
+
 def _sentinel2_scene_fields(title: str) -> dict:
     """The scene's summary and Copernicus credit, from the item id in its title."""
     m = _SENTINEL2_SCENE_ID.match(title.removeprefix("Sentinel-2 TCI "))
@@ -6575,7 +6779,14 @@ def _sentinel2_scene_fields(title: str) -> dict:
     return {
         "summary": (
             f"Sentinel-2{unit} Level-2A true-colour image (TCI) of MGRS tile "
-            f"{tile}, acquired {when}. Three 8-bit bands (red, green and blue "
+            f"{tile}, acquired {when}. "
+            + (
+                "True-colour satellite imagery of New York City and its "
+                "surroundings. "
+                if tile in _NEW_YORK_TILES
+                else ""
+            )
+            + "Three 8-bit bands (red, green and blue "
             f"from B04, B03 and B02) at 10 m resolution in UTM zone {zone}"
             f"{'N' if north else 'S'} (EPSG:{epsg}), on the tile's 10,980 x "
             "10,980 pixel grid. Registered from Element84 Earth Search, the STAC "
@@ -7153,6 +7364,8 @@ COLLECTIONS = {
             "Significant Volcanic Eruptions (NCEI, 4360 BC-present)",
             "Atlantic Hurricane Tracks (HURDAT2, majors since 1950)",
             "Major Hurricane Tracks (Cat 3+ legs, one per storm)",
+            "Major Hurricane Corridors (100 km buffer)",
+            "Coastal Regions Inside a Major Hurricane Corridor",
             "Hurricane Exposure by Coastal Region",
             "Meteorite Landings (Meteoritical Society)",
             "ETOPO 2022 Global Relief (60 arc-second)",
@@ -7172,17 +7385,20 @@ COLLECTIONS = {
             "World Major Cities (500k+)",
             "World Countries (Natural Earth 1:50m)",
             "New York Median Household Income by County",
-            "World States & Provinces (Natural Earth 1:50m)",
+            STATES_TITLE,
             "Atlantic Basin Regions (Natural Earth admin-1)",
         ],
     ),
     "Client Connections": (
         "Public COPC and 3D Tiles samples served by GeoLens for external "
-        "point-cloud and 3D clients. GeoLens catalogs the files but does not "
-        "render them in its own map viewer.",
+        "point-cloud and 3D clients. Each dataset page draws its own point "
+        "cloud or tileset; the map builder does not layer them.",
         [COPC_TITLE, TILES3D_TITLE],
     ),
 }
+
+# Members chosen by dataset-title prefix, for datasets made one per scene.
+COLLECTION_TITLE_PREFIXES = {"Human World": ("Sentinel-2 TCI ",)}
 
 
 def build_collections(api: Api, force: bool = False, force_pinned: bool = False) -> str:
@@ -7193,7 +7409,9 @@ def build_collections(api: Api, force: bool = False, force_pinned: bool = False)
     """
     print("\n[collections] themed dataset groups")
     existing = {c["name"]: c for c in api.list_collections()}
-    titles = api.datasets_by_title()
+    titles = dict(api.datasets_by_title())
+    if STATES_TITLE not in titles and STATES_TITLE_LEGACY in titles:
+        titles[STATES_TITLE] = titles[STATES_TITLE_LEGACY]
     ids = []
     stale: list[str] = []
     for cname, (desc, wanted) in COLLECTIONS.items():
@@ -7217,7 +7435,10 @@ def build_collections(api: Api, force: bool = False, force_pinned: bool = False)
                         file=sys.stderr,
                     )
                     stale.append(cname)
-        member_ids = [titles[t] for t in wanted if t in titles]
+        prefixes = COLLECTION_TITLE_PREFIXES.get(cname, ())
+        member_ids = [titles[t] for t in wanted if t in titles] + [
+            titles[t] for t in sorted(titles) if t.startswith(prefixes)
+        ]
         added = api.add_to_collection(coll_id, member_ids) if member_ids else 0
         print(f"  {cname}: +{added} datasets ({len(member_ids)} referenced)")
         ids.append(coll_id)
@@ -7273,7 +7494,9 @@ SHOWCASE_METADATA: dict[str, dict] = {
             "Classified LiDAR around Autzen Stadium in Eugene, Oregon: "
             "10,653,336 points in COPC, horizontal EPSG:2992 and NAVD88 height "
             "in US feet. GeoLens serves byte ranges; use the pointcloud URL on "
-            "this page in an external COPC client. Acquisition date is unverified."
+            "this page in an external COPC client, and the page draws the points "
+            "itself. The map builder does not layer point clouds. Acquisition "
+            "date is unverified."
         ),
         "license": "PDAL/data sample (CC BY 4.0)",
         "attribution": "PDAL/data contributors, CC BY 4.0",
@@ -7287,8 +7510,8 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "summary": (
             "Four 3DBAG building tiles near central Amsterdam, pinned to the "
             "2025-09-03 release. The models have uniform colors and no textures. "
-            "GeoLens serves the tileset URL on this page for an external 3D "
-            "Tiles client; its own map viewer does not render 3D Tiles."
+            "This page draws the tileset, and GeoLens serves its URL for an "
+            "external 3D Tiles client. The map builder does not layer 3D Tiles."
         ),
         "license": "3DBAG (CC BY 4.0)",
         "attribution": "© 3DBAG by tudelft3d and 3DGI; extracted four-tile subset",
@@ -7298,12 +7521,8 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "update_frequency": "notPlanned",
         "theme_category": ["structure"],
     },
-    "World States & Provinces (Natural Earth 1:50m)": {
-        "summary": (
-            "First-order states and provinces in the United States and Canada "
-            "from Natural Earth 1:50m admin-1. This scale does not cover every "
-            "country. Natural Earth data is public domain."
-        ),
+    STATES_TITLE: {
+        "summary": STATES_SUMMARY,
         "license": "Natural Earth (public domain)",
         "keywords": ["states", "provinces", "boundaries", "natural earth"],
         "source_organization": "Natural Earth",
@@ -7387,6 +7606,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
             "Building-Footprints/5zhs-2jue"
         ),
         "theme_category": ["structure"],
+        "update_frequency": "asNeeded",
     },
     # PINNED: this title derives the table name data.nyc_subway_lines_mta, which
     # is referenced from outside this repo. Metadata only - never retitle.
@@ -7396,6 +7616,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "source_organization": "MTA via NY State Open Data",
         "source_url": "https://data.ny.gov/Transportation/MTA-Subway-Lines/s692-irgq",
         "theme_category": ["transportation"],
+        "update_frequency": "asNeeded",
     },
     # PINNED by dataset id from outside this repo. Metadata only.
     "NYC Subway Stations (MTA)": {
@@ -7414,6 +7635,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
             "https://data.ny.gov/Transportation/MTA-Subway-Stations/39hk-dx4f"
         ),
         "theme_category": ["transportation"],
+        "update_frequency": "asNeeded",
     },
     "New York Median Household Income by County": {
         "license": "US Census Bureau, ACS 2017-21 (public domain)",
@@ -7468,6 +7690,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
         # No vintage: coverage starts in 4360 BC and the date columns cannot
         # hold a BCE year.
         "theme_category": ["geoscientificInformation"],
+        "update_frequency": "irregular",
     },
     HURDAT2_TRACKS_TITLE: {
         "license": "NOAA NHC HURDAT2 (US public domain)",
@@ -7533,6 +7756,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "keywords": ["hurricanes", "buffer", "analysis", "derived", "corridor"],
         "data_vintage_start": "1950-01-01",
         "theme_category": ["climatologyMeteorologyAtmosphere"],
+        "update_frequency": "annually",
     },
     "Coastal Regions Inside a Major Hurricane Corridor": {
         "license": (
@@ -7543,6 +7767,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "keywords": ["hurricanes", "intersect", "analysis", "derived", "exposure"],
         "data_vintage_start": "1950-01-01",
         "theme_category": ["climatologyMeteorologyAtmosphere", "boundaries"],
+        "update_frequency": "annually",
     },
     "Hurricane Exposure by Coastal Region": {
         "license": (
@@ -7560,6 +7785,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "attribution": "NOAA National Hurricane Center (HURDAT2); Natural Earth",
         "data_vintage_start": "1950-01-01",
         "theme_category": ["climatologyMeteorologyAtmosphere", "boundaries"],
+        "update_frequency": "annually",
     },
     "Meteorite Landings (Meteoritical Society)": {
         "license": "NASA open data (public domain)",
@@ -7567,6 +7793,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "source_organization": "NASA / The Meteoritical Society",
         "source_url": "https://www.lpi.usra.edu/meteor/metbull.php",
         "theme_category": ["geoscientificInformation"],
+        "update_frequency": "asNeeded",
     },
     "Matterhorn Climbing Routes": {
         "license": "(C) OpenStreetMap contributors (ODbL)",
@@ -7574,6 +7801,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "source_organization": "OpenStreetMap contributors",
         "source_url": "https://www.openstreetmap.org/",
         "theme_category": ["location"],
+        "update_frequency": "notPlanned",
     },
     "Matterhorn Peaks": {
         "license": "(C) OpenStreetMap contributors (ODbL)",
@@ -7581,6 +7809,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "source_organization": "OpenStreetMap contributors",
         "source_url": "https://www.openstreetmap.org/",
         "theme_category": ["location"],
+        "update_frequency": "notPlanned",
     },
     "ETOPO 2022 Global Relief (60 arc-second)": {
         "summary": (
@@ -7596,9 +7825,16 @@ SHOWCASE_METADATA: dict[str, dict] = {
         # No vintage: ETOPO 2022 is a compilation of many source surveys, so
         # the release year is not the coverage the date fields would claim.
         "theme_category": ["elevation", "oceans"],
+        "update_frequency": "irregular",
     },
     # PINNED by dataset id from outside this repo. Metadata only.
     "swissALTI3D Matterhorn DEM (2m mosaic)": {
+        "summary": (
+            "A 2 m digital elevation model of the Matterhorn region, mosaicked "
+            "into one virtual raster from swisstopo's swissALTI3D lidar tiles "
+            "in the Swiss LV95 grid (EPSG:2056). It is the terrain under the "
+            "Matterhorn in 3D map, with heights in metres above sea level."
+        ),
         "license": "swisstopo OGD",
         "keywords": ["terrain", "dem", "elevation", "swisstopo", "matterhorn"],
         "source_organization": "swisstopo",
@@ -7606,6 +7842,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "data_vintage_start": "2024-01-01",
         "data_vintage_end": "2024-12-31",
         "theme_category": ["elevation"],
+        "update_frequency": "irregular",
     },
 }
 
@@ -7616,6 +7853,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
 SHOWCASE_METADATA_BY_PREFIX: dict[str, dict] = {
     "swissALTI3D 2m ": {
         "license": "swisstopo OGD",
+        "update_frequency": "irregular",
         "keywords": ["terrain", "dem", "elevation", "swisstopo", "matterhorn"],
         "source_organization": "swisstopo",
         "source_url": ("https://www.swisstopo.admin.ch/en/height-model-swissalti3d"),
@@ -7655,7 +7893,7 @@ _ENRICH_PATCH_FIELDS = (
 
 def _metadata_spec(title: str) -> dict | None:
     """The metadata spec for a dataset title, exact match before prefix match."""
-    spec = SHOWCASE_METADATA.get(title)
+    spec = SHOWCASE_METADATA.get(STATES_TITLE if title == STATES_TITLE_LEGACY else title)
     if spec is not None:
         return spec
     for prefix, prefix_spec in SHOWCASE_METADATA_BY_PREFIX.items():
@@ -7837,7 +8075,7 @@ MAP_LEGEND_AND_NOTES: dict[str, tuple[str, str]] = {
     ),
     "New York From Orbit - Sentinel-2, by Reference": (
         "Sentinel-2 true colour",
-        "Four fixed-date Sentinel-2 true-color acquisitions are referenced "
+        "Fixed-date Sentinel-2 true-color acquisitions are referenced "
         "from the AWS Earth Search archive. Toggle them to compare coverage. "
         "The tile server reads their COGs from S3 at view time. ESA Copernicus "
         "via Element84.",

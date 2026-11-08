@@ -38,6 +38,8 @@ class FakeApi:
         }
         self.stories: dict[str, str] = {}
         self.published: list[dict] = []
+        self.covers: list[str | None] = []
+        self.uploads = 0
         self.dashboards: list[dict] = []
         self.views: list[dict] = []
         self.centers: dict[str, float | None] = {}
@@ -100,8 +102,16 @@ class FakeApi:
         self.stories[title] = "story-1"
         return "story-1"
 
-    def publish_story(self, story_id, title, summary, document):
+    def publish_story(self, story_id, title, summary, document, cover_asset_id=None):
         self.published.append(document)
+        self.covers.append(cover_asset_id)
+
+    def story_document(self, story_id):
+        return self.published[-1] if self.published else {}
+
+    def upload_story_asset(self, story_id, filename, data):
+        self.uploads += 1
+        return f"00000000-0000-4000-8000-{self.uploads:012d}"
 
     def create_map(self, name, description):
         self.maps_created += 1
@@ -123,12 +133,30 @@ class FakeApi:
             self.dashboards.append(fields["dashboard_config"])
 
 
+@pytest.fixture(autouse=True)
+def pinned_photos(monkeypatch):
+    """Every pinned download is the same stand-in file, with its pin to match."""
+    pin = hashlib.sha256(PHOTO).hexdigest()
+    monkeypatch.setattr(seeder, "fetch", lambda _url: PHOTO)
+    monkeypatch.setattr(
+        seeder, "HURRICANE_PHOTO", {**seeder.HURRICANE_PHOTO, "sha256": pin}
+    )
+    monkeypatch.setattr(
+        seeder,
+        "SKYLINE_PHOTOS",
+        [{**photo, "sha256": pin} for photo in seeder.SKYLINE_PHOTOS],
+    )
+
+
 def test_story_document_is_valid_and_figures_come_from_the_data():
     api = FakeApi()
     seeder.seed_hurricane_story(api)
     document = StoryDocumentInput.model_validate(api.published[0])
     text = " ".join(
-        block.config.text for chapter in document.chapters for block in chapter.blocks
+        block.config.text
+        for chapter in document.chapters
+        for block in chapter.blocks
+        if block.type == "markdown"
     )
     assert "From 1950 to 2025, 5 Atlantic storms" in text
     assert "2 at Category 5, 3 at Category 3" in text
@@ -192,7 +220,6 @@ class SkylineFakeApi(FakeApi):
     def __init__(self):
         super().__init__()
         self.maps = {seeder.SKYLINE_MAP: "map-manhattan"}
-        self.uploads = 0
         self.layer_popup = None
         self.layer_updates: list[dict] = []
 
@@ -244,26 +271,15 @@ class SkylineFakeApi(FakeApi):
     def rows(self, dataset_id, cql2, sort, limit):
         return sorted(TALLEST, key=lambda row: -row[sort])[:limit]
 
-    def upload_story_asset(self, story_id, filename, data):
-        self.uploads += 1
-        return "66666666-6666-4666-8666-666666666666"
 
-    def story_document(self, story_id):
-        return self.published[-1] if self.published else {}
-
-
-def test_skyline_story_flies_one_map_and_reruns_reuse_everything(monkeypatch):
-    monkeypatch.setattr(seeder, "fetch", lambda _url: PHOTO)
-    monkeypatch.setattr(
-        seeder, "SKYLINE_PHOTO_SHA256", hashlib.sha256(PHOTO).hexdigest()
-    )
+def test_skyline_story_flies_one_map_and_reruns_reuse_everything():
     api = SkylineFakeApi()
     for _ in range(2):
         seeder.seed_skyline_dashboard(api)
         seeder.seed_skyline_story(api)
 
     assert (api.maps_created, api.layers_added, api.stories_created) == (1, 1, 1)
-    assert api.uploads == 1
+    assert api.uploads == len(seeder.SKYLINE_PHOTOS)
     for config in api.dashboards:
         DashboardConfigInput.model_validate(config)
     first, second = api.published
@@ -309,3 +325,122 @@ def test_skyline_dashboard_table_leads_with_the_building():
     assert api.layer_updates[-1]["popup_config"]["enabled"] is True
     assert api.layer_updates[-1]["popup_config"]["visible_fields"] == fields
     assert len(api.layer_updates) == 2
+
+
+def _widget_types(config):
+    return [widget["type"] for widget in config["widgets"]]
+
+
+def test_quake_dashboard_shows_the_newer_widgets():
+    api = FakeApi()
+    seeder.seed_quake_dashboard(api)
+    config = api.dashboards[0]
+    widgets = {widget["id"]: widget for widget in config["widgets"]}
+    by_title = {widget["title"]: widget for widget in widgets.values()}
+    daily = by_title["Earthquakes per week"]["config"]
+    assert (daily["mode"], daily["date_bucket"]) == ("date", "week")
+    assert "feature_list" in _widget_types(config)
+    strongest = by_title["Strongest earthquake in view (magnitude)"]["config"]
+    assert strongest["reference"] == 6.0
+    assert strongest["higher_is_better"] is False
+
+
+def test_skyline_dashboard_uses_a_bottom_panel_pie_table_and_reference():
+    api = SkylineFakeApi()
+    seeder.seed_skyline_dashboard(api)
+    config = api.dashboards[0]
+    DashboardConfigInput.model_validate(config)
+    assert config["panel"] == "bottom"
+    assert {"pie_chart", "table"} <= set(_widget_types(config))
+    tallest = next(w for w in config["widgets"] if w["title"].startswith("Tallest"))
+    assert tallest["config"]["reference"] == 1250
+
+
+def test_hurricane_story_sets_reader_settings_and_a_cover():
+    api = FakeApi()
+    seeder.seed_hurricane_story(api)
+    document = StoryDocumentInput.model_validate(api.published[0])
+    settings = document.settings
+    assert (settings.layout, settings.panel_position) == ("floating", "left")
+    assert (settings.navigation, settings.transition) == (True, "glide")
+    image = document.chapters[1].blocks[-1]
+    assert image.type == "image"
+    assert str(image.asset_id) == api.covers[0]
+    assert "NASA" in image.config.caption
+    seeder.seed_hurricane_story(api)
+    assert api.uploads == 1
+
+
+def test_skyline_story_gallery_holds_three_described_photos():
+    api = SkylineFakeApi()
+    seeder.seed_skyline_dashboard(api)
+    seeder.seed_skyline_story(api)
+    document = StoryDocumentInput.model_validate(api.published[0])
+    assert document.settings.navigation is True
+    gallery = next(
+        block
+        for chapter in document.chapters
+        for block in chapter.blocks
+        if block.type == "gallery"
+    )
+    assert len(gallery.config.images) == 3
+    assert all(image.alt and image.caption for image in gallery.config.images)
+    assert document.chapters[-1].scene.transition == "cut"
+    assert api.covers[0] == str(gallery.config.images[0].asset_id)
+
+
+def test_dashboards_declare_every_widget_kind_they_send_as_readable():
+    # Without it a rerun is refused: the server sets aside stored widgets of
+    # kinds the saving client does not say it reads.
+    quakes, skyline = FakeApi(), SkylineFakeApi()
+    seeder.seed_quake_dashboard(quakes)
+    seeder.seed_skyline_dashboard(skyline)
+    for config in (quakes.dashboards[0], skyline.dashboards[0]):
+        sent = {f"{w['type']}:{w['v']}" for w in config["widgets"]}
+        assert sent <= set(config["readable"])
+
+
+def _gallery(document):
+    return next(
+        block
+        for chapter in document["chapters"]
+        for block in chapter["blocks"]
+        if block["type"] == "gallery"
+    )
+
+
+def test_reordered_gallery_is_put_back_in_pinned_order_without_uploads():
+    api = SkylineFakeApi()
+    seeder.seed_skyline_dashboard(api)
+    seeder.seed_skyline_story(api)
+    uploads = api.uploads
+    images = _gallery(api.published[-1])["config"]["images"]
+    images.reverse()
+    seeder.seed_skyline_story(api)
+    again = _gallery(api.published[-1])["config"]["images"]
+    assert [i["caption"] for i in again] == [
+        p["caption"] for p in seeder.SKYLINE_PHOTOS
+    ]
+    assert [i["asset_id"] for i in again] == [i["asset_id"] for i in reversed(images)]
+    assert api.uploads == uploads
+
+
+def test_replaced_gallery_image_is_uploaded_again_and_unchanged_is_a_no_op():
+    api = SkylineFakeApi()
+    seeder.seed_skyline_dashboard(api)
+    seeder.seed_skyline_story(api)
+    seeder.seed_skyline_story(api)
+    assert api.uploads == len(seeder.SKYLINE_PHOTOS)
+    assert api.published[-1] == api.published[-2]
+    _gallery(api.published[-1])["config"]["images"][1]["caption"] = "someone else's"
+    seeder.seed_skyline_story(api)
+    assert api.uploads == len(seeder.SKYLINE_PHOTOS) + 1
+    restored = _gallery(api.published[-1])["config"]["images"][1]
+    assert restored["caption"] == seeder.SKYLINE_PHOTOS[1]["caption"]
+
+
+def test_photos_are_uploaded_under_filenames_that_name_them():
+    names = [p["filename"] for p in seeder.SKYLINE_PHOTOS]
+    assert len(set(names)) == len(names)
+    assert all("8b162" in n for n in names)
+    assert "iss067e382116" in seeder.HURRICANE_PHOTO["filename"]
