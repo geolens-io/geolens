@@ -689,7 +689,10 @@ class StoryApi(FakeApi):
         self.upload_types: list[str] = []
 
     def aggregate(self, dataset_id, **body):
-        if body.get("filter"):
+        flt = body.get("filter")
+        if flt and flt.get("op") == "=":
+            return {"count": 1000}
+        if flt:
             return super().aggregate(dataset_id, **body)
         return {"count": 1234}
 
@@ -778,7 +781,7 @@ def test_story_has_the_planned_chapters_and_reader_settings(story_built):
     assert {s["map_id"] for s in scenes} <= set(api.maps)
 
 
-def test_story_gallery_has_three_described_images_and_the_cover(story_built):
+def test_story_carousel_has_three_described_images_and_the_cover(story_built):
     api, h = story_built
     cam.seed_cambridge_story(h, api)
     published = api.published[-1]
@@ -786,7 +789,7 @@ def test_story_gallery_has_three_described_images_and_the_cover(story_built):
         block
         for chapter in published["document"]["chapters"]
         for block in chapter["blocks"]
-        if block["type"] == "gallery"
+        if block["type"] == "carousel"
     ]
     assert len(galleries) == 1
     images = galleries[0]["config"]["images"]
@@ -807,7 +810,7 @@ def test_story_cover_falls_back_to_the_first_image_without_a_thumbnail(story_bui
         block["config"]["images"][0]["asset_id"]
         for chapter in published["document"]["chapters"]
         for block in chapter["blocks"]
-        if block["type"] == "gallery"
+        if block["type"] == "carousel"
     )
     assert published["cover"] == first
     assert len(api.uploads) == 3
@@ -847,7 +850,8 @@ def test_story_figures_come_from_aggregates_and_names_the_city_once(story_built)
         for block in chapter["blocks"]
         if block["type"] == "markdown"
     )
-    assert "1,234 trees" in text
+    assert "1,234 records, 1,000 of them standing trees" in text
+    assert "Every vector dataset is an OGC API Features" in text
     assert "does not use or endorse GeoLens" in text
     assert text.count("does not use or endorse") == 1
     assert " live " not in text.lower()
@@ -1129,3 +1133,50 @@ def test_proposed_planting_sites_have_a_legend_entry(built):
     layers = api.maps[cam.seed_tree_dashboard(h, api)]["layers"]
     proposed = next(x for x in layers if x["display_name"] == "Proposed planting sites")
     assert proposed["show_in_legend"] is True
+
+
+def test_tree_dashboard_charts_the_most_common_species(built):
+    api, h = built
+    widgets = api.maps[cam.seed_tree_dashboard(h, api)]["dashboard_sent"]["widgets"]
+    titles = [w["title"] for w in widgets]
+    species = next(w for w in widgets if w["title"].startswith("Most common species"))
+    assert species["type"] == "bar_chart"
+    assert species["config"] == {"column": "commonname", "stat": "count", "limit": 10}
+    assert titles.index(species["title"]) == titles.index("Trees by site type") + 1
+
+
+def test_zoning_colors_follow_parcel_counts_not_district_polygons():
+    codes = [code for code, _ in cam.ZONE_COLORS]
+    assert len(codes) == 12
+    assert {"CAM-6", "MAS-12"} <= set(codes)
+    assert not {"IA-1", "C-3B", "C-2A"} & set(codes)
+
+
+_ZONE_IDS = {
+    title: f"ds-{i}"
+    for i, title in enumerate(
+        (
+            cam.ADDRESSES_TITLE,
+            cam.NEIGHBORHOODS_TITLE,
+            cam.ZONING_TITLE,
+            cam.FLOOD_TITLE,
+            cam.PARCELS_ZONED_TITLE,
+            cam.PARCELS_FLOOD_TITLE,
+        )
+    )
+}
+
+
+def test_the_calm_story_scene_draws_only_layers_the_legend_lists():
+    layers = {x["display_name"]: x for x in cam._parcels_map_layers(_ZONE_IDS)}
+    for name in cam.PARCELS_CALM_LAYERS:
+        assert layers[name]["show_in_legend"] is True
+
+
+def test_the_zoning_legend_follows_the_parcel_ranking():
+    layers = {x["display_name"]: x for x in cam._parcels_map_layers(_ZONE_IDS)}
+    values = [
+        entry["value"]
+        for entry in layers["Zoning districts"]["style_config"]["categories"]
+    ]
+    assert values[: len(cam.ZONE_COLORS)] == [code for code, _ in cam.ZONE_COLORS]

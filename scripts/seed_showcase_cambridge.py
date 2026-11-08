@@ -687,7 +687,7 @@ TREE_POPUP_FIELDS = [
 
 
 def _categorical(column: str, categories: list[tuple[str, str, str]], fallback: str):
-    """A categorical colour expression and the style_config the legend reads."""
+    """A categorical color expression and the style_config the legend reads."""
     pairs = [part for value, _, color in categories for part in (value, color)]
     expression = [
         "case",
@@ -869,19 +869,22 @@ def build_trees_map(s, api, force: bool = False, force_pinned: bool = False) -> 
     return map_id
 
 
+# The twelve district codes with the most parcels in the FY2027 assessing
+# release, most first. Ranked by parcels, not by district polygons: a code with
+# a few large polygons can hold far more lots than one with many small ones.
 ZONE_COLORS = (
-    ("OS", "#6fb36a"),
-    ("BA", "#f2b134"),
-    ("C-1", "#f4efb5"),
-    ("C-2", "#3aa6a0"),
-    ("C-3", "#d2662d"),
-    ("C-2B", "#e8cfae"),
-    ("IA-1", "#8f7bc8"),
-    ("BA-1", "#f3a6bd"),
-    ("C-3B", "#8b5a3c"),
-    ("O-1", "#7e8ea3"),
-    ("BB", "#b04a8f"),
-    ("C-2A", "#c3d56e"),
+    ("C-1", "#e8c547"),
+    ("OS", "#3f9f4f"),
+    ("CAM-6", "#8e5bd6"),
+    ("BB", "#d6338a"),
+    ("BA", "#f28c28"),
+    ("BA-1", "#e07b91"),
+    ("C-2", "#1fa6b8"),
+    ("MAS-12", "#6b4a2f"),
+    ("C-2B", "#a3c639"),
+    ("C-3", "#3d4f8a"),
+    ("O-1", "#d4a373"),
+    ("BA-3", "#0f766e"),
 )
 _FLOOD_BLUE = "#2563eb"
 _FLAGGED_RED = "#e11d48"
@@ -898,8 +901,8 @@ def parcels_map_description(zoned_on: str) -> str:
         "a parcel on a district edge can show the neighboring district. "
         "Zoning districts, the floodplain, neighborhoods and address points "
         "(from zoom 16) are copies of the city's public ArcGIS Online layers, "
-        "which GeoLens re-pulls on refresh. The twelve most common district "
-        "codes are colored; the rest are gray. Not an official zoning map or "
+        "which GeoLens re-pulls on refresh. The twelve district codes with the "
+        "most parcels are colored; the rest are gray. Not an official zoning map or "
         "a flood determination. " + CITY_NOTE
     )
 
@@ -943,7 +946,7 @@ def _parcels_map_layers(ids: dict[str, str]) -> list[dict]:
             "dataset_id": ids[PARCELS_ZONED_TITLE],
             "sort_order": 2,
             "display_name": "Parcels (FY2027)",
-            "show_in_legend": False,
+            "show_in_legend": True,
             **_outline_only("#64748b", 0.5),
             "popup_config": {
                 "enabled": True,
@@ -955,7 +958,7 @@ def _parcels_map_layers(ids: dict[str, str]) -> list[dict]:
             "dataset_id": ids[NEIGHBORHOODS_TITLE],
             "sort_order": 3,
             "display_name": "Neighborhoods",
-            "show_in_legend": False,
+            "show_in_legend": True,
             **_outline_only("#334155", 2.0),
             "label_config": {
                 "column": "name",
@@ -1263,6 +1266,14 @@ def _tree_widgets(
             {"column": "sitetype", "stat": "count", "limit": 8},
         ),
         widget(
+            "species",
+            "bar_chart",
+            "Most common species of measured trees",
+            "Trees with a recorded trunk diameter",
+            {"column": "commonname", "stat": "count", "limit": 10},
+            scope="layer",
+        ),
+        widget(
             "neighborhoods",
             "table",
             "Measured trees by neighborhood",
@@ -1282,7 +1293,7 @@ def _tree_widgets(
         widget(
             "diameters",
             "histogram",
-            "Trunk diameter of measured trees",
+            "Trunk diameter of measured trees (inches)",
             "Trees with a recorded trunk diameter",
             {"column": "diameter", "bins": 20},
             scope="layer",
@@ -1763,7 +1774,7 @@ def _story_camera(lng: float, lat: float, zoom: float, pitch: float = 0) -> dict
     return {"center": [lng, lat], "zoom": zoom, "bearing": 0, "pitch": pitch}
 
 
-# Each view centres on what its chapter is about; the reader centres a scene
+# Each view centers on what its chapter is about; the reader centers a scene
 # in the part of the map the floating panel leaves free.
 WEBMAP_CAMERA = _story_camera(-71.0857, 42.3656, 14.4)
 FLOOD_VIEW = (-71.1383, 42.3993, 15.3)
@@ -1799,7 +1810,13 @@ def seed_cambridge_story(
         if doc.get("center_lng") is None or doc.get("center_lat") is None:
             raise RuntimeError(f"{doc.get('name')!r} has no saved camera")
 
-    trees = _count(api, ids[TREES_TITLE], "trees")
+    records = _count(api, ids[TREES_TITLE], "tree records")
+    standing = _count(
+        api,
+        ids[TREES_TITLE],
+        "standing trees",
+        filter={"op": "=", "args": [{"property": "sitetype"}, "Tree"]},
+    )
     parcels = _count(api, ids[PARCELS_ZONED_TITLE], "parcels")
     flooded = _count(api, ids[PARCELS_FLOOD_TITLE], "floodplain parcels")
     recent = _count_planted(api, ids[TREES_TITLE], RECENT_YEARS)
@@ -1920,7 +1937,8 @@ def seed_cambridge_story(
                         "bound",
                         "Five layers are bound to the city's hosted feature layers, and "
                         "the demo's daily job re-pulls them, so they are copies that can "
-                        f"lag the city. The trees layer holds {trees:,} trees. A tree "
+                        f"lag the city. The trees layer holds {records:,} records, "
+                        f"{standing:,} of them standing trees. A tree "
                         "popup shows the layer's coded-value domain labels instead of "
                         "raw codes.\n\nThe parcels are an upload pinned to the FY2027 "
                         "release, so the dataset page shows both kinds of origin side "
@@ -2007,8 +2025,8 @@ def seed_cambridge_story(
                 [
                     text(
                         "clients",
-                        "Every dataset is an OGC API Features collection and a vector "
-                        "tile set. The trees collection is at:\n\n"
+                        "Every vector dataset is an OGC API Features collection and a "
+                        "vector tile set. The trees collection is at:\n\n"
                         f"`{collection_url}`\n\n"
                         'The QGIS plugin "GeoLens" on plugins.qgis.org browses the '
                         "catalog. ArcGIS Pro opens the OGC API Features address "
@@ -2030,7 +2048,7 @@ def seed_cambridge_story(
                     ),
                     {
                         "id": gallery_id,
-                        "type": "gallery",
+                        "type": "carousel",
                         "v": 1,
                         "config": {
                             "images": [

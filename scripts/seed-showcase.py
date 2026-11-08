@@ -350,7 +350,7 @@ HURRICANE_PHOTO = {
     "iss067e382116~large.jpg",
     "sha256": "7cfb480cae7ed99e6bcb46884865ab560af30c0987de0b4ecd536a7eec34f1a1",
     "alt": "The white spiral of Hurricane Ian seen from orbit, its eye near the "
-    "centre of the cloud shield, with the dark edge of space above and a robotic "
+    "center of the cloud shield, with the dark edge of space above and a robotic "
     "arm of the space station at right.",
     "caption": "Hurricane Ian approaching the west coast of Florida as a "
     "Category 4 storm, 28 September 2022, photographed from the International "
@@ -392,6 +392,11 @@ STATES_TITLE = "States & Provinces of Nine Large Countries (Natural Earth 1:50m)
 STATES_TITLE_LEGACY = "World States & Provinces (Natural Earth 1:50m)"
 # The 1:50m admin-1 file subdivides nine countries only (verified against the
 # pinned v5.1.2 file: 294 features), so the title names that coverage.
+INCOME_SUMMARY = (
+    "Median household income (2017-21 ACS) for all 62 NY counties. Source: "
+    "USDA ERS Atlas of Rural and Small-Town America, built from US Census "
+    "Bureau American Community Survey 2017-21 estimates."
+)
 STATES_SUMMARY = (
     "First-order states and provinces of the nine countries Natural Earth "
     "subdivides at 1:50m: the United States, Canada, Russia, China, India, "
@@ -399,6 +404,14 @@ STATES_SUMMARY = (
     "countries have no admin-1 polygons at this scale. Natural Earth data is "
     "public domain."
 )
+# Louisiana, Florida's Gulf and Atlantic coasts and Quintana Roo, which the
+# chapter names, fit a phone-size map at this zoom.
+HURRICANE_COASTS_CAMERA = {
+    "center": [-86.5, 24.2],
+    "zoom": 3.9,
+    "bearing": 0,
+    "pitch": 0,
+}
 NYC_STORY_TITLE = "New York, From Orbit to the Street Tree"
 NYC_STORY_SUMMARY = (
     "From Sentinel-2 imagery of the whole city to Manhattan's skyline, its "
@@ -435,7 +448,7 @@ VOLCANO_SIZE_STYLE = {
 DASHBOARD_CAMERA = {"center_lng": 170, "center_lat": 15, "zoom": 1.4}
 DASHBOARD_MAP_DESCRIPTION = (
     "Pan and zoom to any region and the panel follows: the quakes in view, the "
-    "strongest against the damaging-quake threshold, the busiest days and the "
+    "strongest against the damaging-quake threshold, the busiest weeks and the "
     "strongest events. Click a bar or pick a network to filter the map. The "
     "layer is a refreshed snapshot of the 30-day USGS service, not a live "
     "stream; the dataset page shows when it was last refreshed."
@@ -448,6 +461,19 @@ _SEED_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "https://getgeolens.com/showcas
 # count), but --refresh-hurdat2 resolves both by title, so they are named once.
 HURDAT2_TRACKS_TITLE = "Atlantic Hurricane Tracks (HURDAT2, majors since 1950)"
 HURDAT2_LEGS_TITLE = "Major Hurricane Tracks (Cat 3+ legs, one per storm)"
+HURDAT2_LEGS_SUMMARY = (
+    "Every Atlantic hurricane since 1950 that reached Category 3, reduced "
+    "to the legs where it was Category 3 or stronger and merged into one "
+    "track per storm. Peak wind, peak category and landfall flag per "
+    "storm. Source: NOAA NHC HURDAT2 (public domain)."
+)
+EXPOSURE_SUMMARY = (
+    "The coastal footprint of every Atlantic basin region reached by a "
+    "major hurricane since 1950, with source_count holding the number of "
+    "distinct Category 3+ storms that reached it. Computed in GeoLens by "
+    "dissolving the region-by-storm intersections back to one feature per "
+    "region."
+)
 
 # --- map descriptions that must survive a rename or a re-seed ------------------
 # A map description is written at CREATE time and never again, so a builder that
@@ -457,6 +483,24 @@ HURDAT2_LEGS_TITLE = "Major Hurricane Tracks (Cat 3+ legs, one per storm)"
 # text is what the catalog and any shared-map view show. Defined here so the
 # builder and the migration pass write the same words.
 MAP_DESCRIPTIONS: dict[str, str] = {
+    HURRICANE_MAP: (
+        "Every Atlantic hurricane since 1950 that reached Category 3, drawn "
+        "segment by segment: tracks warm from blue tropical storm to magenta "
+        "Category 5 as each storm intensifies, arrows show direction of "
+        "motion, and the width follows wind speed. Find Katrina (2005), "
+        "Andrew (1992), Maria (2017) and Ian (2022) - or ask AI: which season "
+        "had the most Category 5 segments? How many majors made landfall? "
+        "Source: NOAA NHC HURDAT2."
+    ),
+    "Everything That Fell From the Sky": (
+        "The ~32,000 located meteorites recorded through 2013, from "
+        "gram-scale chondrites to the 60-tonne Hoba iron. Clusters split "
+        "apart as you zoom; amber dots were seen falling, gray ones found "
+        "later - note the Antarctic collection-expedition stripes and the "
+        "Saharan hot-desert clusters. Ask AI: the heaviest meteorite? The "
+        "most common class? How many observed falls since 1950? Source: "
+        "NASA / Meteoritical Society."
+    ),
     "Restless Earth": (
         "Where do recent earthquakes align with plate boundaries? This map "
         "shows the last successfully refreshed snapshot of the USGS M2.5+ "
@@ -483,8 +527,9 @@ MAP_DESCRIPTIONS: dict[str, str] = {
         "How do climbing routes cross the Matterhorn's terrain? Tilt and rotate "
         "the 3D relief, then open a peak or route. The elevation surface is a "
         "VRT mosaic of swissALTI3D 2 m tiles from swisstopo; the routes and "
-        "peak labels come from OpenStreetMap. See the DEM dataset page for its "
-        "source and access options."
+        "peak labels come from OpenStreetMap. swissALTI3D covers Switzerland "
+        "only, so the terrain stops at the Swiss border just south of the "
+        "summit. See the DEM dataset page for its source and access options."
     ),
     "Hurricane Exposure - Which Coasts the Major Storms Reach": (
         "Which Atlantic coastal regions lie within 100 km of historical major "
@@ -1295,6 +1340,16 @@ class Api:
             f"{self.base}/api/datasets/{dataset_id}/attributes/{attr_id}/",
             headers=self.h,
             json={"title": title},
+        )
+        r.raise_for_status()
+
+    def set_attribute_value_labels(
+        self, dataset_id: str, attr_id: str, labels: dict[str, str]
+    ) -> None:
+        r = self.client.patch(
+            f"{self.base}/api/datasets/{dataset_id}/attributes/{attr_id}/",
+            headers=self.h,
+            json={"value_labels": labels},
         )
         r.raise_for_status()
 
@@ -3244,8 +3299,7 @@ def build_catalog(api: Api, force: bool = False, force_pinned: bool = False) -> 
         "New York Median Household Income by County",
         "ny_income.geojson",
         lambda: fetch(USDA_INCOME),
-        "Median household income (2017-21 ACS) for all 62 NY counties. "
-        "Source: USDA ERS Atlas of Rural & Small-Town America.",
+        INCOME_SUMMARY,
         force=force,
     )
     # Water/hydrology terms (water, water bodies, rivers, lakes,
@@ -4125,7 +4179,7 @@ def build_manhattan(api: Api, force: bool = False, force_pinned: bool = False) -
     map_id = api.create_map(
         name,
         "Every building in Lower + Midtown Manhattan extruded to its true "
-        "surveyed roof height and colored by WHEN it was built - brick-brown "
+        "surveyed roof height and colored by when it was built - brick-brown "
         "pre-war, steel-gray mid-century, glass-blue this millennium - with "
         "the subway threading beneath in official MTA colors and ADA-coded "
         "stations. Ask AI: what share of stations are wheelchair-accessible? "
@@ -4527,12 +4581,7 @@ def build_hurricanes(api: Api, force: bool = False, force_pinned: bool = False) 
 
     map_id = api.create_map(
         name,
-        "Every Atlantic hurricane since 1950 that reached Category 3, drawn "
-        "segment by segment: tracks warm from blue tropical storm to magenta "
-        "Category 5 as each storm intensifies, arrows show direction of "
-        "motion, and the width follows wind speed. Find Katrina, Andrew, "
-        "Maria and Ian - or ask AI: which season had the most Category 5 "
-        "segments? How many majors made landfall? Source: NOAA NHC HURDAT2.",
+        MAP_DESCRIPTIONS[name],
     )
     cat_colors = {
         "TD": "#9ca3af",
@@ -4731,6 +4780,8 @@ EXPOSURE_MAP = "Hurricane Exposure - Which Coasts the Major Storms Reach"
 EXPOSURE_LAYER_NAME = "Distinct major storms since 1950"
 # Legend rows are about 190 px wide; the shorter the name, the less of it the
 # legend cuts off.
+# Light, so the outline of a small island does not swamp its fill.
+EXPOSURE_OUTLINE_COLOR = "#e8b4a8"
 EXPOSURE_LEGS_NAME = "Category 3+ storm tracks"
 EXPOSURE_LEGS_PAINT = {
     "line-color": "#6b7a99",
@@ -4788,10 +4839,7 @@ def _build_exposure_chain(
         HURDAT2_LEGS_TITLE,
         "hurricane_major_legs.geojson",
         major_legs_bytes,
-        "Every Atlantic hurricane since 1950 that reached Category 3, reduced "
-        "to the legs where it WAS Category 3 or stronger and merged into one "
-        "track per storm. Peak wind, peak category and landfall flag per "
-        "storm. Source: NOAA NHC HURDAT2 (public domain).",
+        HURDAT2_LEGS_SUMMARY,
         force=force,
         timeout=600,
     )
@@ -4845,11 +4893,7 @@ def _build_exposure_chain(
         EXPOSURE_CHAIN_TITLES[2],
         pieces_ds,
         "dissolve",
-        "The coastal footprint of every Atlantic basin region reached by a "
-        "major hurricane since 1950, with source_count holding the number of "
-        "DISTINCT Category 3+ storms that reached it. Computed in GeoLens by "
-        "dissolving the region-by-storm intersections back to one feature per "
-        "region.",
+        EXPOSURE_SUMMARY,
         force=force or force_analysis,
         by_field="region",
     )
@@ -4890,7 +4934,7 @@ def _exposure_layer_body(exposure_ds: str) -> dict:
             # Opaque enough to read as a choropleth, sheer enough that the
             # storm legs below still show through the darkest classes.
             "fill-opacity": 0.78,
-            "fill-outline-color": "#7f1d1d",
+            "fill-outline-color": EXPOSURE_OUTLINE_COLOR,
         },
         "popup_config": {
             "enabled": True,
@@ -4951,7 +4995,7 @@ def build_hurricane_exposure(
             "sort_order": 1,
             "opacity": 1.0,
             "display_name": EXPOSURE_LEGS_NAME,
-            "visible": False,
+            "visible": True,
             "paint": {
                 **EXPOSURE_LEGS_PAINT,
                 "line-width": ["interpolate", ["linear"], ["zoom"], 2, 0.8, 7, 2.6],
@@ -5146,7 +5190,7 @@ def seed_hurricane_story(
         f"From {seasons['min']} to {seasons['max']}, {storms} Atlantic storms "
         f"reached Category 3 or stronger in NOAA's HURDAT2 best tracks. Their "
         f"peak intensity: {by_peak}.\n\n"
-        "Each track is drawn in six-hour segments. The colour warms from blue "
+        "Each track is drawn in six-hour segments. The color warms from blue "
         "tropical storm to magenta Category 5 as a storm intensifies, and the "
         "width follows wind speed.\n\n"
         f"Cover photo: {HURRICANE_PHOTO['caption']}"
@@ -5177,7 +5221,9 @@ def seed_hurricane_story(
         "- **Method:** the Category 3+ storm legs, shown here, were buffered "
         "by 100 km, intersected with the regions and dissolved by region. Each "
         "derived dataset's provenance panel records the operation and its "
-        "parameters."
+        "parameters.\n\n"
+        "Both maps are open to explore: click a track or a region, and open "
+        "any dataset's provenance."
     )
     summary = (
         "Every Atlantic storm since 1950 that reached Category 3, and the "
@@ -5212,7 +5258,11 @@ def seed_hurricane_story(
             _story_chapter(
                 "coasts",
                 "The coasts they reach",
-                _story_scene(exposure_map),
+                _story_scene(
+                    exposure_map,
+                    {legs_layer: False},
+                    camera=HURRICANE_COASTS_CAMERA,
+                ),
                 coasts_text,
             ),
             _story_chapter(
@@ -5389,6 +5439,7 @@ def seed_quake_dashboard(
                         "reference": 6.0,
                         "reference_label": "Damaging-quake threshold",
                         "higher_is_better": False,
+                        "comparison": "value",
                     },
                     v=2,
                 ),
@@ -5501,7 +5552,7 @@ def seed_skyline_dashboard(
                     {
                         "stat": "max",
                         "column": "height_roof",
-                        "reference": 1250,
+                        "reference": 1239,
                         "reference_label": "Empire State roof",
                     },
                     v=2,
@@ -5525,12 +5576,6 @@ def seed_skyline_dashboard(
                         "sort_by": 1,
                         "sort": "desc",
                     },
-                ),
-                widget(
-                    "heights",
-                    "histogram",
-                    "Roof heights (ft)",
-                    {"column": "height_roof", "bins": 20},
                 ),
                 {
                     "id": _seed_id("skyline-dashboard", "howto"),
@@ -5680,10 +5725,25 @@ def seed_skyline_story(
         f"counted.\n\nPhotographs: {_LOC_CREDIT}. No known restrictions on "
         "publication."
     )
+    # 111 West 57th Street (Steinway Tower, 2021) is recorded with the 1924
+    # year of the Steinway Hall it rises from, so the era colors it as an old
+    # building and the 2015+ ranking skips it.
+    steinway = _skyline_tallest(
+        api, buildings_ds, SKYLINE_57TH_BBOX, pre_1930, limit=1
+    )[0]
+    if steinway[0].endswith("1924") and super_top[1][1] < steinway[1] < super_top[0][1]:
+        second = (
+            f"The second tallest is 111 West 57th Street (Steinway Tower) at "
+            f"{steinway[1]:,.0f} ft, completed in 2021. Its record keeps the "
+            "1924 year of the Steinway Hall it rises from, so the map colors "
+            "it as a 1920s building. After it comes "
+        )
+    else:
+        second = "It is followed by "
     supertall_text = (
         f"Around 57th Street, {super_n:,} buildings went up in 2015 or later. "
         f"The tallest is {_the(super_top[0][0])}, with a roof at "
-        f"{super_top[0][1]:,.0f} ft, followed by {_the(super_top[1][0])} at "
+        f"{super_top[0][1]:,.0f} ft. {second}{_the(super_top[1][0])} at "
         f"{super_top[1][1]:,.0f} ft.\n\n"
         f"That is {super_top[0][1] - midtown_top[0][1]:,.0f} ft above "
         f"{_the(midtown_top[0][0])}, the tallest of the 1930s towers."
@@ -5697,7 +5757,8 @@ def seed_skyline_story(
         "them fully ADA accessible, with the lines in official route "
         "colors.\n"
         "- **Method:** the figures in this story are counts and maxima "
-        "computed from the dataset when it was written."
+        "computed from the dataset when it was written.\n\n"
+        "The map and the dashboard behind this story are open to explore."
     )
 
     summary = (
@@ -5772,6 +5833,15 @@ def seed_skyline_story(
                 {**scene("method", show_subway=True), "transition": "cut"},
                 method_text,
                 [
+                    {
+                        "id": _seed_id("story", "skyline-method", "map"),
+                        "type": "button",
+                        "v": 1,
+                        "config": {
+                            "label": "Open the skyline map",
+                            "url": f"{app_url}/maps/{map_id}",
+                        },
+                    },
                     {
                         "id": _seed_id("story", "skyline-method", "dashboard"),
                         "type": "button",
@@ -6015,6 +6085,20 @@ _FRAMING_SHIFTS = sorted(
     key=lambda shift: math.hypot(*shift),
 )
 _FRAMING_PROBES = 60
+# A phone's story map, and the point the orbit chapters are about: a
+# candidate must keep Lower and Midtown Manhattan in the middle two-thirds of it.
+_PHONE_FRAMING_SIZE = (390, 380)
+_ORBIT_FOCUS = (-73.985, 40.74)
+
+
+def _keeps_focus_on_phone(camera: dict) -> bool:
+    """Whether Manhattan stays in the middle two-thirds of a phone-size map."""
+    west, south, east, north = _view_bbox(camera, _PHONE_FRAMING_SIZE)
+    lng, lat = _ORBIT_FOCUS
+    return (
+        west + (east - west) / 6 <= lng <= east - (east - west) / 6
+        and south + (north - south) / 6 <= lat <= north - (north - south) / 6
+    )
 
 
 def _has_imagery(api: Api, layer: dict, lng: float, lat: float, cache: dict) -> bool:
@@ -6070,6 +6154,8 @@ def _orbit_framing(
         for dx, dy in _FRAMING_SHIFTS:
             center = [round(lng + dx, 4), round(lat + dy, 4)]
             camera = {**nominal, "center": center, "zoom": zoom}
+            if not _keeps_focus_on_phone(camera):
+                continue
             view = _view_bbox(camera, _FRAMING_SIZE)
             visibility = _orbit_visibility(passes, bounds, view, day)
             drawn = [
@@ -6334,13 +6420,13 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
                         "nyc-orbit",
                         f"This is New York as the Sentinel-2 satellites saw it on "
                         f"{newest}. On the map, the satellite layers are true "
-                        "colour at 10 m a pixel and GeoLens draws them straight "
+                        "color at 10 m a pixel and GeoLens draws them straight "
                         "from the public archive instead of keeping a copy. The "
                         "cover picture is different: a stored crop of one scene. "
                         "Contains modified Copernicus Sentinel data.\n\n"
                         "Each satellite pass covers the city in tiles, so where "
                         f"the {newest} scene stops, the map shows the nearest "
-                        "other pass. Water is dark, the built-up city is grey "
+                        "other pass. Water is dark, the built-up city is gray "
                         "and the parks are green."
                         + (
                             ""
@@ -6372,7 +6458,7 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
                         "Lower and Midtown Manhattan. Height is the form of the "
                         "city: each footprint is raised to its surveyed roof "
                         f"height, up to {tallest:,.0f} ft.\n\n"
-                        "Colour is the construction era, from the oldest blocks "
+                        "Color is the construction era, from the oldest blocks "
                         "to the towers completed since 2015.",
                     )
                 ],
@@ -6418,7 +6504,7 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
                         "nyc-beneath",
                         "With the buildings switched off, the subway shows. The "
                         f"map draws {station_count:,} MTA stations and the lines "
-                        "between them in their official route colours.",
+                        "between them in their official route colors.",
                     ),
                     button(
                         "nyc-beneath",
@@ -6451,6 +6537,12 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
                         f"{app_url}/maps/{maps[CITY_SHADE_MAP]}",
                     ),
                     separator("nyc-trees"),
+                    text(
+                        "nyc-trees-next",
+                        "That is the end of this tour. From here you can open "
+                        "a dashboard of recent earthquakes or read the story "
+                        "of the Atlantic's major hurricanes.",
+                    ),
                     button(
                         "nyc-trees",
                         "dashboard",
@@ -6496,8 +6588,43 @@ ATTRIBUTE_TITLES = {
 }
 
 
+# Reader names for the USGS ComCat codes the earthquake dashboard counts. Only
+# codes the USGS documentation names are listed. A label edit marks the field
+# user-modified, so a service refresh does not clear it.
+QUAKE_VALUE_LABELS = {
+    "magtype": {
+        "mb": "Body wave (mb)",
+        "ml": "Local (ML)",
+        "md": "Duration (Md)",
+        "mww": "Moment, W-phase (Mww)",
+        "mwr": "Moment, regional (Mwr)",
+        "mwb": "Moment, body wave (Mwb)",
+        "mw": "Moment (Mw)",
+        "mb_lg": "Lg wave (mb_Lg)",
+    },
+    "net": {
+        "us": "USGS NEIC",
+        "ak": "Alaska Earthquake Center",
+        "av": "Alaska Volcano Observatory",
+        "pr": "Puerto Rico Seismic Network",
+        "tx": "TexNet (Texas)",
+        "nc": "Northern California (NCSN)",
+        "ci": "Southern California (SCSN)",
+        "hv": "Hawaiian Volcano Observatory",
+        "uu": "University of Utah",
+        "nn": "Nevada (UNR)",
+        "uw": "Pacific Northwest (PNSN)",
+        "ok": "Oklahoma Geological Survey",
+        "nm": "New Madrid network (CERI)",
+        "se": "Southeastern US network (CERI)",
+    },
+}
+ATTRIBUTE_VALUE_LABELS = {QUAKES_TITLE: QUAKE_VALUE_LABELS}
+
+
 def set_attribute_titles(api: Api) -> None:
-    """Give the dashboard datasets readable column titles; a rerun changes nothing.
+    """Give the dashboard datasets readable column titles and code labels; a
+    rerun changes nothing.
 
     Widgets and the Map data table label a column by its attribute title.
     """
@@ -6514,6 +6641,19 @@ def set_attribute_titles(api: Api) -> None:
             api.set_attribute_title(dataset_id, attr["id"], title)
             changed += 1
         print(f"  attribute titles: {dataset_title} ({changed} set)")
+    for dataset_title, by_field in ATTRIBUTE_VALUE_LABELS.items():
+        dataset_id = by_title.get(dataset_title)
+        if dataset_id is None:
+            continue
+        changed = 0
+        for attr in api.attributes(dataset_id):
+            wanted = by_field.get(attr["field_name"])
+            have = attr.get("value_labels") or {}
+            if not wanted or all(have.get(k) == v for k, v in wanted.items()):
+                continue
+            api.set_attribute_value_labels(dataset_id, attr["id"], {**have, **wanted})
+            changed += 1
+        print(f"  value labels: {dataset_title} ({changed} set)")
 
 
 def run_story_and_dashboard(api: Api) -> int:
@@ -6601,13 +6741,7 @@ def build_meteorites(api: Api, force: bool = False, force_pinned: bool = False) 
 
     map_id = api.create_map(
         name,
-        "All ~32,000 meteorites humanity has ever recovered, from "
-        "gram-scale chondrites to the 60-tonne Hoba iron. Clusters split "
-        "apart as you zoom; amber dots were SEEN falling, gray ones found "
-        "later - note the Antarctic collection-expedition stripes and the "
-        "Saharan hot-desert clusters. Ask AI: the heaviest meteorite? The "
-        "most common class? How many observed falls since 1950? Source: "
-        "NASA / Meteoritical Society.",
+        MAP_DESCRIPTIONS[name],
     )
     api.add_layer(
         map_id,
@@ -6936,15 +7070,7 @@ def build_matterhorn(
     # A VRT does NOT inherit is_dem from its sources - set it or terrain won't
     # engage.
     api.patch_dataset(vrt_ds, is_dem=True)
-    map_id = api.create_map(
-        name,
-        "A razor-sharp 3D terrain mesh of the Matterhorn from swisstopo "
-        "swissALTI3D 2m lidar - 62 cloud-optimized GeoTIFF tiles mosaicked "
-        "into one VRT, lit by a geographically-anchored hillshade with a "
-        "hypsometric elevation tint. Dashed red lines are real climbing "
-        "routes from OpenStreetMap (the Lion Ridge among them); flags mark "
-        "the named summits. swisstopo OGD / OSM contributors.",
-    )
+    map_id = api.create_map(name, MAP_DESCRIPTIONS[name])
     api.add_layer(
         map_id,
         {
@@ -6973,9 +7099,8 @@ def build_matterhorn(
         },
     )
     ensure_matterhorn_overlays(api, map_id, by_title, routes_geojson, peaks_geojson)
-    # Frame the summit; the regional DEM (~8x8 km) extends ~4 km past the
-    # Matterhorn in every direction so the camera can roam before hitting the
-    # data edge. Exaggeration 1.0: the relief is dramatic enough honestly.
+    # Frame the summit. The DEM stops at the Swiss border just south of it.
+    # Exaggeration 1.0: the relief is dramatic enough honestly.
     api.set_view(
         map_id,
         visibility="public",
@@ -7029,10 +7154,10 @@ def _sentinel2_scene_fields(title: str) -> dict:
     epsg = (32600 if north else 32700) + zone
     return {
         "summary": (
-            f"Sentinel-2{unit} Level-2A true-colour image (TCI) of MGRS tile "
+            f"Sentinel-2{unit} Level-2A true-color image (TCI) of MGRS tile "
             f"{tile}, acquired {when}. "
             + (
-                "True-colour satellite imagery of New York City and its "
+                "True-color satellite imagery of New York City and its "
                 "surroundings. "
                 if tile in _NEW_YORK_TILES
                 else ""
@@ -7509,7 +7634,7 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
             api.create_map(
                 name,
                 "Recent low-cloud Sentinel-2 true-color scenes over New York, "
-                "streamed BY REFERENCE from the AWS Earth Search open-data "
+                "streamed by reference from the AWS Earth Search open-data "
                 "archive - no file was downloaded to build this map; Titiler "
                 "reads the cloud-optimized GeoTIFFs straight from S3, newest "
                 "scene on top. ESA Copernicus / Element84 Earth Search.",
@@ -7622,11 +7747,11 @@ COLLECTIONS = {
         # over datasets, not a view of one. Describing WHAT the collection
         # holds rather than HOW it is delivered is true of every instance,
         # which is the same trick that keeps the hurricane map name honest.
-        "The physical earth: earthquakes, volcanic eruptions, plate boundaries, "
-        "hurricane tracks and meteorite falls, alongside the global relief and "
-        "alpine lidar terrain they play out on. Vector and raster members both; "
-        "catalogue surfaces that carry only rasters will show the ETOPO relief "
-        "and the swissALTI3D terrain.",
+        "The physical earth: recent earthquakes, volcanic eruptions, plate "
+        "boundaries and meteorite falls, plus Atlantic hurricane tracks and "
+        "the datasets built from them that show which coastal regions the "
+        "major storms reach. Global relief and alpine terrain rasters sit "
+        "alongside as the ground it all plays out on.",
         [
             QUAKES_TITLE,
             "Tectonic Plate Boundaries (PB2002)",
@@ -7659,9 +7784,10 @@ COLLECTIONS = {
         ],
     ),
     "Client Connections": (
-        "Public COPC and 3D Tiles samples served by GeoLens for external "
-        "point-cloud and 3D clients. Each dataset page draws its own point "
-        "cloud or tileset; the map builder does not layer them.",
+        "Two sample datasets for desktop and 3D clients: a LiDAR point cloud "
+        "of Autzen Stadium in Oregon and four 3D building tiles of central "
+        "Amsterdam. Each dataset page previews its data and gives the address "
+        "an external client opens; the map builder does not layer them.",
         [COPC_TITLE, TILES3D_TITLE],
     ),
 }
@@ -7793,6 +7919,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
     STATES_TITLE: {
         "summary": STATES_SUMMARY,
         "license": "Natural Earth (public domain)",
+        "attribution": "Natural Earth",
         "keywords": ["states", "provinces", "boundaries", "natural earth"],
         "source_organization": "Natural Earth",
         "source_url": (
@@ -7820,6 +7947,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
     },
     CITY_SHADE_WINDOW: {
         "license": "GeoLens demo study area (CC0)",
+        "attribution": "Study window drawn in GeoLens for this demo; not an official boundary",
         "keywords": ["study window", "tompkins square", "canopy"],
         "source_organization": "GeoLens demo",
         "update_frequency": "notPlanned",
@@ -7838,6 +7966,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
     },
     "World Countries (Natural Earth 1:50m)": {
         "license": "Natural Earth (public domain)",
+        "attribution": "Natural Earth",
         "keywords": ["countries", "boundaries", "admin-0", "natural earth"],
         "source_organization": "Natural Earth",
         "source_url": "https://www.naturalearthdata.com/",
@@ -7846,6 +7975,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
     },
     "World Rivers & Lake Centerlines (Natural Earth 1:50m)": {
         "license": "Natural Earth (public domain)",
+        "attribution": "Natural Earth",
         "keywords": ["rivers", "hydrology", "water", "water bodies", "natural earth"],
         "source_organization": "Natural Earth",
         "source_url": "https://www.naturalearthdata.com/",
@@ -7854,6 +7984,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
     },
     "World Lakes & Reservoirs (Natural Earth 1:50m)": {
         "license": "Natural Earth (public domain)",
+        "attribution": "Natural Earth",
         "keywords": ["lakes", "hydrology", "water", "water bodies", "reservoirs"],
         "source_organization": "Natural Earth",
         "source_url": "https://www.naturalearthdata.com/",
@@ -7862,6 +7993,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
     },
     "World Major Cities (500k+)": {
         "license": "Natural Earth (public domain)",
+        "attribution": "Natural Earth",
         "keywords": ["cities", "populated places", "urban", "natural earth"],
         "source_organization": "Natural Earth",
         "source_url": "https://www.naturalearthdata.com/",
@@ -7912,7 +8044,12 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "update_frequency": "asNeeded",
     },
     "New York Median Household Income by County": {
-        "license": "US Census Bureau, ACS 2017-21 (public domain)",
+        "license": "USDA ERS, from US Census Bureau ACS 2017-21 (US public domain)",
+        "attribution": (
+            "USDA Economic Research Service, Atlas of Rural and Small-Town "
+            "America (US Census Bureau ACS 2017-21)"
+        ),
+        "summary": INCOME_SUMMARY,
         "keywords": ["census", "income", "demographics", "acs", "new york"],
         "source_organization": "USDA Economic Research Service",
         "source_url": (
@@ -7928,6 +8065,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
     },
     QUAKES_TITLE: {
         "license": "USGS Earthquake Hazards Program (US public domain)",
+        "attribution": "USGS Earthquake Hazards Program",
         "keywords": ["earthquakes", "seismic", "usgs", "hazards", "magnitude"],
         "source_organization": "USGS",
         "source_url": "https://earthquake.usgs.gov/earthquakes/map/",
@@ -7945,7 +8083,11 @@ SHOWCASE_METADATA: dict[str, dict] = {
         },
     },
     "Tectonic Plate Boundaries (PB2002)": {
-        "license": "Peter Bird (2003), PB2002 - free for research, please cite",
+        "license": "Free for research use with citation (Bird, 2003)",
+        "attribution": (
+            "Bird, P. (2003), An updated digital model of plate boundaries, "
+            "Geochemistry, Geophysics, Geosystems, 4(3)"
+        ),
         "keywords": ["plate tectonics", "geology", "boundaries", "pb2002"],
         "source_organization": "Peter Bird (PB2002), via Nordpil",
         "source_url": "https://github.com/fraxen/tectonicplates",
@@ -7956,6 +8098,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
     },
     "Significant Volcanic Eruptions (NCEI, 4360 BC-present)": {
         "license": "NOAA NCEI (US public domain)",
+        "attribution": "NOAA NCEI / World Data Service for Geophysics",
         "keywords": ["volcanoes", "eruptions", "hazards", "geology", "ncei"],
         "source_organization": "NOAA NCEI",
         "source_url": (
@@ -7984,6 +8127,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "theme_category": ["climatologyMeteorologyAtmosphere"],
     },
     HURDAT2_LEGS_TITLE: {
+        "summary": HURDAT2_LEGS_SUMMARY,
         "license": "NOAA NHC HURDAT2 (US public domain)",
         "keywords": [
             "hurricanes",
@@ -8001,6 +8145,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
     },
     "Atlantic Basin Regions (Natural Earth admin-1)": {
         "license": "Natural Earth (public domain)",
+        "attribution": "Natural Earth",
         "keywords": [
             "admin-1",
             "boundaries",
@@ -8046,6 +8191,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "update_frequency": "annually",
     },
     "Hurricane Exposure by Coastal Region": {
+        "summary": EXPOSURE_SUMMARY,
         "license": (
             "Derived in GeoLens from NOAA NHC HURDAT2 and Natural Earth "
             "(both public domain)"
@@ -8095,7 +8241,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
             "NOAA NCEI's ETOPO 2022 global relief model, combining land "
             "topography and ocean bathymetry. A 60 arc-second grid (about "
             "1.85 km at the equator) of 21,600 x 10,800 cells in WGS 84, with "
-            "one float32 band of elevation in metres."
+            "one float32 band of elevation in meters."
         ),
         "license": "US public domain (NOAA NCEI)",
         "keywords": ["bathymetry", "relief", "etopo", "global", "elevation"],
@@ -8112,7 +8258,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
             "A 2 m digital elevation model of the Matterhorn region, mosaicked "
             "into one virtual raster from swisstopo's swissALTI3D lidar tiles "
             "in the Swiss LV95 grid (EPSG:2056). It is the terrain under the "
-            "Matterhorn in 3D map, with heights in metres above sea level."
+            "Matterhorn in 3D map, with heights in meters above sea level."
         ),
         "license": "swisstopo OGD",
         "keywords": ["terrain", "dem", "elevation", "swisstopo", "matterhorn"],
@@ -8327,8 +8473,8 @@ MAP_LEGEND_AND_NOTES: dict[str, tuple[str, str]] = {
     "Manhattan - A Century of Skyline": (
         "Skyline and subway",
         "Buildings are extruded to their surveyed roof height (NYC Open Data, "
-        "feet converted to metres) and coloured by construction year. Subway "
-        "routes use official MTA colours, which the source feed does not "
+        "feet converted to meters) and colored by construction year. Subway "
+        "routes use official MTA colors, which the source feed does not "
         "carry. Stations fade in above zoom 12.5.",
     ),
     "The Matterhorn in 3D": (
@@ -8336,8 +8482,10 @@ MAP_LEGEND_AND_NOTES: dict[str, tuple[str, str]] = {
         "Terrain is a VRT mosaic of swissALTI3D 2 m lidar tiles (swisstopo "
         "OGD) with a hillshade lit from the northwest and a hypsometric tint. "
         "The mosaic is served as terrain; its dataset page records the source "
-        "and available access paths. Routes and peaks are OpenStreetMap, "
-        "clipped to the mosaic footprint.",
+        "and available access paths. The elevation data covers Switzerland "
+        "only, so the terrain ends at the Swiss border just south of the "
+        "summit. Routes and peaks are OpenStreetMap, clipped to the mosaic "
+        "footprint.",
     ),
     HURRICANE_MAP: (
         "Saffir-Simpson category",
@@ -8346,7 +8494,7 @@ MAP_LEGEND_AND_NOTES: dict[str, tuple[str, str]] = {
         # newest HURDAT2 release yet, and the map would then claim a season it
         # does not contain.
         "Every Atlantic storm since 1950 that reached Category 3, drawn as "
-        "six-hourly segments coloured by its intensity at that leg. Arrows "
+        "six-hourly segments colored by its intensity at that leg. Arrows "
         "mark direction of motion on Category 5 legs only. Source: NOAA NHC "
         "HURDAT2 best-track data.",
     ),
@@ -8358,7 +8506,7 @@ MAP_LEGEND_AND_NOTES: dict[str, tuple[str, str]] = {
         "open data / The Meteoritical Society.",
     ),
     "New York From Orbit - Sentinel-2, by Reference": (
-        "Sentinel-2 true colour",
+        "Sentinel-2 true color",
         "Fixed-date Sentinel-2 true-color acquisitions are referenced "
         "from the AWS Earth Search archive. Toggle them to compare coverage. "
         "The tile server reads their COGs from S3 at view time. ESA Copernicus "
@@ -8450,12 +8598,13 @@ MAP_LAYER_STYLE_FIXES: dict[str, dict[str, dict]] = {
         },
     },
     EXPOSURE_MAP: {
+        EXPOSURE_LAYER_NAME: {"paint": {"fill-outline-color": EXPOSURE_OUTLINE_COLOR}},
         "Category 3+ storm legs (the buffered input)": {
-            "fields": {"display_name": EXPOSURE_LEGS_NAME, "visible": False},
+            "fields": {"display_name": EXPOSURE_LEGS_NAME, "visible": True},
             "paint": EXPOSURE_LEGS_PAINT,
         },
         EXPOSURE_LEGS_NAME: {
-            "fields": {"visible": False},
+            "fields": {"visible": True},
             "paint": EXPOSURE_LEGS_PAINT,
         },
         "Atlantic basin regions (hatched where no major storm passed within 100 km)": {

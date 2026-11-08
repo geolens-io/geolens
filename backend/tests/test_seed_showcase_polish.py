@@ -87,6 +87,10 @@ def _stored_maps() -> dict[str, dict]:
             "layers": [
                 _layer(OLD_LEGS, paint={"line-color": "#1e293b"}, visible=False),
                 _layer(OLD_BASIN, paint={"fill-opacity": 0.22}),
+                _layer(
+                    seed.EXPOSURE_LAYER_NAME,
+                    paint={"fill-outline-color": "#7f1d1d"},
+                ),
             ],
         },
         seed.ORBIT_MAP: {
@@ -133,7 +137,9 @@ def test_styling_shortens_the_hurricane_exposure_legend_rows_and_mutes_the_conte
 
     legs = _layer_named(api, seed.EXPOSURE_MAP, seed.EXPOSURE_LEGS_NAME)
     basin = _layer_named(api, seed.EXPOSURE_MAP, seed.BASIN_CONTEXT_NAME)
-    assert legs["visible"] is False
+    assert legs["visible"] is True
+    exposure = _layer_named(api, seed.EXPOSURE_MAP, seed.EXPOSURE_LAYER_NAME)
+    assert exposure["paint"]["fill-outline-color"] == seed.EXPOSURE_OUTLINE_COLOR
     assert legs["paint"]["line-color"] == seed.EXPOSURE_LEGS_PAINT["line-color"]
     assert basin["paint"]["fill-opacity"] < 0.22
     assert not any(
@@ -286,12 +292,12 @@ def test_framing_falls_back_to_the_nominal_camera_when_nothing_fills_the_view(
 def test_framing_avoids_empty_pixels_inside_a_scenes_bounds(monkeypatch):
     pytest.importorskip("PIL.Image")
     monkeypatch.setattr(seed, "_has_pillow", lambda: True)
-    # The tile's bounds reach far east, but its pixels stop at -73.9.
+    # The tile's bounds reach far east, but its pixels stop at -73.83.
     passes, bounds = _passes([-76.0, 39.0, -72.0, 42.0])
-    api = TilesApi(lambda west, east: east <= -73.9)
+    api = TilesApi(lambda west, east: east <= -73.828)
     camera, _ = seed._orbit_framing(api, passes, bounds, "2026-09-11", NOMINAL)
     assert camera != NOMINAL
-    assert _view(camera)[2] <= -73.9 + 0.02
+    assert _view(camera)[2] <= -73.828 + 0.02
     assert api.requests > 0
 
 
@@ -335,3 +341,13 @@ def test_framing_needs_imagery_from_the_named_pass(monkeypatch, capsys):
     )
     assert camera == NOMINAL
     assert "fills the view" in capsys.readouterr().out
+
+
+def test_framing_keeps_manhattan_on_a_phone_map(monkeypatch):
+    monkeypatch.setattr(seed, "_has_pillow", lambda: False)
+    # Imagery ends just west of Manhattan, so the nearest view it fills is a
+    # closer camera shifted west, which on a phone shows New Jersey with
+    # Manhattan off the edge. The nominal camera stands instead.
+    passes, bounds = _passes([-74.6, 40.0, -74.03, 41.5])
+    camera, _ = seed._orbit_framing(None, passes, bounds, "2026-09-11", NOMINAL)
+    assert camera == NOMINAL
