@@ -1,10 +1,13 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { logger } from '@/lib/logger';
 import { WidgetView } from '../WidgetView';
 import { defineWidget } from '../contract';
 import MarkdownTextRenderer from '../markdown/MarkdownTextRenderer';
 import { MARKDOWN_TEXT_MAX_LENGTH, markdownTextWidget } from '../markdown/definition';
 import { parseStoredWidget } from '../registry';
+
+const codeBlock = () => document.querySelector('pre');
 
 function renderMarkdown(text: string) {
   return render(<MarkdownTextRenderer config={{ text }} />);
@@ -61,6 +64,39 @@ describe('Markdown text widget', () => {
     const hrefs = [...container.querySelectorAll('a')].map((a) => a.getAttribute('href'));
     expect(hrefs).toEqual(['https://example.com', 'mailto:a@b.co', '/relative']);
     expect(container.textContent).toContain('a b c d');
+  });
+
+  it('makes a code block wider than its box a tab stop, and only then', async () => {
+    const width = (scroll: number) => [
+      vi.spyOn(HTMLPreElement.prototype, 'scrollWidth', 'get').mockReturnValue(scroll),
+      vi.spyOn(HTMLPreElement.prototype, 'clientWidth', 'get').mockReturnValue(200),
+    ];
+    const user = userEvent.setup();
+    const spies = width(800);
+    const { unmount } = renderMarkdown('```\nhttps://example.com/a/very/long/address\n```');
+    await user.tab();
+    expect(codeBlock()).toHaveFocus();
+    unmount();
+    spies.forEach((spy) => spy.mockRestore());
+
+    const narrow = width(200);
+    renderMarkdown('```\nshort\n```');
+    expect(codeBlock()).not.toHaveAttribute('tabindex');
+    narrow.forEach((spy) => spy.mockRestore());
+  });
+
+  it('measures a code block again when its text changes', () => {
+    let scroll = 200;
+    const spies = [
+      vi.spyOn(HTMLPreElement.prototype, 'scrollWidth', 'get').mockImplementation(() => scroll),
+      vi.spyOn(HTMLPreElement.prototype, 'clientWidth', 'get').mockReturnValue(200),
+    ];
+    const { rerender } = renderMarkdown('```\nshort\n```');
+    expect(codeBlock()).not.toHaveAttribute('tabindex');
+    scroll = 800;
+    rerender(<MarkdownTextRenderer config={{ text: '```\nhttps://example.com/a/very/long/address\n```' }} />);
+    expect(codeBlock()).toHaveAttribute('tabindex', '0');
+    spies.forEach((spy) => spy.mockRestore());
   });
 
   it('draws story headings at the default level with the styling they always had', () => {

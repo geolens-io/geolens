@@ -97,6 +97,25 @@ describe('narrow stepper', () => {
     expect(pane.resolved?.scene.map_id).toBe('map-a');
   });
 
+  it('leaves the arrow keys to a code block that scrolls sideways', async () => {
+    const spies = [
+      vi.spyOn(HTMLPreElement.prototype, 'scrollWidth', 'get').mockReturnValue(800),
+      vi.spyOn(HTMLPreElement.prototype, 'clientWidth', 'get').mockReturnValue(200),
+    ];
+    const user = userEvent.setup();
+    const chapters = [
+      { ...CHAPTERS[0], blocks: [markdown('00000000-0000-4000-8000-000000000005', '```\nhttps://example.com/a/very/long/address\n```')] },
+      CHAPTERS[1],
+    ];
+    const { container } = render(<StoryReader storyId="s1" title="Hurricanes" summary="Where they go" chapters={chapters} />);
+    const code = container.querySelector('pre')!;
+    await waitFor(() => expect(code).toHaveAttribute('tabindex', '0'));
+    code.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(screen.getByRole('heading', { level: 2, name: 'The tracks' })).toBeInTheDocument();
+    spies.forEach((spy) => spy.mockRestore());
+  });
+
   it('keeps the previous scene on a text-only chapter and shows its text', async () => {
     const user = userEvent.setup();
     renderReader();

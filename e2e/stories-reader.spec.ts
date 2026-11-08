@@ -231,6 +231,21 @@ test.describe('story floating layout', () => {
     expect(topmost, 'The story panel covers the Map data panel').toBe(true);
   });
 
+  test('scrolls a wide code block inside the chapter, not the whole panel', async ({ page, playwright }) => {
+    const wide = `https://example.com/api/collections/${'a'.repeat(160)}/items`;
+    const id = await publishStory(
+      playwright,
+      'FloatingCode',
+      [{ title: 'Code', camera: FIRST, text: `Before.\n\n\`\`\`\n${wide}\n\`\`\`\n\nAfter.` }],
+      { layout: 'floating', panel_position: 'right' },
+    );
+    await page.goto(`/stories/${id}`);
+    const panel = chapterPanel(page);
+    await expect(panel.locator('pre')).toBeVisible();
+    const overflow = await panel.evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(overflow, 'The chapter panel scrolls sideways').toBeLessThanOrEqual(1);
+  });
+
   test('keeps the stepper on a phone', async ({ page, playwright }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const id = await publishStory(playwright, 'FloatingPhone', chapters, { layout: 'floating', panel_position: 'right' });
