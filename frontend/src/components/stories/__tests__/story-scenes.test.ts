@@ -124,9 +124,13 @@ describe('transitionDuration', () => {
 describe('cameraDiffers', () => {
   const target = { center: [10, 20] as [number, number], zoom: 5, bearing: 0, pitch: 0 };
   const TOLERANCE = 10;
-  function probe(view: Partial<{ lng: number; lat: number; zoom: number; bearing: number; pitch: number }> = {}): CameraProbe {
+  function probe(
+    view: Partial<{ lng: number; lat: number; zoom: number; bearing: number; pitch: number }> = {},
+    limits: Pick<CameraProbe, 'getMaxPitch' | 'getMinZoom' | 'getMaxZoom'> = {},
+  ): CameraProbe {
     const v = { lng: 10, lat: 20, zoom: 5, bearing: 0, pitch: 0, ...view };
     return {
+      ...limits,
       getCenter: () => ({ lng: v.lng, lat: v.lat }),
       getZoom: () => v.zoom,
       getBearing: () => v.bearing,
@@ -140,6 +144,13 @@ describe('cameraDiffers', () => {
   it('is false at the scene camera and within the tolerance', () => {
     expect(cameraDiffers(probe(), target, TOLERANCE)).toBe(false);
     expect(cameraDiffers(probe({ lng: 10.9, zoom: 5.1, bearing: 1, pitch: 1 }), target, TOLERANCE)).toBe(false);
+  });
+
+  it('compares against the pitch and zoom the map can reach', () => {
+    const steep = { ...target, pitch: 70, zoom: 25 };
+    const limits = { getMaxPitch: () => 60, getMinZoom: () => 0, getMaxZoom: () => 22 };
+    expect(cameraDiffers(probe({ pitch: 60, zoom: 22 }, limits), steep, TOLERANCE)).toBe(false);
+    expect(cameraDiffers(probe({ pitch: 40, zoom: 22 }, limits), steep, TOLERANCE)).toBe(true);
   });
 
   it('is true when the centre, zoom, bearing or pitch is past it', () => {
