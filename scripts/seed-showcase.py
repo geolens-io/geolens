@@ -7153,6 +7153,15 @@ def move_matterhorn_to_full_terrain(api: Api, map_id: str, by_title: dict) -> No
     terrain = current.get("terrain_config") or {}
     if swiss is None or terrain.get("source_dataset_id") != swiss:
         return
+    moving = {layer["id"] for layer in current["layers"] if layer["dataset_id"] == swiss}
+    referrers = _repoint_referrers(api, map_id, current, moving, {swiss})
+    if referrers:
+        print(
+            f"  ! {current.get('name')}: {'; '.join(referrers)} would break; "
+            "left on the Swiss-only terrain",
+            file=sys.stderr,
+        )
+        return
     terrain_ds = matterhorn_terrain(api, by_title)
     body = []
     for layer in current["layers"]:
@@ -9009,7 +9018,7 @@ def _repoint_quake_heat_layers(
     moving = {x["id"] for x in layers if x.get("dataset_id") in legacies}
     if not moving:
         return False
-    referrers = _heat_layer_referrers(api, map_id, current, moving, legacies)
+    referrers = _repoint_referrers(api, map_id, current, moving, legacies)
     if referrers:
         print(
             f"  ! {current.get('name')}: {'; '.join(referrers)} would break; "
@@ -9029,11 +9038,12 @@ def _repoint_quake_heat_layers(
     return True
 
 
-def _heat_layer_referrers(
+def _repoint_referrers(
     api: "Api", map_id: str, current: dict, moving: set, legacies: set
 ) -> list[str]:
-    """What a repoint of *moving* would break: dashboard widgets that read
-    those layers and active embed tokens scoped to a heatmap copy."""
+    """What repointing the *moving* layers off the *legacies* datasets would
+    break: dashboard widgets that read those layers and active embed tokens
+    scoped to one of those datasets, which a layer save revokes."""
     widgets = (current.get("dashboard_config") or {}).get("widgets") or []
     out = [
         f"dashboard widget {w.get('title') or w.get('id')}"

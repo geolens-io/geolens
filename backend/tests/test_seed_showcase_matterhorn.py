@@ -23,6 +23,8 @@ class TerrainApi:
         self.added = []
         self.deleted = []
         self.views = []
+        self.tokens = []
+        self.saved = None
 
     def vrt_create(self, members, title, summary):
         self.members = members
@@ -48,6 +50,9 @@ class TerrainApi:
 
     def replace_map_layers(self, _map_id, layers, expected_updated_at):
         self.saved = (layers, expected_updated_at)
+
+    def map_embed_tokens(self, _map_id):
+        return self.tokens
 
 
 def test_matterhorn_terrain_puts_the_copernicus_fill_under_the_swiss_tiles(
@@ -137,3 +142,14 @@ def test_a_failed_warp_is_a_builder_error(monkeypatch):
     monkeypatch.setattr(seed.subprocess, "run", missing)
     with pytest.raises(RuntimeError, match="gdalwarp could not build"):
         seed._copernicus_fill(object(), {})
+
+
+def test_a_map_with_an_embed_token_on_the_swiss_mosaic_is_left_alone(monkeypatch):
+    monkeypatch.setattr(seed, "matterhorn_terrain", pytest.fail)
+    relief = {"id": "relief", "dataset_id": "swiss", "display_name": "relief"}
+    api = TerrainApi({"enabled": True, "source_dataset_id": "swiss"}, [relief])
+    api.tokens = [{"is_active": True, "scoped_dataset_ids": ["swiss"], "name": "site"}]
+    seed.move_matterhorn_to_full_terrain(
+        api, "m", {seed.SWISSALTI_MOSAIC_TITLE: "swiss"}
+    )
+    assert api.saved is None and api.views == []
