@@ -608,10 +608,12 @@ function classesFor(
     && (sized.painted || sizeStepsMatch(sized.expression, sized.column, sized.breaks));
   // A ramp's first colour stands in for the sizes; one category's colour would claim them all.
   const sizeColor = listed?.colors[0] ?? swatch?.fill ?? MAP_COLORS.fallback;
+  // A colour classification's size label names its sizes whichever column they read.
+  const sizeLabelled = sized.column === config.column || (config.target !== 'radius' && config.target !== 'width');
   const sizes: LegendClasses = {
     mode: 'graduated',
     target: sized.target,
-    title: (sized.column === config.column ? config.sizeLabel : undefined) ?? displayColumn(sized.column),
+    title: (sizeLabelled ? config.sizeLabel : undefined) ?? displayColumn(sized.column),
     items: sized.sizes.map((size, i) => ({ color: (colorsEachSize ? listed.colors[i] : undefined) ?? sizeColor, size })),
     breaks: sized.breaks,
   };
