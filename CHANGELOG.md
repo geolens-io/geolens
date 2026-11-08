@@ -14,6 +14,7 @@ and releases use semantic versioning.
 ### Changed
 - `scripts/seed-showcase.py` binds the USGS earthquake layer once and draws Restless Earth's circles and heat surface from that one dataset; a seed run moves an already-seeded instance's heat layer onto it and retires the second copy.
 - `scripts/seed-showcase.py` shows the 1.30 features on the demo: the two dashboard maps gain a pie chart, a table, a feature list, a bar chart by date and indicator references, the skyline dashboard moves to the bottom panel, the stories get reader settings, a cover image each and a photo gallery, and stale catalog text about 3D Tiles, COPC and collections is corrected.
+- `scripts/seed-showcase.py` opens "The Matterhorn in 3D" on a wider view of the whole mountain from the north-east, and a seed run moves a map still on the previous seeded view, or on none, to it.
 
 ### Fixed
 - Collection thumbnails and the collection page's spatial extent map now zoom to a city-sized extent instead of showing a dot on a world map, the viewer legend shows a chevron while rows are cut off below the visible part of the panel, and a map card's title wraps to two lines instead of cutting a long name short beside its visibility badge.
