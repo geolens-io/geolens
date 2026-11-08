@@ -33,6 +33,11 @@ SEEDER_HELPERS = (
     "_dashboard_widget",
     "_seed_id",
     "warn_if_hidden_layers",
+    "refresh_and_report",
+    "refresh_quakes",
+    "_story_scene",
+    "_story_blocks_chapter",
+    "_story_block",
 )
 
 # --- sources ------------------------------------------------------------------
@@ -71,6 +76,11 @@ BINDINGS = (
     (ZONING_TITLE, "Zoning_Districts"),
     (FLOOD_TITLE, "FEMA_FloodPlains100Year"),
     (ADDRESSES_TITLE, "Address_Points"),
+)
+# The bindings in refresh order: the trees last, so they are the newest card on
+# the catalog home after a sweep.
+SERVICE_TITLES = tuple(
+    sorted((title for title, _ in BINDINGS), key=lambda title: title == TREES_TITLE)
 )
 DATASET_TITLES = frozenset(
     [title for title, _ in BINDINGS]
@@ -1549,3 +1559,455 @@ def seed_land_dashboard(s, api, force: bool = False, force_pinned: bool = False)
     s.warn_if_hidden_layers(api, map_id, LAND_DASHBOARD)
     print(f"  -> map {map_id} ({'created' if created else 'updated'}, public)")
     return map_id
+
+
+# --- refresh ------------------------------------------------------------------
+
+
+def refresh_services(s, api, quake_titles) -> int:
+    """Re-pull every service-bound dataset this account owns, one at a time.
+
+    The earthquake bindings go through the seeder's own refresh, which knows
+    their legacy title and any retained copy. The Cambridge bindings are
+    required: a missing one, or one that is not service-origin, counts as a
+    failure, since the demo's job reads a zero exit as "the data is current".
+    Any other owned service-bound dataset is refreshed as well, every dataset
+    by id so two under one title both refresh, and one dataset's transport
+    error never stops the sweep. The street trees go last, so the newest
+    catalog card is the intended lead.
+    """
+    failed = False
+    try:
+        failed = s.refresh_quakes(api) != 0
+    except httpx.HTTPError as e:
+        print(f"  ! earthquake refresh: {e}", file=sys.stderr)
+        failed = True
+    owned = [(d["id"], d["title"]) for d in api.list_own_datasets()]
+    titles = {title for _, title in owned}
+    for title in SERVICE_TITLES:
+        if title not in titles:
+            print(
+                f"  ! no dataset titled {title!r}; run a normal seed", file=sys.stderr
+            )
+            failed = True
+
+    def rows(keep):
+        return [(i, t) for i, t in owned if keep(t)]
+
+    ordered = (
+        rows(lambda t: t in SERVICE_TITLES and t != TREES_TITLE)
+        + rows(lambda t: t not in SERVICE_TITLES and t not in quake_titles)
+        + rows(lambda t: t == TREES_TITLE)
+    )
+    for dataset_id, title in ordered:
+        try:
+            origin = api.dataset_origin(dataset_id)
+            if origin != "service":
+                if title not in SERVICE_TITLES:
+                    continue
+                print(
+                    f"  ! {title!r} has origin {origin!r}, not 'service'; "
+                    "run a normal seed first",
+                    file=sys.stderr,
+                )
+                failed = True
+                continue
+            print(f"Refreshing {title}...")
+            if not s.refresh_and_report(api, dataset_id, title):
+                failed = True
+        except httpx.HTTPError as e:
+            print(f"  ! {title!r}: {e}", file=sys.stderr)
+            failed = True
+    return 1 if failed else 0
+
+
+# --- story --------------------------------------------------------------------
+
+STORY_TITLE = "Cambridge open data: from an ArcGIS Online organization to GeoLens"
+STORY_SUMMARY = (
+    "What a GIS lead can do with a city's public ArcGIS Online organization: "
+    "inventory it, bind its layers, translate a web map, derive new data and "
+    "share it through open standards. Built from the City of Cambridge's open "
+    "data; the city does not use or endorse GeoLens."
+)
+ASSETS_DIR = Path(__file__).resolve().parent / "cambridge_story_assets"
+# (file, alt text, caption)
+STORY_IMAGES = (
+    (
+        "share-panel.png",
+        "The map Share panel with two groups added to restricted sharing and a group search box.",
+        "Share a map with named groups instead of everyone.",
+    ),
+    (
+        "admin-groups.png",
+        "The Admin Groups page: a table of sharing groups with member counts.",
+        "Groups are managed by an administrator and used by sharing and access.",
+    ),
+    (
+        "dataset-access.png",
+        "A dataset's Access tab with its visibility setting and group sharing.",
+        "Per-dataset visibility and group sharing.",
+    ),
+)
+# A recorded run of `geolens arcgis inventory`, quoted as printed. The counts
+# belong to the run date and are not read at seed time.
+INVENTORY_RUN_DATE = "7 November 2026"
+INVENTORY_EXCERPT = """\
+Portal   City of Cambridge (ArcGIS Online), read anonymously
+Items    1248   supported 506, partial 345, unsupported 397
+
+Feature Service            505  (464 hosted feature layers)
+Web Map                    265
+Web Mapping Application    110
+StoryMap                    69
+Map Service                 59
+Dashboard                   37
+
+Retiring: 52 classic Esri Story Maps, 9 Web AppBuilder apps"""
+
+
+def _count(api, dataset_id: str, what: str, **body) -> int:
+    value = api.aggregate(dataset_id, op="count", **body)["count"]
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise RuntimeError(f"the count of {what} is not a number: {value!r}")
+    return value
+
+
+def _story_cover(api, story_id: str, trees_map_id: str, fallback: str) -> str:
+    """The story's cover asset: kept once set, else the trees map's thumbnail.
+
+    An instance whose map has no thumbnail yet gets the first gallery image.
+    """
+    stored = api.story_cover_asset(story_id)
+    if stored:
+        return str(stored)
+    thumbnail = api.map_thumbnail(trees_map_id)
+    if thumbnail is None:
+        return fallback
+    data, kind = thumbnail
+    return api.upload_story_asset(
+        story_id, "street-trees-map." + kind.removeprefix("image/"), data, kind
+    )
+
+
+def _story_images() -> list[tuple[str, bytes, str, str]]:
+    out = []
+    for name, alt, caption in STORY_IMAGES:
+        path = ASSETS_DIR / name
+        if not path.is_file():
+            raise RuntimeError(f"story screenshot {path} is missing")
+        out.append((name, path.read_bytes(), alt, caption))
+    return out
+
+
+def _gallery_assets(api, story_id: str | None, block_id: str, count: int):
+    """Asset ids of the gallery's pictures, reused while the pictures are the same."""
+    if story_id is not None:
+        for chapter in api.story_document(story_id).get("chapters", []):
+            for block in chapter.get("blocks", []):
+                stored = (block.get("config") or {}).get("images") or []
+                if block.get("id") == block_id and len(stored) == count:
+                    return [str(x["asset_id"]) for x in stored]
+    return None
+
+
+def _story_camera(lng: float, lat: float, zoom: float, pitch: float = 0) -> dict:
+    return {"center": [lng, lat], "zoom": zoom, "bearing": 0, "pitch": pitch}
+
+
+def seed_cambridge_story(
+    s, api, force: bool = False, force_pinned: bool = False
+) -> str:
+    """The published Cambridge story over the section's maps, found by title.
+
+    Maps and link targets are resolved by name when this runs, and every count
+    in the text is aggregated from the datasets. The three screenshots are
+    stored in the repository next to this file; a rerun over the same pictures
+    reuses the uploaded assets. The maps are not touched.
+    """
+    maps = api.list_maps()
+    ids = _datasets(api, (TREES_TITLE, PARCELS_ZONED_TITLE, PARCELS_FLOOD_TITLE))
+    collection = {c["name"]: c["id"] for c in api.list_collections()}.get(
+        COLLECTION_NAME
+    )
+    missing = [name for name in sorted(MAP_NAMES) if name not in maps]
+    if ids is None or collection is None or missing:
+        return "(missing: the Cambridge catalog, collection and maps - run the Cambridge builders first)"
+    print("\n[cambridge-story] " + STORY_TITLE)
+    app_url = api.public_app_url()
+    trees_map = api.get_map(maps[TREES_MAP])
+    parcels_map = api.get_map(maps[PARCELS_MAP])
+    ops_map = api.get_map(maps[TREE_DASHBOARD])
+    for doc in (trees_map, parcels_map, ops_map):
+        if doc.get("center_lng") is None or doc.get("center_lat") is None:
+            raise RuntimeError(f"{doc.get('name')!r} has no saved camera")
+
+    trees = _count(api, ids[TREES_TITLE], "trees")
+    parcels = _count(api, ids[PARCELS_ZONED_TITLE], "parcels")
+    flooded = _count(api, ids[PARCELS_FLOOD_TITLE], "floodplain parcels")
+    recent = _count_planted(api, ids[TREES_TITLE], RECENT_YEARS)
+    earlier = _count_planted(api, ids[TREES_TITLE], EARLIER_YEARS)
+
+    images = _story_images()
+    stories = api.list_stories()
+    story_id = stories.get(STORY_TITLE)
+    verb = "updated"
+    if story_id is None:
+        story_id = api.create_story(STORY_TITLE, STORY_SUMMARY)
+        verb = "created"
+    digest = hashlib.sha256(b"".join(data for _, data, _, _ in images)).hexdigest()
+    gallery_id = s._seed_id("story", "cambridge-signed-in", "gallery", digest)
+    asset_ids = _gallery_assets(
+        api, story_id if verb == "updated" else None, gallery_id, len(images)
+    )
+    if asset_ids is None:
+        asset_ids = [
+            api.upload_story_asset(story_id, name, data, "image/png")
+            for name, data, _, _ in images
+        ]
+
+    def text(key: str, body: str) -> dict:
+        return s._story_block(key, "text", "markdown", config={"text": body})
+
+    def button(
+        key: str, name: str, label: str, url: str, new_tab: bool = False
+    ) -> dict:
+        return s._story_block(
+            key, name, "button", config={"label": label, "url": url, "new_tab": new_tab}
+        )
+
+    def separator(key: str) -> dict:
+        return s._story_block(key, "separator", "separator", config={"style": "line"})
+
+    def chapter(key: str, title: str, scene, blocks: list[dict]) -> dict:
+        key = "cambridge-" + key
+        out = s._story_blocks_chapter(key, title, scene, blocks)
+        if scene is None:
+            out["scene_hidden"] = False
+        return out
+
+    def scene(doc: dict, camera: dict | None = None, transition: str | None = None):
+        return s._story_scene(doc, None, camera, transition)
+
+    collection_url = f"{app_url}/api/collections/{ids[TREES_TITLE]}/items"
+    document = {
+        "version": 1,
+        "settings": {
+            "layout": "floating",
+            "panel_position": "left",
+            "navigation": True,
+            "transition": "glide",
+            "theme": "follow",
+        },
+        "chapters": [
+            chapter(
+                "origin",
+                "A city's data, where it lives today",
+                scene(trees_map, None, "fly"),
+                [
+                    text(
+                        "origin",
+                        "The City of Cambridge, Massachusetts publishes its GIS layers "
+                        "as open data (Open Data Commons PDDL 1.0) in a public ArcGIS "
+                        "Online organization. This whole section is built from those "
+                        "layers.\n\nThe city does not use or endorse GeoLens.",
+                    ),
+                    button(
+                        "origin",
+                        "city",
+                        "The city's open data page",
+                        "https://www.cambridgema.gov/GIS",
+                        True,
+                    ),
+                ],
+            ),
+            chapter(
+                "inventory",
+                "What an inventory finds",
+                scene(trees_map),
+                [
+                    text(
+                        "inventory",
+                        "Before moving anything, list it. This command ran against the "
+                        f"public organization on {INVENTORY_RUN_DATE}, with no sign-in:"
+                        "\n\n```\ngeolens arcgis inventory \\\n"
+                        "  --portal-url https://cambridgegis.maps.arcgis.com \\\n"
+                        "  --scope org\n```\n\n"
+                        f"```\n{INVENTORY_EXCERPT}\n```\n\n"
+                        "Run it against your own organization with a sign-in, then "
+                        "`geolens arcgis plan` and `geolens arcgis migrate`.",
+                    )
+                ],
+            ),
+            chapter(
+                "bound",
+                "Bound, not copied by hand",
+                scene(trees_map, _story_camera(-71.1190, 42.3736, 16.3, 55), "fly"),
+                [
+                    text(
+                        "bound",
+                        "Five layers are bound to the city's hosted feature layers, and "
+                        "the demo's daily job re-pulls them, so they are copies that can "
+                        f"lag the city. The trees layer holds {trees:,} trees. A tree "
+                        "popup shows the layer's coded-value domain labels instead of "
+                        "raw codes.\n\nThe parcels are an upload pinned to the FY2027 "
+                        "release, so the dataset page shows both kinds of origin side "
+                        "by side.",
+                    ),
+                    button(
+                        "bound",
+                        "trees",
+                        "Open the trees dataset",
+                        f"{app_url}/datasets/{ids[TREES_TITLE]}",
+                    ),
+                ],
+            ),
+            chapter(
+                "webmap",
+                "A web map, translated",
+                scene(trees_map, None, "fly"),
+                [
+                    text(
+                        "webmap",
+                        "This map came from an ArcGIS web map definition written for "
+                        "this demo over the city's layers. The colors by site type, the "
+                        "popup fields, the neighborhood outlines and the zoom range "
+                        "carried over. Popup aliases, number and date formats, computed "
+                        "fields, popup charts and label styling did not, and the import "
+                        "report lists each loss.",
+                    ),
+                    button(
+                        "webmap",
+                        "map",
+                        "Open the map",
+                        f"{app_url}/maps/{maps[TREES_MAP]}",
+                    ),
+                ],
+            ),
+            chapter(
+                "parcels",
+                "Parcels that answer a question",
+                scene(parcels_map, _story_camera(-71.1030, 42.3655, 15.5), "fly"),
+                [
+                    text(
+                        "parcels",
+                        "A spatial join in GeoLens gave each of the "
+                        f"{parcels:,} parcels its zoning district, and a second step "
+                        "flagged the ones that touch the FEMA 1% annual-chance "
+                        f"floodplain: {flooded:,} of them. The provenance panel on each "
+                        "derived dataset shows the three sources and the steps.\n\n"
+                        "This is a screening count, not a flood determination.",
+                    ),
+                    separator("parcels"),
+                    button(
+                        "parcels",
+                        "dashboard",
+                        "Land and zoning in numbers",
+                        f"{app_url}/maps/{maps[LAND_DASHBOARD]}",
+                    ),
+                ],
+            ),
+            chapter(
+                "operations",
+                "Operations, not just maps",
+                scene(ops_map, _story_camera(-71.1010, 42.3735, 15.2), "fly"),
+                [
+                    text(
+                        "operations",
+                        "The tree operations dashboard answers the questions a forestry "
+                        f"crew asks: {recent:,} trees planted in {RECENT_LABEL} against "
+                        f"{earlier:,} in {EARLIER_LABEL}, which species, and where the "
+                        "proposed planting sites are. Pick a bar and the map filters "
+                        "to it.",
+                    ),
+                    button(
+                        "operations",
+                        "dashboard",
+                        "Open the dashboard",
+                        f"{app_url}/maps/{maps[TREE_DASHBOARD]}",
+                    ),
+                ],
+            ),
+            chapter(
+                "clients",
+                "Your ArcGIS Pro and QGIS users keep working",
+                scene(parcels_map, None, "fly"),
+                [
+                    text(
+                        "clients",
+                        "Every dataset is an OGC API Features collection and a vector "
+                        "tile set. The trees collection is at:\n\n"
+                        f"```\n{collection_url}\n```\n\n"
+                        'The QGIS plugin "GeoLens" on plugins.qgis.org browses the '
+                        "catalog. ArcGIS Pro opens the OGC API Features address "
+                        "through Add Data.",
+                    )
+                ],
+            ),
+            chapter(
+                "signed-in",
+                "What signed-in users get",
+                None,
+                [
+                    text(
+                        "signed-in",
+                        "A public demo cannot show a signed-in session, so these are "
+                        "pictures. Groups and restricted sharing decide who sees a map "
+                        "or dataset. Feature editing keeps versions and uses write "
+                        "keys. API keys carry scopes.",
+                    ),
+                    {
+                        "id": gallery_id,
+                        "type": "gallery",
+                        "v": 1,
+                        "config": {
+                            "images": [
+                                {"asset_id": asset, "alt": alt, "caption": caption}
+                                for asset, (_, _, alt, caption) in zip(
+                                    asset_ids, images, strict=True
+                                )
+                            ]
+                        },
+                    },
+                ],
+            ),
+            chapter(
+                "run",
+                "Run it yourself",
+                None,
+                [
+                    text(
+                        "run",
+                        "GeoLens is self-hosted and Apache-2.0. Start with the "
+                        "quickstart, or read the code.",
+                    ),
+                    button(
+                        "run",
+                        "docs",
+                        "Quickstart",
+                        "https://docs.getgeolens.com/",
+                        True,
+                    ),
+                    button(
+                        "run",
+                        "repo",
+                        "GitHub repository",
+                        "https://github.com/geolens-io/geolens",
+                        True,
+                    ),
+                    button(
+                        "run",
+                        "collection",
+                        "This section's collection",
+                        f"{app_url}/collections/{collection}",
+                    ),
+                ],
+            ),
+        ],
+    }
+    cover = _story_cover(api, story_id, maps[TREES_MAP], asset_ids[0])
+    api.publish_story(
+        story_id, STORY_TITLE, STORY_SUMMARY, document, cover_asset_id=cover
+    )
+    print(f"  -> story {story_id} ({verb}, published, public)")
+    return story_id

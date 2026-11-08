@@ -1082,15 +1082,35 @@ class Api:
         r.raise_for_status()
         return r.json()["id"]
 
-    def upload_story_asset(self, story_id: str, filename: str, data: bytes) -> str:
+    def upload_story_asset(
+        self,
+        story_id: str,
+        filename: str,
+        data: bytes,
+        content_type: str = "image/jpeg",
+    ) -> str:
         """Upload an image to the story; return its asset id."""
         r = self.client.post(
             f"{self.base}/api/stories/{story_id}/assets",
             headers=self.h,
-            files={"file": (filename, data, "image/jpeg")},
+            files={"file": (filename, data, content_type)},
         )
         r.raise_for_status()
         return r.json()["id"]
+
+    def story_cover_asset(self, story_id: str) -> str | None:
+        """The story's cover asset id, or None when it has none."""
+        r = self.client.get(f"{self.base}/api/stories/{story_id}", headers=self.h)
+        r.raise_for_status()
+        return r.json().get("cover_asset_id")
+
+    def map_thumbnail(self, map_id: str) -> tuple[bytes, str] | None:
+        """The map's thumbnail bytes and content type, or None when it has none."""
+        r = self.client.get(f"{self.base}/api/maps/{map_id}/thumbnail/", headers=self.h)
+        kind = r.headers.get("content-type", "").split(";")[0].strip()
+        if r.status_code != 200 or not kind.startswith("image/") or not r.content:
+            return None
+        return r.content, kind
 
     def raster_bounds(self, dataset_id: str) -> list[float] | None:
         """West, south, east, north of a raster dataset, as its tile token has them."""
@@ -8683,6 +8703,20 @@ def run_maintenance_mode(api: Api, args) -> int | None:
     """
     if args.refresh_quakes:
         return refresh_quakes(api)
+    if args.refresh_services:
+        if cambridge is None:
+            # The quake binding still refreshes, but the run reports the
+            # bindings it could not reach.
+            print(_CAMBRIDGE_UNAVAILABLE + "; refreshing the quake binding only", file=sys.stderr)
+            refresh_quakes(api)
+            return 1
+        return cambridge.refresh_services(
+            types.SimpleNamespace(
+                **{name: globals()[name] for name in cambridge.SEEDER_HELPERS}
+            ),
+            api,
+            (QUAKES_TITLE, QUAKES_TITLE_LEGACY, QUAKES_HEAT_LEGACY_TITLE),
+        )
     if args.refresh_hurdat2:
         return refresh_hurdat2(api)
     if args.prune_userdata:
@@ -8985,6 +9019,7 @@ def main() -> int:
             "cambridge-parcels",
             "cambridge-tree-dashboard",
             "cambridge-land-dashboard",
+            "cambridge-story",
         ],
         help="build only one showcase item",
     )
@@ -9019,6 +9054,12 @@ def main() -> int:
         action="store_true",
         help="re-pull the earthquake data from its USGS service binding, "
         "then exit (the demo's weekly cron - nothing refreshes on its own)",
+    )
+    ap.add_argument(
+        "--refresh-services",
+        action="store_true",
+        help="re-pull every service-bound showcase dataset (the earthquakes and "
+        "the Cambridge layers), then exit; exits non-zero if any fails",
     )
     ap.add_argument(
         "--refresh-hurdat2",
@@ -9072,6 +9113,7 @@ def main() -> int:
         or args.prune
         or args.prune_userdata
         or args.refresh_quakes
+        or args.refresh_services
         or args.refresh_hurdat2
         or args.story_and_dashboard
         or args.only
@@ -9087,6 +9129,7 @@ def main() -> int:
             "cambridge-parcels",
             "cambridge-tree-dashboard",
             "cambridge-land-dashboard",
+            "cambridge-story",
         )
     ):
         ap.error(
@@ -9185,6 +9228,7 @@ def main() -> int:
         "cambridge-parcels": cambridge_builder("build_parcels_map"),
         "cambridge-tree-dashboard": cambridge_builder("seed_tree_dashboard"),
         "cambridge-land-dashboard": cambridge_builder("seed_land_dashboard"),
+        "cambridge-story": cambridge_builder("seed_cambridge_story"),
     }
 
     built = {}
@@ -9237,6 +9281,7 @@ def main() -> int:
                     ("skyline-dashboard", fns["skyline-dashboard"]),
                     ("skyline-story", fns["skyline-story"]),
                     ("nyc-story", seed_nyc_story_if_ready),
+                    ("cambridge-story", fns["cambridge-story"]),
                 ]
             )
         # collections + embed LAST: they reference the datasets above.
@@ -9321,7 +9366,7 @@ def main() -> int:
             "collections"
             if bname == "collections"
             else "api/stories"
-            if bname in ("story", "skyline-story", "nyc-story")
+            if bname in ("story", "skyline-story", "nyc-story", "cambridge-story")
             else "datasets"
             if bname in ("copc", "tiles3d")
             else "maps"

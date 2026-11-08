@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+
+import httpx
 import sys
 import types
 import uuid
@@ -76,6 +78,12 @@ class FakeApi:
 
     def datasets_by_title(self):
         return {d["title"]: i for i, d in self.datasets.items()}
+
+    def list_own_datasets(self):
+        return [{"title": d["title"], "id": i} for i, d in self.datasets.items()]
+
+    def dataset_origin(self, dataset_id):
+        return self.datasets[dataset_id]["origin"]
 
     def get_dataset(self, dataset_id):
         return self.datasets[dataset_id]
@@ -665,3 +673,297 @@ def test_the_parcels_map_needs_every_column_its_layers_read(built, title):
     with pytest.raises(RuntimeError, match=missing):
         cam.build_parcels_map(h, api)
     assert not api.maps
+
+
+# --- story and refresh ---------------------------------------------------------
+
+
+class StoryApi(FakeApi):
+    def __init__(self):
+        super().__init__()
+        self.stories: dict[str, dict] = {}
+        self.uploads: list[str] = []
+        self.published: list[dict] = []
+        self.thumbnail: tuple[bytes, str] | None = (b"thumb", "image/webp")
+        self.covers: dict[str, str] = {}
+        self.upload_types: list[str] = []
+
+    def aggregate(self, dataset_id, **body):
+        if body.get("filter"):
+            return super().aggregate(dataset_id, **body)
+        return {"count": 1234}
+
+    def public_app_url(self):
+        return "https://demo.example"
+
+    def list_stories(self):
+        return {s["title"]: i for i, s in self.stories.items()}
+
+    def create_story(self, title, summary):
+        story_id = self._id("story")
+        self.stories[story_id] = {"title": title, "document": {"chapters": []}}
+        return story_id
+
+    def story_document(self, story_id):
+        return self.stories[story_id]["document"]
+
+    def story_cover_asset(self, story_id):
+        return self.covers.get(story_id)
+
+    def map_thumbnail(self, map_id):
+        return self.thumbnail
+
+    def upload_story_asset(self, story_id, filename, data, content_type="image/jpeg"):
+        self.uploads.append(filename)
+        self.upload_types.append(content_type)
+        return str(uuid.UUID(int=10_000 + len(self.uploads)))
+
+    def publish_story(self, story_id, title, summary, document, cover_asset_id=None):
+        self.stories[story_id]["document"] = json.loads(json.dumps(document))
+        self.covers[story_id] = cover_asset_id
+        self.published.append({"cover": cover_asset_id, "document": document})
+
+
+@pytest.fixture
+def story_built(parcels_file, monkeypatch):
+    api = StoryApi()
+    h = helpers(api, fetch=lambda url: parcels_file)
+    cam.build_catalog(h, api)
+
+    def fake_import(api_, body):
+        if body.get("dry_run"):
+            return {"loss_report": {"summary": {}}}
+        return {"map": {"id": api_.create_map(body["name"], "")}}
+
+    monkeypatch.setattr(cam, "import_webmap", fake_import)
+    for build in (
+        cam.build_trees_map,
+        cam.build_parcels_map,
+        cam.seed_tree_dashboard,
+        cam.seed_land_dashboard,
+    ):
+        build(h, api)
+    for doc in api.maps.values():
+        doc.update(center_lng=-71.1, center_lat=42.37, zoom=12.9, pitch=0, bearing=0)
+    return api, h
+
+
+def _story_buttons(document):
+    return [
+        block["config"]
+        for chapter in document["chapters"]
+        for block in chapter["blocks"]
+        if block["type"] == "button"
+    ]
+
+
+def test_story_has_the_planned_chapters_and_reader_settings(story_built):
+    api, h = story_built
+    cam.seed_cambridge_story(h, api)
+    document = api.published[-1]["document"]
+    assert document["settings"] == {
+        "layout": "floating",
+        "panel_position": "left",
+        "navigation": True,
+        "transition": "glide",
+        "theme": "follow",
+    }
+    assert len(document["chapters"]) == 9
+    buttons = _story_buttons(document)
+    assert buttons
+    for config in buttons:
+        assert config["url"].startswith(("https://", "http://"))
+    scenes = [c["scene"] for c in document["chapters"] if c.get("scene")]
+    assert len(scenes) == 7
+    assert {s["map_id"] for s in scenes} <= set(api.maps)
+
+
+def test_story_gallery_has_three_described_images_and_the_cover(story_built):
+    api, h = story_built
+    cam.seed_cambridge_story(h, api)
+    published = api.published[-1]
+    galleries = [
+        block
+        for chapter in published["document"]["chapters"]
+        for block in chapter["blocks"]
+        if block["type"] == "gallery"
+    ]
+    assert len(galleries) == 1
+    images = galleries[0]["config"]["images"]
+    assert len(images) == 3
+    assert all(image["alt"].strip() for image in images)
+    assert api.upload_types[:3] == ["image/png"] * 3
+    assert published["cover"] not in {image["asset_id"] for image in images}
+    assert api.uploads[-1] == "street-trees-map.webp"
+    assert api.upload_types[-1] == "image/webp"
+
+
+def test_story_cover_falls_back_to_the_first_image_without_a_thumbnail(story_built):
+    api, h = story_built
+    api.thumbnail = None
+    cam.seed_cambridge_story(h, api)
+    published = api.published[-1]
+    first = next(
+        block["config"]["images"][0]["asset_id"]
+        for chapter in published["document"]["chapters"]
+        for block in chapter["blocks"]
+        if block["type"] == "gallery"
+    )
+    assert published["cover"] == first
+    assert len(api.uploads) == 3
+
+
+def test_story_inventory_chapter_carries_its_run_date(story_built):
+    api, h = story_built
+    cam.seed_cambridge_story(h, api)
+    chapter = api.published[-1]["document"]["chapters"][1]
+    text = chapter["blocks"][0]["config"]["text"]
+    assert cam.INVENTORY_RUN_DATE in text
+    assert "geolens arcgis inventory" in text
+
+
+def test_story_figures_come_from_aggregates_and_names_the_city_once(story_built):
+    api, h = story_built
+    cam.seed_cambridge_story(h, api)
+    document = api.published[-1]["document"]
+    text = " ".join(
+        block["config"]["text"]
+        for chapter in document["chapters"]
+        for block in chapter["blocks"]
+        if block["type"] == "markdown"
+    )
+    assert "1,234 trees" in text
+    assert "does not use or endorse GeoLens" in text
+    assert text.count("does not use or endorse") == 1
+    assert " live " not in text.lower()
+
+
+def test_story_rerun_changes_nothing_and_uploads_once(story_built):
+    api, h = story_built
+    first = cam.seed_cambridge_story(h, api)
+    document = json.dumps(api.published[-1]["document"], sort_keys=True)
+    assert cam.seed_cambridge_story(h, api) == first
+    assert json.dumps(api.published[-1]["document"], sort_keys=True) == document
+    assert len(api.uploads) == 4
+    assert len(api.stories) == 1
+
+
+def test_story_before_the_maps_reports_what_is_missing():
+    api = StoryApi()
+    h = helpers(api)
+    assert cam.seed_cambridge_story(h, api).startswith("(missing: ")
+    assert api.stories == {}
+
+
+def _refresh_fixture(api, h, failing=()):
+    quake = "Recent Earthquakes (M2.5+, last 30 days)"
+    api._dataset(quake, origin="service")
+    refreshed = []
+
+    def refresh(api_, dataset_id, title):
+        refreshed.append(title)
+        return title not in failing
+
+    h.refresh_and_report = refresh
+    h.refresh_quakes = lambda api_: (refreshed.append(quake), 0)[1]
+    return quake, refreshed
+
+
+def test_refresh_services_runs_quakes_then_bindings_with_trees_last(built):
+    api, h = built
+    quake, refreshed = _refresh_fixture(api, h)
+    assert cam.refresh_services(h, api, (quake,)) == 0
+    assert refreshed[0] == quake
+    assert sorted(refreshed[1:]) == sorted(BINDING_TITLES)
+    assert refreshed[-1] == cam.TREES_TITLE
+
+
+def test_refresh_services_keeps_going_and_fails_when_one_fails(built):
+    api, h = built
+    quake, refreshed = _refresh_fixture(api, h, failing={cam.ZONING_TITLE})
+    assert cam.refresh_services(h, api, (quake,)) == 1
+    assert len(refreshed) == 1 + len(BINDING_TITLES)
+
+
+def test_refresh_services_refuses_a_dataset_that_is_not_service_origin(built):
+    api, h = built
+    api.datasets[api.created[cam.ZONING_TITLE]]["origin"] = "upload"
+    quake, refreshed = _refresh_fixture(api, h)
+    assert cam.refresh_services(h, api, (quake,)) == 1
+    assert cam.ZONING_TITLE not in refreshed
+    assert len(refreshed) == len(BINDING_TITLES)
+
+
+def test_refresh_services_fails_when_the_quake_refresh_fails(built):
+    api, h = built
+    quake, refreshed = _refresh_fixture(api, h)
+    h.refresh_quakes = lambda api_: 1
+    assert cam.refresh_services(h, api, (quake,)) == 1
+    assert refreshed[-1] == cam.TREES_TITLE
+
+
+def test_refresh_services_continues_past_a_transport_error(built):
+    api, h = built
+    quake, refreshed = _refresh_fixture(api, h)
+    real_origin = api.dataset_origin
+
+    def flaky_origin(dataset_id):
+        if api.datasets[dataset_id]["title"] == cam.ZONING_TITLE:
+            raise httpx.ConnectError("boom")
+        return real_origin(dataset_id)
+
+    api.dataset_origin = flaky_origin
+    assert cam.refresh_services(h, api, (quake,)) == 1
+    assert cam.ZONING_TITLE not in refreshed
+    assert refreshed[-1] == cam.TREES_TITLE
+
+
+def test_refresh_services_also_refreshes_another_owned_service_binding(built):
+    api, h = built
+    quake, refreshed = _refresh_fixture(api, h)
+    api._dataset("Recent Earthquakes - Heatmap source", origin="service")
+    assert cam.refresh_services(h, api, (quake,)) == 0
+    assert "Recent Earthquakes - Heatmap source" in refreshed
+    assert refreshed[-1] == cam.TREES_TITLE
+
+
+def test_refresh_services_refreshes_two_datasets_under_one_title(built):
+    api, h = built
+    quake, refreshed = _refresh_fixture(api, h)
+    api._dataset(cam.ZONING_TITLE, origin="service")
+    assert cam.refresh_services(h, api, (quake,)) == 0
+    assert refreshed.count(cam.ZONING_TITLE) == 2
+    assert refreshed[-1] == cam.TREES_TITLE
+
+
+def test_refresh_services_survives_a_quake_refresh_transport_error(built):
+    api, h = built
+    quake, refreshed = _refresh_fixture(api, h)
+
+    def boom(api_):
+        raise httpx.ConnectError("boom")
+
+    h.refresh_quakes = boom
+    assert cam.refresh_services(h, api, (quake,)) == 1
+    assert refreshed[-1] == cam.TREES_TITLE
+
+
+def test_seeder_dispatches_refresh_services_to_the_cambridge_module(monkeypatch):
+    calls = []
+
+    def fake(namespace, api, quake_titles):
+        calls.append(quake_titles)
+        return 7
+
+    monkeypatch.setattr(cam, "refresh_services", fake)
+    args = types.SimpleNamespace(
+        refresh_services=True,
+        refresh_quakes=False,
+        refresh_hurdat2=False,
+        prune_userdata=False,
+        story_and_dashboard=False,
+    )
+    assert seed.run_maintenance_mode(object(), args) == 7
+    assert calls == [
+        (seed.QUAKES_TITLE, seed.QUAKES_TITLE_LEGACY, seed.QUAKES_HEAT_LEGACY_TITLE)
+    ]
