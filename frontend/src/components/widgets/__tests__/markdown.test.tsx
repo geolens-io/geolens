@@ -85,6 +85,20 @@ describe('Markdown text widget', () => {
     narrow.forEach((spy) => spy.mockRestore());
   });
 
+  it('measures a code block again when its text changes', () => {
+    let scroll = 200;
+    const spies = [
+      vi.spyOn(HTMLPreElement.prototype, 'scrollWidth', 'get').mockImplementation(() => scroll),
+      vi.spyOn(HTMLPreElement.prototype, 'clientWidth', 'get').mockReturnValue(200),
+    ];
+    const { rerender } = renderMarkdown('```\nshort\n```');
+    expect(codeBlock()).not.toHaveAttribute('tabindex');
+    scroll = 800;
+    rerender(<MarkdownTextRenderer config={{ text: '```\nhttps://example.com/a/very/long/address\n```' }} />);
+    expect(codeBlock()).toHaveAttribute('tabindex', '0');
+    spies.forEach((spy) => spy.mockRestore());
+  });
+
   it('draws story headings at the default level with the styling they always had', () => {
     const { container } = renderMarkdown('# One\n\n## Two');
     expect([...container.querySelectorAll('h3,h4')].map((h) => h.outerHTML)).toEqual([

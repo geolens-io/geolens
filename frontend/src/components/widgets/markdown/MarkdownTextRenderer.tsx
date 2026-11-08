@@ -35,7 +35,7 @@ function CodeBlock({ node: _node, ...props }: ComponentProps<'pre'> & ExtraProps
     const observer = new ResizeObserver(measure);
     observer.observe(node);
     return () => observer.disconnect();
-  }, []);
+  });
   return (
     <pre
       {...props}
