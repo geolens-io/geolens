@@ -850,6 +850,9 @@ class TerrainApi:
     def set_view(self, _map_id, **fields):
         self.views.append(fields)
 
+    def replace_map_layers(self, _map_id, layers, expected_updated_at):
+        self.saved = (layers, expected_updated_at)
+
 
 def test_matterhorn_terrain_puts_the_copernicus_fill_under_the_swiss_tiles(
     monkeypatch,
@@ -867,7 +870,7 @@ def test_matterhorn_terrain_puts_the_copernicus_fill_under_the_swiss_tiles(
     assert by_title[seed.MATTERHORN_TERRAIN_TITLE] == "terrain"
 
 
-def test_a_map_on_the_swiss_mosaic_moves_to_the_full_terrain_in_its_style(
+def test_a_map_on_the_swiss_mosaic_moves_to_the_full_terrain_in_place(
     monkeypatch,
 ):
     monkeypatch.setattr(seed, "matterhorn_terrain", lambda _api, _titles: "terrain")
@@ -878,26 +881,31 @@ def test_a_map_on_the_swiss_mosaic_moves_to_the_full_terrain_in_its_style(
         "sort_order": 4,
         "opacity": 0.8,
         "paint": {"hillshade-exaggeration": 0.5},
-        "style_config": {"render_mode": "hillshade"},
     }
     routes = {"id": "routes", "dataset_id": "routes", "display_name": "Peaks"}
     api = TerrainApi(
         {"enabled": True, "source_dataset_id": "swiss", "exaggeration": 1.2},
         [relief, routes],
     )
-    by_title = {seed.SWISSALTI_MOSAIC_TITLE: "swiss"}
-    seed.move_matterhorn_to_full_terrain(api, "m", by_title)
-    assert api.added == [
-        {
-            "sort_order": 4,
-            "opacity": 0.8,
-            "paint": {"hillshade-exaggeration": 0.5},
-            "style_config": {"render_mode": "hillshade"},
-            "dataset_id": "terrain",
-            "display_name": seed.MATTERHORN_RELIEF_LAYER,
-        }
-    ]
-    assert api.deleted == ["relief"]
+    api.map["updated_at"] = "t0"
+    seed.move_matterhorn_to_full_terrain(
+        api, "m", {seed.SWISSALTI_MOSAIC_TITLE: "swiss"}
+    )
+    assert api.saved == (
+        [
+            {
+                "id": "relief",
+                "dataset_id": "terrain",
+                "display_name": seed.MATTERHORN_RELIEF_LAYER,
+                "sort_order": 4,
+                "opacity": 0.8,
+                "paint": {"hillshade-exaggeration": 0.5},
+            },
+            {"id": "routes", "dataset_id": "routes", "display_name": "Peaks"},
+        ],
+        "t0",
+    )
+    assert api.added == api.deleted == []
     assert api.views == [
         {
             "terrain_config": {
@@ -916,18 +924,6 @@ def test_a_map_on_another_terrain_is_left_alone(monkeypatch):
         api, "m", {seed.SWISSALTI_MOSAIC_TITLE: "swiss"}
     )
     assert api.added == api.deleted == api.views == []
-
-
-def test_a_retried_terrain_move_only_removes_the_old_relief(monkeypatch):
-    monkeypatch.setattr(seed, "matterhorn_terrain", lambda _api, _titles: "terrain")
-    old = {"id": "old", "dataset_id": "swiss", "display_name": "swissALTI3D relief"}
-    new = {"id": "new", "dataset_id": "terrain", "display_name": "Terrain relief"}
-    api = TerrainApi({"enabled": True, "source_dataset_id": "swiss"}, [new, old])
-    seed.move_matterhorn_to_full_terrain(
-        api, "m", {seed.SWISSALTI_MOSAIC_TITLE: "swiss"}
-    )
-    assert api.added == []
-    assert api.deleted == ["old"]
 
 
 def test_partial_swiss_tiles_without_a_mosaic_rerun_the_manifest(monkeypatch):
@@ -957,6 +953,6 @@ def test_guarded_update_refuses_to_move_the_matterhorn_terrain(job_counts):
         "terrain_config": {"source_dataset_id": "swiss"},
     }
     assert (
-        "the Matterhorn relief layer would be replaced"
+        "the Matterhorn terrain would move to the Copernicus mosaic"
         in state.unrestorable_changes(api)
     )

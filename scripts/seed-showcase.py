@@ -157,6 +157,15 @@ COPERNICUS_DEM_LIABILITY = (
     "WorldDEM-30."
 )
 MATTERHORN_RELIEF_LAYER = "Terrain relief"
+# A stalled read of the remote tiles fails instead of hanging the seed.
+_GDAL_FETCH_ENV = {
+    "GDAL_HTTP_CONNECTTIMEOUT": "30",
+    "GDAL_HTTP_TIMEOUT": "120",
+    "GDAL_HTTP_MAX_RETRY": "3",
+    "GDAL_HTTP_RETRY_DELAY": "5",
+    "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+    "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif",
+}
 # USGS "Recent Earthquakes" ArcGIS MapServer, layer 0 = "M2.5+ Recent
 # Earthquakes" (rolling 30-day window, ~2,300 features, OID field OBJECTID;
 # public domain). Bound as a LIVE SERVICE rather than downloaded, so the demo
@@ -7100,8 +7109,10 @@ def _copernicus_fill(api: Api, by_title: dict) -> str:
                     *(f"/vsicurl/{url}" for url in COPERNICUS_DEM_TILES), path,
                 ],
                 check=True,
+                env={**os.environ, **_GDAL_FETCH_ENV},
+                timeout=900,
             )
-        except (OSError, subprocess.CalledProcessError) as e:
+        except (OSError, subprocess.SubprocessError) as e:
             raise RuntimeError(f"gdalwarp could not build the Copernicus fill: {e}") from e
         dataset_id = api.ingest_binary(
             path, None, COPERNICUS_FILL_TITLE, SHOWCASE_METADATA[COPERNICUS_FILL_TITLE]["summary"]
@@ -7133,8 +7144,9 @@ def move_matterhorn_to_full_terrain(api: Api, map_id: str, by_title: dict) -> No
     """Move a map still drawn on the Swiss-only mosaic onto the filled terrain.
 
     Only a map whose terrain is still that mosaic is moved, so a hand-picked
-    terrain is left alone. The relief layer keeps its own style and position;
-    a layer cannot change dataset, so it is re-added and the old one removed.
+    terrain is left alone. The relief layer is saved in place onto the new
+    dataset, keeping its id, style and position, so story scenes that refer
+    to it by id still find it.
     """
     swiss = by_title.get(SWISSALTI_MOSAIC_TITLE)
     current = api.get_map(map_id)
@@ -7142,28 +7154,15 @@ def move_matterhorn_to_full_terrain(api: Api, map_id: str, by_title: dict) -> No
     if swiss is None or terrain.get("source_dataset_id") != swiss:
         return
     terrain_ds = matterhorn_terrain(api, by_title)
-    # A retry after a failed delete finds its replacement already added.
-    replaced = any(layer["dataset_id"] == terrain_ds for layer in current["layers"])
+    body = []
     for layer in current["layers"]:
-        if layer["dataset_id"] != swiss:
-            continue
-        if replaced:
-            api.delete_layer(map_id, layer["id"])
-            continue
-        kept = {
-            key: layer[key]
-            for key in (
-                "sort_order", "opacity", "visible", "paint", "layout",
-                "style_config", "layer_type", "show_in_legend",
-            )
-            if layer.get(key) is not None
-        }
-        api.add_layer(
-            map_id,
-            {**kept, "dataset_id": terrain_ds, "display_name": MATTERHORN_RELIEF_LAYER},
-        )
-        replaced = True
-        api.delete_layer(map_id, layer["id"])
+        item = {k: layer[k] for k in _LAYER_WRITABLE_FIELDS if layer.get(k) is not None}
+        item["id"] = layer["id"]
+        if layer["dataset_id"] == swiss:
+            item["dataset_id"] = terrain_ds
+            item["display_name"] = MATTERHORN_RELIEF_LAYER
+        body.append(item)
+    api.replace_map_layers(map_id, body, current.get("updated_at"))
     api.set_view(map_id, terrain_config={**terrain, "source_dataset_id": terrain_ds})
     print("  moved the terrain onto the Swiss and Copernicus mosaic")
 
