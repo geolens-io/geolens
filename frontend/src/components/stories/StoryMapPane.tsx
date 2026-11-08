@@ -1,7 +1,7 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from 'react';
 import { MapPinOff, Undo2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import type { Map as MaplibreMap } from 'maplibre-gl';
+import type { Map as MaplibreMap, PaddingOptions } from 'maplibre-gl';
 import { useMap } from '@/hooks/use-maps';
 import { useViewerLayers } from '@/components/viewer/hooks/use-viewer-layers';
 import { LayerLegend } from '@/components/viewer/LayerLegend';
@@ -65,6 +65,8 @@ interface StoryMapPaneProps {
   panel?: 'left' | 'right' | 'center';
   /** The story's transition for a scene that sets none. */
   defaultTransition?: StorySettings['transition'];
+  /** The part of the map a floating chapter panel covers, so each scene centres in the rest. */
+  padding?: PaddingOptions;
   /** Told the active map's docked Map data panel height, 0 while it is closed. */
   onDataPanelHeightChange?: (height: number) => void;
   ref?: Ref<StoryMapPaneHandle>;
@@ -74,7 +76,7 @@ interface StoryMapPaneProps {
  * The story's map. A scene on another map crossfades from a copy loaded
  * ahead; without one ready, the map remounts. A scene on the same map flies there.
  */
-export const StoryMapPane = memo(function StoryMapPane({ resolved, next, emptyHint, resetKey, legendSide, panel, defaultTransition, onDataPanelHeightChange, ref }: StoryMapPaneProps) {
+export const StoryMapPane = memo(function StoryMapPane({ resolved, next, emptyHint, resetKey, legendSide, panel, defaultTransition, padding, onDataPanelHeightChange, ref }: StoryMapPaneProps) {
   const [shown, setShown] = useState(resolved);
   // The map that just lost the view, kept underneath while the next one fades in.
   const [outgoing, setOutgoing] = useState<ResolvedScene | null>(null);
@@ -151,6 +153,7 @@ export const StoryMapPane = memo(function StoryMapPane({ resolved, next, emptyHi
             legendSide={legendSide}
             panel={panel}
             defaultTransition={defaultTransition}
+            padding={padding}
             handleRef={role === 'active' ? ref : undefined}
           />
         </div>
@@ -164,6 +167,8 @@ export const StoryMapPane = memo(function StoryMapPane({ resolved, next, emptyHi
   );
 });
 
+const NO_PADDING: PaddingOptions = { top: 0, bottom: 0, left: 0, right: 0 };
+
 type SlotRole = 'active' | 'standby' | 'outgoing';
 
 function StoryMap({
@@ -175,6 +180,7 @@ function StoryMap({
   legendSide,
   panel,
   defaultTransition,
+  padding = NO_PADDING,
   onDataPanelHeightChange,
   handleRef,
 }: {
@@ -187,6 +193,7 @@ function StoryMap({
   legendSide?: 'start' | 'end';
   panel?: 'left' | 'right' | 'center';
   defaultTransition?: StorySettings['transition'];
+  padding?: PaddingOptions;
   onDataPanelHeightChange?: (height: number) => void;
   handleRef?: Ref<StoryMapPaneHandle>;
 }) {
@@ -221,6 +228,12 @@ function StoryMap({
     defaultRef.current = defaultTransition;
   }, [defaultTransition]);
 
+  // MapLibre keeps padding on the transform, so every move names it, zeros included.
+  const paddingRef = useRef(padding);
+  useEffect(() => {
+    paddingRef.current = padding;
+  }, [padding]);
+
   const [away, setAway] = useState(false);
   // Our own moves not yet ended by a moveend, so one that ends them isn't taken for the reader's.
   const inFlight = useRef(0);
@@ -234,7 +247,7 @@ function StoryMap({
     const { camera } = target;
     const transition = target.transition ?? defaultRef.current ?? 'fly';
     const duration = transition === 'cut' ? 0 : motionDuration(transitionDuration(cameraGap(map, camera)));
-    const options = { ...camera, duration };
+    const options = { ...camera, duration, padding: paddingRef.current };
     // Before the call: starting a move first ends the one running, and a zero-length move ends inside the call.
     inFlight.current += 1;
     if (transition === 'glide' || transition === 'cut') map.easeTo(options);
@@ -293,7 +306,7 @@ function StoryMap({
   const handleMapReady = useCallback((map: MaplibreMap) => {
     mapRef.current = map;
     setReadyMap(map);
-    map.jumpTo(sceneRef.current.camera);
+    map.jumpTo({ ...sceneRef.current.camera, padding: paddingRef.current });
   }, []);
 
   // A map loaded ahead that is shown before it is ready covers itself with the loading state.
@@ -315,7 +328,7 @@ function StoryMap({
 
   // A refetch can change the camera of the chapter waiting hidden.
   useEffect(() => {
-    if (role === 'standby' && mapRef.current) mapRef.current.jumpTo(scene.camera);
+    if (role === 'standby' && mapRef.current) mapRef.current.jumpTo({ ...scene.camera, padding: paddingRef.current });
   }, [role, scene.camera]);
 
   // MapLibre marks a reader's drag, wheel, touch, keys and buttons with an originalEvent; the compass sets none.

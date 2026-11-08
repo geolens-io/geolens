@@ -13,6 +13,7 @@ const pane = vi.hoisted(() => ({
   panel: undefined as string | undefined,
   defaultTransition: undefined as string | undefined,
   onDataPanelHeightChange: undefined as ((height: number) => void) | undefined,
+  padding: undefined as unknown,
 }));
 
 const prefetch = vi.hoisted(() => vi.fn());
@@ -24,7 +25,7 @@ vi.mock('@/api/client', async (importOriginal) => ({
 }));
 vi.mock('@/hooks/use-maps', () => ({ prefetchMap: (_qc: unknown, id: string) => prefetch(id) }));
 vi.mock('../StoryMapPane', () => ({
-  StoryMapPane: ({ resolved, next, emptyHint, legendSide, panel, defaultTransition, onDataPanelHeightChange }: { resolved: ResolvedScene | null; next?: ResolvedScene | null; emptyHint?: string; legendSide?: string; panel?: string; defaultTransition?: string; onDataPanelHeightChange?: (height: number) => void }) => {
+  StoryMapPane: ({ resolved, next, emptyHint, legendSide, panel, defaultTransition, padding, onDataPanelHeightChange }: { padding?: unknown; resolved: ResolvedScene | null; next?: ResolvedScene | null; emptyHint?: string; legendSide?: string; panel?: string; defaultTransition?: string; onDataPanelHeightChange?: (height: number) => void }) => {
     pane.resolved = resolved;
     pane.onDataPanelHeightChange = onDataPanelHeightChange;
     pane.next = next ?? null;
@@ -32,6 +33,7 @@ vi.mock('../StoryMapPane', () => ({
     pane.panel = panel;
     pane.defaultTransition = defaultTransition;
     pane.hint = emptyHint;
+    pane.padding = padding;
     return <div data-testid="story-map" />;
   },
 }));
@@ -506,7 +508,8 @@ describe('floating layout', () => {
     try {
       renderWith({ layout: 'floating' });
       const panel = screen.getByRole('region', { name: 'Story chapters' });
-      expect(observers).toHaveLength(1);
+      // The panel's observer comes first; the second measures the padding.
+      expect(observers).toHaveLength(2);
       // The line sits 40% down the panel; losing 200px of height moves it up 80px, and so does the scroll.
       Object.defineProperty(panel, 'clientHeight', { configurable: true, value: 1000 });
       observers[0]();
@@ -791,4 +794,52 @@ it("gives the map the story's default transition", () => {
   const settings = { navigation: false, layout: 'side', panel_position: 'left', theme: 'follow', transition: 'cut' } as const;
   render(<StoryReader storyId="s1" title="Hurricanes" summary={null} chapters={CHAPTERS} settings={settings} />);
   expect(pane.defaultTransition).toBe('cut');
+});
+
+describe('camera padding in the floating layout', () => {
+  const MAP_AREA = { left: 0, right: 1200, width: 1200 };
+
+  function stubRects(panel: { left: number; right: number }) {
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const rect = this.getAttribute('role') === 'region' ? { ...panel, width: panel.right - panel.left } : MAP_AREA;
+      return rect as DOMRect;
+    });
+  }
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('keeps scenes clear of a left panel, with a gap', () => {
+    layout.narrow = false;
+    stubRects({ left: 56, right: 456 });
+    renderWith({ layout: 'floating', panel_position: 'left' });
+    expect(pane.padding).toEqual({ top: 0, bottom: 0, left: 472, right: 0 });
+  });
+
+  it('keeps scenes clear of a right panel', () => {
+    layout.narrow = false;
+    stubRects({ left: 744, right: 1144 });
+    renderWith({ layout: 'floating', panel_position: 'right' });
+    expect(pane.padding).toEqual({ top: 0, bottom: 0, left: 0, right: 472 });
+  });
+
+  it('adds none for a centred panel', () => {
+    layout.narrow = false;
+    stubRects({ left: 400, right: 800 });
+    renderWith({ layout: 'floating', panel_position: 'center' });
+    expect(pane.padding).toEqual({ top: 0, bottom: 0, left: 0, right: 0 });
+  });
+
+  it('adds none in the side layout', () => {
+    layout.narrow = false;
+    stubRects({ left: 0, right: 400 });
+    renderWith({ layout: 'side' });
+    expect(pane.padding).toBeUndefined();
+  });
+
+  it('adds none for a chapter without text, which hides the panel', () => {
+    layout.narrow = false;
+    stubRects({ left: 56, right: 456 });
+    renderWith({ layout: 'floating', panel_position: 'left' }, [{ ...CHAPTERS[0], title: null, blocks: [] }, CHAPTERS[1]]);
+    expect(pane.padding).toEqual({ top: 0, bottom: 0, left: 0, right: 0 });
+  });
 });

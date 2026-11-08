@@ -21,12 +21,13 @@ const makeFakeMap = vi.hoisted(() => () => {
     focus: vi.fn(),
     getCanvas: () => ({ focus: map.focus }),
     getContainer: () => ({ clientWidth: 1000, clientHeight: 500 }),
+    padX: 0,
     getCenter: () => ({ lng: map.view.lng, lat: map.view.lat }),
     getZoom: () => map.view.zoom,
     getBearing: () => map.view.bearing,
     getPitch: () => map.view.pitch,
     // One pixel per degree around the container's centre keeps the distances easy to read.
-    project: ([lng, lat]: [number, number]) => ({ x: 500 + lng - map.view.lng, y: 250 - (lat - map.view.lat) }),
+    project: ([lng, lat]: [number, number]) => ({ x: 500 + map.padX + lng - map.view.lng, y: 250 - (lat - map.view.lat) }),
     on: (event: string, handler: (event?: unknown) => void) => {
       handlers.set(event, (handlers.get(event) ?? new Set()).add(handler));
     },
@@ -34,6 +35,7 @@ const makeFakeMap = vi.hoisted(() => () => {
     emit: (event: string, payload?: unknown) => [...(handlers.get(event) ?? [])].forEach((handler) => handler(payload)),
     reset: () => {
       map.view = { ...initialView };
+      map.padX = 0;
       handlers.clear();
     },
   };
@@ -151,8 +153,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function renderReady(scene: ResolvedScene) {
-  const view = render(<StoryMapPane resolved={scene} />);
+async function renderReady(scene: ResolvedScene, padding?: React.ComponentProps<typeof StoryMapPane>['padding']) {
+  const view = render(<StoryMapPane resolved={scene} padding={padding} />);
   await screen.findByTestId('viewer-map');
   act(() => viewer.props!.onMapReady!(fakeMap as never));
   return view;
@@ -714,4 +716,38 @@ it("uses the story's default transition for a scene that sets none, and the scen
 
   rerender(<StoryMapPane resolved={resolved('c3', 'map-a', 5, {}, 'fly')} defaultTransition="glide" />);
   expect(fakeMap.flyTo).toHaveBeenCalledWith(expect.objectContaining({ zoom: 5 }));
+});
+
+describe('camera padding', () => {
+  const PADDING = { top: 0, bottom: 0, left: 400, right: 0 };
+  const NONE = { top: 0, bottom: 0, left: 0, right: 0 };
+
+  it('puts the padding on the first view, a chapter move and the return move', async () => {
+    const { rerender } = render(<StoryMapPane resolved={resolved('c1', 'map-a', 3)} padding={PADDING} />);
+    await screen.findByTestId('viewer-map');
+    act(() => viewer.props!.onMapReady!(fakeMap as never));
+    expect(fakeMap.jumpTo).toHaveBeenCalledWith(expect.objectContaining({ zoom: 3, padding: PADDING }));
+
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-a', 9, {}, 'glide')} padding={PADDING} />);
+    expect(fakeMap.easeTo).toHaveBeenLastCalledWith(expect.objectContaining({ zoom: 9, padding: PADDING }));
+
+    fakeMap.view = { ...fakeMap.view, lng: -40 };
+    act(() => fakeMap.emit('moveend', READER_MOVE));
+    act(() => screen.getByRole('button', { name: "Back to this chapter's view" }).click());
+    expect(fakeMap.easeTo).toHaveBeenLastCalledWith(expect.objectContaining({ zoom: 9, padding: PADDING }));
+  });
+
+  it('names zero padding when a chapter needs none, so a previous padding is cleared', async () => {
+    const { rerender } = await renderReady(resolved('c1', 'map-a', 3), PADDING);
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-a', 9)} padding={NONE} />);
+    expect(fakeMap.flyTo).toHaveBeenLastCalledWith(expect.objectContaining({ zoom: 9, padding: NONE }));
+  });
+
+  it('measures the reader\'s drift from where the padded centre is, not the container middle', async () => {
+    await renderReady(resolved('c1', 'map-a', 3), PADDING);
+    fakeMap.padX = 200;
+    viewAt(-70, 25, 3);
+    act(() => fakeMap.emit('moveend', READER_MOVE));
+    expect(screen.queryByRole('button', { name: "Back to this chapter's view" })).toBeNull();
+  });
 });
