@@ -870,27 +870,28 @@ def build_trees_map(s, api, force: bool = False, force_pinned: bool = False) -> 
 
 
 ZONE_COLORS = (
-    ("OS", "#7fb87a"),
-    ("BA", "#e9a15a"),
-    ("C-1", "#f4e39a"),
-    ("C-2", "#f0c36d"),
-    ("C-3", "#d8884a"),
-    ("C-2B", "#e3ad6e"),
-    ("IA-1", "#9b8ac4"),
-    ("BA-1", "#f08a6c"),
-    ("C-3B", "#c4693e"),
-    ("O-1", "#7aa6d6"),
-    ("BB", "#d96f8f"),
-    ("C-2A", "#ecd186"),
+    ("OS", "#6fb36a"),
+    ("BA", "#f2b134"),
+    ("C-1", "#f4efb5"),
+    ("C-2", "#3aa6a0"),
+    ("C-3", "#d2662d"),
+    ("C-2B", "#e8cfae"),
+    ("IA-1", "#8f7bc8"),
+    ("BA-1", "#f3a6bd"),
+    ("C-3B", "#8b5a3c"),
+    ("O-1", "#7e8ea3"),
+    ("BB", "#b04a8f"),
+    ("C-2A", "#c3d56e"),
 )
 _FLOOD_BLUE = "#2563eb"
+_FLAGGED_RED = "#e11d48"
 
 
 def parcels_map_description(zoned_on: str) -> str:
     return (
         "Cambridge, Massachusetts parcels with the zoning district they meet "
         "and the FEMA 1% annual-chance floodplain. Click a parcel for its "
-        "map-lot number and zoning district. A blue outline marks a parcel "
+        "map-lot number and zoning district. A red outline marks a parcel "
         "that touches the floodplain, and its popup says so. The parcels are "
         "the city's FY2027 assessing release, an upload pinned to that "
         f"release. The join to zoning was run in GeoLens on {zoned_on}, and "
@@ -930,7 +931,7 @@ def _parcels_map_layers(ids: dict[str, str]) -> list[dict]:
             "dataset_id": ids[PARCELS_FLOOD_TITLE],
             "sort_order": 1,
             "display_name": "Parcels touching the 1% floodplain",
-            **_outline_only(_FLOOD_BLUE, 1.6),
+            **_outline_only(_FLAGGED_RED, 2.0),
             "popup_config": {
                 "enabled": True,
                 "expression": "Parcel {ml}: zoning {join_zone_type}, "
@@ -1150,7 +1151,7 @@ def _tree_layers(trees_ds: str) -> list[dict]:
             "dataset_id": trees_ds,
             "sort_order": 0,
             "display_name": "Proposed planting sites",
-            "show_in_legend": False,
+            "show_in_legend": True,
             "filter": ["==", ["get", "sitetype"], "Proposed Tree"],
             "paint": {
                 "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 3, 18, 10],
@@ -1434,7 +1435,7 @@ def _land_layers(zoned_ds: str, flood_ds: str) -> list[dict]:
             "dataset_id": flood_ds,
             "sort_order": 1,
             "display_name": "Parcels touching the 1% floodplain",
-            **_outline_only(_FLOOD_BLUE, 1.2),
+            **_outline_only(_FLAGGED_RED, 1.4),
             "popup_config": {
                 "enabled": True,
                 "expression": "Parcel {ml}: zoning {join_zone_type}, "
@@ -1454,6 +1455,9 @@ def _land_widgets(s, layer_ids: dict[str, str]) -> list[dict]:
         return built
 
     parcels, flooded = "Parcels with zoning", "Parcels touching the 1% floodplain"
+    # The page grid holds five 1-column cells at desktop width and a wide
+    # widget takes two. Each row is five cells of similar height: the numbers,
+    # the two pies with the notes, then the table and bar chart.
     return [
         widget("parcels", "indicator", "Parcels", parcels, {"stat": "count"}),
         widget(
@@ -1462,6 +1466,20 @@ def _land_widgets(s, layer_ids: dict[str, str]) -> list[dict]:
             "Parcels touching the 1% floodplain",
             flooded,
             {"stat": "count"},
+        ),
+        widget(
+            "land-area",
+            "indicator",
+            "Land area of all parcels (sq ft)",
+            parcels,
+            {"stat": "sum", "column": "shape_area"},
+        ),
+        widget(
+            "flooded-area",
+            "indicator",
+            "Land area of floodplain parcels (sq ft)",
+            flooded,
+            {"stat": "sum", "column": "shape_area"},
         ),
         {
             "id": s._seed_id("cambridge-land", "floodplain"),
@@ -1484,10 +1502,37 @@ def _land_widgets(s, layer_ids: dict[str, str]) -> list[dict]:
             {
                 "column": "join_zone_type",
                 "stat": "count",
-                "limit": 10,
+                "limit": 6,
                 "use_layer_colors": False,
             },
         ),
+        widget(
+            "flooded-zones",
+            "pie_chart",
+            "Floodplain parcels by zoning district",
+            flooded,
+            {
+                "column": "join_zone_type",
+                "stat": "count",
+                "limit": 6,
+                "use_layer_colors": False,
+            },
+        ),
+        {
+            "id": s._seed_id("cambridge-land", "about"),
+            "type": "markdown",
+            "v": 1,
+            "title": None,
+            "config": {
+                "text": "Parcels: the City of Cambridge's FY2027 assessing "
+                "release. Zoning districts and the floodplain: copies of the "
+                "city's public ArcGIS Online layers, which GeoLens re-pulls on "
+                "refresh. The zoning join and the floodplain selection were "
+                "run in GeoLens, and each dataset's provenance panel shows "
+                "the steps.\n\nBuilt from the City of Cambridge's open data "
+                "(PDDL 1.0). The city does not use or endorse GeoLens."
+            },
+        },
         widget(
             "zone-table",
             "table",
@@ -1517,32 +1562,12 @@ def _land_widgets(s, layer_ids: dict[str, str]) -> list[dict]:
             },
         ),
         widget(
-            "flooded-zones",
-            "pie_chart",
-            "Floodplain parcels by zoning district",
-            flooded,
-            {
-                "column": "join_zone_type",
-                "stat": "count",
-                "limit": 10,
-                "use_layer_colors": False,
-            },
+            "largest",
+            "indicator",
+            "Largest parcel (sq ft)",
+            parcels,
+            {"stat": "max", "column": "shape_area"},
         ),
-        {
-            "id": s._seed_id("cambridge-land", "about"),
-            "type": "markdown",
-            "v": 1,
-            "title": None,
-            "config": {
-                "text": "Parcels: the City of Cambridge's FY2027 assessing "
-                "release. Zoning districts and the floodplain: copies of the "
-                "city's public ArcGIS Online layers, which GeoLens re-pulls on "
-                "refresh. The zoning join and the floodplain selection were "
-                "run in GeoLens, and each dataset's provenance panel shows "
-                "the steps.\n\nBuilt from the City of Cambridge's open data "
-                "(PDDL 1.0). The city does not use or endorse GeoLens."
-            },
-        },
     ]
 
 
@@ -1638,7 +1663,11 @@ def refresh_services(s, api, quake_titles) -> int:
 
 # --- story --------------------------------------------------------------------
 
-STORY_TITLE = "Cambridge open data: from an ArcGIS Online organization to GeoLens"
+STORY_TITLE = "Cambridge's open data in GeoLens"
+# The title this story had before it was shortened; a rerun renames it in place.
+STORY_TITLE_LEGACY = (
+    "Cambridge open data: from an ArcGIS Online organization to GeoLens"
+)
 STORY_SUMMARY = (
     "What a GIS lead can do with a city's public ArcGIS Online organization: "
     "inventory it, bind its layers, translate a web map, derive new data and "
@@ -1650,7 +1679,7 @@ ASSETS_DIR = Path(__file__).resolve().parent / "cambridge_story_assets"
 STORY_IMAGES = (
     (
         "share-panel.png",
-        "The map Share panel with two groups added to restricted sharing and a group search box.",
+        "The map Share panel with Specific groups selected and two groups, GIS team and Urban forestry, added.",
         "Share a map with named groups instead of everyone.",
     ),
     (
@@ -1734,6 +1763,15 @@ def _story_camera(lng: float, lat: float, zoom: float, pitch: float = 0) -> dict
     return {"center": [lng, lat], "zoom": zoom, "bearing": 0, "pitch": pitch}
 
 
+# Each view centres on what its chapter is about; the reader centres a scene
+# in the part of the map the floating panel leaves free.
+WEBMAP_CAMERA = _story_camera(-71.0857, 42.3656, 14.4)
+FLOOD_VIEW = (-71.1383, 42.3993, 15.3)
+CALM_VIEW = (-71.1010, 42.3700, 13.6)
+ZONING_LAYER = "Zoning districts"
+PARCELS_CALM_LAYERS = ("Parcels (FY2027)", "Neighborhoods")
+
+
 def seed_cambridge_story(
     s, api, force: bool = False, force_pinned: bool = False
 ) -> str:
@@ -1769,7 +1807,7 @@ def seed_cambridge_story(
 
     images = _story_images()
     stories = api.list_stories()
-    story_id = stories.get(STORY_TITLE)
+    story_id = stories.get(STORY_TITLE) or stories.get(STORY_TITLE_LEGACY)
     verb = "updated"
     if story_id is None:
         story_id = api.create_story(STORY_TITLE, STORY_SUMMARY)
@@ -1805,8 +1843,23 @@ def seed_cambridge_story(
             out["scene_hidden"] = False
         return out
 
-    def scene(doc: dict, camera: dict | None = None, transition: str | None = None):
-        return s._story_scene(doc, None, camera, transition)
+    def scene(
+        doc: dict,
+        camera: dict | None = None,
+        transition: str | None = None,
+        visibility: dict[str, bool] | None = None,
+    ):
+        return s._story_scene(doc, visibility, camera, transition)
+
+    parcel_layers = {x["display_name"]: x["id"] for x in parcels_map["layers"]}
+    if not set(PARCELS_CALM_LAYERS) | {ZONING_LAYER} <= set(parcel_layers):
+        raise RuntimeError("the parcels map is missing a layer the story shows")
+    # The zoning fills hide the flagged outlines they sit under.
+    flood_only = {parcel_layers[ZONING_LAYER]: False}
+    calm = {
+        layer_id: name in PARCELS_CALM_LAYERS
+        for name, layer_id in parcel_layers.items()
+    }
 
     collection_url = f"{app_url}/api/collections/{ids[TREES_TITLE]}/items"
     document = {
@@ -1884,7 +1937,7 @@ def seed_cambridge_story(
             chapter(
                 "webmap",
                 "A web map, translated",
-                scene(trees_map, None, "fly"),
+                scene(trees_map, WEBMAP_CAMERA, "fly"),
                 [
                     text(
                         "webmap",
@@ -1906,7 +1959,7 @@ def seed_cambridge_story(
             chapter(
                 "parcels",
                 "Parcels that answer a question",
-                scene(parcels_map, _story_camera(-71.1030, 42.3655, 15.5), "fly"),
+                scene(parcels_map, _story_camera(*FLOOD_VIEW), "fly", flood_only),
                 [
                     text(
                         "parcels",
@@ -1950,7 +2003,7 @@ def seed_cambridge_story(
             chapter(
                 "clients",
                 "Your ArcGIS Pro and QGIS users keep working",
-                scene(parcels_map, None, "fly"),
+                scene(parcels_map, _story_camera(*CALM_VIEW), "fly", calm),
                 [
                     text(
                         "clients",
@@ -2017,7 +2070,7 @@ def seed_cambridge_story(
                     button(
                         "run",
                         "collection",
-                        "This section's collection",
+                        "Browse the Cambridge collection",
                         f"{app_url}/collections/{collection}",
                     ),
                 ],
