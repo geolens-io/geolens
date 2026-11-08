@@ -15,14 +15,14 @@ and imagery (smaller).
 
 | File | Section | Shows | Subject |
 | --- | --- | --- | --- |
-| `geolens-manhattan-3d-hero{,-dark}.jpg` | Hero | Manhattan's buildings extruded to roof height, colored by era, with the subway | **Manhattan - A Century of Skyline** map in the builder |
+| `geolens-manhattan-3d-hero{,-dark}.jpg` | Hero | Manhattan's buildings extruded to roof height, colored by era, with the subway | **Manhattan: A Century of Skyline** map in the builder |
 | `geolens-catalog-search{,-dark}.png` | Grid | Search by meaning with origin and freshness badges | Public catalog, signed out, search `where storms hit the coast` |
 | `geolens-dataset-page{,-dark}.png` | Grid | Dataset overview: map preview, badges, feature count, geometry, CRS, version | **Atlantic Hurricane Tracks (HURDAT2, majors since 1950)** |
 | `geolens-import-preview{,-dark}.png` | Grid | Service preview: CRS, geometry, feature count, sample rows | Service URL tab, `https://earthquake.usgs.gov/arcgis/rest/services/eq/Recent_Earthquakes/MapServer`, layer **Significant Earthquakes** |
 | `geolens-version-history{,-dark}.png` | Grid | Three versions, the current one marked, Restore on the previous one | **Significant Volcanic Eruptions** after two re-uploads, Metadata tab with History expanded |
 | `geolens-builder-style{,-dark}.png` | Grid | Heatmap style panel, grouped layer list, globe | **Restless Earth** map with **Quake intensity (heatmap)** selected and the legend closed |
 | `geolens-matterhorn-terrain{,-dark}.jpg` | Grid | Matterhorn 3D terrain mesh, layer stack, legend | **The Matterhorn in 3D** map at its saved camera |
-| `geolens-stac-imagery{,-dark}.jpg` | Grid | Four Sentinel-2 scenes referenced from Earth Search, with the legend | **New York From Orbit - Sentinel-2, by Reference** map |
+| `geolens-stac-imagery{,-dark}.jpg` | Grid | Four Sentinel-2 scenes referenced from Earth Search, with the legend | **New York From Orbit: Sentinel-2 by Reference** map |
 | `geolens-share-embed{,-dark}.png` | Grid | Share dialog: visibility, share link, embed code | **Restless Earth** map after Generate Share Link |
 | `geolens-admin-overview{,-dark}.png` | Grid | Health checks, dataset counts, storage used | Admin → Overview after a full seed |
 | `geolens-admin-permissions{,-dark}.png` | Grid | Capabilities per role | Admin → Settings → Permissions with the default roles |

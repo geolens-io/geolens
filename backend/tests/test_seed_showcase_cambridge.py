@@ -497,7 +497,7 @@ def test_public_text_names_the_city_without_claiming_endorsement(built):
         assert len(text) <= 2000
         assert "real time" not in text.lower() and " live " not in text.lower()
     for name in cam.MAP_NAMES:
-        assert name.startswith("Cambridge open data:")
+        assert name.startswith("Cambridge Open Data:")
 
 
 def test_seeder_recognises_and_dispatches_the_section(monkeypatch):
@@ -1053,9 +1053,10 @@ def test_story_title_fits_a_chapter_tab_and_the_last_button_names_the_collection
     assert labels[-1] == "Browse the Cambridge collection"
 
 
-def test_story_under_its_old_title_is_renamed_in_place(story_built):
+@pytest.mark.parametrize("legacy", cam.STORY_TITLES_LEGACY)
+def test_story_under_an_old_title_is_renamed_in_place(story_built, legacy):
     api, h = story_built
-    old = api.create_story(cam.STORY_TITLE_LEGACY, cam.STORY_SUMMARY)
+    old = api.create_story(legacy, cam.STORY_SUMMARY)
     renamed = []
     publish = api.publish_story
 

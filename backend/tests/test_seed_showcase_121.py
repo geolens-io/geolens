@@ -817,3 +817,34 @@ def test_datasets_on_public_maps_carry_an_attribution():
     assert "USDA" in income["license"]
     pb = seed.SHOWCASE_METADATA["Tectonic Plate Boundaries (PB2002)"]
     assert "Bird, P. (2003)" in pb["attribution"]
+
+
+class RenameApi:
+    def __init__(self, maps):
+        self.maps = dict(maps)
+        self.renamed = []
+
+    def list_maps(self):
+        return dict(self.maps)
+
+    def set_view(self, map_id, **fields):
+        self.renamed.append((map_id, fields["name"]))
+
+
+def test_legacy_map_names_are_renamed_in_place_once():
+    skyline = "Manhattan: A Century of Skyline"
+    api = RenameApi(
+        {
+            "Manhattan - A Century of Skyline": "skyline-id",
+            "Hurricane Alley - Major Atlantic Storms Since 1950": "old-alley-id",
+            seed.HURRICANE_MAP: "alley-id",
+        }
+    )
+    seed.rename_legacy_maps(api)
+    assert api.renamed == [("skyline-id", skyline)]
+
+
+def test_every_legacy_map_name_maps_to_a_name_the_seeder_still_uses():
+    current = {name for name, _ in seed.LEGACY_MAP_NAMES}
+    assert current <= seed._showcase_map_names()
+    assert not current & {legacy for _, legacy in seed.LEGACY_MAP_NAMES}

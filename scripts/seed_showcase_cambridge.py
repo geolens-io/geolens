@@ -88,10 +88,10 @@ DATASET_TITLES = frozenset(
 )
 
 COLLECTION_NAME = "Cambridge, MA: a city's open data"
-TREES_MAP = "Cambridge open data: street trees, from an ArcGIS Online web map"
-PARCELS_MAP = "Cambridge open data: parcels, zoning and the floodplain"
-TREE_DASHBOARD = "Cambridge open data: street tree operations"
-LAND_DASHBOARD = "Cambridge open data: land and zoning in numbers"
+TREES_MAP = "Cambridge Open Data: Street Trees From an ArcGIS Online Web Map"
+PARCELS_MAP = "Cambridge Open Data: Parcels, Zoning and the Floodplain"
+TREE_DASHBOARD = "Cambridge Open Data: Street Tree Operations"
+LAND_DASHBOARD = "Cambridge Open Data: Land and Zoning in Numbers"
 MAP_NAMES = frozenset({TREES_MAP, PARCELS_MAP, TREE_DASHBOARD, LAND_DASHBOARD})
 
 # Stored column names are the service's field names lower-cased.
@@ -1674,10 +1674,11 @@ def refresh_services(s, api, quake_titles) -> int:
 
 # --- story --------------------------------------------------------------------
 
-STORY_TITLE = "Cambridge's open data in GeoLens"
-# The title this story had before it was shortened; a rerun renames it in place.
-STORY_TITLE_LEGACY = (
-    "Cambridge open data: from an ArcGIS Online organization to GeoLens"
+STORY_TITLE = "Cambridge's Open Data in GeoLens"
+# Titles this story had before; a rerun renames it in place.
+STORY_TITLES_LEGACY = (
+    "Cambridge open data: from an ArcGIS Online organization to GeoLens",
+    "Cambridge's open data in GeoLens",
 )
 STORY_SUMMARY = (
     "What a GIS lead can do with a city's public ArcGIS Online organization: "
@@ -1824,7 +1825,9 @@ def seed_cambridge_story(
 
     images = _story_images()
     stories = api.list_stories()
-    story_id = stories.get(STORY_TITLE) or stories.get(STORY_TITLE_LEGACY)
+    story_id = next(
+        (stories[t] for t in (STORY_TITLE, *STORY_TITLES_LEGACY) if t in stories), None
+    )
     verb = "updated"
     if story_id is None:
         story_id = api.create_story(STORY_TITLE, STORY_SUMMARY)

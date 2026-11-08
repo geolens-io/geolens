@@ -3,11 +3,11 @@ import { expect, test, type Page, type TestInfo } from '@playwright/test';
 const SHOWCASE_MAP_NAMES = [
   'Restless Earth',
   'The Matterhorn in 3D',
-  'Manhattan - A Century of Skyline',
-  'Hurricane Alley - Major Atlantic Storms Since 1950',
-  'Hurricane Exposure - Which Coasts the Major Storms Reach',
+  'Manhattan: A Century of Skyline',
+  'Hurricane Alley: Major Atlantic Storms Since 1950',
+  'Hurricane Exposure: Which Coasts the Major Storms Reach',
   'Everything That Fell From the Sky',
-  'New York From Orbit - Sentinel-2, by Reference',
+  'New York From Orbit: Sentinel-2 by Reference',
   'City in Shade: Tree Cover Change, 2010-2017',
 ] as const;
 
