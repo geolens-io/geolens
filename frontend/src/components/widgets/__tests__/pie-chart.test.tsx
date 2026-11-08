@@ -106,6 +106,18 @@ describe('PieChartRenderer', () => {
     expect(onSelect).toHaveBeenLastCalledWith({ column: 'kind', label: '(no value)', values: [null, ' '] });
   });
 
+  it('clears a held no-value pick from its slice when fewer blank spellings remain', () => {
+    const onSelect = vi.fn();
+    const fewer = {
+      ...data,
+      result: { values: [{ value: 'park', count: 50 }, { value: null, count: 30 }], other_count: 0 },
+    };
+    const held = { column: 'kind', label: '(no value)', values: [null, ' ', ''] };
+    const { container } = render(<PieChartRenderer config={config} data={fewer} selection={held} onSelect={onSelect} />);
+    fireEvent.click(container.querySelectorAll('svg[role="group"] g')[1]);
+    expect(onSelect).toHaveBeenLastCalledWith(null);
+  });
+
   it('picks a slice with Enter or a click, and clears the pick when picked again', () => {
     const onSelect = vi.fn();
     const { container, rerender } = render(<PieChartRenderer config={config} data={data} onSelect={onSelect} />);
