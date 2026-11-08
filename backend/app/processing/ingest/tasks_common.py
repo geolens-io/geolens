@@ -1842,11 +1842,11 @@ async def _write_reupload_catalog(
     # set_dataset_origin just cleared the probe state, and for a service or
     # STAC origin this swap is a contact: the bytes were fetched from that
     # origin moments ago. Leaving last_checked_at NULL would make the API claim
-    # the origin was never contacted. source_health stays NULL: the health
-    # vocabulary belongs to the probe's classifier. A file upload or
-    # registered table contacts nothing and stamps nothing.
+    # the origin was never contacted, and a NULL source_health would read as
+    # "unknown". A file upload or registered table stamps nothing.
     if origin_kind in ("service", "stac"):
         dataset.last_checked_at = swap_time
+        dataset.source_health = "healthy"
     dataset.last_refreshed_at = swap_time
 
     version = DatasetVersion(
