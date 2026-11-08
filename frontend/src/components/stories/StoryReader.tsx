@@ -461,6 +461,9 @@ function StoryStepper({
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+    // A focused box that scrolls sideways, such as a wide code block, keeps its arrow keys.
+    const target = event.target;
+    if (target instanceof HTMLElement && target !== event.currentTarget && target.scrollWidth > target.clientWidth) return;
     event.preventDefault();
     onActiveChange(event.key === 'ArrowRight' ? active + 1 : active - 1);
   }
