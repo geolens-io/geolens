@@ -997,3 +997,135 @@ def test_hidden_tree_layers_sit_in_one_collapsed_group():
         "folder_group_id" not in (x.get("style_config") or {}).get("builder", {})
         for x in drawn
     )
+
+
+# --- polish --------------------------------------------------------------------
+
+
+def _chapter(document, key):
+    return next(
+        c
+        for c in document["chapters"]
+        if c["id"] == seed._seed_id("story", "cambridge-" + key)
+    )
+
+
+def test_story_chapters_each_get_their_own_view(story_built):
+    api, h = story_built
+    cam.seed_cambridge_story(h, api)
+    document = api.published[-1]["document"]
+    webmap = _chapter(document, "webmap")["scene"]
+    assert webmap["camera"]["zoom"] >= 14
+    origin = _chapter(document, "origin")["scene"]
+    assert webmap["camera"] != origin["camera"]
+
+    flood = _chapter(document, "parcels")["scene"]
+    layers = {x["display_name"]: x["id"] for x in api.maps[flood["map_id"]]["layers"]}
+    assert flood["layer_visibility"] == {layers["Zoning districts"]: False}
+    assert flood["camera"]["center"] == [cam.FLOOD_VIEW[0], cam.FLOOD_VIEW[1]]
+
+
+def test_story_closing_chapters_sit_on_a_calm_map(story_built):
+    api, h = story_built
+    cam.seed_cambridge_story(h, api)
+    document = api.published[-1]["document"]
+    scene = _chapter(document, "clients")["scene"]
+    layers = {x["id"]: x["display_name"] for x in api.maps[scene["map_id"]]["layers"]}
+    shown = {layers[i] for i, on in scene["layer_visibility"].items() if on}
+    assert shown == set(cam.PARCELS_CALM_LAYERS)
+    assert set(scene["layer_visibility"]) == set(layers)
+    # The chapters after it keep that scene.
+    assert _chapter(document, "signed-in")["scene"] is None
+    assert _chapter(document, "run")["scene"] is None
+
+
+def test_story_title_fits_a_chapter_tab_and_the_last_button_names_the_collection(
+    story_built,
+):
+    api, h = story_built
+    cam.seed_cambridge_story(h, api)
+    assert len(cam.STORY_TITLE) <= 34
+    labels = [c["label"] for c in _story_buttons(api.published[-1]["document"])]
+    assert labels[-1] == "Browse the Cambridge collection"
+
+
+def test_story_under_its_old_title_is_renamed_in_place(story_built):
+    api, h = story_built
+    old = api.create_story(cam.STORY_TITLE_LEGACY, cam.STORY_SUMMARY)
+    renamed = []
+    publish = api.publish_story
+
+    def publish_story(story_id, title, *args, **kwargs):
+        renamed.append((story_id, title))
+        api.stories[story_id]["title"] = title
+        return publish(story_id, title, *args, **kwargs)
+
+    api.publish_story = publish_story
+    assert cam.seed_cambridge_story(h, api) == old
+    assert renamed == [(old, cam.STORY_TITLE)]
+    assert list(api.stories) == [old]
+
+
+def _png_size(path):
+    data = path.read_bytes()
+    return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+
+
+def test_gallery_pictures_are_squarish_and_small():
+    for name, _, _ in cam.STORY_IMAGES:
+        path = cam.ASSETS_DIR / name
+        width, height = _png_size(path)
+        assert 0.5 <= width / height <= 1.5, name
+        assert path.stat().st_size < 60_000, name
+
+
+def test_a_changed_gallery_picture_is_uploaded_again(
+    story_built, tmp_path, monkeypatch
+):
+    api, h = story_built
+    cam.seed_cambridge_story(h, api)
+    assert len(api.uploads) == 4
+    for name, _, _ in cam.STORY_IMAGES:
+        (tmp_path / name).write_bytes((cam.ASSETS_DIR / name).read_bytes() + b"x")
+    monkeypatch.setattr(cam, "ASSETS_DIR", tmp_path)
+    cam.seed_cambridge_story(h, api)
+    assert len(api.uploads) == 7
+
+
+def test_zoning_colors_are_all_different_and_clear_of_the_flood_layers():
+    colors = [color for _, color in cam.ZONE_COLORS]
+    assert len(set(colors)) == len(colors)
+    assert cam._FLAGGED_RED not in colors and cam._FLOOD_BLUE not in colors
+    assert cam._FLAGGED_RED != cam._FLOOD_BLUE
+
+
+def test_flagged_parcels_are_outlined_in_their_own_color(built):
+    api, h = built
+    layers = {
+        x["display_name"]: x for x in api.maps[cam.build_parcels_map(h, api)]["layers"]
+    }
+    flagged = layers["Parcels touching the 1% floodplain"]
+    plain = layers["FEMA 1% annual-chance floodplain"]
+    assert flagged["style_config"]["builder"]["outline_color"] == cam._FLAGGED_RED
+    assert plain["paint"]["fill-color"] == cam._FLOOD_BLUE
+
+
+def test_land_dashboard_rows_fill_a_five_column_page_grid(built):
+    api, h = built
+    widgets = api.maps[cam.seed_land_dashboard(h, api)]["dashboard_sent"]["widgets"]
+    wide = {"bar_chart", "pie_chart", "histogram", "table", "feature_list"}
+    row = 0
+    for widget in widgets:
+        row += 2 if widget["type"] in wide else 1
+        assert row <= 5
+        row %= 5
+    assert row == 0
+    pies = [w for w in widgets if w["type"] == "pie_chart"]
+    assert pies and all(w["config"]["limit"] == 6 for w in pies)
+
+
+def test_proposed_planting_sites_have_a_legend_entry(built):
+    api, h = built
+    layers = api.maps[cam.seed_tree_dashboard(h, api)]["layers"]
+    proposed = next(x for x in layers if x["display_name"] == "Proposed planting sites")
+    assert proposed["show_in_legend"] is True
