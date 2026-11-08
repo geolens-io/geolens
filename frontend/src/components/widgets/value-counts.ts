@@ -20,9 +20,14 @@ export interface CategoryRows {
   other?: string;
 }
 
+/** Whether a stored value reads as nothing: null, or text that is empty or only spaces. */
+export function isBlankValue(value: unknown): boolean {
+  return value === null || value === undefined || (typeof value === 'string' && value.trim() === '');
+}
+
 /** A category as readers see it. A numeric one, such as a year or a code, reads best as stored. */
 export function categoryLabel(key: SelectionValue, t: TFunction<'widgets'>): string {
-  return key === null ? t('noValue') : String(key);
+  return isBlankValue(key) ? t('noValue') : String(key);
 }
 
 /** The categories of a `value_counts` or `group_by` result, labelled in the reader's locale. */

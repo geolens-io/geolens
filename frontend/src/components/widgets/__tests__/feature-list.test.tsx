@@ -111,6 +111,12 @@ describe('feature list request', () => {
 });
 
 describe('feature list renderer', () => {
+  it('shows a blank title as no value', () => {
+    const blank = rowsResult([{ gid: 1, values: { name: '', kind: 'park' }, bbox: null }]);
+    render(<FeatureListRenderer config={config} data={blank} onZoomTo={vi.fn()} onLoadMore={vi.fn()} />);
+    expect(screen.getByText('(no value)')).toBeInTheDocument();
+  });
+
   it('lists titles with subtitles and says more is available', () => {
     render(<FeatureListRenderer config={config} data={mapped} onZoomTo={vi.fn()} onLoadMore={vi.fn()} />);
     expect(screen.getByRole('list', { name: 'Features' })).toBeInTheDocument();
