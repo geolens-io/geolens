@@ -589,7 +589,7 @@ def _enriched(title):
 def test_enrich_names_the_sentinel_scene_in_its_summary_and_credit():
     fields = _enriched("Sentinel-2 TCI S2B_T18TXL_20260911T155930_L2A")
     assert fields["summary"].startswith(
-        "Sentinel-2B Level-2A true-colour image (TCI) of MGRS tile 18TXL, "
+        "Sentinel-2B Level-2A true-color image (TCI) of MGRS tile 18TXL, "
         "acquired 2026-09-11 at 15:59 UTC."
     )
     assert "UTM zone 18N (EPSG:32618)" in fields["summary"]
@@ -798,3 +798,22 @@ def test_the_legacy_states_title_is_still_enriched_collected_and_snapshotted(
             return [{"title": legacy, "id": "states"}]
 
     assert list(state.snapshot(LegacySnapshotApi())["datasets"]) == [legacy]
+
+
+def test_datasets_on_public_maps_carry_an_attribution():
+    needing = [
+        seed.QUAKES_TITLE,
+        "Tectonic Plate Boundaries (PB2002)",
+        "Significant Volcanic Eruptions (NCEI, 4360 BC-present)",
+        "World Major Cities (500k+)",
+        "Atlantic Basin Regions (Natural Earth admin-1)",
+        seed.CITY_SHADE_WINDOW,
+        "New York Median Household Income by County",
+    ]
+    for title in needing:
+        assert seed.SHOWCASE_METADATA[title].get("attribution"), title
+    income = seed.SHOWCASE_METADATA["New York Median Household Income by County"]
+    assert "USDA" in income["attribution"] and "USDA" in income["summary"]
+    assert "USDA" in income["license"]
+    pb = seed.SHOWCASE_METADATA["Tectonic Plate Boundaries (PB2002)"]
+    assert "Bird, P. (2003)" in pb["attribution"]

@@ -239,7 +239,7 @@ def test_chapters_carry_their_blocks_and_link_targets_found_by_name():
         ["markdown"],
         ["markdown"],
         ["markdown", "button"],
-        ["markdown", "button", "separator", "button", "button"],
+        ["markdown", "button", "separator", "markdown", "button", "button"],
     ]
     manhattan = chapters[4].blocks[1].config.url
     shade, dashboard, hurricanes = (

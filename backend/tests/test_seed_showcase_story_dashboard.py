@@ -352,6 +352,7 @@ def test_quake_dashboard_shows_the_newer_widgets():
     strongest = by_title["Strongest earthquake in view (magnitude)"]["config"]
     assert strongest["reference"] == 6.0
     assert strongest["higher_is_better"] is False
+    assert strongest["comparison"] == "value"
 
 
 def test_skyline_dashboard_uses_a_bottom_panel_pie_table_and_reference():
@@ -362,7 +363,7 @@ def test_skyline_dashboard_uses_a_bottom_panel_pie_table_and_reference():
     assert config["panel"] == "bottom"
     assert {"pie_chart", "table"} <= set(_widget_types(config))
     tallest = next(w for w in config["widgets"] if w["title"].startswith("Tallest"))
-    assert tallest["config"]["reference"] == 1250
+    assert tallest["config"]["reference"] == 1239
 
 
 def test_hurricane_story_sets_reader_settings_and_a_cover():
@@ -464,3 +465,102 @@ def test_photos_are_uploaded_under_filenames_that_name_them():
     assert len(set(names)) == len(names)
     assert all("8b162" in n for n in names)
     assert "iss067e382116" in seeder.HURRICANE_PHOTO["filename"]
+
+
+def test_skyline_story_names_the_supertall_recorded_with_a_1924_year():
+    class SteinwayApi(SkylineFakeApi):
+        def rows(self, dataset_id, cql2, sort, limit):
+            bbox = cql2["args"][1]["args"][1]["bbox"]
+            if (
+                bbox == seeder.SKYLINE_57TH_BBOX
+                and "1900-1929" in cql2["args"][0]["args"][1]
+            ):
+                return [{"title": "Built 1924", "height_roof": 1428.0}]
+            return super().rows(dataset_id, cql2, sort, limit)
+
+    api = SteinwayApi()
+    seeder.seed_skyline_dashboard(api)
+    seeder.seed_skyline_story(api)
+    document = StoryDocumentInput.model_validate(api.published[-1])
+    text = " ".join(
+        block.config.text
+        for chapter in document.chapters
+        for block in chapter.blocks
+        if block.type == "markdown"
+    )
+    assert (
+        "The second tallest is 111 West 57th Street (Steinway Tower) at 1,428 ft"
+        in text
+    )
+    assert "After it comes a tower completed in 2016 at 1,396 ft" in text
+
+
+def test_hurricane_coasts_chapter_frames_the_regions_it_names():
+    api = FakeApi()
+    seeder.seed_hurricane_story(api)
+    chapter = api.published[0]["chapters"][1]
+    center = chapter["scene"]["camera"]["center"]
+    # Louisiana at -93 and Quintana Roo at -86.7 to Florida's east coast at -80.
+    assert -93 < center[0] < -80
+    assert 18 < center[1] < 31
+    assert chapter["scene"]["camera"]["zoom"] <= 4.2
+
+
+def test_skyline_story_ends_on_links_to_the_map_and_the_dashboard():
+    api = SkylineFakeApi()
+    seeder.seed_skyline_dashboard(api)
+    seeder.seed_skyline_story(api)
+    document = StoryDocumentInput.model_validate(api.published[-1])
+    last = document.chapters[-1].blocks
+    assert last[0].type == "markdown"
+    urls = [block.config.url for block in last if block.type == "button"]
+    assert urls == [
+        "https://geolens.example/maps/map-manhattan",
+        "https://geolens.example/maps/map-dashboard",
+    ]
+
+
+def test_matterhorn_text_says_the_terrain_stops_at_the_swiss_border():
+    notes = seeder.MAP_LEGEND_AND_NOTES["The Matterhorn in 3D"][1]
+    for text in (seeder.MAP_DESCRIPTIONS["The Matterhorn in 3D"], notes):
+        assert "Swiss border" in text
+
+
+def test_quake_codes_get_reader_labels_once():
+    class LabelApi:
+        def __init__(self):
+            self.attrs = {
+                f: {"id": f"a-{f}", "field_name": f, "title": f, "value_labels": None}
+                for f in ("magtype", "net")
+            }
+            self.writes = []
+
+        def datasets_by_title(self):
+            return {seeder.QUAKES_TITLE: "ds-quakes"}
+
+        def attributes(self, dataset_id):
+            return list(self.attrs.values())
+
+        def set_attribute_title(self, dataset_id, attr_id, title):
+            pass
+
+        def set_attribute_value_labels(self, dataset_id, attr_id, labels):
+            self.writes.append(attr_id)
+            for attr in self.attrs.values():
+                if attr["id"] == attr_id:
+                    attr["value_labels"] = labels
+
+    api = LabelApi()
+    seeder.set_attribute_titles(api)
+    assert api.attrs["magtype"]["value_labels"]["mww"] == "Moment, W-phase (Mww)"
+    assert api.attrs["net"]["value_labels"]["us"] == "USGS NEIC"
+    assert len(api.writes) == 2
+    seeder.set_attribute_titles(api)
+    assert len(api.writes) == 2
+
+
+def test_skyline_dashboard_has_no_roof_height_histogram():
+    api = SkylineFakeApi()
+    seeder.seed_skyline_dashboard(api)
+    kinds = {w["type"] for w in api.dashboards[-1]["widgets"]}
+    assert "histogram" not in kinds
