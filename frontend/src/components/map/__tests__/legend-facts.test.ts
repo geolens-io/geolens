@@ -1176,3 +1176,31 @@ describe('legendFacts for what the map drew', () => {
     }
   });
 });
+
+describe('legendFacts size titles', () => {
+  const sizedPoints = (style_config: Record<string, unknown>) => savedLayer({
+    dataset_geometry_type: 'MULTIPOINT',
+    paint: {
+      'circle-radius': ['step', ['get', 'mass_kg'], 3, 10, 6, 1000, 10],
+      'circle-color': ['match', ['get', 'fall'], 'Fell', '#f59e0b', '#94a3b8'],
+    },
+    style_config,
+  });
+  const titles = (layer: MapLayerResponse) => legendFacts(layer)?.classes?.map((classes) => classes.title);
+
+  it("names a colour classification's sizes with its size label, whatever column they read", () => {
+    const layer = sizedPoints({
+      mode: 'categorical',
+      column: 'fall',
+      categories: [{ value: 'Fell', color: '#f59e0b' }],
+      colorLabel: 'Recovery',
+      sizeLabel: 'Mass (kg)',
+    });
+    expect(titles(layer)).toEqual(['Mass (kg)', 'Recovery']);
+  });
+
+  it("keeps a size classification's label off sizes that read another column", () => {
+    const layer = sizedPoints({ mode: 'graduated', column: 'mag', target: 'radius', sizes: [3, 6, 10], breaks: [10, 1000], sizeLabel: 'Magnitude' });
+    expect(titles(layer)?.[0]).toBe('mass kg');
+  });
+});

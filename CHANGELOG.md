@@ -20,6 +20,7 @@ and releases use semantic versioning.
 - Stories and dashboard text: a wide code block scrolls inside its own shaded box instead of widening the whole chapter panel or widget.
 - Stories: in the floating layout each scene centres in the part of the map the chapter panel leaves free, instead of partly under the panel.
 - A dataset bound to a service now reports source health "healthy" after a successful refresh, whether or not the data changed, instead of "unknown" until a probe runs. A STAC item refresh keeps the asset probe's verdict.
+- A legend's size section takes the layer's size label when the layer is coloured by one column and sized by another, instead of showing the size column's name.
 - Dashboards: a category stored as empty or space-only text reads "(no value)" in pie, bar, table, selector and feature list widgets instead of a blank label.
 
 ## [1.30.0] - 2026-11-07
