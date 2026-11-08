@@ -169,6 +169,13 @@ export const StoryMapPane = memo(function StoryMapPane({ resolved, next, emptyHi
 
 const NO_PADDING: PaddingOptions = { top: 0, bottom: 0, left: 0, right: 0 };
 
+/** Moves the map's padding without moving its centre coordinate; a no-op when it already matches. */
+function applyPadding(map: MaplibreMap, padding: PaddingOptions) {
+  const now = map.getPadding();
+  if (now.top === padding.top && now.bottom === padding.bottom && now.left === padding.left && now.right === padding.right) return;
+  map.jumpTo({ padding });
+}
+
 type SlotRole = 'active' | 'standby' | 'outgoing';
 
 function StoryMap({
@@ -304,9 +311,7 @@ function StoryMap({
   // A move in flight started with the padding it has.
   useEffect(() => {
     if (!readyMap || inFlight.current > 0) return;
-    const now = readyMap.getPadding();
-    if (now.top === padding.top && now.bottom === padding.bottom && now.left === padding.left && now.right === padding.right) return;
-    readyMap.jumpTo({ padding });
+    applyPadding(readyMap, padding);
   }, [readyMap, padding]);
   // Live readiness; the cover latches off once the map has been shown ready or has waited.
   const [viewerReady, setViewerReady] = useState(false);
@@ -353,6 +358,8 @@ function StoryMap({
         // A flight stopped by a press or tap leaves the map between views, with no move after it.
         if (inFlight.current > 0) return;
       }
+      // A padding that changed during our move waited for it to end.
+      if (inFlight.current === 0) applyPadding(readyMap, paddingRef.current);
       checkAway(readyMap);
     };
     readyMap.on('resize', onResize);

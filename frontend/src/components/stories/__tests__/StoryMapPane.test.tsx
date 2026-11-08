@@ -770,4 +770,20 @@ describe('camera padding', () => {
     rerender(<StoryMapPane resolved={resolved('c1', 'map-a', 3)} padding={{ ...NONE }} />);
     expect(fakeMap.jumpTo).not.toHaveBeenCalled();
   });
+
+  it('applies a padding that changed during a move once the move ends', async () => {
+    const { rerender } = await renderReady(resolved('c1', 'map-a', 3), PADDING);
+    fakeMap.padding = PADDING;
+    viewAt(-70, 25, 3);
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-a', 9)} padding={PADDING} />);
+    expect(fakeMap.flyTo).toHaveBeenCalled();
+    fakeMap.jumpTo.mockClear();
+    rerender(<StoryMapPane resolved={resolved('c2', 'map-a', 9)} padding={NONE} />);
+    expect(fakeMap.jumpTo).not.toHaveBeenCalled();
+
+    viewAt(-70, 25, 9);
+    act(() => fakeMap.emit('moveend', {}));
+    expect(fakeMap.jumpTo).toHaveBeenCalledWith({ padding: NONE });
+    expect(screen.queryByRole('button', { name: "Back to this chapter's view" })).toBeNull();
+  });
 });
