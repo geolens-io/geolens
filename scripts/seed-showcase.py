@@ -502,6 +502,14 @@ MAP_DESCRIPTIONS: dict[str, str] = {
     ),
 }
 
+MATTERHORN_CAMERA = {
+    "center_lng": 7.660389,
+    "center_lat": 45.980888,
+    "zoom": 12.819672,
+    "pitch": 60,
+    "bearing": -150,
+}
+
 MAP_VIEW_FIXES = {
     "Manhattan - A Century of Skyline": {
         "expected": {"center_lng": -73.978, "center_lat": 40.753, "zoom": 15.0},
@@ -519,25 +527,35 @@ MAP_VIEW_FIXES = {
         "expected": {"center_lng": 0, "center_lat": 20, "zoom": 1.4},
         "wanted": DASHBOARD_CAMERA,
     },
-    # A map saved without a camera has null centre and zoom and default
-    # pitch and bearing; this is the framing build_matterhorn gives a new map.
+    # Either baseline moves: a map saved without a camera (null centre and
+    # zoom, default pitch and bearing), or the closer, steeper view new maps
+    # were given before this one.
     "The Matterhorn in 3D": {
-        "expected": {
-            "center_lng": None,
-            "center_lat": None,
-            "zoom": None,
-            "pitch": 0,
-            "bearing": 0,
-        },
-        "wanted": {
-            "center_lng": 7.6586,
-            "center_lat": 45.9750,
-            "zoom": 14.0,
-            "pitch": 66,
-            "bearing": -150,
-        },
+        "expected": (
+            {
+                "center_lng": None,
+                "center_lat": None,
+                "zoom": None,
+                "pitch": 0,
+                "bearing": 0,
+            },
+            {
+                "center_lng": 7.6586,
+                "center_lat": 45.9750,
+                "zoom": 14.0,
+                "pitch": 66,
+                "bearing": -150,
+            },
+        ),
+        "wanted": MATTERHORN_CAMERA,
     },
 }
+
+
+def _view_baselines(fix: dict) -> tuple[dict, ...]:
+    """The cameras a MAP_VIEW_FIXES entry moves to its wanted one."""
+    expected = fix["expected"]
+    return expected if isinstance(expected, tuple) else (expected,)
 
 # Dataset summary for the quake binding. Written by exactly ONE thing,
 # the origin-gated enrichment pass, and never at creation - a summary describing
@@ -6966,11 +6984,7 @@ def build_matterhorn(
             "source_dataset_id": vrt_ds,
             "exaggeration": 1.0,
         },
-        center_lng=7.6586,
-        center_lat=45.9750,
-        zoom=14.0,
-        pitch=66,
-        bearing=-150,
+        **MATTERHORN_CAMERA,
         basemap_style="openfreemap-positron",
         show_basemap_labels=False,
     )
@@ -8271,7 +8285,7 @@ def view_baseline_problems(api: "Api") -> list[str]:
             continue
         current = api.get_map(maps[name])
         present = {field: current.get(field) for field in fix["wanted"]}
-        if present not in (fix["expected"], fix["wanted"]):
+        if present not in (*_view_baselines(fix), fix["wanted"]):
             problems.append(f"{name} camera differs from its expected baseline")
     return problems
 
@@ -8834,10 +8848,9 @@ def apply_showcase_styling(api: "Api") -> list[str]:
             current = api.get_map(map_id)
             view_fix = MAP_VIEW_FIXES.get(name)
             if view_fix:
-                expected = view_fix["expected"]
                 wanted = view_fix["wanted"]
                 present = {field: current.get(field) for field in wanted}
-                if present == expected:
+                if present in _view_baselines(view_fix):
                     api.set_view(map_id, **wanted)
                     print(f"  camera: {name}")
                 elif present != wanted:

@@ -410,9 +410,12 @@ class CameraApi:
         return self.cameras[name]
 
 
-@pytest.mark.parametrize("key", ["expected", "wanted"])
-def test_guarded_preflight_accepts_a_known_camera(key):
-    api = CameraApi({name: fix[key] for name, fix in seed.MAP_VIEW_FIXES.items()})
+@pytest.mark.parametrize("pick", ["wanted", 0, -1])
+def test_guarded_preflight_accepts_a_known_camera(pick):
+    def camera(fix):
+        return fix["wanted"] if pick == "wanted" else seed._view_baselines(fix)[pick]
+
+    api = CameraApi({name: camera(fix) for name, fix in seed.MAP_VIEW_FIXES.items()})
     assert seed.view_baseline_problems(api) == []
 
 
@@ -438,20 +441,51 @@ class MatterhornCameraApi:
             self.camera_writes.append(fields)
 
 
-def test_styling_frames_a_matterhorn_map_saved_without_a_camera():
-    api = MatterhornCameraApi(
-        {"center_lng": None, "center_lat": None, "zoom": None, "pitch": 0, "bearing": 0}
-    )
-    assert seed.apply_showcase_styling(api) == []
-    assert api.camera_writes == [
+MATTERHORN_VIEW = {
+    "center_lng": 7.660389,
+    "center_lat": 45.980888,
+    "zoom": 12.819672,
+    "pitch": 60,
+    "bearing": -150,
+}
+
+
+@pytest.mark.parametrize(
+    "camera",
+    [
+        {
+            "center_lng": None,
+            "center_lat": None,
+            "zoom": None,
+            "pitch": 0,
+            "bearing": 0,
+        },
         {
             "center_lng": 7.6586,
             "center_lat": 45.9750,
             "zoom": 14.0,
             "pitch": 66,
             "bearing": -150,
-        }
-    ]
+        },
+    ],
+    ids=["no camera", "previous seed camera"],
+)
+def test_styling_frames_a_matterhorn_map_from_either_baseline(camera):
+    api = MatterhornCameraApi(camera)
+    assert seed.apply_showcase_styling(api) == []
+    assert api.camera_writes == [MATTERHORN_VIEW]
+
+
+def test_styling_leaves_the_matterhorn_view_it_wants_alone():
+    api = MatterhornCameraApi(dict(MATTERHORN_VIEW))
+    assert seed.apply_showcase_styling(api) == []
+    assert api.camera_writes == []
+    assert (
+        seed.view_baseline_problems(
+            CameraApi({"The Matterhorn in 3D": MATTERHORN_VIEW})
+        )
+        == []
+    )
 
 
 def test_styling_leaves_a_moved_matterhorn_camera_alone():
