@@ -244,6 +244,21 @@ def test_guarded_update_accepts_a_service_bound_target_without_legacy_rows(job_c
     assert state.unrestorable_changes(TargetApi()) == []
 
 
+def test_guarded_update_refuses_to_move_the_matterhorn_terrain(job_counts):
+    api = TargetApi(
+        titles={seed.QUAKES_TITLE: "q", seed.SWISSALTI_MOSAIC_TITLE: "swiss"}
+    )
+    api.get_map = lambda _id: {
+        "visibility": "public",
+        "description": "text",
+        "terrain_config": {"source_dataset_id": "swiss"},
+    }
+    assert (
+        "the Matterhorn terrain would move to the Copernicus mosaic"
+        in state.unrestorable_changes(api)
+    )
+
+
 def test_guarded_update_waits_for_a_running_job(job_counts):
     job_counts["running"] = 1
     assert state.unrestorable_changes(TargetApi()) == [

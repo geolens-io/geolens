@@ -542,10 +542,10 @@ def test_skyline_story_ends_on_links_to_the_map_and_the_dashboard():
     ]
 
 
-def test_matterhorn_text_says_the_terrain_stops_at_the_swiss_border():
+def test_matterhorn_text_names_the_copernicus_terrain_past_the_swiss_border():
     notes = seeder.MAP_LEGEND_AND_NOTES["The Matterhorn in 3D"][1]
     for text in (seeder.MAP_DESCRIPTIONS["The Matterhorn in 3D"], notes):
-        assert "Swiss border" in text
+        assert "Swiss border" in text and "Copernicus" in text
 
 
 def test_quake_codes_get_reader_labels_once():

@@ -46,6 +46,7 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
 import time
 import types
 import uuid
@@ -128,6 +129,43 @@ SWISSALTI_STAC = (
     "https://data.geo.admin.ch/api/stac/v1/collections/"
     f"ch.swisstopo.swissalti3d/items?bbox={SWISSALTI_BBOX}&limit=100"
 )
+SWISSALTI_MOSAIC_TITLE = "swissALTI3D Matterhorn DEM (2m mosaic)"
+SWISSALTI_TILE_PREFIX = "swissALTI3D 2m "
+# swissALTI3D stops at the Swiss border, just south of the summit; GLO-30 fills
+# the same box under the Swiss tiles (past 46 N, so two GLO-30 tiles). A mosaic
+# of mixed resolutions gets no overviews and low-zoom tiles read the whole 2 m
+# grid, so the box can't grow: a 35 km one crashed a 1 GB TiTiler.
+COPERNICUS_FILL_BBOX = tuple(SWISSALTI_BBOX.split(","))
+COPERNICUS_DEM_TILES = tuple(
+    "https://copernicus-dem-30m.s3.amazonaws.com/"
+    f"Copernicus_DSM_COG_10_{lat}_00_E007_00_DEM/"
+    f"Copernicus_DSM_COG_10_{lat}_00_E007_00_DEM.tif"
+    for lat in ("N45", "N46")
+)
+COPERNICUS_FILL_TITLE = "Copernicus GLO-30 DEM around the Matterhorn"
+MATTERHORN_TERRAIN_TITLE = "Matterhorn DEM (swissALTI3D and Copernicus GLO-30)"
+# The notice the GLO-30 licence requires for adapted data, and the liability
+# sentence it requires in any notice that distributes it.
+COPERNICUS_DEM_NOTICE = (
+    "produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus "
+    "Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European "
+    "Union and ESA; all rights reserved"
+)
+COPERNICUS_DEM_LIABILITY = (
+    "The organisations in charge of the Copernicus programme by law or by "
+    "delegation do not incur any liability for any use of the Copernicus "
+    "WorldDEM-30."
+)
+MATTERHORN_RELIEF_LAYER = "Terrain relief"
+# A stalled read of the remote tiles fails instead of hanging the seed.
+_GDAL_FETCH_ENV = {
+    "GDAL_HTTP_CONNECTTIMEOUT": "30",
+    "GDAL_HTTP_TIMEOUT": "120",
+    "GDAL_HTTP_MAX_RETRY": "3",
+    "GDAL_HTTP_RETRY_DELAY": "5",
+    "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+    "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif",
+}
 # USGS "Recent Earthquakes" ArcGIS MapServer, layer 0 = "M2.5+ Recent
 # Earthquakes" (rolling 30-day window, ~2,300 features, OID field OBJECTID;
 # public domain). Bound as a LIVE SERVICE rather than downloaded, so the demo
@@ -563,10 +601,10 @@ MAP_DESCRIPTIONS: dict[str, str] = {
     "The Matterhorn in 3D": (
         "How do climbing routes cross the Matterhorn's terrain? Tilt and rotate "
         "the 3D relief, then open a peak or route. The elevation surface is a "
-        "VRT mosaic of swissALTI3D 2 m tiles from swisstopo; the routes and "
-        "peak labels come from OpenStreetMap. swissALTI3D covers Switzerland "
-        "only, so the terrain stops at the Swiss border just south of the "
-        "summit. See the DEM dataset page for its source and access options."
+        "VRT mosaic of swissALTI3D 2 m tiles from swisstopo. South of the "
+        "Swiss border, just past the summit, it is the coarser 30 m Copernicus "
+        "GLO-30 model. The routes and peak labels come from OpenStreetMap. See "
+        "the DEM dataset page for its sources and access options."
     ),
     "Hurricane Exposure: Which Coasts the Major Storms Reach": (
         "Which Atlantic coastal regions lie within 100 km of historical major "
@@ -892,14 +930,16 @@ class Api:
         self.created[title] = dataset_id
         return dataset_id
 
-    def ingest_binary(self, path: str, kind: str, title: str, summary: str) -> str:
+    def ingest_binary(
+        self, path: str, kind: str | None, title: str, summary: str
+    ) -> str:
         media_type = "application/zip" if kind == "tiles3d" else "application/octet-stream"
         with open(path, "rb") as stream:
             uploaded = self.client.post(
                 f"{self.base}/api/ingest/upload",
                 headers=self.h,
                 files={"file": (Path(path).name, stream, media_type)},
-                data={"kind": kind},
+                data={"kind": kind} if kind else None,
             )
         uploaded.raise_for_status()
         job_id = uploaded.json()["job_id"]
@@ -7009,6 +7049,172 @@ def ensure_matterhorn_overlays(
         raise RuntimeError("Matterhorn route or peak overlays are unavailable")
 
 
+def _swissalti_tile_ids(api: Api, by_title: dict) -> list[str]:
+    """The swissALTI3D tile datasets, registered through a manifest on first seed.
+
+    The tiles already present are complete only once the Swiss mosaic exists,
+    since it is built after every manifest entry resolved; before that the
+    manifest runs again, skipping the tiles it already imported.
+    """
+    ids = [ds for title, ds in sorted(by_title.items()) if title.startswith(SWISSALTI_TILE_PREFIX)]
+    if ids and SWISSALTI_MOSAIC_TITLE in by_title:
+        return ids
+    print("  querying swissALTI3D STAC (regional AOI)...")
+    tiles = fetch_swissalti_tiles()
+    if not tiles:
+        raise RuntimeError("no swissALTI3D 2m tiles matched the regional AOI")
+    print(f"  registering {len(tiles)} COG tiles via manifest (downloads each)...")
+    manifest = {
+        "manifest_version": "1",
+        "catalog": {"title": "Swiss Alps Terrain (Matterhorn)"},
+        "datasets": [
+            {
+                "key": f"swissalti3d-{tag}",
+                "title": f"{SWISSALTI_TILE_PREFIX}{tag} (Matterhorn)",
+                "sources": [
+                    {"type": "raster_cog", "uri": uri, "format": "geotiff"}
+                ],
+                "metadata": {
+                    "crs": "EPSG:2056",
+                    "organization": "swisstopo",
+                    "license": "swisstopo OGD",
+                    # swisstopo OGD requires the source credit on display.
+                    # Recorded in the manifest provenance for now - see the
+                    # ETOPO note above: nothing renders it over the tiles
+                    # yet, so the credit still has to be met elsewhere.
+                    "attribution": "© swisstopo",
+                    "tags": ["dem", "swissalti3d", "matterhorn"],
+                },
+                "publication": {"intent": "ready"},
+            }
+            for tag, uri in sorted(tiles.items())
+        ],
+        "dry_run": False,
+    }
+    results = api.manifest_apply(manifest)
+    # A failed entry is action="error" (no job_id). Abort before mosaicking
+    # rather than silently building a VRT from a partial tile set; reuse
+    # the dataset_id of already-ingested tiles (action="skip" on a re-run).
+    errored = [r for r in results if r.get("action") == "error"]
+    if errored:
+        detail = "; ".join(
+            f"{r.get('dataset_key')}: {r.get('message') or r.get('errors')}"
+            for r in errored
+        )
+        raise RuntimeError(
+            f"{len(errored)}/{len(results)} swissALTI3D manifest entries "
+            f"failed: {detail}"
+        )
+    tile_ids = []
+    for r in results:
+        if r.get("job_id"):
+            dataset_id = api.poll(r["job_id"])["dataset_id"]
+        elif r.get("dataset_id"):
+            dataset_id = r["dataset_id"]
+        else:
+            continue
+        tag = r["dataset_key"].removeprefix("swissalti3d-")
+        by_title[f"{SWISSALTI_TILE_PREFIX}{tag} (Matterhorn)"] = dataset_id
+        tile_ids.append(dataset_id)
+    if len(tile_ids) != len(tiles):
+        raise RuntimeError(
+            f"expected {len(tiles)} swissALTI3D tiles but only "
+            f"{len(tile_ids)} resolved to datasets; aborting before VRT"
+        )
+    return tile_ids
+
+
+def _copernicus_fill(api: Api, by_title: dict) -> str:
+    """GLO-30 heights for the Swiss tiles' box, warped onto their grid.
+
+    Mosaic members must share a CRS, data type and nodata value, so the fill
+    is reprojected to EPSG:2056 as Float32 with the Swiss tiles' -9999 nodata.
+    Only the blocks inside the box are read from the two 40 MB tiles.
+    """
+    if COPERNICUS_FILL_TITLE in by_title:
+        return by_title[COPERNICUS_FILL_TITLE]
+    print("  warping the Copernicus GLO-30 tile onto the Swiss grid...")
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "copernicus-glo30-matterhorn.tif")
+        try:
+            subprocess.run(
+                [
+                    "gdalwarp", "-q",
+                    "-t_srs", "EPSG:2056",
+                    "-te", *COPERNICUS_FILL_BBOX, "-te_srs", "EPSG:4326",
+                    "-tr", "20", "20", "-r", "bilinear",
+                    "-ot", "Float32", "-dstnodata", "-9999",
+                    "-of", "COG", "-co", "COMPRESS=DEFLATE",
+                    *(f"/vsicurl/{url}" for url in COPERNICUS_DEM_TILES), path,
+                ],
+                check=True,
+                env={**os.environ, **_GDAL_FETCH_ENV},
+                timeout=900,
+            )
+        except (OSError, subprocess.SubprocessError) as e:
+            raise RuntimeError(f"gdalwarp could not build the Copernicus fill: {e}") from e
+        dataset_id = api.ingest_binary(
+            path, None, COPERNICUS_FILL_TITLE, SHOWCASE_METADATA[COPERNICUS_FILL_TITLE]["summary"]
+        )
+    by_title[COPERNICUS_FILL_TITLE] = dataset_id
+    return dataset_id
+
+
+def matterhorn_terrain(api: Api, by_title: dict) -> str:
+    """The Matterhorn's terrain: the GLO-30 fill with the swissALTI3D tiles over it."""
+    if MATTERHORN_TERRAIN_TITLE in by_title:
+        dataset_id = by_title[MATTERHORN_TERRAIN_TITLE]
+    else:
+        # A mosaic draws later members over earlier ones, so the fill goes first.
+        members = [_copernicus_fill(api, by_title), *_swissalti_tile_ids(api, by_title)]
+        print(f"  mosaicking the fill and {len(members) - 1} Swiss tiles into a VRT...")
+        job = api.vrt_create(
+            members,
+            MATTERHORN_TERRAIN_TITLE,
+            SHOWCASE_METADATA[MATTERHORN_TERRAIN_TITLE]["summary"],
+        )
+        dataset_id = api.poll(job, timeout=600)["dataset_id"]
+        by_title[MATTERHORN_TERRAIN_TITLE] = dataset_id
+    api.patch_dataset(dataset_id, is_dem=True)
+    return dataset_id
+
+
+def move_matterhorn_to_full_terrain(api: Api, map_id: str, by_title: dict) -> None:
+    """Move a map still drawn on the Swiss-only mosaic onto the filled terrain.
+
+    Only a map whose terrain is still that mosaic is moved, so a hand-picked
+    terrain is left alone. The relief layer is saved in place onto the new
+    dataset, keeping its id, style and position, so story scenes that refer
+    to it by id still find it.
+    """
+    swiss = by_title.get(SWISSALTI_MOSAIC_TITLE)
+    current = api.get_map(map_id)
+    terrain = current.get("terrain_config") or {}
+    if swiss is None or terrain.get("source_dataset_id") != swiss:
+        return
+    moving = {layer["id"] for layer in current["layers"] if layer["dataset_id"] == swiss}
+    referrers = _repoint_referrers(api, map_id, current, moving, {swiss})
+    if referrers:
+        print(
+            f"  ! {current.get('name')}: {'; '.join(referrers)} would break; "
+            "left on the Swiss-only terrain",
+            file=sys.stderr,
+        )
+        return
+    terrain_ds = matterhorn_terrain(api, by_title)
+    body = []
+    for layer in current["layers"]:
+        item = {k: layer[k] for k in _LAYER_WRITABLE_FIELDS if layer.get(k) is not None}
+        item["id"] = layer["id"]
+        if layer["dataset_id"] == swiss:
+            item["dataset_id"] = terrain_ds
+            item["display_name"] = MATTERHORN_RELIEF_LAYER
+        body.append(item)
+    api.replace_map_layers(map_id, body, current.get("updated_at"))
+    api.set_view(map_id, terrain_config={**terrain, "source_dataset_id": terrain_ds})
+    print("  moved the terrain onto the Swiss and Copernicus mosaic")
+
+
 def build_matterhorn(
     api: Api,
     force: bool = False,
@@ -7026,9 +7232,10 @@ def build_matterhorn(
         ensure_matterhorn_overlays(
             api, existing_id, by_title, routes_geojson, peaks_geojson
         )
+        move_matterhorn_to_full_terrain(api, existing_id, by_title)
         return _announce_kept_map(name, force)
     print("\n[matterhorn] The Matterhorn (3D terrain via regional VRT mosaic)")
-    vrt_title = "swissALTI3D Matterhorn DEM (2m mosaic)"
+    vrt_title = SWISSALTI_MOSAIC_TITLE
     # The DEM mosaic and its 62 tile rasters are reused even under
     # --force. The manifest endpoint refuses updates to existing raster
     # datasets ("Manifest raster updates are not supported"), so a forced
@@ -7042,63 +7249,7 @@ def build_matterhorn(
         print("  [reuse] existing DEM mosaic")
         vrt_ds = by_title[vrt_title]
     else:
-        print("  querying swissALTI3D STAC (regional AOI)...")
-        tiles = fetch_swissalti_tiles()
-        if not tiles:
-            raise RuntimeError("no swissALTI3D 2m tiles matched the regional AOI")
-        print(f"  registering {len(tiles)} COG tiles via manifest (downloads each)...")
-        manifest = {
-            "manifest_version": "1",
-            "catalog": {"title": "Swiss Alps Terrain (Matterhorn)"},
-            "datasets": [
-                {
-                    "key": f"swissalti3d-{tag}",
-                    "title": f"swissALTI3D 2m {tag} (Matterhorn)",
-                    "sources": [
-                        {"type": "raster_cog", "uri": uri, "format": "geotiff"}
-                    ],
-                    "metadata": {
-                        "crs": "EPSG:2056",
-                        "organization": "swisstopo",
-                        "license": "swisstopo OGD",
-                        # swisstopo OGD requires the source credit on display.
-                        # Recorded in the manifest provenance for now - see the
-                        # ETOPO note above: nothing renders it over the tiles
-                        # yet, so the credit still has to be met elsewhere.
-                        "attribution": "© swisstopo",
-                        "tags": ["dem", "swissalti3d", "matterhorn"],
-                    },
-                    "publication": {"intent": "ready"},
-                }
-                for tag, uri in sorted(tiles.items())
-            ],
-            "dry_run": False,
-        }
-        results = api.manifest_apply(manifest)
-        # A failed entry is action="error" (no job_id). Abort before mosaicking
-        # rather than silently building a VRT from a partial tile set; reuse
-        # the dataset_id of already-ingested tiles (action="skip" on a re-run).
-        errored = [r for r in results if r.get("action") == "error"]
-        if errored:
-            detail = "; ".join(
-                f"{r.get('dataset_key')}: {r.get('message') or r.get('errors')}"
-                for r in errored
-            )
-            raise RuntimeError(
-                f"{len(errored)}/{len(results)} swissALTI3D manifest entries "
-                f"failed: {detail}"
-            )
-        tile_ids = []
-        for r in results:
-            if r.get("job_id"):
-                tile_ids.append(api.poll(r["job_id"])["dataset_id"])
-            elif r.get("dataset_id"):
-                tile_ids.append(r["dataset_id"])
-        if len(tile_ids) != len(tiles):
-            raise RuntimeError(
-                f"expected {len(tiles)} swissALTI3D tiles but only "
-                f"{len(tile_ids)} resolved to datasets; aborting before VRT"
-            )
+        tile_ids = _swissalti_tile_ids(api, by_title)
         print(f"  mosaicking {len(tile_ids)} tiles into a VRT...")
         vrt_job = api.vrt_create(
             tile_ids,
@@ -7106,19 +7257,21 @@ def build_matterhorn(
             "VRT mosaic of swissALTI3D 2m tiles around the Matterhorn. swisstopo OGD.",
         )
         vrt_ds = api.poll(vrt_job, timeout=600)["dataset_id"]
+        by_title[vrt_title] = vrt_ds
     # A VRT does NOT inherit is_dem from its sources - set it or terrain won't
     # engage.
     api.patch_dataset(vrt_ds, is_dem=True)
+    terrain_ds = matterhorn_terrain(api, by_title)
     map_id = api.create_map(name, MAP_DESCRIPTIONS[name])
     api.add_layer(
         map_id,
         {
-            "dataset_id": vrt_ds,
+            "dataset_id": terrain_ds,
             # Highest sort_order = BOTTOM of the stack (viewer draws lower
             # sort_order on top) - the relief sits under routes/casing/peaks.
             "sort_order": 4,
             "opacity": 1.0,
-            "display_name": "swissALTI3D relief",
+            "display_name": MATTERHORN_RELIEF_LAYER,
             "layer_type": "raster_geolens",
             "style_config": {"render_mode": "hillshade", "builder": {}},
             # illumination-anchor "map" keeps the NW (315 deg) lighting fixed
@@ -7138,14 +7291,13 @@ def build_matterhorn(
         },
     )
     ensure_matterhorn_overlays(api, map_id, by_title, routes_geojson, peaks_geojson)
-    # Frame the summit. The DEM stops at the Swiss border just south of it.
     # Exaggeration 1.0: the relief is dramatic enough honestly.
     api.set_view(
         map_id,
         visibility="public",
         terrain_config={
             "enabled": True,
-            "source_dataset_id": vrt_ds,
+            "source_dataset_id": terrain_ds,
             "exaggeration": 1.0,
         },
         **MATTERHORN_CAMERA,
@@ -7802,7 +7954,9 @@ COLLECTIONS = {
             "Hurricane Exposure by Coastal Region",
             "Meteorite Landings (Meteoritical Society)",
             "ETOPO 2022 Global Relief (60 arc-second)",
-            "swissALTI3D Matterhorn DEM (2m mosaic)",
+            SWISSALTI_MOSAIC_TITLE,
+            MATTERHORN_TERRAIN_TITLE,
+            COPERNICUS_FILL_TITLE,
         ],
     ),
     "Human World": (
@@ -8292,7 +8446,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "update_frequency": "irregular",
     },
     # PINNED by dataset id from outside this repo. Metadata only.
-    "swissALTI3D Matterhorn DEM (2m mosaic)": {
+    SWISSALTI_MOSAIC_TITLE: {
         "summary": (
             "A 2 m digital elevation model of the Matterhorn region, mosaicked "
             "into one virtual raster from swisstopo's swissALTI3D lidar tiles "
@@ -8308,6 +8462,40 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "data_vintage_end": "2024-12-31",
         "theme_category": ["elevation"],
         "update_frequency": "irregular",
+    },
+    MATTERHORN_TERRAIN_TITLE: {
+        "summary": (
+            "The Matterhorn's terrain in one virtual raster: swissALTI3D 2 m "
+            "lidar tiles from swisstopo over Copernicus GLO-30 heights, both in "
+            "the Swiss LV95 grid (EPSG:2056). swissALTI3D covers Switzerland "
+            "only, so south of the border, just past the summit, the heights "
+            "come from the coarser Copernicus model. It is the terrain under "
+            "the Matterhorn in 3D map, in meters above sea level."
+        ),
+        "license": "swisstopo OGD; Copernicus DEM GLO-30 licence",
+        "keywords": ["terrain", "dem", "elevation", "swisstopo", "copernicus", "matterhorn"],
+        "source_organization": "swisstopo; European Space Agency (Copernicus)",
+        "attribution": f"© swisstopo (swissALTI3D); {COPERNICUS_DEM_NOTICE}",
+        "usage_constraints": COPERNICUS_DEM_LIABILITY,
+        "source_url": ("https://www.swisstopo.admin.ch/en/height-model-swissalti3d"),
+        "theme_category": ["elevation"],
+        "update_frequency": "irregular",
+    },
+    COPERNICUS_FILL_TITLE: {
+        "summary": (
+            "Copernicus GLO-30 heights for the box around the Matterhorn, "
+            "reprojected from the 1 arc-second tiles N45 E007 and N46 E007 to "
+            "the Swiss LV95 grid (EPSG:2056) at 20 m. It fills the Italian side "
+            "of the Matterhorn terrain, where swissALTI3D has no data."
+        ),
+        "license": "Copernicus DEM GLO-30 licence",
+        "keywords": ["terrain", "dem", "elevation", "copernicus", "matterhorn"],
+        "source_organization": "European Space Agency (Copernicus)",
+        "attribution": COPERNICUS_DEM_NOTICE,
+        "usage_constraints": COPERNICUS_DEM_LIABILITY,
+        "source_url": "https://registry.opendata.aws/copernicus-dem/",
+        "theme_category": ["elevation"],
+        "update_frequency": "notPlanned",
     },
 }
 
@@ -8348,6 +8536,7 @@ SHOWCASE_METADATA_BY_PREFIX: dict[str, dict] = {
 _ENRICH_PATCH_FIELDS = (
     "license",
     "attribution",
+    "usage_constraints",
     "source_organization",
     "source_url",
     "update_frequency",
@@ -8519,12 +8708,12 @@ MAP_LEGEND_AND_NOTES: dict[str, tuple[str, str]] = {
     "The Matterhorn in 3D": (
         "Elevation",
         "Terrain is a VRT mosaic of swissALTI3D 2 m lidar tiles (swisstopo "
-        "OGD) with a hillshade lit from the northwest and a hypsometric tint. "
-        "The mosaic is served as terrain; its dataset page records the source "
-        "and available access paths. The elevation data covers Switzerland "
-        "only, so the terrain ends at the Swiss border just south of the "
-        "summit. Routes and peaks are OpenStreetMap, clipped to the mosaic "
-        "footprint.",
+        "OGD) over the Copernicus GLO-30 elevation model, with a hillshade lit "
+        "from the northwest and a hypsometric tint. swissALTI3D covers "
+        "Switzerland only, so south of the Swiss border, just past the summit, "
+        "the terrain is the coarser 30 m Copernicus model. The mosaic is served as terrain; its dataset page records the "
+        "sources and access paths. Routes and peaks are OpenStreetMap, clipped "
+        "to the area around the summit.",
     ),
     HURRICANE_MAP: (
         "Saffir-Simpson category",
@@ -8583,7 +8772,7 @@ MAP_FOLDER_GROUPS: dict[str, dict[str, tuple[str, str]]] = {
         "Global relief (ETOPO 2022)": ("re-context", "Context"),
     },
     "The Matterhorn in 3D": {
-        "swissALTI3D relief": ("mh-terrain", "Terrain"),
+        MATTERHORN_RELIEF_LAYER: ("mh-terrain", "Terrain"),
         "Climbing routes (OSM)": ("mh-routes", "Routes & Peaks"),
         "Route casing": ("mh-routes", "Routes & Peaks"),
         "Peaks": ("mh-routes", "Routes & Peaks"),
@@ -8868,7 +9057,7 @@ def _repoint_quake_heat_layers(
     moving = {x["id"] for x in layers if x.get("dataset_id") in legacies}
     if not moving:
         return False
-    referrers = _heat_layer_referrers(api, map_id, current, moving, legacies)
+    referrers = _repoint_referrers(api, map_id, current, moving, legacies)
     if referrers:
         print(
             f"  ! {current.get('name')}: {'; '.join(referrers)} would break; "
@@ -8888,11 +9077,12 @@ def _repoint_quake_heat_layers(
     return True
 
 
-def _heat_layer_referrers(
+def _repoint_referrers(
     api: "Api", map_id: str, current: dict, moving: set, legacies: set
 ) -> list[str]:
-    """What a repoint of *moving* would break: dashboard widgets that read
-    those layers and active embed tokens scoped to a heatmap copy."""
+    """What repointing the *moving* layers off the *legacies* datasets would
+    break: dashboard widgets that read those layers and active embed tokens
+    scoped to one of those datasets, which a layer save revokes."""
     widgets = (current.get("dashboard_config") or {}).get("widgets") or []
     out = [
         f"dashboard widget {w.get('title') or w.get('id')}"
