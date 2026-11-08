@@ -5,7 +5,7 @@ import { useChartMarks } from '../chart-marks';
 import type { SelectionValue, WidgetRenderProps } from '../contract';
 import { useLayerColors } from '../layer-colors';
 import { PICKED_GLYPH, PickedMark } from '../PickedMark';
-import { picksRow, selectedValues, togglePick } from '../selection';
+import { selectedValues, togglePick } from '../selection';
 import { ValueTable } from '../ValueTable';
 import type { PieChartConfig } from './definition';
 import { arcCentre, arcPath, pieArcs } from './pie-geometry';
@@ -72,10 +72,10 @@ export default function PieChartRenderer({
       ? (index) => {
           if (index >= rows.length) return;
           onSelect(
-            togglePick(picksRow(picked, rows[index]), {
+            togglePick(picked.length === 1 && picked[0] === rows[index].key, {
               column: config.column,
               label: rows[index].label,
-              values: rows[index].keys,
+              values: [rows[index].key],
             }),
           );
         }

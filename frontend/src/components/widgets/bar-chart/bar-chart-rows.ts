@@ -40,7 +40,6 @@ function bar(
 ): CategoryRow {
   return {
     key,
-    keys: [key],
     label,
     tableLabel,
     text: formatAggregateValue(typeof value === 'boolean' ? String(value) : value),
