@@ -294,6 +294,8 @@ services:
       - ./scripts/lib:/app/scripts/lib:ro
       - ./scripts/restore.sh:/app/scripts/restore.sh:ro
       - ./scripts/seed-showcase.py:/app/scripts/seed-showcase.py:ro
+      - ./scripts/seed_showcase_cambridge.py:/app/scripts/seed_showcase_cambridge.py:ro
+      - ./scripts/cambridge_trees_webmap.json:/app/scripts/cambridge_trees_webmap.json:ro
       - ./scripts/tests:/app/scripts/tests:ro
       - ./sdks:/app/sdks:ro
       # api, worker and titiler must see the same files at the fixed /app/staging.
