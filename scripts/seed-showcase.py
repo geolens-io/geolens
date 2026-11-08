@@ -5731,7 +5731,7 @@ def seed_skyline_story(
     steinway = _skyline_tallest(
         api, buildings_ds, SKYLINE_57TH_BBOX, pre_1930, limit=1
     )[0]
-    if steinway[0].endswith("1924") and steinway[1] > super_top[1][1]:
+    if steinway[0].endswith("1924") and super_top[1][1] < steinway[1] < super_top[0][1]:
         second = (
             f"The second tallest is 111 West 57th Street (Steinway Tower) at "
             f"{steinway[1]:,.0f} ft, completed in 2021. Its record keeps the "

@@ -467,32 +467,54 @@ def test_photos_are_uploaded_under_filenames_that_name_them():
     assert "iss067e382116" in seeder.HURRICANE_PHOTO["filename"]
 
 
-def test_skyline_story_names_the_supertall_recorded_with_a_1924_year():
+def _skyline_text_with_57th(modern, old):
     class SteinwayApi(SkylineFakeApi):
         def rows(self, dataset_id, cql2, sort, limit):
             bbox = cql2["args"][1]["args"][1]["bbox"]
-            if (
-                bbox == seeder.SKYLINE_57TH_BBOX
-                and "1900-1929" in cql2["args"][0]["args"][1]
-            ):
-                return [{"title": "Built 1924", "height_roof": 1428.0}]
+            eras = cql2["args"][0]["args"][1]
+            if bbox == seeder.SKYLINE_57TH_BBOX and "2015+" in eras:
+                return modern
+            if bbox == seeder.SKYLINE_57TH_BBOX and "1900-1929" in eras:
+                return old
             return super().rows(dataset_id, cql2, sort, limit)
 
     api = SteinwayApi()
     seeder.seed_skyline_dashboard(api)
     seeder.seed_skyline_story(api)
     document = StoryDocumentInput.model_validate(api.published[-1])
-    text = " ".join(
+    return " ".join(
         block.config.text
         for chapter in document.chapters
         for block in chapter.blocks
         if block.type == "markdown"
     )
+
+
+MODERN_57TH = [
+    {"title": "Built 2020", "height_roof": 1550.0},
+    {"title": "Built 2016", "height_roof": 1396.0},
+]
+
+
+def test_skyline_story_names_the_supertall_recorded_with_a_1924_year():
+    text = _skyline_text_with_57th(
+        MODERN_57TH, [{"title": "Built 1924", "height_roof": 1428.0}]
+    )
+    assert "The tallest is a tower completed in 2020, with a roof at 1,550 ft" in text
     assert (
         "The second tallest is 111 West 57th Street (Steinway Tower) at 1,428 ft"
         in text
     )
     assert "After it comes a tower completed in 2016 at 1,396 ft" in text
+
+
+@pytest.mark.parametrize("height", [1600.0, 1300.0])
+def test_skyline_story_ranks_a_1924_tower_only_between_the_two_tallest(height):
+    text = _skyline_text_with_57th(
+        MODERN_57TH, [{"title": "Built 1924", "height_roof": height}]
+    )
+    assert "Steinway" not in text
+    assert "It is followed by a tower completed in 2016 at 1,396 ft" in text
 
 
 def test_hurricane_coasts_chapter_frames_the_regions_it_names():
