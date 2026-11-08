@@ -47,6 +47,10 @@ const LAND_PATHS = [
   "M177.0,31.4L176.9,32.3L177.8,33.1L177.9,34.1L179.6,35.5L180.5,37.1L181.6,37.9L181.4,38.7L179.2,39.2L177.0,39.3L175.5,39.7L174.2,39.8L176.6,38.6L174.7,38.0L175.2,37.2L176.9,36.6L176.4,35.4L174.9,34.9L175.0,34.2L174.4,33.7L174.2,32.2L175.8,31.4Z",
 ];
 
+// Degrees of longitude shown at the tightest zoom: the land outlines are too
+// coarse to place anything in a narrower window.
+const MIN_VIEW_WIDTH = 40;
+
 interface BBoxPreviewProps {
   bbox: [number, number, number, number] | null;
   className?: string;
@@ -75,19 +79,19 @@ export function BBoxPreview({ bbox, className }: BBoxPreviewProps) {
   const worldArea = 360 * 180;
   const coverage = bboxArea / worldArea;
 
-  // Zooms in for datasets covering < 10% of the world.
+  // Zooms in for datasets covering < 10% of the world, to a 2:1 window around
+  // the extent. Strokes don't scale with the zoom.
+  const zoomed = !crossesDateline && coverage < 0.1;
   let viewBox = '0 0 360 180';
-  if (!crossesDateline && coverage < 0.1) {
-    const padX = Math.max(width, 20) * 0.5;
-    const padY = Math.max(height, 20) * 0.5;
-    const vbX = Math.max(0, x - padX);
-    const vbY = Math.max(0, y - padY);
-    const vbW = Math.max(20, Math.min(360 - vbX, width + padX * 2));
-    const vbH = Math.max(20, Math.min(180 - vbY, height + padY * 2));
+  let minRect = 2;
+  if (zoomed) {
+    const vbW = Math.min(360, Math.max(MIN_VIEW_WIDTH, width * 2, height * 4));
+    const vbH = vbW / 2;
+    const vbX = Math.min(360 - vbW, Math.max(0, x + width / 2 - vbW / 2));
+    const vbY = Math.min(180 - vbH, Math.max(0, y + height / 2 - vbH / 2));
     viewBox = `${vbX} ${vbY} ${vbW} ${vbH}`;
+    minRect = vbW / 30;
   }
-
-  const strokeWidth = !crossesDateline && coverage < 0.1 ? 1 : 2;
 
   return (
     <svg
@@ -104,14 +108,15 @@ export function BBoxPreview({ bbox, className }: BBoxPreviewProps) {
         fill="none"
         stroke="currentColor"
         strokeWidth="0.5"
+        vectorEffect="non-scaling-stroke"
         className="text-border"
       />
       {/* Grid lines - prime meridian and equator */}
-      <line x1="180" y1="0" x2="180" y2="180" stroke="currentColor" strokeWidth="0.2" className="text-border" />
-      <line x1="0" y1="90" x2="360" y2="90" stroke="currentColor" strokeWidth="0.2" className="text-border" />
+      <line x1="180" y1="0" x2="180" y2="180" stroke="currentColor" strokeWidth="0.5" vectorEffect="non-scaling-stroke" className="text-border" />
+      <line x1="0" y1="90" x2="360" y2="90" stroke="currentColor" strokeWidth="0.5" vectorEffect="non-scaling-stroke" className="text-border" />
       {/* Latitude lines at 30N and 30S */}
-      <line x1="0" y1="60" x2="360" y2="60" stroke="currentColor" strokeWidth="0.15" className="text-border" />
-      <line x1="0" y1="120" x2="360" y2="120" stroke="currentColor" strokeWidth="0.15" className="text-border" />
+      <line x1="0" y1="60" x2="360" y2="60" stroke="currentColor" strokeWidth="0.5" vectorEffect="non-scaling-stroke" className="text-border" />
+      <line x1="0" y1="120" x2="360" y2="120" stroke="currentColor" strokeWidth="0.5" vectorEffect="non-scaling-stroke" className="text-border" />
       {/* Land mass outlines */}
       {LAND_PATHS.map((d, i) => (
         <path
@@ -130,12 +135,13 @@ export function BBoxPreview({ bbox, className }: BBoxPreviewProps) {
           key={i}
           x={w + 180}
           y={90 - n}
-          width={Math.max(e - w, 2)}
-          height={Math.max(n - s, 2)}
+          width={Math.max(e - w, minRect)}
+          height={Math.max(n - s, minRect)}
           fill={hexToRgba(MAP_COLORS.default.fill, 0.25)}
           stroke={MAP_COLORS.default.fill}
-          strokeWidth={strokeWidth}
-          rx="0.5"
+          strokeWidth={1.5}
+          vectorEffect="non-scaling-stroke"
+          rx={minRect / 4}
         />
       ))}
     </svg>

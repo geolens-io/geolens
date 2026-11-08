@@ -1,9 +1,9 @@
-import { useId, useMemo, useRef, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import type { MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { useTranslation } from 'react-i18next';
 import { demChipGlyph, LayerTypeIcon, RasterGlyphChip } from '@/components/map/layer-icons';
 import { HeatmapLegend, LegendClassesList } from '@/components/map/LegendEntries';
-import { Eye, EyeOff, Layers, X } from 'lucide-react';
+import { ChevronDown, Eye, EyeOff, Layers, X } from 'lucide-react';
 import { createViewerLayerEntries, isTerrainBackingLiveVisible } from '@/components/viewer/layer-identity';
 import {
   deriveTerrainLegendEntry,
@@ -81,6 +81,25 @@ export function LayerLegend({
   }, [terrainConfig, layers, sorted, visibleLayers]);
 
   const panelId = useId();
+
+  // Rows below the fold get a fading chevron so a cut-off list reads as
+  // scrollable rather than complete.
+  const [moreBelow, setMoreBelow] = useState(false);
+  const updateMoreBelow = useCallback(() => {
+    const el = panelRef.current;
+    if (!el) return;
+    setMoreBelow(el.scrollHeight - el.scrollTop - el.clientHeight > 4);
+  }, []);
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!isOpen || !el) return;
+    updateMoreBelow();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(updateMoreBelow);
+    observer.observe(el);
+    if (el.firstElementChild) observer.observe(el.firstElementChild);
+    return () => observer.disconnect();
+  }, [isOpen, sorted, terrainEntry, visibleLayers, updateMoreBelow]);
   // Escape closes the panel only while focus is in the legend, and marks the
   // event handled so FeaturePopup and BasemapToggle's document listeners skip it.
   function handleEscape(e: KeyboardEvent<HTMLElement>) {
@@ -114,6 +133,7 @@ export function LayerLegend({
       <div
         ref={panelRef}
         onKeyDown={handleEscape}
+        onScroll={updateMoreBelow}
         id={panelId}
         role="region"
         aria-label={t('viewer.legend.title')}
@@ -239,6 +259,15 @@ export function LayerLegend({
             );
           })}
         </ul>
+        {moreBelow && (
+          <div
+            data-testid="legend-more-below"
+            aria-hidden="true"
+            className="pointer-events-none sticky bottom-0 -mt-8 flex h-8 items-end justify-center bg-gradient-to-t from-background to-transparent pb-0.5 text-muted-foreground"
+          >
+            <ChevronDown className="h-4 w-4" />
+          </div>
+        )}
       </div>
       )}
     </>

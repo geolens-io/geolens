@@ -68,10 +68,10 @@ export const MapCard = memo(function MapCard({ map, onDelete }: MapCardProps) {
       {/* Content */}
       <div className="flex-1 min-w-0 p-4 flex items-start gap-4">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <Link
               to={`/maps/${map.id}`}
-              className="text-base font-semibold text-foreground hover:text-primary transition-colors truncate"
+              className="min-w-0 text-base font-semibold text-foreground hover:text-primary transition-colors line-clamp-2 break-words"
             >
               {map.name}
             </Link>
