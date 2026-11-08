@@ -822,6 +822,21 @@ def test_story_inventory_chapter_carries_its_run_date(story_built):
     assert "geolens arcgis inventory" in text
 
 
+def test_story_code_blocks_fit_the_chapter_panel(story_built):
+    # A floating chapter panel holds about 48 monospace characters per line.
+    api, h = story_built
+    cam.seed_cambridge_story(h, api)
+    fence = chr(96) * 3
+    for chapter in api.published[-1]["document"]["chapters"]:
+        for block in chapter["blocks"]:
+            if block["type"] != "markdown":
+                continue
+            parts = block["config"]["text"].split(fence)
+            for code in parts[1::2]:
+                for line in code.splitlines():
+                    assert len(line) <= 48, (chapter["title"], line)
+
+
 def test_story_figures_come_from_aggregates_and_names_the_city_once(story_built):
     api, h = story_built
     cam.seed_cambridge_story(h, api)
@@ -967,3 +982,18 @@ def test_seeder_dispatches_refresh_services_to_the_cambridge_module(monkeypatch)
     assert calls == [
         (seed.QUAKES_TITLE, seed.QUAKES_TITLE_LEGACY, seed.QUAKES_HEAT_LEGACY_TITLE)
     ]
+
+
+def test_hidden_tree_layers_sit_in_one_collapsed_group():
+    layers = cam._tree_layers("ds")
+    hidden = [x for x in layers if x.get("visible") is False]
+    assert len(hidden) == 3
+    groups = {json.dumps(x["style_config"]["builder"], sort_keys=True) for x in hidden}
+    assert len(groups) == 1
+    builder = hidden[0]["style_config"]["builder"]
+    assert builder["folder_group_expanded"] is False
+    drawn = [x for x in layers if x.get("visible") is not False]
+    assert all(
+        "folder_group_id" not in (x.get("style_config") or {}).get("builder", {})
+        for x in drawn
+    )
