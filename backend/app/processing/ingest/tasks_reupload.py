@@ -1752,7 +1752,7 @@ class _ServiceReupload(_LiveComparison):
                 baseline=self.verification["data_revision_baseline"],
             )
         if self.unchanged:
-            return await self._publish_unchanged(
+            published = await self._publish_unchanged(
                 session,
                 dataset,
                 field_labels=self.field_labels,
@@ -1760,6 +1760,9 @@ class _ServiceReupload(_LiveComparison):
                 contacted_origin=True,
                 reembed=False,
             )
+            # The service just answered, as in a changed swap.
+            dataset.source_health = "healthy"
+            return published
         version, schema_diff = await _write_reupload_catalog(
             session,
             dataset=dataset,

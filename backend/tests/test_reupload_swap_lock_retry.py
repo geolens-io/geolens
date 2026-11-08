@@ -330,8 +330,9 @@ class TestReuploadSwapRetry:
 
         assert dataset.last_checked_at is not None
         assert dataset.last_checked_at == dataset.last_refreshed_at
-        # The health verdict itself stays with the probe's classifier.
-        assert dataset.source_health is None
+        # The bytes just came from the origin, so it is reachable.
+        assert dataset.source_health == "healthy"
+        assert dataset.source_health_detail is None
 
     async def test_retry_path_logs_and_succeeds(self, monkeypatch) -> None:
         """First swap raises ``LockNotAvailableError``; retry succeeds and both logs fire."""

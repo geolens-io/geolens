@@ -1364,7 +1364,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # live-edit comparison each publication makes, a service re-upload's
     # review of the changes its preview showed, and the live-table comparison
     # that lets a refresh or file re-upload of unchanged data publish nothing.
-    "backend/app/processing/ingest/tasks_reupload.py": 1871,
+    "backend/app/processing/ingest/tasks_reupload.py": 1874,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection and accepting a held run
     # by the door it came through, which records the capability it admitted under.

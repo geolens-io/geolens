@@ -200,10 +200,10 @@ async def test_a_file_reupload_of_unchanged_data_publishes_no_version(
         await _cleanup(session, dataset)
 
 
-async def test_an_unchanged_refresh_clears_a_stale_source_health(
+async def test_an_unchanged_refresh_replaces_a_stale_source_health(
     client: AsyncClient, admin_auth_header, test_db_session, monkeypatch
 ):
-    """A refresh that reached the source drops the probe's old verdict, as a publish does."""
+    """A refresh that reached the source replaces the probe's old verdict, as a publish does."""
     dataset_id = await _ingest(test_db_session, monkeypatch, _FLAT_WELLS)
     await test_db_session.execute(
         text(
@@ -228,7 +228,29 @@ async def test_an_unchanged_refresh_clears_a_stale_source_health(
         )
     ).one()
     await test_db_session.commit()
-    assert tuple(health) == (None, None)
+    assert tuple(health) == ("healthy", None)
+
+
+async def test_an_unchanged_refresh_keeps_a_healthy_source_healthy(
+    client: AsyncClient, admin_auth_header, test_db_session, monkeypatch
+):
+    dataset_id = await _ingest(test_db_session, monkeypatch, _FLAT_WELLS)
+    await test_db_session.execute(
+        text("UPDATE catalog.datasets SET source_health = 'healthy' WHERE id = :id"),
+        {"id": dataset_id},
+    )
+    await test_db_session.commit()
+
+    await _refresh(client, admin_auth_header, monkeypatch, dataset_id, _FLAT_WELLS)
+
+    [run] = await _runs_ordered(test_db_session, dataset_id)
+    assert run.verification["data_unchanged"] is True
+    health = await test_db_session.scalar(
+        text("SELECT source_health FROM catalog.datasets WHERE id = :id"),
+        {"id": dataset_id},
+    )
+    await test_db_session.commit()
+    assert health == "healthy"
 
 
 @pytest.mark.parametrize("failing", ["staged digest", "column comparison"])
