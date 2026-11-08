@@ -7,6 +7,9 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+- `scripts/seed-showcase.py` binds the USGS earthquake layer once and draws Restless Earth's circles and heat surface from that one dataset; a seed run moves an already-seeded instance's heat layer onto it and retires the second copy.
+
 ### Fixed
 - A dataset bound to a service now reports source health "healthy" after a successful refresh, whether or not the data changed, instead of "unknown" until a probe runs. A STAC item refresh keeps the asset probe's verdict.
 

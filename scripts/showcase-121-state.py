@@ -199,15 +199,13 @@ def unrestorable_changes(api):
         problems.append(f"legacy map name {seed.HURRICANE_MAP_LEGACY!r}")
     if seed.QUAKES_TITLE_LEGACY in titles:
         problems.append(f"legacy dataset title {seed.QUAKES_TITLE_LEGACY!r}")
-    for title in (seed.QUAKES_TITLE, seed.QUAKES_HEAT_TITLE):
-        if title not in titles:
-            continue
-        detail = api.dataset_detail(titles[title])
+    if seed.QUAKES_TITLE in titles:
+        detail = api.dataset_detail(titles[seed.QUAKES_TITLE])
         if (detail.get("origin"), detail.get("origin_uri")) != (
             "service",
             seed.USGS_QUAKES_SERVICE,
         ):
-            problems.append(f"{title!r} is not bound to the USGS service")
+            problems.append(f"{seed.QUAKES_TITLE!r} is not bound to the USGS service")
     meteorites = titles.get("Meteorite Landings (Meteoritical Society)")
     if meteorites and (api.dataset_feature_count(meteorites) or 0) < 20000:
         problems.append("the meteorite dataset would be reuploaded in place")
