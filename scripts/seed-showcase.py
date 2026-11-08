@@ -50,6 +50,7 @@ import uuid
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 try:
     import httpx
@@ -267,12 +268,13 @@ RETIRED_COLLECTIONS = ["Discover the World"]
 # "75 Years" stopped being true the moment the 2025 season landed. The new
 # hurricane name carries no year count at all so it cannot rot again.
 
-# The quakes datasets. The heatmap counterpart is deliberately NOT renamed - its
-# title never named a magnitude, so there is nothing in it to go stale (only its
-# summary mentioned M4.5+, and that is corrected in SHOWCASE_METADATA).
+# The quakes dataset. Restless Earth draws it twice, as graduated circles and
+# as a heat surface. The heat title names a retired second binding of the same
+# service layer: repair_quake_layers moves its layers onto QUAKES_TITLE and
+# deletes it, and the titles set keeps recognising it until then.
 QUAKES_TITLE = "Recent Earthquakes (M2.5+, last 30 days)"
 QUAKES_TITLE_LEGACY = "Recent Earthquakes (M4.5+, last 30 days)"
-QUAKES_HEAT_TITLE = "Recent Earthquakes - Heatmap source"
+QUAKES_HEAT_LEGACY_TITLE = "Recent Earthquakes - Heatmap source"
 
 HURRICANE_MAP = "Hurricane Alley - Major Atlantic Storms Since 1950"
 HURRICANE_MAP_LEGACY = "Hurricane Alley - 75 Years of Major Atlantic Storms"
@@ -413,24 +415,19 @@ MAP_VIEW_FIXES = {
     },
 }
 
-# Dataset summaries for the two quake bindings. Written by exactly ONE thing,
+# Dataset summary for the quake binding. Written by exactly ONE thing,
 # the origin-gated enrichment pass, and never at creation - a summary describing
 # a live service must not exist before the binding does. A fresh dataset is
-# committed with _SERVICE_STUB_SUMMARY, which claims nothing, and these arrive
+# committed with _SERVICE_STUB_SUMMARY, which claims nothing, and this arrives
 # once origin proves the conversion landed. That also repairs an instance seeded
 # before the service conversion, which would otherwise keep telling visitors
-# these are M4.5+ downloads forever.
+# this is an M4.5+ download forever.
 QUAKE_SUMMARIES: dict[str, str] = {
     QUAKES_TITLE: (
         "The last successfully refreshed snapshot of USGS earthquakes of "
         "magnitude 2.5 and above in its rolling 30-day service window. Check "
         "the Source panel for the actual refresh time. Fields include magnitude, "
         "depth, felt reports, tsunami flag, and USGS significance."
-    ),
-    QUAKES_HEAT_TITLE: (
-        "A separately bound snapshot of the USGS M2.5+ earthquake service, "
-        "used for the magnitude-weighted heat surface on Restless Earth. Check "
-        "the Source panel for its actual refresh time."
     ),
 }
 
@@ -915,6 +912,47 @@ class Api:
         )
         r.raise_for_status()
         return r.json()
+
+    def replace_map_layers(
+        self, map_id: str, layers: list[dict], expected_updated_at: str | None
+    ) -> None:
+        """Save *layers* as the map's complete layer list.
+
+        A sent id updates that layer in place, so layer ids survive. A map
+        changed since *expected_updated_at* is refused with 409 stale_write.
+        """
+        r = self.client.put(
+            f"{self.base}/api/maps/{map_id}",
+            headers=self.h,
+            json={"layers": layers, "expected_updated_at": expected_updated_at},
+        )
+        r.raise_for_status()
+
+    def map_embed_tokens(self, map_id: str) -> list[dict]:
+        """The map's embed tokens with their scoped_dataset_ids; owner only."""
+        r = self.client.get(
+            f"{self.base}/api/maps/{map_id}/embed-tokens/", headers=self.h
+        )
+        r.raise_for_status()
+        return r.json().get("tokens", [])
+
+    def dataset_maps(self, dataset_id: str) -> list[dict]:
+        """Every map with a layer over *dataset_id* that this account can see:
+        all of them for an admin. Paginated like list_maps."""
+        out: list[dict] = []
+        while True:
+            r = self.client.get(
+                f"{self.base}/api/datasets/{dataset_id}/maps/"
+                f"?limit=200&skip={len(out)}",
+                headers=self.h,
+            )
+            r.raise_for_status()
+            d = r.json()
+            page = d.get("maps", [])
+            out.extend(page)
+            total = d.get("total")
+            if not page or total is None or len(out) >= total:
+                return out
 
     def patch_dataset(self, dataset_id: str, **fields) -> None:
         r = self.client.patch(
@@ -1456,13 +1494,13 @@ _SERVICE_STUB_SUMMARY = (
 def ingest_service(api: Api, service_url: str, title: str, timeout: int = 900) -> str:
     """Create a NEW dataset bound to a live service layer, by CONVERSION.
 
-    The obvious door is POST /services/preview/, and it cannot be used here.
-    It allows one dataset per (owner, service_type, url, layer) and refuses a
-    second import of the same layer with 409 `duplicate_source` (the
-    existing_stmt guard in sources/router.py). The showcase binds this one USGS
-    layer TWICE on purpose, once for the graduated circles and once for the
-    heatmap surface, so the second import would always fail. The reupload
-    conversion door carries no such guard; both behaviours were verified live.
+    The obvious door is POST /services/preview/, and it cannot be relied on
+    here. It allows one dataset per (owner, service_type, url, layer) and
+    refuses a second import of the same layer with 409 `duplicate_source` (the
+    existing_stmt guard in sources/router.py). This account can already hold a
+    binding of the USGS layer that the lookup by title does not find: the
+    retired heatmap copy until repair_quake_layers deletes it, or a dataset
+    retitled by hand. The reupload conversion door carries no such guard.
 
     So a new dataset is created as a one-point stub and immediately converted.
     The title is the real one from the first write, since it is the idempotency
@@ -1478,12 +1516,6 @@ def ingest_service(api: Api, service_url: str, title: str, timeout: int = 900) -
     removes the mistake instead of trusting every future caller to avoid it. The
     real description arrives from the origin-gated enrichment pass later in the
     same run.
-
-    Both datasets go through this, rather than importing the first properly and
-    converting only the second. Any "the first one imports" rule breaks as soon
-    as only the OTHER dataset exists - delete the circles dataset on a seeded
-    instance and the import collides with the heatmap's binding instead. One
-    path has no such edge.
     """
     print(f"  binding {title} to the live service...")
     dataset_id = api.ingest_geojson(
@@ -2238,49 +2270,43 @@ def _adopt_title(api: Api, by_title: dict, dataset_id: str, title: str, legacy: 
     print(f"  retitled {legacy!r} -> {title!r}")
 
 
-def ensure_quake_datasets(api: Api, by_title: dict) -> tuple[str, str]:
-    """The two earthquake datasets, bound to the live USGS service.
+def ensure_quake_datasets(api: Api, by_title: dict) -> str:
+    """The earthquake dataset, bound to the live USGS service; returns its id.
 
     Idempotent on every axis that can differ between instances:
 
-    * A fresh instance has neither, and both are created straight from the
-      service (no download, no upload).
-    * A live instance has them under the OLD M4.5+ title holding UPLOADED
-      GeoJSON. The title migrates first, then the data binding converts in
-      place - dataset ids and map layers survive both, so the Restless Earth
-      map keeps working through the upgrade without being touched.
-    * An already-converted instance hits neither path and pays one GET each.
+    * A fresh instance has none, and it is created straight from the service
+      (no download, no upload).
+    * An older instance has it under the OLD M4.5+ title holding UPLOADED
+      GeoJSON. The data binding converts in place, then the title migrates -
+      the dataset id and map layers survive both, so the Restless Earth map
+      keeps working through the upgrade without being touched.
+    * An already-converted instance hits neither path and pays one GET.
 
     --force does NOT reach here, deliberately. Everywhere else force means
     "re-ingest instead of reusing", but there is nothing to re-download from a
-    service binding, and creating a second pair would orphan the datasets the
+    service binding, and creating a second one would orphan the dataset the
     Restless Earth map's layers point at. A stale binding is fixed by
     converting, which this already does on every run. The map row
     is pinned for the same shape of reason - the examples embed it by share
     token, and a token belongs to a map id.
-
-    Returns (circles_dataset_id, heatmap_dataset_id).
     """
-    out: list[str] = []
-    for title, legacy in (
-        (QUAKES_TITLE, QUAKES_TITLE_LEGACY),
-        (QUAKES_HEAT_TITLE, None),
-    ):
-        ds, under_legacy = _find_under_either_title(by_title, title, legacy)
-        if ds is None:
-            ds = ingest_service(api, USGS_QUAKES_SERVICE, title)
-            by_title[title] = ds
-        else:
-            # Convert BEFORE renaming. If this raises, the dataset keeps its old
-            # title, so the enrichment and styling passes downstream - which run
-            # regardless, because builders are isolated - find no entry for it
-            # and leave its M4.5 summary alone rather than advertising a live
-            # M2.5 service over unconverted uploaded data.
-            convert_to_service(api, ds, USGS_QUAKES_SERVICE, title)
-            if under_legacy:
-                _adopt_title(api, by_title, ds, title, legacy)
-        out.append(ds)
-    return out[0], out[1]
+    ds, under_legacy = _find_under_either_title(
+        by_title, QUAKES_TITLE, QUAKES_TITLE_LEGACY
+    )
+    if ds is None:
+        ds = ingest_service(api, USGS_QUAKES_SERVICE, QUAKES_TITLE)
+        by_title[QUAKES_TITLE] = ds
+        return ds
+    # Convert BEFORE renaming. If this raises, the dataset keeps its old title,
+    # so the enrichment and styling passes downstream - which run regardless,
+    # because builders are isolated - find no entry for it and leave its M4.5
+    # summary alone rather than advertising a live M2.5 service over
+    # unconverted uploaded data.
+    convert_to_service(api, ds, USGS_QUAKES_SERVICE, QUAKES_TITLE)
+    if under_legacy:
+        _adopt_title(api, by_title, ds, QUAKES_TITLE, QUAKES_TITLE_LEGACY)
+    return ds
 
 
 def _get_or_ingest(
@@ -2385,59 +2411,147 @@ def prune(api: Api) -> None:
 # Each returns a process exit code and is terminal: main() runs one and exits.
 
 
+def _legacy_heat_copies(api: Api) -> list[str]:
+    """Ids of every owned dataset titled QUAKES_HEAT_LEGACY_TITLE.
+
+    Titles are not unique, and datasets_by_title keeps only the newest match.
+    """
+    return [
+        d["id"]
+        for d in api.list_own_datasets()
+        if d.get("title") == QUAKES_HEAT_LEGACY_TITLE
+    ]
+
+
+def _normalized_service_uri(uri: str | None) -> str:
+    """*uri* with its scheme and host lowercased and repeated or trailing
+    slashes dropped from its path, so a re-entered binding still compares."""
+    if not uri:
+        return ""
+    parts = urlsplit(uri.strip())
+    path = re.sub(r"/{2,}", "/", parts.path).rstrip("/")
+    return urlunsplit(
+        (parts.scheme.lower(), parts.netloc.lower(), path, parts.query, "")
+    )
+
+
+def _is_usgs_detail(detail: dict) -> bool:
+    """Whether a dataset detail reads from the USGS quake layer itself."""
+    return detail.get("origin") == "service" and _normalized_service_uri(
+        detail.get("origin_uri")
+    ) == _normalized_service_uri(USGS_QUAKES_SERVICE)
+
+
+def _is_usgs_binding(api: Api, dataset_id: str) -> bool:
+    """Whether the dataset reads from the USGS quake layer itself."""
+    return _is_usgs_detail(api.dataset_detail(dataset_id))
+
+
 def refresh_quakes(api: Api) -> int:
-    """Re-pull both earthquake datasets from the USGS service they are bound to.
+    """Re-pull the earthquake bindings from the USGS service they read.
 
     Thin by design - the server owns everything about WHERE the data comes from,
-    so this is two POSTs and two polls. Nothing is downloaded here and no
+    so this is a POST and a poll per binding. Nothing is downloaded here and no
     geometry crosses the wire from this machine.
 
     This is the demo's cron job: Community registers no refresh scheduler, so
     "last 30 days" only stays true because something outside the app calls this.
+    A retired heatmap copy that repair_quake_layers had to keep is refreshed
+    too (see _refresh_legacy_heat_copy). Exits zero only when every binding a
+    map draws from refreshed.
     """
-    print("Refreshing the earthquake datasets from their USGS service binding...")
+    print("Refreshing the earthquake data from its USGS service binding...")
     by_title = api.datasets_by_title()
-    failed = 0
-    for title, legacy in (
-        (QUAKES_TITLE, QUAKES_TITLE_LEGACY),
-        (QUAKES_HEAT_TITLE, None),
-    ):
-        ds, under_legacy = _find_under_either_title(by_title, title, legacy)
-        if ds is None:
-            # A failure, not a skip. This is the demo's cron entry point, so a
-            # zero exit means "the quakes are current" to whatever is watching
-            # it. Both datasets are required - the map has a circle layer and a
-            # heatmap layer - so a missing one is a half-seeded instance that
-            # needs a person, and it has to be visible as a non-zero exit.
+    try:
+        ok = _refresh_quake_dataset(api, by_title)
+    except httpx.HTTPError as e:
+        print(f"  ! could not check {QUAKES_TITLE!r}: {e}", file=sys.stderr)
+        ok = False
+    for legacy in _legacy_heat_copies(api):
+        try:
+            copy_ok = _refresh_legacy_heat_copy(api, legacy)
+        except httpx.HTTPError as e:
             print(
-                f"  ! no dataset titled {title!r} - the showcase is not fully "
-                "seeded; run a normal seed",
+                f"  ! could not check {QUAKES_HEAT_LEGACY_TITLE!r} ({legacy}): {e}",
                 file=sys.stderr,
             )
-            failed += 1
-            continue
-        origin = api.dataset_origin(ds)
-        if origin != "service":
-            # Refusing beats "refreshing" an upload-origin dataset into a 409:
-            # this instance predates the service conversion and needs a seed run
-            # (which converts in place) before a refresh means anything. No
-            # rename either - the new title would claim a live service this
-            # dataset is not yet reading from.
-            print(
-                f"  ! {title!r} still has origin {origin!r}, not 'service' - "
-                "run a normal seed first to convert it",
-                file=sys.stderr,
-            )
-            failed += 1
-            continue
-        # Origin proves the conversion already landed, so the new title is true
-        # of this dataset now. A seed whose rename step failed after converting
-        # is finished here rather than left half-migrated.
-        if under_legacy:
-            _adopt_title(api, by_title, ds, title, legacy)
-        if not refresh_and_report(api, ds, title):
-            failed += 1
-    return 1 if failed else 0
+            copy_ok = False
+        ok = ok and copy_ok
+    return 0 if ok else 1
+
+
+def _refresh_quake_dataset(api: Api, by_title: dict) -> bool:
+    """Refresh the earthquake dataset; False when it is missing, not bound to
+    the USGS quake layer, or the refresh failed."""
+    ds, under_legacy = _find_under_either_title(
+        by_title, QUAKES_TITLE, QUAKES_TITLE_LEGACY
+    )
+    if ds is None:
+        # A failure, not a skip. This is the demo's cron entry point, so a zero
+        # exit means "the quakes are current" to whatever is watching it, and a
+        # missing dataset is a half-seeded instance that needs a person.
+        print(
+            f"  ! no dataset titled {QUAKES_TITLE!r} - the showcase is not fully "
+            "seeded; run a normal seed",
+            file=sys.stderr,
+        )
+        return False
+    detail = api.dataset_detail(ds)
+    origin = detail.get("origin")
+    if origin != "service":
+        # Refusing beats "refreshing" an upload-origin dataset into a 409: this
+        # instance predates the service conversion and needs a seed run (which
+        # converts in place) before a refresh means anything. No rename either -
+        # the new title would claim a live service this dataset is not yet
+        # reading from.
+        print(
+            f"  ! {QUAKES_TITLE!r} still has origin {origin!r}, not 'service' - "
+            "run a normal seed first to convert it",
+            file=sys.stderr,
+        )
+        return False
+    if not _is_usgs_detail(detail):
+        print(
+            f"  ! {QUAKES_TITLE!r} is bound to {detail.get('origin_uri')!r}, "
+            "not the USGS quake layer",
+            file=sys.stderr,
+        )
+        return False
+    # Origin proves the conversion already landed, so the new title is true of
+    # this dataset now. A seed whose rename step failed after converting is
+    # finished here rather than left half-migrated.
+    if under_legacy:
+        _adopt_title(api, by_title, ds, QUAKES_TITLE, QUAKES_TITLE_LEGACY)
+    return refresh_and_report(api, ds, QUAKES_TITLE)
+
+
+def _refresh_legacy_heat_copy(api: Api, legacy: str) -> bool:
+    """Keep a retained heatmap copy current while a map may still draw it.
+
+    A copy bound to the USGS quake layer is always refreshed: a non-admin
+    cannot see every map that draws it, so "no consumers" cannot be proven.
+    A copy bound to another service fails. An unbound copy cannot be refreshed
+    and fails unless an admin sees no map drawing it. Returns False on a
+    failure.
+    """
+    label = f"{QUAKES_HEAT_LEGACY_TITLE!r} ({legacy})"
+    detail = api.dataset_detail(legacy)
+    if _is_usgs_detail(detail):
+        return refresh_and_report(api, legacy, QUAKES_HEAT_LEGACY_TITLE)
+    if detail.get("origin") == "service":
+        problem = f"is bound to {detail.get('origin_uri')!r}, not the USGS quake layer"
+    elif api.dataset_maps(legacy):
+        problem = "is still drawn on a map but is not bound to the service"
+    elif "admin" not in api.roles:
+        problem = (
+            "is not bound to the service, and a non-admin account cannot see "
+            "every map that may draw it"
+        )
+    else:
+        print(f"  [skip] {label}: no map draws it")
+        return True
+    print(f"  ! {label} {problem}; run a normal seed as an admin", file=sys.stderr)
+    return False
 
 
 def refresh_sentinel2_scenes(api: Api) -> None:
@@ -2594,7 +2708,7 @@ def _showcase_dataset_titles() -> set[str]:
     hand-uploaded dataset on a list that reads like a deletion candidate.
     """
     titles = set(SHOWCASE_METADATA) | set(PINNED_DATASET_TITLES) | set(RETIRED_DATASETS)
-    titles |= {QUAKES_TITLE, QUAKES_TITLE_LEGACY, QUAKES_HEAT_TITLE}
+    titles |= {QUAKES_TITLE, QUAKES_TITLE_LEGACY, QUAKES_HEAT_LEGACY_TITLE}
     titles |= {
         "World States & Provinces (Natural Earth 1:50m)",
         "Private Embed Demo - VIP Sites",
@@ -3026,10 +3140,8 @@ def build_restless_earth(
     print("\n[restless] Restless Earth (quakes + volcanoes + plates + relief)")
     by_title = api.datasets_by_title()
 
-    # --- earthquakes (two datasets: circles + heatmap source) -----------------
-    # Both read from the LIVE USGS service. GeoLens renders one MapLibre layer
-    # per dataset, so the graduated-circle layer and the heatmap layer need the
-    # same geometry bound twice - each binding refreshes independently.
+    # --- earthquakes (one dataset, drawn as circles and as a heatmap) ----------
+    # Read from the LIVE USGS service.
     #
     # Bound BEFORE the map-exists skip below, exactly the way build_meteorites
     # heals its dataset ahead of its own skip, and for a sharper reason. Every
@@ -3038,7 +3150,7 @@ def build_restless_earth(
     # one place the upgrade is for. It would also deadlock the escape hatch:
     # --refresh-quakes refuses an upload-origin dataset and tells the operator
     # to run a normal seed, and that seed would take the early return.
-    quakes_ds, heat_ds = ensure_quake_datasets(api, by_title)
+    quakes_ds = ensure_quake_datasets(api, by_title)
 
     if _keep_existing_map(name, _map_exists(api, name), force, force_pinned):
         return _announce_kept_map(name, force, " (quake bindings brought current)")
@@ -3514,7 +3626,7 @@ def build_restless_earth(
     api.add_layer(
         map_id,
         {
-            "dataset_id": heat_ds,
+            "dataset_id": quakes_ds,
             "sort_order": 5,
             "opacity": 1.0,
             "display_name": "Quake intensity (heatmap)",
@@ -7037,7 +7149,6 @@ COLLECTIONS = {
         "and the swissALTI3D terrain.",
         [
             QUAKES_TITLE,
-            QUAKES_HEAT_TITLE,
             "Tectonic Plate Boundaries (PB2002)",
             "Significant Volcanic Eruptions (NCEI, 4360 BC-present)",
             "Atlantic Hurricane Tracks (HURDAT2, majors since 1950)",
@@ -7335,23 +7446,6 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "gated": {
             "update_frequency": "continual",
             "summary": QUAKE_SUMMARIES[QUAKES_TITLE],
-        },
-    },
-    QUAKES_HEAT_TITLE: {
-        "license": "USGS Earthquake Hazards Program (US public domain)",
-        "keywords": ["earthquakes", "seismic", "usgs", "density", "heatmap"],
-        "source_organization": "USGS",
-        "source_url": "https://earthquake.usgs.gov/earthquakes/map/",
-        "theme_category": ["geoscientificInformation"],
-        # Gated for the same reason as the circles dataset, and this one needs
-        # it more: its title never changes, so the rename-after-conversion gate
-        # that protects the circles dataset does not cover it at all.
-        # Described as the map's density layer, at M2.5+ as the live service
-        # serves it.
-        "requires_origin": "service",
-        "gated": {
-            "update_frequency": "continual",
-            "summary": QUAKE_SUMMARIES[QUAKES_HEAT_TITLE],
         },
     },
     "Tectonic Plate Boundaries (PB2002)": {
@@ -7675,34 +7769,26 @@ def view_baseline_problems(api: "Api") -> list[str]:
 
 
 def _quakes_are_live(api: "Api") -> bool:
-    """Observed evidence that BOTH quake datasets read from the USGS service.
+    """Observed evidence that every quake dataset Restless Earth can draw reads
+    from the USGS service.
 
     Reads origin off each dataset rather than inferring it from "the builder
     ran" or "the rename happened". Both inferences have been wrong: the
     builder is isolated so a failure is invisible downstream, and the rename
     is itself gated on the conversion, which makes it a proxy rather than
-    evidence.
-
-    Both, because the wording this gates covers both. The Restless Earth notes
-    say the earthquakes are read live, and the map draws them twice - graduated
-    circles from one dataset, the heat surface from the other. They convert in
-    sequence, so the second can fail after the first succeeded, and checking
-    only the circles would publish "read live" over a heat layer still holding
-    the old M4.5 upload.
+    evidence. A retired heatmap copy counts while it exists, because the
+    repair that moves its layers can be skipped or fail in the same run.
 
     False on any error: the claim being gated should only be published on
     positive proof.
     """
     try:
-        by_title = api.datasets_by_title()
-        for title in (QUAKES_TITLE, QUAKES_HEAT_TITLE):
-            dataset_id = by_title.get(title)
-            if dataset_id is None:
-                return False
-            if api.dataset_origin(dataset_id) != "service":
-                return False
-        return True
-    except (httpx.HTTPStatusError, httpx.TimeoutException):
+        dataset_id = api.datasets_by_title().get(QUAKES_TITLE)
+        if dataset_id is None:
+            return False
+        drawn = [dataset_id, *_legacy_heat_copies(api)]
+        return all(_is_usgs_binding(api, ds) for ds in drawn)
+    except httpx.HTTPError:
         return False
 
 
@@ -7934,6 +8020,179 @@ def _ensure_basin_context_layer(api: "Api", map_id: str, layers: list) -> bool:
     api.add_layer(map_id, _basin_context_layer_body(regions_ds))
     print(f"  + hatched basin-regions context layer on {EXPOSURE_MAP}")
     return True
+
+
+def repair_quake_layers(api: "Api") -> bool:
+    """Move this account's layers off the retired heatmap copies, then delete them.
+
+    An instance seeded before the heat surface drew from the earthquake dataset
+    holds a second binding of the USGS layer titled QUAKES_HEAT_LEGACY_TITLE,
+    possibly more than one. A copy rebound to another service is left alone.
+    Each layer over any other copy on a map this account owns is pointed at
+    the earthquake dataset, keeping its id (see
+    _repoint_quake_heat_layers). Nothing moves unless the earthquake dataset
+    reads from the USGS layer itself, since a failed binding leaves a one-point
+    stub under its title.
+
+    Deleting a dataset deletes every layer over it, so a copy is deleted only
+    by an admin, whose map listing includes other users' private maps, only
+    when no map still draws from it, and only by its exact title. A copy that
+    is kept is converted to the USGS service if it is still an upload. Returns
+    True when anything changed; a second run changes nothing.
+    """
+    legacies = _legacy_heat_copies(api)
+    if not legacies:
+        print("  [ok] the quake heatmap draws from the earthquake dataset")
+        return False
+    quakes, _ = _find_under_either_title(
+        api.datasets_by_title(), QUAKES_TITLE, QUAKES_TITLE_LEGACY
+    )
+    if quakes is None or quakes in legacies or not _is_usgs_binding(api, quakes):
+        print(
+            "  ! the earthquake dataset is missing or not bound to the USGS "
+            "quake layer; the heatmap stays on its copy",
+            file=sys.stderr,
+        )
+        return False
+    legacies = _usgs_or_unbound_copies(api, legacies)
+    owned = {
+        listed["id"]
+        for legacy in legacies
+        for listed in api.dataset_maps(legacy)
+        if listed.get("created_by_username") == api.username
+    }
+    changed = False
+    for map_id in sorted(owned):
+        changed |= _repoint_quake_heat_layers(api, map_id, set(legacies), quakes)
+    if "admin" not in api.roles:
+        print(
+            f"  ! kept {QUAKES_HEAT_LEGACY_TITLE!r}: a non-admin account cannot "
+            "see other users' private maps, so deleting it could remove their "
+            "layers",
+            file=sys.stderr,
+        )
+        kept = legacies
+    else:
+        kept = [x for x in legacies if not _delete_unused_heat_copy(api, x)]
+        changed |= len(kept) < len(legacies)
+    # A kept copy may still be drawn, so --refresh-quakes has to be able to
+    # refresh it; on an instance older than the service binding it is still an
+    # upload.
+    for legacy in kept:
+        changed |= convert_to_service(
+            api, legacy, USGS_QUAKES_SERVICE, QUAKES_HEAT_LEGACY_TITLE
+        )
+    return changed
+
+
+def _usgs_or_unbound_copies(api: "Api", legacies: list[str]) -> list[str]:
+    """The heatmap copies the repair may touch: those bound to the USGS quake
+    layer and those not bound to any service. A copy someone rebound to another
+    service keeps its layers and is reported instead."""
+    out = []
+    for legacy in legacies:
+        detail = api.dataset_detail(legacy)
+        if detail.get("origin") == "service" and not _is_usgs_detail(detail):
+            print(
+                f"  ! left {QUAKES_HEAT_LEGACY_TITLE!r} ({legacy}) alone: it is "
+                f"bound to {detail.get('origin_uri')!r}, not the USGS quake layer",
+                file=sys.stderr,
+            )
+            continue
+        out.append(legacy)
+    return out
+
+
+def _delete_unused_heat_copy(api: "Api", legacy: str) -> bool:
+    """Delete one heatmap copy when no map draws from it; True when deleted."""
+    still_used = api.dataset_maps(legacy)
+    if still_used:
+        names = ", ".join(repr(m.get("name")) for m in still_used)
+        print(
+            f"  ! kept {QUAKES_HEAT_LEGACY_TITLE!r} ({legacy}): still drawn on "
+            f"{names}",
+            file=sys.stderr,
+        )
+        return False
+    api.delete_dataset(legacy, QUAKES_HEAT_LEGACY_TITLE)
+    print(f"  - dataset: {QUAKES_HEAT_LEGACY_TITLE} ({legacy})")
+    return True
+
+
+def _repoint_quake_heat_layers(
+    api: "Api", map_id: str, legacies: set, quakes: str
+) -> bool:
+    """Point one map's layers over *legacies* at *quakes*, keeping their ids.
+
+    Only a full layer save can change a layer's dataset. It updates each sent
+    id in place, so story scenes that name the layer keep working, but it drops
+    dashboard widgets on a layer whose dataset changed, and the server revokes
+    every embed token on the map once one is scoped to a dataset the map no
+    longer draws. A map with either is left alone and the referrers named.
+    Returns True when the map was saved.
+    """
+    current = api.get_map(map_id)
+    layers = current.get("layers") or []
+    moving = {x["id"] for x in layers if x.get("dataset_id") in legacies}
+    if not moving:
+        return False
+    referrers = _heat_layer_referrers(api, map_id, current, moving, legacies)
+    if referrers:
+        print(
+            f"  ! {current.get('name')}: {'; '.join(referrers)} would break; "
+            "left on the heatmap copy",
+            file=sys.stderr,
+        )
+        return False
+    body = []
+    for layer in layers:
+        item = {k: layer[k] for k in _LAYER_WRITABLE_FIELDS if layer.get(k) is not None}
+        item["id"] = layer["id"]
+        if layer["id"] in moving:
+            item["dataset_id"] = quakes
+        body.append(item)
+    api.replace_map_layers(map_id, body, current.get("updated_at"))
+    print(f"  ~ {current.get('name')}: the heatmap now draws from {QUAKES_TITLE!r}")
+    return True
+
+
+def _heat_layer_referrers(
+    api: "Api", map_id: str, current: dict, moving: set, legacies: set
+) -> list[str]:
+    """What a repoint of *moving* would break: dashboard widgets that read
+    those layers and active embed tokens scoped to a heatmap copy."""
+    widgets = (current.get("dashboard_config") or {}).get("widgets") or []
+    out = [
+        f"dashboard widget {w.get('title') or w.get('id')}"
+        for w in widgets
+        if isinstance(w, dict) and w.get("layer_id") in moving
+    ]
+    # Expired tokens count: the server's revocation check reads is_active only.
+    for token in api.map_embed_tokens(map_id):
+        if not token.get("is_active"):
+            continue
+        if legacies & {str(d) for d in token.get("scoped_dataset_ids") or ()}:
+            out.append(f"embed token {token.get('name') or token.get('token_hint')}")
+    return out
+
+
+def _repair_quake_layers_step(api: "Api", args, failed: dict) -> None:
+    """Run repair_quake_layers for a full seed or --only restless, recording a
+    failure in *failed*. A guarded update skips it: restore cannot bring back a
+    deleted layer or dataset."""
+    if args.only not in (None, "restless"):
+        return
+    if args.expected_state:
+        print("\nLeaving the retired quake heatmap copy for a plain seed.")
+        return
+    print("\nMoving the quake heatmap onto the earthquake dataset...")
+    # A conversion job that fails or times out raises from Api.poll; like a
+    # builder, this step records it and lets the later passes run.
+    try:
+        repair_quake_layers(api)
+    except (httpx.HTTPError, RuntimeError, TimeoutError) as e:
+        print(f"\nERROR in [quake layers]: {e}", file=sys.stderr)
+        failed["quake layers"] = str(e)
 
 
 def _layer_style_delta(
@@ -8489,7 +8748,7 @@ def main() -> int:
     ap.add_argument(
         "--refresh-quakes",
         action="store_true",
-        help="re-pull both earthquake datasets from their USGS service binding, "
+        help="re-pull the earthquake data from its USGS service binding, "
         "then exit (the demo's weekly cron - nothing refreshes on its own)",
     )
     ap.add_argument(
@@ -8704,6 +8963,8 @@ def main() -> int:
             built[bname] = result
         else:
             print(outcome)
+
+    _repair_quake_layers_step(api, args, failed)
 
     if not args.expected_state:
         try:

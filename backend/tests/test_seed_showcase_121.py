@@ -199,7 +199,7 @@ class TargetApi:
         names = state.MAP_NAMES - {seed.CITY_SHADE_MAP} if maps == () else maps
         self.maps = {name: f"{name}-id" for name in names}
         self.jobs = 0
-        self.titles = titles or {seed.QUAKES_TITLE: "q", seed.QUAKES_HEAT_TITLE: "h"}
+        self.titles = titles or {seed.QUAKES_TITLE: "q"}
         self.origin = origin
         self.visibility = visibility
         self.features = features

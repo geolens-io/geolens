@@ -43,7 +43,7 @@ python scripts/seed-showcase.py \
   --password "$GEOLENS_ADMIN_PASSWORD" \
   --only hurricanes
 
-# Swap a fresh USGS 30-day feed into the earthquake datasets (in place), then exit.
+# Swap a fresh USGS 30-day feed into the earthquake dataset (in place), then exit.
 # Run every week or two so "last 30 days" stays honest on a long-lived instance.
 python scripts/seed-showcase.py \
   --username "${GEOLENS_ADMIN_USERNAME:-admin}" \
