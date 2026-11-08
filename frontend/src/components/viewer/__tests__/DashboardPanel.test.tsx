@@ -522,11 +522,28 @@ describe('DashboardPanel', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Dashboard' })).toBeInTheDocument();
   });
 
+  it('scrolls a hidden-map description with the message that every widget layer is hidden', () => {
+    const config = { ...dashboard([countWidget]), map_hidden: true } as DashboardConfig;
+    render(
+      <DashboardPanel
+        config={config}
+        layers={[layer()]}
+        hiddenLayers={new Set([layerId])}
+        map={null}
+        mapName="Land and zoning"
+        mapDescription="Parcels by district"
+      />,
+    );
+    const scroller = screen.getByText('Parcels by district').parentElement!;
+    expect(scroller).toHaveClass('overflow-y-auto');
+    expect(scroller).toContainElement(screen.getByText(/The layers these widgets summarize are hidden/));
+  });
+
   it('gives a widget titled with its layer name no second line saying so', async () => {
     render(
       <DashboardPanel
         config={dashboard([{ ...countWidget, title: 'City parcels' }, { ...countWidget, id: chartId, title: 'Parcel count' }])}
-        layers={[layer()]}
+        layers={[layer({ display_name: 'City parcels ' })]}
         map={null}
       />,
     );

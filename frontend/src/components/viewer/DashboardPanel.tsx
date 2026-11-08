@@ -143,7 +143,7 @@ export function DashboardWidget({
   const named = widgetName(definition, instance, layer.column_info, t);
   const heading = named || layerName;
   // A stat card titled with its layer's name would print the name twice.
-  const layerBelow = !!named && named !== layerName;
+  const layerBelow = !!named && named.trim() !== layerName.trim();
   // Numbers kept on screen while a pan's new ones load.
   const stale = query.isPlaceholderData;
   const failed = query.isError;
@@ -320,13 +320,18 @@ function DashboardWidgetList({
   }, [widgets, picks]);
 
   if (shown.length === 0) {
-    return (
-      <>
+    const hidden = (
+      <p id={id} className="p-3 text-sm text-muted-foreground">
+        {t('dashboard.allHidden')}
+      </p>
+    );
+    return intro ? (
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {intro}
-        <p id={id} className="p-3 text-sm text-muted-foreground">
-          {t('dashboard.allHidden')}
-        </p>
-      </>
+        {hidden}
+      </div>
+    ) : (
+      hidden
     );
   }
   const list = (
