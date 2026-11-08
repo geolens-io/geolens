@@ -232,6 +232,21 @@ describe('bar chart widget', () => {
     expect(bars[1]).toHaveAttribute('stroke-width', '0');
   });
 
+  it('switches a pick between separate null and empty-text bars of a grouped chart', () => {
+    const onSelect = vi.fn();
+    const grouped = { ...chart, stat: 'sum' as const, stat_column: 'change' };
+    const data = {
+      op: 'group_by',
+      approximate: false,
+      cached: false,
+      result: { groups: [{ key: null, value: 5 }, { key: '', value: 3 }] },
+    };
+    const held = { column: 'land_use', label: '(no value)', values: [null] };
+    const { container } = render(<BarChartRenderer config={grouped} data={data} selection={held} onSelect={onSelect} />);
+    fireEvent.click(container.querySelectorAll('svg[role="group"] g')[1]);
+    expect(onSelect).toHaveBeenLastCalledWith({ column: 'land_use', label: '(no value)', values: [''] });
+  });
+
   it('draws negative values left of a zero baseline, scaled by magnitude', () => {
     const grouped = { ...chart, stat: 'sum' as const, stat_column: 'change' };
     const result = (values: number[]) => ({

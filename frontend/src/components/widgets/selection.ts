@@ -15,12 +15,14 @@ export function togglePick(alreadyPicked: boolean, pick: WidgetSelection): Widge
 }
 
 /**
- * Whether the pick holds exactly `keys`, so picking the same mark again clears
- * it. Null and blank text are one category in any spelling.
+ * Whether the pick is this row's own, so picking the row again clears it. The
+ * merged no-value row owns a pick of any blank spelling; every other row needs
+ * exactly its stored values.
  */
-export function picksExactly(picked: readonly SelectionValue[], keys: readonly SelectionValue[]): boolean {
-  const asCategory = (value: SelectionValue) => (isBlankValue(value) ? null : value);
-  const pickedCategories = new Set(picked.map(asCategory));
-  const keyCategories = new Set(keys.map(asCategory));
-  return pickedCategories.size === keyCategories.size && [...keyCategories].every((key) => pickedCategories.has(key));
+export function picksRow(
+  picked: readonly SelectionValue[],
+  row: { keys: readonly SelectionValue[]; blankCategory?: true },
+): boolean {
+  if (row.blankCategory) return picked.length > 0 && picked.every(isBlankValue);
+  return picked.length === row.keys.length && row.keys.every((key) => picked.includes(key));
 }

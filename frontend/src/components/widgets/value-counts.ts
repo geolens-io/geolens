@@ -8,6 +8,8 @@ export interface CategoryRow {
   key: SelectionValue;
   /** Every stored value the row stands for, which a pick filters on; more than `key` alone where blank values merge. */
   keys: readonly SelectionValue[];
+  /** Set on the one row that stands for every blank value, which owns a pick of any blank spelling. */
+  blankCategory?: true;
   label: string;
   /** The label with the stored value after it, as tables show a labelled value; undefined when the label stands alone. */
   tableLabel?: string;
@@ -62,9 +64,10 @@ export function useCategoryRows(data: unknown, labelOf?: LabelOf): CategoryRows 
   const counts = aggregateResult(data, 'value_counts');
   if (counts) {
     return {
-      rows: mergeBlankCounts(counts.values.map((entry) => ({ value: entry.value ?? null, count: entry.count }))).map((entry) =>
-        row(entry.keys[0], entry.count, entry.keys),
-      ),
+      rows: mergeBlankCounts(counts.values.map((entry) => ({ value: entry.value ?? null, count: entry.count }))).map((entry) => ({
+        ...row(entry.keys[0], entry.count, entry.keys),
+        ...(isBlankValue(entry.keys[0]) ? { blankCategory: true as const } : {}),
+      })),
       other: counts.other_count > 0 ? formatAggregateValue(counts.other_count) : undefined,
     };
   }

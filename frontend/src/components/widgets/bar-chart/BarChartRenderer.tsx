@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import { useChartMarks } from '../chart-marks';
 import type { WidgetRenderProps } from '../contract';
 import { PICKED_GLYPH } from '../PickedMark';
-import { picksExactly, selectedValues, togglePick } from '../selection';
+import { picksRow, selectedValues, togglePick } from '../selection';
 import { ValueTable } from '../ValueTable';
 import { useLayerColors } from '../layer-colors';
 import { layerColorColumn, pickedColumn, type BarChartConfig } from './definition';
@@ -63,7 +63,7 @@ export default function BarChartRenderer({
     pick && pickColumn !== null
       ? (index) =>
           pick(
-            togglePick(picksExactly(picked, rows[index].keys), {
+            togglePick(picksRow(picked, rows[index]), {
               column: pickColumn,
               label: rows[index].label,
               values: rows[index].keys,
