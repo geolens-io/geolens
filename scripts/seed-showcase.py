@@ -7002,9 +7002,14 @@ def ensure_matterhorn_overlays(
 
 
 def _swissalti_tile_ids(api: Api, by_title: dict) -> list[str]:
-    """The swissALTI3D tile datasets, registered through a manifest on first seed."""
+    """The swissALTI3D tile datasets, registered through a manifest on first seed.
+
+    The tiles already present are complete only once the Swiss mosaic exists,
+    since it is built after every manifest entry resolved; before that the
+    manifest runs again, skipping the tiles it already imported.
+    """
     ids = [ds for title, ds in sorted(by_title.items()) if title.startswith(SWISSALTI_TILE_PREFIX)]
-    if ids:
+    if ids and SWISSALTI_MOSAIC_TITLE in by_title:
         return ids
     print("  querying swissALTI3D STAC (regional AOI)...")
     tiles = fetch_swissalti_tiles()
@@ -7083,18 +7088,21 @@ def _copernicus_fill(api: Api, by_title: dict) -> str:
     print("  warping the Copernicus GLO-30 tile onto the Swiss grid...")
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "copernicus-glo30-matterhorn.tif")
-        subprocess.run(
-            [
-                "gdalwarp", "-q",
-                "-t_srs", "EPSG:2056",
-                "-te", *COPERNICUS_FILL_BBOX, "-te_srs", "EPSG:4326",
-                "-tr", "20", "20", "-r", "bilinear",
-                "-ot", "Float32", "-dstnodata", "-9999",
-                "-of", "COG", "-co", "COMPRESS=DEFLATE",
-                *(f"/vsicurl/{url}" for url in COPERNICUS_DEM_TILES), path,
-            ],
-            check=True,
-        )
+        try:
+            subprocess.run(
+                [
+                    "gdalwarp", "-q",
+                    "-t_srs", "EPSG:2056",
+                    "-te", *COPERNICUS_FILL_BBOX, "-te_srs", "EPSG:4326",
+                    "-tr", "20", "20", "-r", "bilinear",
+                    "-ot", "Float32", "-dstnodata", "-9999",
+                    "-of", "COG", "-co", "COMPRESS=DEFLATE",
+                    *(f"/vsicurl/{url}" for url in COPERNICUS_DEM_TILES), path,
+                ],
+                check=True,
+            )
+        except (OSError, subprocess.CalledProcessError) as e:
+            raise RuntimeError(f"gdalwarp could not build the Copernicus fill: {e}") from e
         dataset_id = api.ingest_binary(
             path, None, COPERNICUS_FILL_TITLE, SHOWCASE_METADATA[COPERNICUS_FILL_TITLE]["summary"]
         )
@@ -7134,8 +7142,13 @@ def move_matterhorn_to_full_terrain(api: Api, map_id: str, by_title: dict) -> No
     if swiss is None or terrain.get("source_dataset_id") != swiss:
         return
     terrain_ds = matterhorn_terrain(api, by_title)
+    # A retry after a failed delete finds its replacement already added.
+    replaced = any(layer["dataset_id"] == terrain_ds for layer in current["layers"])
     for layer in current["layers"]:
         if layer["dataset_id"] != swiss:
+            continue
+        if replaced:
+            api.delete_layer(map_id, layer["id"])
             continue
         kept = {
             key: layer[key]
@@ -7149,6 +7162,7 @@ def move_matterhorn_to_full_terrain(api: Api, map_id: str, by_title: dict) -> No
             map_id,
             {**kept, "dataset_id": terrain_ds, "display_name": MATTERHORN_RELIEF_LAYER},
         )
+        replaced = True
         api.delete_layer(map_id, layer["id"])
     api.set_view(map_id, terrain_config={**terrain, "source_dataset_id": terrain_ds})
     print("  moved the terrain onto the Swiss and Copernicus mosaic")

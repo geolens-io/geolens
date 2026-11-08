@@ -212,6 +212,12 @@ def unrestorable_changes(api):
     meteorites = titles.get("Meteorite Landings (Meteoritical Society)")
     if meteorites and (api.dataset_feature_count(meteorites) or 0) < 20000:
         problems.append("the meteorite dataset would be reuploaded in place")
+    matterhorn = maps.get("The Matterhorn in 3D")
+    swiss = titles.get(seed.SWISSALTI_MOSAIC_TITLE)
+    if matterhorn and swiss:
+        terrain = api.get_map(matterhorn).get("terrain_config") or {}
+        if terrain.get("source_dataset_id") == swiss:
+            problems.append("the Matterhorn relief layer would be replaced")
     # Restore cannot clear a description back to null.
     for name in set(seed.MAP_DESCRIPTIONS) & set(maps):
         if not api.get_map(maps[name]).get("description"):

@@ -916,3 +916,47 @@ def test_a_map_on_another_terrain_is_left_alone(monkeypatch):
         api, "m", {seed.SWISSALTI_MOSAIC_TITLE: "swiss"}
     )
     assert api.added == api.deleted == api.views == []
+
+
+def test_a_retried_terrain_move_only_removes_the_old_relief(monkeypatch):
+    monkeypatch.setattr(seed, "matterhorn_terrain", lambda _api, _titles: "terrain")
+    old = {"id": "old", "dataset_id": "swiss", "display_name": "swissALTI3D relief"}
+    new = {"id": "new", "dataset_id": "terrain", "display_name": "Terrain relief"}
+    api = TerrainApi({"enabled": True, "source_dataset_id": "swiss"}, [new, old])
+    seed.move_matterhorn_to_full_terrain(
+        api, "m", {seed.SWISSALTI_MOSAIC_TITLE: "swiss"}
+    )
+    assert api.added == []
+    assert api.deleted == ["old"]
+
+
+def test_partial_swiss_tiles_without_a_mosaic_rerun_the_manifest(monkeypatch):
+    monkeypatch.setattr(seed, "fetch_swissalti_tiles", lambda: {})
+    with pytest.raises(RuntimeError, match="no swissALTI3D 2m tiles"):
+        seed._swissalti_tile_ids(
+            object(), {"swissALTI3D 2m 2616-1090 (Matterhorn)": "t"}
+        )
+
+
+def test_a_failed_warp_is_a_builder_error(monkeypatch):
+    def missing(*_a, **_kw):
+        raise FileNotFoundError("gdalwarp")
+
+    monkeypatch.setattr(seed.subprocess, "run", missing)
+    with pytest.raises(RuntimeError, match="gdalwarp could not build"):
+        seed._copernicus_fill(object(), {})
+
+
+def test_guarded_update_refuses_to_move_the_matterhorn_terrain(job_counts):
+    api = TargetApi(
+        titles={seed.QUAKES_TITLE: "q", seed.SWISSALTI_MOSAIC_TITLE: "swiss"}
+    )
+    api.get_map = lambda _id: {
+        "visibility": "public",
+        "description": "text",
+        "terrain_config": {"source_dataset_id": "swiss"},
+    }
+    assert (
+        "the Matterhorn relief layer would be replaced"
+        in state.unrestorable_changes(api)
+    )
