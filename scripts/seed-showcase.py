@@ -809,11 +809,17 @@ class Api:
         r.raise_for_status()
         return r.json()
 
-    # NOTE: there is no wrapper for POST /services/preview/ (stage a NEW
-    # dataset from a service layer) on purpose. It permits only one dataset per
-    # owner+service+layer and 409s on a second, and this seeder binds one USGS
-    # layer twice - so every dataset it creates goes through the conversion
-    # door instead. See ingest_service.
+    def service_preview(self, body: dict) -> dict:
+        """Stage a NEW dataset from a service layer; returns {job_id, ...}.
+
+        Allows one dataset per owner, service and layer: a second import of the
+        same layer is refused with 409 `duplicate_source` (see ingest_service).
+        """
+        r = self.client.post(
+            f"{self.base}/api/services/preview/", headers=self.h, json=body
+        )
+        r.raise_for_status()
+        return r.json()
 
     def service_reupload_preview(self, dataset_id: str, body: dict) -> dict:
         """Stage a service binding over an EXISTING dataset (same body shape as
@@ -1580,44 +1586,48 @@ _SERVICE_STUB_FC = {
 _SERVICE_STUB_SUMMARY = (
     "Earthquake data; binding to the live USGS Recent Earthquakes service."
 )
+_SERVICE_BOUND_SUMMARY = "A copy of a public service layer; its description follows."
 
 
 def ingest_service(api: Api, service_url: str, title: str, timeout: int = 900) -> str:
-    """Create a NEW dataset bound to a live service layer, by CONVERSION.
+    """Create a NEW dataset bound to a live service layer.
 
-    The obvious door is POST /services/preview/, and it cannot be relied on
-    here. It allows one dataset per (owner, service_type, url, layer) and
-    refuses a second import of the same layer with 409 `duplicate_source` (the
-    existing_stmt guard in sources/router.py). This account can already hold a
-    binding of the USGS layer that the lookup by title does not find: the
-    retired heatmap copy until repair_quake_layers deletes it, or a dataset
-    retitled by hand. The reupload conversion door carries no such guard.
+    Imported straight from the service through POST /services/preview/, so the
+    dataset's first version, the one its Provenance panel lists, is the
+    service itself. That door allows one dataset per (owner, service_type, url,
+    layer) and refuses a second with 409 `duplicate_source` (the existing_stmt
+    guard in sources/router.py). This account can already hold a binding of a
+    layer that the lookup by title does not find: the retired heatmap copy
+    until repair_quake_layers deletes it, or a dataset retitled by hand. On
+    that refusal the dataset is created as a one-point stub and converted
+    through the reupload door, which carries no such guard.
 
-    So a new dataset is created as a one-point stub and immediately converted.
     The title is the real one from the first write, since it is the idempotency
-    key every later lookup depends on, and the conversion swaps every row before
-    the dataset is layered onto a map.
-
-    The SUMMARY is not, and this function takes no summary parameter at all. The
-    one it would be handed describes a live service, and it would be committed a
-    step before that became true - so a transient conversion failure would leave
-    a public dataset making a claim nothing downstream can retract, because the
-    origin gates in enrich_showcase_metadata choose whether to overwrite a
-    summary and cannot un-write one. Making the caller unable to pass a summary
-    removes the mistake instead of trusting every future caller to avoid it. The
-    real description arrives from the origin-gated enrichment pass later in the
-    same run.
+    key every later lookup depends on. The SUMMARY is not, and this function
+    takes no summary parameter at all: the real description arrives from the
+    origin-gated enrichment pass later in the same run, which can choose to
+    overwrite a placeholder but cannot un-write a claim made before the binding
+    was true.
     """
     print(f"  binding {title} to the live service...")
-    dataset_id = api.ingest_geojson(
-        "service_stub.geojson",
-        json.dumps(_SERVICE_STUB_FC).encode(),
-        title,
-        _SERVICE_STUB_SUMMARY,
-        timeout=timeout,
-    )
-    convert_to_service(api, dataset_id, service_url, title, timeout=timeout)
-    return dataset_id
+    body = service_binding_body(api, service_url)
+    try:
+        job_id = api.service_preview(body)["job_id"]
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code != 409 or "duplicate_source" not in e.response.text:
+            raise
+        print("  (this account already binds that layer; going through a stub)")
+        dataset_id = api.ingest_geojson(
+            "service_stub.geojson",
+            json.dumps(_SERVICE_STUB_FC).encode(),
+            title,
+            _SERVICE_STUB_SUMMARY,
+            timeout=timeout,
+        )
+        convert_to_service(api, dataset_id, service_url, title, timeout=timeout)
+        return dataset_id
+    api.commit(job_id, title, _SERVICE_BOUND_SUMMARY)
+    return api._created(title, api.poll(job_id, timeout=timeout)["dataset_id"])
 
 
 def convert_to_service(

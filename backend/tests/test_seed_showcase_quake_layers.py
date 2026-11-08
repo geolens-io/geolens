@@ -540,3 +540,74 @@ def test_live_wording_is_withheld_when_the_api_is_unreachable():
     api = BindingApi({seed.QUAKES_TITLE: "q"}, broken={"q"})
 
     assert seed._quakes_are_live(api) is False
+
+
+class _BindApi:
+    """Records the doors ingest_service takes; the preview door answers as told."""
+
+    def __init__(
+        self, preview_status: int | None = None, detail: str = "duplicate_source"
+    ):
+        self.preview_status = preview_status
+        self.detail = detail
+        self.calls: list[tuple] = []
+
+    def service_preview(self, body):
+        self.calls.append(("service_preview", body["url"]))
+        if self.preview_status is not None:
+            request = httpx.Request("POST", "http://x/api/services/preview/")
+            response = httpx.Response(
+                self.preview_status,
+                json={"detail": {"code": self.detail}},
+                request=request,
+            )
+            raise httpx.HTTPStatusError("refused", request=request, response=response)
+        return {"job_id": "job-1"}
+
+    def commit(self, job_id, title, summary, srid=4326, visibility="public"):
+        self.calls.append(("commit", job_id, title))
+
+    def poll(self, job_id, timeout=900):
+        return {"dataset_id": "ds-new"}
+
+    def _created(self, title, dataset_id):
+        return dataset_id
+
+    def ingest_geojson(
+        self, name, data, title, summary, visibility="public", timeout=300
+    ):
+        self.calls.append(("stub", name, title))
+        return "ds-stub"
+
+
+@pytest.fixture
+def bind_doors(monkeypatch):
+    monkeypatch.setattr(seed, "service_binding_body", lambda api, url: {"url": url})
+    converted: list[str] = []
+    monkeypatch.setattr(
+        seed,
+        "convert_to_service",
+        lambda api, ds, url, label, timeout=900: converted.append(ds),
+    )
+    return converted
+
+
+def test_a_new_binding_is_imported_straight_from_the_service(bind_doors):
+    api = _BindApi()
+    assert seed.ingest_service(api, "https://svc/0", "Trees") == "ds-new"
+    assert [c[0] for c in api.calls] == ["service_preview", "commit"]
+    assert bind_doors == []
+
+
+def test_a_duplicate_layer_falls_back_to_the_stub_and_conversion(bind_doors):
+    api = _BindApi(preview_status=409)
+    assert seed.ingest_service(api, "https://svc/0", "Quakes") == "ds-stub"
+    assert [c[0] for c in api.calls] == ["service_preview", "stub"]
+    assert bind_doors == ["ds-stub"]
+
+
+def test_another_refusal_of_the_service_is_not_papered_over(bind_doors):
+    api = _BindApi(preview_status=409, detail="something_else")
+    with pytest.raises(httpx.HTTPStatusError):
+        seed.ingest_service(api, "https://svc/0", "Trees")
+    assert [c[0] for c in api.calls] == ["service_preview"]
