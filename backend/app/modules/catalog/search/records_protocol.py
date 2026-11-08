@@ -1,6 +1,7 @@
 """Protocol helpers for the OGC API Records search surface."""
 
 import uuid
+from collections.abc import Sequence
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -151,6 +152,23 @@ def standard_response_headers(
     return headers
 
 
+def derive_collection_license(
+    licenses: Sequence[str | None] | None,
+) -> tuple[str, list[str]]:
+    """Collapse member licenses to the collection license.
+
+    One distinct license: use it. Several: "various". None: "proprietary".
+    Returns the license value and the sorted distinct licenses, so callers
+    can list the members' licenses when the value is "various".
+    """
+    distinct = sorted({lic for lic in (licenses or []) if lic})
+    if not distinct:
+        return "proprietary", []
+    if len(distinct) == 1:
+        return distinct[0], distinct
+    return "various", distinct
+
+
 def collection_search_feature(coll: dict, public_api_url: str) -> dict:
     """Serialize an augmented catalog Collection as a valid Record Feature."""
     created_at = coll["created_at"]
@@ -158,6 +176,10 @@ def collection_search_feature(coll: dict, public_api_url: str) -> dict:
         created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at)
     )
     collection_time = {"timestamp": created_text}
+    description = coll["description"] or coll["name"]
+    license_value, member_licenses = derive_collection_license(coll.get("licenses"))
+    if len(member_licenses) > 1:
+        description = f"{description} (Licenses: {', '.join(member_licenses)})"
     return {
         "type": "Feature",
         "id": coll["id"],
@@ -166,9 +188,9 @@ def collection_search_feature(coll: dict, public_api_url: str) -> dict:
         "properties": {
             "type": "collection",
             "title": coll["name"],
-            "description": coll["description"] or coll["name"],
+            "description": description,
             "keywords": [],
-            "license": "proprietary",
+            "license": license_value,
             "themes": [],
             "contacts": [
                 {
