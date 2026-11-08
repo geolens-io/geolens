@@ -41,6 +41,8 @@ export function StoryNavBar({ title, chapters, active, onSelect, collapsed }: St
     listEl.addEventListener('scroll', update, { passive: true });
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
     observer?.observe(listEl);
+    // The list keeps its box when a tab grows, as when a font loads; the tabs report that.
+    for (const tab of listEl.children) observer?.observe(tab);
     return () => {
       listEl.removeEventListener('scroll', update);
       observer?.disconnect();

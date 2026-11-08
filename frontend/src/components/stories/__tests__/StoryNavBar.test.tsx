@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event';
-import { cleanup, fireEvent, render, screen } from '@/test/test-utils';
+import { act, cleanup, fireEvent, render, screen } from '@/test/test-utils';
 import { StoryNavBar } from '../StoryNavBar';
 import type { StoryChapter } from '@/types/api';
 
@@ -25,6 +25,39 @@ describe('StoryNavBar', () => {
     rerender(<StoryNavBar {...props} active={5} />);
     expect(scrollIntoView).toHaveBeenCalledTimes(1);
     expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole('button', { name: 'Chapter 6' }));
+  });
+
+  it('shows the end fade when a tab grows past the list without the list resizing', () => {
+    const observed: Element[] = [];
+    let notify = () => {};
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          notify = callback;
+        }
+        observe(element: Element) {
+          observed.push(element);
+        }
+        disconnect() {}
+      },
+    );
+    const widths = vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockReturnValue(300);
+    const client = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(300);
+    try {
+      render(<StoryNavBar title="Story" chapters={chapters} active={0} onSelect={vi.fn()} collapsed={false} />);
+      const list = screen.getByRole('list');
+      expect(list.className).not.toContain('mask-image');
+      // A web font lands: a tab widens, the list keeps its box.
+      widths.mockReturnValue(900);
+      expect(observed).toContain(list.querySelector('li'));
+      act(() => notify());
+      expect(list).toHaveClass('[mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)]');
+    } finally {
+      widths.mockRestore();
+      client.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 
   it('fades only the side with tabs hidden past it, and not the menu list', async () => {

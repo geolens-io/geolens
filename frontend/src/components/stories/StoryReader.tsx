@@ -551,7 +551,7 @@ function StoryStepper({
           <h1 className={titleInNav ? 'sr-only' : 'truncate text-sm font-semibold text-foreground'}>{title}</h1>
         )}
         <div className="space-y-3">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {t('reader.chapterOf', { index: active + 1, total: chapters.length })}
             </p>
