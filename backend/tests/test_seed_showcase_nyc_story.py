@@ -279,6 +279,12 @@ def test_image_block_credits_the_scene_and_is_the_cover():
     assert api.published[0][1] == ASSET
 
 
+def test_story_shows_the_chapter_navigation_bar():
+    api = NycFakeApi()
+    seeder.seed_nyc_story(api)
+    assert _document(api).settings.navigation is True
+
+
 @pytest.mark.parametrize("zoom", [10, 11, 12, 13, 14])
 def test_the_crop_is_the_first_tile_one_scene_covers_whole(zoom):
     api = NycFakeApi()

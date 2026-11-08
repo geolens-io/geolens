@@ -259,6 +259,7 @@ def test_guarded_update_waits_for_a_running_job(job_counts):
         TargetApi(maps=[*state.MAP_NAMES, seed.HURRICANE_MAP_LEGACY]),
         TargetApi(maps=[seed.CITY_SHADE_MAP]),
         TargetApi(titles={seed.QUAKES_TITLE_LEGACY: "legacy"}),
+        TargetApi(titles={seed.STATES_TITLE_LEGACY: "legacy"}),
         TargetApi(maps=[*state.MAP_NAMES], visibility="private"),
         TargetApi(titles={seed.COPC_TITLE: "copc"}, visibility="private"),
         TargetApi(titles={"Matterhorn Peaks": "peaks"}, visibility="private"),
@@ -627,3 +628,140 @@ def test_the_basin_context_layer_explains_its_hatch_in_the_legend():
     assert body["display_name"] == (
         "Atlantic basin regions (hatched where no major storm passed within 100 km)"
     )
+
+
+class StatesApi:
+    def __init__(self):
+        self.patches: list[dict] = []
+        self.ingested: list[str] = []
+
+    def patch_dataset(self, dataset_id, **fields):
+        self.patches.append({"id": dataset_id, **fields})
+
+    def ingest_geojson(self, filename, data, title, summary, **_):
+        self.ingested.append(title)
+
+
+def test_states_dataset_takes_its_new_title_in_place(monkeypatch):
+    monkeypatch.setattr(seed, "fetch", lambda _url: b"{}")
+    api = StatesApi()
+    by_title = {seed.STATES_TITLE_LEGACY: "states-id"}
+    seed.ensure_states_dataset(api, by_title)
+    assert api.patches == [{"id": "states-id", "title": seed.STATES_TITLE}]
+    assert api.ingested == []
+    assert by_title == {seed.STATES_TITLE: "states-id"}
+    seed.ensure_states_dataset(api, by_title)
+    assert len(api.patches) == 1
+
+
+def test_states_dataset_is_ingested_under_the_new_title_when_absent(monkeypatch):
+    monkeypatch.setattr(seed, "fetch", lambda _url: b"{}")
+    api = StatesApi()
+    seed.ensure_states_dataset(api, {})
+    assert api.ingested == [seed.STATES_TITLE]
+    assert "World" not in seed.STATES_TITLE
+
+
+class CollectionsApi:
+    def __init__(self, titles):
+        self.titles = titles
+        self.members: dict[str, list[str]] = {}
+
+    def list_collections(self):
+        return []
+
+    def create_collection(self, name, description):
+        return name
+
+    def datasets_by_title(self):
+        return self.titles
+
+    def add_to_collection(self, collection_id, member_ids):
+        self.members[collection_id] = member_ids
+        return len(member_ids)
+
+
+def test_collections_hold_the_derived_hurricane_data_and_new_york_imagery():
+    titles = {
+        "Major Hurricane Corridors (100 km buffer)": "corridors",
+        "Coastal Regions Inside a Major Hurricane Corridor": "coastal",
+        "Sentinel-2 TCI S2B_T18TXL_20260911T155930_L2A": "scene-b",
+        "Sentinel-2 TCI S2A_T18TWL_20260829T155705_L2A": "scene-a",
+    }
+    api = CollectionsApi(titles)
+    seed.build_collections(api)
+    assert {"corridors", "coastal"} <= set(api.members["Restless Planet"])
+    assert api.members["Human World"] == ["scene-a", "scene-b"]
+
+
+def test_client_connection_records_say_the_dataset_page_draws_them():
+    texts = [
+        seed.COLLECTIONS["Client Connections"][0],
+        seed.SHOWCASE_METADATA[seed.COPC_TITLE]["summary"],
+        seed.SHOWCASE_METADATA[seed.TILES3D_TITLE]["summary"],
+    ]
+    for text in texts:
+        assert "does not render" not in text
+        assert "map builder does not layer" in text
+
+
+def test_every_showcase_record_states_how_often_it_is_updated():
+    missing = [
+        title
+        for title, spec in seed.SHOWCASE_METADATA.items()
+        if not (
+            spec.get("update_frequency")
+            or spec.get("gated", {}).get("update_frequency")
+        )
+    ]
+    assert missing == []
+
+
+def test_new_york_scenes_say_new_york_in_their_summary():
+    fields = seed._sentinel2_scene_fields(
+        "Sentinel-2 TCI S2B_T18TXL_20260911T155930_L2A"
+    )
+    assert "New York City" in fields["summary"]
+    assert "2026-09-11" in fields["summary"]
+    south = seed._sentinel2_scene_fields(
+        "Sentinel-2 TCI S2A_T33HUD_20260101T090000_L2A"
+    )
+    assert "New York" not in south["summary"]
+
+
+def test_orbit_map_text_does_not_count_its_scenes():
+    notes = seed.MAP_LEGEND_AND_NOTES[seed.ORBIT_MAP][1]
+    description = seed.MAP_DESCRIPTIONS[seed.ORBIT_MAP]
+    assert "four" not in (notes + description).lower()
+
+
+def test_the_legacy_states_title_is_still_enriched_collected_and_snapshotted(
+    monkeypatch,
+):
+    legacy = seed.STATES_TITLE_LEGACY
+
+    class LegacyEnrichApi(EnrichApi):
+        def list_own_datasets(self):
+            return [{"title": legacy, "id": "states", "origin": "upload"}]
+
+        def existing_keywords(self, _):
+            return set()
+
+        def add_keyword(self, *_):
+            pass
+
+    api = LegacyEnrichApi()
+    seed.enrich_showcase_metadata(api)
+    assert api.patches and api.patches[0]["license"] == "Natural Earth (public domain)"
+
+    collections = CollectionsApi({legacy: "states"})
+    seed.build_collections(collections)
+    assert "states" in collections.members["Human World"]
+
+    monkeypatch.setattr(state, "get", lambda _api, _path: {"keywords": []})
+
+    class LegacySnapshotApi(SnapshotApi):
+        def list_own_datasets(self):
+            return [{"title": legacy, "id": "states"}]
+
+    assert list(state.snapshot(LegacySnapshotApi())["datasets"]) == [legacy]

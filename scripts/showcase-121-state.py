@@ -199,6 +199,8 @@ def unrestorable_changes(api):
         problems.append(f"legacy map name {seed.HURRICANE_MAP_LEGACY!r}")
     if seed.QUAKES_TITLE_LEGACY in titles:
         problems.append(f"legacy dataset title {seed.QUAKES_TITLE_LEGACY!r}")
+    if seed.STATES_TITLE_LEGACY in titles:
+        problems.append(f"legacy dataset title {seed.STATES_TITLE_LEGACY!r}")
     if seed.QUAKES_TITLE in titles:
         detail = api.dataset_detail(titles[seed.QUAKES_TITLE])
         if (detail.get("origin"), detail.get("origin_uri")) != (
