@@ -1,5 +1,5 @@
 import userEvent from '@testing-library/user-event';
-import { render, screen } from '@/test/test-utils';
+import { cleanup, fireEvent, render, screen } from '@/test/test-utils';
 import { StoryNavBar } from '../StoryNavBar';
 import type { StoryChapter } from '@/types/api';
 
@@ -27,11 +27,29 @@ describe('StoryNavBar', () => {
     expect(scrollIntoView.mock.contexts[0]).toBe(screen.getByRole('button', { name: 'Chapter 6' }));
   });
 
-  it('fades the inline list at its end edge but not the menu list', async () => {
+  it('fades only the side with tabs hidden past it, and not the menu list', async () => {
     const props = { title: 'Story', chapters, active: 0, onSelect: vi.fn() };
+    const widths = vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockReturnValue(900);
+    const client = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(300);
     const { unmount } = render(<StoryNavBar {...props} collapsed={false} />);
-    expect(screen.getByRole('list')).toHaveClass('overflow-x-auto', '[mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)]');
+    const list = screen.getByRole('list');
+    expect(list).toHaveClass('overflow-x-auto', '[mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)]');
+
+    list.scrollLeft = 300;
+    fireEvent.scroll(list);
+    expect(list).toHaveClass('[mask-image:linear-gradient(to_right,transparent,black_2rem,black_calc(100%-2rem),transparent)]');
+
+    list.scrollLeft = 600;
+    fireEvent.scroll(list);
+    expect(list).toHaveClass('[mask-image:linear-gradient(to_right,transparent,black_2rem)]');
     unmount();
+
+    client.mockReturnValue(900);
+    render(<StoryNavBar {...props} collapsed={false} />);
+    expect(screen.getByRole('list').className).not.toContain('mask-image');
+    widths.mockRestore();
+    client.mockRestore();
+    cleanup();
 
     render(<StoryNavBar {...props} collapsed />);
     await userEvent.setup().click(screen.getByRole('button', { name: /chapters/i }));

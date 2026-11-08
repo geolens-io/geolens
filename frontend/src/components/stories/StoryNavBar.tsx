@@ -26,8 +26,39 @@ export function StoryNavBar({ title, chapters, active, onSelect, collapsed }: St
     if (!collapsed) activeRef.current?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   }, [active, collapsed]);
 
+  const [listEl, setListEl] = useState<HTMLOListElement | null>(null);
+  const [fade, setFade] = useState({ start: false, end: false });
+  // The fade only marks a side that has tabs hidden past it.
+  useEffect(() => {
+    if (!listEl || collapsed) return;
+    const update = () => {
+      const max = listEl.scrollWidth - listEl.clientWidth;
+      const offset = Math.abs(listEl.scrollLeft);
+      const next = { start: offset > 1, end: max - offset > 1 };
+      setFade((prev) => (prev.start === next.start && prev.end === next.end ? prev : next));
+    };
+    update();
+    listEl.addEventListener('scroll', update, { passive: true });
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
+    observer?.observe(listEl);
+    return () => {
+      listEl.removeEventListener('scroll', update);
+      observer?.disconnect();
+    };
+  }, [listEl, collapsed, chapters.length]);
+
   const list = (
-    <ol className={cn(collapsed ? 'min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-4' : 'flex min-w-0 flex-1 items-center gap-1 overflow-x-auto pe-8 scroll-pe-8 [mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)]')}>
+    <ol
+      ref={setListEl}
+      className={cn(
+        collapsed
+          ? 'min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-4'
+          : 'flex min-w-0 flex-1 items-center gap-1 overflow-x-auto scroll-px-8',
+        !collapsed && fade.start && !fade.end && '[mask-image:linear-gradient(to_right,transparent,black_2rem)]',
+        !collapsed && !fade.start && fade.end && '[mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)]',
+        !collapsed && fade.start && fade.end && '[mask-image:linear-gradient(to_right,transparent,black_2rem,black_calc(100%-2rem),transparent)]',
+      )}
+    >
       {chapters.map((chapter, i) => (
         <li key={chapter.id} className="shrink-0">
           <Button

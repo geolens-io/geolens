@@ -67,6 +67,8 @@ interface PanelProps extends Omit<StoryReaderProps, 'settings' | 'chromeless'> {
   bare?: boolean;
   /** Height of the docked Map data panel a floating panel must end above. */
   clearance?: number;
+  /** The navigation bar above shows the story title. */
+  titleInNav?: boolean;
 }
 
 interface ScrollPanelHandle {
@@ -219,6 +221,7 @@ export function StoryReader({
     active,
     onActiveChange: changeChapter,
     textOnly,
+    titleInNav: !!settings?.navigation,
   };
   return (
     <div
@@ -296,7 +299,6 @@ function StoryHeader({
   headerActions?: ReactNode;
   logoUrl?: string;
 }) {
-  const { t } = useTranslation('stories');
   return (
     <header className="space-y-2">
       {logoUrl && (
@@ -315,22 +317,28 @@ function StoryHeader({
       )}
       <div className="flex items-start justify-between gap-2">
         <h1 className="text-2xl font-semibold text-foreground">{title}</h1>
-        {(headerActions || editHref) && (
-          <div className="flex shrink-0 gap-2">
-            {headerActions}
-            {editHref && (
-              <Button asChild variant="outline" size="sm">
-                <Link to={editHref}>
-                  <Pencil className="h-4 w-4" aria-hidden="true" />
-                  {t('reader.edit')}
-                </Link>
-              </Button>
-            )}
-          </div>
-        )}
+        <StoryActions editHref={editHref} headerActions={headerActions} />
       </div>
       {summary && <p className="text-sm text-muted-foreground">{summary}</p>}
     </header>
+  );
+}
+
+function StoryActions({ editHref, headerActions }: { editHref?: string; headerActions?: ReactNode }) {
+  const { t } = useTranslation('stories');
+  if (!headerActions && !editHref) return null;
+  return (
+    <div className="flex shrink-0 gap-2">
+      {headerActions}
+      {editHref && (
+        <Button asChild variant="outline" size="sm">
+          <Link to={editHref}>
+            <Pencil className="h-4 w-4" aria-hidden="true" />
+            {t('reader.edit')}
+          </Link>
+        </Button>
+      )}
+    </div>
   );
 }
 
@@ -490,6 +498,7 @@ function StoryStepper({
   active,
   onActiveChange,
   textOnly,
+  titleInNav,
 }: PanelProps) {
   const { t } = useTranslation('stories');
   const contentRef = useRef<HTMLDivElement>(null);
@@ -527,19 +536,27 @@ function StoryStepper({
         aria-labelledby={chapterHeadingId(chapter)}
         className="relative min-h-0 flex-1 space-y-4 overflow-y-auto p-4 focus-visible:outline-2 focus-visible:outline-ring"
       >
-        <StoryHeader
-          storyId={storyId}
-          coverAssetId={isFirst ? coverAssetId : null}
-          title={title}
-          summary={isFirst ? summary : null}
-          editHref={editHref}
-          headerActions={headerActions}
-          logoUrl={readerLogoUrl(readerTheme)}
-        />
+        {/* Later chapters leave the sheet to the text: a one-line title unless the navigation bar
+            shows it. The actions stay beside the chapter count on every chapter, so a focused one
+            keeps focus when the arrow keys change chapter. */}
+        {isFirst ? (
+          <StoryHeader
+            storyId={storyId}
+            coverAssetId={coverAssetId}
+            title={title}
+            summary={summary}
+            logoUrl={readerLogoUrl(readerTheme)}
+          />
+        ) : (
+          <h1 className={titleInNav ? 'sr-only' : 'truncate text-sm font-semibold text-foreground'}>{title}</h1>
+        )}
         <div className="space-y-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {t('reader.chapterOf', { index: active + 1, total: chapters.length })}
-          </p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {t('reader.chapterOf', { index: active + 1, total: chapters.length })}
+            </p>
+            <StoryActions editHref={editHref} headerActions={headerActions} />
+          </div>
           <StoryChapterBody storyId={storyId} chapter={chapter} index={active} />
         </div>
       </div>

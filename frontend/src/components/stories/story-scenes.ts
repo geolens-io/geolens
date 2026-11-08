@@ -109,6 +109,10 @@ export interface CameraProbe {
   getPitch(): number;
   project(lngLat: [number, number]): { x: number; y: number };
   getContainer(): { clientWidth: number; clientHeight: number };
+  /** The limits the map clamps a camera to; absent limits mean none. */
+  getMaxPitch?(): number;
+  getMinZoom?(): number;
+  getMaxZoom?(): number;
 }
 
 /** How far the view may drift from a scene camera before it counts as moved, in screen pixels. */
@@ -124,11 +128,15 @@ export function cameraGap(map: CameraProbe, target: StoryCamera): CameraGap {
   const to = map.project([lng, target.center[1]]);
   // Padding moves the camera's centre off the middle of the container, so measure from where the centre projects.
   const from = map.project([center.lng, center.lat]);
+  // A scene may ask for more than the map allows; the map settles at its limit, so compare against that.
+  const clamp = (value: number, min = -Infinity, max = Infinity) => Math.min(max, Math.max(min, value));
+  const targetZoom = clamp(target.zoom, map.getMinZoom?.(), map.getMaxZoom?.());
+  const targetPitch = clamp(target.pitch, 0, map.getMaxPitch?.());
   return {
     panPx: Math.hypot(to.x - from.x, to.y - from.y),
-    zoom: Math.abs(map.getZoom() - target.zoom),
+    zoom: Math.abs(map.getZoom() - targetZoom),
     bearing: Math.abs(lngOffset(map.getBearing(), target.bearing)),
-    pitch: Math.abs(map.getPitch() - target.pitch),
+    pitch: Math.abs(map.getPitch() - targetPitch),
   };
 }
 

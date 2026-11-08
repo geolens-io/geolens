@@ -681,6 +681,48 @@ describe('floating layout', () => {
     expect(screen.getByTestId('story-map').parentElement).not.toHaveClass('absolute');
   });
 
+  it('keeps focus on a phone header action when the arrow keys change chapter', async () => {
+    const user = userEvent.setup();
+    layout.narrow = true;
+    render(<StoryReader storyId="s1" title="Hurricanes" summary="Where they go" chapters={CHAPTERS} editHref="/stories/s1/edit" />);
+    const edit = screen.getByRole('link', { name: 'Edit' });
+    edit.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(screen.getByText('Chapter 2 of 4')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Edit' })).toHaveFocus();
+  });
+
+  it('shrinks the phone header after the first chapter, keeping its actions', async () => {
+    const user = userEvent.setup();
+    layout.narrow = true;
+    const { rerender } = render(
+      <StoryReader storyId="s1" title="Hurricanes" summary="Where they go" chapters={CHAPTERS} editHref="/stories/s1/edit" />,
+    );
+    expect(screen.getByText('Where they go')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Hurricanes' })).toHaveClass('text-2xl');
+    await user.click(screen.getByRole('button', { name: 'Next' }));
+    expect(screen.queryByText('Where they go')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Hurricanes' })).toHaveClass('truncate', 'text-sm');
+    expect(screen.getByRole('link', { name: 'Edit' })).toHaveAttribute('href', '/stories/s1/edit');
+    expect(screen.getByText('Chapter 2 of 4')).toBeInTheDocument();
+
+    // With the navigation bar showing the title, the panel keeps it for assistive technology only.
+    rerender(
+      <StoryReader
+        storyId="s1"
+        title="Hurricanes"
+        summary="Where they go"
+        chapters={CHAPTERS}
+        editHref="/stories/s1/edit"
+        settings={{ navigation: true } as StorySettings}
+      />,
+    );
+    const headings = screen.getAllByRole('heading', { level: 1, name: 'Hurricanes' });
+    expect(headings).toHaveLength(1);
+    expect(headings[0]).toHaveClass('sr-only');
+    expect(screen.getByRole('link', { name: 'Edit' })).toBeInTheDocument();
+  });
+
   it('keeps the panel mounted on a chapter with no blocks, so scrolling still moves on', async () => {
     const user = userEvent.setup();
     layout.narrow = false;
@@ -772,7 +814,7 @@ describe('chromeless', () => {
     });
   });
 
-  it.each([true, false])('puts header actions beside the title and Edit outside an embed (narrow: %s)', (narrow) => {
+  it.each([true, false])('puts header actions and Edit outside an embed in the header row (narrow: %s)', (narrow) => {
     layout.narrow = narrow;
     render(
       <StoryReader
@@ -784,9 +826,12 @@ describe('chromeless', () => {
         headerActions={<button type="button">Embed</button>}
       />,
     );
-    const header = screen.getByRole('heading', { level: 1, name: 'Hurricanes' }).closest('header')!;
-    expect(within(header).getByRole('button', { name: 'Embed' })).toBeInTheDocument();
-    expect(within(header).getByRole('link', { name: 'Edit' })).toHaveAttribute('href', '/stories/s1/edit');
+    // A phone's stepper keeps them beside the chapter count on every chapter; the scroll panel beside the title.
+    const row = narrow
+      ? screen.getByText('Chapter 1 of 4').parentElement!
+      : screen.getByRole('heading', { level: 1, name: 'Hurricanes' }).closest('header')!;
+    expect(within(row).getByRole('button', { name: 'Embed' })).toBeInTheDocument();
+    expect(within(row).getByRole('link', { name: 'Edit' })).toHaveAttribute('href', '/stories/s1/edit');
   });
 });
 
