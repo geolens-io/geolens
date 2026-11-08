@@ -6033,6 +6033,7 @@ def _orbit_framing(
     """
     cache: dict = {}
     probes = 0
+    named = passes.get(day, [])
     lng, lat = nominal["center"]
     zooms = sorted(
         {nominal["zoom"], *_FRAMING_ZOOMS}, key=lambda z: abs(z - nominal["zoom"])
@@ -6065,14 +6066,18 @@ def _orbit_framing(
                 for fx in (0.04, 0.35, 0.65, 0.96)
                 for fy in (0.06, 0.5, 0.94)
             ]
-            if all(
-                any(
-                    _meets(bounds[lay["id"]], (px, py, px, py))
-                    and _has_imagery(api, lay, px, py, cache)
+            # Every point lit, and the named pass lighting at least one of them:
+            # its bounds can meet the view through an empty swath corner alone.
+            hits = [
+                [
+                    lay
                     for lay in drawn
-                )
+                    if _meets(bounds[lay["id"]], (px, py, px, py))
+                    and _has_imagery(api, lay, px, py, cache)
+                ]
                 for px, py in points
-            ):
+            ]
+            if all(hits) and any(lay in hit for hit in hits for lay in named):
                 return camera, visibility
     view = _view_bbox(nominal, _FRAMING_SIZE)
     print(f"  no camera near {nominal['center']} fills the view with the {day} pass")

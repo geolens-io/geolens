@@ -305,3 +305,33 @@ def test_framing_keeps_the_named_pass_in_view(monkeypatch):
     camera, visible = seed._orbit_framing(None, layers, bounds, "2026-09-11", NOMINAL)
     assert visible["new"] is True
     assert _view(camera)[2] > -73.7
+
+
+class PassTilesApi:
+    """Tiles lit or black per dataset."""
+
+    def __init__(self, lit_datasets):
+        self.lit = lit_datasets
+
+    def raster_tile(self, dataset_id, z, x, y):
+        from PIL import Image
+
+        shade = (40, 90, 60) if dataset_id in self.lit else (0, 0, 0)
+        out = io.BytesIO()
+        Image.new("RGB", (256, 256), shade).save(out, "JPEG")
+        return out.getvalue()
+
+
+def test_framing_needs_imagery_from_the_named_pass(monkeypatch, capsys):
+    pytest.importorskip("PIL.Image")
+    monkeypatch.setattr(seed, "_has_pillow", lambda: True)
+    # The newest pass's bounds cover the view but its pixels there are empty;
+    # an older, broader scene is lit everywhere.
+    layers = {"2026-09-11": [{"id": "new", "dataset_id": "a"}]}
+    layers["2026-08-29"] = [{"id": "old", "dataset_id": "b"}]
+    bounds = {"new": [-74.1, 40.6, -73.9, 40.8], "old": [-78.0, 38.0, -70.0, 43.0]}
+    camera, _ = seed._orbit_framing(
+        PassTilesApi({"b"}), layers, bounds, "2026-09-11", NOMINAL
+    )
+    assert camera == NOMINAL
+    assert "fills the view" in capsys.readouterr().out
