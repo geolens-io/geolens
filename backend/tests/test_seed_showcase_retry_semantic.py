@@ -396,6 +396,8 @@ def test_a_transport_error_in_the_semantic_step_does_not_skip_the_post_steps(
         ("--story-and-dashboard", ["rename", "maintenance"]),
         ("--refresh-hurdat2", ["rename", "maintenance"]),
         ("--prune-userdata", ["maintenance"]),
+        ("--refresh-quakes", ["maintenance"]),
+        ("--refresh-services", ["maintenance"]),
     ],
 )
 def test_legacy_maps_are_renamed_before_a_maintenance_mode_except_prune(

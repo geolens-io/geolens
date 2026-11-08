@@ -9627,9 +9627,10 @@ def main() -> int:
                 + "; ".join(problems)
             )
 
-    # Before the maintenance modes too, which look maps up by their current
-    # names; prune stays read-only until --execute and recognises old names.
-    if not args.prune_userdata:
+    # Before the maintenance modes that look maps up by their current names.
+    # Prune stays read-only until --execute and recognises old names, and the
+    # scheduled refreshes never read a map.
+    if not (args.prune_userdata or args.refresh_quakes or args.refresh_services):
         rename_legacy_maps(api)
     maintenance = run_maintenance_mode(api, args)
     if maintenance is not None:
