@@ -300,6 +300,14 @@ function StoryMap({
 
   // The reader may have moved on while the map loaded.
   const [readyMap, setReadyMap] = useState<MaplibreMap | null>(null);
+  // A shown map takes a new padding at once (the panel hid, or the window crossed the breakpoint), keeping its centre.
+  // A move in flight started with the padding it has.
+  useEffect(() => {
+    if (!readyMap || inFlight.current > 0) return;
+    const now = readyMap.getPadding();
+    if (now.top === padding.top && now.bottom === padding.bottom && now.left === padding.left && now.right === padding.right) return;
+    readyMap.jumpTo({ padding });
+  }, [readyMap, padding]);
   // Live readiness; the cover latches off once the map has been shown ready or has waited.
   const [viewerReady, setViewerReady] = useState(false);
   const [coverDone, setCoverDone] = useState(false);

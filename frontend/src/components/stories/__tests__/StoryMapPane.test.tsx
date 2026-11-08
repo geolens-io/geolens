@@ -22,6 +22,8 @@ const makeFakeMap = vi.hoisted(() => () => {
     getCanvas: () => ({ focus: map.focus }),
     getContainer: () => ({ clientWidth: 1000, clientHeight: 500 }),
     padX: 0,
+    padding: { top: 0, bottom: 0, left: 0, right: 0 },
+    getPadding: () => map.padding,
     getCenter: () => ({ lng: map.view.lng, lat: map.view.lat }),
     getZoom: () => map.view.zoom,
     getBearing: () => map.view.bearing,
@@ -36,6 +38,7 @@ const makeFakeMap = vi.hoisted(() => () => {
     reset: () => {
       map.view = { ...initialView };
       map.padX = 0;
+      map.padding = { top: 0, bottom: 0, left: 0, right: 0 };
       handlers.clear();
     },
   };
@@ -749,5 +752,22 @@ describe('camera padding', () => {
     viewAt(-70, 25, 3);
     act(() => fakeMap.emit('moveend', READER_MOVE));
     expect(screen.queryByRole('button', { name: "Back to this chapter's view" })).toBeNull();
+  });
+
+  it('applies a new padding to a map already shown, keeping its centre and leaving the return button hidden', async () => {
+    const { rerender } = await renderReady(resolved('c1', 'map-a', 3), PADDING);
+    fakeMap.padding = PADDING;
+    viewAt(-70, 25, 3);
+    fakeMap.jumpTo.mockClear();
+    rerender(<StoryMapPane resolved={resolved('c1', 'map-a', 3)} padding={NONE} />);
+    expect(fakeMap.jumpTo).toHaveBeenCalledTimes(1);
+    expect(fakeMap.jumpTo).toHaveBeenCalledWith({ padding: NONE });
+    act(() => fakeMap.emit('moveend', {}));
+    expect(screen.queryByRole('button', { name: "Back to this chapter's view" })).toBeNull();
+
+    fakeMap.padding = NONE;
+    fakeMap.jumpTo.mockClear();
+    rerender(<StoryMapPane resolved={resolved('c1', 'map-a', 3)} padding={{ ...NONE }} />);
+    expect(fakeMap.jumpTo).not.toHaveBeenCalled();
   });
 });
