@@ -48,9 +48,10 @@ export default function BarChartRenderer({
   onSelect,
   mapHidden,
   columnLabel,
+  valueLabel,
 }: WidgetRenderProps<BarChartConfig>) {
   const { t } = useTranslation('widgets');
-  const text = useBarChartText(config, data, columnLabel);
+  const text = useBarChartText(config, data, columnLabel, valueLabel);
   const hintId = useId();
   const rows = text.rows ?? [];
   const pickColumn = pickedColumn(config);

@@ -17,6 +17,7 @@ import { getClusterSourceStrategy } from '@/components/builder/cluster-source';
 import { useTileConfig } from '@/hooks/use-settings';
 import { isCql2QueryableColumn, type Cql2Expression } from '@/lib/maplibre-filter-utils';
 import { isMvtSourceLayerConfigReady } from '@/lib/tile-utils';
+import { valueLabelFor } from '@/lib/value-labels';
 import { readStorage, removeStorage, storageKeys, writeStorage } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 import type { SharedLayerResponse } from '@/types/api';
@@ -208,6 +209,9 @@ export function DashboardWidget({
               loadMoreFailed={loadMoreFailed}
               onZoomTo={onZoomTo}
               columnLabel={(column) => columnDisplayName(layer.column_info, column)}
+              valueLabel={(column, value) =>
+                valueLabelFor(layer.column_info?.find((info) => info.name === column)?.value_labels, value)
+              }
               loadingFallback={loadingSkeleton}
             />
           </LayerColorsProvider>

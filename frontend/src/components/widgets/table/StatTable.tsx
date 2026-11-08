@@ -11,10 +11,19 @@ import { useTableText } from './table-rows';
  * One row per group, one column per statistic. Where the host links widgets
  * (`onSelect`), a row's button picks its group, as a bar does; picking it
  * again clears the pick. A picked row is marked and keeps full weight.
+ * `coded` writes a labelled group as "Label (code)", for the text alternative.
  */
-export function StatTable({ config, data, selection, onSelect, columnLabel }: WidgetRenderProps<TableConfig>) {
+export function StatTable({
+  config,
+  data,
+  selection,
+  onSelect,
+  columnLabel,
+  valueLabel,
+  coded,
+}: WidgetRenderProps<TableConfig> & { coded?: boolean }) {
   const { t } = useTranslation('widgets');
-  const text = useTableText(config, data, columnLabel);
+  const text = useTableText(config, data, columnLabel, valueLabel);
   const { rows } = text;
   const scroller = useRef<HTMLDivElement>(null);
   const [scrolls, setScrolls] = useState(false);
@@ -88,10 +97,10 @@ export function StatTable({ config, data, selection, onSelect, columnLabel }: Wi
                       aria-pressed={isPicked}
                       className="rounded-sm text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                     >
-                      {row.label}
+                      {coded ? row.tableLabel : row.label}
                     </button>
                   ) : (
-                    row.label
+                    coded ? row.tableLabel : row.label
                   )}
                   {isPicked && (
                     <span aria-hidden="true" className="ms-1 font-semibold">

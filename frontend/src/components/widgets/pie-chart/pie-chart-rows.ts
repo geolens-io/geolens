@@ -1,8 +1,8 @@
 import { useTranslation } from 'react-i18next';
 import { aggregateResult, STAT_LABEL_KEYS } from '../aggregate';
-import { columnName, type ColumnLabel, type WidgetSelection } from '../contract';
+import { columnName, type ColumnLabel, type ValueLabel, type WidgetSelection } from '../contract';
 import { selectedValues } from '../selection';
-import { useCategoryRows, type CategoryRows } from '../value-counts';
+import { labelOfColumn, useCategoryRows, type CategoryRows } from '../value-counts';
 import type { PieChartConfig } from './definition';
 
 export interface PieChartText extends CategoryRows {
@@ -21,13 +21,14 @@ export function usePieChartText(
   config: PieChartConfig,
   data: unknown,
   columnLabel: ColumnLabel = columnName,
+  valueLabel?: ValueLabel,
 ): PieChartText {
   const { t } = useTranslation('widgets');
   const valueHeader = t(STAT_LABEL_KEYS[config.stat], {
     column: config.stat_column && columnLabel(config.stat_column),
   });
   const labelHeader = columnLabel(config.column);
-  const rows = useCategoryRows(data);
+  const rows = useCategoryRows(data, labelOfColumn(valueLabel, config.column));
   const truncated = aggregateResult(data, 'group_by')?.truncated === true;
   return {
     summary: t('types.pie_chart.summary', { stat: valueHeader, column: labelHeader }),

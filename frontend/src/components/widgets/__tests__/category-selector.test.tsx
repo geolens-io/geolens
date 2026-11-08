@@ -162,3 +162,33 @@ describe('category selector widget', () => {
     expect(onChange).toHaveBeenLastCalledWith({ ...config, multiple: false });
   });
 });
+
+describe('category selector value labels', () => {
+  const coded = {
+    op: 'value_counts',
+    approximate: false,
+    cached: false,
+    result: { values: [{ value: 1, count: 40 }, { value: 2, count: 25 }], other_count: 0 },
+  };
+  const valueLabel = (column: string, value: unknown) =>
+    column === 'land_use' && value === 1 ? 'City' : undefined;
+
+  it('offers the label, picks the stored value, and adds the code in the table', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const { unmount } = render(
+      <CategorySelectorRenderer config={config} data={coded} valueLabel={valueLabel} onSelect={onSelect} />,
+    );
+    expect(screen.getByRole('checkbox', { name: /^City/ })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /^2/ })).toBeInTheDocument();
+    await user.click(screen.getByRole('checkbox', { name: /^City/ }));
+    expect(onSelect).toHaveBeenLastCalledWith({ column: 'land_use', label: 'City', values: [1] });
+    unmount();
+
+    render(<CategorySelectorFallback config={config} data={coded} valueLabel={valueLabel} />);
+    expect(within(screen.getByRole('table')).getAllByRole('row').slice(1).map((row) => row.textContent)).toEqual([
+      'City (1)40',
+      '225',
+    ]);
+  });
+});

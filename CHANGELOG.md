@@ -17,6 +17,7 @@ and releases use semantic versioning.
 
 ### Fixed
 - Collection thumbnails and the collection page's spatial extent map now zoom to a city-sized extent instead of showing a dot on a world map, the viewer legend shows a chevron while rows are cut off below the visible part of the panel, and a map card's title wraps to two lines instead of cutting a long name short beside its visibility badge.
+- Dashboard widgets: pie slices, bars, table groups, category selector options and feature list titles show a column's value labels, such as a coded-value domain's descriptions, instead of the stored codes. The text alternatives show "Label (code)", and picks and filters still match the stored value (#3679).
 - Stories and dashboard text: a wide code block scrolls inside its own shaded box instead of widening the whole chapter panel or widget.
 - Stories: in the floating layout each scene centres in the part of the map the chapter panel leaves free, instead of partly under the panel.
 - A dataset bound to a service now reports source health "healthy" after a successful refresh, whether or not the data changed, instead of "unknown" until a probe runs. A STAC item refresh keeps the asset probe's verdict.

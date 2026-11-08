@@ -36,6 +36,8 @@ _Avoid_: Data tab, data drawer.
 
 **Attribute table**: A saved layer's rows as a table. It starts with the fields the layer's popup shows, and the reader can add or hide columns.
 
+**Value label**: The name a dataset gives a stored value in a column, such as a coded-value domain's description of a code. Readers see the label; filters and picks match the stored value.
+
 **Column allowlist**: The columns of a dataset that anyone reaching it only through an embed may see. Map tiles carry no others; row lists keep the row id.
 _Avoid_: Tile columns.
 

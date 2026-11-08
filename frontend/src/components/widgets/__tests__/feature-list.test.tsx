@@ -319,3 +319,29 @@ describe('feature list editor', () => {
     }
   });
 });
+
+describe('feature list value labels', () => {
+  const coded = rowsResult([{ gid: 1, values: { name: 'Elm', kind: 1 }, bbox: null }]);
+  const valueLabel = (column: string, value: unknown) =>
+    column === 'kind' && value === 1 ? 'City' : undefined;
+
+  it('shows the label of a coded subtitle, with its code in the text alternative', () => {
+    const { unmount } = render(<FeatureListRenderer config={config} data={coded} valueLabel={valueLabel} />);
+    expect(screen.getByText('City')).toBeInTheDocument();
+    unmount();
+    render(<FeatureListFallback config={config} data={coded} valueLabel={valueLabel} />);
+    expect(screen.getByText('City (1)')).toBeInTheDocument();
+  });
+
+  it('labels the title column too', () => {
+    const titled = rowsResult([{ gid: 1, values: { name: 1, kind: 'x' }, bbox: null }]);
+    render(
+      <FeatureListRenderer
+        config={config}
+        data={titled}
+        valueLabel={(column, value) => (column === 'name' && value === 1 ? 'City' : undefined)}
+      />,
+    );
+    expect(screen.getByText('City')).toBeInTheDocument();
+  });
+});

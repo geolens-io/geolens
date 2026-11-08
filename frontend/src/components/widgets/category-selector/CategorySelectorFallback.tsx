@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { columnName, type WidgetRenderProps } from '../contract';
 import { selectedValues } from '../selection';
-import { useCategoryRows } from '../value-counts';
+import { labelOfColumn, useCategoryRows } from '../value-counts';
 import { ValueTable } from '../ValueTable';
 import type { CategorySelectorConfig } from './definition';
 
@@ -11,9 +11,10 @@ export function CategorySelectorFallback({
   data,
   selection,
   columnLabel,
+  valueLabel,
 }: WidgetRenderProps<CategorySelectorConfig>) {
   const { t } = useTranslation('widgets');
-  const { rows, other } = useCategoryRows(data);
+  const { rows, other } = useCategoryRows(data, labelOfColumn(valueLabel, config.column));
   const column = (columnLabel ?? columnName)(config.column);
   const picked = selectedValues(selection, config.column);
   return (

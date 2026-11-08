@@ -3,6 +3,8 @@ import { PickedMark } from './PickedMark';
 
 interface ValueTableRow {
   label: string;
+  /** Shown in place of `label` in the table. */
+  tableLabel?: string;
   text: string;
   picked?: boolean;
 }
@@ -46,7 +48,7 @@ export function ValueTable({
         {rows.map((row, index) => (
           <tr key={index} className="border-b last:border-0">
             <th scope="row" className="py-1 pr-2 text-left font-normal break-words">
-              {row.label}
+              {row.tableLabel ?? row.label}
               {row.picked && <PickedMark />}
             </th>
             <td className="py-1 text-right tabular-nums">{row.text}</td>

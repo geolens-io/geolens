@@ -1,9 +1,9 @@
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { aggregateResult, aggregateStat, formatAggregateValue, STAT_LABEL_KEYS } from '../aggregate';
-import { columnName, type ColumnLabel, type SelectionValue, type WidgetSelection } from '../contract';
+import { columnName, type ColumnLabel, type SelectionValue, type ValueLabel, type WidgetSelection } from '../contract';
 import { selectedValues } from '../selection';
-import { categoryLabel, useCategoryRows, type CategoryRow, type CategoryRows } from '../value-counts';
+import { categoryLabel, categoryTableLabel, labelOfColumn, useCategoryRows, type CategoryRow, type CategoryRows } from '../value-counts';
 import { pickedColumn, type BarChartConfig, type DateBucket } from './definition';
 
 export interface BarChartText extends CategoryRows {
@@ -32,10 +32,16 @@ function bucketLabel(key: SelectionValue, bucket: DateBucket, t: TFunction<'widg
   return new Intl.DateTimeFormat(locale, { ...options[bucket], timeZone: 'UTC' }).format(start);
 }
 
-function bar(key: SelectionValue, label: string, value: number | string | boolean | null): CategoryRow {
+function bar(
+  key: SelectionValue,
+  label: string,
+  value: number | string | boolean | null,
+  tableLabel?: string,
+): CategoryRow {
   return {
     key,
     label,
+    tableLabel,
     text: formatAggregateValue(typeof value === 'boolean' ? String(value) : value),
     amount: typeof value === 'boolean' || value === null ? Number.NaN : Number(value),
   };
@@ -46,9 +52,10 @@ export function useBarChartText(
   config: BarChartConfig,
   data: unknown,
   columnLabel: ColumnLabel = columnName,
+  valueLabel?: ValueLabel,
 ): BarChartText {
   const { t, i18n } = useTranslation('widgets');
-  const categories = useCategoryRows(data);
+  const categories = useCategoryRows(data, 'column' in config ? labelOfColumn(valueLabel, config.column) : undefined);
 
   if (config.mode === 'by_feature') {
     const valueHeader = columnLabel(config.value_column);
@@ -62,7 +69,13 @@ export function useBarChartText(
       valueHeader,
       rows: shown?.map((row) => {
         const key = row.values[config.label_column] ?? null;
-        return bar(key, categoryLabel(key, t), row.values[config.value_column] ?? null);
+        const labelOf = labelOfColumn(valueLabel, config.label_column);
+        return bar(
+          key,
+          categoryLabel(key, t, labelOf),
+          row.values[config.value_column] ?? null,
+          categoryTableLabel(key, t, labelOf),
+        );
       }),
       note:
         result && shown && (result.has_more || result.rows.length > shown.length)
