@@ -13,11 +13,15 @@ import { barTableProps, useBarChartText } from './bar-chart-rows';
 // Drawn in viewBox units; the SVG scales to the panel's width.
 const WIDTH = 320;
 const LABEL_WIDTH = 110;
-const VALUE_WIDTH = 56;
+const MIN_VALUE_WIDTH = 56;
+// An 11px digit is about 6 units wide.
+const VALUE_CHAR_WIDTH = 6.4;
 const ROW_HEIGHT = 22;
 const BAR_HEIGHT = 14;
-const BAR_SPACE = WIDTH - LABEL_WIDTH - VALUE_WIDTH - 8;
 const MAX_LABEL_CHARS = 16;
+// Value labels take at most half of what the category labels leave; a longer value is clipped
+// on the chart and read in full from the bar's title and the table.
+const MAX_VALUE_CHARS = Math.floor((WIDTH - LABEL_WIDTH) / 2 / VALUE_CHAR_WIDTH);
 
 function clip(text: string, max: number): string {
   const chars = [...text];
@@ -74,7 +78,11 @@ export default function BarChartRenderer({
   const amounts = rows.map((row) => (Number.isFinite(row.amount) ? row.amount : 0));
   const low = Math.min(0, ...amounts);
   const span = Math.max(0, ...amounts) - low;
-  const scale = span > 0 ? BAR_SPACE / span : 0;
+  // The longest value label gets the room it needs, so the card edge never clips it.
+  const valueChars = Math.min(MAX_VALUE_CHARS, Math.max(...rows.map((row) => [...row.text].length)));
+  const valueWidth = Math.max(MIN_VALUE_WIDTH, valueChars * VALUE_CHAR_WIDTH + 4);
+  const barSpace = Math.max(WIDTH - LABEL_WIDTH - valueWidth - 8, 0);
+  const scale = span > 0 ? barSpace / span : 0;
   const zeroX = LABEL_WIDTH - low * scale;
 
   return (
@@ -133,7 +141,7 @@ export default function BarChartRenderer({
                 fontSize={11}
                 className="fill-muted-foreground tabular-nums"
               >
-                {row.text}
+                {clip(row.text, MAX_VALUE_CHARS)}
               </text>
             </g>
           );

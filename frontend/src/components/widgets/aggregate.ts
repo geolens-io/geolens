@@ -50,12 +50,18 @@ export function aggregateResult<Op extends keyof AggregateResults>(
   return (data as { result: AggregateResults[Op] }).result;
 }
 
+/** Decimals worth printing: none once a value reaches 1,000, two below that. */
+export function aggregateFractionDigits(value: number): number {
+  return Math.abs(value) >= 1000 ? 0 : 2;
+}
+
 /**
- * An exact aggregate value in the reader's locale. The endpoint sends a number
- * JSON can't carry exactly, such as an integer past 2^53, as text.
+ * An aggregate value in the reader's locale, rounded to the decimals that
+ * matter. The endpoint sends a number JSON can't carry exactly, such as an
+ * integer past 2^53, as text, and that text keeps every digit.
  */
 export function formatAggregateValue(value: number | string | null | undefined): string {
-  if (typeof value === 'number') return formatNumber(value, { maximumFractionDigits: 2 });
+  if (typeof value === 'number') return formatNumber(value, { maximumFractionDigits: aggregateFractionDigits(value) });
   if (typeof value === 'string') {
     return /^-?\d+$/.test(value) ? new Intl.NumberFormat(i18n.language).format(BigInt(value)) : value;
   }

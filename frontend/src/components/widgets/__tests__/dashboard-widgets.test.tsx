@@ -315,7 +315,7 @@ describe('bar chart widget', () => {
       />,
     );
     expect(screen.getByRole('table', { name: 'Sum of area by land_use' })).toBeInTheDocument();
-    expect(screen.getByRole('row', { name: '2024 1,500.25' })).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: '2024 1,500' })).toBeInTheDocument();
 
     render(<BarChartRenderer config={chart} />);
     expect(screen.getByText('No data yet')).toBeInTheDocument();

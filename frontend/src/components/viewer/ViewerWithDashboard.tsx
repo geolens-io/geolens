@@ -20,6 +20,9 @@ interface ViewerWithDashboardProps {
   /** Remembers the reader's collapsed choice; see `DashboardPanel`. */
   mapId?: string;
   startCollapsed?: boolean;
+  /** The map's name and description; see `DashboardPanel`. */
+  mapName?: string;
+  mapDescription?: string | null;
   /** Set where the page has no main landmark of its own, which the map's viewport otherwise supplies. */
   mainLandmark?: boolean;
   /** A branding extension's accent, font and logo for the viewer and its dashboard. */

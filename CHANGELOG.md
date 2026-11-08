@@ -19,6 +19,7 @@ and releases use semantic versioning.
 - Stories and dashboard text: a wide code block scrolls inside its own shaded box instead of widening the whole chapter panel or widget.
 - A dataset bound to a service now reports source health "healthy" after a successful refresh, whether or not the data changed, instead of "unknown" until a probe runs. A STAC item refresh keeps the asset probe's verdict.
 - Dashboards: a category stored as empty or space-only text reads "(no value)" in pie, bar, table, selector and feature list widgets instead of a blank label.
+- Dashboard widgets: an indicator titled with its layer name no longer repeats it as a subtitle, pie slices the layer styles alike get distinct colours, a dashboard that hides its map is headed by the map name and description, sums and means of 1,000 or more print without decimals, and bar value labels no longer clip at the card edge.
 
 ## [1.30.0] - 2026-11-07
 

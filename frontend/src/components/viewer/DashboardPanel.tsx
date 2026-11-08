@@ -142,7 +142,8 @@ export function DashboardWidget({
   const layerName = layerDisplayName(layer);
   const named = widgetName(definition, instance, layer.column_info, t);
   const heading = named || layerName;
-  const layerBelow = !!named;
+  // A stat card titled with its layer's name would print the name twice.
+  const layerBelow = !!named && named !== layerName;
   // Numbers kept on screen while a pan's new ones load.
   const stale = query.isPlaceholderData;
   const failed = query.isError;
@@ -279,6 +280,7 @@ function DashboardWidgetList({
   onChoose,
   onZoom,
   onProblemChange,
+  intro,
 }: {
   id: string;
   widgets: readonly PanelWidget[];
@@ -292,6 +294,8 @@ function DashboardWidgetList({
   /** Set where a map can show a feature a widget names. */
   onZoom?: (layer: SharedLayerResponse, feature: { id: number | string; bbox: Bbox }) => void;
   onProblemChange: (id: string, problem: WidgetProblem | null) => void;
+  /** Text above the widgets that scrolls with them, so a long one can't squeeze them out. */
+  intro?: ReactNode;
 }) {
   const { t } = useTranslation('widgets');
   const { data: tileConfig } = useTileConfig();
@@ -317,16 +321,20 @@ function DashboardWidgetList({
 
   if (shown.length === 0) {
     return (
-      <p id={id} className="p-3 text-sm text-muted-foreground">
-        {t('dashboard.allHidden')}
-      </p>
+      <>
+        {intro}
+        <p id={id} className="p-3 text-sm text-muted-foreground">
+          {t('dashboard.allHidden')}
+        </p>
+      </>
     );
   }
-  return (
+  const list = (
     <ul
       id={id}
       className={cn(
-        'min-h-0 flex-1 overflow-y-auto p-3',
+        'p-3',
+        !intro && 'min-h-0 flex-1 overflow-y-auto',
         layout !== 'right'
           ? '@container grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))] content-start gap-3'
           : 'space-y-3',
@@ -383,6 +391,14 @@ function DashboardWidgetList({
       })}
     </ul>
   );
+  return intro ? (
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      {intro}
+      {list}
+    </div>
+  ) : (
+    list
+  );
 }
 
 interface DashboardPanelProps {
@@ -409,6 +425,9 @@ interface DashboardPanelProps {
   logoUrl?: string;
   /** False where the map isn't the viewer's, as in the Builder's preview, so features aren't offered a zoom. */
   canZoom?: boolean;
+  /** The map's name and description, which head the page when the dashboard hides the map that otherwise shows them. */
+  mapName?: string;
+  mapDescription?: string | null;
 }
 
 /**
@@ -430,6 +449,8 @@ export function DashboardPanel({
   onPicksChange,
   logoUrl,
   canZoom = true,
+  mapName,
+  mapDescription,
 }: DashboardPanelProps) {
   const { t } = useTranslation('widgets');
   const contentId = useId();
@@ -533,9 +554,15 @@ export function DashboardPanel({
         )}
         {!collapsed && (
           // Focusable by script so focus has a place to land when the last chip leaves with no toggle.
-          <h2 ref={headingRef} tabIndex={-1} className="flex-1 text-sm font-semibold outline-none">
-            {t('dashboard.title')}
-          </h2>
+          mapHidden && mapName ? (
+            <h1 ref={headingRef} tabIndex={-1} className="flex-1 text-base font-semibold break-words outline-none">
+              {mapName}
+            </h1>
+          ) : (
+            <h2 ref={headingRef} tabIndex={-1} className="flex-1 text-sm font-semibold outline-none">
+              {t('dashboard.title')}
+            </h2>
+          )
         )}
         {!mapHidden && (
           <Button
@@ -591,6 +618,11 @@ export function DashboardPanel({
           onChoose={onPicksChange ? choose : undefined}
           onZoom={map && !mapHidden && canZoom ? zoomTo : undefined}
           onProblemChange={onProblemChange}
+          intro={
+            mapHidden && mapName && mapDescription?.trim() ? (
+              <p className="px-3 pt-2 text-sm text-muted-foreground">{mapDescription}</p>
+            ) : undefined
+          }
         />
       )}
     </section>

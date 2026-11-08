@@ -232,6 +232,20 @@ describe('PieChartRenderer', () => {
       expect(container.querySelector('ul rect')).toHaveStyle({ fill: 'rgb(0, 170, 0)' });
     });
 
+    it('draws a value the layer styles like an earlier slice in the theme palette', () => {
+      const same = { column: 'kind', colorOf: () => '#00AA00' };
+      const { container } = render(
+        <LayerColorsProvider value={same}>
+          <PieChartRenderer config={config} data={data} />
+        </LayerColorsProvider>,
+      );
+      expect([...container.querySelectorAll('svg[role="group"] path')].map((path) => (path as SVGElement).style.fill)).toEqual([
+        'rgb(0, 170, 0)',
+        '',
+        '',
+      ]);
+    });
+
     it('uses theme colours for another column, or with the switch off', () => {
       expect(fills(config, 'zone')).toEqual(['', '', '']);
       expect(fills({ ...config, use_layer_colors: false })).toEqual(['', '', '']);
