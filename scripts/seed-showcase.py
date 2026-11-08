@@ -313,7 +313,8 @@ SKYLINE_DASHBOARD_DESCRIPTION = (
 _LOC_CDN = "https://cdn.loc.gov/service/pnp/fsa/8b16000/8b16200/"
 _LOC_CREDIT = "Library of Congress, Prints & Photographs Division, FSA/OWI Collection"
 # The story's gallery, in reading order. Each file is pinned by SHA-256, and all
-# are marked "No known restrictions" by the Library of Congress.
+# are marked "No known restrictions" by the Library of Congress. The credit
+# line is shared, so it is written once in the chapter text, not in each caption.
 SKYLINE_PHOTOS = [
     {
         "filename": "skyline-8b16269.jpg",
@@ -322,8 +323,7 @@ SKYLINE_PHOTOS = [
         "alt": "Black-and-white photograph of Midtown Manhattan in haze, with a "
         "slender tower topped by a mast at left and the flank of a larger "
         "tower at right.",
-        "caption": f"Midtown Manhattan, December 1941. {_LOC_CREDIT}, "
-        "LC-DIG-fsa-8b16269. No known restrictions on publication.",
+        "caption": "Midtown Manhattan, December 1941 (LC-DIG-fsa-8b16269).",
     },
     {
         "filename": "skyline-8b16273.jpg",
@@ -332,8 +332,7 @@ SKYLINE_PHOTOS = [
         "alt": "Black-and-white photograph looking over Midtown Manhattan "
         "rooftops, with hotel signs painted on the walls of older buildings, "
         "water towers, and a tall tower rising in the haze at upper left.",
-        "caption": f"Midtown rooftops, December 1941. {_LOC_CREDIT}, "
-        "LC-USF34-024554-D. No known restrictions on publication.",
+        "caption": "Midtown rooftops, December 1941 (LC-USF34-024554-D).",
     },
     {
         "filename": "skyline-8b16284.jpg",
@@ -342,8 +341,7 @@ SKYLINE_PHOTOS = [
         "alt": "Black-and-white photograph of Midtown Manhattan towers in haze, "
         "with a spired tower and a pyramid-roofed tower in the middle and a "
         "flag flying at upper right.",
-        "caption": f"Towers of Midtown, December 1941. {_LOC_CREDIT}, "
-        "LC-DIG-fsa-8b16284. No known restrictions on publication.",
+        "caption": "Towers of Midtown, December 1941 (LC-DIG-fsa-8b16284).",
     },
 ]
 HURRICANE_PHOTO = {
@@ -362,11 +360,30 @@ HURRICANE_PHOTO = {
 SKYLINE_FIDI_BBOX = [-74.020, 40.700, -73.995, 40.718]
 SKYLINE_MIDTOWN_BBOX = [-73.995, 40.740, -73.960, 40.765]
 SKYLINE_57TH_BBOX = [-73.992, 40.760, -73.968, 40.772]
+# Chapter cameras sit on the buildings each chapter names: the Woolworth
+# Building, the Empire State and Chrysler buildings, and the towers around
+# 432 Park Avenue and Central Park Tower. Pitch stays at 60 or below, the
+# most a map is guaranteed to allow.
 SKYLINE_CAMERAS = {
     "overview": {"center": [-73.985, 40.736], "zoom": 13.0, "pitch": 55, "bearing": -30},
-    "downtown": {"center": [-74.008, 40.7105], "zoom": 15.4, "pitch": 60, "bearing": 160},
-    "midtown": {"center": [-73.9806, 40.750], "zoom": 15.3, "pitch": 62, "bearing": -23},
-    "supertalls": {"center": [-73.979, 40.7672], "zoom": 15.1, "pitch": 62, "bearing": 15},
+    "downtown": {
+        "center": [-74.0083, 40.7124],
+        "zoom": 15.6,
+        "pitch": 55,
+        "bearing": 160,
+    },
+    "midtown": {
+        "center": [-73.9806, 40.750],
+        "zoom": 15.5,
+        "pitch": 60,
+        "bearing": -23,
+    },
+    "supertalls": {
+        "center": [-73.9764, 40.7636],
+        "zoom": 15.4,
+        "pitch": 60,
+        "bearing": 15,
+    },
     "method": {"center": [-73.99, 40.735], "zoom": 13.6, "pitch": 40, "bearing": 0},
     "dashboard": {"center": [-74.0, 40.718], "zoom": 14.2, "pitch": 55, "bearing": -20},
 }
@@ -388,6 +405,34 @@ NYC_STORY_SUMMARY = (
     "subway, and the trees of one East Village park."
 )
 DASHBOARD_MAP = "Earthquake Dashboard - USGS M2.5+ Snapshot"
+# The legend titles a size or colour class by the stored column's label, and
+# falls back to the raw column name ("Size: mag") when the style names no
+# column or none of the layer's own.
+DASHBOARD_QUAKE_EDGES = [5.0, 6.0, 7.0]
+DASHBOARD_QUAKE_COLORS = ["#fecc5c", "#fd8d3c", "#f03b20", "#bd0026"]
+DASHBOARD_QUAKE_STYLE = {
+    "mode": "graduated",
+    "column": "mag",
+    "ramp": "YlOrRd",
+    "target": "radius",
+    "method": "manual",
+    "breaks": DASHBOARD_QUAKE_EDGES,
+    "sizes": [3, 5, 8, 12],
+    "colors": DASHBOARD_QUAKE_COLORS,
+    "sizeLabel": "Magnitude",
+}
+VOLCANO_SIZE_STYLE = {
+    "mode": "graduated",
+    "column": "vei",
+    "ramp": "YlOrRd",
+    "target": "radius",
+    "method": "manual",
+    "breaks": [5, 6, 7],
+    "sizes": [3.2, 4.5, 6.5, 9],
+    "sizeLabel": "Explosivity (VEI)",
+}
+# The earthquake dashboard's camera: the Pacific rim sits left of the panel.
+DASHBOARD_CAMERA = {"center_lng": 170, "center_lat": 15, "zoom": 1.4}
 DASHBOARD_MAP_DESCRIPTION = (
     "Pan and zoom to any region and the panel follows: the quakes in view, the "
     "strongest against the damaging-quake threshold, the busiest days and the "
@@ -465,6 +510,14 @@ MAP_VIEW_FIXES = {
     "New York From Orbit - Sentinel-2, by Reference": {
         "expected": {"center_lng": -73.97, "center_lat": 40.72, "zoom": 10.2},
         "wanted": {"center_lng": -74.015, "center_lat": 40.725, "zoom": 11.1},
+    },
+    CITY_SHADE_MAP: {
+        "expected": {"center_lng": -73.9795, "center_lat": 40.7261, "zoom": 15.4},
+        "wanted": {"center_lng": -73.9795, "center_lat": 40.7261, "zoom": 15.9},
+    },
+    DASHBOARD_MAP: {
+        "expected": {"center_lng": 0, "center_lat": 20, "zoom": 1.4},
+        "wanted": DASHBOARD_CAMERA,
     },
     # A map saved without a camera has null centre and zoom and default
     # pitch and bearing; this is the framing build_matterhorn gives a new map.
@@ -3506,6 +3559,7 @@ def build_restless_earth(
                 "circle-stroke-color": "#ea580c",
                 "circle-stroke-width": 1.6,
             },
+            "style_config": VOLCANO_SIZE_STYLE,
             "popup_config": {
                 "enabled": True,
                 "expression": "{name} - {year_label}",
@@ -4357,7 +4411,7 @@ def build_city_in_shade(
             visibility="public",
             center_lng=-73.9795,
             center_lat=40.7261,
-            zoom=15.4,
+            zoom=15.9,
             pitch=0,
             bearing=0,
             basemap_style="openfreemap-positron",
@@ -4647,6 +4701,20 @@ EXPOSURE_MAP = "Hurricane Exposure - Which Coasts the Major Storms Reach"
 # title, so the lookup returns an id the map has never referenced. Matching the
 # name finds the layer whatever it currently points at.
 EXPOSURE_LAYER_NAME = "Distinct major storms since 1950"
+# Legend rows are about 190 px wide; the shorter the name, the less of it the
+# legend cuts off.
+EXPOSURE_LEGS_NAME = "Category 3+ storm tracks"
+EXPOSURE_LEGS_PAINT = {
+    "line-color": "#6b7a99",
+    "line-opacity": 0.7,
+}
+BASIN_CONTEXT_NAME = "Regions no major storm reached"
+BASIN_CONTEXT_PAINT = {
+    "fill-pattern": "geolens-fill-hatch",
+    "fill-color": "#64748b",
+    "fill-opacity": 0.12,
+    "fill-outline-color": "#cbd5e1",
+}
 
 
 def _build_exposure_chain(
@@ -4854,12 +4922,11 @@ def build_hurricane_exposure(
             "dataset_id": legs_ds,
             "sort_order": 1,
             "opacity": 1.0,
-            "display_name": "Category 3+ storm legs (the buffered input)",
+            "display_name": EXPOSURE_LEGS_NAME,
             "visible": False,
             "paint": {
-                "line-color": "#1e293b",
+                **EXPOSURE_LEGS_PAINT,
                 "line-width": ["interpolate", ["linear"], ["zoom"], 2, 0.8, 7, 2.6],
-                "line-opacity": 0.75,
             },
             "layout": {"line-cap": "round", "line-join": "round"},
             "popup_config": {
@@ -4991,6 +5058,14 @@ def _pinned_photos(
     return ids
 
 
+def _upload_pinned_photo(api: Api, story_id: str, photo: dict) -> str:
+    """Upload *photo* to the story after checking its pinned SHA-256."""
+    data = fetch(photo["url"])
+    if hashlib.sha256(data).hexdigest() != photo["sha256"]:
+        raise RuntimeError(f"{photo['filename']} differs from its pinned checksum")
+    return api.upload_story_asset(story_id, photo["filename"], data)
+
+
 def seed_hurricane_story(
     api: Api, force: bool = False, force_pinned: bool = False
 ) -> str:
@@ -5044,9 +5119,9 @@ def seed_hurricane_story(
         f"reached Category 3 or stronger in NOAA's HURDAT2 best tracks. Their "
         f"peak intensity: {by_peak}.\n\n"
         "Each track is drawn in six-hour segments. The colour warms from blue "
-        "tropical storm to magenta Category 5 as a storm intensifies, the "
-        "width follows wind speed, and arrows mark direction of motion on "
-        "Category 5 legs."
+        "tropical storm to magenta Category 5 as a storm intensifies, and the "
+        "width follows wind speed.\n\n"
+        f"Cover photo: {HURRICANE_PHOTO['caption']}"
     )
     ranked = ", ".join(f"{g['key']} ({g['value']})" for g in top)
     coasts_text = (
@@ -5085,10 +5160,12 @@ def seed_hurricane_story(
     if story_id is None:
         story_id = api.create_story(STORY_TITLE, summary)
         verb = "created"
-    photo_block_id = _seed_id("story", "tracks", "photo", HURRICANE_PHOTO["sha256"])
-    (photo_asset,) = _pinned_photos(
-        api, story_id, verb == "updated", photo_block_id, [HURRICANE_PHOTO]
+    # The photo is the cover, shown once at the head of the story; a story that
+    # already has a cover keeps it.
+    photo_asset = (api.story_cover_asset(story_id) if verb == "updated" else None) or (
+        _upload_pinned_photo(api, story_id, HURRICANE_PHOTO)
     )
+    app_url = api.public_app_url()
     document = {
         "version": 1,
         "settings": {
@@ -5109,24 +5186,32 @@ def seed_hurricane_story(
                 "The coasts they reach",
                 _story_scene(exposure_map),
                 coasts_text,
-                [
-                    {
-                        "id": photo_block_id,
-                        "type": "image",
-                        "v": 1,
-                        "asset_id": photo_asset,
-                        "config": {
-                            "alt": HURRICANE_PHOTO["alt"],
-                            "caption": HURRICANE_PHOTO["caption"],
-                        },
-                    }
-                ],
             ),
             _story_chapter(
                 "data",
                 "Where the data comes from",
                 _story_scene(exposure_map, {legs_layer: True}),
                 data_text,
+                [
+                    _story_block(
+                        "data",
+                        "tracks-map",
+                        "button",
+                        config={
+                            "label": "Open the Hurricane Alley map",
+                            "url": f"{app_url}/maps/{maps[HURRICANE_MAP]}",
+                        },
+                    ),
+                    _story_block(
+                        "data",
+                        "exposure-map",
+                        "button",
+                        config={
+                            "label": "Open the Hurricane Exposure map",
+                            "url": f"{app_url}/maps/{maps[EXPOSURE_MAP]}",
+                        },
+                    ),
+                ],
             ),
         ],
     }
@@ -5219,7 +5304,7 @@ def seed_quake_dashboard(
             f"{QUAKES_TITLE!r} is not seeded yet - run --only restless first"
         )
     print("\n[dashboard] " + DASHBOARD_MAP)
-    edges = [5.0, 6.0, 7.0]
+    edges = DASHBOARD_QUAKE_EDGES
     map_id, current, created, layer_id = _dashboard_map(
         api,
         DASHBOARD_MAP,
@@ -5231,13 +5316,12 @@ def seed_quake_dashboard(
             "display_name": "Earthquakes (last 30 days, by magnitude)",
             "paint": {
                 "circle-radius": step_expr("mag", edges, [3, 5, 8, 12]),
-                "circle-color": step_expr(
-                    "mag", edges, ["#fecc5c", "#fd8d3c", "#f03b20", "#bd0026"]
-                ),
+                "circle-color": step_expr("mag", edges, DASHBOARD_QUAKE_COLORS),
                 "circle-opacity": 0.85,
                 "circle-stroke-color": "#7f1d1d",
                 "circle-stroke-width": 0.5,
             },
+            "style_config": DASHBOARD_QUAKE_STYLE,
             "popup_config": QUAKE_POPUP_CONFIG,
         },
     )
@@ -5247,9 +5331,7 @@ def seed_quake_dashboard(
 
     camera = (
         {
-            "center_lng": 0,
-            "center_lat": 20,
-            "zoom": 1.4,
+            **DASHBOARD_CAMERA,
             "pitch": 0,
             "bearing": 0,
             "basemap_style": "openfreemap-positron",
@@ -5486,6 +5568,12 @@ def _skyline_count(
     )["count"]
 
 
+def _the(label: str) -> str:
+    """*label* as a noun phrase in running text: a building name takes "the"."""
+    plain = label.lower().startswith(("a ", "an ", "the "))
+    return label if plain else f"the {label}"
+
+
 def seed_skyline_story(
     api: Api, force: bool = False, force_pinned: bool = False
 ) -> str:
@@ -5553,22 +5641,24 @@ def seed_skyline_story(
     downtown_text = (
         f"The Financial District has {downtown_n:,} buildings from before 1930, "
         "packed into the narrow street grid at the island's tip.\n\n"
-        f"The tallest of them is {downtown_top[0]}, with a roof at "
+        f"The tallest of them is {_the(downtown_top[0])}, with a roof at "
         f"{downtown_top[1]:,.0f} ft."
     )
     midtown_text = (
         f"In Midtown, {midtown_n:,} buildings date from 1930 to 1949. The tallest "
-        f"are {midtown_top[0][0]} ({midtown_top[0][1]:,.0f} ft) and "
-        f"{midtown_top[1][0]} ({midtown_top[1][1]:,.0f} ft).\n\n"
+        f"are {_the(midtown_top[0][0])} ({midtown_top[0][1]:,.0f} ft) and "
+        f"{_the(midtown_top[1][0])} ({midtown_top[1][1]:,.0f} ft).\n\n"
         "Heights are surveyed roof heights, so antennas and spires are not "
-        "counted."
+        f"counted.\n\nPhotographs: {_LOC_CREDIT}. No known restrictions on "
+        "publication."
     )
     supertall_text = (
         f"Around 57th Street, {super_n:,} buildings went up in 2015 or later. "
-        f"The tallest is {super_top[0][0]}, with a roof at {super_top[0][1]:,.0f} "
-        f"ft, followed by {super_top[1][0]} at {super_top[1][1]:,.0f} ft.\n\n"
-        f"That is {super_top[0][1] - midtown_top[0][1]:,.0f} ft above the "
-        f"{midtown_top[0][0]}, the tallest of the 1930s towers."
+        f"The tallest is {_the(super_top[0][0])}, with a roof at "
+        f"{super_top[0][1]:,.0f} ft, followed by {_the(super_top[1][0])} at "
+        f"{super_top[1][1]:,.0f} ft.\n\n"
+        f"That is {super_top[0][1] - midtown_top[0][1]:,.0f} ft above "
+        f"{_the(midtown_top[0][0])}, the tallest of the 1930s towers."
     )
     method_text = (
         "- **Buildings:** NYC Open Data building footprints, with roof height "
@@ -5805,12 +5895,14 @@ def _meets(b: list[float] | None, view: tuple[float, float, float, float]) -> bo
     return bool(b) and b[0] <= east and b[2] >= west and b[1] <= north and b[3] >= south
 
 
-def _view_bbox(camera: dict) -> tuple[float, float, float, float]:
-    """Roughly what a 1280 x 800 map shows at the camera, as west, south, east, north."""
+def _view_bbox(
+    camera: dict, size: tuple[int, int] = (1280, 800)
+) -> tuple[float, float, float, float]:
+    """Roughly what a map of *size* pixels shows at the camera, as west, south, east, north."""
     lng, lat = camera["center"]
     degrees = 360 / (512 * 2 ** camera["zoom"])
-    half_w = degrees * 1280 / 2
-    half_h = degrees * 800 / 2 * math.cos(math.radians(lat))
+    half_w = degrees * size[0] / 2
+    half_h = degrees * size[1] / 2 * math.cos(math.radians(lat))
     return lng - half_w, lat - half_h, lng + half_w, lat + half_h
 
 
@@ -5887,6 +5979,106 @@ def _orbit_visibility(
     return visibility
 
 
+# The map beside a story panel on a 1440 x 900 window; a phone's is smaller.
+_FRAMING_SIZE = (1100, 800)
+_FRAMING_ZOOMS = (10.0, 10.5, 11.0, 11.5, 12.0)
+_FRAMING_SHIFTS = sorted(
+    ((dx, dy) for dx in (0, -0.05, 0.05, -0.1, 0.1, -0.2) for dy in (0, 0.05, -0.05)),
+    key=lambda shift: math.hypot(*shift),
+)
+_FRAMING_PROBES = 60
+
+
+def _has_imagery(api: Api, layer: dict, lng: float, lat: float, cache: dict) -> bool:
+    """Whether the scene draws a lit pixel at the point.
+
+    A scene's bounds are its whole tile, but a satellite pass leaves empty
+    corners inside it, which come back as black pixels.
+    """
+    z = 11
+    n = 2**z
+    fx = (lng + 180) / 360 * n
+    fy = (1 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2 * n
+    x, y = int(fx), int(fy)
+    key = (layer["dataset_id"], x, y)
+    if key not in cache:
+        cache[key] = api.raster_tile(layer["dataset_id"], z, x, y)
+    tile = cache[key]
+    if not tile:
+        return False
+    from PIL import Image, ImageStat
+
+    with Image.open(io.BytesIO(tile)) as image:
+        rgb = image.convert("RGB")
+        # A 3 x 3 window, kept inside the tile, steadies a read at a JPEG edge.
+        px = min(max(int((fx - x) * rgb.width), 1), rgb.width - 2)
+        py = min(max(int((fy - y) * rgb.height), 1), rgb.height - 2)
+        window = rgb.crop((px - 1, py - 1, px + 2, py + 2))
+        return sum(ImageStat.Stat(window).mean) > 10
+
+
+def _orbit_framing(
+    api: Api,
+    passes: dict[str, list[dict]],
+    bounds: dict[str, list[float] | None],
+    day: str,
+    nominal: dict,
+) -> tuple[dict, dict[str, bool]]:
+    """The camera nearest *nominal* whose view is filled with imagery, and the
+    layers that fill it.
+
+    The first candidate, nearest and widest first, whose visible scenes cover the
+    view and draw a lit pixel at a grid of points in it. When none does, the
+    nominal camera, with whatever gap it leaves.
+    """
+    cache: dict = {}
+    probes = 0
+    lng, lat = nominal["center"]
+    zooms = sorted(
+        {nominal["zoom"], *_FRAMING_ZOOMS}, key=lambda z: abs(z - nominal["zoom"])
+    )
+    for zoom in zooms:
+        for dx, dy in _FRAMING_SHIFTS:
+            center = [round(lng + dx, 4), round(lat + dy, 4)]
+            camera = {**nominal, "center": center, "zoom": zoom}
+            view = _view_bbox(camera, _FRAMING_SIZE)
+            visibility = _orbit_visibility(passes, bounds, view, day)
+            drawn = [
+                lay
+                for layers in passes.values()
+                for lay in layers
+                if visibility[lay["id"]]
+            ]
+            if not drawn or _uncovered(view, [bounds[lay["id"]] for lay in drawn]):
+                continue
+            # The chapter names this pass, so a view that hides it is no answer.
+            if not any(visibility[lay["id"]] for lay in passes.get(day, [])):
+                continue
+            if not _has_pillow():
+                return camera, visibility
+            if probes == _FRAMING_PROBES:
+                break
+            probes += 1
+            west, south, east, north = view
+            points = [
+                (west + (east - west) * fx, south + (north - south) * fy)
+                for fx in (0.04, 0.35, 0.65, 0.96)
+                for fy in (0.06, 0.5, 0.94)
+            ]
+            if all(
+                any(
+                    _meets(bounds[lay["id"]], (px, py, px, py))
+                    and _has_imagery(api, lay, px, py, cache)
+                    for lay in drawn
+                )
+                for px, py in points
+            ):
+                return camera, visibility
+    view = _view_bbox(nominal, _FRAMING_SIZE)
+    print(f"  no camera near {nominal['center']} fills the view with the {day} pass")
+    return nominal, _orbit_visibility(passes, bounds, view, day)
+
+
 def _finite_number(value, what: str) -> float:
     """*value* as a finite number; an exact numeric string is accepted."""
     try:
@@ -5939,9 +6131,9 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
     """The published New York story across four showcase maps, found by title.
 
     Maps, layers and link targets are looked up by name when this runs. The
-    first chapter's image is a tile the API renders from the newest Sentinel-2
-    scene on the orbit map, uploaded as the story's cover and reused on a rerun
-    while it stays the same. The maps are not touched.
+    cover is a tile the API renders from the newest Sentinel-2 scene on the orbit
+    map, kept once the story has one. The orbit chapters' cameras are the ones
+    near the orbit map's view that its scenes fill. The maps are not touched.
     """
     missing = _nyc_story_missing(api)
     if missing:
@@ -5974,11 +6166,14 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
         "bearing": 0,
         "pitch": 0,
     }
-    crop, crop_day = _orbit_crop(
-        api, passes, bounds, orbit["center_lng"], orbit["center_lat"]
-    )
-    # The chapters' dates follow what the camera sees; the crop's own date
-    # belongs to the picture alone.
+    # The cover is kept once the story has one, so a rerun makes no tile requests.
+    story_id = stories.get(NYC_STORY_TITLE)
+    cover = api.story_cover_asset(story_id) if story_id else None
+    crop = None
+    if cover is None:
+        crop, _ = _orbit_crop(
+            api, passes, bounds, orbit["center_lng"], orbit["center_lat"]
+        )
     view = _view_bbox(orbit_camera)
     in_view = [
         day
@@ -5998,10 +6193,11 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
         )
 
     def orbit_scene(show: str, transition: str) -> dict:
+        camera, shown = _orbit_framing(api, passes, bounds, show, orbit_camera)
         # A layer left out of the override would keep its saved visibility.
         visibility = {lay["id"]: False for lay in orbit["layers"]}
-        visibility.update(_orbit_visibility(passes, bounds, view, show))
-        return _story_scene(orbit, visibility, orbit_camera, transition)
+        visibility.update(shown)
+        return _story_scene(orbit, visibility, camera, transition)
 
     buildings = _map_layer(manhattan, "Buildings (3D height, colored by era)")
     subway = _map_layer(manhattan, "Subway (official MTA colors)")
@@ -6052,28 +6248,13 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
         )["values"]
     }
 
-    story_id = stories.get(NYC_STORY_TITLE)
     verb = "updated"
     if story_id is None:
         story_id = api.create_story(NYC_STORY_TITLE, NYC_STORY_SUMMARY)
         verb = "created"
-
-    # Keyed on the picture's bytes, so a rerun over the same scene reuses the
-    # uploaded asset and a newer scene uploads a new one.
-    image_id = _seed_id("story", "nyc-orbit", "image", hashlib.sha256(crop).hexdigest())
-    asset_id = None
-    if verb == "updated":
-        asset_id = next(
-            (
-                block.get("asset_id")
-                for chapter in api.story_document(story_id).get("chapters", [])
-                for block in chapter.get("blocks", [])
-                if block.get("id") == image_id
-            ),
-            None,
-        )
-    if asset_id is None:
-        asset_id = api.upload_story_asset(story_id, "new-york-from-orbit.jpg", crop)
+    asset_id = cover or api.upload_story_asset(
+        story_id, "new-york-from-orbit.jpg", crop
+    )
 
     def text(key: str, body: str) -> dict:
         return _story_block(key, "text", "markdown", config={"text": body})
@@ -6095,9 +6276,9 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
                 [
                     text(
                         "nyc-earlier",
-                        f"The same camera, now preferring the pass on {earlier}, "
+                        f"The same place, now preferring the pass on {earlier}, "
                         f"{gap} days before the first. Each pass is its own "
-                        "layer, so the scene swaps while the camera stays put.\n\n"
+                        "layer, so the scene swaps while the view stays near.\n\n"
                         "Coverage varies by tile: a corner of the view may come "
                         "from an older pass, and a newer pass that would overlap "
                         "this one is hidden, which can leave a gap. Cloud and "
@@ -6122,9 +6303,8 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
                         f"{newest}. On the map, the satellite layers are true "
                         "colour at 10 m a pixel and GeoLens draws them straight "
                         "from the public archive instead of keeping a copy. The "
-                        "picture below is different: a stored crop of the "
-                        f"{crop_day} scene, credited to Copernicus Sentinel "
-                        "data.\n\n"
+                        "cover picture is different: a stored crop of one scene. "
+                        "Contains modified Copernicus Sentinel data.\n\n"
                         "Each satellite pass covers the city in tiles, so where "
                         f"the {newest} scene stops, the map shows the nearest "
                         "other pass. Water is dark, the built-up city is grey "
@@ -6136,20 +6316,6 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
                             "so there is no earlier pass to compare it with."
                         ),
                     ),
-                    {
-                        "id": image_id,
-                        "type": "image",
-                        "v": 1,
-                        "asset_id": asset_id,
-                        "config": {
-                            "alt": "True-colour satellite image of the New York "
-                            "City area, with dark water, grey built-up land and "
-                            "green parks.",
-                            "caption": f"Sentinel-2 true colour, {crop_day}. "
-                            f"Contains modified Copernicus Sentinel data "
-                            f"{crop_day[:4]}.",
-                        },
-                    },
                 ],
             ),
             *earlier_chapters,
@@ -6186,7 +6352,7 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
                         "center": [-73.990, 40.744],
                         "zoom": 15.5,
                         "bearing": 120,
-                        "pitch": 70,
+                        "pitch": 60,
                     },
                     "glide",
                     False,
@@ -6244,6 +6410,12 @@ def seed_nyc_story(api: Api, force: bool = False, force_pinned: bool = False) ->
                         "The pale layer underneath is the larger source subset "
                         "the window was clipped from. It is a historical "
                         "sample, not a measure of today's shade.",
+                    ),
+                    button(
+                        "nyc-trees",
+                        "city-in-shade",
+                        "Open the City in Shade map",
+                        f"{app_url}/maps/{maps[CITY_SHADE_MAP]}",
                     ),
                     separator("nyc-trees"),
                     button(
@@ -6447,6 +6619,8 @@ def build_meteorites(api: Api, force: bool = False, force_pinned: bool = False) 
                 "mode": "categorical",
                 "column": "fall",
                 "ramp": "Dark2",
+                "colorLabel": "Recovery",
+                "sizeLabel": "Mass (kg)",
                 "render_mode": "cluster",
                 "categories": [
                     {"value": "Fell", "color": "#f59e0b", "label": "Seen falling"},
@@ -6804,8 +6978,15 @@ _SENTINEL2_SCENE_ID = re.compile(
 )
 
 
-# The MGRS tiles that cover the New York metro area the seeder imports.
-_NEW_YORK_TILES = frozenset({"18TWK", "18TWL", "18TXK", "18TXL"})
+# The MGRS tiles that cover the New York metro area the seeder imports, with
+# where each lies within the group (W/X run west to east, K/L south to north).
+_NEW_YORK_TILE_AREAS = {
+    "18TWK": "south-west",
+    "18TWL": "north-west",
+    "18TXK": "south-east",
+    "18TXL": "north-east",
+}
+_NEW_YORK_TILES = frozenset(_NEW_YORK_TILE_AREAS)
 
 
 def _sentinel2_scene_fields(title: str) -> dict:
@@ -6837,12 +7018,30 @@ def _sentinel2_scene_fields(title: str) -> dict:
     }
 
 
+def _scene_layer_area(tile: str) -> str:
+    """Where a tile lies for a legend reader; a tile outside New York keeps its code."""
+    return _NEW_YORK_TILE_AREAS.get(tile, f"T{tile}")
+
+
 def _sentinel2_layer_label(item: dict) -> str:
-    """A scene layer's name. Tiles imaged on one pass share a date; the tile id
-    tells their layers apart."""
+    """A scene layer's name. Tiles imaged on one pass share a date; where each
+    lies tells their layers apart."""
     day = item["datetime_start"][:10]
     m = _SENTINEL2_SCENE_ID.match(item["id"])
-    return f"{day} (T{m.group(2)})" if m else day
+    return f"{day} ({_scene_layer_area(m.group(2))})" if m else day
+
+
+_TILE_CODE_LAYER = re.compile(
+    r"^Sentinel-2 - (\d{4}-\d{2}-\d{2}) \(T(\d{2}[C-X][A-Z]{2})\)$"
+)
+
+
+def _renamed_scene_layer(display_name: str | None) -> str | None:
+    """The name a scene layer named by its tile code takes, or None."""
+    m = _TILE_CODE_LAYER.match(display_name or "")
+    if not m or m.group(2) not in _NEW_YORK_TILE_AREAS:
+        return None
+    return f"Sentinel-2 - {m.group(1)} ({_NEW_YORK_TILE_AREAS[m.group(2)]})"
 
 
 def _sentinel2_item(f: dict) -> dict:
@@ -7583,6 +7782,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "license": "NYC Open Data Terms of Use (unrestricted reuse)",
         "keywords": ["tree canopy", "change", "east village", "2010", "2017"],
         "source_organization": "NYC OTI and University of Vermont",
+        "attribution": "NYC OTI and University of Vermont",
         "source_url": "https://data.cityofnewyork.us/d/by9k-vhck",
         "data_vintage_start": "2010-01-01",
         "data_vintage_end": "2017-12-31",
@@ -7600,6 +7800,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "license": "NYC Open Data Terms of Use (unrestricted reuse)",
         "keywords": ["tree canopy", "gain", "loss", "analysis", "clip"],
         "source_organization": "NYC OTI and University of Vermont",
+        "attribution": "NYC OTI and University of Vermont",
         "source_url": "https://data.cityofnewyork.us/d/by9k-vhck",
         "data_vintage_start": "2010-01-01",
         "data_vintage_end": "2017-12-31",
@@ -7642,6 +7843,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "license": "NYC Open Data (public domain)",
         "keywords": ["buildings", "3d", "heights", "manhattan", "nyc"],
         "source_organization": "NYC Open Data",
+        "attribution": "NYC Open Data, NYC Office of Technology and Innovation",
         "source_url": (
             "https://data.cityofnewyork.us/Housing-Development/"
             "Building-Footprints/5zhs-2jue"
@@ -7655,6 +7857,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "license": "MTA open data (data.ny.gov)",
         "keywords": ["subway", "transit", "mta", "nyc", "rail"],
         "source_organization": "MTA via NY State Open Data",
+        "attribution": "MTA via NY State Open Data",
         "source_url": "https://data.ny.gov/Transportation/MTA-Subway-Lines/s692-irgq",
         "theme_category": ["transportation"],
         "update_frequency": "asNeeded",
@@ -7672,6 +7875,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
             "accessibility",
         ],
         "source_organization": "MTA via NY State Open Data",
+        "attribution": "MTA via NY State Open Data",
         "source_url": (
             "https://data.ny.gov/Transportation/MTA-Subway-Stations/39hk-dx4f"
         ),
@@ -7743,6 +7947,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
             "storms",
         ],
         "source_organization": "NOAA National Hurricane Center",
+        "attribution": "NOAA National Hurricane Center (HURDAT2)",
         "source_url": "https://www.nhc.noaa.gov/data/#hurdat",
         # NHC cuts one best-track revision per year, after the season closes.
         "update_frequency": "annually",
@@ -7759,6 +7964,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
             "major hurricane",
         ],
         "source_organization": "NOAA National Hurricane Center",
+        "attribution": "NOAA National Hurricane Center (HURDAT2)",
         "source_url": "https://www.nhc.noaa.gov/data/#hurdat",
         "update_frequency": "annually",
         "data_vintage_start": "1950-01-01",
@@ -7832,6 +8038,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "license": "NASA open data (public domain)",
         "keywords": ["meteorites", "impacts", "nasa", "meteoritical society"],
         "source_organization": "NASA / The Meteoritical Society",
+        "attribution": "NASA / The Meteoritical Society",
         "source_url": "https://www.lpi.usra.edu/meteor/metbull.php",
         "theme_category": ["geoscientificInformation"],
         "update_frequency": "asNeeded",
@@ -7840,6 +8047,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "license": "(C) OpenStreetMap contributors (ODbL)",
         "keywords": ["climbing", "alpinism", "routes", "osm", "matterhorn"],
         "source_organization": "OpenStreetMap contributors",
+        "attribution": "© OpenStreetMap contributors",
         "source_url": "https://www.openstreetmap.org/",
         "theme_category": ["location"],
         "update_frequency": "notPlanned",
@@ -7848,6 +8056,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "license": "(C) OpenStreetMap contributors (ODbL)",
         "keywords": ["peaks", "summits", "mountains", "osm", "matterhorn"],
         "source_organization": "OpenStreetMap contributors",
+        "attribution": "© OpenStreetMap contributors",
         "source_url": "https://www.openstreetmap.org/",
         "theme_category": ["location"],
         "update_frequency": "notPlanned",
@@ -7879,6 +8088,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "license": "swisstopo OGD",
         "keywords": ["terrain", "dem", "elevation", "swisstopo", "matterhorn"],
         "source_organization": "swisstopo",
+        "attribution": "© swisstopo (swissALTI3D)",
         "source_url": ("https://www.swisstopo.admin.ch/en/height-model-swissalti3d"),
         "data_vintage_start": "2024-01-01",
         "data_vintage_end": "2024-12-31",
@@ -7897,6 +8107,7 @@ SHOWCASE_METADATA_BY_PREFIX: dict[str, dict] = {
         "update_frequency": "irregular",
         "keywords": ["terrain", "dem", "elevation", "swisstopo", "matterhorn"],
         "source_organization": "swisstopo",
+        "attribution": "© swisstopo (swissALTI3D)",
         "source_url": ("https://www.swisstopo.admin.ch/en/height-model-swissalti3d"),
         "data_vintage_start": "2024-01-01",
         "data_vintage_end": "2024-12-31",
@@ -8085,7 +8296,7 @@ MAP_LEGEND_AND_NOTES: dict[str, tuple[str, str]] = {
         "to VEI 4+ or 100+ deaths. Boundaries are PB2002; relief is ETOPO 2022.",
     ),
     "Manhattan - A Century of Skyline": (
-        "Construction era",
+        "Skyline and subway",
         "Buildings are extruded to their surveyed roof height (NYC Open Data, "
         "feet converted to metres) and coloured by construction year. Subway "
         "routes use official MTA colours, which the source feed does not "
@@ -8189,6 +8400,7 @@ MAP_LAYER_STYLE_FIXES: dict[str, dict[str, dict]] = {
         "Major cities (by population)": {
             "fields": {"label_config": CITY_LABEL_CONFIG},
         },
+        "Major eruptions (VEI 4+ or 100+ deaths)": {"style": VOLCANO_SIZE_STYLE},
         "Earthquakes (last 30 days, by magnitude)": {
             # Gated on the columns actually being there. The conversion runs in
             # a builder, the builder is isolated so one failure cannot kill a
@@ -8210,7 +8422,25 @@ MAP_LAYER_STYLE_FIXES: dict[str, dict[str, dict]] = {
     },
     EXPOSURE_MAP: {
         "Category 3+ storm legs (the buffered input)": {
+            "fields": {"display_name": EXPOSURE_LEGS_NAME, "visible": False},
+            "paint": EXPOSURE_LEGS_PAINT,
+        },
+        EXPOSURE_LEGS_NAME: {
             "fields": {"visible": False},
+            "paint": EXPOSURE_LEGS_PAINT,
+        },
+        "Atlantic basin regions (hatched where no major storm passed within 100 km)": {
+            "fields": {"display_name": BASIN_CONTEXT_NAME},
+            "paint": BASIN_CONTEXT_PAINT,
+        },
+        BASIN_CONTEXT_NAME: {"paint": BASIN_CONTEXT_PAINT},
+    },
+    DASHBOARD_MAP: {
+        "Earthquakes (last 30 days, by magnitude)": {"style": DASHBOARD_QUAKE_STYLE},
+    },
+    "Everything That Fell From the Sky": {
+        "Meteorites (amber = seen falling)": {
+            "style": {"colorLabel": "Recovery", "sizeLabel": "Mass (kg)"}
         },
     },
 }
@@ -8235,7 +8465,13 @@ _LAYER_WRITABLE_FIELDS = (
 
 
 def _restyle_layer(
-    api: "Api", map_id: str, layer: dict, paint=None, builder=None, fields=None
+    api: "Api",
+    map_id: str,
+    layer: dict,
+    paint=None,
+    builder=None,
+    fields=None,
+    style=None,
 ) -> None:
     """Apply a style delta to an EXISTING layer in place, keeping its id.
 
@@ -8250,9 +8486,13 @@ def _restyle_layer(
         body.update(fields)
     if paint:
         body["paint"] = {**(body.get("paint") or {}), **paint}
-    if builder:
-        style_config = dict(body.get("style_config") or {})
-        style_config["builder"] = {**(style_config.get("builder") or {}), **builder}
+    if builder or style:
+        style_config = {**(body.get("style_config") or {}), **(style or {})}
+        if builder:
+            style_config["builder"] = {
+                **(style_config.get("builder") or {}),
+                **builder,
+            }
         body["style_config"] = style_config
     api.update_layer(map_id, {"id": layer["id"], **body})
 
@@ -8275,16 +8515,9 @@ def _basin_context_layer_body(regions_ds: str) -> dict:
         "dataset_id": regions_ds,
         "sort_order": 2,
         "opacity": 1.0,
-        "display_name": (
-            "Atlantic basin regions (hatched where no major storm passed within 100 km)"
-        ),
+        "display_name": BASIN_CONTEXT_NAME,
         "show_in_legend": True,
-        "paint": {
-            "fill-pattern": "geolens-fill-hatch",
-            "fill-color": "#64748b",
-            "fill-opacity": 0.22,
-            "fill-outline-color": "#94a3b8",
-        },
+        "paint": dict(BASIN_CONTEXT_PAINT),
         "popup_config": {"enabled": False},
         "style_config": {"builder": {}},
     }
@@ -8479,15 +8712,16 @@ def _repair_quake_layers_step(api: "Api", args, failed: dict) -> None:
 
 def _layer_style_delta(
     layer: dict, groups: dict, pitch_aligned: tuple, style_fixes: dict
-) -> tuple[dict, dict, dict, list]:
+) -> tuple[dict, dict, dict, dict, list]:
     """What needs to change on one layer, and why.
 
     Every branch compares against the layer's CURRENT value first, so a layer
     already carrying the right settings produces an empty delta and is never
     rewritten. That is what makes the whole styling pass free to re-run: with
     no comparison here it would delete and re-add every listed layer on every
-    seed. Returns (paint, builder, fields, reasons); an empty `reasons` means
-    do nothing.
+    seed. Returns (paint, builder, fields, style, reasons); an empty `reasons`
+    means do nothing. `style` holds top-level style_config keys, merged over
+    the stored ones.
     """
     display = layer.get("display_name")
     builder_now = ((layer.get("style_config") or {}).get("builder")) or {}
@@ -8495,6 +8729,7 @@ def _layer_style_delta(
     paint_delta: dict = {}
     builder_delta: dict = {}
     field_delta: dict = {}
+    style_delta: dict = {}
     reasons: list[str] = []
 
     group = groups.get(display)
@@ -8532,7 +8767,16 @@ def _layer_style_delta(
         if layer.get(key) != value:
             field_delta[key] = value
             reasons.append(key)
-    return paint_delta, builder_delta, field_delta, reasons
+    style_now = layer.get("style_config") or {}
+    for key, value in (fix.get("style") or {}).items():
+        if style_now.get(key) != value:
+            style_delta[key] = value
+            reasons.append(f"style.{key}")
+    renamed = _renamed_scene_layer(display)
+    if renamed and "display_name" not in field_delta:
+        field_delta["display_name"] = renamed
+        reasons.append("display_name")
+    return paint_delta, builder_delta, field_delta, style_delta, reasons
 
 
 def apply_showcase_styling(api: "Api") -> list[str]:
@@ -8633,9 +8877,13 @@ def apply_showcase_styling(api: "Api") -> list[str]:
             pitch_aligned = MAP_PITCH_ALIGNED_CIRCLES.get(name, ())
             style_fixes = MAP_LAYER_STYLE_FIXES.get(name, {})
             for layer in layers:
-                paint_delta, builder_delta, field_delta, reasons = _layer_style_delta(
-                    layer, groups, pitch_aligned, style_fixes
-                )
+                (
+                    paint_delta,
+                    builder_delta,
+                    field_delta,
+                    style_delta,
+                    reasons,
+                ) = _layer_style_delta(layer, groups, pitch_aligned, style_fixes)
                 if reasons:
                     _restyle_layer(
                         api,
@@ -8644,6 +8892,7 @@ def apply_showcase_styling(api: "Api") -> list[str]:
                         paint=paint_delta,
                         builder=builder_delta,
                         fields=field_delta,
+                        style=style_delta,
                     )
                     print(
                         f"  {'+'.join(reasons)}: {name} / {layer.get('display_name')}"

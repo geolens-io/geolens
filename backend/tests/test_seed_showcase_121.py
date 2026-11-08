@@ -625,9 +625,8 @@ def test_the_basin_context_layer_explains_its_hatch_in_the_legend():
     body = seed._basin_context_layer_body("regions")
     assert body["paint"]["fill-pattern"] == "geolens-fill-hatch"
     assert body["show_in_legend"] is True
-    assert body["display_name"] == (
-        "Atlantic basin regions (hatched where no major storm passed within 100 km)"
-    )
+    assert body["display_name"] == "Regions no major storm reached"
+    assert body["paint"]["fill-opacity"] <= 0.15
 
 
 class StatesApi:

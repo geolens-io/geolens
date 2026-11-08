@@ -15,6 +15,7 @@ spec.loader.exec_module(seed)
 
 MAP_NAMES = set(seed.MAP_DESCRIPTIONS) | {
     seed.HURRICANE_MAP,
+    seed.DASHBOARD_MAP,
     "Everything That Fell From the Sky",
 }
 COLLECTION_NAMES = set(seed.COLLECTIONS)

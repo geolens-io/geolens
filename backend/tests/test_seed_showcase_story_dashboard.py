@@ -109,6 +109,12 @@ class FakeApi:
     def story_document(self, story_id):
         return self.published[-1] if self.published else {}
 
+    def story_cover_asset(self, story_id):
+        return self.covers[-1] if self.covers else None
+
+    def public_app_url(self):
+        return "https://geolens.example"
+
     def upload_story_asset(self, story_id, filename, data):
         self.uploads += 1
         return f"00000000-0000-4000-8000-{self.uploads:012d}"
@@ -191,7 +197,10 @@ def test_dashboard_camera_is_set_once_even_after_a_failed_first_save():
     seeder.seed_quake_dashboard(api)
     seeder.seed_quake_dashboard(api)
     assert api.maps_created == 1
-    assert [view.get("center_lng") for view in api.views] == [0, None]
+    assert [view.get("center_lng") for view in api.views] == [
+        seeder.DASHBOARD_CAMERA["center_lng"],
+        None,
+    ]
 
 
 @pytest.mark.parametrize("seed", ["seed_hurricane_story", "seed_quake_dashboard"])
@@ -363,12 +372,23 @@ def test_hurricane_story_sets_reader_settings_and_a_cover():
     settings = document.settings
     assert (settings.layout, settings.panel_position) == ("floating", "left")
     assert (settings.navigation, settings.transition) == (True, "glide")
-    image = document.chapters[1].blocks[-1]
-    assert image.type == "image"
-    assert str(image.asset_id) == api.covers[0]
-    assert "NASA" in image.config.caption
+    assert not [b for c in document.chapters for b in c.blocks if b.type == "image"]
+    assert api.covers[0]
+    cover_credit = document.chapters[0].blocks[0].config.text
+    assert "NASA" in cover_credit and "arrows" not in cover_credit
     seeder.seed_hurricane_story(api)
     assert api.uploads == 1
+    assert api.covers[1] == api.covers[0]
+
+
+def test_hurricane_story_ends_with_buttons_to_both_maps():
+    api = FakeApi()
+    seeder.seed_hurricane_story(api)
+    last = StoryDocumentInput.model_validate(api.published[0]).chapters[-1]
+    assert [b.config.url for b in last.blocks if b.type == "button"] == [
+        "https://geolens.example/maps/map-tracks",
+        "https://geolens.example/maps/map-exposure",
+    ]
 
 
 def test_skyline_story_gallery_holds_three_described_photos():

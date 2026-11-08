@@ -149,8 +149,8 @@ class NycFakeApi:
         self.uploaded.append(data)
         return ASSET
 
-    def story_document(self, story_id):
-        return self.published[-1][0] if self.published else {}
+    def story_cover_asset(self, story_id):
+        return self.published[-1][1] if self.published else None
 
     def publish_story(self, story_id, title, summary, document, cover_asset_id=None):
         self.published.append((document, cover_asset_id))
@@ -197,7 +197,7 @@ def test_story_has_six_chapters_with_their_transitions_and_cameras():
     assert cameras[0] == cameras[1]
     assert (cameras[0].zoom, cameras[0].center) == (10.0, (-74.015, 40.725))
     assert (cameras[2].pitch, cameras[2].bearing) == (60, -28)
-    assert (cameras[3].pitch, cameras[3].bearing) == (70, 120)
+    assert (cameras[3].pitch, cameras[3].bearing) == (60, 120)
     assert cameras[4].pitch == 45
     assert (cameras[5].center, cameras[5].zoom) == ((-73.9795, 40.7261), 15.4)
 
@@ -234,18 +234,21 @@ def test_chapters_carry_their_blocks_and_link_targets_found_by_name():
     chapters = _document(api).chapters
     kinds = [[b.type for b in c.blocks] for c in chapters]
     assert kinds == [
-        ["markdown", "image"],
+        ["markdown"],
         ["markdown", "separator"],
         ["markdown"],
         ["markdown"],
         ["markdown", "button"],
-        ["markdown", "separator", "button", "button"],
+        ["markdown", "button", "separator", "button", "button"],
     ]
     manhattan = chapters[4].blocks[1].config.url
-    dashboard, hurricanes = (b.config.url for b in chapters[5].blocks[2:])
+    shade, dashboard, hurricanes = (
+        b.config.url for b in chapters[5].blocks if b.type == "button"
+    )
     assert (
         manhattan == f"https://geolens.example/maps/{api.map_ids[seeder.SKYLINE_MAP]}"
     )
+    assert shade == f"https://geolens.example/maps/{api.map_ids[seeder.CITY_SHADE_MAP]}"
     assert (
         dashboard == f"https://geolens.example/maps/{api.map_ids[seeder.DASHBOARD_MAP]}"
     )
@@ -267,16 +270,15 @@ def test_seeder_hard_codes_no_ids():
     assert not re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-", source)
 
 
-def test_image_block_credits_the_scene_and_is_the_cover():
+def test_the_crop_is_the_cover_and_is_not_repeated_inline():
     api = NycFakeApi()
     seeder.seed_nyc_story(api)
-    image = _document(api).chapters[0].blocks[1]
-    assert str(image.asset_id) == ASSET
-    assert image.config.alt
-    assert image.config.caption.endswith(
-        "Contains modified Copernicus Sentinel data 2026."
-    )
+    document = _document(api)
     assert api.published[0][1] == ASSET
+    assert not [b for c in document.chapters for b in c.blocks if b.type == "image"]
+    assert "Contains modified Copernicus Sentinel data" in (
+        document.chapters[0].blocks[0].config.text
+    )
 
 
 def test_story_shows_the_chapter_navigation_bar():
@@ -312,8 +314,8 @@ def test_rerun_updates_the_one_story_and_reuses_the_image():
 
     api.crop = b"a newer scene"
     seeder.seed_nyc_story(api)
-    assert api.stories_created == 1
-    assert api.uploads == 2
+    assert api.uploads == 1
+    assert api.tiles == [("ds-scene-0", 10)]
 
 
 def test_earlier_pass_title_follows_the_real_gap():
@@ -361,9 +363,10 @@ def test_stitched_image_is_the_sixteen_tiles_two_zooms_down(monkeypatch):
     api.raster_tile = solid
     seeder.seed_nyc_story(api)
 
-    assert len(api.tiles) == 16
+    stitched = [(x, y) for x, y, z in api.tiles if z == 12]
+    assert len(stitched) == 16
     base_x, base_y = seeder._tile_at(-74.015, 40.725, 10)
-    grid = {(x, y) for x, y, z in api.tiles if z == 12}
+    grid = set(stitched)
     assert grid == {
         (base_x * 4 + c, base_y * 4 + r) for r in range(4) for c in range(4)
     }
@@ -430,12 +433,11 @@ def test_crop_scene_is_the_newest_one_that_covers_the_tile():
     chapters = _document(api).chapters
     assert {dataset for dataset, _ in api.tiles} == {"ds-scene-1"}
     assert "2026-09-04" in chapters[0].blocks[0].config.text
-    assert "2026-09-04" in chapters[0].blocks[1].config.caption
     assert "2026-08-28" in chapters[1].blocks[0].config.text
     assert chapters[1].title == "A week earlier"
 
 
-def test_chapters_follow_the_view_while_the_caption_follows_the_crop():
+def test_chapters_follow_the_view_while_the_crop_comes_from_the_covering_scene():
     """The only scene covering the crop is the oldest; a newer tile meets the view."""
     api = NycFakeApi(orbit_dates=("2026-09-11", "2026-08-29"))
     api.bounds = {
@@ -445,7 +447,6 @@ def test_chapters_follow_the_view_while_the_caption_follows_the_crop():
     seeder.seed_nyc_story(api)
     first, second = _document(api).chapters[:2]
     assert "saw it on 2026-09-11" in first.blocks[0].config.text
-    assert "2026-08-29" in first.blocks[1].config.caption
     assert "2026-08-29" in second.blocks[0].config.text
     assert {dataset for dataset, _ in api.tiles} == {"ds-scene-1"}
 
