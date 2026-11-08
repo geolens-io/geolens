@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import type { Bbox } from '@/lib/bbox';
 import { aggregateResult, formatAggregateValue } from '../aggregate';
+import { isBlankValue } from '../value-counts';
 import type { FeatureListConfig } from './definition';
 
 export interface FeatureRow {
@@ -28,7 +29,7 @@ export function useFeatureRows(config: FeatureListConfig, data: unknown): Featur
   const result = aggregateResult(data, 'rows');
   if (!result) return { hasMore: false };
   const text = (value: unknown): string =>
-    value === null || value === undefined
+    isBlankValue(value)
       ? String(t('noValue'))
       : typeof value === 'number'
         ? formatAggregateValue(value)

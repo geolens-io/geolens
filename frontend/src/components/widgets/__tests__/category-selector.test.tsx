@@ -81,6 +81,15 @@ describe('category selector widget', () => {
     expect(onSelect).toHaveBeenLastCalledWith(null);
   });
 
+  it('labels blank text as no value and still picks it as stored', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const blank = { ...data, result: { values: [{ value: 'Residential', count: 40 }, { value: '  ', count: 3 }], other_count: 0 } };
+    render(<CategorySelectorRenderer config={config} data={blank} onSelect={onSelect} />);
+    await user.click(screen.getByRole('checkbox', { name: /no value/ }));
+    expect(onSelect).toHaveBeenLastCalledWith({ column: 'land_use', label: '(no value)', values: ['  '] });
+  });
+
   it('offers radio buttons headed by All when the reader picks one value', async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();

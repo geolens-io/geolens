@@ -20,7 +20,7 @@ const NO_ROWS: CategoryRows = {};
 
 /** A bucket's UTC start, written for its span; the key as sent when it isn't a date. */
 function bucketLabel(key: SelectionValue, bucket: DateBucket, t: TFunction<'widgets'>, locale: string): string {
-  if (typeof key !== 'string') return categoryLabel(key, t);
+  if (typeof key !== 'string' || key.trim() === '') return categoryLabel(key, t);
   const start = new Date(key);
   if (Number.isNaN(start.getTime())) return key;
   const options: Record<DateBucket, Intl.DateTimeFormatOptions> = {
