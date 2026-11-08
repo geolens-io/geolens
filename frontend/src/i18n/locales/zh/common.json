@@ -160,9 +160,9 @@
       "other": "其他",
       "sampled": "当前缩放级别仅显示部分要素。放大以查看全部要素。",
       "cluster": {
-        "server": "服务端聚合",
-        "bounded": "客户端聚合",
-        "fallback": "回退为点",
+        "server": "缩小时聚合显示",
+        "bounded": "缩小时聚合显示",
+        "fallback": "以单个点显示",
         "pointsPerCluster": "每个聚合的点数"
       },
       "geometry": {

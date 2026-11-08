@@ -90,6 +90,42 @@ describe('category selector widget', () => {
     expect(onSelect).toHaveBeenLastCalledWith({ column: 'land_use', label: '(no value)', values: ['  '] });
   });
 
+  it('folds null, empty and space-only values into one row whose pick filters all of them', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const blank = {
+      ...data,
+      result: {
+        values: [{ value: 'Residential', count: 40 }, { value: null, count: 5 }, { value: '', count: 2 }, { value: '  ', count: 3 }],
+        other_count: 0,
+      },
+    };
+    render(<CategorySelectorRenderer config={config} data={blank} onSelect={onSelect} />);
+    expect(screen.getAllByRole('checkbox').map((box) => box.closest('li')?.textContent)).toEqual(['Residential40', '(no value)10']);
+    await user.click(screen.getByRole('checkbox', { name: /no value/ }));
+    expect(onSelect).toHaveBeenLastCalledWith({ column: 'land_use', label: '(no value)', values: [null, '', '  '] });
+  });
+
+  it('keeps one checked no-value option after its pick, listed or not', () => {
+    const picked = { column: 'land_use', label: '(no value)', values: [null, '', '  '] };
+    const blank = {
+      ...data,
+      result: {
+        values: [{ value: 'Residential', count: 40 }, { value: null, count: 5 }, { value: '', count: 2 }, { value: '  ', count: 3 }],
+        other_count: 0,
+      },
+    };
+    const single = { ...config, multiple: false };
+    const { rerender } = render(<CategorySelectorRenderer config={single} data={blank} selection={picked} onSelect={vi.fn()} />);
+    expect(screen.getAllByRole('radio').map((radio) => radio.closest('li')?.textContent)).toEqual(['All', 'Residential40', '(no value)10']);
+    expect(screen.getByRole('radio', { name: /no value/ })).toBeChecked();
+
+    const elsewhere = { ...data, result: { values: [{ value: 'Residential', count: 40 }], other_count: 0 } };
+    rerender(<CategorySelectorRenderer config={single} data={elsewhere} selection={picked} onSelect={vi.fn()} />);
+    expect(screen.getAllByRole('radio').map((radio) => radio.closest('li')?.textContent)).toEqual(['All', 'Residential40', '(no value)']);
+    expect(screen.getByRole('radio', { name: /no value/ })).toBeChecked();
+  });
+
   it('offers radio buttons headed by All when the reader picks one value', async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();

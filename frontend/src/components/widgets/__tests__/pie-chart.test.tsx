@@ -94,6 +94,18 @@ describe('PieChartRenderer', () => {
     expect(screen.getByText('Other: 20 (20%)', readout)).toBeInTheDocument();
   });
 
+  it('shows null and blank text as one slice and picks every stored value of it', () => {
+    const onSelect = vi.fn();
+    const blank = {
+      ...data,
+      result: { values: [{ value: 'park', count: 50 }, { value: null, count: 30 }, { value: ' ', count: 20 }], other_count: 0 },
+    };
+    const { container } = render(<PieChartRenderer config={config} data={blank} onSelect={onSelect} />);
+    expect(container.querySelectorAll('svg[role="group"] path')).toHaveLength(2);
+    fireEvent.click(container.querySelectorAll('svg[role="group"] g')[1]);
+    expect(onSelect).toHaveBeenLastCalledWith({ column: 'kind', label: '(no value)', values: [null, ' '] });
+  });
+
   it('picks a slice with Enter or a click, and clears the pick when picked again', () => {
     const onSelect = vi.fn();
     const { container, rerender } = render(<PieChartRenderer config={config} data={data} onSelect={onSelect} />);

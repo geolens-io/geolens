@@ -164,6 +164,7 @@ export const appRoutes = (
       <Route path="collections/:id" element={<CollectionDetailPage />} handle={preload(loadCollectionDetailPage)} errorElement={<RouteErrorBoundary />} />
       <Route path="maps" element={<MapsPage />} handle={preload(loadMapsPage)} errorElement={<RouteErrorBoundary />} />
       <Route path="maps/new" element={<Navigate to="/maps" replace />} />
+      <Route path="stories" element={<Navigate to={{ pathname: '/maps', search: '?type=stories' }} replace />} />
       <Route path="maps/:id" element={<MapViewerGate />} handle={preload(loadMapViewerGate)} errorElement={<RouteErrorBoundary />} />
       <Route path="stories/:id" element={<StoryPage />} handle={preload(loadStoryPage)} errorElement={<RouteErrorBoundary />} />
 

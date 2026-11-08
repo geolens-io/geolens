@@ -3,11 +3,12 @@ import { useTranslation } from 'react-i18next';
 import { Checkbox } from '@/components/ui/checkbox';
 import { columnName, type SelectionValue, type WidgetRenderProps } from '../contract';
 import { selectedValues } from '../selection';
-import { categoryLabel, labelOfColumn, useCategoryRows } from '../value-counts';
+import { categoryLabel, isBlankValue, labelOfColumn, useCategoryRows } from '../value-counts';
 import type { CategorySelectorConfig } from './definition';
 
 interface SelectorOption {
   key: SelectionValue;
+  keys: readonly SelectionValue[];
   label: string;
   /** The value's count as text; undefined for a pick the current numbers no longer list. */
   count?: string;
@@ -40,20 +41,25 @@ export default function CategorySelectorRenderer({
   }
 
   // Another widget's pick can leave a picked value out of the list; it stays, so it can be cleared here.
+  const missing = picked.filter((value) => !rows.some((row) => row.keys.includes(value)));
+  const missingBlanks = missing.filter(isBlankValue);
   const options: SelectorOption[] = [
-    ...rows.map((row) => ({ key: row.key, label: row.label, count: row.text })),
-    ...picked
-      .filter((value) => !rows.some((row) => row.key === value))
-      .map((value) => ({ key: value, label: categoryLabel(value, t, labelOf) })),
+    ...rows.map((row) => ({ key: row.key, keys: row.keys, label: row.label, count: row.text })),
+    ...missing
+      .filter((value) => !isBlankValue(value))
+      .map((value) => ({ key: value, keys: [value], label: categoryLabel(value, t, labelOf) })),
+    ...(missingBlanks.length > 0
+      ? [{ key: missingBlanks[0], keys: missingBlanks, label: categoryLabel(missingBlanks[0], t, labelOf) }]
+      : []),
   ];
   const disabled = !onSelect;
-  const choose = (key: SelectionValue, checked: boolean) => {
+  const choose = (keys: readonly SelectionValue[], checked: boolean) => {
     const values = config.multiple
       ? checked
-        ? [...picked, key]
-        : picked.filter((value) => value !== key)
-      : [key];
-    const label = values.map((value) => categoryLabel(value, t, labelOf)).join(', ');
+        ? [...picked, ...keys]
+        : picked.filter((value) => !keys.includes(value))
+      : [...keys];
+    const label = [...new Set(values.map((value) => categoryLabel(value, t, labelOf)))].join(', ');
     onSelect?.(values.length > 0 ? { column: config.column, label, values } : null);
   };
 
@@ -80,7 +86,7 @@ export default function CategorySelectorRenderer({
         )}
         {options.map((option, index) => {
           const id = `${idPrefix}-${index}`;
-          const checked = picked.includes(option.key);
+          const checked = option.keys.some((key) => picked.includes(key));
           return (
             <li key={index} className={OPTION_CLASS}>
               {config.multiple ? (
@@ -88,7 +94,7 @@ export default function CategorySelectorRenderer({
                   id={id}
                   checked={checked}
                   disabled={disabled}
-                  onCheckedChange={(next) => choose(option.key, next === true)}
+                  onCheckedChange={(next) => choose(option.keys, next === true)}
                 />
               ) : (
                 <input
@@ -97,7 +103,7 @@ export default function CategorySelectorRenderer({
                   name={idPrefix}
                   className="size-4 shrink-0 accent-primary"
                   checked={checked}
-                  onChange={(event) => choose(option.key, event.target.checked)}
+                  onChange={(event) => choose(option.keys, event.target.checked)}
                 />
               )}
               <label htmlFor={id} className="flex-1 break-words">

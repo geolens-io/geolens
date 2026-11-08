@@ -12,3 +12,8 @@ export function selectedValues(
 export function togglePick(alreadyPicked: boolean, pick: WidgetSelection): WidgetSelection | null {
   return alreadyPicked ? null : pick;
 }
+
+/** Whether the pick holds exactly `keys`, so picking the same mark again clears it. */
+export function picksExactly(picked: readonly SelectionValue[], keys: readonly SelectionValue[]): boolean {
+  return picked.length === keys.length && keys.every((key) => picked.includes(key));
+}

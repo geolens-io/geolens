@@ -6,6 +6,8 @@ import type { SelectionValue, ValueLabel } from './contract';
 export interface CategoryRow {
   /** The category as the endpoint sent it, which a pick filters on. */
   key: SelectionValue;
+  /** Every stored value the row stands for, which a pick filters on; more than `key` alone where blank values merge. */
+  keys: readonly SelectionValue[];
   label: string;
   /** The label with the stored value after it, as tables show a labelled value; undefined when the label stands alone. */
   tableLabel?: string;
@@ -49,8 +51,9 @@ export function categoryTableLabel(key: SelectionValue, t: TFunction<'widgets'>,
 /** The categories of a `value_counts` or `group_by` result, labelled in the reader's locale. */
 export function useCategoryRows(data: unknown, labelOf?: LabelOf): CategoryRows {
   const { t } = useTranslation('widgets');
-  const row = (key: SelectionValue, value: number | string | null): CategoryRow => ({
+  const row = (key: SelectionValue, value: number | string | null, keys: readonly SelectionValue[] = [key]): CategoryRow => ({
     key,
+    keys,
     label: categoryLabel(key, t, labelOf),
     tableLabel: categoryTableLabel(key, t, labelOf),
     text: formatAggregateValue(value),
@@ -59,11 +62,31 @@ export function useCategoryRows(data: unknown, labelOf?: LabelOf): CategoryRows 
   const counts = aggregateResult(data, 'value_counts');
   if (counts) {
     return {
-      rows: counts.values.map((entry) => row(entry.value ?? null, entry.count)),
+      rows: mergeBlankCounts(counts.values.map((entry) => ({ value: entry.value ?? null, count: entry.count }))).map((entry) =>
+        row(entry.keys[0], entry.count, entry.keys),
+      ),
       other: counts.other_count > 0 ? formatAggregateValue(counts.other_count) : undefined,
     };
   }
   const groups = aggregateResult(data, 'group_by');
   if (groups) return { rows: groups.groups.map((group) => row(group.key ?? null, group.value ?? null)) };
   return {};
+}
+
+/** Counts with every blank value (null, empty and space-only text) folded into the first blank's place, so readers see one "(no value)" row. */
+function mergeBlankCounts(entries: { value: SelectionValue; count: number }[]): { keys: SelectionValue[]; count: number }[] {
+  const merged: { keys: SelectionValue[]; count: number }[] = [];
+  let blank: (typeof merged)[number] | undefined;
+  for (const { value, count } of entries) {
+    if (!isBlankValue(value)) {
+      merged.push({ keys: [value], count });
+    } else if (blank) {
+      blank.keys.push(value);
+      blank.count += count;
+    } else {
+      blank = { keys: [value], count };
+      merged.push(blank);
+    }
+  }
+  return merged;
 }
