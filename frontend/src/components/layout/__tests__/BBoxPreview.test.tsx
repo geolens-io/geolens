@@ -15,7 +15,19 @@ describe('BBoxPreview', () => {
     const rects = extentRects(container);
     expect(rects).toHaveLength(1);
     expect(rects[0].getAttribute('x')).toBe('105.5');
-    expect(rects[0].getAttribute('width')).toBe('2'); // 1° clamped to the 2 minimum
+    expect(Number(rects[0].getAttribute('width'))).toBeCloseTo(40 / 30); // 1° clamped to a visible box
+  });
+
+  it('zooms to a regional window for a city-sized extent', () => {
+    const { container } = render(<BBoxPreview bbox={[-71.16, 42.35, -71.06, 42.4]} />);
+
+    const [, , vbW, vbH] = (container.querySelector('svg')?.getAttribute('viewBox') ?? '')
+      .split(' ')
+      .map(Number);
+    expect(vbW).toBe(40);
+    expect(vbH).toBe(vbW / 2);
+    const [rect] = extentRects(container);
+    expect(Number(rect.getAttribute('width'))).toBeGreaterThan(vbW / 60);
   });
 
   // A single rect from `maxx - minx` would be negative and collapse into a

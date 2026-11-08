@@ -16,6 +16,7 @@ and releases use semantic versioning.
 - `scripts/seed-showcase.py` shows the 1.30 features on the demo: the two dashboard maps gain a pie chart, a table, a feature list, a bar chart by date and indicator references, the skyline dashboard moves to the bottom panel, the stories get reader settings, a cover image each and a photo gallery, and stale catalog text about 3D Tiles, COPC and collections is corrected.
 
 ### Fixed
+- Collection thumbnails and the collection page's spatial extent map now zoom to a city-sized extent instead of showing a dot on a world map, the viewer legend shows a chevron while rows are cut off below the visible part of the panel, and a map card's title wraps to two lines instead of cutting a long name short beside its visibility badge.
 - Stories and dashboard text: a wide code block scrolls inside its own shaded box instead of widening the whole chapter panel or widget.
 - Stories: in the floating layout each scene centres in the part of the map the chapter panel leaves free, instead of partly under the panel.
 - A dataset bound to a service now reports source health "healthy" after a successful refresh, whether or not the data changed, instead of "unknown" until a probe runs. A STAC item refresh keeps the asset probe's verdict.
