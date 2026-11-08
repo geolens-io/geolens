@@ -1049,8 +1049,9 @@ def test_sentinel2_accepts_a_title_match_whose_origin_names_the_pinned_scene(
     }
 
 
-def test_sentinel2_layers_on_one_date_are_named_by_tile(monkeypatch):
-    """Two tiles imaged on the same pass must not share a layer name."""
+def test_sentinel2_layers_on_one_date_are_named_by_where_they_lie(monkeypatch):
+    """Two tiles imaged on the same pass must not share a layer name, and a New
+    York tile is named by where it lies rather than by its MGRS code."""
     other = _fake_sentinel_feature(
         "S2A_T19TCH_20260829T155705_L2A", datetime="2026-08-29T15:57:05Z"
     )
@@ -1069,8 +1070,8 @@ def test_sentinel2_layers_on_one_date_are_named_by_tile(monkeypatch):
     seeder.build_sentinel2(api)
 
     assert sorted(layer["display_name"] for layer in api.added_layers) == [
-        "Sentinel-2 - 2026-08-29 (T18TWL)",
         "Sentinel-2 - 2026-08-29 (T19TCH)",
+        "Sentinel-2 - 2026-08-29 (north-west)",
     ]
 
 
