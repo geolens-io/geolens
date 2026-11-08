@@ -104,7 +104,15 @@ export default function PieChartRenderer({
   }
 
   const isOther = (index: number) => hasOther && index === rows.length;
-  const colorFor = (index: number) => (isOther(index) ? undefined : colorOf?.(rows[index].key));
+  // Values the layer styles alike would draw as one slice, so a repeat falls back to the theme palette.
+  const seenColors = new Set<string>();
+  const layerColors = rows.map((row) => {
+    const color = colorOf?.(row.key);
+    if (!color || seenColors.has(color.toLowerCase())) return undefined;
+    seenColors.add(color.toLowerCase());
+    return color;
+  });
+  const colorFor = (index: number) => (isOther(index) ? undefined : layerColors[index]);
   const fillClass = (index: number) =>
     colorFor(index) ? undefined : isOther(index) ? 'fill-muted-foreground' : THEME_FILLS[index % THEME_FILLS.length];
   const anyPicked = picked.length > 0;

@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import type { Bbox } from '@/lib/bbox';
-import { aggregateResult, formatAggregateValue } from '../aggregate';
+import { formatNumber } from '@/lib/format';
+import { aggregateResult } from '../aggregate';
 import { isBlankValue } from '../value-counts';
 import type { FeatureListConfig } from './definition';
 
@@ -32,7 +33,7 @@ export function useFeatureRows(config: FeatureListConfig, data: unknown): Featur
     isBlankValue(value)
       ? String(t('noValue'))
       : typeof value === 'number'
-        ? formatAggregateValue(value)
+        ? formatNumber(value, { maximumFractionDigits: 2 })
         : String(value);
   return {
     hasMore: result.has_more,

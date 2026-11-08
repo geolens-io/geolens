@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n/i18n';
 import { formatNumber } from '@/lib/format';
-import { aggregateResult, aggregateStat, formatAggregateValue, STAT_LABEL_KEYS } from '../aggregate';
+import { aggregateFractionDigits, aggregateResult, aggregateStat, formatAggregateValue, STAT_LABEL_KEYS } from '../aggregate';
 import { columnName, type ColumnLabel } from '../contract';
 import type { IndicatorConfig } from './definition';
 
@@ -156,7 +156,7 @@ export function useIndicatorText(
     const comparison = config.comparison ?? 'both';
     const amount =
       difference.amount !== null && (comparison !== 'percent' || difference.percent === null)
-        ? (new Intl.NumberFormat(i18n.language, { ...unsigned, maximumFractionDigits: 2 }).format as (v: unknown) => string)(difference.amount)
+        ? (new Intl.NumberFormat(i18n.language, { ...unsigned, maximumFractionDigits: typeof difference.amount === 'number' ? aggregateFractionDigits(difference.amount) : 2 }).format as (v: unknown) => string)(difference.amount)
         : null;
     const percent =
       comparison !== 'value' && difference.percent !== null

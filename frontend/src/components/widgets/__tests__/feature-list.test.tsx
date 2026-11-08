@@ -127,6 +127,15 @@ describe('feature list renderer', () => {
     expect(screen.getByText('3 features shown, more available')).toBeInTheDocument();
   });
 
+  it('prints numeric titles as stored, without the rounding aggregates get', () => {
+    const numeric = rowsResult([
+      { gid: 1, values: { name: 1234.5, kind: 1235 }, bbox: null },
+    ]);
+    render(<FeatureListRenderer config={config} data={numeric} onZoomTo={vi.fn()} />);
+    expect(screen.getByText('1,234.5')).toBeInTheDocument();
+    expect(screen.getByText('1,235')).toBeInTheDocument();
+  });
+
   it('zooms to a feature with its id and bounds when its row is clicked', async () => {
     const onZoomTo = vi.fn();
     render(<FeatureListRenderer config={config} data={mapped} onZoomTo={onZoomTo} />);

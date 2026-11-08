@@ -193,6 +193,8 @@ function PublicViewer() {
         hiddenLayers={hiddenByReader}
         embedToken={embedToken}
         startCollapsed={startDashboardCollapsed}
+        mapName={data.name}
+        mapDescription={data.description}
         mainLandmark
       >
         {({ onMapReady, mapLayers }) => (

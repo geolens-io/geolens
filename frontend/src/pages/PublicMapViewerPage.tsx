@@ -91,6 +91,8 @@ function PublicMapViewer() {
       layers={layers}
       hiddenLayers={hiddenByReader}
       mapId={id}
+      mapName={data.name}
+      mapDescription={data.description}
     >
       {({ onMapReady, mapLayers }) => (
         /* Inside AppLayout's <main id="main-content">, so not a second <main>

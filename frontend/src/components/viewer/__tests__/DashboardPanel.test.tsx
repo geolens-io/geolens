@@ -504,6 +504,53 @@ describe('DashboardPanel', () => {
     expect(screen.queryByText(/this dashboard hides its map/)).not.toBeInTheDocument();
   });
 
+  it('heads a hidden-map dashboard with the map name and description', async () => {
+    const config = { ...dashboard([countWidget]), map_hidden: true } as DashboardConfig;
+    const { rerender } = render(
+      <DashboardPanel config={config} layers={[layer()]} map={null} mapName="Land and zoning" mapDescription="Parcels by district" />,
+    );
+    await screen.findByText('1,234');
+    expect(screen.getByRole('heading', { level: 1, name: 'Land and zoning' })).toBeInTheDocument();
+    // A long description scrolls with the widgets instead of squeezing them out.
+    const scroller = screen.getByText('Parcels by district').parentElement!;
+    expect(scroller).toHaveClass('overflow-y-auto');
+    expect(scroller).toContainElement(screen.getByText('1,234'));
+    expect(screen.queryByRole('heading', { level: 2, name: 'Dashboard' })).not.toBeInTheDocument();
+
+    rerender(<DashboardPanel config={dashboard([countWidget])} layers={[layer()]} map={null} mapName="Land and zoning" />);
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Dashboard' })).toBeInTheDocument();
+  });
+
+  it('scrolls a hidden-map description with the message that every widget layer is hidden', () => {
+    const config = { ...dashboard([countWidget]), map_hidden: true } as DashboardConfig;
+    render(
+      <DashboardPanel
+        config={config}
+        layers={[layer()]}
+        hiddenLayers={new Set([layerId])}
+        map={null}
+        mapName="Land and zoning"
+        mapDescription="Parcels by district"
+      />,
+    );
+    const scroller = screen.getByText('Parcels by district').parentElement!;
+    expect(scroller).toHaveClass('overflow-y-auto');
+    expect(scroller).toContainElement(screen.getByText(/The layers these widgets summarize are hidden/));
+  });
+
+  it('gives a widget titled with its layer name no second line saying so', async () => {
+    render(
+      <DashboardPanel
+        config={dashboard([{ ...countWidget, title: 'City parcels' }, { ...countWidget, id: chartId, title: 'Parcel count' }])}
+        layers={[layer({ display_name: 'City parcels ' })]}
+        map={null}
+      />,
+    );
+    await screen.findAllByText('1,234');
+    expect(screen.getAllByText('City parcels')).toHaveLength(2);
+  });
+
   it('dims the last numbers while a pan\'s new ones load', async () => {
     const { map, move } = movableMap([-10, -5, 10, 5]);
     render(
