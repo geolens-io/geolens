@@ -314,6 +314,20 @@ def test_prune_userdata_hard_keeps_a_pinned_map_whoever_owns_it():
     assert [m["id"] for m in buckets["foreign_maps"]] == ["m3"]
 
 
+def test_prune_userdata_keeps_a_pinned_map_still_under_its_old_name():
+    old = "Manhattan - A Century of Skyline"
+    buckets = _classify(
+        [
+            {"id": "m1", "name": old, "created_by_username": "admin"},
+            {"id": "m2", "name": old, "created_by_username": "other-admin"},
+        ],
+        [],
+    )
+    assert [m["id"] for m in buckets["pinned_maps"]] == ["m1"]
+    assert [m["id"] for m in buckets["pinned_map_impostors"]] == ["m2"]
+    assert buckets["foreign_maps"] == []
+
+
 def test_prune_userdata_keeps_the_meteorites_dataset():
     buckets = _classify(
         [],

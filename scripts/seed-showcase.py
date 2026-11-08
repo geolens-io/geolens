@@ -749,6 +749,11 @@ PINNED_MAP_NAMES = (
     "The Matterhorn in 3D",
     "New York From Orbit: Sentinel-2 by Reference",
 )
+# Prune runs before any rename, possibly from another account, so a pinned map
+# still under an old name has to be recognised by that name too.
+PINNED_MAP_ALIASES = frozenset(PINNED_MAP_NAMES) | {
+    legacy for name, legacy in LEGACY_MAP_NAMES if name in PINNED_MAP_NAMES
+}
 
 # The one pinned map geolens-examples embeds by share token rather than
 # deep-linking by id; the other three normally have no share link at all, so
@@ -3020,7 +3025,7 @@ def _classify_userdata(api: Api, known_maps: set, recognised) -> dict:
     foreign_maps, stray_maps, ownerless_maps = [], [], []
     pinned_maps, pinned_map_impostors = [], []
     for m in api.list_all_maps():
-        if m.get("name") in PINNED_MAP_NAMES:
+        if m.get("name") in PINNED_MAP_ALIASES:
             # First, whoever owns it, for the same reason as the
             # pinned datasets below - the examples address these by the uuid
             # this seeder minted, and one of them by share token, so the ROW
@@ -9622,6 +9627,10 @@ def main() -> int:
                 + "; ".join(problems)
             )
 
+    # Before the maintenance modes too, which look maps up by their current
+    # names; prune stays read-only until --execute and recognises old names.
+    if not args.prune_userdata:
+        rename_legacy_maps(api)
     maintenance = run_maintenance_mode(api, args)
     if maintenance is not None:
         return maintenance
@@ -9750,7 +9759,6 @@ def main() -> int:
         # snapshot, so a rollback could not withdraw them.
         if not args.expected_state:
             builders.append(("embed", fns["embed"]))
-    rename_legacy_maps(api)
     for bname, fn in builders:
         # One flaky upstream must not kill the whole seed (e.g. the NYC
         # buildings table mid-replace): isolate each builder, report at end.

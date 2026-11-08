@@ -388,3 +388,33 @@ def test_a_transport_error_in_the_semantic_step_does_not_skip_the_post_steps(
     assert rc == 0
     assert steps == ["thumbnails", "summary"]
     assert "semantic search step failed" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("flag", "expected"),
+    [
+        ("--story-and-dashboard", ["rename", "maintenance"]),
+        ("--refresh-hurdat2", ["rename", "maintenance"]),
+        ("--prune-userdata", ["maintenance"]),
+    ],
+)
+def test_legacy_maps_are_renamed_before_a_maintenance_mode_except_prune(
+    monkeypatch, flag, expected
+):
+    order = []
+
+    class FakeApi:
+        @classmethod
+        def login(cls, *_a):
+            return cls()
+
+    monkeypatch.setattr(seeder, "Api", FakeApi)
+    monkeypatch.setattr(
+        seeder, "rename_legacy_maps", lambda _api: order.append("rename")
+    )
+    monkeypatch.setattr(
+        seeder, "run_maintenance_mode", lambda *_a: order.append("maintenance") or 0
+    )
+    monkeypatch.setattr("sys.argv", ["seed", "--password", "p", flag])
+    assert seeder.main() == 0
+    assert order == expected
