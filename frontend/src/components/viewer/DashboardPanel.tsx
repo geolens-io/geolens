@@ -143,7 +143,7 @@ export function DashboardWidget({
   const named = widgetName(definition, instance, layer.column_info, t);
   const heading = named || layerName;
   // A stat card titled with its layer's name would print the name twice.
-  const layerBelow = !!named && named.trim() !== layerName.trim();
+  const layerBelow = !!named && named.trim() !== layerName?.trim();
   // Numbers kept on screen while a pan's new ones load.
   const stale = query.isPlaceholderData;
   const failed = query.isError;
