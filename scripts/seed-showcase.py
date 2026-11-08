@@ -47,6 +47,7 @@ import shlex
 import subprocess
 import sys
 import time
+import types
 import uuid
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -60,6 +61,24 @@ except ImportError:
         "Missing required package. Install with:\n  pip install httpx", file=sys.stderr
     )
     sys.exit(1)
+
+# A sibling module; a checkout or mount that lacks it still seeds everything else.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:
+    import seed_showcase_cambridge as cambridge  # noqa: E402
+except ModuleNotFoundError as e:
+    if e.name != "seed_showcase_cambridge":
+        raise
+    cambridge = None
+    print(
+        "The Cambridge section is unavailable: seed_showcase_cambridge.py is "
+        "not beside this script.",
+        file=sys.stderr,
+    )
+# Also named in seed_showcase_cambridge.COLLECTION_NAME; kept here so the prune
+# report recognises it when the module is unavailable.
+CAMBRIDGE_COLLECTION = "Cambridge, MA: a city's open data"
+_CAMBRIDGE_UNAVAILABLE = "(missing: seed_showcase_cambridge.py is not beside the seeder)"
 
 DEFAULT_BASE_URL = "http://localhost:8080"
 
@@ -2764,7 +2783,7 @@ def _showcase_dataset_titles() -> set[str]:
     titles |= {STATES_TITLE, STATES_TITLE_LEGACY, "Private Embed Demo - VIP Sites"}
     for _description, members in COLLECTIONS.values():
         titles |= set(members)
-    return titles
+    return titles | (cambridge.DATASET_TITLES if cambridge else set())
 
 
 # The seeder also makes datasets whose titles carry a per-item suffix: one per
@@ -2790,7 +2809,7 @@ def _showcase_map_names() -> set[str]:
     # The pinned names are folded in separately, so one of them can
     # never read as a stray if the literals above are ever edited apart from
     # PINNED_MAP_NAMES.
-    return names | set(PINNED_MAP_NAMES)
+    return names | set(PINNED_MAP_NAMES) | (cambridge.MAP_NAMES if cambridge else set())
 
 
 def _classify_userdata(api: Api, known_maps: set, recognised) -> dict:
@@ -3012,7 +3031,9 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
         for d in pinned_impostors:
             print(f"    ? {d.get('title')!r}  (owner: {d.get('created_by') or '?'})")
 
-    showcase_collections = set(COLLECTIONS) | set(RETIRED_COLLECTIONS)
+    showcase_collections = (
+        set(COLLECTIONS) | set(RETIRED_COLLECTIONS) | {CAMBRIDGE_COLLECTION}
+    )
     other_collections = [
         n for n in api.collections_by_name() if n not in showcase_collections
     ]
@@ -7902,7 +7923,7 @@ def _metadata_spec(title: str) -> dict | None:
     return None
 
 
-def enrich_showcase_metadata(api: "Api") -> list[str]:
+def enrich_showcase_metadata(api: "Api", include_cambridge: bool = True) -> list[str]:
     """Backfill the catalog metadata the ingest flow does not set.
 
     License and keywords, plus the provenance fields that make a
@@ -7973,6 +7994,9 @@ def enrich_showcase_metadata(api: "Api") -> list[str]:
                 f"  WARNING: metadata enrich failed for {title!r}: {e}", file=sys.stderr
             )
             unenriched.append(title)
+    # A guarded update's snapshot excludes the Cambridge datasets.
+    if cambridge and include_cambridge:
+        unenriched += cambridge.enrich_existing(api)
     return unenriched
 
 
@@ -8956,6 +8980,11 @@ def main() -> int:
             "skyline-dashboard",
             "skyline-story",
             "nyc-story",
+            "cambridge-catalog",
+            "cambridge-trees",
+            "cambridge-parcels",
+            "cambridge-tree-dashboard",
+            "cambridge-land-dashboard",
         ],
         help="build only one showcase item",
     )
@@ -8963,7 +8992,9 @@ def main() -> int:
         "--force",
         action="store_true",
         help="re-create showcase maps/datasets even if they already exist "
-        "(the externally pinned maps are kept - see --force-pinned)",
+        "(the externally pinned maps are kept - see --force-pinned). The "
+        "Cambridge section is never rebuilt by --force: delete its parcels "
+        "upload, derived datasets or imported map first to rebuild them",
     )
     ap.add_argument(
         "--force-pinned",
@@ -9051,6 +9082,11 @@ def main() -> int:
             "skyline-dashboard",
             "skyline-story",
             "nyc-story",
+            "cambridge-catalog",
+            "cambridge-trees",
+            "cambridge-parcels",
+            "cambridge-tree-dashboard",
+            "cambridge-land-dashboard",
         )
     ):
         ap.error(
@@ -9089,6 +9125,16 @@ def main() -> int:
 
     if args.prune:
         prune(api)
+
+    def cambridge_builder(name):
+        if cambridge is None:
+            return lambda a, force=False, force_pinned=False: _CAMBRIDGE_UNAVAILABLE
+        cam = types.SimpleNamespace(
+            **{n: globals()[n] for n in cambridge.SEEDER_HELPERS}
+        )
+        return lambda a, force=False, force_pinned=False: getattr(cambridge, name)(
+            cam, a, force=force, force_pinned=force_pinned
+        )
 
     fns = {
         "catalog": build_catalog,
@@ -9134,6 +9180,11 @@ def main() -> int:
         "skyline-dashboard": seed_skyline_dashboard,
         "skyline-story": seed_skyline_story,
         "nyc-story": seed_nyc_story,
+        "cambridge-catalog": cambridge_builder("build_catalog"),
+        "cambridge-trees": cambridge_builder("build_trees_map"),
+        "cambridge-parcels": cambridge_builder("build_parcels_map"),
+        "cambridge-tree-dashboard": cambridge_builder("seed_tree_dashboard"),
+        "cambridge-land-dashboard": cambridge_builder("seed_land_dashboard"),
     }
 
     built = {}
@@ -9160,6 +9211,19 @@ def main() -> int:
                     ("copc", fns["copc"]),
                     ("tiles3d", fns["tiles3d"]),
                 ]
+            )
+        # A guarded update skips the city section: its maps and dashboards are
+        # new content outside the snapshot.
+        if not args.expected_state:
+            builders.extend(
+                (name, fns[name])
+                for name in (
+                    "cambridge-catalog",
+                    "cambridge-trees",
+                    "cambridge-parcels",
+                    "cambridge-tree-dashboard",
+                    "cambridge-land-dashboard",
+                )
             )
         # The stories read the hurricane and Manhattan maps, the dashboards the
         # quake and building layers.
@@ -9215,7 +9279,7 @@ def main() -> int:
     # ingest flow leaves them "proprietary" with no keywords). Isolated per
     # dataset; a guarded update fails on any it could not write.
     print("\nEnriching catalog metadata (license + keywords)...")
-    unenriched = enrich_showcase_metadata(api)
+    unenriched = enrich_showcase_metadata(api, include_cambridge=not args.expected_state)
     if unenriched and args.expected_state:
         failed["metadata"] = ", ".join(unenriched)
 
@@ -9251,7 +9315,7 @@ def main() -> int:
 
     print("\nDone. Showcase:")
     for bname, mid in built.items():
-        if bname in ("catalog",):
+        if bname in ("catalog", "cambridge-catalog"):
             continue
         path = (
             "collections"

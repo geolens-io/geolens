@@ -7,6 +7,9 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Added
+- `scripts/seed-showcase.py` seeds a section built from the City of Cambridge, MA open data (PDDL): five layers bound to the city's public ArcGIS Online hosted feature layers, a pinned parcels upload, parcels joined to zoning and the 1% floodplain, a street-tree map translated from an ArcGIS web map, a tree-operations dashboard and a land-and-zoning dashboard with its map hidden.
+
 ### Changed
 - `scripts/seed-showcase.py` binds the USGS earthquake layer once and draws Restless Earth's circles and heat surface from that one dataset; a seed run moves an already-seeded instance's heat layer onto it and retires the second copy.
 - `scripts/seed-showcase.py` shows the 1.30 features on the demo: the two dashboard maps gain a pie chart, a table, a feature list, a bar chart by date and indicator references, the skyline dashboard moves to the bottom panel, the stories get reader settings, a cover image each and a photo gallery, and stale catalog text about 3D Tiles, COPC and collections is corrected.
