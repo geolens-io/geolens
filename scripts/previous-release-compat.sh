@@ -205,9 +205,11 @@ log "[${VERSION}] release files from v${VERSION}"
 if ! git -C "${REPO_ROOT}" rev-parse -q --verify "refs/tags/v${VERSION}^{commit}" >/dev/null; then
   git -C "${REPO_ROOT}" fetch -q --depth=1 "${REMOTE}" "refs/tags/v${VERSION}:refs/tags/v${VERSION}"
 fi
-git -C "${REPO_ROOT}" archive "v${VERSION}" \
-  docker-compose.prod.yml .env.example db scripts/init-db.sh scripts/lib \
-  | tar -x -C "${RELEASE_DIR}"
+# Through a file: macOS bsdtar stops reading at the end-of-archive marker, and
+# the SIGPIPE that leaves git archive fails the pipe under pipefail.
+git -C "${REPO_ROOT}" archive -o "${WORK}/release.tar" "v${VERSION}" \
+  docker-compose.prod.yml .env.example db scripts/init-db.sh scripts/lib
+tar -x -C "${RELEASE_DIR}" -f "${WORK}/release.tar"
 
 PG_USER=geolens
 PG_DB=geolens
