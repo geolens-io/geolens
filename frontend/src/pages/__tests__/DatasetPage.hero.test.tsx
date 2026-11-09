@@ -411,6 +411,21 @@ describe('DatasetPage hero state machine', () => {
     expect(screen.queryByText('Preview unavailable')).not.toBeInTheDocument();
   });
 
+  it('keeps the error overlay when the map errors after mounting with token bounds', async () => {
+    mockTileToken.value = { data: { kind: 'raster', bounds: [7.6, 45.9, 7.7, 46.0] }, isPending: false };
+    setup({ record_type: 'raster_dataset', extent_bbox: null, raster: demRaster });
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    const map = screen.getByTestId('dataset-map');
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+
+    expect(screen.getByText('Preview unavailable')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.getByTestId('dataset-map')).toBe(map);
+  });
+
   it('keeps the dataset extent for a DEM that has one', async () => {
     mockTileToken.value = { data: { kind: 'raster', bounds: [1, 2, 3, 4] }, isPending: false };
     setup({ record_type: 'raster_dataset', extent_bbox: [5, 45, 10, 48], raster: demRaster });

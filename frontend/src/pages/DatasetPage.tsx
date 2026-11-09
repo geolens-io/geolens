@@ -279,9 +279,16 @@ export function DatasetPage() {
   // A timeout while the token was pending left the hero in error; once the
   // bounds arrive the map must start a fresh load rather than mount under it.
   const demBoundsArrived = demToken?.kind === 'raster' && !!demToken.bounds && demToken.bounds.length >= 4;
+  const timedOutAwaitingBounds = useRef(false);
   useEffect(() => {
-    if (demBoundsArrived && heroState === 'error') handleReplaceComplete();
-  }, [demBoundsArrived, heroState, handleReplaceComplete]);
+    if (heroState !== 'error') return;
+    if (demNeedsTokenBounds && demTokenPending) {
+      timedOutAwaitingBounds.current = true;
+    } else if (demBoundsArrived && timedOutAwaitingBounds.current) {
+      timedOutAwaitingBounds.current = false;
+      handleReplaceComplete();
+    }
+  }, [demBoundsArrived, demNeedsTokenBounds, demTokenPending, heroState, handleReplaceComplete]);
 
   // The ingest job carries structured warnings. A 404 is normal: the dataset
   // was registered from an existing table or created via a non-ingest path.
