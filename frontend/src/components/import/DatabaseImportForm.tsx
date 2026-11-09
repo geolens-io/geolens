@@ -30,8 +30,7 @@ export function DatabaseImportForm() {
   // A lone connection needs no choosing.
   const connection = chosenConnection ?? (connections.length === 1 ? connections[0].name : null);
   const { data: listing, isLoading, error: listError, refetch } = useDatabaseTables(connection);
-  const [selectedKey, setSelectedKey] = useState<string | null>(adopted ? rowKey(adopted.table) : null);
-  const [picked, setPicked] = useState<DatabaseTable | null>(adopted?.table ?? null);
+  const [choice, setChoice] = useState<DatabaseTable | null>(adopted?.table ?? null);
   const [filter, setFilter] = useState('');
   const [step, setStep] = useState<Step>(
     !adopted ? 'pick' : adopted.status === 'fulfilled' ? 'tracking' : adopted.status === 'rejected' ? 'review' : 'committing',
@@ -46,22 +45,20 @@ export function DatabaseImportForm() {
     };
   }, []);
 
-  const tables = useMemo(() => listing?.tables ?? [], [listing]);
   const visible = useMemo(() => {
     const needle = filter.trim().toLowerCase();
+    const tables = listing?.tables ?? [];
     return needle
       ? tables.filter((row) => `${row.schema_name}.${row.table_name}`.toLowerCase().includes(needle))
       : tables;
-  }, [tables, filter]);
-  const selected = tables.find((row) => rowKey(row) === selectedKey) ?? null;
+  }, [listing, filter]);
 
   const reset = () => {
     clearDatabaseImport();
-    setPicked(null);
     setStep('pick');
     setJobId(null);
     setError(null);
-    setSelectedKey(null);
+    setChoice(null);
   };
 
   const fail = (err: unknown) => {
@@ -109,16 +106,16 @@ export function DatabaseImportForm() {
   }, []);
 
   const handleCommit = async (metadata: CommitImportRequest) => {
-    if (!connection || !picked) return;
+    if (!connection || !choice) return;
     setStep('committing');
     setError(null);
-    const session = beginDatabaseImport(connection, picked, {
-      schema_name: picked.schema_name,
-      table_name: picked.table_name,
+    const session = beginDatabaseImport(connection, choice, {
+      schema_name: choice.schema_name,
+      table_name: choice.table_name,
       title: metadata.title,
       summary: metadata.summary,
       visibility: (metadata.visibility ?? 'private') as DatabaseImportRequest['visibility'],
-      srid_override: picked.srid === null ? metadata.srid_override : null,
+      srid_override: choice.srid === null ? metadata.srid_override : null,
     });
     await track(session.promise);
   };
@@ -127,19 +124,19 @@ export function DatabaseImportForm() {
     return <JobProgress jobId={jobId} onReset={reset} />;
   }
 
-  if ((step === 'review' || step === 'committing') && picked) {
+  if ((step === 'review' || step === 'committing') && choice) {
     return (
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">
           {t('database.reviewing', {
             connection,
-            table: `${picked.schema_name}.${picked.table_name}`,
+            table: `${choice.schema_name}.${choice.table_name}`,
           })}
         </p>
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         <ImportMetadataForm
-          defaultName={picked.table_name}
-          detectedCrs={picked.srid}
+          defaultName={choice.table_name}
+          detectedCrs={choice.srid}
           onCommit={handleCommit}
           isCommitting={step === 'committing'}
         />
@@ -167,7 +164,7 @@ export function DatabaseImportForm() {
                 checked={connection === entry.name}
                 onChange={() => {
                   setChosenConnection(entry.name);
-                  setSelectedKey(null);
+                  setChoice(null);
                 }}
               />
               <span className="font-medium">{entry.name}</span>
@@ -226,14 +223,14 @@ export function DatabaseImportForm() {
                         key={key}
                         className={cn(
                           'flex cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-surface-2',
-                          selectedKey === key && 'bg-primary/10',
+                          choice !== null && rowKey(choice) === key && 'bg-primary/10',
                         )}
                       >
                         <input
                           type="radio"
                           name={`${id}-table`}
-                          checked={selectedKey === key}
-                          onChange={() => setSelectedKey(key)}
+                          checked={choice !== null && rowKey(choice) === key}
+                          onChange={() => setChoice(row)}
                         />
                         <span className="min-w-0 flex-1 truncate font-mono text-xs">
                           {row.schema_name}.{row.table_name}
@@ -258,10 +255,10 @@ export function DatabaseImportForm() {
                   {t('database.truncated', { limit: listing.limit })}
                 </p>
               )}
-              {selected?.srid === null && (
+              {choice?.srid === null && (
                 <p className="text-xs text-muted-foreground">{t('database.srsNeeded')}</p>
               )}
-              <Button disabled={!selected} onClick={() => { setPicked(selected); setStep('review'); }}>
+              <Button disabled={!choice} onClick={() => setStep('review')}>
                 {t('database.continue')}
               </Button>
             </>

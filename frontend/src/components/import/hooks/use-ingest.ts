@@ -137,7 +137,7 @@ export function useDatabaseTables(connection: string | null) {
     queryKey: queryKeys.ingest.databaseTables(connection),
     queryFn: () => listDatabaseTables(connection!),
     enabled: !!connection,
-    staleTime: 0,
+    staleTime: 60_000,
     retry: false,
   });
 }
