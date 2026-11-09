@@ -689,9 +689,7 @@ async def ingest_vrt(
         await asyncio.to_thread(
             build_vrt, vrt_type, source_paths, vrt_path, resolution_strategy
         )
-        overview_paths = await asyncio.to_thread(
-            add_vrt_overview, vrt_path, source_paths
-        )
+        overview_paths = await asyncio.to_thread(add_vrt_overview, vrt_path)
         overview_paths = await keep_overview_if_it_fits(
             uuid.UUID(user_id), vrt_path, overview_paths
         )
@@ -1248,9 +1246,7 @@ async def regenerate_vrt(
         await asyncio.to_thread(
             build_vrt, vrt_type, source_paths, vrt_path, resolution_strategy
         )
-        overview_paths = await asyncio.to_thread(
-            add_vrt_overview, vrt_path, source_paths
-        )
+        overview_paths = await asyncio.to_thread(add_vrt_overview, vrt_path)
         async with async_session() as session:
             prior_overview_bytes, prior_overview_href = await counted_overview(
                 session, vrt_id

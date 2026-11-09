@@ -1,4 +1,4 @@
-"""A VRT over members without overviews carries an overview image of its own."""
+"""A VRT that GDAL exposes no overviews for carries an overview image of its own."""
 
 from __future__ import annotations
 
@@ -81,7 +81,7 @@ def test_members_without_overviews_get_an_overview_the_vrt_reads(
     with _titiler_env(), rasterio.open(vrt_path) as src:
         assert src.overviews(1) == []
 
-    overview_paths = add_vrt_overview(vrt_path, members)
+    overview_paths = add_vrt_overview(vrt_path)
 
     assert overview_paths == [str(tmp_path / "source.ovr.tif")]
     assert Path(overview_paths[0]).exists()
@@ -95,14 +95,30 @@ def test_members_without_overviews_get_an_overview_the_vrt_reads(
 
 
 @needs_gdal_cli
-def test_members_with_overviews_leave_the_vrt_alone(tmp_path: Path) -> None:
-    vrt_path, members = _vrt(tmp_path, overviews=True)
+def test_one_member_with_overviews_leaves_the_vrt_alone(tmp_path: Path) -> None:
+    members = [_member(tmp_path / "a.tif", west=0.0, overviews=True)]
+    vrt_path = str(tmp_path / "source.vrt")
+    build_vrt("mosaic", members, vrt_path, "finest")
     before = Path(vrt_path).read_bytes()
 
-    assert add_vrt_overview(vrt_path, members) is None
+    assert add_vrt_overview(vrt_path) is None
 
     assert Path(vrt_path).read_bytes() == before
     assert not (tmp_path / "source.ovr.tif").exists()
+
+
+@needs_gdal_cli
+def test_several_members_with_overviews_still_get_an_overview(
+    tmp_path: Path,
+) -> None:
+    vrt_path, members = _vrt(tmp_path, overviews=True)
+    with _titiler_env(), rasterio.open(vrt_path) as src:
+        assert src.overviews(1) == []
+
+    assert add_vrt_overview(vrt_path) is not None
+
+    with _titiler_env(), rasterio.open(vrt_path) as src:
+        assert src.overviews(1)
 
 
 @needs_gdal_cli
@@ -111,7 +127,7 @@ def test_one_member_without_overviews_is_enough(tmp_path: Path) -> None:
     members.append(_member(tmp_path / "c.tif", west=1.0, overviews=False))
     build_vrt("mosaic", members, vrt_path, "finest")
 
-    assert add_vrt_overview(vrt_path, members) is not None
+    assert add_vrt_overview(vrt_path) is not None
 
 
 @needs_gdal_cli
@@ -125,7 +141,7 @@ def test_members_at_different_resolutions_get_an_overview(tmp_path: Path) -> Non
     with _titiler_env(), rasterio.open(vrt_path) as src:
         assert src.overviews(1) == []
 
-    assert add_vrt_overview(vrt_path, members) is not None
+    assert add_vrt_overview(vrt_path) is not None
 
     with _titiler_env(), rasterio.open(vrt_path) as src:
         assert src.overviews(1)
@@ -144,7 +160,7 @@ def test_a_failed_overview_build_leaves_the_vrt_as_built(
 
     monkeypatch.setattr("app.processing.raster.vrt.run_gdal", lambda *a, **k: _Failed())
 
-    assert add_vrt_overview(vrt_path, members) is None
+    assert add_vrt_overview(vrt_path) is None
     assert Path(vrt_path).read_bytes() == before
 
 
@@ -161,7 +177,7 @@ def test_a_timed_out_overview_build_leaves_the_vrt_as_built(
 
     monkeypatch.setattr("app.processing.raster.vrt.run_gdal", _timeout)
 
-    assert add_vrt_overview(vrt_path, members) is None
+    assert add_vrt_overview(vrt_path) is None
     assert Path(vrt_path).read_bytes() == before
     assert not (tmp_path / "source.ovr.tif").exists()
 
@@ -462,7 +478,7 @@ def test_bands_with_different_nodata_get_no_overview(tmp_path: Path) -> None:
     vrt_path, members = _band_stack(tmp_path, (0, 255))
     before = Path(vrt_path).read_bytes()
 
-    assert add_vrt_overview(vrt_path, members) is None
+    assert add_vrt_overview(vrt_path) is None
 
     assert Path(vrt_path).read_bytes() == before
 
@@ -471,7 +487,7 @@ def test_bands_with_different_nodata_get_no_overview(tmp_path: Path) -> None:
 def test_bands_with_the_same_nodata_still_get_an_overview(tmp_path: Path) -> None:
     vrt_path, members = _band_stack(tmp_path, (0, 0))
 
-    assert add_vrt_overview(vrt_path, members) is not None
+    assert add_vrt_overview(vrt_path) is not None
 
 
 @needs_gdal_cli
@@ -497,7 +513,7 @@ def test_a_masked_mosaic_gets_no_overview(tmp_path: Path) -> None:
     build_vrt("mosaic", members, vrt_path, "finest")
     assert parse(vrt_path).getroot().find(".//MaskBand") is not None
 
-    assert add_vrt_overview(vrt_path, members) is None
+    assert add_vrt_overview(vrt_path) is None
     assert not (tmp_path / "masked.ovr.tif").exists()
 
 
@@ -523,9 +539,9 @@ async def test_the_overview_build_runs_under_the_scratch_root(
     built_in: list[str] = []
     real = tasks_vrt.add_vrt_overview
 
-    def _spy(vrt_path, source_paths):
+    def _spy(vrt_path):
         built_in.append(vrt_path)
-        return real(vrt_path, source_paths)
+        return real(vrt_path)
 
     monkeypatch.setattr(tasks_vrt, "add_vrt_overview", _spy)
     admin_id = await _admin(test_db_session)
@@ -581,7 +597,7 @@ def test_integer_classes_keep_their_values_in_every_overview_level(
     vrt_path = str(tmp_path / "source.vrt")
     build_vrt("mosaic", members, vrt_path, "finest")
 
-    overview_path = add_vrt_overview(vrt_path, members)[0]
+    overview_path = add_vrt_overview(vrt_path)[0]
 
     with rasterio.open(overview_path) as cog:
         levels = cog.overviews(1)
@@ -614,7 +630,7 @@ def test_bands_with_different_data_types_get_no_overview(tmp_path: Path) -> None
     build_vrt("band_stack", members, vrt_path, "finest")
     before = Path(vrt_path).read_bytes()
 
-    assert add_vrt_overview(vrt_path, members) is None
+    assert add_vrt_overview(vrt_path) is None
 
     assert Path(vrt_path).read_bytes() == before
 
@@ -626,7 +642,7 @@ def test_a_reprojected_read_picks_a_coarse_overview_level(tmp_path: Path) -> Non
     members = [_big_member(tmp_path / "classes.tif", size=4096)]
     vrt_path = str(tmp_path / "source.vrt")
     build_vrt("mosaic", members, vrt_path, "finest")
-    paths = add_vrt_overview(vrt_path, members)
+    paths = add_vrt_overview(vrt_path)
     assert [Path(p).name for p in paths] == [
         "source.ovr.tif",
         "source.ovr4.tif",
@@ -646,7 +662,7 @@ def test_a_reprojected_read_picks_a_coarse_overview_level(tmp_path: Path) -> Non
     assert 30 in set(np.unique(reduced))
 
 
-def test_an_unreadable_member_counts_as_needing_an_overview(
+def test_an_unreadable_vrt_counts_as_needing_an_overview(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.processing.raster import probe
@@ -657,7 +673,7 @@ def test_an_unreadable_member_counts_as_needing_an_overview(
 
     monkeypatch.setattr(probe, "read_raster_metadata", _unreadable)
 
-    assert mosaic_needs_overview(["/missing.tif"]) is True
+    assert mosaic_needs_overview("/missing.vrt") is True
 
 
 @needs_gdal_cli
@@ -672,7 +688,7 @@ def test_a_failed_vrt_rewrite_leaves_the_vrt_and_no_overview_files(
 
     monkeypatch.setattr("app.processing.raster.vrt.os.replace", _full_disk)
 
-    assert add_vrt_overview(vrt_path, members) is None
+    assert add_vrt_overview(vrt_path) is None
     assert Path(vrt_path).read_bytes() == before
     assert (
         sorted(
@@ -695,7 +711,7 @@ def test_an_overview_larger_than_the_free_space_is_skipped(
         lambda path: usage(10, 10, 10),
     )
 
-    assert add_vrt_overview(vrt_path, members) is None
+    assert add_vrt_overview(vrt_path) is None
     assert not any("ovr" in p.name for p in tmp_path.iterdir())
 
 
