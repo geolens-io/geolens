@@ -58,6 +58,12 @@ class DatabaseTable(BaseModel):
             "the table has no rows, or it couldn't be read."
         )
     )
+    importable: bool = Field(
+        description=(
+            "False when the schema or table name has characters an import "
+            "refuses; such an entry is listed but can't be imported."
+        )
+    )
 
 
 class DatabaseTableListResponse(BaseModel):

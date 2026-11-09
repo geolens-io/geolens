@@ -3,10 +3,12 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Database } from 'lucide-react';
 import { ApiError } from '@/api/client';
+import { useAuthStore } from '@/stores/auth-store';
 import {
   beginDatabaseImport,
   clearDatabaseImport,
   peekDatabaseImport,
+  type DatabaseImportSession,
 } from '@/api/database-import-session';
 import {
   isTerminalJobStatus,
@@ -23,7 +25,8 @@ import { JobProgress } from './JobProgress';
 
 type Step = 'pick' | 'review' | 'committing' | 'tracking';
 
-const rowKey = (table: DatabaseTable) => `${table.schema_name}.${table.table_name}`;
+// JSON keeps `a.b` + `c` apart from `a` + `b.c`.
+const rowKey = (table: DatabaseTable) => JSON.stringify([table.schema_name, table.table_name]);
 
 export function DatabaseImportForm() {
   const { t } = useTranslation('import');
@@ -33,7 +36,15 @@ export function DatabaseImportForm() {
   const [adopted] = useState(peekDatabaseImport);
   const [chosenConnection, setChosenConnection] = useState<string | null>(adopted?.connection ?? null);
   // A lone connection needs no choosing.
-  const connection = chosenConnection ?? (connections.length === 1 ? connections[0].name : null);
+  // A choice a refetch dropped from the deployment's list no longer counts.
+  const chosenStillOffered =
+    chosenConnection !== null &&
+    (connectionsLoading || connections.some((entry) => entry.name === chosenConnection));
+  const connection = chosenStillOffered
+    ? chosenConnection
+    : connections.length === 1
+      ? connections[0].name
+      : null;
   const { data: listing, isLoading, error: listError, refetch } = useDatabaseTables(connection);
   const [choice, setChoice] = useState<DatabaseTable | null>(adopted?.table ?? null);
   const [filter, setFilter] = useState('');
@@ -44,6 +55,14 @@ export function DatabaseImportForm() {
   const [jobId, setJobId] = useState<string | null>(adopted?.jobId ?? null);
   const { data: trackedJob } = useJobStatus(step === 'tracking' ? jobId : null);
   const mountedRef = useRef(false);
+  const previousConnection = useRef(connection);
+  useEffect(() => {
+    if (previousConnection.current === connection) return;
+    previousConnection.current = connection;
+    // A same-named table of another connection must not be submitted.
+    setChoice(null);
+    setStep((current) => (current === 'review' ? 'pick' : current));
+  }, [connection]);
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -66,6 +85,15 @@ export function DatabaseImportForm() {
     setError(null);
     setChoice(null);
   };
+
+  const userId = useAuthStore((s) => s.user?.id ?? null);
+  const initialUserId = useRef(userId);
+  useEffect(() => {
+    if (initialUserId.current === userId) return;
+    initialUserId.current = userId;
+    setChosenConnection(null);
+    reset();
+  }, [userId]);
 
   const fail = (err: unknown) => {
     clearDatabaseImport();
@@ -91,22 +119,23 @@ export function DatabaseImportForm() {
     toast.error(msg);
   };
 
-  const track = (promise: Promise<{ job_id: string }>) =>
-    promise.then(
+  // Only the live session may move the form: an account change drops it.
+  const track = (session: DatabaseImportSession) =>
+    session.promise.then(
       (response) => {
-        if (!mountedRef.current) return;
+        if (!mountedRef.current || peekDatabaseImport() !== session) return;
         setJobId(response.job_id);
         setStep('tracking');
       },
       (err) => {
-        if (mountedRef.current) fail(err);
+        if (mountedRef.current && peekDatabaseImport() === session) fail(err);
       },
     );
 
   useEffect(() => {
     if (!adopted) return;
     if (adopted.status === 'rejected') fail(adopted.error);
-    else if (adopted.status === 'pending') void track(adopted.promise);
+    else if (adopted.status === 'pending') void track(adopted);
     // Adopted once, on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -115,15 +144,20 @@ export function DatabaseImportForm() {
     if (!connection || !choice) return;
     setStep('committing');
     setError(null);
-    const session = beginDatabaseImport(connection, choice, {
-      schema_name: choice.schema_name,
-      table_name: choice.table_name,
-      title: metadata.title,
-      summary: metadata.summary,
-      visibility: (metadata.visibility ?? 'private') as DatabaseImportRequest['visibility'],
-      srid_override: choice.srid === null ? metadata.srid_override : null,
-    });
-    await track(session.promise);
+    const session = beginDatabaseImport(
+      connection,
+      choice,
+      {
+        schema_name: choice.schema_name,
+        table_name: choice.table_name,
+        title: metadata.title,
+        summary: metadata.summary,
+        visibility: (metadata.visibility ?? 'private') as DatabaseImportRequest['visibility'],
+        srid_override: choice.srid === null ? metadata.srid_override : null,
+      },
+      metadata,
+    );
+    await track(session);
   };
 
   if (step === 'tracking' && jobId) {
@@ -153,6 +187,7 @@ export function DatabaseImportForm() {
         <ImportMetadataForm
           defaultName={choice.table_name}
           detectedCrs={choice.srid}
+          initialRequest={adopted && rowKey(adopted.table) === rowKey(choice) ? adopted.metadata : null}
           crsHelpText={choice.srid === null ? t('database.crsHint') : undefined}
           onCommit={handleCommit}
           isCommitting={step === 'committing'}
@@ -233,13 +268,14 @@ export function DatabaseImportForm() {
                   {t('database.tablesLegend', { database: listing.database })}
                 </legend>
                 <div className="max-h-96 divide-y divide-border overflow-y-auto rounded-lg border border-border">
-                  {visible.map((row) => {
+                  {visible.map((row, index) => {
                     const key = rowKey(row);
                     return (
                       <label
                         key={key}
                         className={cn(
-                          'flex cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-surface-2',
+                          'flex items-center gap-3 px-3 py-2 text-sm',
+                          row.importable ? 'cursor-pointer hover:bg-surface-2' : 'cursor-not-allowed opacity-60',
                           choice !== null && rowKey(choice) === key && 'bg-primary/10',
                         )}
                       >
@@ -248,10 +284,17 @@ export function DatabaseImportForm() {
                           name={`${id}-table`}
                           checked={choice !== null && rowKey(choice) === key}
                           onChange={() => setChoice(row)}
+                          disabled={!row.importable}
+                          aria-describedby={row.importable ? undefined : `${id}-why-${index}`}
                         />
                         <span className="min-w-0 flex-1 truncate font-mono text-xs">
                           {row.schema_name}.{row.table_name}
                           <span className="text-muted-foreground"> ({row.geometry_column})</span>
+                          {!row.importable && (
+                            <span id={`${id}-why-${index}`} className="block font-sans text-muted-foreground">
+                              {t('database.notImportable')}
+                            </span>
+                          )}
                         </span>
                         <span className="text-xs text-muted-foreground">
                           {row.object_type === 'view' ? t('database.view') : t('database.table')}

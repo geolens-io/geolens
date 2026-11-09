@@ -699,6 +699,9 @@
     "reviewing": "{{table}} wird aus {{connection}} importiert",
     "importFailed": "Der Import konnte nicht gestartet werden.",
     "crsHint": "Diese Tabelle hat keine SRID. Geben Sie den EPSG-Code ihrer Koordinaten ein.",
-    "alreadyImported": "Bereits importiert: „{{title}}“"
-  }
+    "alreadyImported": "Bereits importiert: „{{title}}“",
+    "notImportable": "Dieser Name enthält Zeichen, die GeoLens nicht importieren kann."
+  },
+  "capabilitiesFailed": "Die verfügbaren Datenbankverbindungen konnten nicht geprüft werden, die Quelle Datenbank fehlt deshalb möglicherweise.",
+  "capabilitiesRetry": "Erneut versuchen"
 }

@@ -4053,6 +4053,12 @@ export type DatabaseTable = {
      * SRID of the column's first non-null value, or null when it is 0, the table has no rows, or it couldn't be read.
      */
     srid: number | null;
+    /**
+     * Importable
+     *
+     * False when the schema or table name has characters an import refuses; such an entry is listed but can't be imported.
+     */
+    importable: boolean;
 };
 
 /**

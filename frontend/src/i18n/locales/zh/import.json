@@ -699,6 +699,9 @@
     "reviewing": "正在从 {{connection}} 导入 {{table}}",
     "importFailed": "无法开始导入。",
     "crsHint": "此表没有 SRID。请输入其坐标所用的 EPSG 代码。",
-    "alreadyImported": "已导入：“{{title}}”"
-  }
+    "alreadyImported": "已导入：“{{title}}”",
+    "notImportable": "此名称包含 GeoLens 无法导入的字符。"
+  },
+  "capabilitiesFailed": "无法检查可用的数据库连接，因此可能缺少“数据库”来源。",
+  "capabilitiesRetry": "重试"
 }

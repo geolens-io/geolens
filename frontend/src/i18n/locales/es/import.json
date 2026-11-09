@@ -699,6 +699,9 @@
     "reviewing": "Importando {{table}} desde {{connection}}",
     "importFailed": "No se pudo iniciar la importación.",
     "crsHint": "Esta tabla no tiene SRID. Introduzca el código EPSG que usan sus coordenadas.",
-    "alreadyImported": "Ya importado: \"{{title}}\""
-  }
+    "alreadyImported": "Ya importado: \"{{title}}\"",
+    "notImportable": "Este nombre tiene caracteres que GeoLens no puede importar."
+  },
+  "capabilitiesFailed": "No se pudo comprobar qué conexiones de base de datos hay disponibles, por lo que puede faltar el origen Base de datos.",
+  "capabilitiesRetry": "Reintentar"
 }

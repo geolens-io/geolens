@@ -115,6 +115,7 @@ async def test_lists_spatial_columns(
                 "geometry_column": "shape",
                 "column_type": "geometry",
                 "srid": 2263,
+                "importable": False,
             },
             {
                 "schema_name": "gis",
@@ -123,6 +124,7 @@ async def test_lists_spatial_columns(
                 "geometry_column": "geog",
                 "column_type": "geography",
                 "srid": None,
+                "importable": True,
             },
         ],
     }

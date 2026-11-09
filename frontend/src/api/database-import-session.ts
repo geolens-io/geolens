@@ -1,6 +1,6 @@
 import { startDatabaseImport } from './ingest';
 import { useAuthStore } from '@/stores/auth-store';
-import type { DatabaseImportRequest, DatabaseImportResponse, DatabaseTable } from '@/types/api';
+import type { CommitImportRequest, DatabaseImportRequest, DatabaseImportResponse, DatabaseTable } from '@/types/api';
 
 /**
  * The in-flight Database-tab import, owned outside React.
@@ -13,6 +13,8 @@ import type { DatabaseImportRequest, DatabaseImportResponse, DatabaseTable } fro
 export interface DatabaseImportSession {
   connection: string;
   table: DatabaseTable;
+  /** The reviewed form values, restored when the start fails. */
+  metadata: CommitImportRequest;
   status: 'pending' | 'fulfilled' | 'rejected';
   jobId: string | null;
   error: unknown;
@@ -27,12 +29,14 @@ export function beginDatabaseImport(
   connection: string,
   table: DatabaseTable,
   request: DatabaseImportRequest,
+  metadata: CommitImportRequest,
 ): DatabaseImportSession {
   if (current && current.status === 'pending') return current;
   const promise = startDatabaseImport(connection, request);
   const session: DatabaseImportSession = {
     connection,
     table,
+    metadata,
     status: 'pending',
     jobId: null,
     error: null,

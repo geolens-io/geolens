@@ -17,6 +17,7 @@ import { useDatabaseConnections } from '@/components/import/hooks/use-ingest';
 import { WorkflowRail } from '@/components/import/WorkflowRail';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useSettingsAdmin } from '@/hooks/use-settings-admin';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { BatchPhase, DataKind } from '@/types/api';
 
@@ -69,7 +70,8 @@ export function ImportPage() {
   useDocumentTitle(t('common:pageTitle.import'));
   // Registering an existing table is an administrator task on the server.
   const canRegisterTables = useSettingsAdmin();
-  const { data: databaseConnections } = useDatabaseConnections();
+  const { data: databaseConnections, isError: connectionsFailed, refetch: refetchConnections } =
+    useDatabaseConnections();
   const hasDatabaseConnections = (databaseConnections?.length ?? 0) > 0;
   const modeTabs = MODE_TABS.filter(
     (tab) =>
@@ -124,6 +126,15 @@ export function ImportPage() {
           ))}
         </div>
       </nav>
+
+      {connectionsFailed && (
+        <div role="alert" className="flex items-center gap-3 text-sm text-muted-foreground">
+          <span>{t('capabilitiesFailed')}</span>
+          <Button variant="outline" size="sm" onClick={() => void refetchConnections()}>
+            {t('capabilitiesRetry')}
+          </Button>
+        </div>
+      )}
 
       {/* Two-column layout */}
       <div className="grid grid-cols-1 gap-6 pb-12 xl:grid-cols-[1fr_320px]">

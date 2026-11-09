@@ -86,6 +86,13 @@ class SpatialTable:
     column_type: Literal["geometry", "geography"]
     srid: int | None
 
+    @property
+    def importable(self) -> bool:
+        """Whether the import door accepts both names."""
+        return importable_identifier(self.schema_name) and importable_identifier(
+            self.table_name
+        )
+
 
 @dataclass(frozen=True)
 class SpatialTableListing:

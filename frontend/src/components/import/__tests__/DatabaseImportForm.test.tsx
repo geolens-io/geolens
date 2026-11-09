@@ -1,4 +1,7 @@
 import { render, screen, waitFor } from '@/test/test-utils';
+import { render as renderBare } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactNode } from 'react';
 import userEvent from '@testing-library/user-event';
 import { ApiError } from '@/api/client';
 import { useAuthStore } from '@/stores/auth-store';
@@ -33,6 +36,7 @@ function table(overrides: Partial<DatabaseTable> = {}): DatabaseTable {
     geometry_column: 'shape',
     column_type: 'geometry',
     srid: 4326,
+    importable: true,
     ...overrides,
   };
 }
@@ -57,7 +61,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   clearDatabaseImport();
   mockJobStatus.mockResolvedValue({ id: 'job-9', status: 'running' });
-  useAuthStore.setState({ token: 'token' });
+  useAuthStore.setState({ token: 'token', user: null });
   withConnections('warehouse');
 });
 
@@ -250,5 +254,97 @@ describe('DatabaseImportForm', () => {
 
     expect(await screen.findByText('Tracking job-9')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Import another' })).not.toBeInTheDocument();
+  });
+
+  it('lists a name the import refuses, disabled and with the reason', async () => {
+    mockListTables.mockResolvedValue(
+      listing([table({ table_name: 'odd]name', importable: false }), table()]),
+    );
+    render(<DatabaseImportForm />);
+
+    const odd = await screen.findByRole('radio', { name: /odd\]name/ });
+    expect(odd).toBeDisabled();
+    expect(odd).toHaveAccessibleDescription("This name has characters GeoLens can't import.");
+    expect(screen.getByRole('radio', { name: /gis\.parcels/ })).toBeEnabled();
+  });
+
+  it('keeps rows apart when their dotted names read the same', async () => {
+    mockListTables.mockResolvedValue(
+      listing([
+        table({ schema_name: 'a.b', table_name: 'c' }),
+        table({ schema_name: 'a', table_name: 'b.c' }),
+      ]),
+    );
+    const user = userEvent.setup();
+    render(<DatabaseImportForm />);
+
+    const [first, second] = await screen.findAllByRole('radio');
+    await user.click(second);
+    await user.click(first);
+
+    expect(first).toBeChecked();
+    expect(second).not.toBeChecked();
+    expect(first.closest('label')).toHaveClass('bg-primary/10');
+    expect(second.closest('label')).not.toHaveClass('bg-primary/10');
+  });
+
+  it('drops the picked table when its connection leaves the deployment', async () => {
+    withConnections('warehouse', 'archive');
+    mockListTables.mockResolvedValue(listing([table()]));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const user = userEvent.setup();
+    renderBare(<DatabaseImportForm />, { wrapper });
+
+    await user.click(await screen.findByRole('radio', { name: /archive/ }));
+    await user.click(await screen.findByRole('radio', { name: /gis\.parcels/ }));
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled();
+
+    withConnections('warehouse');
+    await queryClient.invalidateQueries({ queryKey: ['capabilities'] });
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled());
+  });
+
+  it('ignores a pending import that finishes after the account changed', async () => {
+    useAuthStore.setState({ user: { id: 'u1', roles: [] } as never });
+    mockListTables.mockResolvedValue(listing([table()]));
+    let resolveImport!: (value: unknown) => void;
+    mockStartImport.mockReturnValue(new Promise((resolve) => { resolveImport = resolve; }));
+    const user = userEvent.setup();
+    render(<DatabaseImportForm />);
+
+    await openReview(user, 'gis.parcels');
+    await user.click(screen.getByRole('button', { name: /import/i }));
+    useAuthStore.setState({ user: { id: 'u2', roles: [] } as never });
+    resolveImport({ job_id: 'job-old', status: 'pending', message: 'queued' });
+
+    expect(await screen.findByRole('radio', { name: /gis\.parcels/ })).toBeInTheDocument();
+    expect(screen.queryByText(/Tracking/)).not.toBeInTheDocument();
+    useAuthStore.setState({ user: null });
+  });
+
+  it('restores the reviewed values when a start failed while the tab was away', async () => {
+    mockListTables.mockResolvedValue(listing([table()]));
+    let rejectImport!: (reason: unknown) => void;
+    mockStartImport.mockReturnValue(new Promise((_, reject) => { rejectImport = reject; }));
+    const user = userEvent.setup();
+    const first = render(<DatabaseImportForm />);
+
+    await openReview(user, 'gis.parcels');
+    const title = screen.getByDisplayValue('parcels');
+    await user.clear(title);
+    await user.type(title, 'My parcels');
+    await user.click(screen.getByRole('button', { name: /import/i }));
+    first.unmount();
+    rejectImport(new ApiError('Server said no', 500));
+    await Promise.resolve();
+
+    render(<DatabaseImportForm />);
+
+    expect(await screen.findByDisplayValue('My parcels')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Server said no');
   });
 });
