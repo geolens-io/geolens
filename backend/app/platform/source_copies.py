@@ -48,6 +48,12 @@ _PROTOCOL_PARAMETERS = frozenset(
     {"service", "request", "version", "acceptversions", "outputformat", "f"}
 )
 
+# OGC parameters whose names the standards make case-insensitive; any other
+# name, a vendor's, is kept as written.
+_CASE_BLIND_PARAMETERS = frozenset(
+    {"typename", "typenames", "srsname", "namespace", "namespaces"}
+)
+
 
 @dataclass(frozen=True)
 class ServiceIdentity:
@@ -77,16 +83,21 @@ class ExistingCopy:
 
 def _canonical_url(url: str) -> str:
     """``url`` with case-blind parts lowered, the trailing slash and fragment
-    dropped, and protocol parameters removed from a sorted query."""
+    dropped, and OGC protocol parameters removed from a query sorted by name."""
     try:
         parts = urlsplit(url.strip())
         query = bounded_parse_qsl(parts.query)
     except ValueError:
         return url
+    # Sorted by name only: a service reads the first of repeated values, so
+    # their order stays part of the identity.
     kept = sorted(
-        (key.lower(), value)
-        for key, value in query
-        if key.lower() not in _PROTOCOL_PARAMETERS
+        (
+            (key.lower() if key.lower() in _CASE_BLIND_PARAMETERS else key, value)
+            for key, value in query
+            if key.lower() not in _PROTOCOL_PARAMETERS
+        ),
+        key=lambda pair: pair[0],
     )
     return urlunsplit(
         (
@@ -197,8 +208,8 @@ async def published_copy(
     write; a stored service URL is compared in canonical form, so a copy
     stored under another spelling still matches. A service row whose
     ``origin_ref`` lacks url or layer_id (one migration 0036 could not
-    backfill) is matched on ``source_url`` instead, gated on that gap because
-    ``source_url`` is editable through the metadata PATCH.
+    backfill) is matched on its ``source_url``, also in canonical form, gated
+    on that gap because ``source_url`` is editable through the metadata PATCH.
     """
     from app.platform.extensions import get_processing_port
 
@@ -234,23 +245,35 @@ async def published_copy(
                 ),
                 and_(
                     or_(ref_url.is_(None), ref_layer.is_(None)),
-                    dataset_cls.source_url == identity.legacy_url,
+                    func.lower(dataset_cls.source_url).startswith(
+                        root, autoescape=True
+                    ),
                 ),
             ),
         )
     rows = await session.execute(
-        select(dataset_cls.id, record_cls.title, ref)
+        select(dataset_cls.id, record_cls.title, ref, dataset_cls.source_url)
         .join(record_cls, dataset_cls.record_id == record_cls.id)
         .where(matches, *owned)
         .order_by(dataset_cls.id)
     )
-    for dataset_id, title, stored in rows:
-        if isinstance(identity, DatabaseSource) or stored_service_identity(stored) in (
-            None,
-            identity,
+    for dataset_id, title, stored, source_url in rows:
+        if isinstance(identity, DatabaseSource) or _same_service(
+            identity, stored, source_url
         ):
             return ExistingCopy(title, dataset_id=dataset_id)
     return None
+
+
+def _same_service(
+    identity: ServiceIdentity, origin_ref: Any, source_url: str | None
+) -> bool:
+    stored = stored_service_identity(origin_ref)
+    if stored is not None:
+        return stored == identity
+    return source_url is not None and _canonical_url(source_url) == _canonical_url(
+        identity.legacy_url
+    )
 
 
 async def importing_copy(
@@ -318,6 +341,16 @@ def second_copy_reason(existing: ExistingCopy) -> FixedReason:
     )
 
 
+async def _lock_source(
+    session: AsyncSession, user_id: uuid.UUID, identity: SourceIdentity
+) -> None:
+    key = [type(identity).__name__, str(user_id)]
+    key += [getattr(identity, f.name) for f in fields(identity) if f.compare]
+    await lock_request_key(
+        session, scope=f"source-copy:{json.dumps(key)}", lock_timeout=None
+    )
+
+
 async def locked_copy(
     session: AsyncSession,
     user_id: uuid.UUID,
@@ -331,47 +364,67 @@ async def locked_copy(
     Call first in the transaction that publishes, so a concurrent attempt
     for the same source waits here and then finds this one's dataset.
     """
-    key = [type(identity).__name__, str(user_id)]
-    key += [getattr(identity, f.name) for f in fields(identity) if f.compare]
-    await lock_request_key(
-        session, scope=f"source-copy:{json.dumps(key)}", lock_timeout=None
-    )
+    await _lock_source(session, user_id, identity)
     return await published_copy(session, user_id, identity, excluding=excluding)
 
 
 async def rebound_copy(
     session: AsyncSession,
-    user_id: uuid.UUID,
     identity: ServiceIdentity | None,
     dataset: Any,
     *,
     lock: bool = False,
 ) -> ExistingCopy | None:
-    """The user's other dataset bound to ``identity``, which binding ``dataset``
-    to it would duplicate.
+    """The other dataset of ``dataset``'s owner bound to ``identity``, which
+    binding ``dataset`` to it would duplicate.
 
-    None when ``dataset`` is already bound there, which adds no copy. With
-    ``lock``, locks like :func:`locked_copy`.
+    The owner counts, not whoever asks. None when ``dataset`` is already bound
+    there, which adds no copy. With ``lock``, locks like :func:`locked_copy`
+    and reads the owner again under the lock, so a transfer that landed first
+    is the one checked.
     """
     if identity is None or stored_service_identity(dataset.origin_ref) == identity:
         return None
-    find = locked_copy if lock else published_copy
-    return await find(session, user_id, identity, excluding=dataset.id)
+    owner = await _owner_of(session, dataset.id)
+    while lock and owner is not None:
+        await _lock_source(session, owner, identity)
+        current = await _owner_of(session, dataset.id)
+        if current == owner:
+            break
+        owner = current
+    if owner is None:
+        return None
+    return await published_copy(session, owner, identity, excluding=dataset.id)
+
+
+async def _owner_of(session: AsyncSession, dataset_id: uuid.UUID) -> uuid.UUID | None:
+    from app.platform.extensions import get_processing_port
+
+    port = get_processing_port()
+    dataset_cls = port.get_dataset_orm_class()
+    record_cls = port.get_record_orm_class()
+    return await session.scalar(
+        select(record_cls.created_by)
+        .join(dataset_cls, dataset_cls.record_id == record_cls.id)
+        .where(dataset_cls.id == dataset_id)
+    )
 
 
 async def refuse_second_copy(
     session: AsyncSession,
     job: IngestJob,
     attempt_id: uuid.UUID,
+    owner: uuid.UUID,
 ) -> bool:
-    """Fail this attempt when the job's owner already has its source published.
+    """Fail this attempt when ``owner``, who the dataset it publishes will
+    belong to, already has its source published.
 
     True means the job is failed and committed, with nothing published.
     """
     identity = job_source_identity(job)
-    if identity is None or job.created_by is None:
+    if identity is None:
         return False
-    existing = await locked_copy(session, job.created_by, identity)
+    existing = await locked_copy(session, owner, identity)
     if existing is None:
         return False
     await ledger.fail(session, job.id, attempt_id, reason=second_copy_reason(existing))

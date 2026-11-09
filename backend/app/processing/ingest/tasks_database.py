@@ -252,7 +252,9 @@ async def ingest_database(
             attempt_id=attempt_uuid,
             require_status="running",
         ) as (session, job):
-            if job is None or await refuse_second_copy(session, job, attempt_uuid):
+            if job is None or await refuse_second_copy(
+                session, job, attempt_uuid, uuid.UUID(user_id)
+            ):
                 return
             job.current_step = "finalize"
             job.progress = 0.7

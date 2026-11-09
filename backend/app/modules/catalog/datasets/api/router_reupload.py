@@ -593,7 +593,6 @@ async def reupload_service_preview(
     _assert_compatible_record_type(dataset, None, service_type=request.service_type)
     existing = await rebound_copy(
         db,
-        user.id,
         service_identity(
             request.service_type,
             request.url,
@@ -605,9 +604,9 @@ async def reupload_service_preview(
     if existing is not None:
         raise duplicate_source_conflict(
             existing,
-            f"Another of your datasets already holds this layer (existing: "
-            f"'{existing.title}'). Refresh that dataset instead of re-uploading "
-            "the layer here.",
+            f"This dataset's owner already holds this layer in another dataset "
+            f"(existing: '{existing.title}'). Refresh that dataset instead of "
+            "re-uploading the layer here.",
         )
 
     # Hand the pooled connection back before DNS, the page fetches and

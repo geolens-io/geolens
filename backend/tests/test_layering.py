@@ -1364,7 +1364,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # live-edit comparison each publication makes, a service re-upload's
     # review of the changes its preview showed, and the live-table comparison
     # that lets a refresh or file re-upload of unchanged data publish nothing.
-    "backend/app/processing/ingest/tasks_reupload.py": 1909,
+    "backend/app/processing/ingest/tasks_reupload.py": 1904,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection and accepting a held run
     # by the door it came through, which records the capability it admitted under.
@@ -1389,7 +1389,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/embeddings/backfill.py": 909,
     # Reupload preview, compatibility, the file and service review, and staged
     # commit share an endpoint lifecycle and the capability its jobs record.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1738,
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1737,
     # VRT creation and regeneration share publication, member and submitter
     # re-authorization and its refusal, owed-object records and superseded-object
     # cleanup.
@@ -1398,7 +1398,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_raster_replace.py": 608,
     # File and remote-source imports own publication fencing, heartbeat phases
     # and failure settlement.
-    "backend/app/processing/ingest/tasks_vector.py": 1216,
+    "backend/app/processing/ingest/tasks_vector.py": 1218,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
     "backend/app/processing/ingest/ogr.py": 1627,

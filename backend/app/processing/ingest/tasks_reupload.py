@@ -1537,22 +1537,17 @@ class _ServiceReupload(_LiveComparison):
         )
         from app.processing.ingest import tasks_vector as _tv
 
-        if (
-            not self.is_refresh
-            and job.created_by is not None
-            and (
-                copy := await rebound_copy(
-                    session,
-                    job.created_by,
-                    service_identity(
-                        self.service_type_raw,
-                        self.source_url_value,
-                        layer_id=self.layer_id,
-                        layer_name=self.source_layer_value,
-                    ),
-                    dataset,
-                    lock=True,
-                )
+        if not self.is_refresh and (
+            copy := await rebound_copy(
+                session,
+                service_identity(
+                    self.service_type_raw,
+                    self.source_url_value,
+                    layer_id=self.layer_id,
+                    layer_name=self.source_layer_value,
+                ),
+                dataset,
+                lock=True,
             )
         ):
             reason = second_copy_reason(copy)

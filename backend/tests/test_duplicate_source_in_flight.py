@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 
 from app.core.config import settings
 from app.modules.catalog.datasets.api import router_reupload
@@ -634,3 +634,126 @@ async def test_the_reupload_door_refuses_a_layer_another_dataset_holds(
     assert refused.status_code == 409, refused.text
     assert refused.json()["detail"]["existing_dataset_id"] == str(first)
     assert allowed.status_code == 200, allowed.text
+
+
+async def _import_as(session, monkeypatch, owner: uuid.UUID) -> uuid.UUID:
+    job = _service_job(_fresh_base(), owner, status="pending")
+    session.add(job)
+    await session.commit()
+    with _source(monkeypatch, _WELLS):
+        await _run_service(job, owner)
+    await session.refresh(job)
+    assert job.status == "complete", job.error_message
+    return job.dataset_id
+
+
+async def test_an_admin_reupload_into_a_users_dataset_checks_that_users_copies(
+    client: AsyncClient, admin_auth_header, test_db_session, monkeypatch
+):
+    _, alice_id = await create_user(client, admin_auth_header, "editor")
+    alice = uuid.UUID(alice_id)
+    first = await _import_as(test_db_session, monkeypatch, alice)
+    other = await _import_as(test_db_session, monkeypatch, alice)
+    layer, other_layer = await _base_of(first), await _base_of(other)
+
+    refused = await _preview_reupload(client, admin_auth_header, other, layer)
+    job = await _reupload_from(test_db_session, monkeypatch, other, layer)
+
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["detail"]["existing_dataset_id"] == str(first)
+    assert job.status == "failed"
+    assert job.error_code == "duplicate_source"
+    assert str(first) in job.error_message
+    assert await _base_of(other) == other_layer
+
+
+def test_the_order_of_a_repeated_parameter_is_part_of_the_identity():
+    def identity(url):
+        return service_identity("WFS 2.0.0", url, layer_id=None, layer_name="roads")
+
+    base = "https://maps.example.com/cgi-bin/mapserv"
+    assert identity(f"{base}?map=/a.map&map=/b.map") != identity(
+        f"{base}?map=/b.map&map=/a.map"
+    )
+    assert identity(f"{base}?map=/a.map&SERVICE=WFS&map=/b.map") == identity(
+        f"{base}?map=/a.map&map=/b.map"
+    )
+
+
+async def test_a_dataset_left_without_a_layer_binding_matches_any_spelling(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    host = f"maps{uuid.uuid4().hex[:6]}.example.com"
+    owner = await get_user_id(test_db_session, "admin")
+    existing = await create_dataset(
+        test_db_session,
+        created_by=owner,
+        name="Buildings",
+        source_format="wfs",
+        source_url=f"https://{host.upper()}/wfs/buildings/",
+    )
+    # The shape migration 0036 left when no ingest job named the layer.
+    await test_db_session.execute(
+        update(Dataset)
+        .where(Dataset.id == existing.id)
+        .values(origin_ref={"kind": "service", "service_type": "wfs"})
+    )
+    await test_db_session.commit()
+
+    with (
+        patch("app.modules.catalog.sources.router.validate_url_for_ssrf"),
+        _no_remote_preview(),
+    ):
+        resp = await client.post(
+            "/services/preview/",
+            json={
+                "url": f"https://{host}/wfs",
+                "service_type": "WFS 2.0.0",
+                "layer_name": "buildings",
+                "layer_id": "buildings",
+            },
+            headers=admin_auth_header,
+        )
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["existing_dataset_id"] == str(existing.id)
+
+
+@pytest.mark.parametrize(
+    ("copy_held_by", "outcome"),
+    [("committer", "failed"), ("previewer", "complete")],
+)
+async def test_a_preview_committed_by_an_admin_is_checked_against_the_admin(
+    client: AsyncClient,
+    admin_auth_header,
+    test_db_session,
+    monkeypatch,
+    copy_held_by,
+    outcome,
+):
+    _, alice_id = await create_user(client, admin_auth_header, "editor")
+    alice = uuid.UUID(alice_id)
+    admin = await get_user_id(test_db_session, "admin")
+    base = _fresh_base()
+    held = _service_job(base, admin if copy_held_by == "committer" else alice)
+    previewed = _service_job(base, alice, status="pending")
+    test_db_session.add(held)
+    await test_db_session.commit()
+    with _source(monkeypatch, _WELLS):
+        await _run_service(held, held.created_by)
+        test_db_session.add(previewed)
+        await test_db_session.commit()
+        # The admin committed Alice's preview, so the dataset will be the admin's.
+        await _run_service(previewed, admin)
+
+    await test_db_session.refresh(previewed)
+    assert previewed.status == outcome, previewed.error_message
+
+
+def test_only_parameter_names_ogc_makes_case_blind_are_folded():
+    def identity(url):
+        return service_identity("WFS 2.0.0", url, layer_id=None, layer_name="roads")
+
+    base = "https://maps.example.com/geoserver/wfs"
+    assert identity(f"{base}?TYPENAME=roads") == identity(f"{base}?typeName=roads")
+    assert identity(f"{base}?workspace=a") != identity(f"{base}?Workspace=a")
