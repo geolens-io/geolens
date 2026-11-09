@@ -27,8 +27,8 @@ class DatabaseImportRequest:
         summary (None | str | Unset): Optional dataset description shown in the catalog.
         visibility (DatabaseImportRequestVisibility | Unset): Dataset visibility: private, restricted, internal or
             public. Default: 'private'.
-        srid_override (int | None | Unset): EPSG code the table's coordinates are read under. Needed when the listing
-            shows no SRID: the geometries have SRID 0 or the table has no rows. Otherwise it replaces the table's own SRID.
+        srid_override (int | None | Unset): EPSG code the table's coordinates are read under when the table has no SRID
+            of its own: its geometries have SRID 0 or it has no rows. A table with an SRID is always read under that SRID.
     """
 
     schema_name: str

@@ -433,3 +433,16 @@ async def test_copy_refuses_a_stored_name_gdal_could_misread(
             srid=4326,
         )
     spawn.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("probed", "fallback", "chosen"),
+    [(2263, 3857, 2263), (None, 3857, 3857), (None, None, None)],
+    ids=["table-srid-wins", "fallback-when-none", "neither"],
+)
+def test_the_table_srid_wins_over_an_override_or_the_stored_srid(
+    probed, fallback, chosen
+):
+    from app.processing.ingest.tasks_database import chosen_srid
+
+    assert chosen_srid(probed, fallback) == chosen

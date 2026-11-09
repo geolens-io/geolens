@@ -152,9 +152,9 @@ class DatabaseImportRequest(BaseModel):
         ge=1,
         le=998999,
         description=(
-            "EPSG code the table's coordinates are read under. Needed when the "
-            "listing shows no SRID: the geometries have SRID 0 or the table "
-            "has no rows. Otherwise it replaces the table's own SRID."
+            "EPSG code the table's coordinates are read under when the table "
+            "has no SRID of its own: its geometries have SRID 0 or it has no "
+            "rows. A table with an SRID is always read under that SRID."
         ),
     )
 

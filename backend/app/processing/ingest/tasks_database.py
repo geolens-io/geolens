@@ -117,6 +117,15 @@ async def probe_import_srid(
     return probed.srid
 
 
+def chosen_srid(probed: int | None, fallback: int | None) -> int | None:
+    """The table's own SRID; ``fallback`` only when its geometries carry none.
+
+    Import and refresh choose alike, so a refresh of an unchanged table never
+    reports a changed SRID.
+    """
+    return probed if probed is not None else fallback
+
+
 @task_app.task(queue="ingest", retry=0)
 @tenant_task
 async def ingest_database(
@@ -171,7 +180,7 @@ async def ingest_database(
             await session.commit()
 
         srid = await probe_import_srid(source.connection, source.schema, source.table)
-        effective_srid = srid_override if srid_override is not None else srid
+        effective_srid = chosen_srid(srid, srid_override)
         if effective_srid is None:
             async with _job_phase_session(
                 job_uuid, phase="missing_crs", attempt_id=attempt_uuid
@@ -334,7 +343,7 @@ class _DatabaseRefresh(_LiveComparison):
         require_importable_table(source.connection, source.schema, source.table)
         probed = await probe_import_srid(source.connection, source.schema, source.table)
         # SRID 0 or an empty table: the SRID the copy was imported under.
-        self.srid = probed if probed is not None else self.stored_srid
+        self.srid = chosen_srid(probed, self.stored_srid)
         if self.srid is None:
             raise DatabaseImportError(str(MISSING_CRS_DATABASE))
         schema = _current_tenant_schema()

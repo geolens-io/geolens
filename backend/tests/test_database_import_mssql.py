@@ -277,6 +277,19 @@ async def test_srid_0_asks_for_a_crs_and_keeps_it_across_a_refresh(
         await _admin(f"DROP TABLE IF EXISTS dbo.{name}")
 
 
+async def test_an_override_never_replaces_the_tables_own_srid(
+    client: AsyncClient, editor_auth_header, configured, table, test_db_session
+):
+    kwargs = await _import(client, editor_auth_header, table, srid_override=3857)
+    job = await _job(test_db_session, kwargs["job_id"])
+    assert job.status == "complete", job.error_message
+    dataset = await _dataset(test_db_session, job.dataset_id)
+    assert dataset.srid == 2263
+
+    run = await _refresh(client, editor_auth_header, test_db_session, dataset.id)
+    assert run.status == "succeeded", run.error_message
+
+
 async def test_refresh_picks_up_updated_rows(
     client: AsyncClient, editor_auth_header, configured, table, test_db_session
 ):
