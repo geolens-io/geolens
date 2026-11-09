@@ -9,8 +9,11 @@ and releases use semantic versioning.
 
 ### Added
 - Database connections: an operator lists SQL Server databases in `DATABASE_SOURCES`, `GET /services/databases/{connection}/tables/` lists a connection's spatial tables and views with their geometry column, type and SRID for users who can create datasets, and `/capabilities/` names each connection and its database for those users. The API image now includes the FreeTDS ODBC driver (`tdsodbc`). The setting is refused in `multi_tenant` mode.
+- Database import and refresh: `POST /services/databases/{connection}/imports/` copies one listed table or view into a new dataset as an ingest job, and the dataset's Refresh reads it again by connection name. The dataset's origin is `database`, with `source_format` `database`, no `source_url` and an `origin_uri` of `database://<connection>/<schema>.<table>`; the table's SRID is read from SQL Server, and a table with SRID 0 or no rows asks for `srid_override`. A second import of the same table by the same user answers 409 `duplicate_source`. A refresh is verified under the `database_single_read_v1` policy: a removed or retyped column and an empty read over a copy that has rows wait for review, and a refresh through a connection that is no longer configured fails naming it. The `OriginKind` request enum and refresh runs' `origin_kind` gain `database`.
 
 ### Changed
+- Overlay authors: `EXTENSION_API_VERSION` is now 23. `CatalogPort` gains the
+  required `queue_ingest_job()` and `refresh_database_task()`.
 - The viewer legend describes a clustered layer as "Grouped into clusters as you zoom out" or "Shown as individual points" instead of "Server cluster", "Bounded cluster" and "Point fallback".
 
 ### Fixed

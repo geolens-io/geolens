@@ -162,8 +162,8 @@ logger = logging.getLogger(__name__)
 # keyword so an ArcGIS layer that stores Z is queried with ``returnZ=true``.
 # 21 -> 22: BrandingExtension gained the required ``get_reader_theme`` method;
 # an overlay's branding extension without it serves pages no reader theme.
-# 22 -> 23: CatalogPort gained the required ``queue_ingest_job`` method for
-# database import.
+# 22 -> 23: CatalogPort gained the required ``queue_ingest_job`` and
+# ``refresh_database_task`` methods for database import and refresh.
 EXTENSION_API_VERSION: int = 23
 
 

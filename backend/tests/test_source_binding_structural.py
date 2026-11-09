@@ -949,6 +949,13 @@ NAME_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
         2,
         "db.refresh() reloads the columns after the run is reserved",
     ),
+    (
+        "app/modules/catalog/datasets/api/router_refresh_database.py",
+        "dispatch_database_refresh",
+    ): (
+        2,
+        "db.refresh() reloads the columns after the run is reserved",
+    ),
     ("app/modules/catalog/datasets/domain/helpers.py", "dataset_to_response"): (
         2,
         "builds the API response from the stored columns",
@@ -972,6 +979,11 @@ NAME_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
     ("app/processing/ingest/tasks_database.py", "ingest_database"): (
         2,
         "the ref and pointer captured at import, stamped through restamp at commit",
+    ),
+    ("app/processing/ingest/tasks_database.py", "_DatabaseRefresh.write"): (
+        2,
+        "hands the database ref and pointer to _write_reupload_catalog, which "
+        "stamps them through restamp",
     ),
     ("app/processing/ingest/tasks_reupload.py", "_FileReupload.write"): (
         1,

@@ -1262,8 +1262,8 @@ async def _enforce_refresh_publication_fence(
             "source_changed", "Refresh source changed before publication."
         )
     try:
-        current_fingerprint = (
-            refresh_policy.canonical_service_source_binding_fingerprint(current_origin)
+        current_fingerprint = refresh_policy.canonical_source_binding_fingerprint(
+            current_origin
         )
     except ValueError as exc:
         raise RefreshPublicationFenceError(

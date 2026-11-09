@@ -1,20 +1,27 @@
-"""Procrastinate tasks that import a table from a database connection."""
+"""Procrastinate tasks that import and refresh a table from a database connection."""
 
 from __future__ import annotations
 
 import asyncio
+import uuid
+from functools import partial
 
 import structlog
+from sqlalchemy import update
 from sqlalchemy.exc import DBAPIError
 
 from app.core.db.tenant_session import tenant_task
 from app.core.failure_reason import FixedReason
+from app.platform.catalog_locks import CATALOG_LOCK_CONFLICT_CODE, CatalogLockConflict
 from app.platform.database_sources import DatabaseSourceError, probe_table_geometry
 from app.platform.dataset_origin import (
     DatabaseSource,
     Unavailable,
+    bound_pointer,
+    classify_origin,
     database_origin_uri,
     read_source,
+    still_bound,
 )
 from app.platform.jobs import ledger
 from app.platform.jobs.heartbeat import (
@@ -31,19 +38,48 @@ from app.processing.ingest.database_import import (
     copy_database_table,
     require_importable_table,
 )
+from app.platform.refresh import verification as refresh_policy
+from app.platform.refresh.service import drift_status_from_diff, record_refresh_blocked
+from app.processing.ingest import catalog_projection
+from app.processing.ingest.publication import (
+    PUBLISH,
+    Failure,
+    PublicationCommit,
+    Published,
+    Verdict,
+    settle_replacement,
+)
 from app.processing.ingest.publish_followups import run_publish_followups
 from app.processing.ingest.tasks_common import (
     IngestContext,
     _append_job_warning,
+    _append_mercator_clip_warning,
     _bind_task_log_context,
     _current_tenant_schema,
     _finalize_ingest,
+    _install_reupload_table,
     _job_phase_session,
+    _write_reupload_catalog,
     cleanup_step,
     task_app,
 )
+from app.processing.ingest.tasks_reupload import (
+    RefreshPublicationFenceError,
+    _LiveComparison,
+    _assert_geometry_survives,
+    _data_revision_baseline,
+    _enforce_refresh_publication_fence,
+    _held_live_geometry_types,
+    _hold_live_table,
+    _live_content_digest,
+    _live_geometry_types,
+    _quicklook_table,
+    _staged_geometry_contract,
+    _table_row_count,
+)
 from app.processing.ingest.tasks_staging import (
     _cleanup_staging_on_failure,
+    _run_staging_pipeline,
 )
 from app.processing.ingest.tasks_vector import (
     _drop_attempt_staging_table,
@@ -249,3 +285,292 @@ async def ingest_database(
             await _drop_attempt_staging_table(staging_table_name)
     async with cleanup_step("ingest_database follow-ups", job_id=job_id):
         await run_publish_followups(job_uuid, attempt_id=attempt_uuid)
+
+
+class _DatabaseRefresh(_LiveComparison):
+    """A database table read again into this attempt's table, then verified.
+
+    The binding is the dataset's own, read while this run holds the dataset's
+    one active refresh, and the connection is looked up by name again.
+    """
+
+    task = "refresh_database"
+    staging = True
+    raster_row = False
+    catalog_event = "reupload_swap_catalog"
+
+    def __init__(self, *, job_id: str, user_id: str):
+        self.job_uuid = uuid.UUID(job_id)
+        self.user_id = user_id
+        self.measured_feature_count: int | None = None
+        self.measured_schema_diff: dict | None = None
+        self.verification: dict | None = None
+
+    def prepare(self, job, dataset, staging_table: str) -> None:
+        self.staging_table = staging_table
+        self.live_table = dataset.table_name
+        self.dataset_id = dataset.id
+        self.live_feature_count = dataset.feature_count
+        self.live_has_geometry = dataset.geometry_type is not None
+        self.source = (
+            read_source("database", dataset.origin_ref)
+            if classify_origin(dataset.source_format) == "database"
+            else None
+        )
+        self.bound = bound_pointer(dataset)
+        self.stored_srid = dataset.srid
+        self.source_filename = job.source_filename
+        um = job.user_metadata or {}
+        self.accepted_fingerprint = um.get("accepted_refresh_fingerprint")
+        self.accepted_run_id = um.get("accepted_refresh_run_id")
+
+    async def fetch(self) -> None:
+        source = self.source
+        if not isinstance(source, DatabaseSource):
+            raise DatabaseImportError(
+                "This dataset is no longer bound to a database table."
+            )
+        self.table = source
+        require_importable_table(source.connection, source.schema, source.table)
+        probed = await probe_import_srid(source.connection, source.schema, source.table)
+        # SRID 0 or an empty table: the SRID the copy was imported under.
+        self.srid = probed if probed is not None else self.stored_srid
+        if self.srid is None:
+            raise DatabaseImportError(str(MISSING_CRS_DATABASE))
+        schema = _current_tenant_schema()
+        await copy_database_table(
+            source.connection,
+            schema_name=source.schema,
+            table_name=source.table,
+            target_schema=schema,
+            target_table=self.staging_table,
+            srid=self.srid,
+        )
+        self.live_scan = await _live_geometry_types(
+            self.live_table, schema=schema, dataset_id=self.dataset_id
+        )
+        if (
+            await _table_row_count(self.staging_table, schema=schema)
+            == self.live_feature_count
+        ):
+            self.live_content = await _live_content_digest(
+                self.live_table,
+                schema=schema,
+                dataset_id=self.dataset_id,
+                has_geometry=self.live_has_geometry,
+            )
+
+    async def stage(self, session, job, dataset) -> Verdict:
+        from app.processing.ingest.metadata import (
+            compute_table_content_digest,
+            get_geometry_types,
+            rename_reserved_columns,
+        )
+
+        schema = _current_tenant_schema()
+        reserved_renames = await rename_reserved_columns(
+            session, self.staging_table, schema=schema
+        )
+        if reserved_renames:
+            from app.processing.ingest.warnings import make_reserved_rename_warning
+
+            _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
+        staged = await _run_staging_pipeline(
+            session,
+            table_name=self.staging_table,
+            has_geometry=None,
+            effective_srid=self.srid,
+        )
+        _assert_geometry_survives(
+            record_type=dataset.record.record_type,
+            geometry_type=dataset.geometry_type,
+            has_geometry=staged.has_geometry,
+        )
+        _append_mercator_clip_warning(job, staged.mercator_clip)
+        self.metadata = staged.metadata
+        self.measurement = await catalog_projection.measure(
+            session, dataset, table=self.staging_table, schema=schema, staged=staged
+        )
+        self.measured_feature_count = staged.metadata.get("feature_count")
+        self.staged_contract = refresh_policy.geometry_contract(
+            geometry_types=await get_geometry_types(
+                session, self.staging_table, schema=schema
+            ),
+            srid=self.measurement.metadata.get("srid"),
+            is_3d=self.measurement.three_d.get("is_3d"),
+            n_dims=self.measurement.three_d.get("n_dims"),
+        )
+        self.staged_geometry = await _staged_geometry_contract(
+            session, schema=schema, table=self.staging_table
+        )
+        self.content_digest = await compute_table_content_digest(
+            session, self.staging_table, schema=schema, has_geometry=staged.has_geometry
+        )
+        return Verdict(verify=self._verify)
+
+    async def _verify(self, session, dataset) -> Verdict:
+        schema = _current_tenant_schema()
+        await _hold_live_table(session, dataset, schema=schema)
+        live_geometry_types = await _held_live_geometry_types(
+            session, dataset, self.live_scan, schema=schema
+        )
+        self.measured_schema_diff = catalog_projection.schema_diff(
+            dataset, self.measurement
+        )
+        geometry_type, srid, coordinate_dimension = self.staged_geometry
+        source = self.table
+        self.verification = refresh_policy.verify_database_refresh(
+            source_binding={
+                "connection": source.connection,
+                "schema": source.schema,
+                "table": source.table,
+                "verification_policy": refresh_policy.DATABASE_SINGLE_READ_POLICY,
+            },
+            schema_diff=self.measured_schema_diff,
+            fetched_feature_count=self.measured_feature_count,
+            content_digest=self.content_digest,
+            staged_geometry_type=geometry_type,
+            staged_srid=srid,
+            staged_coordinate_dimension=coordinate_dimension,
+            live=refresh_policy.geometry_contract(
+                geometry_types=live_geometry_types,
+                srid=dataset.srid,
+                is_3d=dataset.is_3d,
+                n_dims=dataset.n_dims,
+            ),
+            staged=self.staged_contract,
+            accepted_fingerprint=self.accepted_fingerprint,
+            accepted_run_id=self.accepted_run_id,
+            data_revision_baseline=await _data_revision_baseline(
+                session,
+                job_id=self.job_uuid,
+                dataset_id=dataset.id,
+                accepted_run_id=self.accepted_run_id,
+            ),
+            data_revision=dataset.data_revision,
+        )
+        if self.verification["decision"] == "allowed":
+            await self._compare_live(session, dataset)
+            return PUBLISH
+        # The policy has no rejection, so a held-back run waits for review.
+        return Verdict(
+            publish=False,
+            reason="Review the detected changes before publication.",
+            settle=partial(self._hold_back, dataset=dataset),
+        )
+
+    async def _hold_back(self, session, *, dataset) -> None:
+        # Lands only while the dataset still holds the binding this run read.
+        await session.execute(
+            update(type(dataset))
+            .where(still_bound(type(dataset), dataset.id, self.bound))
+            .values(
+                schema_drift_status=drift_status_from_diff(self.measured_schema_diff)
+            )
+        )
+        await record_refresh_blocked(
+            session,
+            ingest_job_id=self.job_uuid,
+            feature_count_after=self.measured_feature_count,
+            schema_diff=self.measured_schema_diff,
+            verification=self.verification,
+        )
+
+    async def install(self, session, dataset) -> None:
+        if self.unchanged:
+            return
+        await _install_reupload_table(
+            session,
+            dataset=dataset,
+            staging_table=self.staging_table,
+            measurement=self.measurement,
+        )
+
+    async def write(self, session, dataset) -> Published:
+        await _enforce_refresh_publication_fence(
+            session,
+            job_id=self.job_uuid,
+            dataset=dataset,
+            verification=self.verification,
+        )
+        if self.unchanged:
+            return await self._publish_unchanged(
+                session,
+                dataset,
+                field_labels=None,
+                feature_count=self.measured_feature_count,
+                contacted_origin=False,
+                reembed=False,
+            )
+        source = self.table
+        version, schema_diff = await _write_reupload_catalog(
+            session,
+            dataset=dataset,
+            measurement=self.measurement,
+            user_id=self.user_id,
+            source_filename=self.source_filename,
+            source_format="database",
+            original_srid=self.srid,
+            origin_ref={
+                "connection": source.connection,
+                "schema": source.schema,
+                "table": source.table,
+            },
+            origin_uri=database_origin_uri(
+                source.connection, source.schema, source.table
+            ),
+            field_labels=None,
+            job_id=self.job_uuid,
+        )
+        return Published(
+            dataset_version_id=version.id,
+            feature_count=self.measured_feature_count,
+            schema_diff=schema_diff,
+            contacted_origin=False,
+            verification=self.verification,
+            live_table=dataset.table_name,
+            quicklook_table=_quicklook_table(dataset, self.measurement),
+        )
+
+    def classify(self, exc: BaseException) -> Failure:
+        if isinstance(exc, CatalogLockConflict):
+            code = CATALOG_LOCK_CONFLICT_CODE
+        elif isinstance(exc, RefreshPublicationFenceError):
+            code = exc.code
+        else:
+            code = "database_refresh_failed"
+        return Failure(
+            code,
+            feature_count_after=self.measured_feature_count,
+            schema_diff=self.measured_schema_diff,
+            verification=self.verification,
+        )
+
+    async def release(
+        self, *, publication: PublicationCommit | None, failed: bool
+    ) -> None:
+        return None
+
+
+@task_app.task(queue="ingest", retry=0)
+@tenant_task
+async def refresh_database(
+    job_id: str,
+    dataset_id: str,
+    user_id: str,
+    attempt_id: str | None = None,
+    **kwargs,
+) -> None:
+    """Background task: replace a database dataset's data with a fresh read.
+
+    Verified under ``database_single_read_v1`` before it publishes.
+    """
+    _bind_task_log_context(
+        task_name="refresh_database", job_id=job_id, dataset_id=dataset_id
+    )
+    await settle_replacement(
+        _DatabaseRefresh(job_id=job_id, user_id=user_id),
+        job_id=job_id,
+        dataset_id=dataset_id,
+        attempt_id=attempt_id,
+    )

@@ -73,4 +73,5 @@ from app.processing.ingest.tasks_stac_refresh import (  # noqa: F401
 )
 from app.processing.ingest.tasks_database import (  # noqa: F401
     ingest_database,
+    refresh_database,
 )

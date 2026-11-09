@@ -52,7 +52,7 @@ async def test_refresh_refuses_a_kind_it_has_no_strategy_for(
 
     port = MagicMock()
     with (
-        patch.object(router_refresh, "classify_origin", return_value="database"),
+        patch.object(router_refresh, "classify_origin", return_value="future_kind"),
         patch.object(
             router_refresh,
             "_resolve_service_origin",
@@ -68,7 +68,7 @@ async def test_refresh_refuses_a_kind_it_has_no_strategy_for(
     assert resp.status_code == 409, resp.text
     detail = resp.json()["detail"]
     assert detail["code"] == "refresh_not_applicable"
-    assert detail["origin_kind"] == "database"
+    assert detail["origin_kind"] == "future_kind"
     service_resolver.assert_not_called()
     port.verified_refresh_service_task.assert_not_called()
     run = await test_db_session.scalar(

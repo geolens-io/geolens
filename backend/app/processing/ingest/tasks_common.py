@@ -1764,6 +1764,7 @@ async def _write_reupload_catalog(
     source_url: str | None = None,
     file_hash: str | None = None,
     origin_ref: dict[str, Any] | None = None,
+    origin_uri: str | None = None,
     field_labels: dict | None,
     job_id: uuid.UUID | None = None,
 ) -> tuple[Any, dict]:
@@ -1774,7 +1775,8 @@ async def _write_reupload_catalog(
 
     ``origin_ref`` carries the typed per-origin payload for the bytes this
     swap installs, minus the ``kind`` discriminator (derived from
-    ``source_format``). Same contract as ``IngestContext.origin_ref``: keys go
+    ``source_format``), and ``origin_uri`` the pointer when it isn't
+    ``source_url``. Same contract as ``IngestContext.origin_ref``: keys go
     through the per-kind allowlist, and callers supply their own rather than
     one being inferred here.
 
@@ -1821,7 +1823,9 @@ async def _write_reupload_catalog(
     # stale pointer. Kind is derived from the new source_format, as on first
     # ingest, so a service reupload stays a service origin and a file
     # reupload clears `origin_uri`.
-    binding = SourceBinding.from_ref(source_format, origin_ref, uri=source_url)
+    binding = SourceBinding.from_ref(
+        source_format, origin_ref, uri=origin_uri or source_url
+    )
     # The swap commit time, which is what migration 0036's backfill reads off
     # max(dataset_versions.uploaded_at) for a pre-existing dataset. A Python
     # datetime rather than func.now(): a SQL expression leaves the attribute
@@ -1879,7 +1883,9 @@ async def _write_reupload_catalog(
             resource_id=dataset.id,
             details={
                 "version_number": new_version,
-                "source_type": "service_url" if source_url else "file",
+                "source_type": "service_url"
+                if source_url
+                else ("database" if binding.kind == "database" else "file"),
                 "source_format": source_format,
                 "source_filename": source_filename,
             },

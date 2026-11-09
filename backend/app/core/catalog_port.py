@@ -175,10 +175,12 @@ class CatalogPort(Protocol):
     def refresh_stac_task(self) -> Any: ...
 
     # REQUIRED (EXTENSION_API_VERSION 22 -> 23): the database import door
-    # queues through the one ingest router.
+    # queues through the one ingest router, and its refresh defers this task.
     async def queue_ingest_job(
         self, job: Any, user_id: str, *, db: AsyncSession
     ) -> None: ...
+
+    def refresh_database_task(self) -> Any: ...
 
     def regenerate_vrt_task(self) -> Any: ...
 
