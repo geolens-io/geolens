@@ -1423,6 +1423,36 @@ async def _create_arcgis_dataset(
     return dataset
 
 
+async def _create_service_job(
+    session,
+    *,
+    created_by,
+    source_url,
+    source_layer,
+    service_type="ArcGIS:FeatureServer",
+    layer_id=0,
+    status="pending",
+):
+    """Insert an IngestJob shaped like one a service preview just created."""
+    from app.platform.jobs.models import IngestJob
+
+    job = IngestJob(
+        status=status,
+        created_by=created_by,
+        source_url=source_url,
+        source_layer=source_layer,
+        source_filename=source_layer,
+        user_metadata={
+            "service_type": service_type,
+            "layer_id": layer_id,
+        },
+    )
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+    return job
+
+
 @pytest.mark.anyio
 class TestDuplicateSourceDetection:
     """Tests for 409 Conflict on duplicate ArcGIS service registration."""
@@ -1604,6 +1634,115 @@ class TestDuplicateSourceDetection:
         assert resp.status_code == 409
         assert resp.json()["detail"]["code"] == "duplicate_source"
         assert resp.json()["detail"]["existing_dataset_id"] == str(existing.id)
+
+    async def test_preview_rejects_queued_import_of_same_layer(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        mock_validate_ssrf,
+        mock_build_gdal_source,
+        mock_run_preview,
+    ):
+        """A pending job for the same layer answers 409, not a second 202.
+
+        The published-dataset check cannot see it yet, so the queued-job
+        check beside it must catch it.
+        """
+        from tests.factories import get_user_id
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_service_job(
+            test_db_session,
+            created_by=admin_id,
+            source_url=_ARCGIS_BASE,
+            source_layer="0",
+            layer_id=0,
+        )
+
+        resp = await client.post(
+            "/services/preview/",
+            json={
+                "url": _ARCGIS_BASE,
+                "service_type": "ArcGIS:FeatureServer",
+                "layer_name": "0",
+                "layer_id": 0,
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 409
+        body = resp.json()
+        assert body["detail"]["code"] == "duplicate_source"
+        assert body["detail"]["existing_job_id"] == str(job.id)
+
+    async def test_preview_allows_retry_after_failed_job(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        mock_validate_ssrf,
+        mock_build_gdal_source,
+        mock_run_preview,
+        mock_fetch_arcgis_preview,
+    ):
+        """A failed first job does not block previewing the layer again."""
+        from tests.factories import get_user_id
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        await _create_service_job(
+            test_db_session,
+            created_by=admin_id,
+            source_url=_ARCGIS_BASE,
+            source_layer="0",
+            layer_id=0,
+            status="failed",
+        )
+
+        resp = await client.post(
+            "/services/preview/",
+            json={
+                "url": _ARCGIS_BASE,
+                "service_type": "ArcGIS:FeatureServer",
+                "layer_name": "0",
+                "layer_id": 0,
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code != 409
+
+    async def test_preview_allows_queued_import_of_different_layer(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        mock_validate_ssrf,
+        mock_build_gdal_source,
+        mock_run_preview,
+        mock_fetch_arcgis_preview,
+    ):
+        """A pending job for layer 0 does not block previewing layer 1."""
+        from tests.factories import get_user_id
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        await _create_service_job(
+            test_db_session,
+            created_by=admin_id,
+            source_url=_ARCGIS_BASE,
+            source_layer="0",
+            layer_id=0,
+        )
+
+        resp = await client.post(
+            "/services/preview/",
+            json={
+                "url": _ARCGIS_BASE,
+                "service_type": "ArcGIS:FeatureServer",
+                "layer_name": "1",
+                "layer_id": 1,
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code != 409
 
     async def test_a_true_cross_dataset_duplicate_still_conflicts(
         self,

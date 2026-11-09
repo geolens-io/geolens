@@ -1320,8 +1320,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ArcGIS identity enumeration and bounded verification share this adapter.
     "backend/app/modules/catalog/sources/adapters/arcgis.py": 1084,
     # Source API router debt; each credential door judges its URL's scheme in
-    # place. Split discovery, preview and dispatch endpoints before raising further.
-    "backend/app/modules/catalog/sources/router.py": 1760,
+    # place. The queued-import guard lives in duplicate_guard.py; the preview
+    # door only calls it. Split discovery, preview and dispatch endpoints
+    # before raising further.
+    "backend/app/modules/catalog/sources/router.py": 1771,
     # STAC import door: per-item refusals and failure codes sit beside the batch loop.
     "backend/app/modules/catalog/sources/stac_router.py": 1012,
     # Adoption DDL mirrors the current schema without importing historical migrations.
@@ -1356,9 +1358,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/publish_followups.py": 1477,
     # Shared ingest finalization carries verification, manifest record fields, bounded
     # ArcGIS requests, lifecycle context, the quicklook draw that ingest and
-    # replacement share, and the swap that keeps the replaced table as a previous
-    # version and drops the oldest past the instance's limit.
-    "backend/app/processing/ingest/tasks_common.py": 1899,
+    # replacement share, the swap that keeps the replaced table as a previous
+    # version and drops the oldest past the instance's limit, and the
+    # publication-time duplicate check that refuses a second dataset for one
+    # origin.
+    "backend/app/processing/ingest/tasks_common.py": 1977,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, a service re-upload's

@@ -27,7 +27,7 @@ from app.platform.database_sources import (
 )
 from app.platform.extensions import get_catalog_port
 from app.platform.jobs import ledger
-from app.platform.jobs.models import DATABASE_SOURCE_METADATA_KEY
+from app.platform.jobs.models import DATABASE_SOURCE_METADATA_KEY, IngestJob
 from app.standards.ogc.errors import (
     BAD_GATEWAY_RESPONSE,
     CONFLICT_RESPONSE,
@@ -193,6 +193,36 @@ async def _existing_copy(
     ).first()
 
 
+async def _active_import_job(
+    db: AsyncSession, user_id: uuid.UUID, connection: str, body: DatabaseImportRequest
+):
+    """A pending or running import of the same table by this user, if any.
+
+    The published-dataset check beside this one only sees finished imports,
+    so a second submission while the first job is still queued would slip
+    through and publish a second copy. A failed or cancelled first job is
+    not active, so it never blocks a retry.
+    """
+    return (
+        await db.execute(
+            select(IngestJob.id)
+            .where(
+                IngestJob.created_by == user_id,
+                IngestJob.status.in_(("pending", "running")),
+                IngestJob.user_metadata[DATABASE_SOURCE_METADATA_KEY][
+                    "connection"
+                ].astext
+                == connection,
+                IngestJob.user_metadata[DATABASE_SOURCE_METADATA_KEY]["schema"].astext
+                == body.schema_name,
+                IngestJob.user_metadata[DATABASE_SOURCE_METADATA_KEY]["table"].astext
+                == body.table_name,
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
 def _table_not_listed(connection: str) -> HTTPException:
     return HTTPException(
         status.HTTP_404_NOT_FOUND,
@@ -260,6 +290,23 @@ async def import_database_table(
                 ),
                 "existing_dataset_id": str(existing.id),
                 "existing_title": existing.title,
+            },
+        )
+    # The check above only sees published datasets. An import that is
+    # still queued or running for the same table is the same duplicate,
+    # caught here before a second pending job is created.
+    queued_job_id = await _active_import_job(db, user_id, connection, body)
+    if queued_job_id is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "code": "duplicate_source",
+                "message": (
+                    "An import of this table is already in progress. Wait "
+                    "for it to finish, or refresh the dataset once it is "
+                    "published, instead of importing it again."
+                ),
+                "existing_job_id": str(queued_job_id),
             },
         )
     # Released before the listing, which can wait 30 s on an unreachable server.

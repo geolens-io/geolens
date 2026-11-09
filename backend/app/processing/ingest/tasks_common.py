@@ -25,6 +25,7 @@ from procrastinate import App
 from app.platform.dataset_origin import (
     CONTACTED_ORIGIN_KINDS,
     KEEP,
+    SERVICE_SOURCE_FORMATS,
     SourceBinding,
     restamp,
 )
@@ -1291,6 +1292,80 @@ async def _detect_3d_and_promote_elev(
     return three_d
 
 
+class DuplicateSourcePublicationError(Exception):
+    """A worker-time refusal: the source was published while this job ran."""
+
+
+async def _refuse_duplicate_publication(
+    session: "AsyncSession", ctx: "IngestContext"
+) -> None:
+    """Refuse to publish a second dataset for one origin.
+
+    The doors refuse a second submission while the first job is still
+    queued, but two jobs that both passed the door can still reach this
+    point together, and a retried job can arrive after the source was
+    imported again. This re-check runs in the same transaction that would
+    create the dataset, so the second publisher fails its job instead of
+    publishing a copy. File uploads carry no remote origin and skip it.
+    """
+    ref = ctx.origin_ref
+    if not ref:
+        return
+    from sqlalchemy import and_, select
+
+    from app.platform.extensions import get_processing_port
+
+    Dataset = get_processing_port().get_dataset_orm_class()
+    Record = get_processing_port().get_record_orm_class()
+    if ctx.source_format in SERVICE_SOURCE_FORMATS:
+        service_type = ref.get("service_type")
+        url = ref.get("url")
+        layer_id = ref.get("layer_id")
+        if not (
+            isinstance(service_type, str)
+            and isinstance(url, str)
+            and isinstance(layer_id, str)
+        ):
+            return
+        identity = and_(
+            Dataset.origin_ref["service_type"].astext == service_type,
+            Dataset.origin_ref["url"].astext == url,
+            Dataset.origin_ref["layer_id"].astext == layer_id,
+            Dataset.source_format == ctx.source_format,
+        )
+    elif ctx.source_format == "database":
+        connection = ref.get("connection")
+        schema = ref.get("schema")
+        table = ref.get("table")
+        if not (
+            isinstance(connection, str)
+            and isinstance(schema, str)
+            and isinstance(table, str)
+        ):
+            return
+        identity = and_(
+            Dataset.origin_ref["connection"].astext == connection,
+            Dataset.origin_ref["schema"].astext == schema,
+            Dataset.origin_ref["table"].astext == table,
+            Dataset.source_format == "database",
+        )
+    else:
+        return
+    existing = (
+        await session.execute(
+            select(Dataset.id, Record.title)
+            .join(Record, Dataset.record_id == Record.id)
+            .where(identity, Record.created_by == uuid.UUID(ctx.user_id))
+            .limit(1)
+        )
+    ).first()
+    if existing is not None:
+        raise DuplicateSourcePublicationError(
+            f"This source is already imported (existing: '{existing.title}'). "
+            "Refresh that dataset instead of importing it again."
+        )
+
+
 async def _finalize_ingest(ctx: IngestContext):
     """Shared post-ogr2ogr pipeline for both file and service ingestion.
 
@@ -1348,6 +1423,9 @@ async def _finalize_ingest(ctx: IngestContext):
     if ctx.source_url is not None:
         ingestion_fields["source_url"] = ctx.source_url
     ingestion = port.create_ingestion_result(**ingestion_fields)
+    # A second job for this origin may have passed the door while this one
+    # was running; refuse to publish a copy of it here instead.
+    await _refuse_duplicate_publication(session, ctx)
     dataset = await port.create_dataset(
         session,
         table_name=table_name,

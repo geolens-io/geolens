@@ -228,6 +228,77 @@ async def test_second_import_by_the_same_user_is_a_duplicate(
     assert other.status_code == 202, other.text
 
 
+async def _create_import_job(session, *, created_by, status="pending"):
+    """Insert an IngestJob shaped like one a database import just created."""
+    job = IngestJob(
+        status=status,
+        created_by=created_by,
+        source_filename="dbo.parcels",
+        user_metadata={
+            "database_source": {
+                "connection": "gis",
+                "schema": "dbo",
+                "table": "parcels",
+            },
+            "title": "parcels",
+        },
+    )
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+    return job
+
+
+async def test_queued_import_by_the_same_user_is_a_duplicate(
+    client: AsyncClient,
+    editor_auth_header,
+    configured,
+    listing,
+    deferred,
+    test_db_session,
+):
+    """A pending job for the same table answers 409, not a second 202.
+
+    The published-dataset check cannot see it yet, so the queued-job
+    check beside it must catch it.
+    """
+    editor_id = await _user_id(client, editor_auth_header)
+    job = await _create_import_job(test_db_session, created_by=editor_id)
+
+    resp = await client.post(
+        URL,
+        json={"schema_name": "dbo", "table_name": "parcels"},
+        headers=editor_auth_header,
+    )
+
+    assert resp.status_code == 409, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "duplicate_source"
+    assert detail["existing_job_id"] == str(job.id)
+    listing.assert_not_awaited()
+
+
+async def test_failed_import_does_not_block_a_retry(
+    client: AsyncClient,
+    editor_auth_header,
+    configured,
+    listing,
+    deferred,
+    test_db_session,
+):
+    """A failed first job does not block importing the table again."""
+    editor_id = await _user_id(client, editor_auth_header)
+    await _create_import_job(test_db_session, created_by=editor_id, status="failed")
+
+    resp = await client.post(
+        URL,
+        json={"schema_name": "dbo", "table_name": "parcels"},
+        headers=editor_auth_header,
+    )
+
+    assert resp.status_code == 202, resp.text
+
+
 async def test_unknown_connection_is_404(
     client: AsyncClient, editor_auth_header, configured, listing, deferred
 ):

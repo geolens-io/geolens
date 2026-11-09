@@ -52,6 +52,7 @@ from app.modules.catalog.sources.arcgis_signin import (
     open_portal_signin,
     portal_host,
 )
+from app.modules.catalog.sources.duplicate_guard import refuse_queued_service_import
 from app.modules.catalog.sources.preview import build_gdal_source, run_service_preview
 from app.modules.catalog.sources.signin_guard import (
     _signin_audit,
@@ -1260,6 +1261,16 @@ async def preview_service_layer(
                     "existing_title": existing.title,
                 },
             )
+        # The check above only sees published datasets. An import that is
+        # still queued or running for the same layer is the same duplicate,
+        # caught here before a second pending job is created.
+        await refuse_queued_service_import(
+            db,
+            user_id,
+            source_format=source_format,
+            base_url=base_url,
+            canonical_layer_id=canonical_layer_id,
+        )
     except HTTPException:
         raise
     except (ValueError, KeyError, IngestionError):
