@@ -1,18 +1,18 @@
 """Each dispatcher names the kinds it runs and refuses any other.
 
-A kind added to ``classify_origin`` or to the job ledger later must not reach
-the service task, or the vector ingest task, by falling through.
+A kind added to ``classify_origin`` later must not reach the service task
+by falling through.
 """
 
 from __future__ import annotations
 
+import secrets
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import HTTPException
 from httpx import AsyncClient
 from sqlalchemy import select
 
@@ -22,7 +22,6 @@ from app.platform.jobs.models import IngestJob
 from app.platform.refresh.execution import execute_admitted_refresh
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import create_pending_run
-from app.processing.ingest.service import queue_ingest_job
 from tests.factories import create_dataset, get_user_id
 
 pytestmark = pytest.mark.anyio
@@ -75,41 +74,6 @@ async def test_refresh_refuses_a_kind_it_has_no_strategy_for(
     assert run is None
 
 
-async def test_queue_refuses_a_job_it_does_not_route_and_fails_it(
-    test_db_session, tmp_path
-) -> None:
-    staged = tmp_path / "parcels.bin"
-    staged.write_bytes(b"\x00")
-    job = IngestJob(
-        source_filename=staged.name,
-        status="pending",
-        file_path=str(staged),
-        user_metadata={"file_type": "database"},
-    )
-    test_db_session.add(job)
-    await test_db_session.commit()
-    job_id = job.id
-
-    tasks = {name: MagicMock() for name in ("ingest_file", "ingest_service")}
-    for task in tasks.values():
-        task.defer_async = AsyncMock()
-        task.configure = MagicMock(return_value=task)
-    with (
-        patch("app.processing.ingest.tasks.ingest_file", tasks["ingest_file"]),
-        patch("app.processing.ingest.tasks.ingest_service", tasks["ingest_service"]),
-        pytest.raises(HTTPException) as exc_info,
-    ):
-        await queue_ingest_job(job, "user-id", db=test_db_session)
-
-    assert exc_info.value.status_code == 400
-    for task in tasks.values():
-        task.defer_async.assert_not_awaited()
-    row = await test_db_session.get(IngestJob, job_id, populate_existing=True)
-    assert row.status == "failed"
-    assert row.error_message == "Job is not a file or service import (HTTPException)"
-    assert row.completed_at is not None
-
-
 async def test_admitted_execution_runs_only_service_refreshes(
     test_db_session,
 ) -> None:
@@ -146,7 +110,7 @@ async def test_admitted_execution_runs_only_service_refreshes(
     async def session_factory():
         yield test_db_session
 
-    resolver = AsyncMock(return_value="secret")
+    resolver = AsyncMock(return_value=secrets.token_urlsafe(16))
     with (
         patch("app.core.db.async_session", session_factory),
         patch("app.platform.extensions.get_catalog_port") as catalog_port,

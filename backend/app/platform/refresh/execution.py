@@ -355,9 +355,10 @@ async def execute_admitted_refresh(
                 ingest_job_id=job_id,
                 execution_key=claim_key,
                 error_code="refresh_origin_unsupported",
-                error_message=(
-                    "This refresh was not started: admitted refreshes run "
-                    "only for service datasets."
+                error_message=FixedReason(
+                    "This refresh was not started: only service datasets "
+                    "refresh this way.",
+                    code="refresh_origin_unsupported",
                 ),
             )
             await session.commit()
