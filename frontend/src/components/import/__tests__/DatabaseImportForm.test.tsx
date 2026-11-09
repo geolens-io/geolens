@@ -1,0 +1,158 @@
+import { render, screen, waitFor } from '@/test/test-utils';
+import userEvent from '@testing-library/user-event';
+import { ApiError } from '@/api/client';
+import { useAuthStore } from '@/stores/auth-store';
+import { DatabaseImportForm } from '../DatabaseImportForm';
+import type { DatabaseTable } from '@/types/api';
+
+const mockCapabilities = vi.fn();
+const mockListTables = vi.fn();
+const mockStartImport = vi.fn();
+
+vi.mock('@/api/ingest', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/ingest')>()),
+  getCapabilities: () => mockCapabilities(),
+  listDatabaseTables: (...args: unknown[]) => mockListTables(...args),
+  startDatabaseImport: (...args: unknown[]) => mockStartImport(...args),
+}));
+
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+
+vi.mock('../JobProgress', () => ({
+  JobProgress: ({ jobId }: { jobId: string }) => <div>Tracking {jobId}</div>,
+}));
+
+function table(overrides: Partial<DatabaseTable> = {}): DatabaseTable {
+  return {
+    schema_name: 'gis',
+    table_name: 'parcels',
+    object_type: 'table',
+    geometry_column: 'shape',
+    column_type: 'geometry',
+    srid: 4326,
+    ...overrides,
+  };
+}
+
+function listing(tables: DatabaseTable[], truncated = false) {
+  return { connection: 'warehouse', database: 'Warehouse', tables, limit: 500, truncated };
+}
+
+function withConnections(...names: string[]) {
+  mockCapabilities.mockResolvedValue({
+    me: {
+      username: 'a',
+      permissions: [],
+      key: null,
+      remaining_dataset_quota: null,
+      database_connections: names.map((name) => ({ name, database: `${name}-db` })),
+    },
+  });
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  useAuthStore.setState({ token: 'token' });
+  withConnections('warehouse');
+});
+
+async function openReview(user: ReturnType<typeof userEvent.setup>, row: string) {
+  await user.click(await screen.findByRole('radio', { name: new RegExp(row) }));
+  await user.click(screen.getByRole('button', { name: 'Continue' }));
+}
+
+describe('DatabaseImportForm', () => {
+  it('lists the tables of the only connection with kind and SRID', async () => {
+    mockListTables.mockResolvedValue(
+      listing([table(), table({ table_name: 'v_zones', object_type: 'view', srid: null })]),
+    );
+    render(<DatabaseImportForm />);
+
+    expect(await screen.findByRole('radio', { name: /gis\.parcels/ })).toBeInTheDocument();
+    expect(mockListTables).toHaveBeenCalledWith('warehouse');
+    expect(screen.getByText('EPSG:4326')).toBeInTheDocument();
+    expect(screen.getByText('No SRID')).toBeInTheDocument();
+    expect(screen.getByText('View')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
+  });
+
+  it('asks which connection to list when there are several', async () => {
+    withConnections('warehouse', 'archive');
+    mockListTables.mockResolvedValue(listing([table()]));
+    const user = userEvent.setup();
+    render(<DatabaseImportForm />);
+
+    await user.click(await screen.findByRole('radio', { name: /archive/ }));
+
+    await waitFor(() => expect(mockListTables).toHaveBeenCalledWith('archive'));
+    expect(mockListTables).not.toHaveBeenCalledWith('warehouse');
+  });
+
+  it('notes a truncated listing', async () => {
+    mockListTables.mockResolvedValue(listing([table()], true));
+    render(<DatabaseImportForm />);
+
+    expect(await screen.findByText(/Only the first 500 spatial columns/)).toBeInTheDocument();
+  });
+
+  it('shows the listing failure text', async () => {
+    mockListTables.mockRejectedValue(new ApiError('Could not reach the connection "warehouse".', 502));
+    render(<DatabaseImportForm />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not reach the connection "warehouse".');
+  });
+
+  it('imports a table that has an SRID without asking for one', async () => {
+    mockListTables.mockResolvedValue(listing([table()]));
+    mockStartImport.mockResolvedValue({ job_id: 'job-9', status: 'pending', message: 'queued' });
+    const user = userEvent.setup();
+    render(<DatabaseImportForm />);
+
+    await openReview(user, 'gis.parcels');
+    await user.click(screen.getByRole('button', { name: /import/i }));
+
+    expect(await screen.findByText('Tracking job-9')).toBeInTheDocument();
+    expect(mockStartImport).toHaveBeenCalledWith(
+      'warehouse',
+      expect.objectContaining({ schema_name: 'gis', table_name: 'parcels', srid_override: null }),
+    );
+  });
+
+  it('sends the CRS entered for a table without an SRID as srid_override', async () => {
+    mockListTables.mockResolvedValue(listing([table({ srid: null })]));
+    mockStartImport.mockResolvedValue({ job_id: 'job-9', status: 'pending', message: 'queued' });
+    const user = userEvent.setup();
+    render(<DatabaseImportForm />);
+
+    expect(await screen.findByText('No SRID')).toBeInTheDocument();
+    await openReview(user, 'gis.parcels');
+    await user.type(screen.getByLabelText(/CRS/i), '3857');
+    await user.click(screen.getByRole('button', { name: /import/i }));
+
+    await waitFor(() =>
+      expect(mockStartImport).toHaveBeenCalledWith(
+        'warehouse',
+        expect.objectContaining({ srid_override: 3857 }),
+      ),
+    );
+  });
+
+  it('reports a duplicate source and stays on the review step', async () => {
+    mockListTables.mockResolvedValue(listing([table()]));
+    mockStartImport.mockRejectedValue(
+      new ApiError('duplicate', 409, {
+        code: 'duplicate_source',
+        existing_dataset_id: 'ds-1',
+        existing_title: 'Parcels',
+      }),
+    );
+    const user = userEvent.setup();
+    render(<DatabaseImportForm />);
+
+    await openReview(user, 'gis.parcels');
+    await user.click(screen.getByRole('button', { name: /import/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Already registered: "Parcels"');
+    expect(screen.queryByText(/Tracking/)).not.toBeInTheDocument();
+  });
+});

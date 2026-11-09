@@ -194,6 +194,28 @@ describe('SourceRefreshAction', () => {
     expect(screen.getByRole('button', { name: 'Start refresh' })).toBeInTheDocument();
   });
 
+  it('dispatches a database refresh with no token or credential field', async () => {
+    mutateAsync.mockResolvedValue({
+      run_id: 'run-1',
+      job_id: 'job-1',
+      dataset_id: 'dataset-1',
+      origin_kind: 'database',
+      trigger: 'api',
+      status: 'pending',
+      message: 'Refresh queued from the connected database',
+    });
+    const user = userEvent.setup();
+    render(<SourceRefreshAction dataset={makeDataset({ origin: 'database' })} watch={makeWatch()} />);
+
+    await openDialog(user);
+    expect(screen.queryByLabelText('Access token (optional)')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+
+    await waitFor(() => {
+      expect(mutateAsync).toHaveBeenCalledWith({ datasetId: 'dataset-1', token: undefined });
+    });
+  });
+
   it('dispatches a postgis refresh with no token, since none was ever offered', async () => {
     mutateAsync.mockResolvedValue({
       run_id: 'run-1',
@@ -1466,13 +1488,13 @@ describe('SourceRefreshAction', () => {
 });
 
 describe('REFRESHABLE_ORIGINS', () => {
-  it('mirrors the refresh door dispatch table — the three kinds with a strategy', () => {
+  it('mirrors the refresh door dispatch table — the kinds with a strategy', () => {
     // router_refresh.py routes every origin it does
     // not name through _resolve_service_origin(), which refuses upload and
     // created with 409 refresh_not_applicable. This is the value DetailPanel
     // gates on; a widened set here without a matching backend strategy would
     // show the "Refresh from source" control for origins the backend refuses.
     // Stac gained one.
-    expect([...REFRESHABLE_ORIGINS].sort()).toEqual(['postgis', 'service', 'stac']);
+    expect([...REFRESHABLE_ORIGINS].sort()).toEqual(['database', 'postgis', 'service', 'stac']);
   });
 });

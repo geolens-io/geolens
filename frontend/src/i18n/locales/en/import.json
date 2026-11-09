@@ -6,7 +6,8 @@
     "url": "File URL",
     "register": "Register Table",
     "service": "Service URL",
-    "stac": "STAC Catalog"
+    "stac": "STAC Catalog",
+    "database": "Database"
   },
   "vrt": {
     "pageTitle": "Create Virtual Raster",
@@ -388,7 +389,10 @@
     "completePointCloudDesc": "Open the dataset Access tab for the COPC file URL.",
     "completeDesc": "The finished datasets are available in the catalog.",
     "pointcloudLabel": "COPC point cloud",
-    "pointcloudDesc": "served to external COPC clients; no built-in map preview."
+    "pointcloudDesc": "served to external COPC clients; no built-in map preview.",
+    "databaseHint": "Importing from a database",
+    "databaseDesc": "Pick a spatial table or view from a database your administrator connected. GeoLens copies it into the catalog for tiling and querying.",
+    "databaseNote": "Read-only access · a refresh copies the table again"
   },
   "register": {
     "discovering": "Discovering tables...",
@@ -673,5 +677,26 @@
     "crs": "CRS",
     "pointFormat": "Point format",
     "size": "Size"
+  },
+  "database": {
+    "loadingConnections": "Loading database connections…",
+    "connection": "Connection",
+    "loadingTables": "Listing spatial tables…",
+    "listFailed": "Couldn't list the tables for this connection.",
+    "retry": "Try again",
+    "noTables": "No spatial tables or views were found in {{database}}.",
+    "filterLabel": "Filter tables",
+    "filterPlaceholder": "schema.table",
+    "tablesLegend": "Spatial tables in {{database}}",
+    "view": "View",
+    "table": "Table",
+    "noSrid": "No SRID",
+    "noMatches": "No table matches the filter.",
+    "truncated": "Only the first {{limit}} spatial columns are listed, so a table may be missing.",
+    "srsNeeded": "This table has no SRID of its own. Enter the EPSG code its coordinates use on the next step.",
+    "continue": "Continue",
+    "back": "Back to tables",
+    "reviewing": "Importing {{table}} from {{connection}}",
+    "importFailed": "Couldn't start the import."
   }
 }

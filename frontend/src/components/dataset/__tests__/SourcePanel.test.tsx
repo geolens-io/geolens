@@ -254,6 +254,24 @@ describe('SourcePanel', () => {
     expect(screen.queryByRole('heading', { name: 'Scheduled sync' })).not.toBeInTheDocument();
   });
 
+  it('names the connection and schema.table of a database source', () => {
+    render(
+      <SourcePanel
+        dataset={makeDataset({
+          origin: 'database',
+          source_format: 'database',
+          origin_ref: { kind: 'database', connection: 'warehouse', schema: 'gis', table: 'parcels' },
+        })}
+      />,
+    );
+
+    expect(screen.getByText('Database connection')).toBeInTheDocument();
+    expect(screen.getByText('warehouse')).toBeInTheDocument();
+    expect(screen.getByText('Source table')).toBeInTheDocument();
+    expect(screen.getByText('gis.parcels')).toBeInTheDocument();
+    expect(screen.getByText(/Imported from a connected database/)).toBeInTheDocument();
+  });
+
   it('shows remote-source health fields and the scheduled sync seam for a service source', () => {
     render(
       <SourcePanel

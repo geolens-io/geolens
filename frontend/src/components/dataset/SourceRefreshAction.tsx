@@ -43,6 +43,7 @@ export const REFRESHABLE_ORIGINS: ReadonlySet<DatasetOrigin> = new Set([
   'service',
   'postgis',
   'stac',
+  'database',
 ]);
 
 interface SourceRefreshActionProps {

@@ -6,7 +6,8 @@
     "url": "Datei-URL",
     "register": "Tabelle registrieren",
     "service": "Service-URL",
-    "stac": "STAC-Katalog"
+    "stac": "STAC-Katalog",
+    "database": "Datenbank"
   },
   "vrt": {
     "pageTitle": "Virtuellen Raster erstellen",
@@ -658,7 +659,10 @@
     "completePointCloudDesc": "Die COPC-Datei-URL steht im Tab Zugriff.",
     "completeDesc": "Die fertigen Datensätze sind im Katalog verfügbar.",
     "pointcloudLabel": "COPC-Punktwolke",
-    "pointcloudDesc": "für externe COPC-Clients verfügbar; keine integrierte Kartenvorschau."
+    "pointcloudDesc": "für externe COPC-Clients verfügbar; keine integrierte Kartenvorschau.",
+    "databaseHint": "Import aus einer Datenbank",
+    "databaseDesc": "Wählen Sie eine räumliche Tabelle oder Sicht aus einer Datenbank, die Ihre Administration angebunden hat. GeoLens kopiert sie zum Kacheln und Abfragen in den Katalog.",
+    "databaseNote": "Nur Lesezugriff · eine Aktualisierung kopiert die Tabelle erneut"
   },
   "status": {
     "uploading": "Hochladen",
@@ -673,5 +677,26 @@
     "crs": "KBS",
     "pointFormat": "Punktformat",
     "size": "Größe"
+  },
+  "database": {
+    "loadingConnections": "Datenbankverbindungen werden geladen…",
+    "connection": "Verbindung",
+    "loadingTables": "Räumliche Tabellen werden aufgelistet…",
+    "listFailed": "Die Tabellen dieser Verbindung konnten nicht aufgelistet werden.",
+    "retry": "Erneut versuchen",
+    "noTables": "In {{database}} wurden keine räumlichen Tabellen oder Sichten gefunden.",
+    "filterLabel": "Tabellen filtern",
+    "filterPlaceholder": "Schema.Tabelle",
+    "tablesLegend": "Räumliche Tabellen in {{database}}",
+    "view": "Sicht",
+    "table": "Tabelle",
+    "noSrid": "Keine SRID",
+    "noMatches": "Keine Tabelle entspricht dem Filter.",
+    "truncated": "Es werden nur die ersten {{limit}} räumlichen Spalten aufgelistet, eine Tabelle kann daher fehlen.",
+    "srsNeeded": "Diese Tabelle hat keine eigene SRID. Geben Sie im nächsten Schritt den EPSG-Code ihrer Koordinaten ein.",
+    "continue": "Weiter",
+    "back": "Zurück zu den Tabellen",
+    "reviewing": "{{table}} wird aus {{connection}} importiert",
+    "importFailed": "Der Import konnte nicht gestartet werden."
   }
 }

@@ -793,6 +793,12 @@ export type DiscoveredTable = components['schemas']['DiscoveredTable'];
 
 export type DiscoverResponse = components['schemas']['DiscoverResponse'];
 
+export type DatabaseTable = components['schemas']['DatabaseTable'];
+export type DatabaseTableListResponse = components['schemas']['DatabaseTableListResponse'];
+export type DatabaseImportRequest = components['schemas']['DatabaseImportRequest'];
+export type DatabaseImportResponse = components['schemas']['DatabaseImportResponse'];
+export type CapabilitiesResponse = components['schemas']['CapabilitiesResponse'];
+
 export type BulkRegisterRequest = components['schemas']['BulkRegisterRequest'];
 
 export type BulkRegisterResult = components['schemas']['BulkRegisterResult'];

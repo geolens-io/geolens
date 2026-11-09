@@ -6,7 +6,8 @@
     "url": "文件 URL",
     "register": "注册数据表",
     "service": "服务 URL",
-    "stac": "STAC 目录"
+    "stac": "STAC 目录",
+    "database": "数据库"
   },
   "vrt": {
     "pageTitle": "创建虚拟栅格",
@@ -388,7 +389,10 @@
     "completePointCloudDesc": "在数据集的“访问”标签页获取 COPC 文件网址。",
     "completeDesc": "已完成的数据集可在目录中查看。",
     "pointcloudLabel": "COPC 点云",
-    "pointcloudDesc": "供外部 COPC 客户端使用；没有内置地图预览。"
+    "pointcloudDesc": "供外部 COPC 客户端使用；没有内置地图预览。",
+    "databaseHint": "从数据库导入",
+    "databaseDesc": "从管理员已连接的数据库中选择空间表或视图。GeoLens 会将其复制到目录中，用于切片和查询。",
+    "databaseNote": "只读访问 · 刷新会重新复制该表"
   },
   "register": {
     "discovering": "正在发现表...",
@@ -673,5 +677,26 @@
     "crs": "坐标参考系",
     "pointFormat": "点格式",
     "size": "大小"
+  },
+  "database": {
+    "loadingConnections": "正在加载数据库连接…",
+    "connection": "连接",
+    "loadingTables": "正在列出空间表…",
+    "listFailed": "无法列出此连接的表。",
+    "retry": "重试",
+    "noTables": "在 {{database}} 中未找到空间表或视图。",
+    "filterLabel": "筛选表",
+    "filterPlaceholder": "模式.表",
+    "tablesLegend": "{{database}} 中的空间表",
+    "view": "视图",
+    "table": "表",
+    "noSrid": "无 SRID",
+    "noMatches": "没有符合筛选条件的表。",
+    "truncated": "仅列出前 {{limit}} 个空间列，因此可能缺少某些表。",
+    "srsNeeded": "此表没有自己的 SRID。请在下一步输入其坐标所用的 EPSG 代码。",
+    "continue": "继续",
+    "back": "返回表列表",
+    "reviewing": "正在从 {{connection}} 导入 {{table}}",
+    "importFailed": "无法开始导入。"
   }
 }

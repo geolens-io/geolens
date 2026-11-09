@@ -72,7 +72,7 @@ export interface BlockedRunToAccept {
 }
 
 type PointerField = {
-  label: 'filename' | 'fingerprint' | 'table' | 'serviceType' | 'layer' | 'endpoint' | 'collection' | 'asset' | 'item';
+  label: 'filename' | 'fingerprint' | 'table' | 'connection' | 'sourceTable' | 'serviceType' | 'layer' | 'endpoint' | 'collection' | 'asset' | 'item';
   value: string;
 };
 
@@ -219,6 +219,16 @@ function pointerFields(dataset: DatasetResponse, origin: DatasetOrigin | null): 
   if (origin === 'postgis') {
     const table = refString(ref, 'table_name');
     return table ? [{ label: 'table', value: table }] : [];
+  }
+
+  if (origin === 'database') {
+    const connection = refString(ref, 'connection');
+    const schema = refString(ref, 'schema');
+    const table = refString(ref, 'table');
+    return [
+      ...(connection ? [{ label: 'connection' as const, value: connection }] : []),
+      ...(schema && table ? [{ label: 'sourceTable' as const, value: `${schema}.${table}` }] : []),
+    ];
   }
 
   if (origin === 'service') {

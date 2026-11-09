@@ -814,7 +814,8 @@
       "stac": "从 STAC 目录远程引用。源资产必须保持可用。",
       "created": "在 GeoLens 中创建，并存储为自有、可编辑的数据集。",
       "vrt": "由 GeoLens 管理的其他栅格数据集组合而成。",
-      "unknown": "此数据集未记录机器可读的来源。"
+      "unknown": "此数据集未记录机器可读的来源。",
+      "database": "从已连接的数据库导入。GeoLens 保留自有副本；刷新会重新复制该表。"
     },
     "storage": {
       "upload": "自有副本",
@@ -823,7 +824,8 @@
       "stac": "远程引用",
       "created": "自有副本",
       "vrt": "合成",
-      "unknown": "未记录"
+      "unknown": "未记录",
+      "database": "自有副本"
     },
     "openInArcgis": "在 ArcGIS 中打开",
     "opensInNewTab": "在新标签页中打开",
@@ -836,7 +838,9 @@
       "endpoint": "数据源 URL（已移除凭据）",
       "collection": "STAC 集合",
       "asset": "STAC 资产",
-      "item": "STAC 条目"
+      "item": "STAC 条目",
+      "connection": "数据库连接",
+      "sourceTable": "源表"
     },
     "status": {
       "health": {

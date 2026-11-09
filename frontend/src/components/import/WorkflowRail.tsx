@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import { TypeTag } from './TypeTag';
 import type { BatchPhase, DataKind } from '@/types/api';
 
-type Mode = 'upload' | 'url' | 'register' | 'service' | 'stac';
+type Mode = 'upload' | 'url' | 'register' | 'service' | 'stac' | 'database';
 
 interface WorkflowRailProps {
   mode: Mode;
@@ -47,7 +47,7 @@ export function WorkflowRail({ mode, phase, outcome = null, completedKinds = [] 
     },
   ];
 
-  if (mode === 'url' || mode === 'register' || mode === 'service' || mode === 'stac') {
+  if (mode === 'url' || mode === 'register' || mode === 'service' || mode === 'stac' || mode === 'database') {
     return <NonUploadRail mode={mode} />;
   }
 
@@ -134,11 +134,30 @@ export function WorkflowRail({ mode, phase, outcome = null, completedKinds = [] 
   );
 }
 
-function NonUploadRail({ mode }: { mode: 'url' | 'register' | 'service' | 'stac' }) {
+function NonUploadRail({ mode }: { mode: 'url' | 'register' | 'service' | 'stac' | 'database' }) {
   const { t } = useTranslation('import');
   const isRegister = mode === 'register';
   const isStac = mode === 'stac';
   const isUrl = mode === 'url';
+
+  if (mode === 'database') {
+    return (
+      <aside
+        aria-label={t('rail.asideLabel', { defaultValue: 'Import workflow' })}
+        className="sticky top-28 flex flex-col gap-4"
+      >
+        <div className="rounded-lg border border-border bg-card p-4">
+          <p className="eyebrow mb-2">{t('rail.databaseHint')}</p>
+          <p className="mb-2.5 text-xs text-muted-foreground leading-relaxed">
+            {t('rail.databaseDesc')}
+          </p>
+          <p className="font-mono text-mini text-muted-foreground tracking-wide">
+            {t('rail.databaseNote')}
+          </p>
+        </div>
+      </aside>
+    );
+  }
 
   // URL import gets its own rail copy — it copies data in like
   // Upload (unlike Register/Service, which point at live sources).

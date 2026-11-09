@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
-import { getJobStatus, getJobStatusByDataset, retryJob, cancelJob, discoverTables, bulkRegisterTables, getUploadConfig, createVrt } from '@/api/ingest';
+import { getJobStatus, getJobStatusByDataset, retryJob, cancelJob, discoverTables, bulkRegisterTables, getUploadConfig, createVrt, getCapabilities, listDatabaseTables } from '@/api/ingest';
 import { ApiError, apiFetch } from '@/api/client';
 import { useAuthStore } from '@/stores/auth-store';
 import type { BulkRegisterRequest, VrtCreateRequest, SearchResponse } from '@/types/api';
@@ -117,6 +117,28 @@ export function useCancelJob() {
     onSuccess: (_data, jobId) => {
       qc.invalidateQueries({ queryKey: queryKeys.ingest.jobStatus(jobId) });
     },
+  });
+}
+
+/** Database connections the deployment offers this account; empty hides the Database source. */
+export function useDatabaseConnections() {
+  const hasToken = useAuthStore((s) => !!s.token);
+  return useQuery({
+    queryKey: queryKeys.ingest.capabilities,
+    queryFn: getCapabilities,
+    enabled: hasToken,
+    staleTime: 60_000,
+    select: (capabilities) => capabilities.me?.database_connections ?? [],
+  });
+}
+
+export function useDatabaseTables(connection: string | null) {
+  return useQuery({
+    queryKey: queryKeys.ingest.databaseTables(connection),
+    queryFn: () => listDatabaseTables(connection!),
+    enabled: !!connection,
+    staleTime: 0,
+    retry: false,
   });
 }
 

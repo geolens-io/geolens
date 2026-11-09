@@ -29,6 +29,10 @@ import type {
   ArcgisSigninRequest,
   ArcgisSigninResponse,
   ServiceAuthRequest,
+  CapabilitiesResponse,
+  DatabaseTableListResponse,
+  DatabaseImportRequest,
+  DatabaseImportResponse,
 } from '@/types/api';
 
 /** Byte-transfer progress callback (0–1). */
@@ -366,6 +370,26 @@ export async function arcgisSignin(
 
 export async function discoverTables(): Promise<DiscoverResponse> {
   return apiFetch<DiscoverResponse>('/ingest/discover/');
+}
+
+export async function getCapabilities(): Promise<CapabilitiesResponse> {
+  return apiFetch<CapabilitiesResponse>('/capabilities/');
+}
+
+export async function listDatabaseTables(connection: string): Promise<DatabaseTableListResponse> {
+  return apiFetch<DatabaseTableListResponse>(
+    `/services/databases/${encodeURIComponent(connection)}/tables/`,
+  );
+}
+
+export async function startDatabaseImport(
+  connection: string,
+  request: DatabaseImportRequest,
+): Promise<DatabaseImportResponse> {
+  return apiFetch<DatabaseImportResponse>(
+    `/services/databases/${encodeURIComponent(connection)}/imports/`,
+    { method: 'POST', body: JSON.stringify(request) },
+  );
 }
 
 export async function bulkRegisterTables(

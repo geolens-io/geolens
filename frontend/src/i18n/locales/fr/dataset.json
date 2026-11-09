@@ -852,7 +852,8 @@
       "stac": "Référencé à distance depuis un catalogue STAC. La ressource source doit rester disponible.",
       "created": "Créé dans GeoLens et stocké comme un jeu de données propre et modifiable.",
       "vrt": "Composé d’autres jeux de données raster gérés par GeoLens.",
-      "unknown": "Aucune origine lisible par machine n’est enregistrée pour ce jeu de données."
+      "unknown": "Aucune origine lisible par machine n’est enregistrée pour ce jeu de données.",
+      "database": "Importé depuis une base de données connectée. GeoLens garde une copie propre ; une actualisation recopie la table."
     },
     "storage": {
       "upload": "Copie propre",
@@ -861,7 +862,8 @@
       "stac": "Référence distante",
       "created": "Copie propre",
       "vrt": "Composite",
-      "unknown": "Non enregistré"
+      "unknown": "Non enregistré",
+      "database": "Copie propre"
     },
     "openInArcgis": "Ouvrir dans ArcGIS",
     "opensInNewTab": "s'ouvre dans un nouvel onglet",
@@ -874,7 +876,9 @@
       "endpoint": "URL de la source (identifiants retirés)",
       "collection": "Collection STAC",
       "asset": "Ressource STAC",
-      "item": "Élément STAC"
+      "item": "Élément STAC",
+      "connection": "Connexion à la base de données",
+      "sourceTable": "Table source"
     },
     "status": {
       "health": {

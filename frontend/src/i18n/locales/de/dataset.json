@@ -852,7 +852,8 @@
       "stac": "Entfernte Referenz aus einem STAC-Katalog. Das Quell-Asset muss verfügbar bleiben.",
       "created": "In GeoLens erstellt und als eigener, bearbeitbarer Datensatz gespeichert.",
       "vrt": "Aus anderen von GeoLens verwalteten Rasterdatensätzen zusammengesetzt.",
-      "unknown": "Für diesen Datensatz ist keine maschinenlesbare Herkunft erfasst."
+      "unknown": "Für diesen Datensatz ist keine maschinenlesbare Herkunft erfasst.",
+      "database": "Aus einer angebundenen Datenbank importiert. GeoLens behält eine eigene Kopie; eine Aktualisierung kopiert die Tabelle erneut."
     },
     "storage": {
       "upload": "Eigene Kopie",
@@ -861,7 +862,8 @@
       "stac": "Entfernte Referenz",
       "created": "Eigene Kopie",
       "vrt": "Zusammengesetzt",
-      "unknown": "Nicht erfasst"
+      "unknown": "Nicht erfasst",
+      "database": "Eigene Kopie"
     },
     "openInArcgis": "In ArcGIS öffnen",
     "opensInNewTab": "öffnet in einem neuen Tab",
@@ -874,7 +876,9 @@
       "endpoint": "Quell-URL (Zugangsdaten entfernt)",
       "collection": "STAC-Collection",
       "asset": "STAC-Asset",
-      "item": "STAC-Element"
+      "item": "STAC-Element",
+      "connection": "Datenbankverbindung",
+      "sourceTable": "Quelltabelle"
     },
     "status": {
       "health": {

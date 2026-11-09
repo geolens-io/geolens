@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { releaseTerminalImportSession } from '@/components/import/start-again';
 import { useTranslation } from 'react-i18next';
-import { Upload, Link, Database, Globe, Satellite } from 'lucide-react';
+import { Upload, Link, Database, Globe, Satellite, DatabaseZap } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { PageShell } from '@/components/layout/PageShell';
@@ -12,13 +12,15 @@ import { UrlImportForm } from '@/components/import/UrlImportForm';
 import { RegisterForm } from '@/components/import/RegisterForm';
 import { ServiceUrlForm } from '@/components/import/ServiceUrlForm';
 import { StacImportForm } from '@/components/import/StacImportForm';
+import { DatabaseImportForm } from '@/components/import/DatabaseImportForm';
+import { useDatabaseConnections } from '@/components/import/hooks/use-ingest';
 import { WorkflowRail } from '@/components/import/WorkflowRail';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useSettingsAdmin } from '@/hooks/use-settings-admin';
 import { cn } from '@/lib/utils';
 import type { BatchPhase, DataKind } from '@/types/api';
 
-type Tab = 'upload' | 'url' | 'register' | 'service' | 'stac';
+type Tab = 'upload' | 'url' | 'register' | 'service' | 'stac' | 'database';
 
 const MODE_TABS: { value: Tab; icon: typeof Upload; labelKey: string }[] = [
   { value: 'upload', icon: Upload, labelKey: 'tabs.upload' },
@@ -27,6 +29,7 @@ const MODE_TABS: { value: Tab; icon: typeof Upload; labelKey: string }[] = [
   { value: 'register', icon: Database, labelKey: 'tabs.register' },
   { value: 'service', icon: Globe, labelKey: 'tabs.service' },
   { value: 'stac', icon: Satellite, labelKey: 'tabs.stac' },
+  { value: 'database', icon: DatabaseZap, labelKey: 'tabs.database' },
 ];
 
 export function ImportPage() {
@@ -66,7 +69,13 @@ export function ImportPage() {
   useDocumentTitle(t('common:pageTitle.import'));
   // Registering an existing table is an administrator task on the server.
   const canRegisterTables = useSettingsAdmin();
-  const modeTabs = MODE_TABS.filter((tab) => tab.value !== 'register' || canRegisterTables);
+  const { data: databaseConnections } = useDatabaseConnections();
+  const hasDatabaseConnections = (databaseConnections?.length ?? 0) > 0;
+  const modeTabs = MODE_TABS.filter(
+    (tab) =>
+      (tab.value !== 'register' || canRegisterTables) &&
+      (tab.value !== 'database' || hasDatabaseConnections),
+  );
 
   return (
     <PageShell>
@@ -128,6 +137,7 @@ export function ImportPage() {
             {activeTab === 'register' && canRegisterTables && <RegisterForm />}
             {activeTab === 'service' && <ServiceUrlForm initialUrl={tabParam === 'service' ? prefillUrl : ''} />}
             {activeTab === 'stac' && <StacImportForm />}
+            {activeTab === 'database' && hasDatabaseConnections && <DatabaseImportForm />}
           </AppErrorBoundary>
           )}
         </div>

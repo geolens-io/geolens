@@ -6,7 +6,8 @@
     "url": "URL de fichier",
     "register": "Enregistrer une table",
     "service": "URL de service",
-    "stac": "Catalogue STAC"
+    "stac": "Catalogue STAC",
+    "database": "Base de données"
   },
   "vrt": {
     "pageTitle": "Créer un Raster Virtuel",
@@ -658,7 +659,10 @@
     "completePointCloudDesc": "Ouvrez l’onglet Accès pour obtenir l’URL du fichier COPC.",
     "completeDesc": "Les jeux de données terminés sont dans le catalogue.",
     "pointcloudLabel": "Nuage de points COPC",
-    "pointcloudDesc": "accessible aux clients COPC externes ; pas d’aperçu cartographique."
+    "pointcloudDesc": "accessible aux clients COPC externes ; pas d’aperçu cartographique.",
+    "databaseHint": "Importer depuis une base de données",
+    "databaseDesc": "Choisissez une table ou une vue spatiale d'une base de données connectée par votre administrateur. GeoLens la copie dans le catalogue pour la tuiler et l'interroger.",
+    "databaseNote": "Accès en lecture seule · une actualisation recopie la table"
   },
   "status": {
     "uploading": "Téléversement",
@@ -673,5 +677,26 @@
     "crs": "SCR",
     "pointFormat": "Format des points",
     "size": "Taille"
+  },
+  "database": {
+    "loadingConnections": "Chargement des connexions de base de données…",
+    "connection": "Connexion",
+    "loadingTables": "Liste des tables spatiales…",
+    "listFailed": "Impossible de lister les tables de cette connexion.",
+    "retry": "Réessayer",
+    "noTables": "Aucune table ni vue spatiale trouvée dans {{database}}.",
+    "filterLabel": "Filtrer les tables",
+    "filterPlaceholder": "schéma.table",
+    "tablesLegend": "Tables spatiales dans {{database}}",
+    "view": "Vue",
+    "table": "Table",
+    "noSrid": "Sans SRID",
+    "noMatches": "Aucune table ne correspond au filtre.",
+    "truncated": "Seules les {{limit}} premières colonnes spatiales sont listées, une table peut donc manquer.",
+    "srsNeeded": "Cette table n'a pas de SRID propre. Saisissez à l'étape suivante le code EPSG de ses coordonnées.",
+    "continue": "Continuer",
+    "back": "Retour aux tables",
+    "reviewing": "Importation de {{table}} depuis {{connection}}",
+    "importFailed": "Impossible de lancer l'importation."
   }
 }
