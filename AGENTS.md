@@ -4,7 +4,7 @@ Shared instructions live here; keep `CLAUDE.md` as only `@AGENTS.md`. Retain act
 
 ## Product
 
-GeoLens is a self-hosted spatial data catalog and map builder for one organization. It puts files, database tables, service snapshots and remote assets into one searchable catalog and records where each dataset came from. Teams build and share maps from that catalog and reach the data through open-standard APIs. Context: `README.md`, `EDITIONS.md`, and `CONTEXT.md` for domain vocabulary.
+GeoLens is a self-hosted spatial data catalog and map builder for one organization. It puts files, database tables, managed copies of services and remote assets into one searchable catalog and records where each dataset came from. Teams build and share maps from that catalog and reach the data through open-standard APIs. Context: `README.md`, `EDITIONS.md`, and `CONTEXT.md` for domain vocabulary.
 
 These commitments constrain every change:
 

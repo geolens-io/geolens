@@ -46,6 +46,9 @@ _Avoid_: Origin (the derived kind alone), source URL (owner-editable text), `ori
 
 **Origin**: How a dataset's data entered the catalog: an upload, a registered table, a service, a database import, a STAC item, or drawing in the app. Derived from the source binding, never stored.
 
+**Managed copy**: A dataset whose data GeoLens copied from a source outside it and can read again, so a refresh brings it up to date. A service import or a database import makes one. An owner keeps at most one managed copy of a source: importing that source again, or while an import of it is still running, is refused, and the owner refreshes the copy instead.
+_Avoid_: Snapshot, mirror, duplicate dataset.
+
 **Service import**: Bringing one remote service layer into GeoLens as a dataset that is a managed copy of it.
 _Avoid_: ArcGIS import, when referring to a single layer.
 
