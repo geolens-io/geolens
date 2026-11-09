@@ -14,6 +14,7 @@ from app.core.failure_reason import FixedReason
 from app.core.url_redaction import scrub_secret_from_exception
 from app.platform.dataset_origin import portal_link_fields, service_layer_identity
 from app.platform.jobs import ledger
+from app.platform.source_copies import refuse_second_copy
 from app.platform.jobs.heartbeat import (
     JOB_ERROR_WRITE_TIMEOUT_MS,
     attempt_scoped_staging_table,
@@ -1091,7 +1092,9 @@ async def ingest_service(
             attempt_id=attempt_uuid,
             require_status="running",
         ) as (session, job):
-            if job is None:
+            if job is None or await refuse_second_copy(
+                session, job, attempt_uuid, uuid.UUID(user_id)
+            ):
                 return
 
             # Finalization owns the transaction, including this progress write.

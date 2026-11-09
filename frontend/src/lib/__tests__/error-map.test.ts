@@ -170,6 +170,19 @@ describe('API error localization boundary', () => {
     );
   });
 
+  it('describes a duplicate still being imported by its job, not a dataset', () => {
+    const detail = {
+      code: 'duplicate_source',
+      message: 'This source is already being imported.',
+      existing_job_id: '6f1c2c55-0e64-4c0e-9b8b-2d4f5b0e1a11',
+    };
+
+    expect(classifyApiError(detail, 409)).toEqual({ key: 'errors.duplicateSourceImporting' });
+    expect(translateApiErrorDetail(detail, 409)).toBe(
+      'This source is already being imported. Wait for that import to finish, then refresh the dataset it creates.',
+    );
+  });
+
   it('collapses the refresh door refusal taxonomy to one key per code, regardless of call site', () => {
     // Two different resolvers (service vs. postgis) word refresh_not_applicable
     // differently; both must land on the same user-facing message.

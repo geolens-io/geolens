@@ -45,7 +45,6 @@ from app.platform.jobs.heartbeat import ANALYSIS_MATERIALIZE_LEASE_SECONDS
 from app.platform.jobs.models import (
     ACTIVE_STATUSES,
     ANALYSIS_OUTPUT_TABLE_FIELD,
-    COMMIT_ATTEMPTED_METADATA_KEY,
     EMBEDDING_BACKFILL_METADATA_KEY,
     FAN_OUT_INTERRUPTED_METADATA_KEY,
     PUBLISH_FOLLOWUPS_FIELD,
@@ -56,6 +55,7 @@ from app.platform.jobs.models import (
     UNREAPED_ARTIFACT_FIELDS,
     IngestJob,
     carries_unreaped,
+    dispatch_attempted,
     holds_unarchived_original,
     needs_staged_input,
     owned_presigned_staging_key,
@@ -164,10 +164,7 @@ def abandoned_upload():
     way; a bound S3 direct upload still settles ``failed`` after the 24h
     backstop.
     """
-    return (
-        func.coalesce(IngestJob.user_metadata[COMMIT_ATTEMPTED_METADATA_KEY].astext, "")
-        == ""
-    )
+    return ~dispatch_attempted()
 
 
 def no_unclaimed_queue_entry():

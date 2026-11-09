@@ -67,6 +67,7 @@ from app.platform.jobs.heartbeat import (
 from app.platform.jobs import ledger
 from app.platform.jobs.models import (
     COMMIT_ATTEMPTED_METADATA_KEY,
+    PUBLISHED_FOR_METADATA_KEY,
     DATABASE_SOURCE_METADATA_KEY,
     IngestJob,
     commit_attempted_marker,
@@ -249,8 +250,11 @@ async def admit_import_commit(
     job: IngestJob,
     attempt_id: uuid.UUID | None,
     commit_metadata: dict,
+    publisher: uuid.UUID,
 ) -> None:
     """Commit an import commit's metadata onto its job, or raise 400 when another writer took it.
+
+    ``publisher`` is the committing account, which the dataset will belong to.
 
     The row lock orders concurrent commits of one upload, and the dispatch
     marker rides this commit, so a later one finds the job taken. It also
@@ -272,6 +276,7 @@ async def admit_import_commit(
         **(job.user_metadata or {}),
         **commit_metadata,
         **commit_attempted_marker(),
+        PUBLISHED_FOR_METADATA_KEY: str(publisher),
     }
     await db.commit()
 

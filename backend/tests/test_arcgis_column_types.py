@@ -15,7 +15,11 @@ from app.processing.ingest.tasks_reupload import reupload_service
 
 from tests.factories import get_user_id
 from tests.test_refresh_gate_1269 import _runs_ordered
-from tests.test_service_reupload_3d import _BASE, _dispatch_harness
+from tests.test_service_reupload_3d import (
+    _base_of,
+    _dispatch_harness,
+    _fresh_base,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -134,9 +138,10 @@ async def _assert_typed(session, dataset_id) -> None:
 
 async def _ingest(session, monkeypatch) -> uuid.UUID:
     admin_id = await get_user_id(session, "admin")
+    base = _fresh_base()
     job = IngestJob(
         source_filename="Wells",
-        source_url=_BASE,
+        source_url=base,
         source_layer="0",
         created_by=admin_id,
         status="pending",
@@ -153,7 +158,7 @@ async def _ingest(session, monkeypatch) -> uuid.UUID:
         await tasks_vector.ingest_service.func(
             job_id=str(job.id),
             attempt_id=str(job.attempt_id),
-            source_url=_BASE,
+            source_url=base,
             source_layer="0",
             user_id=str(admin_id),
         )
@@ -265,7 +270,7 @@ async def test_the_reupload_preview_names_the_type_changes_a_refresh_reports(
             response = await client.post(
                 f"/datasets/{dataset_id}/reupload/service/preview",
                 json={
-                    "url": _BASE,
+                    "url": await _base_of(dataset_id),
                     "service_type": "ArcGIS FeatureServer",
                     "layer_name": "0",
                     "layer_id": 0,

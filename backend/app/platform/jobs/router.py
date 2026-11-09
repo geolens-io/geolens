@@ -39,6 +39,7 @@ from app.platform.jobs.models import (
     TERMINAL_STATUSES,
     URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY,
     IngestJob,
+    publication_owner,
 )
 from app.platform.jobs.schemas import (
     DbfTruncationCollisionWarning,
@@ -53,6 +54,7 @@ from app.platform.jobs.schemas import (
     StaleCleanupResponse,
 )
 from app.platform.refresh.job_runs import latest_runs_for_jobs, stored_review_reasons
+from app.platform.source_copies import retry_conflict
 from app.platform.jobs.originals_reconcile import reconcile_orphaned_originals
 from app.platform.jobs.quicklook_reconcile import reconcile_orphaned_quicklooks
 from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objects
@@ -451,7 +453,10 @@ async def get_job_status(
             detail="Job not found",
         )
 
-    if job.created_by != user.id and is_publish_key(db):
+    # A job publishes for the account that committed it, which an admin may
+    # have done for the user who previewed it.
+    owner = publication_owner(job)
+    if owner != user.id and is_publish_key(db):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found",
@@ -873,7 +878,10 @@ async def retry_job(
             detail="Job not found",
         )
 
-    if job.created_by != user.id and is_publish_key(db):
+    # A job publishes for the account that committed it, which an admin may
+    # have done for the user who previewed it.
+    owner = publication_owner(job)
+    if owner != user.id and is_publish_key(db):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found",
@@ -890,7 +898,7 @@ async def retry_job(
         refuse_publish_key(db, "A publish key can't retry a job that sets visibility")
     # Owners always retain access. Cross-user retries additionally require the
     # effective manage_users capability through PermissionExtension.
-    if job.created_by != user.id and not await _can_access_another_users_job(
+    if owner != user.id and not await _can_access_another_users_job(
         request, db, user, job
     ):
         raise HTTPException(
@@ -915,6 +923,10 @@ async def retry_job(
             status_code=status_code,
             detail=retry_reason or "This job cannot be retried.",
         )
+
+    conflict = await retry_conflict(db, user, job)
+    if conflict is not None:
+        raise conflict
 
     # Reset the job to pending and commit before re-queueing so the
     # orphan guard in queue_ingest_job can flip it back to failed if
@@ -943,7 +955,7 @@ async def retry_job(
                     else None
                 ),
                 "next_attempt_id": str(job.attempt_id),
-                "cross_user": job.created_by != user.id,
+                "cross_user": owner != user.id,
             },
             ip_address=get_client_ip(request),
         ),
@@ -951,7 +963,7 @@ async def retry_job(
     await db.commit()
     await db.refresh(job)
 
-    await queue_ingest_job(job, str(job.created_by), db=db)
+    await queue_ingest_job(job, str(publication_owner(job)), db=db)
 
     return UploadResponse(
         job_id=job.id,
@@ -1064,7 +1076,10 @@ async def cancel_job(
             detail="Job not found",
         )
 
-    if job.created_by != user.id and is_publish_key(db):
+    # A job publishes for the account that committed it, which an admin may
+    # have done for the user who previewed it.
+    owner = publication_owner(job)
+    if owner != user.id and is_publish_key(db):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found",
