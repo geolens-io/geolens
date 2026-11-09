@@ -51,7 +51,7 @@ test.describe('Database import source', () => {
 
     // The tab list renders before capabilities settle. Let the response reach
     // the query cache and React paint again before asserting absence.
-    await expect(page.getByRole('button', { name: 'Upload File' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Upload File', exact: true })).toBeVisible();
     await page.evaluate(
       () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
     );
