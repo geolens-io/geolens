@@ -1797,7 +1797,13 @@ _SERVICE_STUB_SUMMARY = (
 _SERVICE_BOUND_SUMMARY = "A copy of a public service layer; its description follows."
 
 
-def ingest_service(api: Api, service_url: str, title: str, timeout: int = 900) -> str:
+def ingest_service(
+    api: Api,
+    service_url: str,
+    title: str,
+    timeout: int = 900,
+    stub_summary: str = _SERVICE_STUB_SUMMARY,
+) -> str:
     """Create a NEW dataset bound to a live service layer.
 
     Imported straight from the service through POST /services/preview/, so the
@@ -1829,7 +1835,7 @@ def ingest_service(api: Api, service_url: str, title: str, timeout: int = 900) -
             "service_stub.geojson",
             json.dumps(_SERVICE_STUB_FC).encode(),
             title,
-            _SERVICE_STUB_SUMMARY,
+            stub_summary,
             timeout=timeout,
         )
         convert_to_service(api, dataset_id, service_url, title, timeout=timeout)

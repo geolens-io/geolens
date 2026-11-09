@@ -467,7 +467,7 @@ def _bind(s, api, by_title: dict, title: str, service: str) -> str:
     dataset_id = by_title.get(title)
     try:
         if dataset_id is None:
-            dataset_id = s.ingest_service(api, url, title)
+            dataset_id = s.ingest_service(api, url, title, stub_summary=STUB_SUMMARY)
             by_title[title] = dataset_id
         else:
             s.convert_to_service(api, dataset_id, url, title)
@@ -533,7 +533,7 @@ def enrich_existing(api) -> list[str]:
                 _set_attribute_titles(
                     api, dataset["id"], CAMBRIDGE_ATTRIBUTE_TITLES.get(title, {})
                 )
-        except (httpx.HTTPStatusError, httpx.TimeoutException) as e:
+        except httpx.HTTPError as e:
             print(f"  WARNING: metadata enrich failed for {title!r}: {e}")
             failed.append(title)
     return failed
@@ -634,6 +634,16 @@ def _datasets(api, titles) -> dict[str, str] | None:
         return None
     if not all(_is_ours(api, by_title[t], t) for t in titles):
         return None
+    for t in titles:
+        if (
+            t in _SERVICE_BY_TITLE
+            and api.get_dataset(by_title[t]).get("origin") != "service"
+        ):
+            print(
+                f"  ! {t!r} is still waiting for its binding; left alone",
+                file=sys.stderr,
+            )
+            return None
     return {t: by_title[t] for t in titles}
 
 
@@ -826,11 +836,15 @@ def trees_map_description(loss_report: dict) -> str:
     )
 
 
+TREE_MAP_COLUMNS = ("sitetype", "commonname", "diameter", "plantdate")
+
+
 def build_trees_map(s, api, force: bool = False, force_pinned: bool = False) -> str:
     """Import the authored web map once; on a rerun refresh only its description."""
     ids = _datasets(api, (TREES_TITLE, NEIGHBORHOODS_TITLE))
     if ids is None:
         return _missing_catalog()
+    _require_columns(api, ids[TREES_TITLE], TREES_TITLE, TREE_MAP_COLUMNS)
     try:
         webmap = json.loads(WEBMAP_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
@@ -1301,7 +1315,7 @@ def _tree_widgets(
         widget(
             "neighborhood-picker",
             "category_selector",
-            "Pick a neighborhood (filters the map and the site-type chart)",
+            "Pick a neighborhood (filters the site-type chart and the trees layer)",
             all_trees,
             {"column": "neighborhood"},
         ),
@@ -1330,8 +1344,10 @@ def _tree_widgets(
                 "numbers. Plant dates and diameters are as the city recorded "
                 "them, and recent years can be incomplete. The planted-trees "
                 "indicator compares 2021-2025 with 2016-2020 over the whole city. Planting dates are recorded as the city enters them. "
-                "Picking a neighborhood filters the map and the site-type "
-                "chart only; the other widgets keep counting the whole city.\n\n"
+                "Picking a neighborhood filters the site-type chart and the "
+                "trees layer only. The planting-by-year chart and the "
+                "proposed-sites list follow the map view, not the neighborhood; "
+                "the other widgets keep counting the whole city.\n\n"
                 "Built from the City of Cambridge's open data (PDDL 1.0). "
                 "The city does not use or endorse GeoLens."
             },
@@ -1588,7 +1604,7 @@ def seed_land_dashboard(s, api, force: bool = False, force_pinned: bool = False)
         return _missing_catalog()
     print("\n[cambridge-land-dashboard] " + LAND_DASHBOARD)
     for title in ids:
-        _require_columns(api, ids[title], title, ["join_zone_type", "shape_area"])
+        _require_columns(api, ids[title], title, ["join_zone_type", "shape_area", "ml"])
         _require_uncoded(api, ids[title], title, ["join_zone_type", "shape_area"])
     description = land_dashboard_description()
     layers = _land_layers(ids[PARCELS_ZONED_TITLE], ids[PARCELS_FLOOD_TITLE])
