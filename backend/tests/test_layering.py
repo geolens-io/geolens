@@ -1321,7 +1321,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/sources/adapters/arcgis.py": 1084,
     # Source API router debt; each credential door judges its URL's scheme in
     # place. Split discovery, preview and dispatch endpoints before raising further.
-    "backend/app/modules/catalog/sources/router.py": 1755,
+    "backend/app/modules/catalog/sources/router.py": 1705,
     # STAC import door: per-item refusals and failure codes sit beside the batch loop.
     "backend/app/modules/catalog/sources/stac_router.py": 1012,
     # Adoption DDL mirrors the current schema without importing historical migrations.
@@ -1374,7 +1374,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/config_ops/service.py": 1465,
     # One settlement pass, its precheck and its reapers serve startup recovery, the
     # lifespan sweep, admin cleanup, the job status poll and manifest expiry.
-    "backend/app/platform/jobs/sweep.py": 1821,
+    "backend/app/platform/jobs/sweep.py": 1818,
     # Refresh admission, claim fencing, terminal transitions and the job-scoped
     # abandoned-run sweep stay domain-neutral.
     "backend/app/platform/refresh/service.py": 1201,

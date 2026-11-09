@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -23,7 +23,7 @@ from app.platform.dataset_origin import KEEP, SourceBinding, restamp
 from app.platform.jobs.models import IngestJob
 from app.processing.ingest import service as ingest_service
 from app.processing.ingest import tasks_database, tasks_vector
-from tests.factories import create_dataset, get_user_id
+from tests.factories import create_dataset, create_user, get_user_id
 from tests.test_database_import_door import _connection
 from tests.test_service_reupload_3d import _WELLS, _fake_fetch, _fresh_base, _source
 
@@ -66,8 +66,20 @@ def database(monkeypatch):
     )
 
 
-async def _user_id(client: AsyncClient, headers: dict) -> uuid.UUID:
-    return uuid.UUID((await client.get("/auth/me", headers=headers)).json()["id"])
+@contextmanager
+def _no_remote_preview():
+    """Answer any preview that gets past the duplicate check without a fetch."""
+    with (
+        patch(
+            "app.modules.catalog.sources.router.run_service_preview",
+            new=AsyncMock(side_effect=AssertionError("previewed")),
+        ),
+        patch(
+            "app.modules.catalog.sources.router.fetch_arcgis_layer_preview",
+            new=AsyncMock(side_effect=AssertionError("previewed")),
+        ),
+    ):
+        yield
 
 
 async def _data_tables(session) -> set[str]:
@@ -200,6 +212,63 @@ async def test_a_queued_database_import_makes_the_second_a_duplicate(
     assert after.status_code == 202, after.text
 
 
+async def test_a_published_layer_blocks_a_preview_of_its_url_as_stored(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    url = f"https://maps.example.com/wfs{uuid.uuid4().hex[:6]}?SERVICE=WFS&map=/a.map"
+    owner = await get_user_id(test_db_session, "admin")
+    existing = await create_dataset(
+        test_db_session, created_by=owner, name="Buildings", source_format="wfs"
+    )
+    restamp(
+        existing,
+        SourceBinding.service("wfs", url=url, layer_id="buildings", enriched_uri=url),
+        contacted_at=None,
+        refreshed_at=KEEP,
+    )
+    await test_db_session.commit()
+
+    with (
+        patch("app.modules.catalog.sources.router.validate_url_for_ssrf"),
+        _no_remote_preview(),
+    ):
+        resp = await client.post(
+            "/services/preview/",
+            json={"url": url, "service_type": "WFS 2.0.0", "layer_name": "buildings"},
+            headers=admin_auth_header,
+        )
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["existing_dataset_id"] == str(existing.id)
+
+
+async def test_a_queued_layer_blocks_a_preview_that_spells_its_url_differently(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    base = _fresh_base()
+    owner = await get_user_id(test_db_session, "admin")
+    queued = _service_job(base, owner, status="running")
+    test_db_session.add(queued)
+    await test_db_session.commit()
+
+    with (
+        patch("app.modules.catalog.sources.router.validate_url_for_ssrf"),
+        _no_remote_preview(),
+    ):
+        resp = await client.post(
+            "/services/preview/",
+            json={
+                "url": f"{base}/0/query/?f=json",
+                "service_type": "ArcGIS:FeatureServer",
+                "layer_name": "Wells",
+            },
+            headers=admin_auth_header,
+        )
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["existing_job_id"] == str(queued.id)
+
+
 async def test_two_workers_publishing_one_layer_at_once_publish_one_dataset(
     test_db_session, monkeypatch
 ):
@@ -254,16 +323,16 @@ async def test_two_workers_publishing_one_layer_at_once_publish_one_dataset(
 
 async def test_a_database_job_refused_at_publication_leaves_no_table_or_dataset(
     client: AsyncClient,
-    editor_auth_header,
+    admin_auth_header,
     test_db_session,
     database,
     deferred,
     monkeypatch,
 ):
     body = {"schema_name": "dbo", "table_name": "parcels"}
-    queued = await client.post(DB_URL, json=body, headers=editor_auth_header)
+    queued = await client.post(DB_URL, json=body, headers=admin_auth_header)
     assert queued.status_code == 202, queued.text
-    owner = await _user_id(client, editor_auth_header)
+    owner = await get_user_id(test_db_session, "admin")
     # Published by another request after this job passed the door.
     existing = await create_dataset(
         test_db_session, created_by=owner, name="Parcels", source_format="database"
@@ -305,13 +374,13 @@ async def test_a_database_job_refused_at_publication_leaves_no_table_or_dataset(
 async def test_a_retry_is_refused_while_the_owner_holds_a_copy_and_allowed_after(
     client: AsyncClient,
     admin_auth_header,
-    editor_auth_header,
     test_db_session,
     deferred,
     monkeypatch,
 ):
     base = _fresh_base()
-    owner = await _user_id(client, editor_auth_header)
+    owner_headers, owner_id = await create_user(client, admin_auth_header, "editor")
+    owner = uuid.UUID(owner_id)
     old = _service_job(base, owner, status="failed")
     copy = _service_job(base, owner, status="pending")
     test_db_session.add_all([old, copy])
@@ -336,7 +405,7 @@ async def test_a_retry_is_refused_while_the_owner_holds_a_copy_and_allowed_after
         "DELETE",
         f"/datasets/{copy.dataset_id}",
         json={"confirm_title": record.title},
-        headers=editor_auth_header,
+        headers=owner_headers,
     )
     assert deleted.status_code in (200, 204), deleted.text
     allowed = await client.post(f"/jobs/{old.id}/retry", headers=admin_auth_header)

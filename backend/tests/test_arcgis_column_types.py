@@ -16,7 +16,6 @@ from app.processing.ingest.tasks_reupload import reupload_service
 from tests.factories import get_user_id
 from tests.test_refresh_gate_1269 import _runs_ordered
 from tests.test_service_reupload_3d import (
-    _IMPORTED_FROM,
     _base_of,
     _dispatch_harness,
     _fresh_base,
@@ -165,7 +164,6 @@ async def _ingest(session, monkeypatch) -> uuid.UUID:
         )
     await session.refresh(job)
     assert job.status == "complete", job.error_message
-    _IMPORTED_FROM[job.dataset_id] = base
     return job.dataset_id
 
 
@@ -272,7 +270,7 @@ async def test_the_reupload_preview_names_the_type_changes_a_refresh_reports(
             response = await client.post(
                 f"/datasets/{dataset_id}/reupload/service/preview",
                 json={
-                    "url": _base_of(dataset_id),
+                    "url": await _base_of(dataset_id),
                     "service_type": "ArcGIS FeatureServer",
                     "layer_name": "0",
                     "layer_id": 0,

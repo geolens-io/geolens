@@ -11,8 +11,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections.abc import Callable
-from dataclasses import astuple, dataclass
+from dataclasses import dataclass, field, fields
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -28,9 +27,9 @@ from app.platform.dataset_origin import (
 )
 from app.platform.jobs import ledger
 from app.platform.jobs.models import (
-    COMMIT_ATTEMPTED_METADATA_KEY,
     DATABASE_SOURCE_METADATA_KEY,
     IngestJob,
+    dispatch_attempted,
 )
 
 DUPLICATE_SOURCE_CODE = "duplicate_source"
@@ -42,23 +41,16 @@ _EXISTING_DATASET_MARKERS = ("dataset_id", "reupload", "refresh")
 
 @dataclass(frozen=True)
 class ServiceIdentity:
-    """A service layer: canonical format, base URL and service-native layer id."""
+    """A service layer: canonical format, base URL and service-native layer id.
+
+    ``legacy_url`` is the ``source_url`` an import of it writes, which only an
+    ``origin_ref`` without url or layer_id is matched on.
+    """
 
     source_format: str
     url: str
     layer_id: str | None
-
-    @classmethod
-    def of(
-        cls, source_format: str, url: str, *, layer_id: Any, layer_name: str | None
-    ) -> ServiceIdentity:
-        return cls(
-            source_format,
-            url,
-            service_layer_identity(
-                source_format, layer_id=layer_id, layer_name=layer_name
-            ),
-        )
+    legacy_url: str = field(compare=False)
 
 
 SourceIdentity = ServiceIdentity | DatabaseSource
@@ -73,82 +65,85 @@ class ExistingCopy:
     job_id: uuid.UUID | None = None
 
 
-def _writes_into_a_dataset(job: IngestJob) -> bool:
-    metadata = job.user_metadata or {}
-    return any(metadata.get(marker) for marker in _EXISTING_DATASET_MARKERS)
+def service_identity(
+    service_type: str, url: str, *, layer_id: Any, layer_name: str | None
+) -> ServiceIdentity | None:
+    """A service layer's identity in the spelling its import writes to ``origin_ref``.
 
-
-def database_job_identity(job: IngestJob) -> DatabaseSource | None:
-    """The table a database import job names, or None for any other job."""
-    stored = (job.user_metadata or {}).get(DATABASE_SOURCE_METADATA_KEY)
-    source = read_source("database", stored)
-    return source if isinstance(source, DatabaseSource) else None
-
-
-def job_source_identity(job: IngestJob) -> tuple[SourceIdentity, str | None] | None:
-    """The source a service or database import job copies, as its worker writes it.
-
-    The second value is the legacy ``source_url`` spelling of a service layer.
-    None for any other job, or a service type nothing can import.
+    An ArcGIS URL is normalized as the preview stores it, and a layer id
+    embedded in it counts when none is given; other services keep the URL
+    as given. None for a service type nothing can import.
     """
-    if _writes_into_a_dataset(job):
-        return None
-    metadata = job.user_metadata or {}
-    database = database_job_identity(job)
-    if database is not None:
-        return database, None
-    if not job.source_url or job.file_path:
-        return None
     from app.processing.ingest.ogr import IngestionError
     from app.processing.ingest.tasks import resolve_service_type
 
     try:
-        _, source_format = resolve_service_type(str(metadata.get("service_type") or ""))
+        _, source_format = resolve_service_type(service_type)
     except IngestionError:
         return None
-    layer_id = metadata.get("layer_id")
-    identity = ServiceIdentity.of(
-        source_format, job.source_url, layer_id=layer_id, layer_name=job.source_layer
+    if source_format == "arcgis_featureserver":
+        from app.modules.catalog.sources.adapters.arcgis import normalize_arcgis_url
+
+        try:
+            url, url_layer_id = normalize_arcgis_url(url)
+        except ValueError:
+            url_layer_id = None
+        if layer_id is None:
+            layer_id = url_layer_id
+    return ServiceIdentity(
+        source_format,
+        url,
+        service_layer_identity(source_format, layer_id=layer_id, layer_name=layer_name),
+        legacy_url=f"{url}/{layer_id}" if layer_id is not None else url,
     )
-    legacy = f"{job.source_url}/{layer_id}" if layer_id is not None else job.source_url
-    return identity, legacy
+
+
+def job_source_identity(job: IngestJob) -> SourceIdentity | None:
+    """The source a service or database import job copies.
+
+    None for any other job, including one that writes into an existing
+    dataset, or a service type nothing can import.
+    """
+    metadata = job.user_metadata or {}
+    if any(metadata.get(marker) for marker in _EXISTING_DATASET_MARKERS):
+        return None
+    database = read_source("database", metadata.get(DATABASE_SOURCE_METADATA_KEY))
+    if isinstance(database, DatabaseSource):
+        return database
+    if not job.source_url or job.file_path:
+        return None
+    return service_identity(
+        str(metadata.get("service_type") or ""),
+        job.source_url,
+        layer_id=metadata.get("layer_id"),
+        layer_name=job.source_layer,
+    )
 
 
 async def owner_copy(session: AsyncSession, job: IngestJob) -> ExistingCopy | None:
     """The published dataset of the source ``job`` copies, held by the job's owner."""
-    from app.platform.extensions import get_processing_port
-
-    found = job_source_identity(job)
-    if found is None or job.created_by is None:
+    identity = job_source_identity(job)
+    if identity is None or job.created_by is None:
         return None
-    identity, legacy = found
-    port = get_processing_port()
-    return await published_copy(
-        session,
-        job.created_by,
-        identity,
-        dataset_cls=port.get_dataset_orm_class(),
-        record_cls=port.get_record_orm_class(),
-        legacy_source_url=legacy,
-    )
+    return await published_copy(session, job.created_by, identity)
 
 
 async def published_copy(
-    session: AsyncSession,
-    user_id: uuid.UUID,
-    identity: SourceIdentity,
-    *,
-    dataset_cls: Any,
-    record_cls: Any,
-    legacy_source_url: str | None = None,
+    session: AsyncSession, user_id: uuid.UUID, identity: SourceIdentity
 ) -> ExistingCopy | None:
     """The user's dataset already bound to ``identity``, if any.
 
     Keyed on the structured ``origin_ref``, which only ingest and refresh
-    write. ``legacy_source_url`` matches a service row whose ``origin_ref``
-    lacks url or layer_id (one migration 0036 could not backfill); gated on
-    that gap because ``source_url`` is editable through the metadata PATCH.
+    write. A service row whose ``origin_ref`` lacks url or layer_id (one
+    migration 0036 could not backfill) is matched on ``source_url`` instead,
+    gated on that gap because ``source_url`` is editable through the metadata
+    PATCH.
     """
+    from app.platform.extensions import get_processing_port
+
+    port = get_processing_port()
+    dataset_cls = port.get_dataset_orm_class()
+    record_cls = port.get_record_orm_class()
     ref = dataset_cls.origin_ref
     if isinstance(identity, DatabaseSource):
         matches = and_(
@@ -160,20 +155,21 @@ async def published_copy(
     else:
         ref_url = ref["url"].astext
         ref_layer = ref["layer_id"].astext
-        structured = and_(
-            ref["service_type"].astext == identity.source_format,
-            ref_url == identity.url,
-            ref_layer.is_(None)
-            if identity.layer_id is None
-            else ref_layer == identity.layer_id,
-        )
-        legacy = and_(
-            or_(ref_url.is_(None), ref_layer.is_(None)),
-            dataset_cls.source_url == legacy_source_url,
-        )
         matches = and_(
             dataset_cls.source_format == identity.source_format,
-            or_(structured, legacy) if legacy_source_url is not None else structured,
+            or_(
+                and_(
+                    ref["service_type"].astext == identity.source_format,
+                    ref_url == identity.url,
+                    ref_layer.is_(None)
+                    if identity.layer_id is None
+                    else ref_layer == identity.layer_id,
+                ),
+                and_(
+                    or_(ref_url.is_(None), ref_layer.is_(None)),
+                    dataset_cls.source_url == identity.legacy_url,
+                ),
+            ),
         )
     row = (
         await session.execute(
@@ -187,11 +183,7 @@ async def published_copy(
 
 
 async def importing_copy(
-    session: AsyncSession,
-    user_id: uuid.UUID,
-    identity: SourceIdentity,
-    *,
-    job_identity: Callable[[IngestJob], SourceIdentity | None],
+    session: AsyncSession, user_id: uuid.UUID, identity: SourceIdentity
 ) -> ExistingCopy | None:
     """The user's queued or running import of ``identity``, if any.
 
@@ -210,16 +202,13 @@ async def importing_copy(
             kind,
             or_(
                 IngestJob.status == "running",
-                and_(
-                    IngestJob.status == "pending",
-                    IngestJob.user_metadata.has_key(COMMIT_ATTEMPTED_METADATA_KEY),
-                ),
+                and_(IngestJob.status == "pending", dispatch_attempted()),
             ),
         )
         .order_by(IngestJob.created_at, IngestJob.id)
     )
     for job in jobs:
-        if not _writes_into_a_dataset(job) and job_identity(job) == identity:
+        if job_source_identity(job) == identity:
             return ExistingCopy(job_id=job.id)
     return None
 
@@ -261,14 +250,15 @@ async def refuse_second_copy(
     and then finds this one's dataset. True means the job is failed and
     committed, with nothing published.
     """
-    found = job_source_identity(job)
-    if found is None or job.created_by is None:
+    identity = job_source_identity(job)
+    if identity is None or job.created_by is None:
         return False
-    scope = json.dumps(
-        [str(job.created_by), type(found[0]).__name__, *astuple(found[0])]
+    key = [type(identity).__name__, str(job.created_by)]
+    key += [getattr(identity, f.name) for f in fields(identity) if f.compare]
+    await lock_request_key(
+        session, scope=f"source-copy:{json.dumps(key)}", lock_timeout=None
     )
-    await lock_request_key(session, scope=f"source-copy:{scope}", lock_timeout=None)
-    existing = await owner_copy(session, job)
+    existing = await published_copy(session, job.created_by, identity)
     if existing is None:
         return False
     await ledger.fail(

@@ -13,7 +13,6 @@ from app.core.geo import unknown_srid_refusal
 from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
 from app.modules.catalog.authorization import check_public_visibility_allowed
-from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.datasets.domain.schemas import Visibility
 from app.modules.quota.service import check_upload_quota
 from app.platform.database_sources import (
@@ -29,7 +28,6 @@ from app.platform.extensions import get_catalog_port
 from app.platform.jobs import ledger
 from app.platform.jobs.models import DATABASE_SOURCE_METADATA_KEY
 from app.platform.source_copies import (
-    database_job_identity,
     duplicate_source_conflict,
     importing_copy,
     published_copy,
@@ -235,9 +233,9 @@ async def import_database_table(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=srid_refusal)
     await check_upload_quota(db, user_id, 0, request)
     identity = DatabaseSource(connection, body.schema_name, body.table_name)
-    existing = await published_copy(
-        db, user_id, identity, dataset_cls=Dataset, record_cls=Record
-    ) or await importing_copy(db, user_id, identity, job_identity=database_job_identity)
+    existing = await published_copy(db, user_id, identity) or await importing_copy(
+        db, user_id, identity
+    )
     if existing is not None:
         raise duplicate_source_conflict(
             existing,

@@ -74,6 +74,14 @@ def commit_attempted_marker() -> dict[str, str]:
     return {COMMIT_ATTEMPTED_METADATA_KEY: datetime.now(timezone.utc).isoformat()}
 
 
+def dispatch_attempted():
+    """Predicate: the row carries the dispatch stamp ``commit_attempted_marker`` writes."""
+    return (
+        func.coalesce(IngestJob.user_metadata[COMMIT_ATTEMPTED_METADATA_KEY].astext, "")
+        != ""
+    )
+
+
 # Marks an admin embedding backfill run; the row exists so the
 # operator sees it in flight and a second run is refused before it deletes
 # anything. Read by the admin dispatch, its concurrency guard, and jobs/router.py.

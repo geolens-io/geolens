@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.modules.catalog.datasets.api import router_reupload
 from app.modules.catalog.datasets.domain.models import Dataset
@@ -33,12 +33,14 @@ def _fresh_base() -> str:
     return _BASE.replace("/Wells/", f"/Wells{uuid.uuid4().hex[:8]}/")
 
 
-# The layer URL each dataset `_ingest` made was imported from.
-_IMPORTED_FROM: dict[uuid.UUID, str] = {}
+async def _base_of(dataset_id) -> str:
+    """The layer URL a dataset is bound to."""
+    from app.core.db import async_session
 
-
-def _base_of(dataset_id) -> str:
-    return _IMPORTED_FROM.get(uuid.UUID(str(dataset_id)), _BASE)
+    async with async_session() as session:
+        return await session.scalar(
+            select(Dataset.origin_ref["url"].astext).where(Dataset.id == dataset_id)
+        )
 
 
 def _fake_fetch(points, columns=("name",)):
@@ -123,7 +125,6 @@ async def _ingest(session, monkeypatch, points, columns=("name",)) -> uuid.UUID:
         )
     await session.refresh(job)
     assert job.status == "complete", job.error_message
-    _IMPORTED_FROM[job.dataset_id] = base
     return job.dataset_id
 
 
@@ -139,10 +140,11 @@ async def _refresh(client, headers, monkeypatch, dataset_id, points) -> None:
 
 async def _reupload(session, monkeypatch, dataset_id, points) -> None:
     admin_id = await get_user_id(session, "admin")
+    base = await _base_of(dataset_id)
     job = IngestJob(
         dataset_id=dataset_id,
         source_filename="Wells",
-        source_url=_base_of(dataset_id),
+        source_url=base,
         source_layer="0",
         created_by=admin_id,
         status="pending",
@@ -161,7 +163,7 @@ async def _reupload(session, monkeypatch, dataset_id, points) -> None:
             job_id=str(job.id),
             attempt_id=str(job.attempt_id),
             dataset_id=str(dataset_id),
-            source_url=_base_of(dataset_id),
+            source_url=base,
             source_layer="0",
             user_id=str(admin_id),
         )
@@ -192,7 +194,7 @@ async def _preview(client, headers, dataset_id, points, columns=("name",)) -> di
             f"/datasets/{dataset_id}/reupload/service/preview",
             headers=headers,
             json={
-                "url": _base_of(dataset_id),
+                "url": await _base_of(dataset_id),
                 "service_type": "ArcGIS FeatureServer",
                 "layer_name": "0",
                 "layer_id": "0",

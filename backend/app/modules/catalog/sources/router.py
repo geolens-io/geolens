@@ -25,7 +25,6 @@ from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.crs_uri import parse_crs_uri
 from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
-from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.core.dependencies import get_db
 from app.platform.jobs import ledger
 from app.platform.jobs.models import IngestJob
@@ -103,10 +102,10 @@ from app.platform.security import (
     validate_url_for_ssrf,
 )
 from app.platform.source_copies import (
-    ServiceIdentity,
     duplicate_source_conflict,
     importing_copy,
     published_copy,
+    service_identity,
 )
 from app.platform.portal_link import (
     PortalLink,
@@ -853,45 +852,6 @@ async def _create_preview_job(
     return job
 
 
-def _service_identity(
-    service_type: str, url: str, layer_id: int | str | None, layer_name: str | None
-) -> tuple[ServiceIdentity, str]:
-    """A layer's identity, and the legacy ``source_url`` spelling of it.
-
-    The URL is normalized the way the preview stores it for ArcGIS; a layer id
-    embedded in the URL counts when none is given.
-    """
-    _, source_format = get_catalog_port().resolve_service_type(service_type)
-    try:
-        base_url, url_layer_id = normalize_arcgis_url(url)
-    except Exception:  # broad: malformed input; degrade to raw URL
-        base_url, url_layer_id = url, None
-    effective_layer_id = layer_id if layer_id is not None else url_layer_id
-    enriched_url = (
-        f"{base_url}/{effective_layer_id}"
-        if effective_layer_id is not None
-        else base_url
-    )
-    identity = ServiceIdentity.of(
-        source_format, base_url, layer_id=effective_layer_id, layer_name=layer_name
-    )
-    return identity, enriched_url
-
-
-def _job_identity(job: IngestJob) -> ServiceIdentity | None:
-    metadata = job.user_metadata or {}
-    try:
-        identity, _ = _service_identity(
-            str(metadata.get("service_type") or ""),
-            job.source_url or "",
-            metadata.get("layer_id"),
-            job.source_layer,
-        )
-    except (ValueError, KeyError, IngestionError):
-        return None
-    return identity
-
-
 def _portal_link(request: ServicePreviewRequest) -> PortalLink:
     if not request.service_type.startswith("ArcGIS"):
         return PortalLink.unsupported(request.item_id, request.portal_url)
@@ -1233,26 +1193,16 @@ async def preview_service_layer(
         await db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
-    # The identity is spelled from the URL as given and from each queued
-    # job's own URL alike, so a preview and a job of one layer compare equal.
-    try:
-        requested = _service_identity(
-            request.service_type, request.url, request.layer_id, request.layer_name
+    identity = service_identity(
+        request.service_type,
+        request.url,
+        layer_id=request.layer_id,
+        layer_name=request.layer_name,
+    )
+    if identity is not None:
+        existing = await published_copy(db, user_id, identity) or await importing_copy(
+            db, user_id, identity
         )
-    except (ValueError, KeyError, IngestionError):
-        # resolve_service_type raises IngestionError for unknown service
-        # types; skip the duplicate check and let build_gdal_source refuse.
-        requested = None
-    if requested is not None:
-        identity, enriched_url = requested
-        existing = await published_copy(
-            db,
-            user_id,
-            identity,
-            dataset_cls=Dataset,
-            record_cls=Record,
-            legacy_source_url=enriched_url,
-        ) or await importing_copy(db, user_id, identity, job_identity=_job_identity)
         if existing is not None:
             raise duplicate_source_conflict(
                 existing,
