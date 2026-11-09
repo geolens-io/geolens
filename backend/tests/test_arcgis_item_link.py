@@ -1,18 +1,13 @@
 """The ArcGIS item link on a dataset origin: validation, carry-forward and
 who may read it."""
 
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from app.platform.dataset_origin import (
-    build_origin_ref,
-    carried_portal_link,
-    set_dataset_origin,
-)
+from app.platform.dataset_origin import build_origin_ref
 from app.platform.jobs.models import IngestJob
 from app.processing.ingest.schemas import FanOutLayerResult
 from app.platform.portal_link import (
@@ -209,16 +204,6 @@ class TestOriginAllowlist:
             build_origin_ref("postgis", table_name="a.b", item_id=_ITEM)
 
 
-def _dataset(origin_ref: dict | None) -> SimpleNamespace:
-    return SimpleNamespace(
-        origin_ref=origin_ref,
-        origin_uri=None,
-        source_health="healthy",
-        source_health_detail=None,
-        last_checked_at=None,
-    )
-
-
 _LINKED_SERVICE = {
     "kind": "service",
     "service_type": "arcgis_featureserver",
@@ -226,143 +211,6 @@ _LINKED_SERVICE = {
     "item_id": _ITEM,
     "portal_url": _PORTAL,
 }
-
-
-class TestLinkSurvivesRestamps:
-    def test_a_service_refresh_keeps_it(self) -> None:
-        dataset = _dataset(dict(_LINKED_SERVICE))
-        set_dataset_origin(
-            dataset,
-            "service",
-            uri=_SERVICE,
-            service_type="arcgis_featureserver",
-            url=_SERVICE,
-            layer_id="0",
-        )
-        assert dataset.origin_ref["item_id"] == _ITEM
-        assert dataset.origin_ref["portal_url"] == _PORTAL
-
-    def test_a_file_replace_of_a_service_dataset_keeps_it(self) -> None:
-        dataset = _dataset(dict(_LINKED_SERVICE))
-        set_dataset_origin(dataset, "upload", filename="a.gpkg", file_hash="h")
-        assert dataset.origin_ref["kind"] == "upload"
-        assert dataset.origin_ref["item_id"] == _ITEM
-
-    def test_a_restore_of_a_file_dataset_keeps_it(self) -> None:
-        dataset = _dataset({"kind": "upload", "filename": "b.gpkg", "item_id": _ITEM})
-        set_dataset_origin(dataset, "upload", filename="a.gpkg", file_hash="h")
-        assert dataset.origin_ref["item_id"] == _ITEM
-
-    def test_a_new_link_replaces_the_old_one(self) -> None:
-        dataset = _dataset(dict(_LINKED_SERVICE))
-        other = "f" * 32
-        set_dataset_origin(dataset, "upload", filename="a", item_id=other)
-        assert dataset.origin_ref["item_id"] == other
-        assert "portal_url" not in dataset.origin_ref
-
-    def test_a_service_moved_to_another_domain_drops_the_link_and_says_so(
-        self,
-    ) -> None:
-        dataset = _dataset(dict(_LINKED_SERVICE))
-        losses = set_dataset_origin(
-            dataset,
-            "service",
-            uri="https://gis.other.org/rest/FeatureServer",
-            service_type="arcgis_featureserver",
-            url="https://gis.other.org/rest/FeatureServer",
-            layer_id="0",
-        )
-        assert losses == ["portal_url_domain_mismatch"]
-        assert "item_id" not in dataset.origin_ref
-        assert "portal_url" not in dataset.origin_ref
-
-    def test_an_item_id_alone_is_dropped_when_the_service_moves_domain(self) -> None:
-        old = {k: v for k, v in _LINKED_SERVICE.items() if k != "portal_url"}
-        dataset = _dataset(old)
-        losses = set_dataset_origin(
-            dataset,
-            "service",
-            service_type="arcgis_featureserver",
-            url="https://gis.other.org/rest/FeatureServer",
-        )
-        assert losses == ["portal_url_domain_mismatch"]
-        assert "item_id" not in dataset.origin_ref
-
-    def test_an_item_id_alone_survives_a_move_within_the_domain(self) -> None:
-        old = {k: v for k, v in _LINKED_SERVICE.items() if k != "portal_url"}
-        dataset = _dataset(old)
-        assert (
-            set_dataset_origin(
-                dataset,
-                "service",
-                service_type="arcgis_featureserver",
-                url="https://services8.arcgis.com/z/FeatureServer",
-            )
-            == []
-        )
-        assert dataset.origin_ref["item_id"] == _ITEM
-
-    def test_a_rebind_to_a_non_arcgis_service_drops_the_link(self) -> None:
-        dataset = _dataset(dict(_LINKED_SERVICE))
-        losses = set_dataset_origin(
-            dataset,
-            "service",
-            service_type="wfs",
-            url="https://services7.arcgis.com/wfs",
-            layer_id="roads",
-        )
-        assert losses == ["origin_link_unsupported"]
-        assert "item_id" not in dataset.origin_ref
-        assert "portal_url" not in dataset.origin_ref
-
-    def test_a_service_restamp_on_the_same_domain_keeps_it(self) -> None:
-        dataset = _dataset(dict(_LINKED_SERVICE))
-        losses = set_dataset_origin(
-            dataset,
-            "service",
-            url="https://services8.arcgis.com/z/FeatureServer",
-            service_type="arcgis_featureserver",
-        )
-        assert losses == []
-        assert dataset.origin_ref["portal_url"] == _PORTAL
-
-    def test_an_upload_turned_into_a_service_is_checked_against_the_new_host(
-        self,
-    ) -> None:
-        dataset = _dataset(
-            {
-                "kind": "upload",
-                "filename": "a",
-                "item_id": _ITEM,
-                "portal_url": "https://evil.example",
-            }
-        )
-        losses = set_dataset_origin(
-            dataset,
-            "service",
-            url="https://gis.city.gov/server/rest/services/S/FeatureServer",
-            service_type="arcgis_featureserver",
-        )
-        assert losses == ["portal_url_domain_mismatch"]
-        assert dataset.origin_ref.get("portal_url") is None
-        assert dataset.origin_ref.get("item_id") is None
-
-    def test_a_service_turned_into_an_upload_keeps_the_link(self) -> None:
-        dataset = _dataset(dict(_LINKED_SERVICE))
-        assert set_dataset_origin(dataset, "upload", filename="a") == []
-        assert dataset.origin_ref["portal_url"] == _PORTAL
-
-    def test_a_stac_item_id_is_not_a_portal_item(self) -> None:
-        stac = {"kind": "stac", "item_id": "S2A_2024", "url": "https://c.test"}
-        assert carried_portal_link(stac) == {}
-        dataset = _dataset(stac)
-        set_dataset_origin(dataset, "upload", filename="a.tif")
-        assert "item_id" not in dataset.origin_ref
-
-    def test_other_kinds_never_gain_it(self) -> None:
-        dataset = _dataset(dict(_LINKED_SERVICE))
-        set_dataset_origin(dataset, "postgis", table_name="data.t")
-        assert dataset.origin_ref == {"kind": "postgis", "table_name": "data.t"}
 
 
 _PREVIEW = {

@@ -18,7 +18,7 @@ from sqlalchemy import select
 from app.core.db.tenant_session import tenant_task
 from app.core.record_types import capabilities
 from app.platform.catalog_locks import CATALOG_LOCK_CONFLICT_CODE, CatalogLockConflict
-from app.platform.dataset_origin import classify_origin, set_dataset_origin
+from app.platform.dataset_origin import KEEP, SourceBinding, classify_origin, restamp
 from app.platform.jobs.models import EXPECTED_PREVIOUS_VERSION_KEY
 from app.processing.ingest import catalog_projection
 from app.processing.ingest.publication import (
@@ -62,16 +62,17 @@ def _reinstate_source(dataset, source) -> None:
     if kind not in ("upload", "created"):
         return
     dataset.source_filename = source.source_filename
-    dataset.source_format = source.source_format
-    if kind == "upload":
-        set_dataset_origin(
-            dataset,
-            "upload",
+    binding = (
+        SourceBinding.upload(
+            source.source_format,
             filename=source.source_filename,
             file_hash=source.file_hash,
         )
-    else:
-        set_dataset_origin(dataset, "created")
+        if kind == "upload"
+        else SourceBinding.created()
+    )
+    # The caller already dated freshness from the restored version.
+    restamp(dataset, binding, contacted_at=None, refreshed_at=KEEP)
 
 
 class RestoreRefused(Exception):

@@ -38,19 +38,20 @@ from app.modules.catalog.datasets.domain.models import (
 )
 from app.platform.jobs.models import IngestJob
 from app.platform.dataset_origin import (
+    KEEP,
     ORIGIN_KINDS,
     ORIGIN_REF_KEYS,
     SCHEMA_DRIFT_STATUS_VALUES,
     SERVICE_SOURCE_FORMATS,
     SOURCE_HEALTH_VALUES,
     UNKNOWN,
+    SourceBinding,
     build_origin_ref,
     classify_origin,
     project_unknown,
+    restamp,
     service_auth_required,
     service_layer_identity,
-    set_dataset_origin,
-    set_postgis_origin,
 )
 from tests.factories import create_dataset as _create_dataset, get_user_id
 
@@ -248,25 +249,41 @@ class TestOriginRefAllowlist:
         }
 
 
-class TestSetDatasetOrigin:
-    def test_writes_both_columns(self) -> None:
+def _restamp(dataset: Dataset, binding: SourceBinding) -> list[str]:
+    return restamp(dataset, binding, contacted_at=None, refreshed_at=KEEP)
+
+
+_ROADS = SourceBinding.service(
+    "wfs",
+    url="https://svc.test/wfs",
+    layer_id="roads",
+    enriched_uri="https://svc.test/wfs/roads",
+)
+
+
+class TestRestamp:
+    def test_writes_the_whole_binding(self) -> None:
         dataset = Dataset(record_id=uuid.uuid4(), table_name="ds_x")
-        set_dataset_origin(
-            dataset, "stac", uri="https://example.test/a.tif", asset_href="https://e/a"
+        _restamp(
+            dataset,
+            SourceBinding.from_ref(
+                "stac", {"asset_href": "https://e/a"}, uri="https://example.test/a.tif"
+            ),
         )
+        assert dataset.source_format == "stac"
         assert dataset.origin_uri == "https://example.test/a.tif"
         assert dataset.origin_ref == {"kind": "stac", "asset_href": "https://e/a"}
 
     def test_upload_has_no_uri(self) -> None:
         dataset = Dataset(record_id=uuid.uuid4(), table_name="ds_x")
-        set_dataset_origin(dataset, "upload", filename="parcels.gpkg")
+        _restamp(dataset, SourceBinding.upload("gpkg", filename="parcels.gpkg"))
         assert dataset.origin_uri is None
         assert dataset.origin_ref == {"kind": "upload", "filename": "parcels.gpkg"}
 
-    def test_unknown_kind_raises_before_touching_the_row(self) -> None:
+    def test_a_refused_payload_raises_before_touching_the_row(self) -> None:
         dataset = Dataset(record_id=uuid.uuid4(), table_name="ds_x")
-        with pytest.raises(ValueError, match="unknown origin kind"):
-            set_dataset_origin(dataset, "sftp", uri="sftp://host/x")
+        with pytest.raises(ValueError, match="rejects key"):
+            _restamp(dataset, SourceBinding.from_ref("gpkg", {"token": "x"}))
         assert dataset.origin_uri is None
         assert dataset.origin_ref is None
 
@@ -276,19 +293,12 @@ class TestSetDatasetOrigin:
         a local file would otherwise serve missing/not_found forever, since
         the probe endpoint 409s on uploads and nothing could correct it."""
         dataset = Dataset(record_id=uuid.uuid4(), table_name="ds_x")
-        set_dataset_origin(
-            dataset,
-            "service",
-            uri="https://svc.test/wfs/roads",
-            service_type="wfs",
-            url="https://svc.test/wfs",
-            layer_id="roads",
-        )
+        _restamp(dataset, _ROADS)
         dataset.source_health = "missing"
         dataset.source_health_detail = "not_found"
         dataset.last_checked_at = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
-        set_dataset_origin(dataset, "upload", filename="roads.gpkg")
+        _restamp(dataset, SourceBinding.upload("gpkg", filename="roads.gpkg"))
 
         assert dataset.source_health is None
         assert dataset.source_health_detail is None
@@ -302,35 +312,21 @@ class TestSetDatasetOrigin:
         state either way; a recovered origin must not keep reporting the
         failure the swap just disproved."""
         dataset = Dataset(record_id=uuid.uuid4(), table_name="ds_x")
-        set_dataset_origin(
-            dataset,
-            "service",
-            uri="https://svc.test/wfs/roads",
-            service_type="wfs",
-            url="https://svc.test/wfs",
-            layer_id="roads",
-        )
+        _restamp(dataset, _ROADS)
         dataset.source_health = "missing"
         dataset.source_health_detail = "not_found"
         dataset.last_checked_at = datetime(2026, 8, 1, tzinfo=timezone.utc)
 
-        set_dataset_origin(
-            dataset,
-            "service",
-            uri="https://svc.test/wfs/roads",
-            service_type="wfs",
-            url="https://svc.test/wfs",
-            layer_id="roads",
-        )
+        _restamp(dataset, _ROADS)
 
         assert dataset.source_health is None
         assert dataset.source_health_detail is None
         assert dataset.last_checked_at is None
 
     def test_postgis_pointer_and_ref_name_the_same_table(self) -> None:
-        """Two spellings of one fact; set_postgis_origin owns keeping them equal."""
+        """Two spellings of one fact; SourceBinding.postgis owns keeping them equal."""
         dataset = Dataset(record_id=uuid.uuid4(), table_name="parcels")
-        set_postgis_origin(dataset, "parcels", schema="data")
+        _restamp(dataset, SourceBinding.postgis("parcels", schema="data"))
         assert dataset.origin_uri == "postgis://data.parcels"
         assert dataset.origin_ref == {"kind": "postgis", "table_name": "data.parcels"}
         assert dataset.origin_uri == f"postgis://{dataset.origin_ref['table_name']}"
@@ -345,15 +341,14 @@ class TestSetDatasetOrigin:
         """
         tenant_schema = "data_t_aaaaaaaa_bbbb_cccc_dddd_eeeeeeeeeeee"
         dataset = Dataset(record_id=uuid.uuid4(), table_name="parcels")
-        set_postgis_origin(dataset, "parcels", schema=tenant_schema)
+        _restamp(dataset, SourceBinding.postgis("parcels", schema=tenant_schema))
         assert dataset.origin_uri == f"postgis://{tenant_schema}.parcels"
         assert dataset.origin_ref["table_name"] == f"{tenant_schema}.parcels"
 
     def test_postgis_origin_cannot_be_stamped_without_a_schema(self) -> None:
         """Keyword-only and required: no positional tenant_id can slip back in."""
-        dataset = Dataset(record_id=uuid.uuid4(), table_name="parcels")
         with pytest.raises(TypeError):
-            set_postgis_origin(dataset, "parcels")  # type: ignore[call-arg]
+            SourceBinding.postgis("parcels")  # type: ignore[call-arg]
 
 
 # ---------------------------------------------------------------------------
@@ -1525,7 +1520,7 @@ class TestReuploadRestampsTheBinding:
             visibility="private",
             source_format=None,
         )
-        set_postgis_origin(ds, ds.table_name, schema="data")
+        _restamp(ds, SourceBinding.postgis(ds.table_name, schema="data"))
         ds.source_url = "https://descriptive.test/about-this-layer"
         stale = datetime(2020, 1, 1, tzinfo=timezone.utc)
         ds.last_refreshed_at = stale

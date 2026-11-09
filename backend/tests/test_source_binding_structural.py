@@ -1,9 +1,9 @@
 """Only ``platform/dataset_origin.py`` writes a dataset's origin pointer.
 
-``origin_uri`` and ``origin_ref`` change only through ``set_dataset_origin`` and
-``set_postgis_origin``, which run ``build_origin_ref``'s allowlist (ADR-002
-invariant 4) and clear the stored probe verdict. This walks every module under
-``backend/app/`` and fails on any other write it can see:
+``origin_uri`` and ``origin_ref`` change only through ``restamp``, whose
+``SourceBinding`` holds only what ``build_origin_ref``'s allowlist builds
+(ADR-002 invariant 4), and which clears the stored probe verdict. This walks
+every module under ``backend/app/`` and fails on any other write it can see:
 
 - ORM attributes: assignment, ``del``, item writes, ``|=`` and mutating methods
   on the stored dict (reached as ``x.origin_ref``, ``getattr(x, "origin_ref")``
@@ -70,12 +70,9 @@ import pytest
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 APP_ROOT = BACKEND_ROOT / "app"
 OWNER = "app/platform/dataset_origin.py"
-# Every write the owner module makes, by enclosing function. set_postgis_origin
-# writes through set_dataset_origin.
+# Every write the owner module makes, by enclosing function.
 OWNER_WRITES = Counter(
     {
-        ("set_dataset_origin", "writes .origin_ref"): 1,
-        ("set_dataset_origin", "writes .origin_uri"): 1,
         ("restamp", "writes .origin_ref"): 1,
         ("restamp", "writes .origin_uri"): 1,
     }
@@ -974,19 +971,19 @@ NAME_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
     ),
     ("app/processing/ingest/tasks_reupload.py", "_FileReupload.write"): (
         1,
-        "hands the upload ref to _write_reupload_catalog, which stamps it through set_dataset_origin",
+        "hands the upload ref to _write_reupload_catalog, which stamps it through restamp",
     ),
     ("app/processing/ingest/tasks_reupload.py", "_ServiceReupload.write"): (
         1,
-        "hands the service ref to _write_reupload_catalog, which stamps it through set_dataset_origin",
+        "hands the service ref to _write_reupload_catalog, which stamps it through restamp",
     ),
     ("app/processing/ingest/tasks_vector.py", "ingest_file"): (
         1,
-        "the ref captured at import, stamped through set_dataset_origin at commit",
+        "the ref captured at import, stamped through restamp at commit",
     ),
     ("app/processing/ingest/tasks_vector.py", "ingest_service"): (
         1,
-        "the ref captured at import, stamped through set_dataset_origin at commit",
+        "the ref captured at import, stamped through restamp at commit",
     ),
 }
 
@@ -1113,9 +1110,8 @@ def test_only_the_binding_module_writes_origin_columns() -> None:
         for line, _, what in binding_writes(source):
             violations.append(f"{rel}:{line}: {what}")
     assert not violations, (
-        "origin_uri/origin_ref are written only by set_dataset_origin or "
-        "set_postgis_origin in backend/app/platform/dataset_origin.py:\n"
-        + "\n".join(violations)
+        "origin_uri/origin_ref are written only by restamp in "
+        "backend/app/platform/dataset_origin.py:\n" + "\n".join(violations)
     )
 
 
@@ -1139,7 +1135,7 @@ def test_every_name_for_a_column_is_at_an_allowlisted_site() -> None:
     problems = tree_problems(dict(_app_sources(owner=True)), NAME_ALLOWLIST)
     assert not problems, (
         "A string, keyword or attribute naming origin_ref/origin_uri can write "
-        "them. Write through set_dataset_origin, or record the site in "
+        "them. Write through restamp, or record the site in "
         "NAME_ALLOWLIST with its count and why it is no write:\n" + "\n".join(problems)
     )
 
@@ -1285,8 +1281,8 @@ def test_the_owner_module_writes_only_inside_its_setter() -> None:
             "def project_unknown(",
         ),
         (
-            "    dataset.origin_uri = uri\n",
-            "    dataset.origin_uri = uri\n    dataset.origin_uri = uri\n",
+            "    dataset.origin_uri = binding.uri\n",
+            "    dataset.origin_uri = binding.uri\n    dataset.origin_uri = binding.uri\n",
         ),
     ],
     ids=["second_function", "second_site_in_the_setter"],

@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import app.core.db as db_module
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.platform.catalog_locks import CATALOG_LOCK_CONFLICT_CODE
-from app.platform.dataset_origin import set_dataset_origin
+from app.platform.dataset_origin import KEEP, SourceBinding, restamp
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import create_pending_run
@@ -38,6 +38,11 @@ _POINT = "POINT(5 5)"
 _created: list[tuple[uuid.UUID, uuid.UUID, str]] = []
 
 
+def _bind(dataset: Dataset, url: str) -> None:
+    binding = SourceBinding.from_ref("wfs", {**_BINDING, "url": url}, uri=url)
+    restamp(dataset, binding, contacted_at=None, refreshed_at=KEEP)
+
+
 async def _candidate(
     session, *, refresh: bool, run: bool = True, origin_url: str = _WFS
 ) -> tuple[Dataset, IngestJob, uuid.UUID]:
@@ -51,9 +56,7 @@ async def _candidate(
         source_format="wfs",
         geometry_type="Point",
     )
-    set_dataset_origin(
-        dataset, "service", uri=origin_url, **{**_BINDING, "url": origin_url}
-    )
+    _bind(dataset, origin_url)
     await session.execute(
         sa.text(
             f'CREATE TABLE data."{live}" '
@@ -713,12 +716,7 @@ async def test_source_rebind_is_fenced_through_settlement_before_swap(
     run.source_binding_fingerprint = canonical_service_source_binding_fingerprint(
         _BINDING
     )
-    set_dataset_origin(
-        dataset,
-        "service",
-        uri="https://services.example.test/rebound",
-        **{**_BINDING, "url": "https://services.example.test/rebound"},
-    )
+    _bind(dataset, "https://services.example.test/rebound")
     await test_db_session.commit()
 
     with pytest.raises(Exception, match="source changed"):
@@ -872,9 +870,7 @@ async def _rebind_elsewhere(dataset: Dataset) -> None:
     async with db_module.async_session() as session:
         row = await session.get(Dataset, dataset.id)
         elsewhere = "https://services.example.test/elsewhere"
-        set_dataset_origin(
-            row, "service", uri=elsewhere, **{**_BINDING, "url": elsewhere}
-        )
+        _bind(row, elsewhere)
         await session.commit()
 
 

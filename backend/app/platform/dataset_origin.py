@@ -118,8 +118,8 @@ ORIGIN_REF_KEYS: dict[str, frozenset[str]] = {
     #
     # `item_id`/`portal_url` name the portal item the data was built from
     # (see `resolve_portal_link`, the only validated source). The `upload`
-    # kind carries them too, and `set_dataset_origin` keeps them across every
-    # restamp of either kind.
+    # kind carries them too, and `restamp` keeps them across every restamp of
+    # either kind.
     "service": frozenset(
         {"service_type", "url", "layer_id", "auth_required", "item_id", "portal_url"}
     ),
@@ -241,35 +241,6 @@ def classify_origin(
     if source_format in SERVICE_SOURCE_FORMATS:
         return "service"
     return "upload"
-
-
-def set_postgis_origin(
-    dataset: Any, table_name: str, *, schema: str, managed: bool = False
-) -> None:
-    """Stamp a registered PostGIS table's origin.
-
-    Separate from the generic writer because the pointer and the ref's
-    ``table_name`` must agree, and composing them at the call site is how
-    they drift — the qualified name is built once here.
-
-    ``schema`` is passed in, not derived from ``dataset.tenant_id``: in
-    multi-tenant mode the INSERT sends ``tenant_id`` as NULL and a trigger
-    fills it from a GUC, so the ORM attribute stays None and deriving here
-    would point every multi-tenant registration at the wrong schema.
-
-    ``managed`` says GeoLens created this table and may drop it again.
-    Passed as ``True``/``None``, not ``True``/``False``, so an unmanaged
-    registration's ref carries no key (``build_origin_ref`` omits ``None``);
-    every reader goes through :func:`geolens_owns_table`.
-    """
-    qualified = f"{schema}.{table_name}"
-    set_dataset_origin(
-        dataset,
-        "postgis",
-        uri=f"postgis://{qualified}",
-        table_name=qualified,
-        managed=True if managed else None,
-    )
 
 
 def geolens_owns_table(
@@ -513,38 +484,6 @@ def clear_source_probe_state(dataset: Any) -> None:
     dataset.source_health = None
     dataset.source_health_detail = None
     dataset.last_checked_at = None
-
-
-def set_dataset_origin(
-    dataset: Any, kind: str, *, uri: str | None = None, **ref_fields: Any
-) -> list[str]:
-    """Write the system-managed origin pointer onto a Dataset ORM instance.
-
-    The only supported way to populate ``origin_uri``/``origin_ref``. Neither
-    column appears in ``_DATASET_FIELD_MAP``, so nothing reaches them through
-    the metadata PATCH; ingest and refresh paths come through here.
-
-    Returns the loss codes of a portal link dropped instead of carried
-    forward: a service restamp whose host no longer shares the link's domain
-    loses ``item_id`` and ``portal_url`` together.
-    """
-    if kind not in ORIGIN_KINDS:
-        raise ValueError(
-            f"unknown origin kind {kind!r}; expected one of {sorted(ORIGIN_KINDS)}"
-        )
-    clear_source_probe_state(dataset)
-    dataset.origin_uri = uri
-    losses: list[str] = []
-    if kind in _PORTAL_LINK_KINDS and all(
-        ref_fields.get(k) is None for k in PORTAL_LINK_KEYS
-    ):
-        carried = carried_portal_link(dataset.origin_ref)
-        losses = _carry_losses(dataset.origin_ref, carried, kind, ref_fields)
-        if losses:
-            carried = {}
-        ref_fields |= carried
-    dataset.origin_ref = build_origin_ref(kind, **ref_fields)
-    return losses
 
 
 @dataclass(frozen=True)
