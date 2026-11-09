@@ -376,9 +376,13 @@ export async function getCapabilities(): Promise<CapabilitiesResponse> {
   return apiFetch<CapabilitiesResponse>('/capabilities/');
 }
 
+// Both read the connection's catalog, which the server waits up to 45 s for.
+const DATABASE_CATALOG_TIMEOUT_MS = 60_000;
+
 export async function listDatabaseTables(connection: string): Promise<DatabaseTableListResponse> {
   return apiFetch<DatabaseTableListResponse>(
     `/services/databases/${encodeURIComponent(connection)}/tables/`,
+    { timeoutMs: DATABASE_CATALOG_TIMEOUT_MS },
   );
 }
 
@@ -388,7 +392,7 @@ export async function startDatabaseImport(
 ): Promise<DatabaseImportResponse> {
   return apiFetch<DatabaseImportResponse>(
     `/services/databases/${encodeURIComponent(connection)}/imports/`,
-    { method: 'POST', body: JSON.stringify(request) },
+    { method: 'POST', body: JSON.stringify(request), timeoutMs: DATABASE_CATALOG_TIMEOUT_MS },
   );
 }
 

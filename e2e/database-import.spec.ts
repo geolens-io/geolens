@@ -30,6 +30,7 @@ const LISTING = {
       geometry_column: 'shape',
       column_type: 'geometry',
       srid: 4326,
+      importable: true,
     },
     {
       schema_name: 'gis',
@@ -38,6 +39,7 @@ const LISTING = {
       geometry_column: 'shape',
       column_type: 'geometry',
       srid: null,
+      importable: true,
     },
   ],
 };
