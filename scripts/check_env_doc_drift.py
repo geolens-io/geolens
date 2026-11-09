@@ -29,11 +29,15 @@ SETTINGS_PY = REPO_ROOT / "backend" / "app" / "core" / "config.py"
 # Settings inherits these fields; they need documenting all the same.
 AI_SETTINGS_PY = REPO_ROOT / "backend" / "app" / "core" / "config_ai.py"
 AUTH_SETTINGS_PY = REPO_ROOT / "backend" / "app" / "core" / "auth_settings.py"
+DATABASE_SOURCES_SETTINGS_PY = (
+    REPO_ROOT / "backend" / "app" / "core" / "config_database_sources.py"
+)
 SETTINGS_CLASSES = (
     (SETTINGS_PY, "Settings"),
     (AUTH_SETTINGS_PY, "AuthSettings"),
     (AI_SETTINGS_PY, "ClaudeSettings"),
     (AI_SETTINGS_PY, "OpenAISettings"),
+    (DATABASE_SOURCES_SETTINGS_PY, "DatabaseSourcesSettings"),
 )
 COMPOSE_FILES = (
     REPO_ROOT / "docker-compose.yml",

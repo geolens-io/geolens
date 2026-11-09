@@ -79,6 +79,9 @@ from app.modules.catalog.stories.router_map_stories import (
 from app.modules.catalog.stories.router_assets import router as story_assets_router
 from app.modules.catalog.stories.router_groups import router as story_groups_router
 from app.modules.catalog.search.router import collections_router, search_router
+from app.modules.catalog.sources.database_router import (
+    router as database_tables_router,
+)
 from app.modules.catalog.sources.router import router as services_router
 from app.modules.catalog.sources.stac_asset_size_router import (
     router as stac_asset_size_router,
@@ -155,6 +158,7 @@ api_router.include_router(ai_router)
 # `query` tool. Auth-only; see processing/ai/query_router.py.
 api_router.include_router(query_router)
 api_router.include_router(services_router)
+api_router.include_router(database_tables_router)
 api_router.include_router(stac_import_router)
 api_router.include_router(stac_asset_size_router)
 api_router.include_router(layers_router)

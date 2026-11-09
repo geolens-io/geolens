@@ -12,6 +12,7 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends && \
     apt-get install -y --no-install-recommends \
     gdal-bin \
     libexpat1 \
+    tdsodbc \
     xmlsec1 libxmlsec1-openssl \
     && dpkg --compare-versions \
         "$(dpkg-query -W -f='${Version}' perl-base)" \

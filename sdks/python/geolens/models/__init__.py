@@ -150,6 +150,7 @@ from .button_config import ButtonConfig
 from .button_widget import ButtonWidget
 from .capabilities_auth import CapabilitiesAuth
 from .capabilities_basemap import CapabilitiesBasemap
+from .capabilities_database_connection import CapabilitiesDatabaseConnection
 from .capabilities_key import CapabilitiesKey
 from .capabilities_me import CapabilitiesMe
 from .capabilities_rate_limits import CapabilitiesRateLimits
@@ -301,6 +302,10 @@ from .dashboard_config_input_panel_type_0 import DashboardConfigInputPanelType0
 from .dashboard_config_input_theme_type_0 import DashboardConfigInputThemeType0
 from .dashboard_config_panel import DashboardConfigPanel
 from .dashboard_config_theme import DashboardConfigTheme
+from .database_table import DatabaseTable
+from .database_table_column_type import DatabaseTableColumnType
+from .database_table_list_response import DatabaseTableListResponse
+from .database_table_object_type import DatabaseTableObjectType
 from .dataset_api_key_create_request import DatasetApiKeyCreateRequest
 from .dataset_api_key_create_request_scope import DatasetApiKeyCreateRequestScope
 from .dataset_api_key_list_item import DatasetApiKeyListItem
@@ -1246,6 +1251,7 @@ __all__ = (
     "ButtonWidget",
     "CapabilitiesAuth",
     "CapabilitiesBasemap",
+    "CapabilitiesDatabaseConnection",
     "CapabilitiesKey",
     "CapabilitiesMe",
     "CapabilitiesRateLimits",
@@ -1357,6 +1363,10 @@ __all__ = (
     "DashboardConfigInputThemeType0",
     "DashboardConfigPanel",
     "DashboardConfigTheme",
+    "DatabaseTable",
+    "DatabaseTableColumnType",
+    "DatabaseTableListResponse",
+    "DatabaseTableObjectType",
     "DatasetApiKeyCreateRequest",
     "DatasetApiKeyCreateRequestScope",
     "DatasetApiKeyListItem",

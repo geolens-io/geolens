@@ -2230,6 +2230,24 @@ export type CapabilitiesBasemap = {
 };
 
 /**
+ * CapabilitiesDatabaseConnection
+ */
+export type CapabilitiesDatabaseConnection = {
+    /**
+     * Name
+     *
+     * Connection name to list and import tables from.
+     */
+    name: string;
+    /**
+     * Database
+     *
+     * Database the connection reads.
+     */
+    database: string;
+};
+
+/**
  * CapabilitiesKey
  */
 export type CapabilitiesKey = {
@@ -2273,6 +2291,12 @@ export type CapabilitiesMe = {
      * Datasets the account can still create, or null when uncapped.
      */
     remaining_dataset_quota: number | null;
+    /**
+     * Database Connections
+     *
+     * Database connections the deployment configures, listed only for an account that can create datasets.
+     */
+    database_connections?: Array<CapabilitiesDatabaseConnection>;
 };
 
 /**
@@ -3921,6 +3945,84 @@ export type DashboardConfigInput = {
      * Widgets in panel order. Each, except a text widget, names a layer of this map that you can read. Stored widgets you can't see are kept in place.
      */
     widgets?: Array<MarkdownWidget | IndicatorWidget | BarChartWidget | PieChartWidget | FeatureListWidget | TableWidget | HistogramWidget | CategorySelectorWidget>;
+};
+
+/**
+ * DatabaseTable
+ */
+export type DatabaseTable = {
+    /**
+     * Schema Name
+     *
+     * Schema that holds the table or view.
+     */
+    schema_name: string;
+    /**
+     * Table Name
+     *
+     * Table or view name.
+     */
+    table_name: string;
+    /**
+     * Object Type
+     *
+     * Table or view.
+     */
+    object_type: 'table' | 'view';
+    /**
+     * Geometry Column
+     *
+     * Spatial column.
+     */
+    geometry_column: string;
+    /**
+     * Column Type
+     *
+     * SQL Server spatial type of the column.
+     */
+    column_type: 'geometry' | 'geography';
+    /**
+     * Srid
+     *
+     * SRID of the column's first non-null value, or null when it is 0, the table has no rows, or it couldn't be read.
+     */
+    srid: number | null;
+};
+
+/**
+ * DatabaseTableListResponse
+ */
+export type DatabaseTableListResponse = {
+    /**
+     * Connection
+     *
+     * Connection name from the deployment.
+     */
+    connection: string;
+    /**
+     * Database
+     *
+     * Database the connection reads.
+     */
+    database: string;
+    /**
+     * Tables
+     *
+     * One entry per spatial column, ordered by schema, table and column.
+     */
+    tables: Array<DatabaseTable>;
+    /**
+     * Limit
+     *
+     * Most entries one listing returns.
+     */
+    limit: number;
+    /**
+     * Truncated
+     *
+     * True when the connection has more spatial columns than `limit`.
+     */
+    truncated: boolean;
 };
 
 /**
@@ -32559,6 +32661,74 @@ export type DispatchConnectorIngestEndpointServicesConnectorsConnectorNameIngest
 };
 
 export type DispatchConnectorIngestEndpointServicesConnectorsConnectorNameIngestPostResponse = DispatchConnectorIngestEndpointServicesConnectorsConnectorNameIngestPostResponses[keyof DispatchConnectorIngestEndpointServicesConnectorsConnectorNameIngestPostResponses];
+
+export type ListDatabaseTablesServicesDatabasesConnectionTablesGetData = {
+    body?: never;
+    path: {
+        /**
+         * Connection
+         *
+         * Connection name.
+         */
+        connection: string;
+    };
+    query?: never;
+    url: '/services/databases/{connection}/tables/';
+};
+
+export type ListDatabaseTablesServicesDatabasesConnectionTablesGetErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type ListDatabaseTablesServicesDatabasesConnectionTablesGetError = ListDatabaseTablesServicesDatabasesConnectionTablesGetErrors[keyof ListDatabaseTablesServicesDatabasesConnectionTablesGetErrors];
+
+export type ListDatabaseTablesServicesDatabasesConnectionTablesGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: DatabaseTableListResponse;
+};
+
+export type ListDatabaseTablesServicesDatabasesConnectionTablesGetResponse = ListDatabaseTablesServicesDatabasesConnectionTablesGetResponses[keyof ListDatabaseTablesServicesDatabasesConnectionTablesGetResponses];
 
 export type PreviewServiceLayerServicesPreviewPostData = {
     body: ServicePreviewRequest;

@@ -63,6 +63,7 @@ import structlog
 from app.core.url_redaction import (
     URL_LIKE_RE,
     query_has_credentials,
+    redact_odbc_credentials,
     redact_url_credentials,
     scrub_registered_credentials,
 )
@@ -260,6 +261,7 @@ def _scrub_text(value: str) -> str:
     value = _QUERY_TAIL_RE.sub(_redact_query_tail_match, value)
     value = _redact_token_value_repr(value)
     value = _redact_api_keys(value)
+    value = redact_odbc_credentials(value)
     return scrub_registered_credentials(value)
 
 

@@ -407,6 +407,22 @@ def redact_libpq_credentials(text: str) -> str:
     return _LIBPQ_VALUE_RE.sub(rf"\1={REDACTED_QUERY_VALUE}", text)
 
 
+# GDAL's MSSQLSpatial driver echoes its `MSSQL:` connection string into its
+# errors, and its ODBC debug line spells out the full ODBC string, login
+# included. A password may hold spaces, so a login value runs to the next `;`
+# or the end of the line.
+_MSSQL_SOURCE_RE = re.compile(r"(?i)\bMSSQL:[^\s,'\"]*")
+_ODBC_LOGIN_RE = re.compile(r"(?i)\b(PWD|UID)\s*=[^;\r\n]*")
+_ODBC_SERVER_RE = re.compile(r"(?i)\b(SERVER|SERVERNAME|ADDRESS)\s*=[^;\s]*")
+
+
+def redact_odbc_credentials(text: str) -> str:
+    """Mask ``MSSQL:`` connection strings and ODBC login and server values."""
+    text = _ODBC_LOGIN_RE.sub(rf"\1={REDACTED_QUERY_VALUE}", text)
+    text = _ODBC_SERVER_RE.sub(rf"\1={REDACTED_QUERY_VALUE}", text)
+    return _MSSQL_SOURCE_RE.sub(f"MSSQL:{REDACTED_QUERY_VALUE}", text)
+
+
 def redact_filesystem_paths(text: str) -> str:
     """Mask absolute paths and ``/vsi`` handles, keeping the text around them."""
     return _ABSOLUTE_PATH_RE.sub(REDACTED_QUERY_VALUE, text)

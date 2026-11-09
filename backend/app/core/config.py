@@ -16,6 +16,7 @@ from pydantic import (
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from app.core.auth_settings import AuthSettings
 from app.core.config_ai import ClaudeSettings, OpenAISettings
+from app.core.config_database_sources import DatabaseSourcesSettings
 
 
 def reveal(secret: SecretStr | None) -> str | None:
@@ -324,7 +325,13 @@ def parse_http_credential_hosts(value: str) -> list[tuple[str, int | None]]:
     return hosts
 
 
-class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
+class Settings(
+    AuthSettings,
+    ClaudeSettings,
+    OpenAISettings,
+    DatabaseSourcesSettings,
+    BaseSettings,
+):
     postgres_user: str = "geolens"
     postgres_password: SecretStr
     postgres_host: str = "localhost"

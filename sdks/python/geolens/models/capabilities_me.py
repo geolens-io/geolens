@@ -6,10 +6,12 @@ from typing import Any, TypeVar, TYPE_CHECKING
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..types import UNSET, Unset
 
 from typing import cast
 
 if TYPE_CHECKING:
+    from ..models.capabilities_database_connection import CapabilitiesDatabaseConnection
     from ..models.capabilities_key import CapabilitiesKey
 
 
@@ -24,12 +26,15 @@ class CapabilitiesMe:
         permissions (list[str]): Capabilities the account holds.
         key (CapabilitiesKey | None): Present only when the request authenticated with an API key.
         remaining_dataset_quota (int | None): Datasets the account can still create, or null when uncapped.
+        database_connections (list[CapabilitiesDatabaseConnection] | Unset): Database connections the deployment
+            configures, listed only for an account that can create datasets.
     """
 
     username: str
     permissions: list[str]
     key: CapabilitiesKey | None
     remaining_dataset_quota: int | None
+    database_connections: list[CapabilitiesDatabaseConnection] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -48,6 +53,13 @@ class CapabilitiesMe:
         remaining_dataset_quota: int | None
         remaining_dataset_quota = self.remaining_dataset_quota
 
+        database_connections: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.database_connections, Unset):
+            database_connections = []
+            for database_connections_item_data in self.database_connections:
+                database_connections_item = database_connections_item_data.to_dict()
+                database_connections.append(database_connections_item)
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -58,11 +70,16 @@ class CapabilitiesMe:
                 "remaining_dataset_quota": remaining_dataset_quota,
             }
         )
+        if database_connections is not UNSET:
+            field_dict["database_connections"] = database_connections
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.capabilities_database_connection import (
+            CapabilitiesDatabaseConnection,
+        )
         from ..models.capabilities_key import CapabilitiesKey
 
         d = dict(src_dict)
@@ -94,11 +111,23 @@ class CapabilitiesMe:
             d.pop("remaining_dataset_quota")
         )
 
+        _database_connections = d.pop("database_connections", UNSET)
+        database_connections: list[CapabilitiesDatabaseConnection] | Unset = UNSET
+        if _database_connections is not UNSET:
+            database_connections = []
+            for database_connections_item_data in _database_connections:
+                database_connections_item = CapabilitiesDatabaseConnection.from_dict(
+                    database_connections_item_data
+                )
+
+                database_connections.append(database_connections_item)
+
         capabilities_me = cls(
             username=username,
             permissions=permissions,
             key=key,
             remaining_dataset_quota=remaining_dataset_quota,
+            database_connections=database_connections,
         )
 
         capabilities_me.additional_properties = d

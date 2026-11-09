@@ -334,6 +334,9 @@ SAFE_OPEN_ENV_HELPER = "gdal_safe_open_env"
 # site is credited by whichever one it actually calls.
 SAFE_VECTOR_ENV_HELPER = "gdal_vector_safe_env"
 SAFE_SERVICE_ENV_HELPER = "gdal_service_safe_env"
+# The database env keeps only MSSQLSpatial, so its argvs must also name that
+# driver with `-if`.
+SAFE_DATABASE_ENV_HELPER = "gdal_database_safe_env"
 # The service env takes the running egress proxy; the subprocess's HTTP goes
 # through it only while its block is open.
 EGRESS_PROXY_HELPER = "service_egress_proxy"
@@ -342,13 +345,18 @@ SUBPROCESS_ENV_HELPERS = (
     SAFE_SUBPROCESS_ENV_HELPER,
     SAFE_VECTOR_ENV_HELPER,
     SAFE_SERVICE_ENV_HELPER,
+    SAFE_DATABASE_ENV_HELPER,
 )
 ENV_HELPERS = (SAFE_OPEN_ENV_HELPER, *SUBPROCESS_ENV_HELPERS)
 
 # The two GDAL_SKIP driver clamps, which live in
 # `app/platform/gdal_env.py`. Named as their own set because that is
 # the module's whole contents and the only thing it may vouch for.
-DRIVER_SKIP_HELPERS = (SAFE_VECTOR_ENV_HELPER, SAFE_SERVICE_ENV_HELPER)
+DRIVER_SKIP_HELPERS = (
+    SAFE_VECTOR_ENV_HELPER,
+    SAFE_SERVICE_ENV_HELPER,
+    SAFE_DATABASE_ENV_HELPER,
+)
 
 # The OTHER half of the vector clamp, and the
 # primary one. The env helper is a denylist -- it names drivers GDAL may not
@@ -563,6 +571,15 @@ VECTOR_CLI_DRIVER_POLICY: dict[
         "(test_layering.py), so this site takes its env helper from "
         "app/platform/gdal_env.py",
     ),
+    ("platform/database_sources.py", "run_database_sql", "ogrinfo"): (
+        1,
+        OTHER_INPUT,
+        SAFE_DATABASE_ENV_HELPER,
+        "an operator-configured SQL Server named by a GeoLens-built MSSQL: "
+        "string over a generated freetds.conf section, read with -if "
+        "MSSQLSpatial under the DATABASE env, which skips every other driver "
+        "in the clamp",
+    ),
 }
 
 # Which policy kinds require the driver allowlist and the content check. The
@@ -610,6 +627,7 @@ _KIND_OPEN = SAFE_OPEN_ENV_HELPER
 _KIND_ENV = SAFE_SUBPROCESS_ENV_HELPER
 _KIND_VECTOR_ENV = SAFE_VECTOR_ENV_HELPER
 _KIND_SERVICE_ENV = SAFE_SERVICE_ENV_HELPER
+_KIND_DATABASE_ENV = SAFE_DATABASE_ENV_HELPER
 _KIND_DRIVER_ALLOWLIST = DRIVER_ALLOWLIST_HELPER
 _KIND_CONTENT_CHECK = CONTENT_CHECK_HELPER
 _KIND_EGRESS_PROXY = EGRESS_PROXY_HELPER
@@ -630,12 +648,14 @@ _VRT_ATTR_KINDS = {
     SAFE_SUBPROCESS_ENV_HELPER: _KIND_ENV,
     SAFE_VECTOR_ENV_HELPER: _KIND_VECTOR_ENV,
     SAFE_SERVICE_ENV_HELPER: _KIND_SERVICE_ENV,
+    SAFE_DATABASE_ENV_HELPER: _KIND_DATABASE_ENV,
 }
 _PROPAGATED_KINDS = (
     _KIND_OPEN,
     _KIND_ENV,
     _KIND_VECTOR_ENV,
     _KIND_SERVICE_ENV,
+    _KIND_DATABASE_ENV,
     _KIND_DRIVER_ALLOWLIST,
     _KIND_CONTENT_CHECK,
     _KIND_MODALIAS,
@@ -675,6 +695,7 @@ class _ScopeInfo:
             _KIND_ENV: set(),
             _KIND_VECTOR_ENV: set(),
             _KIND_SERVICE_ENV: set(),
+            _KIND_DATABASE_ENV: set(),
             _KIND_DRIVER_ALLOWLIST: set(),
             _KIND_CONTENT_CHECK: set(),
             _KIND_EGRESS_PROXY: set(),
@@ -6000,5 +6021,107 @@ def test_guard_service_env_shapes_that_skip_the_proxy_report():
     assert len(sites) == 5, (sites, violations)
     assert len(violations) == 4, violations
     for name in ("no_block", "other_proxy", "spawned_after_close", "shadowed"):
+        assert any(f"({name})" in v for v in violations), (name, violations)
+    assert not any("(wired)" in v for v in violations), violations
+
+
+# ---------------------------------------------------------------------------
+# Database reads: the database env leaves MSSQLSpatial registered, so each
+# argv it covers names that driver with `-if` and GDAL tries no other.
+# ---------------------------------------------------------------------------
+
+# Every function that builds the database env. Exact both ways.
+DATABASE_ENV_SITES: dict[tuple[str, str], str] = {
+    ("platform/database_sources.py", "run_database_sql"): (
+        "every SELECT GeoLens runs on an operator-configured SQL Server"
+    ),
+}
+
+
+def _tail_names_mssqlspatial(tail: list[ast.expr]) -> bool:
+    values = [elt.value if isinstance(elt, ast.Constant) else None for elt in tail]
+    return any(
+        flag == "-if" and driver == "MSSQLSpatial"
+        for flag, driver in zip(values, values[1:])
+    )
+
+
+def _collect_database_env_violations(
+    modules: list[tuple[str, ast.Module]],
+) -> tuple[list[str], list[tuple[str, str]]]:
+    """Return (violations, the (module, function) of each database env call).
+
+    Every vector CLI argv in a function that builds the database env must
+    carry the literal pair ``"-if", "MSSQLSpatial"``.
+    """
+    violations: list[str] = []
+    sites: list[tuple[str, str]] = []
+    for rel, tree in modules:
+        _annotate_parents(tree)
+        argvs = [
+            (tool, node, tail)
+            for tool, node, tail in _iter_argv_sites(rel, tree)
+            if tool in VECTOR_CLI_TOOLS
+        ]
+        for node in ast.walk(tree):
+            if not _is_canonical_helper_call(node, SAFE_DATABASE_ENV_HELPER, rel):
+                continue
+            scope = _enclosing_function_node(node)
+            name = getattr(scope, "name", "<module>")
+            sites.append((rel, name))
+            covered = [
+                (tool, argv, tail)
+                for tool, argv, tail in argvs
+                if _enclosing_function_node(argv) is scope
+            ]
+            if not covered:
+                violations.append(
+                    f"{rel}:{node.lineno} ({name}) builds {SAFE_DATABASE_ENV_HELPER} "
+                    "but no ogrinfo/ogr2ogr argv beside it"
+                )
+            for tool, argv, tail in covered:
+                if not _tail_names_mssqlspatial(tail):
+                    violations.append(
+                        f"{rel}:{argv.lineno} ({name}) runs {tool} under "
+                        f"{SAFE_DATABASE_ENV_HELPER} without the literal "
+                        '`"-if", "MSSQLSpatial"` pair, so GDAL may try another '
+                        "driver on the source (AGENTS.md Rule 2)"
+                    )
+    return violations, sites
+
+
+def test_database_gdal_subprocesses_name_mssqlspatial():
+    violations, sites = _collect_database_env_violations(_app_modules())
+    assert not violations, "\n".join(violations)
+    assert sorted(sites) == sorted(DATABASE_ENV_SITES), (
+        f"{SAFE_DATABASE_ENV_HELPER} is called from {sorted(sites)}; "
+        "DATABASE_ENV_SITES must name each site exactly once"
+    )
+
+
+def test_guard_database_env_without_the_driver_pin_reports():
+    violations, sites = _collect_database_env_violations(
+        _mod(
+            "import asyncio\n"
+            "from app.platform.gdal_env import gdal_database_safe_env\n"
+            "async def wired(conf, user, pw, src):\n"
+            "    env = gdal_database_safe_env(conf, user, pw)\n"
+            "    cmd = ['ogrinfo', '-ro', '-if', 'MSSQLSpatial', src]\n"
+            "    await asyncio.create_subprocess_exec(*cmd, env=env)\n"
+            "async def unpinned(conf, user, pw, src):\n"
+            "    env = gdal_database_safe_env(conf, user, pw)\n"
+            "    cmd = ['ogrinfo', '-ro', src]\n"
+            "    await asyncio.create_subprocess_exec(*cmd, env=env)\n"
+            "async def other_driver(conf, user, pw, src):\n"
+            "    env = gdal_database_safe_env(conf, user, pw)\n"
+            "    cmd = ['ogr2ogr', '-if', 'ODBC', 'MSSQLSpatial', src]\n"
+            "    await asyncio.create_subprocess_exec(*cmd, env=env)\n"
+            "async def no_argv(conf, user, pw):\n"
+            "    return gdal_database_safe_env(conf, user, pw)\n"
+        )
+    )
+    assert len(sites) == 4, (sites, violations)
+    assert len(violations) == 3, violations
+    for name in ("unpinned", "other_driver", "no_argv"):
         assert any(f"({name})" in v for v in violations), (name, violations)
     assert not any("(wired)" in v for v in violations), violations

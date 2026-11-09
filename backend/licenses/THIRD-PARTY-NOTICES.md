@@ -114,7 +114,8 @@ This file covers the Python distributions installed into the image's virtualenv
 (`uv sync --locked --no-dev`), which is where GeoLens's own dependency choices
 land. It does not enumerate the Debian packages inherited from the
 `python:3.14-slim` base image or installed by the image's `apt-get` layer
-(`gdal-bin`, `libexpat1`, `xmlsec1`, and their transitive OS dependencies) —
+(`gdal-bin`, `libexpat1`, `tdsodbc` (the FreeTDS ODBC driver, LGPL), `xmlsec1`,
+and their transitive OS dependencies) —
 those carry their own copyright files at `/usr/share/doc/<package>/copyright`
 inside the image, which is where Debian policy puts them and where a recipient
 or scanner expects to find them.
