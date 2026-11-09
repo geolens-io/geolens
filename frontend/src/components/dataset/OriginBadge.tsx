@@ -1,12 +1,4 @@
-import {
-  Database,
-  Globe,
-  Satellite,
-  Server,
-  SquarePen,
-  Upload,
-  type LucideIcon,
-} from 'lucide-react';
+import { Database, Globe, Satellite, SquarePen, Upload, type LucideIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -48,7 +40,7 @@ const ORIGIN_ICONS: Record<DatasetOrigin, LucideIcon> = {
   service: Globe,
   stac: Satellite,
   created: SquarePen,
-  database: Server,
+  database: Database,
 };
 
 interface OriginBadgeProps {
