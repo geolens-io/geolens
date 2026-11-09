@@ -19,7 +19,7 @@ from app.core.pointcloud import (
     pointcloud_attempt_key,
 )
 from app.core.upload_errors import UnsafeUploadError
-from app.platform.dataset_origin import set_dataset_origin
+from app.platform.dataset_origin import KEEP, SourceBinding, restamp
 from app.platform.jobs import ledger
 from app.platform.jobs.heartbeat import (
     JOB_ERROR_WRITE_TIMEOUT_MS,
@@ -144,7 +144,6 @@ async def create_pointcloud_dataset(
         id=dataset_id,
         record_id=record.id,
         table_name=f"pointcloud_{record.id.hex[:16]}",
-        source_format="copc",
         source_filename=source_filename,
         last_refreshed_at=datetime.now(timezone.utc),
         srid=cloud.srid,
@@ -155,7 +154,12 @@ async def create_pointcloud_dataset(
         pointcloud_vertical_crs=cloud.vertical_crs,
         pointcloud_attempt_id=attempt_id,
     )
-    set_dataset_origin(dataset, "upload", filename=source_filename)
+    restamp(
+        dataset,
+        SourceBinding.upload("copc", filename=source_filename),
+        contacted_at=None,
+        refreshed_at=KEEP,
+    )
     session.add(dataset)
     await session.flush()
     session.add(

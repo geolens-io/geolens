@@ -22,7 +22,13 @@ import structlog
 
 from procrastinate import App
 
-from app.platform.dataset_origin import classify_origin, set_dataset_origin
+from app.platform.dataset_origin import (
+    KEEP,
+    SourceBinding,
+    classify_origin,
+    restamp,
+    set_dataset_origin,
+)
 from app.core.service_tokens import reset_registered_credential_secrets
 from app.core.url_redaction import redact_exception_text
 from app.platform.jobs.queue_connector import make_queue_connector
@@ -1368,19 +1374,21 @@ async def _finalize_ingest(ctx: IngestContext):
     # dataset. Service ingest supplies the enriched URL through ctx.source_url;
     # an uploaded file has no remote origin to point at, so its origin_uri
     # stays NULL and only the ref carries the filename.
-    ingest_origin_kind = classify_origin(ctx.source_format)
-    set_dataset_origin(
-        dataset,
-        ingest_origin_kind,
-        uri=ctx.source_url,
-        **(ctx.origin_ref or {}),
+    binding = SourceBinding.from_ref(
+        ctx.source_format, ctx.origin_ref, uri=ctx.source_url
     )
     # A first service or STAC ingest fetched its bytes from the origin moments
     # ago, so the import is a contact, as in the reupload swap. Otherwise a
     # freshly imported service dataset would report last_checked_at NULL until
-    # someone probed it.
-    if ingest_origin_kind in ("service", "stac"):
-        dataset.last_checked_at = datetime.now(timezone.utc)
+    # someone probed it. create_dataset dated freshness.
+    restamp(
+        dataset,
+        binding,
+        contacted_at=datetime.now(timezone.utc)
+        if binding.kind in ("service", "stac")
+        else None,
+        refreshed_at=KEEP,
+    )
 
     # Compute quality score (requires Dataset to exist for metadata checks)
     quality_score = await compute_quality_score(

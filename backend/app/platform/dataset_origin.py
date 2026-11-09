@@ -13,6 +13,9 @@ domain, the ingest tasks, and the API response boundary.
   raises) and gate 2 (no external PostGIS federation — ``postgis`` accepts
   only ``table_name``). Widening the JSON blob alone can't add federation;
   it needs a new kind here.
+- ``restamp`` writes a ``SourceBinding`` (format, pointer and allowlisted
+  payload) onto a dataset in one call, with the contact and freshness the
+  caller states.
 - ``read_source`` is the typed read of a stored binding: what a refresh or
   probe of each kind can use, or which key it lacks.
 - ``bound_pointer`` and ``still_bound`` answer "is the dataset still bound to
@@ -32,6 +35,8 @@ Dataset ORM instance.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
 from typing import Any, Literal, NamedTuple
 
 from sqlalchemy import and_
@@ -539,6 +544,203 @@ def set_dataset_origin(
             carried = {}
         ref_fields |= carried
     dataset.origin_ref = build_origin_ref(kind, **ref_fields)
+    return losses
+
+
+@dataclass(frozen=True)
+class SourceBinding:
+    """The binding columns a restamp writes together: ``source_format``, the
+    ``origin_uri`` pointer (``uri``) and the ``origin_ref`` payload (``ref``).
+
+    The kind follows ``source_format``, as ``classify_origin`` derives it.
+    ``ref`` is exactly what ``build_origin_ref`` builds for that kind, so a
+    binding holding an undeclared key, or a key of another kind, cannot be
+    constructed. Built by the per-kind constructors, or by ``from_ref`` for a
+    payload captured before the kind was known.
+    """
+
+    source_format: str | None
+    uri: str | None
+    ref: dict[str, Any] | None
+
+    def __post_init__(self) -> None:
+        fields = {k: v for k, v in (self.ref or {}).items() if k != "kind"}
+        if build_origin_ref(self.kind, **fields) != self.ref:
+            raise ValueError(f"not the {self.kind} payload the allowlist builds")
+
+    @property
+    def kind(self) -> str:
+        """The origin kind ``source_format`` classifies as."""
+        return classify_origin(self.source_format)
+
+    @classmethod
+    def _of(
+        cls, kind: str, source_format: str | None, uri: str | None, **fields: Any
+    ) -> SourceBinding:
+        return cls(source_format, uri, build_origin_ref(kind, **fields))
+
+    @classmethod
+    def from_ref(
+        cls,
+        source_format: str | None,
+        ref: dict[str, Any] | None,
+        *,
+        uri: str | None = None,
+    ) -> SourceBinding:
+        """A binding from a payload without its ``kind``, which the format decides."""
+        kind = classify_origin(source_format)
+        return cls(source_format, uri, build_origin_ref(kind, **(ref or {})))
+
+    @classmethod
+    def upload(
+        cls, source_format: str, *, filename: str | None, file_hash: str | None = None
+    ) -> SourceBinding:
+        """An uploaded file: no remote pointer, only its name and hash."""
+        return cls._of(
+            "upload", source_format, None, filename=filename, file_hash=file_hash
+        )
+
+    @classmethod
+    def service(
+        cls,
+        service_type: str,
+        *,
+        url: str,
+        layer_id: str | None,
+        enriched_uri: str | None,
+        auth_required: bool = False,
+        item_id: str | None = None,
+        portal_url: str | None = None,
+    ) -> SourceBinding:
+        """A service layer: ``url`` is the base, ``enriched_uri`` the pointer.
+
+        ``service_type`` is the dataset's format too.
+        """
+        return cls._of(
+            "service",
+            service_type,
+            enriched_uri,
+            service_type=service_type,
+            url=url,
+            layer_id=layer_id,
+            auth_required=True if auth_required else None,
+            item_id=item_id,
+            portal_url=portal_url,
+        )
+
+    @classmethod
+    def stac(
+        cls,
+        *,
+        asset_href: str,
+        item_href: str | None,
+        item_id: str | None,
+        collection_id: str | None,
+        asset_key: str | None,
+        url: str | None,
+        auth_required: bool,
+    ) -> SourceBinding:
+        """A STAC item's asset; the pointer is the asset href.
+
+        The duplicate-source guard keys on ``asset_href``, so pointer and key
+        are built from one value.
+        """
+        return cls._of(
+            "stac",
+            "stac",
+            asset_href,
+            url=url,
+            asset_href=asset_href,
+            item_href=item_href,
+            item_id=item_id,
+            collection_id=collection_id,
+            asset_key=asset_key,
+            auth_required=True if auth_required else None,
+        )
+
+    @classmethod
+    def postgis(
+        cls, table_name: str, *, schema: str, managed: bool = False
+    ) -> SourceBinding:
+        """A registered table: pointer and ``table_name`` from one qualified name.
+
+        ``schema`` is passed in, not derived from ``dataset.tenant_id``: in
+        multi-tenant mode the INSERT sends ``tenant_id`` as NULL and a trigger
+        fills it from a GUC, so the ORM attribute stays None and deriving it
+        would point every multi-tenant registration at the wrong schema.
+
+        An unmanaged registration's ref carries no ``managed`` key; every
+        reader goes through :func:`geolens_owns_table`.
+        """
+        qualified = f"{schema}.{table_name}"
+        return cls._of(
+            "postgis",
+            None,
+            f"postgis://{qualified}",
+            table_name=qualified,
+            managed=True if managed else None,
+        )
+
+    @classmethod
+    def created(cls) -> SourceBinding:
+        """A layer drawn in the app: no pointer and no payload."""
+        return cls._of("created", "created", None)
+
+
+class Keep(Enum):
+    """Leave a column as it is: ``restamp(..., refreshed_at=KEEP)``."""
+
+    KEEP = "keep"
+
+
+KEEP = Keep.KEEP
+
+
+def restamp(
+    dataset: Any,
+    binding: SourceBinding,
+    *,
+    contacted_at: datetime | None,
+    refreshed_at: datetime | None | Keep,
+    health: tuple[str, str | None] | None = None,
+) -> list[str]:
+    """Point a Dataset ORM instance at ``binding``.
+
+    The only writer of ``origin_uri``/``origin_ref``, which move with
+    ``source_format`` in this one call. Neither column appears in
+    ``_DATASET_FIELD_MAP``, so the metadata PATCH cannot reach them. Call it
+    where the data the binding describes is published: the transaction that
+    creates the dataset, or a swap's publication success block.
+
+    Clears the probe state, then writes ``health`` (verdict, detail) when
+    given. ``last_checked_at`` becomes ``contacted_at`` and
+    ``last_refreshed_at`` becomes ``refreshed_at`` unless that is ``KEEP``.
+    Both are the caller's to say: doors date contact and freshness
+    differently on purpose.
+
+    A service or upload binding naming no portal link keeps the one the
+    dataset holds. Returns the loss codes of a link dropped instead, when a
+    service binding's host no longer shares its domain.
+    """
+    old_ref = dataset.origin_ref
+    ref = binding.ref
+    losses: list[str] = []
+    kind = binding.kind
+    if kind in _PORTAL_LINK_KINDS and not any(k in ref for k in PORTAL_LINK_KEYS):
+        carried = carried_portal_link(old_ref)
+        losses = _carry_losses(old_ref, carried, kind, ref)
+        if carried and not losses:
+            fields = {k: v for k, v in ref.items() if k != "kind"}
+            ref = build_origin_ref(kind, **fields, **carried)
+    dataset.source_format = binding.source_format
+    dataset.origin_uri = binding.uri
+    dataset.origin_ref = ref
+    clear_source_probe_state(dataset)
+    if health is not None:
+        dataset.source_health, dataset.source_health_detail = health
+    dataset.last_checked_at = contacted_at
+    if refreshed_at is not KEEP:
+        dataset.last_refreshed_at = refreshed_at
     return losses
 
 

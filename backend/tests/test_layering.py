@@ -1323,7 +1323,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # place. Split discovery, preview and dispatch endpoints before raising further.
     "backend/app/modules/catalog/sources/router.py": 1760,
     # STAC import door: per-item refusals and failure codes sit beside the batch loop.
-    "backend/app/modules/catalog/sources/stac_router.py": 1018,
+    "backend/app/modules/catalog/sources/stac_router.py": 1012,
     # Adoption DDL mirrors the current schema without importing historical migrations.
     "backend/app/core/db/tenant_adoption_sql.py": 2088,
     # Adoption coordinates resumable tenant transactions with ownership and ACL repair.
@@ -1358,7 +1358,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ArcGIS requests, lifecycle context, the quicklook draw that ingest and
     # replacement share, and the swap that keeps the replaced table as a previous
     # version and drops the oldest past the instance's limit.
-    "backend/app/processing/ingest/tasks_common.py": 1886,
+    "backend/app/processing/ingest/tasks_common.py": 1894,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, a service re-upload's
@@ -1413,7 +1413,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/admin/service.py": 1057,
     # Ingest admission, staging, job settlement and table registration share one
     # orchestration boundary.
-    "backend/app/processing/ingest/service.py": 1559,
+    "backend/app/processing/ingest/service.py": 1564,
     # The PostGIS strategy: geometry and gid repair, the snapshot measurement and
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 700,

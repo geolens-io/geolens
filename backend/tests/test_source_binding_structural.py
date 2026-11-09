@@ -76,6 +76,8 @@ OWNER_WRITES = Counter(
     {
         ("set_dataset_origin", "writes .origin_ref"): 1,
         ("set_dataset_origin", "writes .origin_uri"): 1,
+        ("restamp", "writes .origin_ref"): 1,
+        ("restamp", "writes .origin_uri"): 1,
     }
 )
 

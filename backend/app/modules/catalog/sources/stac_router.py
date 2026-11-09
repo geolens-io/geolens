@@ -37,7 +37,7 @@ from app.modules.catalog.datasets.domain.models import (
     RecordKeyword,
 )
 from app.core.dependencies import get_db
-from app.platform.dataset_origin import set_dataset_origin
+from app.platform.dataset_origin import KEEP, SourceBinding, restamp
 from app.platform.extensions import get_catalog_port
 from app.modules.catalog.sources.adapters.stac import (
     MAX_ASSET_KEY_CHARS,
@@ -872,7 +872,6 @@ async def stac_import(
                 dataset = Dataset(
                     record_id=record.id,
                     table_name=table_name,
-                    source_format="stac",
                     source_url=item.data_asset_href,
                     source_filename=item.id,
                     srid=item.epsg,
@@ -881,33 +880,28 @@ async def stac_import(
                     # lazy-loading.
                     last_refreshed_at=datetime.now(timezone.utc),
                 )
-                # asset_href is also what the duplicate-source guard keys on
-                # (origin_ref.asset_href), so writing it here keeps both in
-                # agreement. item_href is the only stored value that can
-                # answer "was this item withdrawn?"; a 200 on the asset href
-                # says nothing about that.
-                set_dataset_origin(
-                    dataset,
-                    "stac",
-                    uri=item.data_asset_href,
-                    url=request.url,
-                    asset_href=item.data_asset_href,
-                    item_href=item.item_href,
-                    item_id=item.id,
-                    collection_id=item.collection,
-                    asset_key=item.data_asset_key,
-                    # True or None, never False: the allowlist drops a None,
-                    # which is how "no credential" is spelled on both origin
-                    # kinds.
-                    auth_required=True if request.catalog_auth_required else None,
-                )
-                # Info in hand means Titiler reached the COG. Every failure
-                # shape stays NULL, since a Titiler error is indistinguishable
-                # from local pre-fetch rejections without parsing its error
-                # bodies (see fetch_cog_info).
                 ci = cog_info_map.get(item.data_asset_href)
-                if ci is not None:
-                    dataset.last_checked_at = datetime.now(timezone.utc)
+                # item_href is the only stored value that can answer "was
+                # this item withdrawn?"; a 200 on the asset href says nothing
+                # about that. Info in hand means Titiler reached the COG, the
+                # one contact this import dates. Every failure shape stays
+                # NULL, since a Titiler error is indistinguishable from local
+                # pre-fetch rejections without parsing its error bodies (see
+                # fetch_cog_info).
+                restamp(
+                    dataset,
+                    SourceBinding.stac(
+                        asset_href=item.data_asset_href,
+                        item_href=item.item_href,
+                        item_id=item.id,
+                        collection_id=item.collection,
+                        asset_key=item.data_asset_key,
+                        url=request.url,
+                        auth_required=request.catalog_auth_required,
+                    ),
+                    contacted_at=None if ci is None else datetime.now(timezone.utc),
+                    refreshed_at=KEEP,
+                )
                 ci = ci or {}
                 # Mirrors the raster row's EPSG preference below: both come
                 # from the same probe and must agree, or OGC Records would

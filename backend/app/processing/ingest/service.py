@@ -33,7 +33,7 @@ from app.core.service_tokens import (
 )
 from app.core.db.tenant_session import defer_async_with_tenant
 from app.platform.request_credential import refuse_publish_key
-from app.platform.dataset_origin import set_postgis_origin
+from app.platform.dataset_origin import KEEP, SourceBinding, restamp
 from app.platform.extensions import get_processing_port
 from app.processing.ingest.metadata import (
     GID_UNUSABLE_SQL,
@@ -998,7 +998,12 @@ async def register_existing_table(
     # metadata in, not one read from dataset.tenant_id: the INSERT sends
     # tenant_id NULL and a trigger fills it in the database, so the ORM
     # attribute never sees the real value.
-    set_postgis_origin(dataset, table_name, schema=_schema, managed=managed)
+    restamp(
+        dataset,
+        SourceBinding.postgis(table_name, schema=_schema, managed=managed),
+        contacted_at=None,
+        refreshed_at=KEEP,
+    )
 
     return dataset
 
