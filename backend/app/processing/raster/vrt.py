@@ -450,22 +450,30 @@ def overview_keys_for(vrt_key: str) -> list[str]:
     ]
 
 
-def members_lack_overviews(source_paths: list[str]) -> bool:
-    """Whether any member has no internal overviews, so a low-zoom read is full-size.
+def mosaic_needs_overview(source_paths: list[str]) -> bool:
+    """Whether a low-zoom read of the VRT would decode a member at full size.
 
-    A member without overviews makes every coarse read decode it at full
-    resolution, so a single such member is enough. Stops at the first one.
-    A member the probe cannot read counts as lacking them: a broken member
+    True when any member has no internal overviews, or when the members'
+    pixel sizes differ: the VRT grid then resamples some members, and GDAL
+    derives no overviews for it from theirs. Stops at the first such member.
+    A member the probe cannot read counts as needing one: a broken member
     fails the translate safely, and skipping would hide it from every
     low-zoom read.
     """
     from app.processing.raster.probe import RasterProbeError, read_raster_metadata
 
+    first_res: tuple[float, float] | None = None
     for path in source_paths:
         try:
-            if not read_raster_metadata(path).get("overview_levels"):
-                return True
+            meta = read_raster_metadata(path)
         except RasterProbeError:
+            return True
+        if not meta.get("overview_levels"):
+            return True
+        res = (abs(meta["res_x"]), abs(meta["res_y"]))
+        if first_res is None:
+            first_res = res
+        elif not all(map(math.isclose, res, first_res)):
             return True
     return False
 
@@ -525,9 +533,9 @@ def _overview_exceeds_free_space(vrt_path: str, root, bands) -> bool:
 def add_vrt_overview(vrt_path: str, source_paths: list[str]) -> list[str] | None:
     """Build overview images beside a VRT and reference each from every band.
 
-    Returns the files, finest first, or None when every member already has
-    overviews or the build was skipped or failed (the VRT is then left as it
-    was). The first is a half-resolution COG; each next one halves the previous
+    Returns the files, finest first, or None when the members' own overviews
+    serve low zooms or the build was skipped or failed (the VRT is then left as
+    it was). The first is a half-resolution COG; each next one halves the previous
     until the longer side is at most 512 px, resampled by ``nearest`` for integer
     data and ``average`` for float. GDAL lists only the levels named by
     ``<Overview>`` elements, and TiTiler opens with
@@ -551,7 +559,7 @@ def add_vrt_overview(vrt_path: str, source_paths: list[str]) -> list[str] | None
     if reason:
         logger.info("VRT overview skipped: %s", reason)
         return None
-    if not members_lack_overviews(source_paths):
+    if not mosaic_needs_overview(source_paths):
         return None
 
     from app.processing.raster.cog import _is_float_dtype

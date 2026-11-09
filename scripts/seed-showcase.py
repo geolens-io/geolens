@@ -132,9 +132,9 @@ SWISSALTI_STAC = (
 SWISSALTI_MOSAIC_TITLE = "swissALTI3D Matterhorn DEM (2m mosaic)"
 SWISSALTI_TILE_PREFIX = "swissALTI3D 2m "
 # swissALTI3D stops at the Swiss border, just south of the summit; GLO-30 fills
-# the same box under the Swiss tiles (past 46 N, so two GLO-30 tiles). A mosaic
-# of mixed resolutions gets no overviews and low-zoom tiles read the whole 2 m
-# grid, so the box can't grow: a 35 km one crashed a 1 GB TiTiler.
+# the same box under the Swiss tiles (past 46 N, so two GLO-30 tiles). Before
+# 1.30.1 a mosaic of mixed resolutions got no overviews and low-zoom tiles read
+# the whole 2 m grid; a 35 km box crashed a 1 GB TiTiler on such a server.
 COPERNICUS_FILL_BBOX = tuple(SWISSALTI_BBOX.split(","))
 COPERNICUS_DEM_TILES = tuple(
     "https://copernicus-dem-30m.s3.amazonaws.com/"

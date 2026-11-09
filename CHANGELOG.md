@@ -20,6 +20,7 @@ and releases use semantic versioning.
 - `scripts/seed-showcase.py` gives the showcase maps and stories one title style, title case with a colon before a subtitle, such as "Manhattan: A Century of Skyline"; a seed run renames an already-seeded map or story in place, so its id and links keep working.
 
 ### Fixed
+- A raster mosaic whose members have different resolutions gets an overview of its own, as a mosaic with a member that lacks overviews already did. Low-zoom tiles no longer read the finest member's full grid, which made such tiles slow and could restart the tile server on a large mosaic. Existing mosaics get the overview when they are next rebuilt.
 - Collection thumbnails and the collection page's spatial extent map now zoom to a city-sized extent instead of showing a dot on a world map, the viewer legend shows a chevron while rows are cut off below the visible part of the panel, and a map card's title wraps to two lines instead of cutting a long name short beside its visibility badge.
 - Dashboard widgets: pie slices, bars, table groups, category selector options and feature list titles show a column's value labels, such as a coded-value domain's descriptions, instead of the stored codes. The text alternatives show "Label (code)", and picks and filters still match the stored value (#3679).
 - Stories and dashboard text: a wide code block scrolls inside its own shaded box instead of widening the whole chapter panel or widget.

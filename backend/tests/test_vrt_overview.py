@@ -26,7 +26,9 @@ needs_gdal_cli = pytest.mark.skipif(
 )
 
 
-def _member(path: Path, *, west: float, overviews: bool, size: int = 500) -> str:
+def _member(
+    path: Path, *, west: float, overviews: bool, size: int = 500, res: float = 0.001
+) -> str:
     profile = {
         "driver": "GTiff",
         "dtype": "uint8",
@@ -34,7 +36,7 @@ def _member(path: Path, *, west: float, overviews: bool, size: int = 500) -> str
         "height": size,
         "count": 1,
         "crs": "EPSG:4326",
-        "transform": from_origin(west, 10.0, 0.001, 0.001),
+        "transform": from_origin(west, 10.0, res, res),
         "tiled": True,
         "blockxsize": 256,
         "blockysize": 256,
@@ -110,6 +112,23 @@ def test_one_member_without_overviews_is_enough(tmp_path: Path) -> None:
     build_vrt("mosaic", members, vrt_path, "finest")
 
     assert add_vrt_overview(vrt_path, members) is not None
+
+
+@needs_gdal_cli
+def test_members_at_different_resolutions_get_an_overview(tmp_path: Path) -> None:
+    members = [
+        _member(tmp_path / "fine.tif", west=0.0, overviews=True),
+        _member(tmp_path / "coarse.tif", west=0.5, overviews=True, res=0.004),
+    ]
+    vrt_path = str(tmp_path / "source.vrt")
+    build_vrt("mosaic", members, vrt_path, "finest")
+    with _titiler_env(), rasterio.open(vrt_path) as src:
+        assert src.overviews(1) == []
+
+    assert add_vrt_overview(vrt_path, members) is not None
+
+    with _titiler_env(), rasterio.open(vrt_path) as src:
+        assert src.overviews(1)
 
 
 @needs_gdal_cli
@@ -627,18 +646,18 @@ def test_a_reprojected_read_picks_a_coarse_overview_level(tmp_path: Path) -> Non
     assert 30 in set(np.unique(reduced))
 
 
-def test_an_unreadable_member_counts_as_lacking_overviews(
+def test_an_unreadable_member_counts_as_needing_an_overview(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.processing.raster import probe
-    from app.processing.raster.vrt import members_lack_overviews
+    from app.processing.raster.vrt import mosaic_needs_overview
 
     def _unreadable(path):
         raise probe.RasterProbeError("open", timeout=1.0)
 
     monkeypatch.setattr(probe, "read_raster_metadata", _unreadable)
 
-    assert members_lack_overviews(["/missing.tif"]) is True
+    assert mosaic_needs_overview(["/missing.tif"]) is True
 
 
 @needs_gdal_cli
