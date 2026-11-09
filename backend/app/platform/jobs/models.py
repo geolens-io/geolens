@@ -74,6 +74,18 @@ def commit_attempted_marker() -> dict[str, str]:
     return {COMMIT_ATTEMPTED_METADATA_KEY: datetime.now(timezone.utc).isoformat()}
 
 
+# The account a committed import publishes for; an admin may commit another
+# user's preview. A job committed without it publishes for ``created_by``.
+PUBLISHED_FOR_METADATA_KEY = "published_for"
+
+
+def publication_owner(job: "IngestJob") -> uuid.UUID | None:
+    """Who the dataset ``job`` publishes will belong to."""
+    metadata = job.user_metadata if isinstance(job.user_metadata, dict) else {}
+    stored = metadata.get(PUBLISHED_FOR_METADATA_KEY)
+    return uuid.UUID(stored) if isinstance(stored, str) else job.created_by
+
+
 def dispatch_attempted():
     """Predicate: the row carries the dispatch stamp ``commit_attempted_marker`` writes."""
     return (

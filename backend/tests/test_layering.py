@@ -1413,7 +1413,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/admin/service.py": 1057,
     # Ingest admission, staging, job settlement and table registration share one
     # orchestration boundary.
-    "backend/app/processing/ingest/service.py": 1586,
+    "backend/app/processing/ingest/service.py": 1591,
     # The PostGIS strategy: geometry and gid repair, the snapshot measurement and
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 700,

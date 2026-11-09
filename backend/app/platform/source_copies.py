@@ -31,8 +31,10 @@ from app.platform.dataset_origin import (
 from app.platform.jobs import ledger
 from app.platform.jobs.models import (
     DATABASE_SOURCE_METADATA_KEY,
+    PUBLISHED_FOR_METADATA_KEY,
     IngestJob,
     dispatch_attempted,
+    publication_owner,
 )
 from app.platform.service_endpoints import bounded_parse_qsl
 
@@ -171,7 +173,7 @@ def job_source_identity(job: IngestJob) -> SourceIdentity | None:
     None for any other job, including one that writes into an existing
     dataset, or a service type nothing can import.
     """
-    metadata = job.user_metadata or {}
+    metadata = job.user_metadata if isinstance(job.user_metadata, dict) else {}
     if any(metadata.get(marker) for marker in _EXISTING_DATASET_MARKERS):
         return None
     database = read_source("database", metadata.get(DATABASE_SOURCE_METADATA_KEY))
@@ -188,11 +190,13 @@ def job_source_identity(job: IngestJob) -> SourceIdentity | None:
 
 
 async def owner_copy(session: AsyncSession, job: IngestJob) -> ExistingCopy | None:
-    """The published dataset of the source ``job`` copies, held by the job's owner."""
+    """The published dataset of the source ``job`` copies, held by the account
+    its dataset will belong to."""
     identity = job_source_identity(job)
-    if identity is None or job.created_by is None:
+    owner = publication_owner(job)
+    if identity is None or owner is None:
         return None
-    return await published_copy(session, job.created_by, identity)
+    return await published_copy(session, owner, identity)
 
 
 async def published_copy(
@@ -279,7 +283,8 @@ def _same_service(
 async def importing_copy(
     session: AsyncSession, user_id: uuid.UUID, identity: SourceIdentity
 ) -> ExistingCopy | None:
-    """The user's queued or running import of ``identity``, if any.
+    """The user's queued or running import of ``identity``, if any: one that
+    will publish for them, whoever previewed it.
 
     A pending job counts only once dispatched: the service preview leaves a
     pending job behind that may never be committed. Failed and cancelled
@@ -289,10 +294,14 @@ async def importing_copy(
         kind = IngestJob.user_metadata.has_key(DATABASE_SOURCE_METADATA_KEY)
     else:
         kind = and_(IngestJob.source_url.is_not(None), IngestJob.file_path.is_(None))
+    published_for = IngestJob.user_metadata[PUBLISHED_FOR_METADATA_KEY].astext
     jobs = await session.scalars(
         select(IngestJob)
         .where(
-            IngestJob.created_by == user_id,
+            or_(
+                published_for == str(user_id),
+                and_(published_for.is_(None), IngestJob.created_by == user_id),
+            ),
             kind,
             or_(
                 IngestJob.status == "running",

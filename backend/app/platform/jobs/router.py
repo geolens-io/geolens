@@ -39,6 +39,7 @@ from app.platform.jobs.models import (
     TERMINAL_STATUSES,
     URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY,
     IngestJob,
+    publication_owner,
 )
 from app.platform.jobs.schemas import (
     DbfTruncationCollisionWarning,
@@ -961,7 +962,7 @@ async def retry_job(
     await db.commit()
     await db.refresh(job)
 
-    await queue_ingest_job(job, str(job.created_by), db=db)
+    await queue_ingest_job(job, str(publication_owner(job)), db=db)
 
     return UploadResponse(
         job_id=job.id,

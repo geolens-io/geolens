@@ -1071,7 +1071,7 @@ async def commit_import(
         # Persist only the fact that retry needs fresh credentials. The
         # credential remains request-only and is never written to JSONB.
         commit_metadata["service_auth_required"] = True
-    await admit_import_commit(db, job, observed_attempt_id, commit_metadata)
+    await admit_import_commit(db, job, observed_attempt_id, commit_metadata, user.id)
     staged_path = job.file_path
 
     # queue_ingest_job owns the orphan guard: a defer failure flips the job to

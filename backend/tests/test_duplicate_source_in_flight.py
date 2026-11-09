@@ -757,3 +757,62 @@ def test_only_parameter_names_ogc_makes_case_blind_are_folded():
     base = "https://maps.example.com/geoserver/wfs"
     assert identity(f"{base}?TYPENAME=roads") == identity(f"{base}?typeName=roads")
     assert identity(f"{base}?workspace=a") != identity(f"{base}?Workspace=a")
+
+
+async def test_a_users_preview_committed_by_an_admin_counts_as_the_admins_import(
+    client: AsyncClient, admin_auth_header, test_db_session, deferred
+):
+    alice_headers, _ = await create_user(client, admin_auth_header, "editor")
+    admin = await get_user_id(test_db_session, "admin")
+    preview = {
+        "url": _fresh_base(),
+        "service_type": "ArcGIS:FeatureServer",
+        "layer_name": "0",
+        "layer_id": 0,
+    }
+    canned = {
+        "srid": 4326,
+        "geometry_type": "Point",
+        "layer_name": "Wells",
+        "feature_count": None,
+        "columns": [{"name": "OBJECTID", "type": "Integer64"}],
+        "sample_rows": [{"OBJECTID": 1}],
+    }
+    with (
+        patch("app.modules.catalog.sources.router.validate_url_for_ssrf"),
+        patch("app.platform.security.validate_url_for_ssrf", new=AsyncMock()),
+        patch(
+            "app.modules.catalog.sources.router.fetch_arcgis_layer_preview",
+            new=AsyncMock(return_value=canned),
+        ),
+    ):
+        previewed = await client.post(
+            "/services/preview/", json=preview, headers=alice_headers
+        )
+        job_id = previewed.json()["job_id"]
+        committed = await client.post(
+            f"/ingest/commit/{job_id}",
+            json={"title": "Wells", "visibility": "private"},
+            headers=admin_auth_header,
+        )
+        assert committed.status_code == 202, committed.text
+
+        admins = await client.post(
+            "/services/preview/", json=preview, headers=admin_auth_header
+        )
+        alices = await client.post(
+            "/services/preview/", json=preview, headers=alice_headers
+        )
+
+    assert admins.status_code == 409, admins.text
+    assert admins.json()["detail"]["existing_job_id"] == job_id
+    assert alices.status_code == 200, alices.text
+
+    job = await test_db_session.get(IngestJob, uuid.UUID(job_id))
+    job.status = "failed"
+    await test_db_session.commit()
+    deferred.reset_mock()
+    retried = await client.post(f"/jobs/{job_id}/retry", headers=admin_auth_header)
+    assert retried.status_code == 202, retried.text
+    # A retry publishes for the account the commit chose.
+    assert deferred.await_args.kwargs["user_id"] == str(admin)
