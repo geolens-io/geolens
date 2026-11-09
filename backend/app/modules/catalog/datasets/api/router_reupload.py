@@ -95,6 +95,11 @@ from app.platform.service_auth import (
     wire_credential,
 )
 from app.platform.security import SSRFError, make_safe_client, validate_url_for_ssrf
+from app.platform.source_copies import (
+    duplicate_source_conflict,
+    rebound_copy,
+    service_identity,
+)
 from app.platform.storage import get_storage
 from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.platform.upload_filenames import (
@@ -586,6 +591,24 @@ async def reupload_service_preview(
     # Surface cross-record-type swaps as a useful 400 before the
     # pipeline executes (vector→raster or any→VRT explodes deep otherwise).
     _assert_compatible_record_type(dataset, None, service_type=request.service_type)
+    existing = await rebound_copy(
+        db,
+        user.id,
+        service_identity(
+            request.service_type,
+            request.url,
+            layer_id=request.layer_id,
+            layer_name=request.layer_name,
+        ),
+        dataset,
+    )
+    if existing is not None:
+        raise duplicate_source_conflict(
+            existing,
+            f"Another of your datasets already holds this layer (existing: "
+            f"'{existing.title}'). Refresh that dataset instead of re-uploading "
+            "the layer here.",
+        )
 
     # Hand the pooled connection back before DNS, the page fetches and
     # ogrinfo. The rollback expires every ORM instance, so the dataset facts

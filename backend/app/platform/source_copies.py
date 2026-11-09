@@ -1,6 +1,6 @@
 """One user's copy of one remote source, published or still being imported.
 
-A service layer is one source per (format, base URL, layer identifier), and a
+A service layer is one source per (format, URL, layer identifier), and a
 database table one per (connection, schema, table). The import and retry doors
 refuse a second copy with 409 ``duplicate_source``; publication checks again
 under a lock, because two requests can both pass a door before either job
@@ -13,15 +13,18 @@ import json
 import uuid
 from dataclasses import dataclass, field, fields
 from typing import Any
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.failure_reason import FixedReason
 from app.platform.catalog_locks import lock_request_key
 from app.platform.dataset_origin import (
+    SERVICE_SOURCE_FORMATS,
     DatabaseSource,
+    ServiceSource,
     read_source,
     service_layer_identity,
 )
@@ -31,6 +34,7 @@ from app.platform.jobs.models import (
     IngestJob,
     dispatch_attempted,
 )
+from app.platform.service_endpoints import bounded_parse_qsl
 
 DUPLICATE_SOURCE_CODE = "duplicate_source"
 
@@ -38,10 +42,16 @@ DUPLICATE_SOURCE_CODE = "duplicate_source"
 # replacement), so it is never a second copy of its source.
 _EXISTING_DATASET_MARKERS = ("dataset_id", "reupload", "refresh")
 
+# Request parameters a WFS or OGC API client adds to any URL; none of them
+# picks the service or the layer, unlike `typeName` or a MapServer `map`.
+_PROTOCOL_PARAMETERS = frozenset(
+    {"service", "request", "version", "acceptversions", "outputformat", "f"}
+)
+
 
 @dataclass(frozen=True)
 class ServiceIdentity:
-    """A service layer: canonical format, base URL and service-native layer id.
+    """A service layer: canonical format, canonical URL and service-native layer id.
 
     ``legacy_url`` is the ``source_url`` an import of it writes, which only an
     ``origin_ref`` without url or layer_id is matched on.
@@ -65,36 +75,82 @@ class ExistingCopy:
     job_id: uuid.UUID | None = None
 
 
+def _canonical_url(url: str) -> str:
+    """``url`` with case-blind parts lowered, the trailing slash and fragment
+    dropped, and protocol parameters removed from a sorted query."""
+    try:
+        parts = urlsplit(url.strip())
+        query = bounded_parse_qsl(parts.query)
+    except ValueError:
+        return url
+    kept = sorted(
+        (key.lower(), value)
+        for key, value in query
+        if key.lower() not in _PROTOCOL_PARAMETERS
+    )
+    return urlunsplit(
+        (
+            parts.scheme.lower(),
+            parts.netloc.lower(),
+            parts.path.rstrip("/"),
+            urlencode(kept),
+            "",
+        )
+    )
+
+
 def service_identity(
     service_type: str, url: str, *, layer_id: Any, layer_name: str | None
 ) -> ServiceIdentity | None:
-    """A service layer's identity in the spelling its import writes to ``origin_ref``.
+    """A service layer's identity, the same for every spelling of its URL.
 
-    An ArcGIS URL is normalized as the preview stores it, and a layer id
-    embedded in it counts when none is given; other services keep the URL
-    as given. None for a service type nothing can import.
+    ``service_type`` is a canonical format or a request's service label. An
+    ArcGIS URL is reduced to its service root, and a layer id embedded in it
+    counts when none is given. None for a service type nothing can import.
     """
-    from app.processing.ingest.ogr import IngestionError
-    from app.processing.ingest.tasks import resolve_service_type
-
-    try:
-        _, source_format = resolve_service_type(service_type)
-    except IngestionError:
+    source_format = _service_format(service_type)
+    if source_format is None:
         return None
+    raw = url
     if source_format == "arcgis_featureserver":
         from app.modules.catalog.sources.adapters.arcgis import normalize_arcgis_url
 
         try:
-            url, url_layer_id = normalize_arcgis_url(url)
+            raw, url_layer_id = normalize_arcgis_url(url)
         except ValueError:
             url_layer_id = None
         if layer_id is None:
             layer_id = url_layer_id
     return ServiceIdentity(
         source_format,
-        url,
+        _canonical_url(raw),
         service_layer_identity(source_format, layer_id=layer_id, layer_name=layer_name),
-        legacy_url=f"{url}/{layer_id}" if layer_id is not None else url,
+        legacy_url=f"{raw}/{layer_id}" if layer_id is not None else raw,
+    )
+
+
+def _service_format(service_type: str) -> str | None:
+    if service_type in SERVICE_SOURCE_FORMATS:
+        return service_type
+    from app.processing.ingest.ogr import IngestionError
+    from app.processing.ingest.tasks import resolve_service_type
+
+    try:
+        return resolve_service_type(service_type)[1]
+    except IngestionError:
+        return None
+
+
+def stored_service_identity(origin_ref: Any) -> ServiceIdentity | None:
+    """The identity of the service a dataset's ``origin_ref`` binds, if any."""
+    source = read_source("service", origin_ref)
+    if not isinstance(source, ServiceSource):
+        return None
+    return service_identity(
+        source.service_type,
+        source.url,
+        layer_id=source.layer_id,
+        layer_name=source.layer_id,
     )
 
 
@@ -129,15 +185,20 @@ async def owner_copy(session: AsyncSession, job: IngestJob) -> ExistingCopy | No
 
 
 async def published_copy(
-    session: AsyncSession, user_id: uuid.UUID, identity: SourceIdentity
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    identity: SourceIdentity,
+    *,
+    excluding: uuid.UUID | None = None,
 ) -> ExistingCopy | None:
-    """The user's dataset already bound to ``identity``, if any.
+    """The user's dataset, other than ``excluding``, already bound to ``identity``.
 
     Keyed on the structured ``origin_ref``, which only ingest and refresh
-    write. A service row whose ``origin_ref`` lacks url or layer_id (one
-    migration 0036 could not backfill) is matched on ``source_url`` instead,
-    gated on that gap because ``source_url`` is editable through the metadata
-    PATCH.
+    write; a stored service URL is compared in canonical form, so a copy
+    stored under another spelling still matches. A service row whose
+    ``origin_ref`` lacks url or layer_id (one migration 0036 could not
+    backfill) is matched on ``source_url`` instead, gated on that gap because
+    ``source_url`` is editable through the metadata PATCH.
     """
     from app.platform.extensions import get_processing_port
 
@@ -145,6 +206,9 @@ async def published_copy(
     dataset_cls = port.get_dataset_orm_class()
     record_cls = port.get_record_orm_class()
     ref = dataset_cls.origin_ref
+    owned = [record_cls.created_by == user_id]
+    if excluding is not None:
+        owned.append(dataset_cls.id != excluding)
     if isinstance(identity, DatabaseSource):
         matches = and_(
             dataset_cls.source_format == "database",
@@ -155,12 +219,15 @@ async def published_copy(
     else:
         ref_url = ref["url"].astext
         ref_layer = ref["layer_id"].astext
+        # Narrowed to the identity's host and path; the canonical comparison
+        # below decides.
+        root = urlsplit(identity.url)._replace(query="").geturl().lower()
         matches = and_(
             dataset_cls.source_format == identity.source_format,
             or_(
                 and_(
                     ref["service_type"].astext == identity.source_format,
-                    ref_url == identity.url,
+                    func.lower(ref_url).startswith(root, autoescape=True),
                     ref_layer.is_(None)
                     if identity.layer_id is None
                     else ref_layer == identity.layer_id,
@@ -171,15 +238,19 @@ async def published_copy(
                 ),
             ),
         )
-    row = (
-        await session.execute(
-            select(dataset_cls.id, record_cls.title)
-            .join(record_cls, dataset_cls.record_id == record_cls.id)
-            .where(matches, record_cls.created_by == user_id)
-            .limit(1)
-        )
-    ).first()
-    return None if row is None else ExistingCopy(row.title, dataset_id=row.id)
+    rows = await session.execute(
+        select(dataset_cls.id, record_cls.title, ref)
+        .join(record_cls, dataset_cls.record_id == record_cls.id)
+        .where(matches, *owned)
+        .order_by(dataset_cls.id)
+    )
+    for dataset_id, title, stored in rows:
+        if isinstance(identity, DatabaseSource) or stored_service_identity(stored) in (
+            None,
+            identity,
+        ):
+            return ExistingCopy(title, dataset_id=dataset_id)
+    return None
 
 
 async def importing_copy(
@@ -238,6 +309,56 @@ def duplicate_source_conflict(copy: ExistingCopy, message: str) -> HTTPException
     )
 
 
+def second_copy_reason(existing: ExistingCopy) -> FixedReason:
+    """The failure stored on a job refused for publishing a second copy."""
+    return FixedReason(
+        f"This source is already imported as dataset {existing.dataset_id}. "
+        "Refresh that dataset instead.",
+        code=DUPLICATE_SOURCE_CODE,
+    )
+
+
+async def locked_copy(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    identity: SourceIdentity,
+    *,
+    excluding: uuid.UUID | None = None,
+) -> ExistingCopy | None:
+    """``published_copy``, after locking ``identity`` for the user until the
+    transaction ends.
+
+    Call first in the transaction that publishes, so a concurrent attempt
+    for the same source waits here and then finds this one's dataset.
+    """
+    key = [type(identity).__name__, str(user_id)]
+    key += [getattr(identity, f.name) for f in fields(identity) if f.compare]
+    await lock_request_key(
+        session, scope=f"source-copy:{json.dumps(key)}", lock_timeout=None
+    )
+    return await published_copy(session, user_id, identity, excluding=excluding)
+
+
+async def rebound_copy(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    identity: ServiceIdentity | None,
+    dataset: Any,
+    *,
+    lock: bool = False,
+) -> ExistingCopy | None:
+    """The user's other dataset bound to ``identity``, which binding ``dataset``
+    to it would duplicate.
+
+    None when ``dataset`` is already bound there, which adds no copy. With
+    ``lock``, locks like :func:`locked_copy`.
+    """
+    if identity is None or stored_service_identity(dataset.origin_ref) == identity:
+        return None
+    find = locked_copy if lock else published_copy
+    return await find(session, user_id, identity, excluding=dataset.id)
+
+
 async def refuse_second_copy(
     session: AsyncSession,
     job: IngestJob,
@@ -245,31 +366,14 @@ async def refuse_second_copy(
 ) -> bool:
     """Fail this attempt when the job's owner already has its source published.
 
-    Call first in the transaction that publishes. The lock lasts until that
-    transaction ends, so a concurrent attempt for the same source waits here
-    and then finds this one's dataset. True means the job is failed and
-    committed, with nothing published.
+    True means the job is failed and committed, with nothing published.
     """
     identity = job_source_identity(job)
     if identity is None or job.created_by is None:
         return False
-    key = [type(identity).__name__, str(job.created_by)]
-    key += [getattr(identity, f.name) for f in fields(identity) if f.compare]
-    await lock_request_key(
-        session, scope=f"source-copy:{json.dumps(key)}", lock_timeout=None
-    )
-    existing = await published_copy(session, job.created_by, identity)
+    existing = await locked_copy(session, job.created_by, identity)
     if existing is None:
         return False
-    await ledger.fail(
-        session,
-        job.id,
-        attempt_id,
-        reason=FixedReason(
-            f"This source is already imported as dataset {existing.dataset_id}. "
-            "Refresh that dataset instead.",
-            code=DUPLICATE_SOURCE_CODE,
-        ),
-    )
+    await ledger.fail(session, job.id, attempt_id, reason=second_copy_reason(existing))
     await session.commit()
     return True

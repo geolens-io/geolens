@@ -15,6 +15,7 @@ import userEvent from '@testing-library/user-event';
 import { ServiceUrlForm } from '../ServiceUrlForm';
 import type { ProbeResponse } from '@/types/api';
 import { ApiError } from '@/api/client';
+import { translateApiErrorDetail } from '@/lib/error-map';
 import { clearServiceImport } from '@/api/service-url-session';
 
 const mockProbeService = vi.fn();
@@ -879,5 +880,26 @@ describe('ServiceUrlForm portal URL guidance', () => {
     expect(urlField.hasAttribute('aria-invalid')).toBe(!credential);
     expect(tokenField.hasAttribute('aria-invalid')).toBe(credential);
     expect(tokenField.hasAttribute('aria-describedby')).toBe(credential);
+  });
+});
+
+describe('ServiceUrlForm duplicate source still being imported', () => {
+  it('shows that the layer is already being imported', async () => {
+    const body = {
+      code: 'duplicate_source',
+      message: 'This source is already being imported.',
+      existing_job_id: '6f1c2c55-0e64-4c0e-9b8b-2d4f5b0e1a11',
+    };
+    mockProbeService.mockResolvedValue(DUPLICATE_NAME_PROBE);
+    mockPreviewServiceLayer.mockRejectedValue(
+      new ApiError(translateApiErrorDetail(body, 409), 409, body),
+    );
+
+    const { user, layerButtons } = await connectToDuplicateNameService();
+    await user.click(layerButtons[0]);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'This source is already being imported. Wait for that import to finish',
+    );
   });
 });

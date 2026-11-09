@@ -363,6 +363,7 @@
     "corsWildcardNotAllowed": "Wildcard origins are not accepted. Credentialed requests require every origin listed in full, for example https://example.com.",
     "embedDomainLockUnenforceable": "This deployment cannot enforce a domain lock yet: its public app URL is set to {{resolved}}, but you reached it at {{origin}}. An embed loads the map through GeoLens itself, so the lock would block every viewer. Set PUBLIC_APP_URL to {{origin}}, then create the token.",
     "duplicateSource": "A dataset from this source is already registered ({{title}}).",
+    "duplicateSourceImporting": "This source is already being imported. Wait for that import to finish, then refresh the dataset it creates.",
     "refreshDatasetBusy": "A refresh is already running for this dataset. Wait for it to finish, then try again.",
     "refreshReviewSuperseded": "The dataset changed after this replacement was held. Upload the file again.",
     "refreshOriginChanged": "This dataset's source changed while the refresh was being queued. Review the source and try again.",

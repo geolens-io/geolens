@@ -12,6 +12,7 @@ from httpx import AsyncClient
 from sqlalchemy import func, select, text
 
 from app.core.config import settings
+from app.modules.catalog.datasets.api import router_reupload
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.sources import database_router
 from app.platform.database_sources import (
@@ -21,11 +22,20 @@ from app.platform.database_sources import (
 )
 from app.platform.dataset_origin import KEEP, SourceBinding, restamp
 from app.platform.jobs.models import IngestJob
+from app.platform.source_copies import service_identity
 from app.processing.ingest import service as ingest_service
 from app.processing.ingest import tasks_database, tasks_vector
 from tests.factories import create_dataset, create_user, get_user_id
 from tests.test_database_import_door import _connection
-from tests.test_service_reupload_3d import _WELLS, _fake_fetch, _fresh_base, _source
+from app.processing.ingest.tasks_reupload import reupload_service
+from tests.test_service_reupload_3d import (
+    _WELLS,
+    _base_of,
+    _fake_fetch,
+    _fresh_base,
+    _ingest,
+    _source,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -45,6 +55,9 @@ def no_layer_metadata(monkeypatch):
         tasks_vector,
         "_fetch_arcgis_layer_meta_or_none",
         AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        tasks_vector, "_fetch_arcgis_field_labels", AsyncMock(return_value=None)
     )
 
 
@@ -115,12 +128,58 @@ def _service_job(base: str, owner: uuid.UUID, **values) -> IngestJob:
     )
 
 
+def _wfs_url() -> str:
+    return f"https://maps.example.com/geoserver{uuid.uuid4().hex[:6]}/wfs"
+
+
+def _wfs_job(url: str, owner: uuid.UUID, status: str = "pending") -> IngestJob:
+    return IngestJob(
+        source_filename="Buildings",
+        source_url=url,
+        source_layer="buildings",
+        created_by=owner,
+        status=status,
+        user_metadata={
+            "title": f"Buildings {uuid.uuid4().hex[:8]}",
+            "service_type": "WFS 2.0.0",
+            "geometry_type": "Point",
+            "commit_attempted_at": "2026-11-09T00:00:00+00:00",
+        },
+    )
+
+
+async def _bind_wfs(session, owner: uuid.UUID, url: str) -> Dataset:
+    dataset = await create_dataset(
+        session, created_by=owner, name="Buildings", source_format="wfs"
+    )
+    restamp(
+        dataset,
+        SourceBinding.service("wfs", url=url, layer_id="buildings", enriched_uri=url),
+        contacted_at=None,
+        refreshed_at=KEEP,
+    )
+    await session.commit()
+    return dataset
+
+
+async def _preview_wfs(client, headers, url: str):
+    with (
+        patch("app.modules.catalog.sources.router.validate_url_for_ssrf"),
+        _no_remote_preview(),
+    ):
+        return await client.post(
+            "/services/preview/",
+            json={"url": url, "service_type": "WFS 2.0.0", "layer_name": "buildings"},
+            headers=headers,
+        )
+
+
 async def _run_service(job: IngestJob, owner: uuid.UUID) -> None:
     await tasks_vector.ingest_service.func(
         job_id=str(job.id),
         attempt_id=str(job.attempt_id),
         source_url=job.source_url,
-        source_layer="0",
+        source_layer=job.source_layer,
         user_id=str(owner),
     )
 
@@ -215,31 +274,53 @@ async def test_a_queued_database_import_makes_the_second_a_duplicate(
 async def test_a_published_layer_blocks_a_preview_of_its_url_as_stored(
     client: AsyncClient, admin_auth_header, test_db_session
 ):
-    url = f"https://maps.example.com/wfs{uuid.uuid4().hex[:6]}?SERVICE=WFS&map=/a.map"
+    url = f"{_wfs_url()}?SERVICE=WFS&map=/a.map"
     owner = await get_user_id(test_db_session, "admin")
-    existing = await create_dataset(
-        test_db_session, created_by=owner, name="Buildings", source_format="wfs"
-    )
-    restamp(
-        existing,
-        SourceBinding.service("wfs", url=url, layer_id="buildings", enriched_uri=url),
-        contacted_at=None,
-        refreshed_at=KEEP,
-    )
-    await test_db_session.commit()
+    existing = await _bind_wfs(test_db_session, owner, url)
 
-    with (
-        patch("app.modules.catalog.sources.router.validate_url_for_ssrf"),
-        _no_remote_preview(),
-    ):
-        resp = await client.post(
-            "/services/preview/",
-            json={"url": url, "service_type": "WFS 2.0.0", "layer_name": "buildings"},
-            headers=admin_auth_header,
-        )
+    resp = await _preview_wfs(client, admin_auth_header, url)
 
     assert resp.status_code == 409, resp.text
     assert resp.json()["detail"]["existing_dataset_id"] == str(existing.id)
+
+
+async def test_a_published_layer_blocks_a_preview_without_its_trailing_slash(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    url = _wfs_url()
+    owner = await get_user_id(test_db_session, "admin")
+    existing = await _bind_wfs(test_db_session, owner, url + "/")
+
+    resp = await _preview_wfs(client, admin_auth_header, url)
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["existing_dataset_id"] == str(existing.id)
+
+
+async def test_a_queued_wfs_layer_blocks_a_preview_spelled_another_way(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    url = _wfs_url()
+    owner = await get_user_id(test_db_session, "admin")
+    queued = _wfs_job(url + "/", owner, status="running")
+    test_db_session.add(queued)
+    await test_db_session.commit()
+
+    resp = await _preview_wfs(
+        client, admin_auth_header, f"{url}?service=WFS&request=GetCapabilities"
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["existing_job_id"] == str(queued.id)
+
+
+def test_a_parameter_that_picks_the_service_keeps_identities_apart():
+    def identity(url):
+        return service_identity("WFS 2.0.0", url, layer_id=None, layer_name="buildings")
+
+    base = "https://maps.example.com/cgi-bin/mapserv"
+    assert identity(f"{base}?map=/a.map&SERVICE=WFS") == identity(f"{base}/?map=/a.map")
+    assert identity(f"{base}?map=/a.map") != identity(f"{base}?map=/b.map")
 
 
 async def test_a_queued_layer_blocks_a_preview_that_spells_its_url_differently(
@@ -269,25 +350,21 @@ async def test_a_queued_layer_blocks_a_preview_that_spells_its_url_differently(
     assert resp.json()["detail"]["existing_job_id"] == str(queued.id)
 
 
-async def test_two_workers_publishing_one_layer_at_once_publish_one_dataset(
-    test_db_session, monkeypatch
-):
-    base = _fresh_base()
-    owner = await get_user_id(test_db_session, "admin")
-    jobs = [_service_job(base, owner, status="pending") for _ in range(2)]
-    test_db_session.add_all(jobs)
-    await test_db_session.commit()
-    before = await _datasets_of(test_db_session, owner)
-    tables = await _data_tables(test_db_session)
+async def _publish_at_once(session, monkeypatch, jobs, owner) -> None:
+    """Run ``jobs`` together; one publishes and the other is refused."""
+    session.add_all(jobs)
+    await session.commit()
+    before = await _datasets_of(session, owner)
+    tables = await _data_tables(session)
 
-    fetched = asyncio.Barrier(2)
+    fetched = asyncio.Barrier(len(jobs))
     fetch = _fake_fetch(_WELLS)
 
     async def _fetch_together(*args, **kwargs):
         await fetch(*args, **kwargs)
         await fetched.wait()
 
-    publishing = asyncio.Barrier(2)
+    publishing = asyncio.Barrier(len(jobs))
     publish = tasks_vector._publish_attempt_staging_table
 
     async def _publish_together(*args, **kwargs):
@@ -308,7 +385,7 @@ async def test_two_workers_publishing_one_layer_at_once_publish_one_dataset(
             await asyncio.gather(*(_run_service(job, owner) for job in jobs))
 
     for job in jobs:
-        await test_db_session.refresh(job)
+        await session.refresh(job)
     done = [job for job in jobs if job.status == "complete"]
     refused = [job for job in jobs if job.status == "failed"]
     assert len(done) == 1 and len(refused) == 1, [j.error_message for j in jobs]
@@ -316,9 +393,27 @@ async def test_two_workers_publishing_one_layer_at_once_publish_one_dataset(
     assert loser.error_code == "duplicate_source"
     assert str(published.dataset_id) in loser.error_message
     assert loser.dataset_id is None
-    assert await _datasets_of(test_db_session, owner) == before + 1
-    live = await test_db_session.get(Dataset, published.dataset_id)
-    assert await _data_tables(test_db_session) - tables == {live.table_name}
+    assert await _datasets_of(session, owner) == before + 1
+    live = await session.get(Dataset, published.dataset_id)
+    assert await _data_tables(session) - tables == {live.table_name}
+
+
+async def test_two_workers_publishing_one_layer_at_once_publish_one_dataset(
+    test_db_session, monkeypatch
+):
+    base = _fresh_base()
+    owner = await get_user_id(test_db_session, "admin")
+    jobs = [_service_job(base, owner, status="pending") for _ in range(2)]
+    await _publish_at_once(test_db_session, monkeypatch, jobs, owner)
+
+
+async def test_two_spellings_of_one_wfs_layer_publishing_at_once_publish_one(
+    test_db_session, monkeypatch
+):
+    url = _wfs_url()
+    owner = await get_user_id(test_db_session, "admin")
+    jobs = [_wfs_job(url + "/", owner), _wfs_job(url, owner)]
+    await _publish_at_once(test_db_session, monkeypatch, jobs, owner)
 
 
 async def test_a_database_job_refused_at_publication_leaves_no_table_or_dataset(
@@ -435,3 +530,107 @@ async def test_a_retry_that_passed_the_door_is_refused_at_publication(
     assert old.error_code == "duplicate_source"
     assert str(again.dataset_id) in old.error_message
     assert old.dataset_id is None
+
+
+async def _reupload_from(session, monkeypatch, dataset_id, base: str) -> IngestJob:
+    owner = await get_user_id(session, "admin")
+    job = IngestJob(
+        dataset_id=dataset_id,
+        source_filename="Wells",
+        source_url=base,
+        source_layer="0",
+        created_by=owner,
+        status="pending",
+        user_metadata={
+            "reupload": True,
+            "dataset_id": str(dataset_id),
+            "service_type": "ArcGIS FeatureServer",
+            "layer_id": "0",
+            "source_type": "service_url",
+        },
+    )
+    session.add(job)
+    await session.commit()
+    with _source(monkeypatch, _WELLS):
+        await reupload_service.func(
+            job_id=str(job.id),
+            attempt_id=str(job.attempt_id),
+            dataset_id=str(dataset_id),
+            source_url=base,
+            source_layer="0",
+            user_id=str(owner),
+        )
+    await session.refresh(job)
+    return job
+
+
+async def test_a_reupload_of_a_layer_into_another_dataset_is_refused(
+    test_db_session, monkeypatch
+):
+    first = await _ingest(test_db_session, monkeypatch, _WELLS)
+    other = await _ingest(test_db_session, monkeypatch, _WELLS)
+    layer, other_layer = await _base_of(first), await _base_of(other)
+
+    job = await _reupload_from(test_db_session, monkeypatch, other, layer)
+
+    assert job.status == "failed"
+    assert job.error_code == "duplicate_source"
+    assert str(first) in job.error_message
+    assert await _base_of(other) == other_layer
+
+
+async def test_a_reupload_of_a_layer_into_its_own_dataset_is_allowed(
+    test_db_session, monkeypatch
+):
+    dataset_id = await _ingest(test_db_session, monkeypatch, _WELLS)
+
+    job = await _reupload_from(
+        test_db_session, monkeypatch, dataset_id, await _base_of(dataset_id)
+    )
+
+    assert job.status == "complete", job.error_message
+
+
+async def _preview_reupload(client, headers, dataset_id, url: str):
+    reported = {
+        "srid": 4326,
+        "geometry_type": "Point Z",
+        "layer_name": "0",
+        "feature_count": len(_WELLS),
+        "columns": [{"name": "name", "type": "String"}],
+        "sample_rows": [],
+    }
+    with (
+        patch.object(router_reupload, "validate_url_for_ssrf", AsyncMock()),
+        patch.object(
+            router_reupload, "fetch_arcgis_layer_meta", AsyncMock(return_value={})
+        ),
+        patch.object(
+            router_reupload, "run_service_preview", AsyncMock(return_value=reported)
+        ),
+    ):
+        return await client.post(
+            f"/datasets/{dataset_id}/reupload/service/preview",
+            headers=headers,
+            json={
+                "url": url,
+                "service_type": "ArcGIS FeatureServer",
+                "layer_name": "0",
+                "layer_id": "0",
+            },
+        )
+
+
+async def test_the_reupload_door_refuses_a_layer_another_dataset_holds(
+    client: AsyncClient, admin_auth_header, test_db_session, monkeypatch
+):
+    first = await _ingest(test_db_session, monkeypatch, _WELLS)
+    other = await _ingest(test_db_session, monkeypatch, _WELLS)
+    layer = await _base_of(first)
+
+    refused = await _preview_reupload(client, admin_auth_header, other, layer + "/")
+    allowed = await _preview_reupload(client, admin_auth_header, first, layer + "/")
+
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["detail"]["existing_dataset_id"] == str(first)
+    assert allowed.status_code == 200, allowed.text

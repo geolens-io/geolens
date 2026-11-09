@@ -29,6 +29,11 @@ from app.processing.raster.cog import sha256_file
 from app.platform.jobs.models import owned_presigned_staging_key
 from app.processing.ingest.uploaded_source import UploadedSource
 from app.platform.refresh import verification as refresh_policy
+from app.platform.source_copies import (
+    rebound_copy,
+    second_copy_reason,
+    service_identity,
+)
 from app.platform.refresh.credentials import resolve_worker_credential
 from app.platform.refresh.service import (
     drift_status_from_diff,
@@ -1532,6 +1537,36 @@ class _ServiceReupload(_LiveComparison):
         )
         from app.processing.ingest import tasks_vector as _tv
 
+        if (
+            not self.is_refresh
+            and job.created_by is not None
+            and (
+                copy := await rebound_copy(
+                    session,
+                    job.created_by,
+                    service_identity(
+                        self.service_type_raw,
+                        self.source_url_value,
+                        layer_id=self.layer_id,
+                        layer_name=self.source_layer_value,
+                    ),
+                    dataset,
+                    lock=True,
+                )
+            )
+        ):
+            reason = second_copy_reason(copy)
+            return Verdict(
+                publish=False,
+                reason=reason,
+                settle=partial(
+                    record_refresh_failure,
+                    ingest_job_id=self.job_uuid,
+                    error_code=reason.code,
+                    error_message=reason,
+                ),
+                notify=True,
+            )
         if self.service_type == "arcgis_featureserver":
             _tv._record_arcgis_order_field(job, self.order_field)
         schema = _current_tenant_schema()

@@ -593,6 +593,10 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
     if (Array.isArray(value.widget_ids)) {
       return { key: 'errors.dashboardWidgetsRefused' };
     }
+    // An import still running has no dataset to name yet, only its job.
+    if (value.code === 'duplicate_source' && typeof value.existing_job_id === 'string') {
+      return { key: 'errors.duplicateSourceImporting' };
+    }
     if (value.code === 'duplicate_source') {
       return {
         key: 'errors.duplicateSource',
