@@ -681,7 +681,7 @@ services:
 
   valkey:
     logging: *bounded-logs
-    image: valkey/valkey:9.1.2-alpine
+    image: valkey/valkey:9.1.3-alpine
     profiles: ["cache", "cloud-dev"]
     restart: unless-stopped
     # cap_drop ALL breaks the entrypoint's setpriv; a non-root user skips it.
