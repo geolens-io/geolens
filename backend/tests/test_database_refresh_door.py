@@ -112,7 +112,8 @@ async def test_refresh_through_a_connection_that_is_gone_names_it(
 
     assert resp.status_code == 409
     detail = resp.json()["detail"]
-    assert detail["code"] == "origin_unavailable"
+    assert detail["code"] == "database_connection_missing"
+    assert detail["connection"] == "gis"
     assert "'gis'" in detail["message"]
     deferred.assert_not_awaited()
 

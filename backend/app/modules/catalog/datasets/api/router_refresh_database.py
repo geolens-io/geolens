@@ -33,10 +33,10 @@ from app.platform.refresh.service import DatasetBusyError, create_pending_run
 from app.platform.refresh.verification import DATABASE_SINGLE_READ_POLICY
 
 
-def _conflict(code: str, message: str) -> HTTPException:
+def _conflict(code: str, message: str, **extra: str) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_409_CONFLICT,
-        detail={"code": code, "message": message, "origin_kind": "database"},
+        detail={"code": code, "message": message, "origin_kind": "database", **extra},
     )
 
 
@@ -56,9 +56,10 @@ def _resolve_database_origin(dataset) -> DatabaseSource:
         )
     if source.connection not in settings.database_sources:
         raise _conflict(
-            "origin_unavailable",
+            "database_connection_missing",
             f"The database connection {source.connection!r} is no longer "
             "configured. Ask an administrator to restore it.",
+            connection=source.connection,
         )
     return source
 
