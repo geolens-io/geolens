@@ -1430,10 +1430,10 @@ async def test_search_collection_feature_license_from_members(
     test_db_session,
     clean_tables,
 ):
-    """(#3684) collection features report the license derived from members.
+    """Collection features report the license derived from their members.
 
     A uniform collection reports its members' license, a mixed collection
-    reports "various" and lists the member licenses, and an empty
+    reports "various" with its description unchanged, and an empty
     collection keeps the "proprietary" fallback.
     """
     session = test_db_session
@@ -1500,9 +1500,47 @@ async def test_search_collection_feature_license_from_members(
     }
     assert collections[str(uniform.id)]["license"] == pddl
     assert collections[str(mixed.id)]["license"] == "various"
-    assert "CC-BY-4.0" in collections[str(mixed.id)]["description"]
-    assert pddl in collections[str(mixed.id)]["description"]
+    assert collections[str(mixed.id)]["description"] == "Mixed licenses"
     assert collections[str(empty.id)]["license"] == "proprietary"
+
+
+@pytest.mark.anyio
+async def test_search_collection_license_ignores_invisible_members(
+    client: AsyncClient,
+    test_db_session,
+    clean_tables,
+):
+    """An anonymous caller's collection license ignores private members."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    token = f"glic{uuid.uuid4().hex[:8]}"
+    coll = Collection(
+        name=f"{token} Vis", description="Visibility", created_by=admin_id
+    )
+    session.add(coll)
+    await session.flush()
+    pub = await _create_search_dataset(
+        session, created_by=admin_id, name=f"{token} pub", license="PDDL-1.0"
+    )
+    priv = await _create_search_dataset(
+        session,
+        created_by=admin_id,
+        name=f"{token} priv",
+        license="Other",
+        visibility="private",
+    )
+    for ds in (pub, priv):
+        session.add(CollectionDataset(collection_id=coll.id, dataset_id=ds.id))
+    await session.commit()
+
+    resp = await client.get("/search/datasets/", params={"q": token})
+    assert resp.status_code == 200
+    props = {
+        f["id"]: f["properties"]
+        for f in resp.json()["features"]
+        if f["properties"].get("type") == "collection"
+    }
+    assert props[str(coll.id)]["license"] == "PDDL-1.0"
 
 
 @pytest.mark.anyio

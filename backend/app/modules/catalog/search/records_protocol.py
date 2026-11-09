@@ -152,21 +152,15 @@ def standard_response_headers(
     return headers
 
 
-def derive_collection_license(
-    licenses: Sequence[str | None] | None,
-) -> tuple[str, list[str]]:
+def derive_collection_license(licenses: Sequence[str | None] | None) -> str:
     """Collapse member licenses to the collection license.
 
     One distinct license: use it. Several: "various". None: "proprietary".
-    Returns the license value and the sorted distinct licenses, so callers
-    can list the members' licenses when the value is "various".
     """
-    distinct = sorted({lic for lic in (licenses or []) if lic})
+    distinct = {lic for lic in (licenses or []) if lic}
     if not distinct:
-        return "proprietary", []
-    if len(distinct) == 1:
-        return distinct[0], distinct
-    return "various", distinct
+        return "proprietary"
+    return distinct.pop() if len(distinct) == 1 else "various"
 
 
 def collection_search_feature(coll: dict, public_api_url: str) -> dict:
@@ -176,10 +170,6 @@ def collection_search_feature(coll: dict, public_api_url: str) -> dict:
         created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at)
     )
     collection_time = {"timestamp": created_text}
-    description = coll["description"] or coll["name"]
-    license_value, member_licenses = derive_collection_license(coll.get("licenses"))
-    if len(member_licenses) > 1:
-        description = f"{description} (Licenses: {', '.join(member_licenses)})"
     return {
         "type": "Feature",
         "id": coll["id"],
@@ -188,9 +178,9 @@ def collection_search_feature(coll: dict, public_api_url: str) -> dict:
         "properties": {
             "type": "collection",
             "title": coll["name"],
-            "description": description,
+            "description": coll["description"] or coll["name"],
             "keywords": [],
-            "license": license_value,
+            "license": derive_collection_license(coll.get("licenses")),
             "themes": [],
             "contacts": [
                 {

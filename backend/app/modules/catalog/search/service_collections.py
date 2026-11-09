@@ -56,6 +56,7 @@ async def search_collections(
         select(
             CollectionDataset.collection_id,
             func.count().label("cnt"),
+            func.array_agg(func.distinct(Record.license)).label("licenses"),
         )
         .select_from(CollectionDataset)
         .join(Dataset, CollectionDataset.dataset_id == Dataset.id)
@@ -67,26 +68,11 @@ async def search_collections(
     )
     member_stmt = member_stmt.group_by(CollectionDataset.collection_id)
     member_result = await session.execute(member_stmt)
-    count_map = {row.collection_id: row.cnt for row in member_result.all()}
-
-    license_stmt = (
-        select(
-            CollectionDataset.collection_id,
-            func.array_agg(func.distinct(Record.license)),
-        )
-        .select_from(CollectionDataset)
-        .join(Dataset, CollectionDataset.dataset_id == Dataset.id)
-        .join(Record, Dataset.record_id == Record.id)
-        .where(CollectionDataset.collection_id.in_(coll_ids))
-    )
-    license_stmt = apply_visibility_filter(
-        license_stmt, user, user_roles, Record, DatasetGrant
-    )
-    license_stmt = license_stmt.group_by(CollectionDataset.collection_id)
-    license_result = await session.execute(license_stmt)
+    member_rows = member_result.all()
+    count_map = {row.collection_id: row.cnt for row in member_rows}
     license_map = {
-        row.collection_id: sorted({lic for lic in (row[1] or []) if lic})
-        for row in license_result.all()
+        row.collection_id: sorted({lic for lic in (row.licenses or []) if lic})
+        for row in member_rows
     }
 
     return [

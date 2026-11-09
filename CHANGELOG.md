@@ -102,6 +102,8 @@ and releases use semantic versioning.
 
 ### Fixed
 
+- Collection records in search report their members' license, the shared one or `various`,
+  instead of always `proprietary`.
 - Plain-text files such as `llms.txt` are served as UTF-8, so browsers no longer show their
   em dashes and accented names as garbled characters.
 - OGC API Features `crs` and `bbox-crs` on `/collections/{id}/items`, and `crs` on a

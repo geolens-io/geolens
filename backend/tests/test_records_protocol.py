@@ -1,6 +1,6 @@
 """Unit tests for OGC API Records protocol helpers.
 
-Covers collection license derivation (#3684). No database needed: the
+Collection license derivation. No database needed: the
 helpers under test take plain dicts.
 """
 
@@ -27,22 +27,19 @@ def _coll(**overrides):
 
 class TestDeriveCollectionLicense:
     def test_no_licenses_is_proprietary(self):
-        assert derive_collection_license(None) == ("proprietary", [])
-        assert derive_collection_license([]) == ("proprietary", [])
+        assert derive_collection_license(None) == "proprietary"
+        assert derive_collection_license([]) == "proprietary"
 
     def test_blank_licenses_are_ignored(self):
-        assert derive_collection_license([None, ""]) == ("proprietary", [])
-        assert derive_collection_license(["", PDDL, None]) == (PDDL, [PDDL])
+        assert derive_collection_license([None, ""]) == "proprietary"
+        assert derive_collection_license(["", PDDL, None]) == PDDL
 
     def test_single_license_is_used(self):
-        assert derive_collection_license([PDDL]) == (PDDL, [PDDL])
-        assert derive_collection_license([PDDL, PDDL]) == (PDDL, [PDDL])
+        assert derive_collection_license([PDDL]) == PDDL
+        assert derive_collection_license([PDDL, PDDL]) == PDDL
 
     def test_mixed_licenses_are_various(self):
-        assert derive_collection_license([PDDL, CC_BY]) == (
-            "various",
-            [CC_BY, PDDL],
-        )
+        assert derive_collection_license([PDDL, CC_BY]) == "various"
 
 
 class TestCollectionSearchFeatureLicense:
@@ -68,13 +65,11 @@ class TestCollectionSearchFeatureLicense:
         assert feature["properties"]["license"] == PDDL
         assert feature["properties"]["description"] == "A test collection"
 
-    def test_mixed_collection_reports_various_and_lists_licenses(self):
+    def test_mixed_collection_reports_various_without_description_suffix(self):
         feature = collection_search_feature(
             _coll(dataset_count=2, licenses=[PDDL, CC_BY]),
             "https://api.example.com",
         )
 
         assert feature["properties"]["license"] == "various"
-        assert feature["properties"]["description"] == (
-            "A test collection (Licenses: CC-BY-4.0, Open Data Commons PDDL 1.0)"
-        )
+        assert feature["properties"]["description"] == "A test collection"
