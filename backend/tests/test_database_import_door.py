@@ -7,6 +7,7 @@ import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
+import structlog
 from httpx import AsyncClient
 from sqlalchemy import select
 
@@ -15,6 +16,7 @@ from app.core.config_database_sources import DatabaseConnection
 from app.modules.catalog.sources import database_router
 from app.platform.database_sources import (
     DatabaseConnectError,
+    TableGeometry,
     SpatialTable,
     SpatialTableListing,
 )
@@ -22,6 +24,7 @@ from app.platform.dataset_origin import KEEP, SourceBinding, restamp
 from app.platform.jobs.models import IngestJob
 from app.processing.ingest import database_import
 from app.processing.ingest import service as ingest_service
+from app.processing.ingest import tasks_database
 from app.processing.ingest.tasks_database import ingest_database
 from tests.factories import create_dataset
 
@@ -448,3 +451,46 @@ def test_the_table_srid_wins_over_an_override_or_the_stored_srid(
     from app.processing.ingest.tasks_database import chosen_srid
 
     assert chosen_srid(probed, fallback) == chosen
+
+
+@pytest.mark.requires_ogr2ogr
+async def test_a_multi_word_postgis_password_never_reaches_the_log_or_the_job(
+    client: AsyncClient,
+    editor_auth_header,
+    configured,
+    listing,
+    deferred,
+    test_db_session,
+    monkeypatch,
+):
+    tail = f"pw-{uuid.uuid4().hex}"
+    echo = (
+        "ERROR 1: Unable to open datasource `PG:host=db dbname=geolens "
+        f"user=geolens password='*** {tail}'' with the following drivers.\n"
+    )
+
+    async def _spawn(*argv, **kwargs):
+        return _Proc(stderr=echo.encode(), returncode=1)
+
+    monkeypatch.setattr(database_import.asyncio, "create_subprocess_exec", _spawn)
+    monkeypatch.setattr(
+        tasks_database,
+        "probe_table_geometry",
+        AsyncMock(return_value=TableGeometry(column="shape", srid=2263)),
+    )
+    resp = await client.post(
+        URL,
+        json={"schema_name": "dbo", "table_name": "parcels"},
+        headers=editor_auth_header,
+    )
+    assert resp.status_code == 202, resp.text
+
+    with structlog.testing.capture_logs() as logs:
+        with pytest.raises(database_import.DatabaseImportError) as raised:
+            await tasks_database.ingest_database.func(**deferred.await_args.kwargs)
+
+    [job] = await _jobs(test_db_session, await _user_id(client, editor_auth_header))
+    assert job.status == "failed"
+    assert any(log["event"] == "database import failed" for log in logs)
+    for text in (repr(logs), str(raised.value), job.error_message or ""):
+        assert tail not in text

@@ -153,16 +153,23 @@ async def test_a_failed_database_import_can_be_retried() -> None:
 
 
 @pytest.mark.anyio
-async def test_table_probe_reports_a_column_that_mixes_srids(monkeypatch) -> None:
-    run = AsyncMock(
-        side_effect=[[{"column_name": "shape"}], [{"srid": 4326, "srids": 2}]]
-    )
+@pytest.mark.parametrize(
+    ("rows", "expected"),
+    [
+        ([], (None, False)),
+        ([{"srid": 0}], (None, False)),
+        ([{"srid": 2263}], (2263, False)),
+        ([{"srid": 4326}, {"srid": 32618}], (None, True)),
+        ([{"srid": 0}, {"srid": 4326}], (None, True)),
+    ],
+)
+async def test_one_distinct_read_gives_the_srid_and_the_mixed_flag(
+    monkeypatch, rows, expected
+) -> None:
+    run = AsyncMock(side_effect=[[{"column_name": "shape"}], rows])
     monkeypatch.setattr(database_sources, "run_database_sql", run)
     probed = await database_sources.probe_table_geometry("gis", "dbo", "t")
-    assert probed == database_sources.TableGeometry(
-        column="shape", srid=4326, mixed=True
-    )
-    assert "DISTINCT TOP (2) [shape].STSrid" in run.await_args_list[1].args[1]
-
-    run.side_effect = [[{"column_name": "shape"}], [{"srid": 4326, "srids": 1}]]
-    assert not (await database_sources.probe_table_geometry("gis", "dbo", "t")).mixed
+    assert (probed.srid, probed.mixed) == expected
+    assert run.await_count == 2
+    sql = run.await_args_list[1].args[1]
+    assert sql.startswith("SELECT DISTINCT TOP (2) [shape].STSrid AS srid")

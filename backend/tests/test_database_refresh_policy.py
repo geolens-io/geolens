@@ -118,15 +118,26 @@ async def test_a_refused_table_is_a_coded_refusal(monkeypatch, code) -> None:
 
 
 @pytest.mark.anyio
-async def test_the_import_probe_refuses_mixed_srids(monkeypatch) -> None:
+async def test_a_refresh_of_a_mixed_column_is_refused_before_the_copy(
+    monkeypatch,
+) -> None:
     from app.platform.database_sources import TableGeometry
+    from app.platform.dataset_origin import DatabaseSource
     from app.processing.ingest import tasks_database
 
     monkeypatch.setattr(
         tasks_database,
         "probe_table_geometry",
-        AsyncMock(return_value=TableGeometry(column="g", srid=4326, mixed=True)),
+        AsyncMock(return_value=TableGeometry(column="g", srid=None, mixed=True)),
     )
+    copy = AsyncMock()
+    monkeypatch.setattr(tasks_database, "copy_database_table", copy)
+    strategy = tasks_database._DatabaseRefresh(
+        job_id=str(uuid.uuid4()), user_id=str(uuid.uuid4())
+    )
+    strategy.source = DatabaseSource("gis", "dbo", "t")
+    strategy.stored_srid = 4326
     with pytest.raises(tasks_database.DatabaseRefusal) as raised:
-        await tasks_database.probe_import_srid("gis", "dbo", "t")
+        await strategy.fetch()
     assert raised.value.reason.code == "mixed_srid_database"
+    copy.assert_not_awaited()

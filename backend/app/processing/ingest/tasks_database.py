@@ -13,7 +13,11 @@ from sqlalchemy.exc import DBAPIError
 from app.core.db.tenant_session import tenant_task
 from app.core.failure_reason import FixedReason
 from app.platform.catalog_locks import CATALOG_LOCK_CONFLICT_CODE, CatalogLockConflict
-from app.platform.database_sources import DatabaseSourceError, probe_table_geometry
+from app.platform.database_sources import (
+    DatabaseSourceError,
+    TableGeometry,
+    probe_table_geometry,
+)
 from app.platform.dataset_origin import (
     DatabaseSource,
     Unavailable,
@@ -120,20 +124,14 @@ def job_database_source(user_metadata: object) -> DatabaseSource | Unavailable:
     return Unavailable("database", "connection")
 
 
-async def probe_import_srid(
+async def probe_import_geometry(
     connection: str, schema_name: str, table_name: str
-) -> int | None:
-    """The SRID of the column GDAL will read, or ``None`` for 0 or no rows.
-
-    Raises ``DatabaseRefusal`` when the column mixes SRIDs.
-    """
+) -> TableGeometry:
+    """The column GDAL will read, its SRID, and whether it mixes SRIDs."""
     try:
-        probed = await probe_table_geometry(connection, schema_name, table_name)
+        return await probe_table_geometry(connection, schema_name, table_name)
     except DatabaseSourceError as exc:
         raise DatabaseImportError(str(exc)) from None
-    if probed.mixed:
-        raise DatabaseRefusal(MIXED_SRID_DATABASE)
-    return probed.srid
 
 
 async def _rename_reserved(session, job, table: str) -> None:
@@ -209,20 +207,23 @@ async def ingest_database(
                 um = job.user_metadata
             await session.commit()
 
-        try:
-            srid = await probe_import_srid(
-                source.connection, source.schema, source.table
-            )
-            effective_srid = chosen_srid(srid, srid_override)
-            if effective_srid is None:
-                raise DatabaseRefusal(MISSING_CRS_DATABASE)
-        except DatabaseRefusal as refusal:
+        probed = await probe_import_geometry(
+            source.connection, source.schema, source.table
+        )
+        srid = probed.srid
+        effective_srid = chosen_srid(srid, srid_override)
+        if probed.mixed or effective_srid is None:
             async with _job_phase_session(
                 job_uuid, phase="refused", attempt_id=attempt_uuid
             ) as (session, job):
                 if job is not None:
                     await ledger.fail(
-                        session, job_uuid, attempt_uuid, reason=refusal.reason
+                        session,
+                        job_uuid,
+                        attempt_uuid,
+                        reason=MIXED_SRID_DATABASE
+                        if probed.mixed
+                        else MISSING_CRS_DATABASE,
                     )
                     await session.commit()
             return
@@ -360,9 +361,13 @@ class _DatabaseRefresh(_LiveComparison):
             )
         self.table = source
         require_importable_table(source.connection, source.schema, source.table)
-        probed = await probe_import_srid(source.connection, source.schema, source.table)
+        probed = await probe_import_geometry(
+            source.connection, source.schema, source.table
+        )
+        if probed.mixed:
+            raise DatabaseRefusal(MIXED_SRID_DATABASE)
         # SRID 0 or an empty table: the SRID the copy was imported under.
-        self.srid = chosen_srid(probed, self.stored_srid)
+        self.srid = chosen_srid(probed.srid, self.stored_srid)
         if self.srid is None:
             raise DatabaseRefusal(MISSING_CRS_DATABASE)
         schema = _current_tenant_schema()

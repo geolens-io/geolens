@@ -25,6 +25,7 @@ from app.platform.database_sources import (
 )
 from app.platform.gdal_env import gdal_database_safe_env
 from app.processing.ingest.ogr import (
+    _PG_DESTINATION_ECHO_RE,
     OGR2OGR_FILE_TIMEOUT_SECONDS,
     IngestionError,
     _communicate_with_timeout,
@@ -140,7 +141,11 @@ async def copy_database_table(
         )
 
     if proc.returncode != 0:
-        safe_stderr = safe_gdal_stderr(stderr, connection)
+        # GDAL masks only the first word of a quoted PostGIS password when it
+        # echoes a destination it can't open.
+        safe_stderr = _PG_DESTINATION_ECHO_RE.sub(
+            "PG:***", safe_gdal_stderr(stderr, connection)
+        )
         logger.warning(
             "database import failed",
             connection=connection_name,

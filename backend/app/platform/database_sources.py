@@ -379,13 +379,13 @@ def _table_columns_sql(schema_name: str, table_name: str) -> str:
 
 
 def _table_srids_sql(schema_name: str, table_name: str, column: str) -> str:
-    # Two distinct values settle "mixed", so the DISTINCT may stop there.
+    # One read answers both: no row, the one SRID, or two that make it mixed.
+    # Two settle "mixed", so the DISTINCT may stop there.
     col = quote_identifier(column)
     table = f"{quote_identifier(schema_name)}.{quote_identifier(table_name)}"
     return (
-        f"SELECT (SELECT TOP 1 {col}.STSrid FROM {table} WHERE {col} IS NOT NULL) "
-        "AS srid, (SELECT COUNT(*) FROM (SELECT DISTINCT TOP (2) "
-        f"{col}.STSrid AS s FROM {table} WHERE {col} IS NOT NULL) AS d) AS srids"
+        f"SELECT DISTINCT TOP (2) {col}.STSrid AS srid FROM {table} "
+        f"WHERE {col} IS NOT NULL"
     )
 
 
@@ -401,13 +401,12 @@ async def probe_table_geometry(
     column = rows[0].get("column_name") if rows else None
     if not isinstance(column, str):
         raise DatabaseTableError(name)
-    probed = await run_database_sql(
+    srids = await run_database_sql(
         name, _table_srids_sql(schema_name, table_name, column)
     )
-    srid = probed[0].get("srid") if probed else None
-    distinct = probed[0].get("srids") if probed else None
+    if len(srids) > 1:
+        return TableGeometry(column=column, srid=None, mixed=True)
+    srid = srids[0].get("srid") if srids else None
     return TableGeometry(
-        column=column,
-        srid=srid if isinstance(srid, int) and srid != 0 else None,
-        mixed=isinstance(distinct, int) and distinct > 1,
+        column=column, srid=srid if isinstance(srid, int) and srid != 0 else None
     )
