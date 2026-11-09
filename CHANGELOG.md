@@ -17,6 +17,7 @@ and releases use semantic versioning.
 - The viewer legend describes a clustered layer as "Grouped into clusters as you zoom out" or "Shown as individual points" instead of "Server cluster", "Bounded cluster" and "Point fallback".
 
 ### Fixed
+- Map viewer: with an AI provider configured, the "Ask AI" button no longer covers the expanded attribution; the attribution sits above it.
 - Visiting `/stories` opens the Stories tab of the Maps page instead of a 404.
 
 ## [1.30.1] - 2026-11-08
