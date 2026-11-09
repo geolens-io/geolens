@@ -24,9 +24,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.platform.dataset_origin import (
+    KEEP,
+    SourceBinding,
     build_origin_ref,
-    set_dataset_origin,
-    set_postgis_origin,
+    restamp,
 )
 from app.platform.jobs.models import PUBLISH_FOLLOWUPS_FIELD, IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
@@ -296,13 +297,16 @@ async def _service_replacement(
         source_filename="parcels",
         column_info=[{"name": "name", "type": "text"}],
     )
-    set_dataset_origin(
+    restamp(
         dataset,
-        "service",
-        uri=f"{_WFS_BASE}/topp:parcels",
-        service_type="wfs",
-        url=_WFS_BASE,
-        layer_id="topp:parcels",
+        SourceBinding.service(
+            "wfs",
+            url=_WFS_BASE,
+            layer_id="topp:parcels",
+            enriched_uri=f"{_WFS_BASE}/topp:parcels",
+        ),
+        contacted_at=None,
+        refreshed_at=KEEP,
     )
     await _create_point_table(session, table, "before")
     job = await _seed_job_and_run(
@@ -509,7 +513,12 @@ async def _postgis_replacement(
         source_format=None,
         source_filename=None,
     )
-    set_postgis_origin(dataset, table, schema="data")
+    restamp(
+        dataset,
+        SourceBinding.postgis(table, schema="data"),
+        contacted_at=None,
+        refreshed_at=KEEP,
+    )
     await session.commit()
     job = await _seed_job_and_run(
         session, dataset_id=dataset.id, created_by=admin_id, origin_kind="postgis"

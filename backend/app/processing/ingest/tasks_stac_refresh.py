@@ -36,11 +36,13 @@ from app.core.service_tokens import (
 
 from app.core.db.tenant_session import tenant_task
 from app.platform.dataset_origin import (
+    KEEP,
     BoundPointer,
+    SourceBinding,
     StacSource,
     bound_pointer,
     read_source,
-    set_dataset_origin,
+    restamp,
 )
 from app.platform.refresh.credentials import (
     CredentialExpiredError,
@@ -275,10 +277,10 @@ def _rebind(
 ) -> None:
     """Point the dataset at where the publisher now says its asset is.
 
-    Through ``set_dataset_origin``, the only door into ``origin_ref``, which
+    Through ``restamp``, the only door into ``origin_ref``, whose binding
     applies the per-kind key allowlist: a resolution carrying an extra
     field raises here rather than widening a STAC binding (ADR-002
-    invariant 4).
+    invariant 4). The caller writes the verdict and freshness after it.
 
     ``collection_id`` is the stored value or, for a binding that never had
     one, the value the resolution verified against, read from the stored
@@ -295,13 +297,7 @@ def _rebind(
     when it did not, so a token-less success clears the marker the same way
     the service path's does. Never the credential.
     """
-    set_dataset_origin(
-        dataset,
-        "stac",
-        uri=resolution.asset_href,
-        # Carried forward unchanged: a refresh re-resolves a binding, it does
-        # not re-point it at a catalog the caller never submitted.
-        url=catalog_url,
+    binding = SourceBinding.stac(
         asset_href=resolution.asset_href,
         item_href=resolution.item_href,
         # Written back on every rebind, so a dataset imported before the id
@@ -309,8 +305,13 @@ def _rebind(
         item_id=resolution.item_id,
         collection_id=collection_id,
         asset_key=resolution.asset_key,
-        auth_required=auth_required,
+        # Carried forward unchanged: a refresh re-resolves a binding, it does
+        # not re-point it at a catalog the caller never submitted.
+        url=catalog_url,
+        auth_required=bool(auth_required),
     )
+    # project_refresh_success dates the contact once the run commits.
+    restamp(dataset, binding, contacted_at=None, refreshed_at=KEEP)
 
 
 def _pixel_geometry(described: dict) -> dict:

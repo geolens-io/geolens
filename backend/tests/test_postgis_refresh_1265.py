@@ -39,7 +39,7 @@ from app.modules.catalog.records.service import (
     create_distribution,
     generate_distributions,
 )
-from app.platform.dataset_origin import set_dataset_origin, set_postgis_origin
+from app.platform.dataset_origin import KEEP, SourceBinding, restamp
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.processing.ingest import metadata as tasks_postgis_refresh_metadata
@@ -121,7 +121,12 @@ async def _registered_dataset(
         source_format=None,
         source_filename=None,
     )
-    set_postgis_origin(dataset, table_name, schema="data")
+    restamp(
+        dataset,
+        SourceBinding.postgis(table_name, schema="data"),
+        contacted_at=None,
+        refreshed_at=KEEP,
+    )
     await session.commit()
     await session.refresh(dataset)
     return dataset
@@ -537,14 +542,14 @@ class TestPostgisRefreshDispatch:
         real_create_pending_run = router_refresh.create_pending_run
 
         async def _rebind_then_reserve(*args, **kwargs):
-            set_dataset_origin(
+            restamp(
                 dataset,
-                "upload",
-                uri=None,
-                filename="replacement.gpkg",
-                file_hash="abc123",
+                SourceBinding.upload(
+                    "gpkg", filename="replacement.gpkg", file_hash="abc123"
+                ),
+                contacted_at=None,
+                refreshed_at=KEEP,
             )
-            dataset.source_format = "gpkg"
             await test_db_session.commit()
             return await real_create_pending_run(*args, **kwargs)
 

@@ -2850,7 +2850,7 @@ class TestWorker:
     ) -> None:
         """The common case. Asking the publisher and being told nothing moved
         is a successful refresh — and it must not rewrite a binding it agreed
-        with, because ``set_dataset_origin`` clears probe state on every
+        with, because ``restamp`` clears probe state on every
         write."""
         install, _ = stac_transport
         install({_ITEM: (200, _item_doc()), _ASSET: (206, None)})

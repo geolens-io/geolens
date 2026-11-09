@@ -23,10 +23,9 @@ from app.platform.dataset_origin import (
     StacSource,
     Unavailable,
     bound_pointer,
+    carried_portal_link,
     read_source,
     restamp,
-    set_dataset_origin,
-    set_postgis_origin,
     still_bound,
 )
 from tests.factories import create_dataset, get_user_id
@@ -87,15 +86,16 @@ async def _dataset(session, source_format: str | None) -> Dataset:
     )
 
 
+def _bind(dataset: Dataset, binding: SourceBinding) -> None:
+    restamp(dataset, binding, contacted_at=None, refreshed_at=KEEP)
+
+
 def _bind_service(dataset: Dataset, **extra) -> None:
-    set_dataset_origin(
+    _bind(
         dataset,
-        "service",
-        uri=_WFS,
-        service_type="wfs",
-        url=_WFS,
-        layer_id="roads",
-        **extra,
+        SourceBinding.service(
+            "wfs", url=_WFS, layer_id="roads", enriched_uri=_WFS, **extra
+        ),
     )
 
 
@@ -112,8 +112,7 @@ class TestStillBound:
     ) -> None:
         dataset = await self._service_dataset(test_db_session)
         read = bound_pointer(dataset)
-        set_dataset_origin(dataset, "upload", filename="roads.gpkg")
-        dataset.source_format = "gpkg"
+        _bind(dataset, SourceBinding.upload("gpkg", filename="roads.gpkg"))
         await test_db_session.commit()
 
         assert await _stamp(dataset.id, read) == 0
@@ -130,9 +129,9 @@ class TestStillBound:
     async def test_null_columns_match_their_own_null(self, test_db_session) -> None:
         """A registered table stores no format and a drawn layer no ref; both still match."""
         registered = await _dataset(test_db_session, None)
-        set_postgis_origin(registered, registered.table_name, schema="data")
+        _bind(registered, SourceBinding.postgis(registered.table_name, schema="data"))
         drawn = await _dataset(test_db_session, "created")
-        set_dataset_origin(drawn, "created")
+        _bind(drawn, SourceBinding.created())
         await test_db_session.commit()
         assert registered.source_format is None
         assert (drawn.origin_uri, drawn.origin_ref) == (None, None)
@@ -627,9 +626,9 @@ class TestPortalLinkCarry:
         assert dataset.origin_ref["portal_url"] == _PORTAL
 
     def test_a_stac_item_id_is_not_a_portal_item(self) -> None:
-        dataset = _linked(
-            {"kind": "stac", "item_id": "S2A_2024", "url": "https://c.test"}
-        )
+        stac = {"kind": "stac", "item_id": "S2A_2024", "url": "https://c.test"}
+        assert carried_portal_link(stac) == {}
+        dataset = _linked(stac)
         _stamp_link(dataset, SourceBinding.upload("geotiff", filename="a.tif"))
         assert "item_id" not in dataset.origin_ref
 

@@ -23,7 +23,7 @@ from app.platform.refresh.verification import (
 )
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.jobs.models import IngestJob
-from app.platform.dataset_origin import BoundPointer, set_dataset_origin
+from app.platform.dataset_origin import KEEP, BoundPointer, SourceBinding, restamp
 from app.processing.ingest import tasks_vector
 from app.processing.ingest.tasks_common import _ARCGIS_GDAL_GET_URL_MAX_BYTES
 from app.processing.ingest.tasks_reupload import (
@@ -40,6 +40,15 @@ from tests.test_refresh_gate_1269 import _dispatch_harness, _runs_ordered
 _ARCGIS_BASE = "https://services.example.com/arcgis/rest/services/Big/FeatureServer"
 
 
+def _arcgis_binding(url: str, layer_id: str) -> SourceBinding:
+    return SourceBinding.service(
+        "arcgis_featureserver",
+        url=url,
+        layer_id=layer_id,
+        enriched_uri=f"{_ARCGIS_BASE}/{layer_id}",
+    )
+
+
 async def _arcgis_dataset(session, *, created_by: uuid.UUID):
     dataset = await create_dataset(
         session,
@@ -49,13 +58,11 @@ async def _arcgis_dataset(session, *, created_by: uuid.UUID):
     )
     enriched = f"{_ARCGIS_BASE}/0"
     dataset.source_url = enriched
-    set_dataset_origin(
+    restamp(
         dataset,
-        "service",
-        uri=enriched,
-        service_type="arcgis_featureserver",
-        url=_ARCGIS_BASE,
-        layer_id="0",
+        _arcgis_binding(_ARCGIS_BASE, "0"),
+        contacted_at=None,
+        refreshed_at=KEEP,
     )
     await session.commit()
     await session.refresh(dataset)
@@ -244,13 +251,11 @@ async def test_finalization_fence_blocks_a_source_rebind_before_publication(
         created_by=admin_id,
         fingerprint=canonical_service_source_binding_fingerprint(dataset.origin_ref),
     )
-    set_dataset_origin(
+    restamp(
         dataset,
-        "service",
-        uri=f"{_ARCGIS_BASE}/1",
-        service_type="arcgis_featureserver",
-        url=_ARCGIS_BASE,
-        layer_id="1",
+        _arcgis_binding(_ARCGIS_BASE, "1"),
+        contacted_at=None,
+        refreshed_at=KEEP,
     )
     await test_db_session.commit()
 
@@ -268,13 +273,11 @@ async def test_finalization_fence_ignores_a_trailing_slash_on_the_bound_url(
     """A run admitted on the URL without its trailing slash still publishes."""
     admin_id = await get_user_id(test_db_session, "admin")
     dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
-    set_dataset_origin(
+    restamp(
         dataset,
-        "service",
-        uri=f"{_ARCGIS_BASE}/0",
-        service_type="arcgis_featureserver",
-        url=f"{_ARCGIS_BASE}/",
-        layer_id="0",
+        _arcgis_binding(f"{_ARCGIS_BASE}/", "0"),
+        contacted_at=None,
+        refreshed_at=KEEP,
     )
     job = await _running_scheduled_run(
         test_db_session,

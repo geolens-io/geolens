@@ -17,7 +17,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from app.modules.catalog.datasets.api import router_refresh
-from app.platform.dataset_origin import set_dataset_origin
+from app.platform.dataset_origin import KEEP, SourceBinding, restamp
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.execution import execute_admitted_refresh
 from app.platform.refresh.models import DatasetRefreshRun
@@ -37,13 +37,16 @@ async def test_refresh_refuses_a_kind_it_has_no_strategy_for(
     dataset = await create_dataset(
         test_db_session, created_by=admin_id, source_format="wfs"
     )
-    set_dataset_origin(
+    restamp(
         dataset,
-        "service",
-        uri=f"{_WFS}/topp:parcels",
-        service_type="wfs",
-        url=_WFS,
-        layer_id="topp:parcels",
+        SourceBinding.service(
+            "wfs",
+            url=_WFS,
+            layer_id="topp:parcels",
+            enriched_uri=f"{_WFS}/topp:parcels",
+        ),
+        contacted_at=None,
+        refreshed_at=KEEP,
     )
     await test_db_session.commit()
 

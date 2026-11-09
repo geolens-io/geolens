@@ -416,7 +416,7 @@ class _PostgisOrigin:
     this kind accepts ``table_name`` and nothing else — no host, port, DSN or
     credential — so there is no shape in which this dataclass could address a
     table outside this instance. The stored value is schema-qualified
-    (``set_postgis_origin`` composes it), and the worker proves it names this
+    (``SourceBinding.postgis`` composes it), and the worker proves it names this
     dataset's own live table before reading anything.
     """
 

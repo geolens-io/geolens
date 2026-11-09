@@ -218,8 +218,8 @@ async def check_source_health(
     # ORM instance would write the OLD origin's verdict onto the new
     # binding, permanently if a service became an upload (uploads 409
     # above, so nothing could re-probe). Snapshot the binding now and make
-    # the write conditional on it below; set_dataset_origin clearing probe
-    # state on rebind covers the other interleaving.
+    # the write conditional on it below; restamp clearing probe state on
+    # rebind covers the other interleaving.
     bound = bound_pointer(dataset)
 
     # Resolve what to contact while the session is still live...

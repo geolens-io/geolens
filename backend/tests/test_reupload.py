@@ -1900,19 +1900,21 @@ class TestFailedServiceReuploadDatesTheContact:
         data stays (the swap never ran), so only the timestamp moves. The
         stamp requires the fetch target to BE the stored service origin —
         pinned by the sibling replacement-URL test."""
-        from app.platform.dataset_origin import set_dataset_origin
+        from app.platform.dataset_origin import KEEP, SourceBinding, restamp
         from app.processing.ingest.tasks_reupload import reupload_service
 
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
-        dataset.source_format = "wfs"
-        set_dataset_origin(
+        restamp(
             dataset,
-            "service",
-            uri="https://svc.test/wfs/roads",
-            service_type="wfs",
-            url="https://svc.test/wfs",
-            layer_id="roads",
+            SourceBinding.service(
+                "wfs",
+                url="https://svc.test/wfs",
+                layer_id="roads",
+                enriched_uri="https://svc.test/wfs/roads",
+            ),
+            contacted_at=None,
+            refreshed_at=KEEP,
         )
         await test_db_session.commit()
         assert dataset.last_checked_at is None
@@ -1967,19 +1969,21 @@ class TestFailedServiceReuploadDatesTheContact:
         origin's contact onto the NEW binding — a file reupload would leave
         an upload with a contact time it cannot have, and uploads 409 the
         probe so nothing corrects it."""
-        from app.platform.dataset_origin import set_dataset_origin
+        from app.platform.dataset_origin import KEEP, SourceBinding, restamp
         from app.processing.ingest.tasks_reupload import reupload_service
 
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
-        dataset.source_format = "wfs"
-        set_dataset_origin(
+        restamp(
             dataset,
-            "service",
-            uri="https://svc.test/wfs/roads",
-            service_type="wfs",
-            url="https://svc.test/wfs",
-            layer_id="roads",
+            SourceBinding.service(
+                "wfs",
+                url="https://svc.test/wfs",
+                layer_id="roads",
+                enriched_uri="https://svc.test/wfs/roads",
+            ),
+            contacted_at=None,
+            refreshed_at=KEEP,
         )
         await test_db_session.commit()
         attempt = uuid.uuid4()
@@ -2003,8 +2007,12 @@ class TestFailedServiceReuploadDatesTheContact:
         async def rebind_then_explode(*args, on_spawn=None, **kwargs):
             if on_spawn is not None:
                 on_spawn()
-            set_dataset_origin(dataset, "upload", filename="roads.gpkg")
-            dataset.source_format = "gpkg"
+            restamp(
+                dataset,
+                SourceBinding.upload("gpkg", filename="roads.gpkg"),
+                contacted_at=None,
+                refreshed_at=KEEP,
+            )
             await test_db_session.commit()
             raise RuntimeError("upstream fetch exploded")
 
@@ -2091,19 +2099,21 @@ class TestFailedServiceReuploadDatesTheContact:
     ):
         """Same service base, different layer is still a
         different origin — the stored layer was never contacted."""
-        from app.platform.dataset_origin import set_dataset_origin
+        from app.platform.dataset_origin import KEEP, SourceBinding, restamp
         from app.processing.ingest.tasks_reupload import reupload_service
 
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
-        dataset.source_format = "wfs"
-        set_dataset_origin(
+        restamp(
             dataset,
-            "service",
-            uri="https://svc.test/wfs/roads",
-            service_type="wfs",
-            url="https://svc.test/wfs",
-            layer_id="roads",
+            SourceBinding.service(
+                "wfs",
+                url="https://svc.test/wfs",
+                layer_id="roads",
+                enriched_uri="https://svc.test/wfs/roads",
+            ),
+            contacted_at=None,
+            refreshed_at=KEEP,
         )
         await test_db_session.commit()
         attempt = uuid.uuid4()
@@ -2151,19 +2161,21 @@ class TestFailedServiceReuploadDatesTheContact:
         """An OSError from the subprocess launch means
         ogr2ogr never spawned — nothing left the machine, so a matching
         binding must still not be stamped."""
-        from app.platform.dataset_origin import set_dataset_origin
+        from app.platform.dataset_origin import KEEP, SourceBinding, restamp
         from app.processing.ingest.tasks_reupload import reupload_service
 
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
-        dataset.source_format = "wfs"
-        set_dataset_origin(
+        restamp(
             dataset,
-            "service",
-            uri="https://svc.test/wfs/roads",
-            service_type="wfs",
-            url="https://svc.test/wfs",
-            layer_id="roads",
+            SourceBinding.service(
+                "wfs",
+                url="https://svc.test/wfs",
+                layer_id="roads",
+                enriched_uri="https://svc.test/wfs/roads",
+            ),
+            contacted_at=None,
+            refreshed_at=KEEP,
         )
         await test_db_session.commit()
         attempt = uuid.uuid4()

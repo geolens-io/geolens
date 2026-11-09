@@ -1254,13 +1254,18 @@ class TestServiceOriginProbe:
         replaced by an upload it would stick forever, since uploads 409."""
         from app.modules.catalog.datasets.api import router_health
         from app.modules.catalog.sources.origin_probe import OriginProbeResult
-        from app.platform.dataset_origin import set_dataset_origin
+        from app.platform.dataset_origin import KEEP, SourceBinding, restamp
 
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _service_dataset(test_db_session, created_by=admin_id)
 
         async def rebind_then_report_healthy(*_args, **_kwargs) -> OriginProbeResult:
-            set_dataset_origin(dataset, "upload", filename="roads.gpkg")
+            restamp(
+                dataset,
+                SourceBinding.upload("gpkg", filename="roads.gpkg"),
+                contacted_at=None,
+                refreshed_at=KEEP,
+            )
             await test_db_session.commit()
             return OriginProbeResult(HEALTHY, None)
 
