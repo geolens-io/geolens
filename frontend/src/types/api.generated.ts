@@ -5254,6 +5254,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/services/databases/{connection}/tables/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a database connection's spatial tables
+         * @description List the tables and views with a geometry or geography column that the
+         *     connection's login can read.
+         *
+         *     Connections come from the deployment's `DATABASE_SOURCES`. A 502 means the
+         *     server could not be reached or signed in to, or a table could not be read;
+         *     the detail names only the connection.
+         */
+        get: operations["list_database_tables_services_databases__connection__tables__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/services/preview/": {
         parameters: {
             query?: never;
@@ -8273,6 +8298,19 @@ export interface components {
              */
             name: string;
         };
+        /** CapabilitiesDatabaseConnection */
+        CapabilitiesDatabaseConnection: {
+            /**
+             * Name
+             * @description Connection name to list and import tables from.
+             */
+            name: string;
+            /**
+             * Database
+             * @description Database the connection reads.
+             */
+            database: string;
+        };
         /** CapabilitiesKey */
         CapabilitiesKey: {
             /**
@@ -8305,6 +8343,11 @@ export interface components {
              * @description Datasets the account can still create, or null when uncapped.
              */
             remaining_dataset_quota: number | null;
+            /**
+             * Database Connections
+             * @description Database connections the deployment configures, listed only for an account that can create datasets.
+             */
+            database_connections?: components["schemas"]["CapabilitiesDatabaseConnection"][];
         };
         /** CapabilitiesRateLimits */
         CapabilitiesRateLimits: {
@@ -9489,6 +9532,69 @@ export interface components {
              * @description Widgets in panel order. Each, except a text widget, names a layer of this map that you can read. Stored widgets you can't see are kept in place.
              */
             widgets?: (components["schemas"]["MarkdownWidget"] | components["schemas"]["IndicatorWidget"] | components["schemas"]["BarChartWidget"] | components["schemas"]["PieChartWidget"] | components["schemas"]["FeatureListWidget"] | components["schemas"]["TableWidget"] | components["schemas"]["HistogramWidget"] | components["schemas"]["CategorySelectorWidget"])[];
+        };
+        /** DatabaseTable */
+        DatabaseTable: {
+            /**
+             * Schema Name
+             * @description Schema that holds the table or view.
+             */
+            schema_name: string;
+            /**
+             * Table Name
+             * @description Table or view name.
+             */
+            table_name: string;
+            /**
+             * Object Type
+             * @description Table or view.
+             * @enum {string}
+             */
+            object_type: "table" | "view";
+            /**
+             * Geometry Column
+             * @description Spatial column.
+             */
+            geometry_column: string;
+            /**
+             * Column Type
+             * @description SQL Server spatial type of the column.
+             * @enum {string}
+             */
+            column_type: "geometry" | "geography";
+            /**
+             * Srid
+             * @description SRID of the column's first non-null value, or null when it is 0, the table has no rows, or it couldn't be read.
+             */
+            srid: number | null;
+        };
+        /** DatabaseTableListResponse */
+        DatabaseTableListResponse: {
+            /**
+             * Connection
+             * @description Connection name from the deployment.
+             */
+            connection: string;
+            /**
+             * Database
+             * @description Database the connection reads.
+             */
+            database: string;
+            /**
+             * Tables
+             * @description One entry per spatial column, ordered by schema, table and column.
+             */
+            tables: components["schemas"]["DatabaseTable"][];
+            /**
+             * Limit
+             * @description Most entries one listing returns.
+             */
+            limit: number;
+            /**
+             * Truncated
+             * @description True when the connection has more spatial columns than `limit`.
+             */
+            truncated: boolean;
         };
         /** DatasetApiKeyCreateRequest */
         DatasetApiKeyCreateRequest: {
@@ -45306,6 +45412,121 @@ export interface operations {
             };
             /** @description Gateway timeout — connector provider timed out */
             504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    list_database_tables_services_databases__connection__tables__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Connection name. */
+                connection: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatabaseTableListResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Bad gateway — an upstream provider failed */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

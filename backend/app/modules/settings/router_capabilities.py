@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.dependencies import get_db
 from app.core.edition import get_edition
 from app.core.identity import Identity
@@ -75,6 +76,11 @@ class CapabilitiesKey(BaseModel):
     )
 
 
+class CapabilitiesDatabaseConnection(BaseModel):
+    name: str = Field(description="Connection name to list and import tables from.")
+    database: str = Field(description="Database the connection reads.")
+
+
 class CapabilitiesMe(BaseModel):
     username: str = Field(description="Signed-in account.")
     permissions: list[str] = Field(description="Capabilities the account holds.")
@@ -83,6 +89,13 @@ class CapabilitiesMe(BaseModel):
     )
     remaining_dataset_quota: int | None = Field(
         description="Datasets the account can still create, or null when uncapped."
+    )
+    database_connections: list[CapabilitiesDatabaseConnection] = Field(
+        default_factory=list,
+        description=(
+            "Database connections the deployment configures, listed only for an "
+            "account that can create datasets."
+        ),
     )
 
 
@@ -145,6 +158,14 @@ async def _me(
             else None
         ),
         remaining_dataset_quota=limits.remaining_dataset_quota,
+        database_connections=(
+            [
+                CapabilitiesDatabaseConnection(name=name, database=connection.database)
+                for name, connection in sorted(settings.database_sources.items())
+            ]
+            if permissions.get("create_layers")
+            else []
+        ),
     )
 
 

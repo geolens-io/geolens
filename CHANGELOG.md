@@ -7,6 +7,9 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Added
+- Database connections: an operator lists SQL Server databases in `DATABASE_SOURCES`, `GET /services/databases/{connection}/tables/` lists a connection's spatial tables and views with their geometry column, type and SRID for users who can create datasets, and `/capabilities/` names each connection and its database for those users. The API image now includes the FreeTDS ODBC driver (`tdsodbc`). The setting is refused in `multi_tenant` mode.
+
 ### Changed
 - The viewer legend describes a clustered layer as "Grouped into clusters as you zoom out" or "Shown as individual points" instead of "Server cluster", "Bounded cluster" and "Point fallback".
 

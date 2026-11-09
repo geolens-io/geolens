@@ -323,6 +323,8 @@ services:
       CORS_ALLOWED_ORIGINS:
       INGEST_HTTP_TIMEOUT_SECONDS: "${INGEST_HTTP_TIMEOUT_SECONDS:-300}"
       SERVICE_CREDENTIALS_ALLOW_HTTP_HOSTS:
+      # SQL Server connections, as JSON; read by the listing and the import.
+      DATABASE_SOURCES:
       # 0 keeps terminal ingest_jobs history forever.
       INGEST_JOBS_RETENTION_DAYS: "${INGEST_JOBS_RETENTION_DAYS:-30}"
       PROCRASTINATE_SCHEMA: "${PROCRASTINATE_SCHEMA:-catalog}"
@@ -370,6 +372,8 @@ services:
       WORKER_QUEUES: "${WORKER_QUEUES:-priority,ingest,raster,download,ingest-auth-v2}"
       INGEST_HTTP_TIMEOUT_SECONDS: "${INGEST_HTTP_TIMEOUT_SECONDS:-300}"
       SERVICE_CREDENTIALS_ALLOW_HTTP_HOSTS:
+      # SQL Server connections, as JSON; read by the listing and the import.
+      DATABASE_SOURCES:
       # The URL-import fetch clock runs in this container.
       URL_IMPORT_FETCH_MAX_SECONDS: "${URL_IMPORT_FETCH_MAX_SECONDS:-1800}"
       # The tileset worker rechecks these caps before its first put.

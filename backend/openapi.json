@@ -3659,6 +3659,26 @@
         "title": "CapabilitiesBasemap",
         "type": "object"
       },
+      "CapabilitiesDatabaseConnection": {
+        "properties": {
+          "name": {
+            "description": "Connection name to list and import tables from.",
+            "title": "Name",
+            "type": "string"
+          },
+          "database": {
+            "description": "Database the connection reads.",
+            "title": "Database",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "database"
+        ],
+        "title": "CapabilitiesDatabaseConnection",
+        "type": "object"
+      },
       "CapabilitiesKey": {
         "properties": {
           "scope": {
@@ -3724,6 +3744,14 @@
             ],
             "description": "Datasets the account can still create, or null when uncapped.",
             "title": "Remaining Dataset Quota"
+          },
+          "database_connections": {
+            "description": "Database connections the deployment configures, listed only for an account that can create datasets.",
+            "items": {
+              "$ref": "#/components/schemas/CapabilitiesDatabaseConnection"
+            },
+            "title": "Database Connections",
+            "type": "array"
           }
         },
         "required": [
@@ -6589,6 +6617,106 @@
           }
         },
         "title": "DashboardConfigInput",
+        "type": "object"
+      },
+      "DatabaseTable": {
+        "properties": {
+          "schema_name": {
+            "description": "Schema that holds the table or view.",
+            "title": "Schema Name",
+            "type": "string"
+          },
+          "table_name": {
+            "description": "Table or view name.",
+            "title": "Table Name",
+            "type": "string"
+          },
+          "object_type": {
+            "description": "Table or view.",
+            "enum": [
+              "table",
+              "view"
+            ],
+            "title": "Object Type",
+            "type": "string"
+          },
+          "geometry_column": {
+            "description": "Spatial column.",
+            "title": "Geometry Column",
+            "type": "string"
+          },
+          "column_type": {
+            "description": "SQL Server spatial type of the column.",
+            "enum": [
+              "geometry",
+              "geography"
+            ],
+            "title": "Column Type",
+            "type": "string"
+          },
+          "srid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SRID of the column's first non-null value, or null when it is 0, the table has no rows, or it couldn't be read.",
+            "title": "Srid"
+          }
+        },
+        "required": [
+          "schema_name",
+          "table_name",
+          "object_type",
+          "geometry_column",
+          "column_type",
+          "srid"
+        ],
+        "title": "DatabaseTable",
+        "type": "object"
+      },
+      "DatabaseTableListResponse": {
+        "properties": {
+          "connection": {
+            "description": "Connection name from the deployment.",
+            "title": "Connection",
+            "type": "string"
+          },
+          "database": {
+            "description": "Database the connection reads.",
+            "title": "Database",
+            "type": "string"
+          },
+          "tables": {
+            "description": "One entry per spatial column, ordered by schema, table and column.",
+            "items": {
+              "$ref": "#/components/schemas/DatabaseTable"
+            },
+            "title": "Tables",
+            "type": "array"
+          },
+          "limit": {
+            "description": "Most entries one listing returns.",
+            "title": "Limit",
+            "type": "integer"
+          },
+          "truncated": {
+            "description": "True when the connection has more spatial columns than `limit`.",
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "connection",
+          "database",
+          "tables",
+          "limit",
+          "truncated"
+        ],
+        "title": "DatabaseTableListResponse",
         "type": "object"
       },
       "DatasetApiKeyCreateRequest": {
@@ -67581,6 +67709,162 @@
           }
         ],
         "summary": "Start a connector ingest",
+        "tags": [
+          "Datasets"
+        ]
+      }
+    },
+    "/services/databases/{connection}/tables/": {
+      "get": {
+        "description": "List the tables and views with a geometry or geography column that the\nconnection's login can read.\n\nConnections come from the deployment's `DATABASE_SOURCES`. A 502 means the\nserver could not be reached or signed in to, or a table could not be read;\nthe detail names only the connection.",
+        "operationId": "list_database_tables_services_databases__connection__tables__get",
+        "parameters": [
+          {
+            "description": "Connection name.",
+            "in": "path",
+            "name": "connection",
+            "required": true,
+            "schema": {
+              "description": "Connection name.",
+              "maxLength": 64,
+              "title": "Connection",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseTableListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad gateway \u2014 an upstream provider failed"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "List a database connection's spatial tables",
         "tags": [
           "Datasets"
         ]
