@@ -376,13 +376,15 @@ export async function getCapabilities(): Promise<CapabilitiesResponse> {
   return apiFetch<CapabilitiesResponse>('/capabilities/');
 }
 
-// Both read the connection's catalog, which the server waits up to 45 s for.
+// The server waits up to 45 s for each SQL Server read: the import reads the
+// catalog, and the listing reads the catalog and then probes SRIDs.
 const DATABASE_CATALOG_TIMEOUT_MS = 60_000;
+const DATABASE_LISTING_TIMEOUT_MS = 100_000;
 
 export async function listDatabaseTables(connection: string): Promise<DatabaseTableListResponse> {
   return apiFetch<DatabaseTableListResponse>(
     `/services/databases/${encodeURIComponent(connection)}/tables/`,
-    { timeoutMs: DATABASE_CATALOG_TIMEOUT_MS },
+    { timeoutMs: DATABASE_LISTING_TIMEOUT_MS },
   );
 }
 
