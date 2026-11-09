@@ -120,8 +120,8 @@ KNOWN_ORIGIN_KINDS: frozenset[str] = frozenset(
 def origin_refusal_message(origin: Optional[str]) -> Optional[str]:
     """Refuse before uploading when the dataset's origin is not a file.
 
-    The reupload worker always rebinds a committed dataset to the `upload`
-    origin (`platform/dataset_origin.set_dataset_origin`), so replacing a
+    The reupload worker rebinds a dataset replaced from a file to the
+    `upload` origin (`platform/dataset_origin.restamp`), so replacing a
     dataset bound to a refreshable remote origin, or to a registered
     table, through this door would silently sever its refresh source on
     the first successful commit. `service` and `stac` are both
