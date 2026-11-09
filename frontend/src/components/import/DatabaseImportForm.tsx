@@ -8,7 +8,12 @@ import {
   clearDatabaseImport,
   peekDatabaseImport,
 } from '@/api/database-import-session';
-import { useDatabaseConnections, useDatabaseTables } from '@/components/import/hooks/use-ingest';
+import {
+  isTerminalJobStatus,
+  useDatabaseConnections,
+  useDatabaseTables,
+  useJobStatus,
+} from '@/components/import/hooks/use-ingest';
 import type { CommitImportRequest, DatabaseImportRequest, DatabaseTable } from '@/types/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,6 +42,7 @@ export function DatabaseImportForm() {
   );
   const [error, setError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(adopted?.jobId ?? null);
+  const { data: trackedJob } = useJobStatus(step === 'tracking' ? jobId : null);
   const mountedRef = useRef(false);
   useEffect(() => {
     mountedRef.current = true;
@@ -121,7 +127,17 @@ export function DatabaseImportForm() {
   };
 
   if (step === 'tracking' && jobId) {
-    return <JobProgress jobId={jobId} onReset={reset} />;
+    return (
+      <div className="space-y-4">
+        <JobProgress jobId={jobId} onReset={reset} />
+        {/* JobProgress offers its own start-over only for a failed or cancelled job. */}
+        {trackedJob?.status !== 'failed' && trackedJob?.status !== 'cancelled' && isTerminalJobStatus(trackedJob?.status) && (
+          <Button variant="outline" onClick={reset}>
+            {t('urlImport.importAnother')}
+          </Button>
+        )}
+      </div>
+    );
   }
 
   if ((step === 'review' || step === 'committing') && choice) {

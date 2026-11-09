@@ -9,12 +9,14 @@ import type { DatabaseTable } from '@/types/api';
 const mockCapabilities = vi.fn();
 const mockListTables = vi.fn();
 const mockStartImport = vi.fn();
+const mockJobStatus = vi.fn();
 
 vi.mock('@/api/ingest', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/api/ingest')>()),
   getCapabilities: () => mockCapabilities(),
   listDatabaseTables: (...args: unknown[]) => mockListTables(...args),
   startDatabaseImport: (...args: unknown[]) => mockStartImport(...args),
+  getJobStatus: (...args: unknown[]) => mockJobStatus(...args),
 }));
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
@@ -54,6 +56,7 @@ function withConnections(...names: string[]) {
 beforeEach(() => {
   vi.clearAllMocks();
   clearDatabaseImport();
+  mockJobStatus.mockResolvedValue({ id: 'job-9', status: 'running' });
   useAuthStore.setState({ token: 'token' });
   withConnections('warehouse');
 });
@@ -216,5 +219,36 @@ describe('DatabaseImportForm', () => {
     resolveImport({ job_id: 'job-pending', status: 'pending', message: 'queued' });
 
     expect(await screen.findByText('Tracking job-pending')).toBeInTheDocument();
+  });
+
+  it('offers Import another once the job completes, and drops the session for good', async () => {
+    mockListTables.mockResolvedValue(listing([table()]));
+    mockStartImport.mockResolvedValue({ job_id: 'job-9', status: 'pending', message: 'queued' });
+    mockJobStatus.mockResolvedValue({ id: 'job-9', status: 'complete' });
+    const user = userEvent.setup();
+    const first = render(<DatabaseImportForm />);
+
+    await openReview(user, 'gis.parcels');
+    await user.click(screen.getByRole('button', { name: /import/i }));
+    await user.click(await screen.findByRole('button', { name: 'Import another' }));
+
+    expect(await screen.findByRole('radio', { name: /gis\.parcels/ })).toBeInTheDocument();
+    first.unmount();
+    render(<DatabaseImportForm />);
+    expect(await screen.findByRole('radio', { name: /gis\.parcels/ })).toBeInTheDocument();
+    expect(screen.queryByText(/Tracking/)).not.toBeInTheDocument();
+  });
+
+  it('does not offer Import another while the job is still running', async () => {
+    mockListTables.mockResolvedValue(listing([table()]));
+    mockStartImport.mockResolvedValue({ job_id: 'job-9', status: 'pending', message: 'queued' });
+    const user = userEvent.setup();
+    render(<DatabaseImportForm />);
+
+    await openReview(user, 'gis.parcels');
+    await user.click(screen.getByRole('button', { name: /import/i }));
+
+    expect(await screen.findByText('Tracking job-9')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Import another' })).not.toBeInTheDocument();
   });
 });
