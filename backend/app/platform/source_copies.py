@@ -377,6 +377,23 @@ def duplicate_source_conflict(copy: ExistingCopy, message: str) -> HTTPException
     )
 
 
+async def retry_conflict(
+    session: AsyncSession, user: Any, job: IngestJob
+) -> HTTPException | None:
+    """The 409 a retry of ``job`` answers while the account it publishes for
+    holds a copy of its source, naming that copy only if ``user`` can read it."""
+    existing = await owner_copy(session, job)
+    if existing is None:
+        return None
+    existing = await visible_copy(session, existing, user)
+    return duplicate_source_conflict(
+        existing,
+        f"The job's owner already has a dataset from this source (existing: "
+        f"'{existing.title}'). Refresh that dataset instead, or delete it and "
+        "retry this job.",
+    )
+
+
 def second_copy_reason(existing: ExistingCopy, *, named: bool) -> FixedReason:
     """The failure stored on a job refused for publishing a second copy.
 

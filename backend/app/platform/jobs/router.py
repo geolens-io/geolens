@@ -54,11 +54,7 @@ from app.platform.jobs.schemas import (
     StaleCleanupResponse,
 )
 from app.platform.refresh.job_runs import latest_runs_for_jobs, stored_review_reasons
-from app.platform.source_copies import (
-    duplicate_source_conflict,
-    owner_copy,
-    visible_copy,
-)
+from app.platform.source_copies import retry_conflict
 from app.platform.jobs.originals_reconcile import reconcile_orphaned_originals
 from app.platform.jobs.quicklook_reconcile import reconcile_orphaned_quicklooks
 from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objects
@@ -922,15 +918,9 @@ async def retry_job(
             detail=retry_reason or "This job cannot be retried.",
         )
 
-    existing = await owner_copy(db, job)
-    if existing is not None:
-        existing = await visible_copy(db, existing, user)
-        raise duplicate_source_conflict(
-            existing,
-            f"The job's owner already has a dataset from this source (existing: "
-            f"'{existing.title}'). Refresh that dataset instead, or delete it and "
-            "retry this job.",
-        )
+    conflict = await retry_conflict(db, user, job)
+    if conflict is not None:
+        raise conflict
 
     # Reset the job to pending and commit before re-queueing so the
     # orphan guard in queue_ingest_job can flip it back to failed if
