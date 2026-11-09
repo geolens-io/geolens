@@ -10,10 +10,11 @@ and releases use semantic versioning.
 ## [1.30.1] - 2026-11-08
 
 An instance on 1.30.0 moves to 1.30.1 with no migration. A raster mosaic of
-two or more files gets its own overview the next time it is rebuilt.
+two or more files gets its own overview the next time it is rebuilt, if the
+owner's storage cap and the server's scratch space allow it.
 
 ### Changed
-- The demo seed (`scripts/seed-showcase.py`) adds a section built from the City of Cambridge, MA open data (PDDL) with a nine-chapter story, binds the USGS earthquake layer once, shows the 1.30 dashboard and story features, gives the showcase maps and stories one title style, fills the Matterhorn terrain south of the Swiss border with the Copernicus GLO-30 elevation model, and corrects written content, legends, credits and cameras across the showcase; `--refresh-services` re-pulls every service-bound dataset.
+- The demo seed (`scripts/seed-showcase.py`) adds a section built from the City of Cambridge, MA open data (PDDL) with a nine-chapter story, binds the USGS earthquake layer once, shows the 1.30 dashboard and story features, gives the showcase maps and stories one title style, fills the Matterhorn terrain south of the Swiss border with the Copernicus GLO-30 elevation model, and corrects written content, legends, credits and cameras across the showcase; `--refresh-services` re-pulls every service-bound dataset the seed account owns.
 
 ### Fixed
 - A raster mosaic of two or more files now builds an overview of its own, as a mosaic with a file that lacks overviews already did. GDAL uses the files' own overviews only when the mosaic has one file, so low-zoom tiles read the full-resolution grid, which made them slow and could restart the tile server on a large mosaic. The overview is built when the mosaic is created or rebuilt, if the owner's storage cap and the server's scratch space allow it; otherwise the mosaic publishes without one, as before. Existing mosaics get it at their next rebuild.
