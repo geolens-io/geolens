@@ -46,6 +46,21 @@ beforeEach(() => {
 });
 
 describe('ViewerChatPanel', () => {
+  it('publishes the launcher lift while the launcher shows and clears it when opened or hidden', async () => {
+    const lift = () => document.documentElement.style.getPropertyValue('--floating-dock-lift');
+    setAvailable(true);
+    renderPanel();
+    expect(lift()).not.toBe('');
+    await userEvent.click(screen.getByRole('button', { name: /ask ai/i }));
+    expect(lift()).toBe('');
+  });
+
+  it('publishes no lift when no AI provider is available', () => {
+    setAvailable(false);
+    renderPanel();
+    expect(document.documentElement.style.getPropertyValue('--floating-dock-lift')).toBe('');
+  });
+
   it('shows a dismissible query-result badge when the overlay is active', async () => {
     setAvailable(true);
     const handleDismissEphemeral = vi.fn();

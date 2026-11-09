@@ -520,6 +520,10 @@
 .dark .maplibregl-ctrl-group button + button {
   border-top-color: oklch(1 0 0 / 10%);
 }
+/* Lift the attribution above a floating launcher (Ask AI) that publishes its lift. */
+.maplibregl-map .maplibregl-ctrl-bottom-right {
+  margin-bottom: var(--floating-dock-lift, 0px);
+}
 /* ── MapLibre Attribution Control ──────────────────── */
 /* Opaque pairs keep attribution readable over tiles and compact-control states. */
 .maplibregl-map .maplibregl-ctrl.maplibregl-ctrl-attrib {

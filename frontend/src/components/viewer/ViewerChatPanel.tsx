@@ -132,6 +132,20 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // The launcher floats over the bottom-right corner; the map's attribution is lifted above it
+  // (index.css) by the launcher's height plus its bottom-8 offset and a gap.
+  const dockRef = useRef<HTMLDivElement>(null);
+  const launcherVisible = isAIAvailable && !open;
+  useEffect(() => {
+    if (!launcherVisible) return undefined;
+    const root = document.documentElement;
+    const height = dockRef.current?.getBoundingClientRect().height ?? 0;
+    root.style.setProperty('--floating-dock-lift', `calc(${height > 0 ? `${height}px` : '2.5rem'} + 2.5rem)`);
+    return () => {
+      root.style.removeProperty('--floating-dock-lift');
+    };
+  }, [launcherVisible]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: prefersReducedMotion ? 'auto' : 'smooth' });
   }, [messages, isLoading, streamingText]);
@@ -299,7 +313,7 @@ export function ViewerChatPanel({ mapId, layers, mapInstanceRef }: ViewerChatPan
         bottom-10 right-4, size-10) appears in the bottom-right corner once
         errors are captured and would overlap the FAB (as on the dataset
         page). */}
-    <div className="absolute bottom-8 end-16 z-10 flex flex-col items-end gap-2">
+    <div ref={dockRef} className="absolute bottom-8 end-16 z-10 flex flex-col items-end gap-2">
       {open && (
         <section
           role="dialog"
