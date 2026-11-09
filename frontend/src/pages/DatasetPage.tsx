@@ -281,12 +281,13 @@ export function DatasetPage() {
   const demBoundsArrived = demToken?.kind === 'raster' && !!demToken.bounds && demToken.bounds.length >= 4;
   const timedOutAwaitingBounds = useRef(false);
   useEffect(() => {
-    if (heroState !== 'error') return;
     if (demNeedsTokenBounds && demTokenPending) {
-      timedOutAwaitingBounds.current = true;
-    } else if (demBoundsArrived && timedOutAwaitingBounds.current) {
+      if (heroState === 'error') timedOutAwaitingBounds.current = true;
+      return;
+    }
+    if (demBoundsArrived && timedOutAwaitingBounds.current) {
       timedOutAwaitingBounds.current = false;
-      handleReplaceComplete();
+      if (heroState === 'error') handleReplaceComplete();
     }
   }, [demBoundsArrived, demNeedsTokenBounds, demTokenPending, heroState, handleReplaceComplete]);
 

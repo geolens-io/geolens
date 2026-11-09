@@ -426,6 +426,26 @@ describe('DatasetPage hero state machine', () => {
     expect(screen.getByTestId('dataset-map')).toBe(map);
   });
 
+  it('keeps the error overlay on a later error after Retry was clicked before bounds arrived', async () => {
+    mockTileToken.value = { data: undefined, isPending: true };
+    setup({ record_type: 'raster_dataset', extent_bbox: null, raster: demRaster });
+    const { rerender } = render(<DatasetPage />, { route: '/datasets/dataset-1' });
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    mockTileToken.value = { data: { kind: 'raster', bounds: [7.6, 45.9, 7.7, 46.0] }, isPending: false };
+    rerender(<DatasetPage />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    const map = screen.getByTestId('dataset-map');
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+
+    expect(screen.getByText('Preview unavailable')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.getByTestId('dataset-map')).toBe(map);
+  });
+
   it('keeps the dataset extent for a DEM that has one', async () => {
     mockTileToken.value = { data: { kind: 'raster', bounds: [1, 2, 3, 4] }, isPending: false };
     setup({ record_type: 'raster_dataset', extent_bbox: [5, 45, 10, 48], raster: demRaster });
