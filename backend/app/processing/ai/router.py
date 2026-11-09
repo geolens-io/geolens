@@ -21,7 +21,11 @@ from app.processing.ai.chat_service import (
     build_dataset_chat_system_prompt,
     chat_edit_map,
 )
-from app.processing.ai.llm_loop import ToolLoopExhaustedError
+from app.processing.ai.llm_loop import (
+    ToolLoopExhaustedError,
+    UserFacingAIError,
+    safe_stream_error_message,
+)
 from app.processing.ai.schemas import (
     ChatMapLayer,
     ChatRequest,
@@ -775,7 +779,8 @@ async def _call_llm_endpoint(
     """Shared error handler for AI endpoints (chat, generate-map, metadata).
 
     Maps the standard LLM exception taxonomy to HTTP errors:
-      - ValueError                      → 422 (caller-supplied detail)
+      - ValueError                      → 422; only a ``UserFacingAIError``
+                                          message reaches the caller
       - ToolLoopExhaustedError          → 422 (when tool_loop_message is set)
       - APIConnectionError (provider)   → 502 "Could not connect to LLM provider"
       - APIError (provider)             → 502 "LLM provider returned an error"
@@ -792,9 +797,11 @@ async def _call_llm_endpoint(
     try:
         return await coro
     except ValueError as e:
+        if not isinstance(e, UserFacingAIError):
+            logger.warning(f"{error_prefix} rejected", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(e),
+            detail=safe_stream_error_message(e),
         )
     except ToolLoopExhaustedError:
         if tool_loop_message is None:

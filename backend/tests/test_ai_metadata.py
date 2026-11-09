@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import AsyncClient
 
+from app.processing.ai.llm_loop import UserFacingAIError
 from app.processing.ai.metadata_schemas import (
     KeywordSuggestionsResponse,
     LineageDraftResponse,
@@ -337,3 +338,56 @@ async def test_returns_404_nonexistent_dataset(
 
     assert resp.status_code == 404
     assert "not found" in resp.json()["detail"].lower()
+
+
+_INTERNAL_DETAIL = (
+    "OpenAI base URL http://llm.internal:8000/v1 is not the operator-approved "
+    "OPENAI_BASE_URL"
+)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("raised", "expected_detail"),
+    [
+        (
+            ValueError(_INTERNAL_DETAIL),
+            "An unexpected error occurred. Please try again.",
+        ),
+        (
+            UserFacingAIError("The AI's reply was cut off. Try a shorter prompt."),
+            "The AI's reply was cut off. Try a shorter prompt.",
+        ),
+    ],
+)
+async def test_value_error_detail_passes_only_user_facing_messages(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    raised: ValueError,
+    expected_detail: str,
+):
+    """A non-stream AI route returns 422 with only an allowlisted message."""
+    user_id = await _get_admin_user_id(test_db_session)
+    ds = await _create_test_dataset(test_db_session, user_id)
+    await test_db_session.commit()
+
+    with (
+        patch(
+            "app.processing.ai.router.generate_summary_draft",
+            new_callable=AsyncMock,
+            side_effect=raised,
+        ),
+        patch(
+            "app.processing.ai.router._check_ai_available",
+            new_callable=AsyncMock,
+        ),
+    ):
+        resp = await client.post(
+            "/ai/metadata/summary/",
+            json={"dataset_id": str(ds.id)},
+            headers=admin_auth_header,
+        )
+
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == expected_detail
