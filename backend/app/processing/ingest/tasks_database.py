@@ -19,7 +19,6 @@ from app.platform.dataset_origin import (
     Unavailable,
     bound_pointer,
     classify_origin,
-    database_origin_uri,
     read_source,
     still_bound,
 )
@@ -115,6 +114,17 @@ async def probe_import_srid(
     except DatabaseSourceError as exc:
         raise DatabaseImportError(str(exc)) from None
     return probed.srid
+
+
+async def _rename_reserved(session, job, table: str) -> None:
+    from app.processing.ingest.metadata import rename_reserved_columns
+    from app.processing.ingest.warnings import make_reserved_rename_warning
+
+    renames = await rename_reserved_columns(
+        session, table, schema=_current_tenant_schema()
+    )
+    if renames:
+        _append_job_warning(job, make_reserved_rename_warning(renames))
 
 
 def chosen_srid(probed: int | None, fallback: int | None) -> int | None:
@@ -219,17 +229,7 @@ async def ingest_database(
                 return
             job.current_step = "finalize"
             job.progress = 0.7
-            from app.processing.ingest.metadata import rename_reserved_columns
-
-            reserved_renames = await rename_reserved_columns(
-                session, staging_table_name, schema=_current_tenant_schema()
-            )
-            if reserved_renames:
-                from app.processing.ingest.warnings import (
-                    make_reserved_rename_warning,
-                )
-
-                _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
+            await _rename_reserved(session, job, staging_table_name)
             await _publish_attempt_staging_table(
                 session,
                 job_id=job_uuid,
@@ -250,14 +250,8 @@ async def ingest_database(
                     original_srid=srid,
                     user_metadata=um,
                     attempt_id=attempt_uuid,
-                    origin_ref={
-                        "connection": source.connection,
-                        "schema": source.schema,
-                        "table": source.table,
-                    },
-                    origin_uri=database_origin_uri(
-                        source.connection, source.schema, source.table
-                    ),
+                    origin_ref=source.ref(),
+                    origin_uri=source.uri,
                 )
             )
 
@@ -373,17 +367,10 @@ class _DatabaseRefresh(_LiveComparison):
         from app.processing.ingest.metadata import (
             compute_table_content_digest,
             get_geometry_types,
-            rename_reserved_columns,
         )
 
         schema = _current_tenant_schema()
-        reserved_renames = await rename_reserved_columns(
-            session, self.staging_table, schema=schema
-        )
-        if reserved_renames:
-            from app.processing.ingest.warnings import make_reserved_rename_warning
-
-            _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
+        await _rename_reserved(session, job, self.staging_table)
         staged = await _run_staging_pipeline(
             session,
             table_name=self.staging_table,
@@ -430,9 +417,7 @@ class _DatabaseRefresh(_LiveComparison):
         source = self.table
         self.verification = refresh_policy.verify_database_refresh(
             source_binding={
-                "connection": source.connection,
-                "schema": source.schema,
-                "table": source.table,
+                **source.ref(),
                 "verification_policy": refresh_policy.DATABASE_SINGLE_READ_POLICY,
             },
             schema_diff=self.measured_schema_diff,
@@ -520,14 +505,8 @@ class _DatabaseRefresh(_LiveComparison):
             source_filename=self.source_filename,
             source_format="database",
             original_srid=self.srid,
-            origin_ref={
-                "connection": source.connection,
-                "schema": source.schema,
-                "table": source.table,
-            },
-            origin_uri=database_origin_uri(
-                source.connection, source.schema, source.table
-            ),
+            origin_ref=source.ref(),
+            origin_uri=source.uri,
             field_labels=None,
             job_id=self.job_uuid,
         )

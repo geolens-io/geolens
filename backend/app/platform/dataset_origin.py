@@ -353,6 +353,17 @@ class DatabaseSource:
     schema: str
     table: str
 
+    def ref(self) -> dict[str, str]:
+        return {
+            "connection": self.connection,
+            "schema": self.schema,
+            "table": self.table,
+        }
+
+    @property
+    def uri(self) -> str:
+        return database_origin_uri(self.connection, self.schema, self.table)
+
 
 @dataclass(frozen=True)
 class Unavailable:
@@ -656,14 +667,8 @@ class SourceBinding:
     @classmethod
     def database(cls, connection: str, *, schema: str, table: str) -> SourceBinding:
         """A table read through a database connection: no host, no login."""
-        return cls._of(
-            "database",
-            "database",
-            database_origin_uri(connection, schema, table),
-            connection=connection,
-            schema=schema,
-            table=table,
-        )
+        source = DatabaseSource(connection, schema, table)
+        return cls._of("database", "database", source.uri, **source.ref())
 
     @classmethod
     def created(cls) -> SourceBinding:

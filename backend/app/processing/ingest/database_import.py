@@ -135,7 +135,7 @@ async def copy_database_table(
             stderr=asyncio.subprocess.PIPE,
             env=_tenant_writer_subprocess_env(target_schema, base_env=env),
         )
-        _stdout, stderr = await _communicate_with_timeout(
+        _, stderr = await _communicate_with_timeout(
             proc, OGR2OGR_FILE_TIMEOUT_SECONDS, tool_name="ogr2ogr"
         )
 

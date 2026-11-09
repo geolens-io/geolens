@@ -303,9 +303,12 @@ async def _probe_srids(
 
 
 async def list_spatial_tables(
-    name: str, *, limit: int = LISTING_LIMIT
+    name: str, *, limit: int = LISTING_LIMIT, probe_srids: bool = True
 ) -> SpatialTableListing:
-    """The spatial columns of the tables and views connection ``name`` can read."""
+    """The spatial columns of the tables and views connection ``name`` can read.
+
+    Without ``probe_srids`` every SRID is None and only the catalog is read.
+    """
     rows = _catalog_rows(await run_database_sql(name, _catalog_sql(limit)))
     truncated = len(rows) > limit
     rows = rows[:limit]
@@ -313,7 +316,7 @@ async def list_spatial_tables(
         await _probe_srids(
             name, [(r.schema_name, r.object_name, r.column_name) for r in rows]
         )
-        if rows
+        if rows and probe_srids
         else {}
     )
     tables = [

@@ -261,7 +261,7 @@ async def import_database_table(
     ):
         raise _table_not_listed(connection)
     try:
-        listing = await list_spatial_tables(connection)
+        listing = await list_spatial_tables(connection, probe_srids=False)
     except DatabaseSourceError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from None
     if not any(

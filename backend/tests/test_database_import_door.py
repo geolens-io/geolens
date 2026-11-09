@@ -113,6 +113,8 @@ async def test_queues_a_listed_table_by_name(
     )
 
     assert resp.status_code == 202, resp.text
+    # The door only needs the catalog; the worker probes the SRID it imports.
+    listing.assert_awaited_once_with("gis", probe_srids=False)
     [job] = await _jobs(test_db_session, await _user_id(client, editor_auth_header))
     assert str(job.id) == resp.json()["job_id"]
     assert job.source_url is None and job.file_path is None
