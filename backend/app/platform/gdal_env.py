@@ -50,9 +50,6 @@ _NETWORK_AND_POINTER_DRIVERS: tuple[str, ...] = (
     "PGeo",
 )
 
-# The database import reads SQL Server through MSSQLSpatial and nothing else.
-_DATABASE_KEPT_DRIVERS = frozenset({"MSSQLSpatial"})
-
 # WFS/OAPIF are the point of the service importers, so they stay; every
 # other driver is still refused — a service response has no business
 # selecting VRT or shelling out to GPSBabel.
@@ -128,9 +125,7 @@ def gdal_database_safe_env(
     ``MSSQLSPATIAL_*`` options are dropped.
     """
     env = _gdal_skip_env(
-        tuple(
-            d for d in _NETWORK_AND_POINTER_DRIVERS if d not in _DATABASE_KEPT_DRIVERS
-        )
+        tuple(d for d in _NETWORK_AND_POINTER_DRIVERS if d != "MSSQLSpatial")
     )
     env = {
         key: value

@@ -4,7 +4,7 @@ from typing import Literal
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Path, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db
@@ -31,6 +31,8 @@ router = APIRouter(
 
 
 class DatabaseTable(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     schema_name: str = Field(description="Schema that holds the table or view.")
     table_name: str = Field(description="Table or view name.")
     object_type: Literal["table", "view"] = Field(description="Table or view.")
@@ -103,17 +105,7 @@ async def list_database_tables(
     return DatabaseTableListResponse(
         connection=connection,
         database=database,
-        tables=[
-            DatabaseTable(
-                schema_name=table.schema_name,
-                table_name=table.table_name,
-                object_type=table.object_type,
-                geometry_column=table.geometry_column,
-                column_type=table.column_type,
-                srid=table.srid,
-            )
-            for table in listing.tables
-        ],
+        tables=[DatabaseTable.model_validate(t) for t in listing.tables],
         limit=LISTING_LIMIT,
         truncated=listing.truncated,
     )
