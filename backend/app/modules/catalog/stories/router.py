@@ -480,13 +480,11 @@ async def update_story_endpoint(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Story not found"
         )
-    roles = await check_story_ownership(db, story, user)
-    visibility = body.visibility.value if body.visibility is not None else None
-    roles = (
-        await check_public_visibility_allowed(db, user, visibility, user_roles=roles)
-        or roles
-    )
+    await check_story_ownership(db, story, user)
     story, roles = await lock_story(db, story_id, user)
+    visibility = body.visibility.value if body.visibility is not None else None
+    # Under the lock, so a policy turned on while the write waited still applies.
+    await check_public_visibility_allowed(db, user, visibility, user_roles=roles)
     changes = body.model_dump(exclude_unset=True, mode="json")
     if visibility is not None:
         visibility = await story_visibility_for(db, story.id, visibility)

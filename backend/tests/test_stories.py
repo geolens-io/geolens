@@ -663,6 +663,39 @@ async def test_restrict_public_visibility_stops_a_non_admin_making_a_story_publi
     assert allowed.status_code == 200, allowed.text
 
 
+async def test_patch_judges_public_visibility_by_the_policy_read_under_the_lock(
+    client: AsyncClient, people, monkeypatch
+):
+    """A restriction turned on while the PATCH waits for the story lock refuses it."""
+    import app.core.persistent_config as pc
+    import app.modules.catalog.stories.router as story_router
+
+    class _Policy:
+        on = False
+
+        async def get(self, _db):
+            return self.on
+
+    policy = _Policy()
+    monkeypatch.setattr(pc, "RESTRICT_PUBLIC_VISIBILITY", policy)
+    real_lock_story = story_router.lock_story
+
+    async def lock_after_policy_change(*args, **kwargs):
+        policy.on = True
+        return await real_lock_story(*args, **kwargs)
+
+    monkeypatch.setattr(story_router, "lock_story", lock_after_policy_change)
+
+    story = await _story(client, people["owner"])
+    url = f"/stories/{story['id']}"
+    refused = await client.patch(
+        url, json={"visibility": "public"}, headers=people["owner"]
+    )
+    assert refused.status_code == 403, refused.text
+    after = await client.get(url, headers=people["owner"])
+    assert after.json()["visibility"] == "private"
+
+
 async def test_publish_needs_the_current_revision(client: AsyncClient, people):
     owner = people["owner"]
     story = await _story(client, owner)
