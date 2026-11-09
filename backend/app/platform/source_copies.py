@@ -81,6 +81,7 @@ class ExistingCopy:
     title: str | None = None
     dataset_id: uuid.UUID | None = None
     job_id: uuid.UUID | None = None
+    job_creator: uuid.UUID | None = None
 
 
 def _canonical_url(url: str) -> str:
@@ -312,18 +313,21 @@ async def importing_copy(
     )
     for job in jobs:
         if job_source_identity(job) == identity:
-            return ExistingCopy(job_id=job.id)
+            return ExistingCopy(job_id=job.id, job_creator=job.created_by)
     return None
 
 
 async def visible_copy(
     session: AsyncSession, copy: ExistingCopy, user: Any
 ) -> ExistingCopy:
-    """``copy`` as ``user`` may see it: a dataset they can't read goes unnamed.
+    """``copy`` as ``user`` may see it: a dataset they can't read, or a job
+    they can't read, goes unnamed.
 
     A door answering for another account's copy, such as a retry of a job an
-    admin committed, would otherwise disclose that dataset.
+    admin committed, would otherwise disclose it.
     """
+    if copy.job_id is not None:
+        return copy if await _may_read_job(session, copy, user) else ExistingCopy()
     if copy.dataset_id is None:
         return copy
     from sqlalchemy.orm import joinedload
@@ -344,6 +348,33 @@ async def visible_copy(
     return copy
 
 
+async def _may_read_job(session: AsyncSession, copy: ExistingCopy, user: Any) -> bool:
+    """The job read rule: its creator, or the cross-user job permission."""
+    if copy.job_creator == user.id:
+        return True
+    from app.modules.catalog.authorization import get_user_roles
+    from app.platform.extensions import get_permission_extension
+
+    return await get_permission_extension().check_permission(
+        session,
+        user,
+        "manage_users",
+        user_roles=await get_user_roles(session, user),
+        resource=await session.get(IngestJob, copy.job_id),
+    )
+
+
+async def visible_conflict(
+    session: AsyncSession, user: Any, existing: ExistingCopy, message: str
+) -> HTTPException:
+    """The 409 a door answers for ``existing``, naming only what ``user`` may read.
+
+    ``message`` describes a published copy; ``{title}`` in it is its title.
+    """
+    existing = await visible_copy(session, existing, user)
+    return duplicate_source_conflict(existing, message.format(title=existing.title))
+
+
 def duplicate_source_conflict(copy: ExistingCopy, message: str) -> HTTPException:
     """The 409 a door answers, naming the existing dataset or the running job.
 
@@ -359,8 +390,9 @@ def duplicate_source_conflict(copy: ExistingCopy, message: str) -> HTTPException
     elif copy.job_id is None:
         detail = {
             "message": (
-                "The account this would publish for already holds a dataset "
-                "from this source. Refresh that dataset instead."
+                "A copy of this source already exists, or is being imported, "
+                "for the account this would publish for. Refresh that copy "
+                "instead of importing it again."
             )
         }
     else:
@@ -499,7 +531,16 @@ async def refuse_second_copy(
     existing = await locked_copy(session, owner, identity)
     if existing is None:
         return False
+    from app.processing.ingest.publish_followups import notify_ingest_failed
+
     reason = second_copy_reason(existing, named=owner == job.created_by)
-    await ledger.fail(session, job.id, attempt_id, reason=reason)
+    landed = await ledger.fail(session, job.id, attempt_id, reason=reason)
     await session.commit()
+    if landed:
+        task = (
+            "ingest_database"
+            if isinstance(identity, DatabaseSource)
+            else "ingest_service"
+        )
+        await notify_ingest_failed(job.id, task=task, reason=reason)
     return True

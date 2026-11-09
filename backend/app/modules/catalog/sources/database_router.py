@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db
 from app.core.geo import unknown_srid_refusal
-from app.core.identity import Identity
+from app.core.identity import Identity, IdentitySnapshot
 from app.modules.auth.dependencies import require_permission
 from app.modules.catalog.authorization import check_public_visibility_allowed
 from app.modules.catalog.datasets.domain.schemas import Visibility
@@ -28,9 +28,9 @@ from app.platform.extensions import get_catalog_port
 from app.platform.jobs import ledger
 from app.platform.jobs.models import DATABASE_SOURCE_METADATA_KEY
 from app.platform.source_copies import (
-    duplicate_source_conflict,
     importing_copy,
     published_copy,
+    visible_conflict,
 )
 from app.standards.ogc.errors import (
     BAD_GATEWAY_RESPONSE,
@@ -223,6 +223,7 @@ async def import_database_table(
     `duplicate_source` naming the existing dataset; refresh that one instead.
     """
     user_id = user.id
+    viewer = IdentitySnapshot.of(user)
     try:
         get_database_connection(connection)
     except UnknownDatabaseConnectionError as exc:
@@ -237,11 +238,13 @@ async def import_database_table(
         db, user_id, identity
     )
     if existing is not None:
-        raise duplicate_source_conflict(
+        raise await visible_conflict(
+            db,
+            viewer,
             existing,
-            f"This table is already imported (existing: '{existing.title}'). To "
-            "pull the latest data into it, refresh that dataset instead of "
-            "importing it again.",
+            "This table is already imported (existing: '{title}'). To pull the "
+            "latest data into it, refresh that dataset instead of importing it "
+            "again.",
         )
     # Released before the listing, which can wait 30 s on an unreachable server.
     await db.rollback()

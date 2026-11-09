@@ -825,27 +825,94 @@ async def test_a_users_preview_committed_by_an_admin_counts_as_the_admins_import
     assert deferred.await_args.kwargs["user_id"] == str(admin)
 
 
-async def test_a_retry_refused_for_an_admins_copy_does_not_name_it_to_the_previewer(
-    client: AsyncClient, admin_auth_header, test_db_session, monkeypatch, deferred
+@pytest.mark.parametrize("copy_exists", [True, False])
+async def test_only_the_account_a_job_publishes_for_may_retry_it(
+    client: AsyncClient,
+    admin_auth_header,
+    test_db_session,
+    monkeypatch,
+    deferred,
+    copy_exists,
 ):
     alice_headers, alice_id = await create_user(client, admin_auth_header, "editor")
     admin = await get_user_id(test_db_session, "admin")
     base = _fresh_base()
-    copy = await _import_as(test_db_session, monkeypatch, admin, base)
+    if copy_exists:
+        await _import_as(test_db_session, monkeypatch, admin, base)
     committed = _service_job(base, uuid.UUID(alice_id), status="failed")
-    committed.user_metadata = {
-        **committed.user_metadata,
-        "published_for": str(admin),
-    }
+    committed.user_metadata = {**committed.user_metadata, "published_for": str(admin)}
     test_db_session.add(committed)
     await test_db_session.commit()
 
-    refused = await client.post(f"/jobs/{committed.id}/retry", headers=alice_headers)
-    shown = await client.post(f"/jobs/{committed.id}/retry", headers=admin_auth_header)
+    previewer = await client.post(f"/jobs/{committed.id}/retry", headers=alice_headers)
+    publisher = await client.post(
+        f"/jobs/{committed.id}/retry", headers=admin_auth_header
+    )
 
-    assert refused.status_code == 409, refused.text
-    detail = refused.json()["detail"]
+    assert previewer.status_code == 404, previewer.text
+    assert previewer.json()["detail"] == "Job not found"
+    assert publisher.status_code == (409 if copy_exists else 202), publisher.text
+
+
+async def test_an_import_is_named_only_to_a_caller_who_can_read_its_job(
+    client: AsyncClient, admin_auth_header, test_db_session
+):
+    # Bob committed Alice's preview while an admin; he is an editor now.
+    _, alice_id = await create_user(client, admin_auth_header, "editor")
+    bob_headers, bob_id = await create_user(client, admin_auth_header, "editor")
+    base = _fresh_base()
+    queued = _service_job(base, uuid.UUID(alice_id), status="running")
+    queued.user_metadata = {**queued.user_metadata, "published_for": bob_id}
+    test_db_session.add(queued)
+    await test_db_session.commit()
+
+    with (
+        patch("app.modules.catalog.sources.router.validate_url_for_ssrf"),
+        _no_remote_preview(),
+    ):
+        resp = await client.post(
+            "/services/preview/",
+            json={
+                "url": base,
+                "service_type": "ArcGIS:FeatureServer",
+                "layer_name": "0",
+                "layer_id": 0,
+            },
+            headers=bob_headers,
+        )
+
+    assert resp.status_code == 409, resp.text
+    detail = resp.json()["detail"]
     assert detail["code"] == "duplicate_source"
-    assert "existing_dataset_id" not in detail and "existing_title" not in detail
-    assert str(copy) not in refused.text
-    assert shown.json()["detail"]["existing_dataset_id"] == str(copy)
+    assert "existing_job_id" not in detail and "existing_dataset_id" not in detail
+    assert str(queued.id) not in resp.text
+
+
+async def test_a_refused_publication_sends_the_ingest_failed_notice(
+    test_db_session, monkeypatch
+):
+    from app.platform.notifications import events as events_mod
+
+    monkeypatch.setattr(settings, "notify_on_ingest_failed", True, raising=False)
+    sent: list = []
+
+    async def _notify(notification):
+        sent.append(notification)
+
+    monkeypatch.setattr(events_mod, "notify", _notify)
+    owner = await get_user_id(test_db_session, "admin")
+    base = _fresh_base()
+    await _import_as(test_db_session, monkeypatch, owner, base)
+    sent.clear()
+    second = _service_job(base, owner, status="pending")
+    test_db_session.add(second)
+    await test_db_session.commit()
+
+    with _source(monkeypatch, _WELLS):
+        await _run_service(second, owner)
+
+    await test_db_session.refresh(second)
+    assert second.error_code == "duplicate_source"
+    assert [(n.event_type, n.data.get("job_id")) for n in sent] == [
+        ("ingest_failed", str(second.id))
+    ]

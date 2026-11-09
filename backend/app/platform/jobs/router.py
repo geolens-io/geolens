@@ -453,7 +453,10 @@ async def get_job_status(
             detail="Job not found",
         )
 
-    if job.created_by != user.id and is_publish_key(db):
+    # A job publishes for the account that committed it, which an admin may
+    # have done for the user who previewed it.
+    owner = publication_owner(job)
+    if owner != user.id and is_publish_key(db):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found",
@@ -875,7 +878,10 @@ async def retry_job(
             detail="Job not found",
         )
 
-    if job.created_by != user.id and is_publish_key(db):
+    # A job publishes for the account that committed it, which an admin may
+    # have done for the user who previewed it.
+    owner = publication_owner(job)
+    if owner != user.id and is_publish_key(db):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found",
@@ -892,7 +898,7 @@ async def retry_job(
         refuse_publish_key(db, "A publish key can't retry a job that sets visibility")
     # Owners always retain access. Cross-user retries additionally require the
     # effective manage_users capability through PermissionExtension.
-    if job.created_by != user.id and not await _can_access_another_users_job(
+    if owner != user.id and not await _can_access_another_users_job(
         request, db, user, job
     ):
         raise HTTPException(
@@ -949,7 +955,7 @@ async def retry_job(
                     else None
                 ),
                 "next_attempt_id": str(job.attempt_id),
-                "cross_user": job.created_by != user.id,
+                "cross_user": owner != user.id,
             },
             ip_address=get_client_ip(request),
         ),
@@ -1070,7 +1076,10 @@ async def cancel_job(
             detail="Job not found",
         )
 
-    if job.created_by != user.id and is_publish_key(db):
+    # A job publishes for the account that committed it, which an admin may
+    # have done for the user who previewed it.
+    owner = publication_owner(job)
+    if owner != user.id and is_publish_key(db):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found",

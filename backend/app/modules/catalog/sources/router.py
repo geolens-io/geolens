@@ -23,7 +23,7 @@ from app.core.url_redaction import (
 )
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.crs_uri import parse_crs_uri
-from app.core.identity import Identity
+from app.core.identity import Identity, IdentitySnapshot
 from app.modules.auth.dependencies import require_permission
 from app.core.dependencies import get_db
 from app.platform.jobs import ledger
@@ -102,10 +102,10 @@ from app.platform.security import (
     validate_url_for_ssrf,
 )
 from app.platform.source_copies import (
-    duplicate_source_conflict,
     importing_copy,
     published_copy,
     service_identity,
+    visible_conflict,
 )
 from app.platform.portal_link import (
     PortalLink,
@@ -1167,6 +1167,7 @@ async def preview_service_layer(
     safe_url = redact_url_credentials(request.url)
     # Read off `user` before either release below expires it.
     user_id = user.id
+    viewer = IdentitySnapshot.of(user)
     # Released ABOVE the SSRF check, not below: it awaits `getaddrinfo` in a
     # thread, so an unresponsive resolver would otherwise pin the connection
     # before any preview work.
@@ -1204,12 +1205,14 @@ async def preview_service_layer(
             db, user_id, identity
         )
         if existing is not None:
-            raise duplicate_source_conflict(
+            raise await visible_conflict(
+                db,
+                viewer,
                 existing,
-                f"A dataset from this source URL is already registered "
-                f"(existing: '{existing.title}'). To pull the latest data "
-                f"into it, refresh that dataset instead of importing it "
-                f"again; to keep both, register a different layer.",
+                "A dataset from this source URL is already registered (existing: "
+                "'{title}'). To pull the latest data into it, refresh that "
+                "dataset instead of importing it again; to keep both, register "
+                "a different layer.",
             )
 
     # Released again, because the duplicate-source query above re-acquired.
