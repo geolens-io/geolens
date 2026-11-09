@@ -28,7 +28,12 @@ from sqlalchemy.exc import DBAPIError
 from app.core.db.sqlstate import sqlstate
 from app.core.db.tenant_session import tenant_task
 from app.platform.catalog_locks import bump_tile_cache_version_atomic
-from app.platform.dataset_origin import BoundPointer, bound_pointer
+from app.platform.dataset_origin import (
+    BoundPointer,
+    PostgisSource,
+    bound_pointer,
+    read_source,
+)
 from app.processing.ingest.catalog_projection import measure, project
 from app.processing.ingest.publication import (
     PUBLISH,
@@ -266,16 +271,15 @@ def _resolve_bound_table(dataset: Any, *, schema: str) -> str:
     writes both from one value, so disagreement is a fault (hand-edited row,
     interrupted tenant migration) that stops the refresh.
     """
-    ref = dataset.origin_ref or {}
-    bound = ref.get("table_name")
-    if not bound:
+    source = read_source("postgis", dataset.origin_ref)
+    if not isinstance(source, PostgisSource):
         raise PostgisRefreshError(
             "This dataset's source binding does not record which table it "
             "was registered from, so there is nothing to re-measure.",
             error_code=_ERROR_CODE_GENERIC,
         )
     expected = f"{schema}.{dataset.table_name}"
-    if bound != expected:
+    if source.table_name != expected:
         raise PostgisRefreshError(
             "This dataset's source binding names a different table than the "
             "one it serves from, so the refresh was stopped rather than "

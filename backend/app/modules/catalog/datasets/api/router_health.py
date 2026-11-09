@@ -44,7 +44,13 @@ from app.observability.metrics.refresh import (
     origin_probe_total,
 )
 from app.platform.cache.tiles import invalidate_catalog_cache
-from app.platform.dataset_origin import bound_pointer, classify_origin, still_bound
+from app.platform.dataset_origin import (
+    StacSource,
+    bound_pointer,
+    classify_origin,
+    read_source,
+    still_bound,
+)
 from app.platform.extensions import get_catalog_port
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
@@ -103,7 +109,8 @@ async def _stac_probe_targets(
     database.
     """
     asset_uri = await _remote_stac_asset_uri(db, dataset.id) or dataset.origin_uri
-    item_href = (dataset.origin_ref or {}).get("item_href")
+    source = read_source("stac", dataset.origin_ref)
+    item_href = source.item_href if isinstance(source, StacSource) else None
     if not asset_uri and not item_href:
         raise _origin_pointer_missing("stac")
     return asset_uri, item_href

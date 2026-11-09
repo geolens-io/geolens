@@ -282,6 +282,8 @@ async def execute_admitted_refresh(
 
     This is intentionally the only cross-domain execution entry: it invokes
     the public CatalogPort task, never a router or a private ingest helper.
+    A run whose ``origin_kind`` is not ``service`` is rejected with
+    ``refresh_origin_unsupported``.
     """
     from app.core.db import async_session
     from app.platform.extensions import get_catalog_port
@@ -342,6 +344,27 @@ async def execute_admitted_refresh(
         credential_version = run.credential_version
         scheduled = run.trigger == "scheduled"
         dataset_id = run.dataset_id
+        origin_kind = run.origin_kind
+
+    # The verified service task is the only executor here. A run of any other
+    # kind is refused before a credential is resolved or a task is invoked.
+    if origin_kind != "service":
+        async with async_session() as session:
+            await fail_claimed_admitted_refresh(
+                session,
+                ingest_job_id=job_id,
+                execution_key=claim_key,
+                error_code="refresh_origin_unsupported",
+                error_message=FixedReason(
+                    "This refresh was not started: only service datasets "
+                    "refresh this way.",
+                    code="refresh_origin_unsupported",
+                ),
+            )
+            await session.commit()
+        return RefreshExecutionResult(
+            job_id=job_id, run_id=claimed_run_id, status="rejected"
+        )
 
     if scheduled:
         # Admission refuses a held dataset; this covers a claim of a run

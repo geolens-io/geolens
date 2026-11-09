@@ -44,10 +44,16 @@ _Avoid_: Tile columns.
 **Source binding**: The system-managed record of where a dataset's current data came from and how to reach it again: the origin, the pointer and the details a refresh needs. It changes only when an import, replacement, refresh or restore publishes new data, and it never holds a credential.
 _Avoid_: Origin (the derived kind alone), source URL (owner-editable text), `origin_ref`.
 
-**Origin**: How a dataset's data entered the catalog: an upload, a registered table, a service, a STAC item, or drawing in the app. Derived from the source binding, never stored.
+**Origin**: How a dataset's data entered the catalog: an upload, a registered table, a service, a database import, a STAC item, or drawing in the app. Derived from the source binding, never stored.
 
 **Service import**: Bringing one remote service layer into GeoLens as a dataset that is a managed copy of it.
 _Avoid_: ArcGIS import, when referring to a single layer.
+
+**Database connection**: A database outside GeoLens, with the login to read it, that an operator has named so users can import its tables. The name is its identity: pointing a name at another server makes every dataset imported through it read from that server at its next refresh. Until then each keeps the copy it has.
+_Avoid_: Data source, external database, SQL Server connection.
+
+**Database import**: Bringing one spatial table or view from a database connection into GeoLens as a dataset that is a managed copy of it.
+_Avoid_: SQL Server import; registered table, which stays in place in GeoLens's own database.
 
 **ArcGIS migration**: Moving an ArcGIS organization's or one user's content into GeoLens item by item, as a migration plan directs.
 _Avoid_: Migration on its own (that is a database schema migration), AGOL import, ArcGIS exit.
