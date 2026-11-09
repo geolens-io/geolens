@@ -455,16 +455,23 @@ def mosaic_needs_overview(vrt_path: str) -> bool:
 
     GDAL derives a VRT's overviews from its member's only when there is one
     member. A mosaic of several has none even when every member has its own,
-    and a reprojected low-zoom read then decodes the full grid. A VRT the probe
-    cannot read counts as needing one: a broken member fails the translate
-    safely, and skipping would hide it from every low-zoom read.
+    and a reprojected low-zoom read then decodes the full grid. Opening the VRT
+    reads its members, which can sit in object storage, so the probe gets the
+    render timeout. A VRT the probe cannot read counts as needing one: a broken
+    member fails the translate safely, and skipping would hide it from every
+    low-zoom read.
     """
-    from app.processing.raster.probe import RasterProbeError, read_raster_metadata
+    from app.processing.raster.probe import (
+        RENDER_TIMEOUT_SECONDS,
+        RasterProbeError,
+        read_raster_metadata,
+    )
 
     try:
-        return not read_raster_metadata(vrt_path).get("overview_levels")
+        meta = read_raster_metadata(vrt_path, timeout=RENDER_TIMEOUT_SECONDS)
     except RasterProbeError:
         return True
+    return not meta.get("overview_levels")
 
 
 # Bytes per sample by VRT data type, for the scratch-space estimate.

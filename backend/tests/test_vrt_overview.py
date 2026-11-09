@@ -668,12 +668,16 @@ def test_an_unreadable_vrt_counts_as_needing_an_overview(
     from app.processing.raster import probe
     from app.processing.raster.vrt import mosaic_needs_overview
 
-    def _unreadable(path):
+    timeouts = []
+
+    def _unreadable(path, *, timeout=None):
+        timeouts.append(timeout)
         raise probe.RasterProbeError("open", timeout=1.0)
 
     monkeypatch.setattr(probe, "read_raster_metadata", _unreadable)
 
     assert mosaic_needs_overview("/missing.vrt") is True
+    assert timeouts == [probe.RENDER_TIMEOUT_SECONDS]
 
 
 @needs_gdal_cli
