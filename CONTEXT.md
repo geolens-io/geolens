@@ -49,7 +49,7 @@ _Avoid_: Origin (the derived kind alone), source URL (owner-editable text), `ori
 **Service import**: Bringing one remote service layer into GeoLens as a dataset that is a managed copy of it.
 _Avoid_: ArcGIS import, when referring to a single layer.
 
-**Database connection**: A database outside GeoLens, with the login to read it, that an operator has named so users can import its tables. The name is its identity: pointing a name at another server moves every dataset imported through it.
+**Database connection**: A database outside GeoLens, with the login to read it, that an operator has named so users can import its tables. The name is its identity: pointing a name at another server makes every dataset imported through it read from that server at its next refresh. Until then each keeps the copy it has.
 _Avoid_: Data source, external database, SQL Server connection.
 
 **Database import**: Bringing one spatial table or view from a database connection into GeoLens as a dataset that is a managed copy of it.

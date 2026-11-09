@@ -35,7 +35,8 @@ view from its listing. They never type a server, a login or SQL.
   private addresses in everything a user types.
 - The source binding records the connection's name, the schema and the table,
   never the server or the login. The name is the identity, so pointing a name
-  at another server moves every dataset imported through it.
+  at another server makes every dataset imported through it read from that
+  server at its next refresh. Until then each keeps the copy it has.
 - Every user who can create datasets can import from every connection. The
   login's grants decide which tables they see.
 - The configuration is global to the deployment, so `multi_tenant` mode
