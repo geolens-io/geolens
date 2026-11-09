@@ -209,7 +209,12 @@ BEGIN
     IF to_regclass('catalog.dataset_refresh_runs') IS NOT NULL THEN
         DELETE FROM catalog.dataset_refresh_runs WHERE origin_kind = 'database';
     END IF;
-    IF to_regclass('catalog.datasets') IS NOT NULL THEN
+    -- Below 0036 there is no origin column and below 0103 no database row.
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'catalog' AND table_name = 'datasets'
+          AND column_name = 'origin_ref'
+    ) THEN
         UPDATE catalog.datasets SET source_format = 'geojson', origin_uri = NULL,
             origin_ref = '{"kind": "upload"}'::jsonb
         WHERE source_format = 'database';

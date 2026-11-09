@@ -2470,6 +2470,7 @@ _PAIR_WRITER_EXEMPTIONS = {
     "app.processing.ingest.tasks_pointcloud.ingest_pointcloud": "creates the pair, then stamps it",
     "app.processing.ingest.tasks_vector.ingest_file": "wrapper around _finalize_ingest",
     "app.processing.ingest.tasks_vector.ingest_service": "wrapper around _finalize_ingest",
+    "app.processing.ingest.tasks_database.ingest_database": "wrapper around _finalize_ingest",
     "app.modules.catalog.sources.stac_router.stac_import": "one pair per item, each in its own savepoint",
     "app.processing.analysis.tasks._materialize": "registers a new pair, then applies provenance",
     "app.processing.analysis.tasks.materialize_analysis": "wrapper around _materialize",
@@ -2486,6 +2487,7 @@ _PAIR_WRITER_EXEMPTIONS = {
     "app.processing.ingest.tasks_postgis_refresh.write": "the PostGIS strategy's write step, which the settlement seam calls holding the job row and the pair",
     "app.processing.ingest.tasks_restore.write": "the restore strategy's write step, which the settlement seam calls holding the job row and the pair",
     "app.processing.ingest.tasks_stac_refresh.write": "the STAC strategy's write step, which the settlement seam calls holding the job row, the raster row and the pair",
+    "app.processing.ingest.tasks_database.write": "the database strategy's write step, which the settlement seam calls holding the job row and the pair",
 }
 
 
