@@ -67,7 +67,7 @@ export function DatabaseImportForm() {
     if (err instanceof ApiError && err.status === 409) {
       const body = err.body as { code?: string; existing_dataset_id?: string; existing_title?: string } | undefined;
       if (body?.code === 'duplicate_source' && body.existing_dataset_id) {
-        const msg = t('serviceUrl.alreadyRegistered', {
+        const msg = t('database.alreadyImported', {
           title: body.existing_title ?? t('serviceUrl.unknownDataset'),
         });
         setError(msg);
@@ -137,6 +137,7 @@ export function DatabaseImportForm() {
         <ImportMetadataForm
           defaultName={choice.table_name}
           detectedCrs={choice.srid}
+          crsHelpText={choice.srid === null ? t('database.crsHint') : undefined}
           onCommit={handleCommit}
           isCommitting={step === 'committing'}
         />

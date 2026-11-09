@@ -128,6 +128,8 @@ describe('DatabaseImportForm', () => {
 
     expect(await screen.findByText('No SRID')).toBeInTheDocument();
     await openReview(user, 'gis.parcels');
+    expect(screen.getByText('This table has no SRID. Enter the EPSG code its coordinates use.')).toBeInTheDocument();
+    expect(screen.queryByText(/Override the detected CRS/)).not.toBeInTheDocument();
     await user.type(screen.getByLabelText(/CRS/i), '3857');
     await user.click(screen.getByRole('button', { name: /import/i }));
 
@@ -154,7 +156,7 @@ describe('DatabaseImportForm', () => {
     await openReview(user, 'gis.parcels');
     await user.click(screen.getByRole('button', { name: /import/i }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Already registered: "Parcels"');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Already imported: "Parcels"');
     expect(screen.queryByText(/Tracking/)).not.toBeInTheDocument();
   });
 

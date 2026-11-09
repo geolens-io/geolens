@@ -213,6 +213,20 @@ describe('API error localization boundary', () => {
     ).toEqual({ key: 'errors.refreshReviewSuperseded' });
   });
 
+  it('maps a refresh through a removed database connection, naming it', () => {
+    expect(
+      classifyApiError(
+        {
+          code: 'database_connection_missing',
+          message: 'The database connection \'warehouse\' is no longer configured.',
+          origin_kind: 'database',
+          connection: 'warehouse',
+        },
+        409,
+      ),
+    ).toEqual({ key: 'errors.databaseConnectionMissing', values: { connection: 'warehouse' } });
+  });
+
   // The re-upload commit door returns the SAME `origin_changed`
   // code as the refresh door with different copy, so the two must land on
   // different keys — a shared key would tell a user replacing a file that a

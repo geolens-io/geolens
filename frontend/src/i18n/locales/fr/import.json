@@ -697,6 +697,8 @@
     "continue": "Continuer",
     "back": "Retour aux tables",
     "reviewing": "Importation de {{table}} depuis {{connection}}",
-    "importFailed": "Impossible de lancer l'importation."
+    "importFailed": "Impossible de lancer l'importation.",
+    "crsHint": "Cette table n'a pas de SRID. Saisissez le code EPSG utilisé par ses coordonnées.",
+    "alreadyImported": "Déjà importé : « {{title}} »"
   }
 }

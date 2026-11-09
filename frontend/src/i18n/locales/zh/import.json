@@ -697,6 +697,8 @@
     "continue": "继续",
     "back": "返回表列表",
     "reviewing": "正在从 {{connection}} 导入 {{table}}",
-    "importFailed": "无法开始导入。"
+    "importFailed": "无法开始导入。",
+    "crsHint": "此表没有 SRID。请输入其坐标所用的 EPSG 代码。",
+    "alreadyImported": "已导入：“{{title}}”"
   }
 }

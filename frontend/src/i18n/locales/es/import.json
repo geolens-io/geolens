@@ -697,6 +697,8 @@
     "continue": "Continuar",
     "back": "Volver a las tablas",
     "reviewing": "Importando {{table}} desde {{connection}}",
-    "importFailed": "No se pudo iniciar la importación."
+    "importFailed": "No se pudo iniciar la importación.",
+    "crsHint": "Esta tabla no tiene SRID. Introduzca el código EPSG que usan sus coordenadas.",
+    "alreadyImported": "Ya importado: \"{{title}}\""
   }
 }
