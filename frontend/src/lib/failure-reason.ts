@@ -24,6 +24,7 @@ const FIXED_FAILURE_CODE_KEYS: Record<string, `errors.${string}`> = {
   dataset_deleted: 'errors.jobFailureDatasetDeleted',
   dispatch_interrupted: 'errors.jobFailureDispatchInterrupted',
   missing_crs: 'errors.jobFailureMissingCrs',
+  missing_crs_database: 'errors.jobFailureMissingCrsDatabase',
   missing_crs_raster: 'errors.jobFailureMissingCrsRaster',
   missing_crs_reupload: 'errors.jobFailureMissingCrsReupload',
   pointcloud_decode_failed: 'errors.uploadPointCloudDecodeFailed',

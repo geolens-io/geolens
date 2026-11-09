@@ -40,6 +40,10 @@
     "created": {
       "label": "Erstellt",
       "title": "In GeoLens als bearbeitbare Ebene erstellt"
+    },
+    "database": {
+      "label": "Datenbank",
+      "title": "Aus einer Datenbankverbindung importierte Kopie. Aktualisieren Sie sie, um neuere Daten abzurufen"
     }
   },
   "sourceState": {
@@ -150,6 +154,7 @@
     "jobFailureDatasetDeleted": "Der Datensatz wurde gelöscht, während dieser Auftrag lief.",
     "jobFailureDispatchInterrupted": "Das Verteilen der Ebenen wurde unterbrochen, bevor eine Ebene eingereiht wurde. Laden Sie die Datei erneut hoch, um ihre Ebenen zu importieren.",
     "jobFailureMissingCrs": "CRS fehlt: Es wurde kein Koordinatensystem erkannt. Stellen Sie sicher, dass die Datei CRS-Informationen enthält (z. B. eine .prj-Datei bei Shapefiles).",
+    "jobFailureMissingCrsDatabase": "CRS fehlt: Die Geometrien der Tabelle haben die SRID 0 oder die Tabelle enthält keine Zeilen. Importieren Sie sie erneut und wählen Sie ihr Koordinatensystem.",
     "jobFailureMissingCrsRaster": "CRS fehlt: Das Raster hat kein Koordinatenreferenzsystem. Geben Sie beim Import eine CRS-Überschreibung (EPSG-Code) an.",
     "jobFailureMissingCrsReupload": "CRS fehlt: Es wurde kein Koordinatensystem erkannt. Stellen Sie sicher, dass die Datei CRS-Informationen enthält (z. B. eine .prj-Datei bei Shapefiles), oder geben Sie eine SRID-Überschreibung an.",
     "jobFailureRefreshAbandoned": "Die Aktualisierungsaufgabe wurde nie von einem Worker übernommen, oder der Worker ist verschwunden, bevor er ein Ergebnis melden konnte.",

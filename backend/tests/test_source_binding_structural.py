@@ -969,6 +969,10 @@ NAME_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
         1,
         "an INSERT into dataset_versions that reads origin_ref->>'file_hash'",
     ),
+    ("app/processing/ingest/tasks_database.py", "ingest_database"): (
+        2,
+        "the ref and pointer captured at import, stamped through restamp at commit",
+    ),
     ("app/processing/ingest/tasks_reupload.py", "_FileReupload.write"): (
         1,
         "hands the upload ref to _write_reupload_catalog, which stamps it through restamp",

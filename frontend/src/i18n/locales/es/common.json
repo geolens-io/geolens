@@ -40,6 +40,10 @@
     "created": {
       "label": "Creado",
       "title": "Creado en GeoLens como capa editable"
+    },
+    "database": {
+      "label": "Base de datos",
+      "title": "Copia importada desde una conexión de base de datos. Actualízala para obtener datos más recientes"
     }
   },
   "sourceState": {
@@ -150,6 +154,7 @@
     "jobFailureDatasetDeleted": "El conjunto de datos se eliminó mientras este trabajo se ejecutaba.",
     "jobFailureDispatchInterrupted": "El envío de las capas se interrumpió antes de poner ninguna en cola. Vuelve a subir el archivo para importar sus capas.",
     "jobFailureMissingCrs": "Falta el CRS: no se detectó ningún sistema de coordenadas. Asegúrate de que el archivo incluya la información del CRS (por ejemplo, un archivo .prj para Shapefiles).",
+    "jobFailureMissingCrsDatabase": "Falta el CRS: las geometrías de la tabla tienen SRID 0 o la tabla no tiene filas. Vuelve a importarla y elige su sistema de coordenadas.",
     "jobFailureMissingCrsRaster": "Falta el CRS: el ráster no tiene sistema de referencia de coordenadas. Proporciona una anulación de CRS (código EPSG) al importar.",
     "jobFailureMissingCrsReupload": "Falta el CRS: no se detectó ningún sistema de coordenadas. Asegúrate de que el archivo incluya la información del CRS (por ejemplo, un archivo .prj para Shapefiles) o proporciona una anulación de SRID.",
     "jobFailureRefreshAbandoned": "La tarea de actualización nunca fue tomada por un proceso de trabajo, o este desapareció antes de registrar un resultado.",

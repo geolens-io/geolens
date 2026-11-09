@@ -75,14 +75,14 @@ _ORIGINLESS_RECORD_TYPES: frozenset[str] = frozenset({"collection", "vrt_dataset
 # counterpart; the ledger's 'raster' is RESERVED and unused, since every
 # raster-replace door is 'upload'.
 ORIGIN_KINDS: frozenset[str] = frozenset(
-    {"upload", "postgis", "service", "stac", "created"}
+    {"upload", "postgis", "service", "stac", "created", "database"}
 )
 
 # The same vocabulary as a request-model annotation, so a door that takes an
 # origin kind as INPUT rejects an unknown one at the schema boundary and
 # publishes the closed set in OpenAPI. `test_reupload_expected_origin_1768.py`
 # asserts the two agree.
-OriginKind = Literal["upload", "postgis", "service", "stac", "created"]
+OriginKind = Literal["upload", "postgis", "service", "stac", "created", "database"]
 
 # The response-boundary spelling of "never determined". Deliberately absent
 # from chk_datasets_source_health / chk_datasets_schema_drift_status: with
@@ -163,6 +163,10 @@ ORIGIN_REF_KEYS: dict[str, frozenset[str]] = {
     "postgis": frozenset({"table_name", "managed"}),
     # A dataset drawn in the app came from nowhere; it carries no payload.
     "created": frozenset(),
+    # A table read through an operator-configured database connection. The
+    # connection NAME is the identity; its host and login stay in the
+    # deployment's settings, so neither can reach this column.
+    "database": frozenset({"connection", "schema", "table"}),
 }
 
 
@@ -238,6 +242,8 @@ def classify_origin(
         return "created"
     if source_format == "stac":
         return "stac"
+    if source_format == "database":
+        return "database"
     if source_format in SERVICE_SOURCE_FORMATS:
         return "service"
     return "upload"
@@ -340,6 +346,15 @@ class PostgisSource:
 
 
 @dataclass(frozen=True)
+class DatabaseSource:
+    """A table behind an operator-configured database connection, by name."""
+
+    connection: str
+    schema: str
+    table: str
+
+
+@dataclass(frozen=True)
 class Unavailable:
     """A binding of ``kind`` that lacks ``missing``, or holds it unusably."""
 
@@ -394,9 +409,19 @@ def _read_postgis(ref: dict[str, Any]) -> PostgisSource | Unavailable:
     return PostgisSource(table_name=table_name)
 
 
+def _read_database(ref: dict[str, Any]) -> DatabaseSource | Unavailable:
+    fields = {}
+    for key in ("connection", "schema", "table"):
+        value = _stored_text(ref, key)
+        if not value:
+            return Unavailable("database", key)
+        fields[key] = value
+    return DatabaseSource(**fields)
+
+
 def read_source(
     kind: str | None, origin_ref: Any
-) -> ServiceSource | StacSource | PostgisSource | Unavailable | None:
+) -> ServiceSource | StacSource | PostgisSource | DatabaseSource | Unavailable | None:
     """The stored binding of an origin ``kind``, typed, or the key it lacks.
 
     ``None`` for a kind with no source to read again (an upload, a drawn
@@ -418,7 +443,14 @@ def read_source(
         return _read_stac(ref)
     if kind == "postgis":
         return _read_postgis(ref)
+    if kind == "database":
+        return _read_database(ref)
     return None
+
+
+def database_origin_uri(connection: str, schema: str, table: str) -> str:
+    """The pointer of a database table: the connection name, never its host."""
+    return f"database://{connection}/{schema}.{table}"
 
 
 def service_layer_identity(
@@ -619,6 +651,18 @@ class SourceBinding:
             f"postgis://{qualified}",
             table_name=qualified,
             managed=True if managed else None,
+        )
+
+    @classmethod
+    def database(cls, connection: str, *, schema: str, table: str) -> SourceBinding:
+        """A table read through a database connection: no host, no login."""
+        return cls._of(
+            "database",
+            "database",
+            database_origin_uri(connection, schema, table),
+            connection=connection,
+            schema=schema,
+            table=table,
         )
 
     @classmethod

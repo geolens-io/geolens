@@ -15,6 +15,7 @@ import asyncio
 import contextlib
 import json
 import os
+import re
 import tempfile
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -327,3 +328,62 @@ async def list_spatial_tables(
         for index, row in enumerate(rows)
     ]
     return SpatialTableListing(tables=tables, truncated=truncated)
+
+
+# SQL Server's regular identifiers. GDAL takes the table as a ``schema.table``
+# layer argument, so a name that needs quoting (a dot, a bracket, a space)
+# could name another layer.
+_IMPORTABLE_IDENTIFIER = re.compile(r"[^\W\d][\w@$#]{0,127}")
+
+
+def importable_identifier(name: str) -> bool:
+    """Whether ``name`` can reach GDAL as part of a layer argument."""
+    return _IMPORTABLE_IDENTIFIER.fullmatch(name) is not None
+
+
+@dataclass(frozen=True)
+class TableGeometry:
+    """The spatial column GDAL reads from a table, and its first value's SRID.
+
+    ``srid`` is ``None`` when that is 0 or the column holds no value.
+    """
+
+    column: str
+    srid: int | None
+
+
+def _table_columns_sql(schema_name: str, table_name: str) -> str:
+    # GDAL reads the first spatial column by column order and passes the rest
+    # through as binary attributes.
+    qualified = f"{quote_identifier(schema_name)}.{quote_identifier(table_name)}"
+    literal = "N'" + qualified.replace("'", "''") + "'"
+    return (
+        "SELECT TOP (1) c.name AS column_name "
+        "FROM sys.columns c "
+        "JOIN sys.types t ON t.user_type_id = c.user_type_id "
+        f"WHERE c.object_id = OBJECT_ID({literal}) "
+        "AND t.name IN ('geometry', 'geography') "
+        "AND t.schema_id = SCHEMA_ID('sys') "
+        "ORDER BY c.column_id"
+    )
+
+
+async def probe_table_geometry(
+    name: str, schema_name: str, table_name: str
+) -> TableGeometry:
+    """The spatial column of one table on connection ``name``, and its SRID.
+
+    Raises ``DatabaseTableError`` when the table has no spatial column the
+    login can see.
+    """
+    rows = await run_database_sql(name, _table_columns_sql(schema_name, table_name))
+    column = rows[0].get("column_name") if rows else None
+    if not isinstance(column, str):
+        raise DatabaseTableError(name)
+    probed = await run_database_sql(
+        name, srid_probe_sql([(schema_name, table_name, column)])
+    )
+    srid = probed[0].get("srid") if probed else None
+    return TableGeometry(
+        column=column, srid=srid if isinstance(srid, int) and srid != 0 else None
+    )

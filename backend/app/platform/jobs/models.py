@@ -54,6 +54,11 @@ URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY = "url_download_in_flight"
 # file is gone.
 URL_IMPORT_METADATA_KEY = "url_import"
 
+# Stamped by the database import door: ``{connection, schema, table}``. The
+# worker reads the connection from settings by name, so retry re-runs the
+# import from this alone and no host or login is ever stored on the job.
+DATABASE_SOURCE_METADATA_KEY = "database_source"
+
 # Stamped by ``defer_with_orphan_guard`` at dispatch time. ABSENCE is
 # load-bearing: a stamp-less pending row was never queued, so the stale
 # sweep settles it `cancelled` not `failed`. Read by sweep, status poll, worker startup.
@@ -192,6 +197,7 @@ PUBLIC_METADATA_KEYS = frozenset(
         "source_type",
         "fan_out_parent_id",
         "all_layers",
+        DATABASE_SOURCE_METADATA_KEY,
         EMBEDDING_BACKFILL_METADATA_KEY,
         # What a manifest's author wrote.
         "record_status",

@@ -357,12 +357,12 @@ class Dataset(Base):
         CheckConstraint(
             # The accepted source formats; a .kmz normalizes to 'kml', a
             # zipped .gdb to 'fgdb' (see ingest/source_format.py). Migration
-            # 0070 is the source of truth.
+            # 0103 is the source of truth.
             "source_format IS NULL OR source_format IN ("
             "'geojson', 'shapefile', 'shp', 'gpkg', 'csv', 'kml', 'gml', "
             "'wfs', 'arcgis_featureserver', 'fgdb', 'created', 'geotiff', "
             "'ogcapi_features', 'stac', 'parquet', 'json', 'xlsx', 'xls', "
-            "'fgb', '3dtiles', 'copc')",
+            "'fgb', '3dtiles', 'copc', 'database')",
             name="chk_datasets_source_format",
         ),
         CheckConstraint(

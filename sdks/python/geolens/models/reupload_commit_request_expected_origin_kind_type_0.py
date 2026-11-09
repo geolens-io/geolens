@@ -1,13 +1,14 @@
 from typing import Literal, cast
 
 ReuploadCommitRequestExpectedOriginKindType0 = Literal[
-    "created", "postgis", "service", "stac", "upload"
+    "created", "database", "postgis", "service", "stac", "upload"
 ]
 
 REUPLOAD_COMMIT_REQUEST_EXPECTED_ORIGIN_KIND_TYPE_0_VALUES: set[
     ReuploadCommitRequestExpectedOriginKindType0
 ] = {
     "created",
+    "database",
     "postgis",
     "service",
     "stac",

@@ -1,4 +1,12 @@
-import { Database, Globe, Satellite, SquarePen, Upload, type LucideIcon } from 'lucide-react';
+import {
+  Database,
+  Globe,
+  Satellite,
+  Server,
+  SquarePen,
+  Upload,
+  type LucideIcon,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
@@ -29,6 +37,7 @@ export function datasetOrigin(input: {
   if (!format) return 'postgis';
   if (format === 'created') return 'created';
   if (format === 'stac') return 'stac';
+  if (format === 'database') return 'database';
   if (SERVICE_FORMATS.has(format)) return 'service';
   return 'upload';
 }
@@ -39,6 +48,7 @@ const ORIGIN_ICONS: Record<DatasetOrigin, LucideIcon> = {
   service: Globe,
   stac: Satellite,
   created: SquarePen,
+  database: Server,
 };
 
 interface OriginBadgeProps {

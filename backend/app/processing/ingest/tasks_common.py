@@ -199,6 +199,9 @@ class IngestContext:
     # of all, reaches the column. Callers pass their own payload rather than
     # one being inferred here.
     origin_ref: dict[str, Any] | None = None
+    # The origin pointer when it isn't ``source_url``: a database import has a
+    # pointer but no URL.
+    origin_uri: str | None = None
     # The local copy of the upload the task archives after the commit that
     # completes the job; that commit owes the archive in a follow-up record.
     archive_from: str | None = None
@@ -1369,7 +1372,7 @@ async def _finalize_ingest(ctx: IngestContext):
     # an uploaded file has no remote origin to point at, so its origin_uri
     # stays NULL and only the ref carries the filename.
     binding = SourceBinding.from_ref(
-        ctx.source_format, ctx.origin_ref, uri=ctx.source_url
+        ctx.source_format, ctx.origin_ref, uri=ctx.origin_uri or ctx.source_url
     )
     # A first service or STAC ingest fetched its bytes from the origin moments
     # ago, so the import is a contact, as in the reupload swap. Otherwise a

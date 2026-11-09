@@ -40,6 +40,10 @@ This module is the one place that knows about refuse-to-coerce downgrades:
 - ``0088_dataset_kept_versions``: refuses while any dataset keeps more than
   one previous version. Normalized automatically by forgetting all but each
   dataset's newest, since ordinary replacement tests keep several.
+- ``0103_database_origin``: refuses while any dataset uses the ``database``
+  source format or any refresh run the ``database`` origin kind. Normalized
+  automatically by deleting those runs and rebinding those datasets as
+  uploads, since ordinary database import tests leave both behind.
 
 If a future migration gains a refuse-to-coerce downgrade, teach this module
 about it rather than adding cleanup to individual test files.
@@ -197,6 +201,24 @@ $$;
 """
 
 
+# Database-origin rows are fixture noise in a test database; 0103's downgrade
+# refuses them because the earlier checks have no 'database'.
+_DATABASE_ORIGIN_NORMALIZATION = """
+DO $$
+BEGIN
+    IF to_regclass('catalog.dataset_refresh_runs') IS NOT NULL THEN
+        DELETE FROM catalog.dataset_refresh_runs WHERE origin_kind = 'database';
+    END IF;
+    IF to_regclass('catalog.datasets') IS NOT NULL THEN
+        UPDATE catalog.datasets SET source_format = 'geojson', origin_uri = NULL,
+            origin_ref = '{"kind": "upload"}'::jsonb
+        WHERE source_format = 'database';
+    END IF;
+END
+$$;
+"""
+
+
 def _execute_normalization(sql: str) -> None:
     from app.core.config import settings
 
@@ -230,6 +252,11 @@ def normalize_kept_versions() -> None:
     _execute_normalization(_KEPT_VERSION_NORMALIZATION)
 
 
+def normalize_database_origins() -> None:
+    """Remove database-origin rows so downgrades can cross 0103."""
+    _execute_normalization(_DATABASE_ORIGIN_NORMALIZATION)
+
+
 def run_alembic(
     *args: str, extra_env: dict | None = None, normalize: bool = True
 ) -> subprocess.CompletedProcess:
@@ -259,6 +286,7 @@ def run_alembic(
         normalize_api_key_state()
         normalize_restore_runs()
         normalize_kept_versions()
+        normalize_database_origins()
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(_BACKEND_DIR)

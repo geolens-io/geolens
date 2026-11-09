@@ -5254,6 +5254,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/services/databases/{connection}/imports/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import a table from a database connection
+         * @description Copy one listed table or view into a new dataset, as an ingest job.
+         *
+         *     The table must be one the connection's listing returns for this request.
+         *     A second import of the same table by the same user answers 409
+         *     `duplicate_source` naming the existing dataset; refresh that one instead.
+         */
+        post: operations["import_database_table_services_databases__connection__imports__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/services/databases/{connection}/tables/": {
         parameters: {
             query?: never;
@@ -9532,6 +9556,61 @@ export interface components {
              * @description Widgets in panel order. Each, except a text widget, names a layer of this map that you can read. Stored widgets you can't see are kept in place.
              */
             widgets?: (components["schemas"]["MarkdownWidget"] | components["schemas"]["IndicatorWidget"] | components["schemas"]["BarChartWidget"] | components["schemas"]["PieChartWidget"] | components["schemas"]["FeatureListWidget"] | components["schemas"]["TableWidget"] | components["schemas"]["HistogramWidget"] | components["schemas"]["CategorySelectorWidget"])[];
+        };
+        /** DatabaseImportRequest */
+        DatabaseImportRequest: {
+            /**
+             * Schema Name
+             * @description Schema of the table, as listed.
+             */
+            schema_name: string;
+            /**
+             * Table Name
+             * @description Table or view name, as listed.
+             */
+            table_name: string;
+            /**
+             * Title
+             * @description Dataset title. Defaults to the table name.
+             */
+            title?: string | null;
+            /**
+             * Summary
+             * @description Optional dataset description shown in the catalog.
+             */
+            summary?: string | null;
+            /**
+             * Visibility
+             * @description Dataset visibility: private, restricted, internal or public.
+             * @default private
+             * @enum {string}
+             */
+            visibility: "private" | "restricted" | "internal" | "public";
+            /**
+             * Srid Override
+             * @description EPSG code the table's coordinates are read under. Needed when the listing shows no SRID: the geometries have SRID 0 or the table has no rows. Otherwise it replaces the table's own SRID.
+             */
+            srid_override?: number | null;
+        };
+        /** DatabaseImportResponse */
+        DatabaseImportResponse: {
+            /**
+             * Job Id
+             * Format: uuid
+             * @description Ingest job that copies the table.
+             */
+            job_id: string;
+            /**
+             * Status
+             * @description Status of the new job.
+             * @constant
+             */
+            status: "pending";
+            /**
+             * Message
+             * @description What happened.
+             */
+            message: string;
         };
         /** DatabaseTable */
         DatabaseTable: {
@@ -15209,7 +15288,7 @@ export interface components {
              * Expected Origin Kind
              * @description The dataset origin the client saw when it staged this replacement. When set, the commit is refused with 409 `origin_changed` if the dataset's origin no longer matches, so a service, STAC or registered-table binding established after the upload is not silently rebound to an upload. A client may omit the field to skip this concurrency check.
              */
-            expected_origin_kind?: ("upload" | "postgis" | "service" | "stac" | "created") | null;
+            expected_origin_kind?: ("upload" | "postgis" | "service" | "stac" | "created" | "database") | null;
             /**
              * Token
              * @description Deprecated: use the auth object with method bearer.
@@ -45412,6 +45491,125 @@ export interface operations {
             };
             /** @description Gateway timeout — connector provider timed out */
             504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    import_database_table_services_databases__connection__imports__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Connection name. */
+                connection: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DatabaseImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatabaseImportResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Bad gateway — an upstream provider failed */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

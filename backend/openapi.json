@@ -6619,6 +6619,112 @@
         "title": "DashboardConfigInput",
         "type": "object"
       },
+      "DatabaseImportRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "schema_name": {
+            "description": "Schema of the table, as listed.",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Schema Name",
+            "type": "string"
+          },
+          "table_name": {
+            "description": "Table or view name, as listed.",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Table Name",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Dataset title. Defaults to the table name.",
+            "title": "Title"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional dataset description shown in the catalog.",
+            "title": "Summary"
+          },
+          "visibility": {
+            "default": "private",
+            "description": "Dataset visibility: private, restricted, internal or public.",
+            "enum": [
+              "private",
+              "restricted",
+              "internal",
+              "public"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          },
+          "srid_override": {
+            "anyOf": [
+              {
+                "maximum": 998999.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "EPSG code the table's coordinates are read under. Needed when the listing shows no SRID: the geometries have SRID 0 or the table has no rows. Otherwise it replaces the table's own SRID.",
+            "title": "Srid Override"
+          }
+        },
+        "required": [
+          "schema_name",
+          "table_name"
+        ],
+        "title": "DatabaseImportRequest",
+        "type": "object"
+      },
+      "DatabaseImportResponse": {
+        "properties": {
+          "job_id": {
+            "description": "Ingest job that copies the table.",
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "pending",
+            "description": "Status of the new job.",
+            "title": "Status",
+            "type": "string"
+          },
+          "message": {
+            "description": "What happened.",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "message"
+        ],
+        "title": "DatabaseImportResponse",
+        "type": "object"
+      },
       "DatabaseTable": {
         "properties": {
           "schema_name": {
@@ -19761,7 +19867,8 @@
                   "postgis",
                   "service",
                   "stac",
-                  "created"
+                  "created",
+                  "database"
                 ],
                 "type": "string"
               },
@@ -67709,6 +67816,172 @@
           }
         ],
         "summary": "Start a connector ingest",
+        "tags": [
+          "Datasets"
+        ]
+      }
+    },
+    "/services/databases/{connection}/imports/": {
+      "post": {
+        "description": "Copy one listed table or view into a new dataset, as an ingest job.\n\nThe table must be one the connection's listing returns for this request.\nA second import of the same table by the same user answers 409\n`duplicate_source` naming the existing dataset; refresh that one instead.",
+        "operationId": "import_database_table_services_databases__connection__imports__post",
+        "parameters": [
+          {
+            "description": "Connection name.",
+            "in": "path",
+            "name": "connection",
+            "required": true,
+            "schema": {
+              "description": "Connection name.",
+              "maxLength": 64,
+              "title": "Connection",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DatabaseImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseImportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad gateway \u2014 an upstream provider failed"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "Import a table from a database connection",
         "tags": [
           "Datasets"
         ]
