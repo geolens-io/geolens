@@ -6771,6 +6771,11 @@
             ],
             "description": "SRID of the column's first non-null value, or null when it is 0, the table has no rows, or it couldn't be read.",
             "title": "Srid"
+          },
+          "importable": {
+            "description": "False when the schema or table name has characters an import refuses; such an entry is listed but can't be imported.",
+            "title": "Importable",
+            "type": "boolean"
           }
         },
         "required": [
@@ -6779,7 +6784,8 @@
           "object_type",
           "geometry_column",
           "column_type",
-          "srid"
+          "srid",
+          "importable"
         ],
         "title": "DatabaseTable",
         "type": "object"

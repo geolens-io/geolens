@@ -604,6 +604,9 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
         },
       };
     }
+    if (value.code === 'database_connection_missing' && typeof value.connection === 'string') {
+      return { key: 'errors.databaseConnectionMissing', values: { connection: value.connection } };
+    }
     // invalid_service_token's message is the token policy, whose allowed alphabet
     // varies by service type, so it can't be a static key; interpolating server
     // prose mirrors duplicate_source below.

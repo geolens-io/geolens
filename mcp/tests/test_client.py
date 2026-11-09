@@ -130,6 +130,7 @@ def test_search_datasets_total_excludes_collections_on_later_pages():
         ("wfs", "vector_dataset", "service"),
         ("stac", "raster_dataset", "stac"),
         ("created", "vector_dataset", "created"),
+        ("database", "vector_dataset", "database"),
         ("geotiff", "vrt_dataset", None),
     ],
 )

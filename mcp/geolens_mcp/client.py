@@ -203,7 +203,7 @@ def _source_origin(properties: dict[str, Any]) -> str | None:
     source_format = properties.get("source_format")
     if not source_format:
         return "postgis"
-    if source_format in ("created", "stac"):
+    if source_format in ("created", "stac", "database"):
         return source_format
     if source_format in _SERVICE_SOURCE_FORMATS:
         return "service"

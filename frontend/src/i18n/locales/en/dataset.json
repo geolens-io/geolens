@@ -814,7 +814,8 @@
       "stac": "Referenced remotely from a STAC catalog. The source asset must remain available.",
       "created": "Created in GeoLens and stored as an owned, editable dataset.",
       "vrt": "Composed from other raster datasets managed by GeoLens.",
-      "unknown": "No machine-readable origin is recorded for this dataset."
+      "unknown": "No machine-readable origin is recorded for this dataset.",
+      "database": "Imported from a connected database. GeoLens keeps an owned copy; a refresh copies the table again."
     },
     "storage": {
       "upload": "Owned copy",
@@ -823,7 +824,8 @@
       "stac": "Remote reference",
       "created": "Owned copy",
       "vrt": "Composite",
-      "unknown": "Not recorded"
+      "unknown": "Not recorded",
+      "database": "Owned copy"
     },
     "openInArcgis": "Open in ArcGIS",
     "opensInNewTab": "opens in a new tab",
@@ -836,7 +838,9 @@
       "endpoint": "Source URL (credentials removed)",
       "collection": "STAC collection",
       "asset": "STAC asset",
-      "item": "STAC item"
+      "item": "STAC item",
+      "connection": "Database connection",
+      "sourceTable": "Source table"
     },
     "status": {
       "health": {

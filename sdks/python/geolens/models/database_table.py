@@ -28,6 +28,8 @@ class DatabaseTable:
         column_type (DatabaseTableColumnType): SQL Server spatial type of the column.
         srid (int | None): SRID of the column's first non-null value, or null when it is 0, the table has no rows, or it
             couldn't be read.
+        importable (bool): False when the schema or table name has characters an import refuses; such an entry is listed
+            but can't be imported.
     """
 
     schema_name: str
@@ -36,6 +38,7 @@ class DatabaseTable:
     geometry_column: str
     column_type: DatabaseTableColumnType
     srid: int | None
+    importable: bool
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -52,6 +55,8 @@ class DatabaseTable:
         srid: int | None
         srid = self.srid
 
+        importable = self.importable
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -62,6 +67,7 @@ class DatabaseTable:
                 "geometry_column": geometry_column,
                 "column_type": column_type,
                 "srid": srid,
+                "importable": importable,
             }
         )
 
@@ -87,6 +93,8 @@ class DatabaseTable:
 
         srid = _parse_srid(d.pop("srid"))
 
+        importable = d.pop("importable")
+
         database_table = cls(
             schema_name=schema_name,
             table_name=table_name,
@@ -94,6 +102,7 @@ class DatabaseTable:
             geometry_column=geometry_column,
             column_type=column_type,
             srid=srid,
+            importable=importable,
         )
 
         database_table.additional_properties = d

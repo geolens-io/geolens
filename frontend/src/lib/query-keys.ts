@@ -216,6 +216,8 @@ export const queryKeys = {
       ['job-status-by-dataset', datasetId] as const,
     discoverTables: ['discover-tables'] as const,
     uploadConfig: ['upload-config'] as const,
+    capabilities: ['capabilities'] as const,
+    databaseTables: (connection: string | null) => ['database-tables', connection] as const,
   },
 
   savedSearches: {

@@ -408,7 +408,8 @@
     "storyAssetLimit": "Cette histoire contient déjà le maximum d’images : 200, ou 250 Mo au total.",
     "storyAssetOwnerLimit": "Vos histoires occupent déjà tout l’espace d’images qu’un administrateur autorise. Retirez des images de vos histoires ou demandez à un administrateur d’augmenter la limite.",
     "storyAssetsNotFound": "Certaines images de cette histoire sont introuvables. Retirez ces blocs d’image et enregistrez de nouveau.",
-    "storyFrameHostNotAllowed": "Certaines intégrations ou vidéos utilisent un site qu’aucun administrateur n’a approuvé. Corrigez-les ou retirez-les, puis réessayez."
+    "storyFrameHostNotAllowed": "Certaines intégrations ou vidéos utilisent un site qu’aucun administrateur n’a approuvé. Corrigez-les ou retirez-les, puis réessayez.",
+    "databaseConnectionMissing": "La connexion à la base de données {{connection}} n'est plus configurée. Demandez à un administrateur de la rétablir."
   },
   "settings": {
     "apiKeys": {

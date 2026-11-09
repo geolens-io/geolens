@@ -29,6 +29,10 @@ import type {
   ArcgisSigninRequest,
   ArcgisSigninResponse,
   ServiceAuthRequest,
+  CapabilitiesResponse,
+  DatabaseTableListResponse,
+  DatabaseImportRequest,
+  DatabaseImportResponse,
 } from '@/types/api';
 
 /** Byte-transfer progress callback (0–1). */
@@ -366,6 +370,32 @@ export async function arcgisSignin(
 
 export async function discoverTables(): Promise<DiscoverResponse> {
   return apiFetch<DiscoverResponse>('/ingest/discover/');
+}
+
+export async function getCapabilities(): Promise<CapabilitiesResponse> {
+  return apiFetch<CapabilitiesResponse>('/capabilities/');
+}
+
+// The server waits up to 45 s for each SQL Server read: the import reads the
+// catalog, and the listing reads the catalog and then probes SRIDs.
+const DATABASE_CATALOG_TIMEOUT_MS = 60_000;
+const DATABASE_LISTING_TIMEOUT_MS = 100_000;
+
+export async function listDatabaseTables(connection: string): Promise<DatabaseTableListResponse> {
+  return apiFetch<DatabaseTableListResponse>(
+    `/services/databases/${encodeURIComponent(connection)}/tables/`,
+    { timeoutMs: DATABASE_LISTING_TIMEOUT_MS },
+  );
+}
+
+export async function startDatabaseImport(
+  connection: string,
+  request: DatabaseImportRequest,
+): Promise<DatabaseImportResponse> {
+  return apiFetch<DatabaseImportResponse>(
+    `/services/databases/${encodeURIComponent(connection)}/imports/`,
+    { method: 'POST', body: JSON.stringify(request), timeoutMs: DATABASE_CATALOG_TIMEOUT_MS },
+  );
 }
 
 export async function bulkRegisterTables(

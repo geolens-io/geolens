@@ -6,7 +6,8 @@
     "url": "URL de archivo",
     "register": "Registrar tabla",
     "service": "URL de servicio",
-    "stac": "Catálogo STAC"
+    "stac": "Catálogo STAC",
+    "database": "Base de datos"
   },
   "vrt": {
     "pageTitle": "Crear Ráster Virtual",
@@ -658,7 +659,10 @@
     "completePointCloudDesc": "Abre la pestaña Acceso para obtener la URL del archivo COPC.",
     "completeDesc": "Los conjuntos de datos terminados están en el catálogo.",
     "pointcloudLabel": "Nube de puntos COPC",
-    "pointcloudDesc": "disponible para clientes COPC externos; sin vista previa en el mapa."
+    "pointcloudDesc": "disponible para clientes COPC externos; sin vista previa en el mapa.",
+    "databaseHint": "Importar desde una base de datos",
+    "databaseDesc": "Elija una tabla o vista espacial de una base de datos que su administrador haya conectado. GeoLens la copia al catálogo para teselarla y consultarla.",
+    "databaseNote": "Acceso de solo lectura · una actualización vuelve a copiar la tabla"
   },
   "status": {
     "uploading": "Subiendo",
@@ -673,5 +677,31 @@
     "crs": "SRC",
     "pointFormat": "Formato de puntos",
     "size": "Tamaño"
-  }
+  },
+  "database": {
+    "loadingConnections": "Cargando conexiones de base de datos…",
+    "connection": "Conexión",
+    "loadingTables": "Listando tablas espaciales…",
+    "listFailed": "No se pudieron listar las tablas de esta conexión.",
+    "retry": "Reintentar",
+    "noTables": "No se encontraron tablas ni vistas espaciales en {{database}}.",
+    "filterLabel": "Filtrar tablas",
+    "filterPlaceholder": "esquema.tabla",
+    "tablesLegend": "Tablas espaciales en {{database}}",
+    "view": "Vista",
+    "table": "Tabla",
+    "noSrid": "Sin SRID",
+    "noMatches": "Ninguna tabla coincide con el filtro.",
+    "truncated": "Solo se listan las primeras {{limit}} columnas espaciales, así que puede faltar alguna tabla.",
+    "srsNeeded": "Esta tabla no tiene SRID propio. Introduzca en el siguiente paso el código EPSG de sus coordenadas.",
+    "continue": "Continuar",
+    "back": "Volver a las tablas",
+    "reviewing": "Importando {{table}} desde {{connection}}",
+    "importFailed": "No se pudo iniciar la importación.",
+    "crsHint": "Esta tabla no tiene SRID. Introduzca el código EPSG que usan sus coordenadas.",
+    "alreadyImported": "Ya importado: \"{{title}}\"",
+    "notImportable": "Este nombre tiene caracteres que GeoLens no puede importar."
+  },
+  "capabilitiesFailed": "No se pudo comprobar qué conexiones de base de datos hay disponibles, por lo que puede faltar el origen Base de datos.",
+  "capabilitiesRetry": "Reintentar"
 }

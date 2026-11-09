@@ -72,7 +72,7 @@ export interface BlockedRunToAccept {
 }
 
 type PointerField = {
-  label: 'filename' | 'fingerprint' | 'table' | 'serviceType' | 'layer' | 'endpoint' | 'collection' | 'asset' | 'item';
+  label: 'filename' | 'fingerprint' | 'table' | 'connection' | 'sourceTable' | 'serviceType' | 'layer' | 'endpoint' | 'collection' | 'asset' | 'item';
   value: string;
 };
 
@@ -180,6 +180,18 @@ function matchesCurrentServiceBinding(
     && sameServiceUrl(safeHttpPointer(binding.url), currentUrl);
 }
 
+function matchesCurrentDatabaseBinding(
+  dataset: DatasetResponse,
+  binding: Record<string, unknown>,
+): boolean {
+  if ((dataset.origin ?? datasetOrigin(dataset)) !== 'database') return false;
+  const ref = trustedRef(dataset, 'database');
+  return ['connection', 'schema', 'table'].every((key) => {
+    const current = refString(ref, key);
+    return current !== null && binding[key] === current;
+  });
+}
+
 // canonical_service_source_binding_fingerprint ignores a trailing slash too.
 function sameServiceUrl(a: string | null, b: string | null): boolean {
   return (a && stripTrailingSlashes(a)) === (b && stripTrailingSlashes(b));
@@ -219,6 +231,16 @@ function pointerFields(dataset: DatasetResponse, origin: DatasetOrigin | null): 
   if (origin === 'postgis') {
     const table = refString(ref, 'table_name');
     return table ? [{ label: 'table', value: table }] : [];
+  }
+
+  if (origin === 'database') {
+    const connection = refString(ref, 'connection');
+    const schema = refString(ref, 'schema');
+    const table = refString(ref, 'table');
+    return [
+      ...(connection ? [{ label: 'connection' as const, value: connection }] : []),
+      ...(schema && table ? [{ label: 'sourceTable' as const, value: `${schema}.${table}` }] : []),
+    ];
   }
 
   if (origin === 'service') {
@@ -581,7 +603,8 @@ function RefreshRunHistory({
                     && canEdit
                     && run.verification
                     && (run.origin_kind === 'upload'
-                      || matchesCurrentServiceBinding(dataset, run.verification.source_binding))
+                      || matchesCurrentServiceBinding(dataset, run.verification.source_binding)
+                      || matchesCurrentDatabaseBinding(dataset, run.verification.source_binding))
                     && run.verification.review_fingerprint
                     && !run.verification.acceptance_consumed_by_run_id
                     && !heldUploadSuperseded(run, runs)

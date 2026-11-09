@@ -852,7 +852,8 @@
       "stac": "Referencia remota de un catálogo STAC. El recurso de origen debe seguir disponible.",
       "created": "Creado en GeoLens y almacenado como un conjunto de datos propio y editable.",
       "vrt": "Compuesto por otros conjuntos de datos ráster gestionados por GeoLens.",
-      "unknown": "No hay un origen legible por máquina registrado para este conjunto de datos."
+      "unknown": "No hay un origen legible por máquina registrado para este conjunto de datos.",
+      "database": "Importado desde una base de datos conectada. GeoLens conserva una copia propia; una actualización vuelve a copiar la tabla."
     },
     "storage": {
       "upload": "Copia propia",
@@ -861,7 +862,8 @@
       "stac": "Referencia remota",
       "created": "Copia propia",
       "vrt": "Compuesto",
-      "unknown": "No registrado"
+      "unknown": "No registrado",
+      "database": "Copia propia"
     },
     "openInArcgis": "Abrir en ArcGIS",
     "opensInNewTab": "se abre en una pestaña nueva",
@@ -874,7 +876,9 @@
       "endpoint": "URL de la fuente (credenciales eliminadas)",
       "collection": "Colección STAC",
       "asset": "Recurso STAC",
-      "item": "Elemento STAC"
+      "item": "Elemento STAC",
+      "connection": "Conexión de base de datos",
+      "sourceTable": "Tabla de origen"
     },
     "status": {
       "health": {

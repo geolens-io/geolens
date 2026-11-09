@@ -408,7 +408,8 @@
     "storyAssetLimit": "Diese Story enthält bereits die maximale Anzahl an Bildern: 200 oder insgesamt 250 MB.",
     "storyAssetOwnerLimit": "Ihre Storys enthalten bereits so viel Bildspeicher, wie ein Admin erlaubt. Entfernen Sie Bilder aus Ihren Storys oder bitten Sie einen Admin, das Limit zu erhöhen.",
     "storyAssetsNotFound": "Einige Bilder dieser Story wurden nicht gefunden. Entfernen Sie diese Bildblöcke und speichern Sie erneut.",
-    "storyFrameHostNotAllowed": "Einige Einbettungen oder Videos verwenden eine Website, die kein Admin freigegeben hat. Korrigieren oder entfernen Sie sie und versuchen Sie es erneut."
+    "storyFrameHostNotAllowed": "Einige Einbettungen oder Videos verwenden eine Website, die kein Admin freigegeben hat. Korrigieren oder entfernen Sie sie und versuchen Sie es erneut.",
+    "databaseConnectionMissing": "Die Datenbankverbindung {{connection}} ist nicht mehr konfiguriert. Bitten Sie eine Administration, sie wiederherzustellen."
   },
   "settings": {
     "apiKeys": {

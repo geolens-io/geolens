@@ -113,7 +113,7 @@ def is_raster_dataset(dataset: Any) -> bool:
 #: Update this set, and the dict `origin_refusal_message` builds below,
 #: together if that one changes.
 KNOWN_ORIGIN_KINDS: frozenset[str] = frozenset(
-    {"upload", "postgis", "service", "stac", "created"}
+    {"upload", "postgis", "service", "stac", "database", "created"}
 )
 
 
@@ -124,9 +124,9 @@ def origin_refusal_message(origin: Optional[str]) -> Optional[str]:
     `upload` origin (`platform/dataset_origin.restamp`), so replacing a
     dataset bound to a refreshable remote origin, or to a registered
     table, through this door would silently sever its refresh source on
-    the first successful commit. `service` and `stac` are both
+    the first successful commit. `service`, `stac` and `database` are
     refreshable remote origins (`router_refresh.py`); `postgis` is a
-    registered table refreshed in place. All three are refused in favor
+    registered table refreshed in place. All four are refused in favor
     of `geolens refresh`.
 
     Every kind in KNOWN_ORIGIN_KINDS gets an explicit entry below, so a
@@ -145,6 +145,11 @@ def origin_refusal_message(origin: Optional[str]) -> Optional[str]:
         ),
         "service": _REFUSAL_MESSAGES["refresh_not_applicable"],
         "stac": _REFUSAL_MESSAGES["refresh_not_applicable"],
+        "database": (
+            "This dataset was imported from a database table, not an upload. "
+            "Run `geolens refresh <dataset-id>` to copy the table again "
+            "instead of replacing it with a file."
+        ),
     }
     assert set(by_kind) == KNOWN_ORIGIN_KINDS, (
         "origin_refusal_message must classify every kind in KNOWN_ORIGIN_KINDS"

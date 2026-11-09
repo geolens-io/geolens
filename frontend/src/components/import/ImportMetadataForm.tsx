@@ -20,6 +20,8 @@ interface ImportMetadataFormProps {
   detectedCrs: number | null;
   onCommit: (metadata: CommitImportRequest) => void;
   isCommitting: boolean;
+  /** Replaces the CRS help text when the source has no CRS to override. */
+  crsHelpText?: string;
   /** A previously attempted request to start from instead of the preview defaults. */
   initialRequest?: CommitImportRequest | null;
   isRaster?: boolean;
@@ -67,6 +69,7 @@ export function ImportMetadataForm({
   detectedCrs,
   onCommit,
   isCommitting,
+  crsHelpText,
   initialRequest,
   isRaster = false,
   isTileset = false,
@@ -261,7 +264,7 @@ export function ImportMetadataForm({
                 onChange={(e) => setSridOverride(e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
-                {t('metadata.crsHelpText')}
+                {crsHelpText ?? t('metadata.crsHelpText')}
               </p>
             </div>
           )}
