@@ -310,6 +310,7 @@
     "jobFailureBackfillWorkerShutdown": "Embedding backfill was cancelled by a worker shutdown. Records it had already reached carry their new vectors and the rest are unchanged; re-run to finish the remainder.",
     "jobFailureDatasetDeleted": "The dataset was deleted while this job was running.",
     "jobFailureDispatchInterrupted": "Fan-out dispatch was interrupted before any layer was queued. Re-upload the file to import its layers.",
+    "jobFailureDuplicateSource": "This source was already imported as another dataset. Refresh that dataset instead.",
     "jobFailureMissingCrs": "Missing CRS: no coordinate system detected. Ensure the file includes CRS information (e.g., .prj file for Shapefiles).",
     "jobFailureMissingCrsDatabase": "Missing CRS: the table's geometries have no SRID (SRID 0), or it has no rows or only empty geometries. Import it again and choose its coordinate system.",
     "jobFailureMissingCrsRaster": "Missing CRS: raster has no coordinate reference system. Provide a CRS override (EPSG code) at import time.",

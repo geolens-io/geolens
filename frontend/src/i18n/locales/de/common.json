@@ -153,6 +153,7 @@
     "jobFailureBackfillWorkerShutdown": "Der Einbettungs-Backfill wurde durch das Beenden eines Workers abgebrochen. Bereits erreichte Datensätze haben ihre neuen Vektoren, der Rest ist unverändert; führen Sie ihn erneut aus, um den Rest abzuschließen.",
     "jobFailureDatasetDeleted": "Der Datensatz wurde gelöscht, während dieser Auftrag lief.",
     "jobFailureDispatchInterrupted": "Das Verteilen der Ebenen wurde unterbrochen, bevor eine Ebene eingereiht wurde. Laden Sie die Datei erneut hoch, um ihre Ebenen zu importieren.",
+    "jobFailureDuplicateSource": "Diese Quelle wurde bereits als anderer Datensatz importiert. Aktualisieren Sie stattdessen diesen Datensatz.",
     "jobFailureMissingCrs": "CRS fehlt: Es wurde kein Koordinatensystem erkannt. Stellen Sie sicher, dass die Datei CRS-Informationen enthält (z. B. eine .prj-Datei bei Shapefiles).",
     "jobFailureMissingCrsDatabase": "CRS fehlt: Die Geometrien der Tabelle haben keine SRID (SRID 0), oder die Tabelle enthält keine Zeilen oder nur leere Geometrien. Importieren Sie sie erneut und wählen Sie ihr Koordinatensystem.",
     "jobFailureMissingCrsRaster": "CRS fehlt: Das Raster hat kein Koordinatenreferenzsystem. Geben Sie beim Import eine CRS-Überschreibung (EPSG-Code) an.",

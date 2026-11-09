@@ -310,6 +310,7 @@
     "jobFailureBackfillWorkerShutdown": "嵌入回填因工作进程关闭而被取消。已处理的记录带有新向量，其余保持不变；请重新运行以完成剩余部分。",
     "jobFailureDatasetDeleted": "此任务运行期间数据集已被删除。",
     "jobFailureDispatchInterrupted": "图层分发在任何图层排队前被中断。请重新上传文件以导入其图层。",
+    "jobFailureDuplicateSource": "此数据源已作为另一个数据集导入。请改为刷新该数据集。",
     "jobFailureMissingCrs": "缺少 CRS：未检测到坐标系。请确保文件包含 CRS 信息（例如 Shapefile 的 .prj 文件）。",
     "jobFailureMissingCrsDatabase": "缺少 CRS：该表的几何图形没有 SRID（SRID 为 0），或该表没有行或只有空几何图形。请重新导入并选择其坐标系。",
     "jobFailureMissingCrsRaster": "缺少 CRS：栅格没有坐标参考系统。请在导入时提供 CRS 覆盖（EPSG 代码）。",

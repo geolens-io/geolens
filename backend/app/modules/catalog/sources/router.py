@@ -14,7 +14,6 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import ValidationError
 from slowapi.util import get_remote_address
-from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.url_redaction import (
@@ -103,7 +102,12 @@ from app.platform.security import (
     make_safe_client,
     validate_url_for_ssrf,
 )
-from app.platform.dataset_origin import service_layer_identity
+from app.platform.source_copies import (
+    ServiceIdentity,
+    duplicate_source_conflict,
+    importing_copy,
+    published_copy,
+)
 from app.platform.portal_link import (
     PortalLink,
     resolve_portal_link,
@@ -849,6 +853,45 @@ async def _create_preview_job(
     return job
 
 
+def _service_identity(
+    service_type: str, url: str, layer_id: int | str | None, layer_name: str | None
+) -> tuple[ServiceIdentity, str]:
+    """A layer's identity, and the legacy ``source_url`` spelling of it.
+
+    The URL is normalized the way the preview stores it for ArcGIS; a layer id
+    embedded in the URL counts when none is given.
+    """
+    _, source_format = get_catalog_port().resolve_service_type(service_type)
+    try:
+        base_url, url_layer_id = normalize_arcgis_url(url)
+    except Exception:  # broad: malformed input; degrade to raw URL
+        base_url, url_layer_id = url, None
+    effective_layer_id = layer_id if layer_id is not None else url_layer_id
+    enriched_url = (
+        f"{base_url}/{effective_layer_id}"
+        if effective_layer_id is not None
+        else base_url
+    )
+    identity = ServiceIdentity.of(
+        source_format, base_url, layer_id=effective_layer_id, layer_name=layer_name
+    )
+    return identity, enriched_url
+
+
+def _job_identity(job: IngestJob) -> ServiceIdentity | None:
+    metadata = job.user_metadata or {}
+    try:
+        identity, _ = _service_identity(
+            str(metadata.get("service_type") or ""),
+            job.source_url or "",
+            metadata.get("layer_id"),
+            job.source_layer,
+        )
+    except (ValueError, KeyError, IngestionError):
+        return None
+    return identity
+
+
 def _portal_link(request: ServicePreviewRequest) -> PortalLink:
     if not request.service_type.startswith("ArcGIS"):
         return PortalLink.unsupported(request.item_id, request.portal_url)
@@ -1190,82 +1233,34 @@ async def preview_service_layer(
         await db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
-    # Duplicate source detection (ArcGIS and WFS only): the stored URL
-    # includes the layer suffix (via enrich_source_url), so reconstruct the
-    # enriched form before querying (source_url, source_format, created_by).
+    # The identity is spelled from the URL as given and from each queued
+    # job's own URL alike, so a preview and a job of one layer compare equal.
     try:
-        _, source_format = get_catalog_port().resolve_service_type(request.service_type)
-        try:
-            base_url, url_layer_id = normalize_arcgis_url(request.url)
-        except Exception:  # broad: malformed input; degrade to raw URL
-            base_url, url_layer_id = request.url, None
-        effective_layer_id = (
-            request.layer_id if request.layer_id is not None else url_layer_id
+        requested = _service_identity(
+            request.service_type, request.url, request.layer_id, request.layer_name
         )
-        enriched_url = (
-            f"{base_url}/{effective_layer_id}"
-            if effective_layer_id is not None
-            else base_url
-        )
-        # Keyed on the structured `origin_ref` (service_type, base_url, layer
-        # identity), not `origin_uri`'s string spelling, which can drift
-        # across writers and miss a duplicate. `source_url` is only a narrow
-        # fallback for rows whose structured identity migration 0036 could
-        # not backfill (a WFS/OGC row whose service backfill populated
-        # `origin_uri` but left `origin_ref` without url/layer_id, having no
-        # typename to recover), gated on the structured identity being
-        # incomplete, not on `origin_uri IS NULL` alone. `source_url` is
-        # reachable through the metadata PATCH, so keying the guard on it
-        # alone would let an owner edit past it.
-        canonical_layer_id = service_layer_identity(
-            source_format, layer_id=effective_layer_id, layer_name=request.layer_name
-        )
-        origin_ref_url = Dataset.origin_ref["url"].astext
-        origin_ref_layer_id = Dataset.origin_ref["layer_id"].astext
-        existing_stmt = (
-            select(Dataset.id, Record.title)
-            .join(Record, Dataset.record_id == Record.id)
-            .where(
-                or_(
-                    and_(
-                        Dataset.origin_ref["service_type"].astext == source_format,
-                        origin_ref_url == base_url,
-                        origin_ref_layer_id.is_(None)
-                        if canonical_layer_id is None
-                        else origin_ref_layer_id == canonical_layer_id,
-                    ),
-                    and_(
-                        or_(origin_ref_url.is_(None), origin_ref_layer_id.is_(None)),
-                        Dataset.source_url == enriched_url,
-                    ),
-                ),
-                Dataset.source_format == source_format,
-                Record.created_by == user_id,
-            )
-            .limit(1)
-        )
-        existing = (await db.execute(existing_stmt)).first()
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "code": "duplicate_source",
-                    "message": (
-                        f"A dataset from this source URL is already registered "
-                        f"(existing: '{existing.title}'). To pull the latest data "
-                        f"into it, refresh that dataset instead of importing it "
-                        f"again; to keep both, register a different layer."
-                    ),
-                    "existing_dataset_id": str(existing.id),
-                    "existing_title": existing.title,
-                },
-            )
-    except HTTPException:
-        raise
     except (ValueError, KeyError, IngestionError):
         # resolve_service_type raises IngestionError for unknown service
         # types; skip the duplicate check and let build_gdal_source refuse.
-        pass
+        requested = None
+    if requested is not None:
+        identity, enriched_url = requested
+        existing = await published_copy(
+            db,
+            user_id,
+            identity,
+            dataset_cls=Dataset,
+            record_cls=Record,
+            legacy_source_url=enriched_url,
+        ) or await importing_copy(db, user_id, identity, job_identity=_job_identity)
+        if existing is not None:
+            raise duplicate_source_conflict(
+                existing,
+                f"A dataset from this source URL is already registered "
+                f"(existing: '{existing.title}'). To pull the latest data "
+                f"into it, refresh that dataset instead of importing it "
+                f"again; to keep both, register a different layer.",
+            )
 
     # Released again, because the duplicate-source query above re-acquired.
     # Every gate has run and nothing is written yet.

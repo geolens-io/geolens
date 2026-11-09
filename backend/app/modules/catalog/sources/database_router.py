@@ -6,7 +6,6 @@ from typing import Literal
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db
@@ -25,9 +24,16 @@ from app.platform.database_sources import (
     importable_identifier,
     list_spatial_tables,
 )
+from app.platform.dataset_origin import DatabaseSource
 from app.platform.extensions import get_catalog_port
 from app.platform.jobs import ledger
 from app.platform.jobs.models import DATABASE_SOURCE_METADATA_KEY
+from app.platform.source_copies import (
+    database_job_identity,
+    duplicate_source_conflict,
+    importing_copy,
+    published_copy,
+)
 from app.standards.ogc.errors import (
     BAD_GATEWAY_RESPONSE,
     CONFLICT_RESPONSE,
@@ -174,25 +180,6 @@ class DatabaseImportResponse(BaseModel):
     message: str = Field(description="What happened.")
 
 
-async def _existing_copy(
-    db: AsyncSession, user_id: uuid.UUID, connection: str, body: DatabaseImportRequest
-):
-    return (
-        await db.execute(
-            select(Dataset.id, Record.title)
-            .join(Record, Dataset.record_id == Record.id)
-            .where(
-                Dataset.source_format == "database",
-                Dataset.origin_ref["connection"].astext == connection,
-                Dataset.origin_ref["schema"].astext == body.schema_name,
-                Dataset.origin_ref["table"].astext == body.table_name,
-                Record.created_by == user_id,
-            )
-            .limit(1)
-        )
-    ).first()
-
-
 def _table_not_listed(connection: str) -> HTTPException:
     return HTTPException(
         status.HTTP_404_NOT_FOUND,
@@ -247,20 +234,16 @@ async def import_database_table(
     if srid_refusal:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=srid_refusal)
     await check_upload_quota(db, user_id, 0, request)
-    existing = await _existing_copy(db, user_id, connection, body)
+    identity = DatabaseSource(connection, body.schema_name, body.table_name)
+    existing = await published_copy(
+        db, user_id, identity, dataset_cls=Dataset, record_cls=Record
+    ) or await importing_copy(db, user_id, identity, job_identity=database_job_identity)
     if existing is not None:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            detail={
-                "code": "duplicate_source",
-                "message": (
-                    f"This table is already imported (existing: "
-                    f"'{existing.title}'). To pull the latest data into it, "
-                    "refresh that dataset instead of importing it again."
-                ),
-                "existing_dataset_id": str(existing.id),
-                "existing_title": existing.title,
-            },
+        raise duplicate_source_conflict(
+            existing,
+            f"This table is already imported (existing: '{existing.title}'). To "
+            "pull the latest data into it, refresh that dataset instead of "
+            "importing it again.",
         )
     # Released before the listing, which can wait 30 s on an unreachable server.
     await db.rollback()

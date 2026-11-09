@@ -21,6 +21,7 @@ and releases use semantic versioning.
 - Map viewer: with an AI provider configured, the "Ask AI" button no longer covers the expanded attribution; the attribution sits above it.
 - A DEM dataset whose extent the reader cannot see now frames its preview to the bounds in its tile token instead of opening at world zoom and timing out; with no bounds either it shows "Preview unavailable" at once.
 - Visiting `/stories` opens the Stories tab of the Maps page instead of a 404.
+- A user can no longer end up with two copies of one service layer or database table. A second import while the first is still queued or running answers 409 `duplicate_source` with `existing_job_id` in place of `existing_dataset_id` and `existing_title`. Retrying a failed import answers the same 409 while the job's owner holds a copy of its source, and works again once that copy is deleted. An import that reaches publication after a copy was published fails with error code `duplicate_source` naming the existing dataset.
 
 ## [1.30.1] - 2026-11-08
 

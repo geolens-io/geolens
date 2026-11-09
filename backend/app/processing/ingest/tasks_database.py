@@ -43,6 +43,7 @@ from app.processing.ingest.database_import import (
 )
 from app.platform.refresh import verification as refresh_policy
 from app.platform.refresh.service import drift_status_from_diff, record_refresh_blocked
+from app.platform.source_copies import refuse_second_copy
 from app.processing.ingest import catalog_projection
 from app.processing.ingest.publication import (
     PUBLISH,
@@ -251,7 +252,7 @@ async def ingest_database(
             attempt_id=attempt_uuid,
             require_status="running",
         ) as (session, job):
-            if job is None:
+            if job is None or await refuse_second_copy(session, job, attempt_uuid):
                 return
             job.current_step = "finalize"
             job.progress = 0.7

@@ -18,7 +18,7 @@ from app.processing.ingest import tasks_vector
 from app.processing.ingest.tasks_reupload import reupload_service
 
 from tests.factories import get_user_id
-from tests.test_service_reupload_3d import _BASE, _WELLS, _refresh, _source
+from tests.test_service_reupload_3d import _BASE, _fresh_base, _WELLS, _refresh, _source
 
 pytestmark = pytest.mark.anyio
 
@@ -161,9 +161,10 @@ async def _labels(session: AsyncSession, dataset_id) -> dict:
 
 async def _import(session, monkeypatch, field_labels) -> uuid.UUID:
     admin_id = await get_user_id(session, "admin")
+    base = _fresh_base()
     job = IngestJob(
         source_filename="Wells",
-        source_url=_BASE,
+        source_url=base,
         source_layer="0",
         created_by=admin_id,
         status="pending",
@@ -181,7 +182,7 @@ async def _import(session, monkeypatch, field_labels) -> uuid.UUID:
         await tasks_vector.ingest_service.func(
             job_id=str(job.id),
             attempt_id=str(job.attempt_id),
-            source_url=_BASE,
+            source_url=base,
             source_layer="0",
             user_id=str(admin_id),
         )

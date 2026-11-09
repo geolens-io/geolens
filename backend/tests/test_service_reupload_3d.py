@@ -28,6 +28,19 @@ _WELLS = [(-73.9, 40.7, 100.0), (-74.0, 40.8, 200.0), (-73.8, 40.6, 300.0)]
 _FLAT_WELLS = [(x, y, None) for x, y, _ in _WELLS]
 
 
+def _fresh_base() -> str:
+    """A layer URL no earlier import used; a user may hold one copy of a layer."""
+    return _BASE.replace("/Wells/", f"/Wells{uuid.uuid4().hex[:8]}/")
+
+
+# The layer URL each dataset `_ingest` made was imported from.
+_IMPORTED_FROM: dict[uuid.UUID, str] = {}
+
+
+def _base_of(dataset_id) -> str:
+    return _IMPORTED_FROM.get(uuid.UUID(str(dataset_id)), _BASE)
+
+
 def _fake_fetch(points, columns=("name",)):
     """Land ``points`` in the target table the way ogr2ogr lands a point layer."""
 
@@ -84,9 +97,10 @@ def _source(monkeypatch, points, columns=("name",)):
 
 async def _ingest(session, monkeypatch, points, columns=("name",)) -> uuid.UUID:
     admin_id = await get_user_id(session, "admin")
+    base = _fresh_base()
     job = IngestJob(
         source_filename="Wells",
-        source_url=_BASE,
+        source_url=base,
         source_layer="0",
         created_by=admin_id,
         status="pending",
@@ -103,12 +117,13 @@ async def _ingest(session, monkeypatch, points, columns=("name",)) -> uuid.UUID:
         await tasks_vector.ingest_service.func(
             job_id=str(job.id),
             attempt_id=str(job.attempt_id),
-            source_url=_BASE,
+            source_url=base,
             source_layer="0",
             user_id=str(admin_id),
         )
     await session.refresh(job)
     assert job.status == "complete", job.error_message
+    _IMPORTED_FROM[job.dataset_id] = base
     return job.dataset_id
 
 
@@ -127,7 +142,7 @@ async def _reupload(session, monkeypatch, dataset_id, points) -> None:
     job = IngestJob(
         dataset_id=dataset_id,
         source_filename="Wells",
-        source_url=_BASE,
+        source_url=_base_of(dataset_id),
         source_layer="0",
         created_by=admin_id,
         status="pending",
@@ -146,7 +161,7 @@ async def _reupload(session, monkeypatch, dataset_id, points) -> None:
             job_id=str(job.id),
             attempt_id=str(job.attempt_id),
             dataset_id=str(dataset_id),
-            source_url=_BASE,
+            source_url=_base_of(dataset_id),
             source_layer="0",
             user_id=str(admin_id),
         )
@@ -177,7 +192,7 @@ async def _preview(client, headers, dataset_id, points, columns=("name",)) -> di
             f"/datasets/{dataset_id}/reupload/service/preview",
             headers=headers,
             json={
-                "url": _BASE,
+                "url": _base_of(dataset_id),
                 "service_type": "ArcGIS FeatureServer",
                 "layer_name": "0",
                 "layer_id": "0",

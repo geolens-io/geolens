@@ -23,6 +23,7 @@ const FIXED_FAILURE_CODE_KEYS: Record<string, `errors.${string}`> = {
   credential_over_http: 'errors.jobFailureCredentialOverHttp',
   dataset_deleted: 'errors.jobFailureDatasetDeleted',
   dispatch_interrupted: 'errors.jobFailureDispatchInterrupted',
+  duplicate_source: 'errors.jobFailureDuplicateSource',
   missing_crs: 'errors.jobFailureMissingCrs',
   missing_crs_database: 'errors.jobFailureMissingCrsDatabase',
   missing_crs_raster: 'errors.jobFailureMissingCrsRaster',

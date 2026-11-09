@@ -153,6 +153,7 @@
     "jobFailureBackfillWorkerShutdown": "Le remplissage des embeddings a été annulé par l'arrêt d'un processus de travail. Les enregistrements déjà traités ont leurs nouveaux vecteurs et les autres sont inchangés ; relancez-le pour terminer le reste.",
     "jobFailureDatasetDeleted": "Le jeu de données a été supprimé pendant l'exécution de cette tâche.",
     "jobFailureDispatchInterrupted": "La répartition des couches a été interrompue avant qu'aucune ne soit mise en file d'attente. Téléversez à nouveau le fichier pour importer ses couches.",
+    "jobFailureDuplicateSource": "Cette source a déjà été importée dans un autre jeu de données. Actualisez plutôt ce jeu de données.",
     "jobFailureMissingCrs": "CRS manquant : aucun système de coordonnées détecté. Vérifiez que le fichier contient les informations de CRS (par exemple, un fichier .prj pour les Shapefiles).",
     "jobFailureMissingCrsDatabase": "CRS manquant : les géométries de la table n'ont pas de SRID (SRID 0), ou la table ne contient aucune ligne ou seulement des géométries vides. Importez-la de nouveau et choisissez son système de coordonnées.",
     "jobFailureMissingCrsRaster": "CRS manquant : le raster n'a pas de système de référence de coordonnées. Indiquez une substitution de CRS (code EPSG) à l'import.",

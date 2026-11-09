@@ -153,6 +153,7 @@
     "jobFailureBackfillWorkerShutdown": "El relleno de embeddings se canceló porque el proceso de trabajo se detuvo. Los registros que ya había procesado tienen sus nuevos vectores y el resto no cambió; vuelve a ejecutarlo para terminar lo que falta.",
     "jobFailureDatasetDeleted": "El conjunto de datos se eliminó mientras este trabajo se ejecutaba.",
     "jobFailureDispatchInterrupted": "El envío de las capas se interrumpió antes de poner ninguna en cola. Vuelve a subir el archivo para importar sus capas.",
+    "jobFailureDuplicateSource": "Esta fuente ya se importó como otro conjunto de datos. Actualiza ese conjunto de datos en su lugar.",
     "jobFailureMissingCrs": "Falta el CRS: no se detectó ningún sistema de coordenadas. Asegúrate de que el archivo incluya la información del CRS (por ejemplo, un archivo .prj para Shapefiles).",
     "jobFailureMissingCrsDatabase": "Falta el CRS: las geometrías de la tabla no tienen SRID (SRID 0), o la tabla no tiene filas o solo tiene geometrías vacías. Vuelve a importarla y elige su sistema de coordenadas.",
     "jobFailureMissingCrsRaster": "Falta el CRS: el ráster no tiene sistema de referencia de coordenadas. Proporciona una anulación de CRS (código EPSG) al importar.",

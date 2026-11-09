@@ -1321,7 +1321,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/sources/adapters/arcgis.py": 1084,
     # Source API router debt; each credential door judges its URL's scheme in
     # place. Split discovery, preview and dispatch endpoints before raising further.
-    "backend/app/modules/catalog/sources/router.py": 1760,
+    "backend/app/modules/catalog/sources/router.py": 1755,
     # STAC import door: per-item refusals and failure codes sit beside the batch loop.
     "backend/app/modules/catalog/sources/stac_router.py": 1012,
     # Adoption DDL mirrors the current schema without importing historical migrations.
@@ -1398,7 +1398,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_raster_replace.py": 608,
     # File and remote-source imports own publication fencing, heartbeat phases
     # and failure settlement.
-    "backend/app/processing/ingest/tasks_vector.py": 1215,
+    "backend/app/processing/ingest/tasks_vector.py": 1216,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
     "backend/app/processing/ingest/ogr.py": 1627,
