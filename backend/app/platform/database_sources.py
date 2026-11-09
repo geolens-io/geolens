@@ -287,9 +287,10 @@ async def _probe_srids(
 ) -> dict[int, int]:
     try:
         rows = await run_database_sql(name, srid_probe_sql(columns))
-    except DatabaseTableError:
+    except DatabaseSourceError:
         # One unreadable object (a view over a dropped table) fails the whole
-        # statement; the tables are still listed, with no SRID.
+        # statement, and a large all-null column can outrun the deadline; the
+        # tables are still listed, with no SRID.
         logger.warning("database SRID probe failed", connection=name)
         return {}
     srids: dict[int, int] = {}

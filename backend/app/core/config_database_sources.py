@@ -27,6 +27,10 @@ _HOST_LABEL_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 # `;` `{` `}` `=` delimit ODBC attributes, `#` and `;` start INI comments, and a
 # line break would start a new freetds.conf line.
 _ODBC_INI_SYNTAX = frozenset(";{}=#")
+# FreeTDS reads freetds.conf in 255-byte pieces and parses each piece as a line
+# of its own, so a longer host or CA path would split into a second directive.
+_FREETDS_VALUE_BYTES = 200
+_HOST_CHARS_RE = re.compile(r"^[A-Za-z0-9.:-]+$")
 
 
 def _has_control_character(value: str) -> bool:
@@ -38,13 +42,14 @@ def _is_printable_ascii(value: str) -> bool:
 
 
 def _is_host(value: str) -> bool:
+    # The character check runs first: an IPv6 scope ID after `%` may hold any text.
+    if len(value) > _FREETDS_VALUE_BYTES or not _HOST_CHARS_RE.match(value):
+        return False
     try:
         ipaddress.ip_address(value)
         return True
     except ValueError:
         pass
-    if len(value) > 253:
-        return False
     return all(_HOST_LABEL_RE.match(label) for label in value.split("."))
 
 
@@ -114,6 +119,8 @@ class DatabaseConnection(BaseModel):
             raise ValueError("must be an absolute path")
         if _has_control_character(v) or {";", "#"}.intersection(v):
             raise ValueError("may not contain ; # or control characters")
+        if len(v.encode("utf-8")) > _FREETDS_VALUE_BYTES:
+            raise ValueError(f"may be at most {_FREETDS_VALUE_BYTES} bytes long")
         return v
 
     @model_validator(mode="after")

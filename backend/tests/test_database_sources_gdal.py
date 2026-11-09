@@ -418,14 +418,17 @@ async def test_a_failed_srid_probe_still_lists_the_tables(configured, spawn):
 
 
 @pytest.mark.anyio
-async def test_a_connect_failure_during_the_probe_is_not_hidden(configured, spawn):
+async def test_a_probe_that_times_out_still_lists_the_tables(
+    configured, spawn, monkeypatch
+):
     _calls, replies = spawn
     replies.append(_Proc(stdout=_features([_catalog_row("dbo", "t", "g")])))
-    replies.append(
-        _Proc(stderr=b"ERROR 1: Unable to initialize connection\n", returncode=1)
-    )
-    with pytest.raises(DatabaseConnectError):
-        await list_spatial_tables("gis")
+    probe = _Proc(hang=True)
+    replies.append(probe)
+    monkeypatch.setattr(database_sources, "SUBPROCESS_TIMEOUT_SECONDS", 0.05)
+    listing = await list_spatial_tables("gis")
+    assert [(t.table_name, t.srid) for t in listing.tables] == [("t", None)]
+    assert probe.killed
 
 
 @pytest.mark.anyio
