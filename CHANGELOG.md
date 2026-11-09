@@ -7,17 +7,13 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
-### Added
-- `scripts/seed-showcase.py` seeds a nine-chapter story over the Cambridge section, "Cambridge's Open Data in GeoLens", and `--refresh-services` re-pulls every service-bound showcase dataset in one call, the street trees last.
-- `scripts/seed-showcase.py` seeds a section built from the City of Cambridge, MA open data (PDDL): five layers bound to the city's public ArcGIS Online hosted feature layers, a pinned parcels upload, parcels joined to zoning and the 1% floodplain, a street-tree map translated from an ArcGIS web map, a tree-operations dashboard and a land-and-zoning dashboard with its map hidden.
+## [1.30.1] - 2026-11-08
+
+An instance on 1.30.0 moves to 1.30.1 with no migration. A raster mosaic of
+two or more files gets its own overview the next time it is rebuilt.
 
 ### Changed
-- `scripts/seed-showcase.py` binds the USGS earthquake layer once and draws Restless Earth's circles and heat surface from that one dataset; a seed run moves an already-seeded instance's heat layer onto it and retires the second copy.
-- `scripts/seed-showcase.py` shows the 1.30 features on the demo: the two dashboard maps gain a pie chart, a table, a feature list, a bar chart by date and indicator references, the skyline dashboard moves to the bottom panel, the stories get reader settings, a cover image each and a photo gallery, and stale catalog text about 3D Tiles, COPC and collections is corrected.
-- `scripts/seed-showcase.py` fills the Matterhorn terrain south of the Swiss border, where swissALTI3D has no data, with the Copernicus GLO-30 elevation model, reprojected to the Swiss grid and mosaicked under the swissALTI3D tiles; a seed run moves an already-seeded map onto the new terrain and keeps the Swiss-only mosaic.
-- `scripts/seed-showcase.py` opens "The Matterhorn in 3D" on a wider view of the whole mountain from the north-east, and a seed run moves a map still on the previous seeded view, or on none, to it.
-- `scripts/seed-showcase.py` corrects the demo's written content: Cambridge's story counts records and standing trees apart and its tree dashboard gains a species chart, the zoning map colors the twelve districts with the most parcels, datasets on public maps carry an attribution, seeded text uses US spelling, and a rerun applies the fixes to an already-seeded instance.
-- `scripts/seed-showcase.py` gives the showcase maps and stories one title style, title case with a colon before a subtitle, such as "Manhattan: A Century of Skyline"; a seed run renames an already-seeded map or story in place, so its id and links keep working.
+- The demo seed (`scripts/seed-showcase.py`) adds a section built from the City of Cambridge, MA open data (PDDL) with a nine-chapter story, binds the USGS earthquake layer once, shows the 1.30 dashboard and story features, gives the showcase maps and stories one title style, fills the Matterhorn terrain south of the Swiss border with the Copernicus GLO-30 elevation model, and corrects written content, legends, credits and cameras across the showcase; `--refresh-services` re-pulls every service-bound dataset.
 
 ### Fixed
 - A raster mosaic of two or more files now builds an overview of its own, as a mosaic with a file that lacks overviews already did. GDAL uses the files' own overviews only when the mosaic has one file, so low-zoom tiles read the full-resolution grid, which made them slow and could restart the tile server on a large mosaic. The overview is built when the mosaic is created or rebuilt, if the owner's storage cap and the server's scratch space allow it; otherwise the mosaic publishes without one, as before. Existing mosaics get it at their next rebuild.
@@ -7371,7 +7367,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.30.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.30.1...HEAD
+[1.30.1]: https://github.com/geolens-io/geolens/compare/v1.30.0...v1.30.1
 [1.30.0]: https://github.com/geolens-io/geolens/compare/v1.29.2...v1.30.0
 [1.29.2]: https://github.com/geolens-io/geolens/compare/v1.29.1...v1.29.2
 [1.29.1]: https://github.com/geolens-io/geolens/compare/v1.29.0...v1.29.1
