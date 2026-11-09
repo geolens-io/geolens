@@ -446,6 +446,37 @@ describe('DatasetPage hero state machine', () => {
     expect(screen.getByTestId('dataset-map')).toBe(map);
   });
 
+  it('keeps the map mounted when a token refetch fails but the cached bounds remain', async () => {
+    mockTileToken.value = {
+      data: { kind: 'raster', bounds: [7.6, 45.9, 7.7, 46.0] },
+      isPending: false,
+      isError: true,
+      isFetching: false,
+    };
+    setup({ record_type: 'raster_dataset', extent_bbox: null, raster: demRaster });
+    render(<DatasetPage />, { route: '/datasets/dataset-1' });
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+
+    expect(screen.getByTestId('dataset-map')).toBeInTheDocument();
+    expect(screen.queryByText('Preview unavailable')).not.toBeInTheDocument();
+  });
+
+  it('restarts the hero timeout when bounds arrive after a Retry', async () => {
+    mockTileToken.value = { data: undefined, isPending: true };
+    setup({ record_type: 'raster_dataset', extent_bbox: null, raster: demRaster });
+    const { rerender } = render(<DatasetPage />, { route: '/datasets/dataset-1' });
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(9_000); });
+
+    mockTileToken.value = { data: { kind: 'raster', bounds: [7.6, 45.9, 7.7, 46.0] }, isPending: false };
+    rerender(<DatasetPage />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+
+    expect(screen.queryByText('Preview unavailable')).not.toBeInTheDocument();
+    expect(screen.getByTestId('dataset-map')).toBeInTheDocument();
+  });
+
   it('keeps the dataset extent for a DEM that has one', async () => {
     mockTileToken.value = { data: { kind: 'raster', bounds: [1, 2, 3, 4] }, isPending: false };
     setup({ record_type: 'raster_dataset', extent_bbox: [5, 45, 10, 48], raster: demRaster });

@@ -287,7 +287,7 @@ export function DatasetPage() {
     }
     if (demBoundsArrived && timedOutAwaitingBounds.current) {
       timedOutAwaitingBounds.current = false;
-      if (heroState === 'error') handleReplaceComplete();
+      handleReplaceComplete();
     }
   }, [demBoundsArrived, demNeedsTokenBounds, demTokenPending, heroState, handleReplaceComplete]);
 
@@ -419,7 +419,7 @@ export function DatasetPage() {
   const demAwaitingBounds = demNeedsTokenBounds && !mapBbox && demTokenPending;
   // A failed token request is retryable; only a token that arrived without
   // bounds means there is nothing to frame.
-  const demTokenFailed = demNeedsTokenBounds && demTokenIsError && !demTokenFetching;
+  const demTokenFailed = demNeedsTokenBounds && demTokenIsError && !demTokenFetching && !demBoundsArrived;
   const demWithoutExtent = demNeedsTokenBounds && !mapBbox && !!demToken;
 
   const isRaster = dataset.record_type === 'raster_dataset';
