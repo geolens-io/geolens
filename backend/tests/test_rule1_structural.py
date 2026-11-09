@@ -321,10 +321,6 @@ ALLOWLIST: dict[str, str] = {
         "owner-or-policy via _may_read_job; a refused id is "
         "reported as not_found, identical to an unknown id"
     ),
-    "app.platform.jobs.router.retry_job": (
-        "owner-or-policy via _can_access_another_users_job; a refused id is "
-        'reported as 404 "Job not found", identical to an unknown id'
-    ),
     # All four ingest doors load the job through get_job_or_404, which is
     # creator-or-admin and raises 404/403 before the handler sees the row.
     "app.processing.ingest.router.commit_import": (

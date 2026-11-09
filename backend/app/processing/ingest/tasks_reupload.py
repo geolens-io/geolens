@@ -1550,7 +1550,9 @@ class _ServiceReupload(_LiveComparison):
                 lock=True,
             )
         ):
-            reason = second_copy_reason(copy)
+            reason = second_copy_reason(
+                copy, named=dataset.record.created_by == job.created_by
+            )
             return Verdict(
                 publish=False,
                 reason=reason,

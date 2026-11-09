@@ -99,6 +99,7 @@ from app.platform.source_copies import (
     duplicate_source_conflict,
     rebound_copy,
     service_identity,
+    visible_copy,
 )
 from app.platform.storage import get_storage
 from app.platform.storage.titiler_url import resolve_current_storage_key
@@ -602,6 +603,7 @@ async def reupload_service_preview(
         dataset,
     )
     if existing is not None:
+        existing = await visible_copy(db, existing, user)
         raise duplicate_source_conflict(
             existing,
             f"This dataset's owner already holds this layer in another dataset "

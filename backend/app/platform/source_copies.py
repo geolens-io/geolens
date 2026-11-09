@@ -316,16 +316,52 @@ async def importing_copy(
     return None
 
 
+async def visible_copy(
+    session: AsyncSession, copy: ExistingCopy, user: Any
+) -> ExistingCopy:
+    """``copy`` as ``user`` may see it: a dataset they can't read goes unnamed.
+
+    A door answering for another account's copy, such as a retry of a job an
+    admin committed, would otherwise disclose that dataset.
+    """
+    if copy.dataset_id is None:
+        return copy
+    from sqlalchemy.orm import joinedload
+
+    from app.modules.catalog.authorization import check_dataset_access
+    from app.platform.extensions import get_processing_port
+
+    dataset_cls = get_processing_port().get_dataset_orm_class()
+    dataset = await session.scalar(
+        select(dataset_cls)
+        .options(joinedload(dataset_cls.record))
+        .where(dataset_cls.id == copy.dataset_id)
+    )
+    try:
+        await check_dataset_access(session, dataset, copy.dataset_id, user)
+    except HTTPException:
+        return ExistingCopy()
+    return copy
+
+
 def duplicate_source_conflict(copy: ExistingCopy, message: str) -> HTTPException:
     """The 409 a door answers, naming the existing dataset or the running job.
 
-    ``message`` describes a published copy; a copy still importing gets its own.
+    ``message`` describes a published copy; a copy still importing gets its
+    own, and one the caller may not see is described without naming it.
     """
     if copy.dataset_id is not None:
         detail = {
             "message": message,
             "existing_dataset_id": str(copy.dataset_id),
             "existing_title": copy.title,
+        }
+    elif copy.job_id is None:
+        detail = {
+            "message": (
+                "The account this would publish for already holds a dataset "
+                "from this source. Refresh that dataset instead."
+            )
         }
     else:
         detail = {
@@ -341,8 +377,18 @@ def duplicate_source_conflict(copy: ExistingCopy, message: str) -> HTTPException
     )
 
 
-def second_copy_reason(existing: ExistingCopy) -> FixedReason:
-    """The failure stored on a job refused for publishing a second copy."""
+def second_copy_reason(existing: ExistingCopy, *, named: bool) -> FixedReason:
+    """The failure stored on a job refused for publishing a second copy.
+
+    ``named`` only when the copy is the job submitter's own: anyone who can
+    read the job can read the reason, not necessarily that dataset.
+    """
+    if not named:
+        return FixedReason(
+            "This source is already imported as another dataset of the account "
+            "this job publishes for. Refresh that dataset instead.",
+            code=DUPLICATE_SOURCE_CODE,
+        )
     return FixedReason(
         f"This source is already imported as dataset {existing.dataset_id}. "
         "Refresh that dataset instead.",
@@ -436,6 +482,7 @@ async def refuse_second_copy(
     existing = await locked_copy(session, owner, identity)
     if existing is None:
         return False
-    await ledger.fail(session, job.id, attempt_id, reason=second_copy_reason(existing))
+    reason = second_copy_reason(existing, named=owner == job.created_by)
+    await ledger.fail(session, job.id, attempt_id, reason=reason)
     await session.commit()
     return True

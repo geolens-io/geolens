@@ -636,8 +636,10 @@ async def test_the_reupload_door_refuses_a_layer_another_dataset_holds(
     assert allowed.status_code == 200, allowed.text
 
 
-async def _import_as(session, monkeypatch, owner: uuid.UUID) -> uuid.UUID:
-    job = _service_job(_fresh_base(), owner, status="pending")
+async def _import_as(
+    session, monkeypatch, owner: uuid.UUID, base: str | None = None
+) -> uuid.UUID:
+    job = _service_job(base or _fresh_base(), owner, status="pending")
     session.add(job)
     await session.commit()
     with _source(monkeypatch, _WELLS):
@@ -663,7 +665,8 @@ async def test_an_admin_reupload_into_a_users_dataset_checks_that_users_copies(
     assert refused.json()["detail"]["existing_dataset_id"] == str(first)
     assert job.status == "failed"
     assert job.error_code == "duplicate_source"
-    assert str(first) in job.error_message
+    # The copy is Alice's, not the submitter's, so the reason doesn't name it.
+    assert str(first) not in job.error_message
     assert await _base_of(other) == other_layer
 
 
@@ -748,6 +751,10 @@ async def test_a_preview_committed_by_an_admin_is_checked_against_the_admin(
 
     await test_db_session.refresh(previewed)
     assert previewed.status == outcome, previewed.error_message
+    await test_db_session.refresh(held)
+    assert held.dataset_id is not None
+    # Alice can read her job but not the admin's dataset, so it goes unnamed.
+    assert str(held.dataset_id) not in (previewed.error_message or "")
 
 
 def test_only_parameter_names_ogc_makes_case_blind_are_folded():
@@ -816,3 +823,29 @@ async def test_a_users_preview_committed_by_an_admin_counts_as_the_admins_import
     assert retried.status_code == 202, retried.text
     # A retry publishes for the account the commit chose.
     assert deferred.await_args.kwargs["user_id"] == str(admin)
+
+
+async def test_a_retry_refused_for_an_admins_copy_does_not_name_it_to_the_previewer(
+    client: AsyncClient, admin_auth_header, test_db_session, monkeypatch, deferred
+):
+    alice_headers, alice_id = await create_user(client, admin_auth_header, "editor")
+    admin = await get_user_id(test_db_session, "admin")
+    base = _fresh_base()
+    copy = await _import_as(test_db_session, monkeypatch, admin, base)
+    committed = _service_job(base, uuid.UUID(alice_id), status="failed")
+    committed.user_metadata = {
+        **committed.user_metadata,
+        "published_for": str(admin),
+    }
+    test_db_session.add(committed)
+    await test_db_session.commit()
+
+    refused = await client.post(f"/jobs/{committed.id}/retry", headers=alice_headers)
+    shown = await client.post(f"/jobs/{committed.id}/retry", headers=admin_auth_header)
+
+    assert refused.status_code == 409, refused.text
+    detail = refused.json()["detail"]
+    assert detail["code"] == "duplicate_source"
+    assert "existing_dataset_id" not in detail and "existing_title" not in detail
+    assert str(copy) not in refused.text
+    assert shown.json()["detail"]["existing_dataset_id"] == str(copy)
