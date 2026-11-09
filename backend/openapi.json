@@ -6797,7 +6797,7 @@
             "type": "string"
           },
           "tables": {
-            "description": "One entry per spatial column, ordered by schema, table and column.",
+            "description": "One entry per table or view, ordered by schema and name, with the spatial column an import reads: the first by column order.",
             "items": {
               "$ref": "#/components/schemas/DatabaseTable"
             },
@@ -6810,7 +6810,7 @@
             "type": "integer"
           },
           "truncated": {
-            "description": "True when the connection has more spatial columns than `limit`.",
+            "description": "True when the connection has more tables than `limit`.",
             "title": "Truncated",
             "type": "boolean"
           }

@@ -64,11 +64,14 @@ class DatabaseTableListResponse(BaseModel):
     connection: str = Field(description="Connection name from the deployment.")
     database: str = Field(description="Database the connection reads.")
     tables: list[DatabaseTable] = Field(
-        description="One entry per spatial column, ordered by schema, table and column."
+        description=(
+            "One entry per table or view, ordered by schema and name, with the "
+            "spatial column an import reads: the first by column order."
+        )
     )
     limit: int = Field(description="Most entries one listing returns.")
     truncated: bool = Field(
-        description="True when the connection has more spatial columns than `limit`."
+        description="True when the connection has more tables than `limit`."
     )
 
 

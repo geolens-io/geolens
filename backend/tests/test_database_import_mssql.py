@@ -217,6 +217,36 @@ async def test_geometry_table_imports_with_its_srid_and_key(
     assert dup.json()["detail"]["existing_dataset_id"] == str(dataset.id)
 
 
+async def test_a_table_with_two_spatial_columns_lists_and_imports_the_first(
+    client: AsyncClient, editor_auth_header, configured, test_db_session
+):
+    name = f"m_{uuid.uuid4().hex[:10]}"
+    await _admin(
+        f"CREATE TABLE dbo.{name} "
+        "(id int PRIMARY KEY, zz_first geography, aa_second geometry)"
+    )
+    try:
+        await _admin(
+            f"INSERT INTO dbo.{name} VALUES (1, "
+            "geography::STGeomFromText('POINT (-73.9857 40.7484)', 4326), "
+            "geometry::STGeomFromText('POINT (987654 203456)', 2263))"
+        )
+        listed = await client.get(
+            "/services/databases/gis/tables/", headers=editor_auth_header
+        )
+        assert listed.status_code == 200, listed.text
+        rows = [t for t in listed.json()["tables"] if t["table_name"] == name]
+        assert [(r["geometry_column"], r["srid"]) for r in rows] == [("zz_first", 4326)]
+
+        kwargs = await _import(client, editor_auth_header, name)
+        job = await _job(test_db_session, kwargs["job_id"])
+        assert job.status == "complete", job.error_message
+        dataset = await _dataset(test_db_session, job.dataset_id)
+        assert dataset.srid == 4326
+    finally:
+        await _admin(f"DROP TABLE IF EXISTS dbo.{name}")
+
+
 async def test_geography_table_imports_as_lon_lat(
     client: AsyncClient, editor_auth_header, configured, test_db_session
 ):

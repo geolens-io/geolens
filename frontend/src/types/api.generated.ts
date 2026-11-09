@@ -9661,7 +9661,7 @@ export interface components {
             database: string;
             /**
              * Tables
-             * @description One entry per spatial column, ordered by schema, table and column.
+             * @description One entry per table or view, ordered by schema and name, with the spatial column an import reads: the first by column order.
              */
             tables: components["schemas"]["DatabaseTable"][];
             /**
@@ -9671,7 +9671,7 @@ export interface components {
             limit: number;
             /**
              * Truncated
-             * @description True when the connection has more spatial columns than `limit`.
+             * @description True when the connection has more tables than `limit`.
              */
             truncated: boolean;
         };

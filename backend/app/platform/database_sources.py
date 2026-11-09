@@ -37,7 +37,7 @@ FREETDS_SECTION = "geolens"
 SUBPROCESS_TIMEOUT_SECONDS = 45.0
 _REAP_WAIT_SECONDS = 5.0
 _STDERR_LOG_CHARS = 2000
-# Rows (one per spatial column) a listing returns before it says it stopped.
+# Tables a listing returns before it says it stopped.
 LISTING_LIMIT = 500
 
 # GDAL prints this for every connect failure: host, port, login, database and
@@ -232,10 +232,14 @@ async def run_database_sql(name: str, sql: str) -> list[dict[str, object]]:
     ]
 
 
+_SPATIAL_TYPE = "t.name IN ('geometry', 'geography') AND t.schema_id = SCHEMA_ID('sys')"
+
+
 def _catalog_sql(limit: int) -> str:
     # Alias types can be named geometry too, hence the schema check. A table
     # the login can see but not read is left out, so the listing is what an
-    # import can actually read.
+    # import can actually read. Each table appears once, with the spatial
+    # column GDAL reads: the first by column order.
     return (
         f"SELECT TOP ({limit + 1}) s.name AS schema_name, o.name AS object_name, "
         "o.type AS object_type, c.name AS column_name, t.name AS type_name "
@@ -243,12 +247,14 @@ def _catalog_sql(limit: int) -> str:
         "JOIN sys.objects o ON o.object_id = c.object_id "
         "JOIN sys.schemas s ON s.schema_id = o.schema_id "
         "JOIN sys.types t ON t.user_type_id = c.user_type_id "
-        "WHERE t.name IN ('geometry', 'geography') "
-        "AND t.schema_id = SCHEMA_ID('sys') "
+        f"WHERE {_SPATIAL_TYPE} "
         "AND o.type IN ('U', 'V') AND o.is_ms_shipped = 0 "
         "AND HAS_PERMS_BY_NAME(QUOTENAME(s.name) + '.' + QUOTENAME(o.name), "
         "'OBJECT', 'SELECT') = 1 "
-        "ORDER BY s.name, o.name, c.name"
+        "AND c.column_id = (SELECT MIN(c2.column_id) FROM sys.columns c2 "
+        "JOIN sys.types t ON t.user_type_id = c2.user_type_id "
+        f"WHERE c2.object_id = c.object_id AND {_SPATIAL_TYPE}) "
+        "ORDER BY s.name, o.name"
     )
 
 
@@ -364,9 +370,7 @@ def _table_columns_sql(schema_name: str, table_name: str) -> str:
         "SELECT TOP (1) c.name AS column_name "
         "FROM sys.columns c "
         "JOIN sys.types t ON t.user_type_id = c.user_type_id "
-        f"WHERE c.object_id = OBJECT_ID({literal}) "
-        "AND t.name IN ('geometry', 'geography') "
-        "AND t.schema_id = SCHEMA_ID('sys') "
+        f"WHERE c.object_id = OBJECT_ID({literal}) AND {_SPATIAL_TYPE} "
         "ORDER BY c.column_id"
     )
 

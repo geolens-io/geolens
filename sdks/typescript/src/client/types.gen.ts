@@ -4074,7 +4074,7 @@ export type DatabaseTableListResponse = {
     /**
      * Tables
      *
-     * One entry per spatial column, ordered by schema, table and column.
+     * One entry per table or view, ordered by schema and name, with the spatial column an import reads: the first by column order.
      */
     tables: Array<DatabaseTable>;
     /**
@@ -4086,7 +4086,7 @@ export type DatabaseTableListResponse = {
     /**
      * Truncated
      *
-     * True when the connection has more spatial columns than `limit`.
+     * True when the connection has more tables than `limit`.
      */
     truncated: boolean;
 };
