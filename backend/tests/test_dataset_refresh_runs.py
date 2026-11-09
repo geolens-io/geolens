@@ -346,7 +346,8 @@ def test_only_the_commit_handler_creates_a_run() -> None:
     # the two that happened to be written first.
     #
     # `dispatch_upload_acceptance` is the upload strategy behind the same
-    # door, for accepting a blocked file replacement, on the same terms.
+    # door, for accepting a blocked file replacement, and
+    # `dispatch_database_refresh` the database strategy, on the same terms.
     assert callers == {
         "router_reupload.py": {"reupload_commit"},
         "router_refresh.py": {
@@ -355,6 +356,7 @@ def test_only_the_commit_handler_creates_a_run() -> None:
             "_dispatch_stac_refresh",
         },
         "refresh_acceptance.py": {"dispatch_upload_acceptance"},
+        "router_refresh_database.py": {"dispatch_database_refresh"},
     }, f"A refresh run row may only be created by a dispatch handler. Found: {callers}"
 
 

@@ -61,6 +61,7 @@ RUN_ORIGIN_KINDS: tuple[str, ...] = (
     "stac",
     "raster",
     "restore",
+    "database",
 )
 
 # How long a run may sit in pending/running before the sweep is allowed to

@@ -272,6 +272,10 @@ ALLOWLIST: dict[str, str] = {
         "duplicate-source check scoped to the caller's own records "
         "(Record.created_by == user.id)"
     ),
+    "app.modules.catalog.sources.database_router.import_database_table": (
+        "duplicate-source check scoped to the caller's own records "
+        "(Record.created_by == user.id)"
+    ),
     # Batch duplicate check on Dataset.source_url for STAC imports; gated by
     # create_layers. Reveals only that an href (which the caller supplied) is
     # already registered — no record content is returned.

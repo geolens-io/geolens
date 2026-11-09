@@ -22,7 +22,12 @@ import structlog
 
 from procrastinate import App
 
-from app.platform.dataset_origin import KEEP, SourceBinding, restamp
+from app.platform.dataset_origin import (
+    CONTACTED_ORIGIN_KINDS,
+    KEEP,
+    SourceBinding,
+    restamp,
+)
 from app.core.service_tokens import reset_registered_credential_secrets
 from app.core.url_redaction import redact_exception_text
 from app.platform.jobs.queue_connector import make_queue_connector
@@ -199,6 +204,9 @@ class IngestContext:
     # of all, reaches the column. Callers pass their own payload rather than
     # one being inferred here.
     origin_ref: dict[str, Any] | None = None
+    # The origin pointer when it isn't ``source_url``: a database import has a
+    # pointer but no URL.
+    origin_uri: str | None = None
     # The local copy of the upload the task archives after the commit that
     # completes the job; that commit owes the archive in a follow-up record.
     archive_from: str | None = None
@@ -1369,17 +1377,17 @@ async def _finalize_ingest(ctx: IngestContext):
     # an uploaded file has no remote origin to point at, so its origin_uri
     # stays NULL and only the ref carries the filename.
     binding = SourceBinding.from_ref(
-        ctx.source_format, ctx.origin_ref, uri=ctx.source_url
+        ctx.source_format, ctx.origin_ref, uri=ctx.origin_uri or ctx.source_url
     )
-    # A first service or STAC ingest fetched its bytes from the origin moments
-    # ago, so the import is a contact, as in the reupload swap. Otherwise a
+    # A first service, STAC or database ingest read its data from the origin
+    # moments ago, so the import is a contact, as in the reupload swap. Otherwise a
     # freshly imported service dataset would report last_checked_at NULL until
     # someone probed it. create_dataset dated freshness.
     restamp(
         dataset,
         binding,
         contacted_at=datetime.now(timezone.utc)
-        if binding.kind in ("service", "stac")
+        if binding.kind in CONTACTED_ORIGIN_KINDS
         else None,
         refreshed_at=KEEP,
     )
@@ -1761,6 +1769,7 @@ async def _write_reupload_catalog(
     source_url: str | None = None,
     file_hash: str | None = None,
     origin_ref: dict[str, Any] | None = None,
+    origin_uri: str | None = None,
     field_labels: dict | None,
     job_id: uuid.UUID | None = None,
 ) -> tuple[Any, dict]:
@@ -1771,7 +1780,8 @@ async def _write_reupload_catalog(
 
     ``origin_ref`` carries the typed per-origin payload for the bytes this
     swap installs, minus the ``kind`` discriminator (derived from
-    ``source_format``). Same contract as ``IngestContext.origin_ref``: keys go
+    ``source_format``), and ``origin_uri`` the pointer when it isn't
+    ``source_url``. Same contract as ``IngestContext.origin_ref``: keys go
     through the per-kind allowlist, and callers supply their own rather than
     one being inferred here.
 
@@ -1818,19 +1828,21 @@ async def _write_reupload_catalog(
     # stale pointer. Kind is derived from the new source_format, as on first
     # ingest, so a service reupload stays a service origin and a file
     # reupload clears `origin_uri`.
-    binding = SourceBinding.from_ref(source_format, origin_ref, uri=source_url)
+    binding = SourceBinding.from_ref(
+        source_format, origin_ref, uri=origin_uri or source_url
+    )
     # The swap commit time, which is what migration 0036's backfill reads off
     # max(dataset_versions.uploaded_at) for a pre-existing dataset. A Python
     # datetime rather than func.now(): a SQL expression leaves the attribute
     # expired after flush, and the next read of dataset.last_refreshed_at then
     # lazy-loads against a session that may already be closed.
     swap_time = datetime.now(timezone.utc)
-    # For a service or STAC origin this swap is a contact: the bytes were
-    # fetched from that origin moments ago. Leaving last_checked_at NULL would
-    # make the API claim the origin was never contacted, and a NULL
+    # For a service, STAC or database origin this swap is a contact: the bytes
+    # were read from that origin moments ago. Leaving last_checked_at NULL
+    # would make the API claim the origin was never contacted, and a NULL
     # source_health would read as "unknown". A file upload or registered
     # table stamps nothing.
-    contacted = binding.kind in ("service", "stac")
+    contacted = binding.kind in CONTACTED_ORIGIN_KINDS
     link_losses = restamp(
         dataset,
         binding,
@@ -1876,7 +1888,9 @@ async def _write_reupload_catalog(
             resource_id=dataset.id,
             details={
                 "version_number": new_version,
-                "source_type": "service_url" if source_url else "file",
+                "source_type": "service_url"
+                if source_url
+                else ("database" if binding.kind == "database" else "file"),
                 "source_format": source_format,
                 "source_filename": source_filename,
             },

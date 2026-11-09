@@ -3948,6 +3948,72 @@ export type DashboardConfigInput = {
 };
 
 /**
+ * DatabaseImportRequest
+ */
+export type DatabaseImportRequest = {
+    /**
+     * Schema Name
+     *
+     * Schema of the table, as listed.
+     */
+    schema_name: string;
+    /**
+     * Table Name
+     *
+     * Table or view name, as listed.
+     */
+    table_name: string;
+    /**
+     * Title
+     *
+     * Dataset title. Defaults to the table name.
+     */
+    title?: string | null;
+    /**
+     * Summary
+     *
+     * Optional dataset description shown in the catalog.
+     */
+    summary?: string | null;
+    /**
+     * Visibility
+     *
+     * Dataset visibility: private, restricted, internal or public.
+     */
+    visibility?: 'private' | 'restricted' | 'internal' | 'public';
+    /**
+     * Srid Override
+     *
+     * EPSG code the table's coordinates are read under when the table has no SRID of its own: its geometries have SRID 0 or it has no rows. A table with an SRID is always read under that SRID.
+     */
+    srid_override?: number | null;
+};
+
+/**
+ * DatabaseImportResponse
+ */
+export type DatabaseImportResponse = {
+    /**
+     * Job Id
+     *
+     * Ingest job that copies the table.
+     */
+    job_id: string;
+    /**
+     * Status
+     *
+     * Status of the new job.
+     */
+    status: 'pending';
+    /**
+     * Message
+     *
+     * What happened.
+     */
+    message: string;
+};
+
+/**
  * DatabaseTable
  */
 export type DatabaseTable = {
@@ -4008,7 +4074,7 @@ export type DatabaseTableListResponse = {
     /**
      * Tables
      *
-     * One entry per spatial column, ordered by schema, table and column.
+     * One entry per table or view, ordered by schema and name, with the spatial column an import reads: the first by column order.
      */
     tables: Array<DatabaseTable>;
     /**
@@ -4020,7 +4086,7 @@ export type DatabaseTableListResponse = {
     /**
      * Truncated
      *
-     * True when the connection has more spatial columns than `limit`.
+     * True when the connection has more tables than `limit`.
      */
     truncated: boolean;
 };
@@ -11432,7 +11498,7 @@ export type ReuploadCommitRequest = {
      *
      * The dataset origin the client saw when it staged this replacement. When set, the commit is refused with 409 `origin_changed` if the dataset's origin no longer matches, so a service, STAC or registered-table binding established after the upload is not silently rebound to an upload. A client may omit the field to skip this concurrency check.
      */
-    expected_origin_kind?: 'upload' | 'postgis' | 'service' | 'stac' | 'created' | null;
+    expected_origin_kind?: 'upload' | 'postgis' | 'service' | 'stac' | 'created' | 'database' | null;
     /**
      * Token
      *
@@ -32661,6 +32727,74 @@ export type DispatchConnectorIngestEndpointServicesConnectorsConnectorNameIngest
 };
 
 export type DispatchConnectorIngestEndpointServicesConnectorsConnectorNameIngestPostResponse = DispatchConnectorIngestEndpointServicesConnectorsConnectorNameIngestPostResponses[keyof DispatchConnectorIngestEndpointServicesConnectorsConnectorNameIngestPostResponses];
+
+export type ImportDatabaseTableServicesDatabasesConnectionImportsPostData = {
+    body: DatabaseImportRequest;
+    path: {
+        /**
+         * Connection
+         *
+         * Connection name.
+         */
+        connection: string;
+    };
+    query?: never;
+    url: '/services/databases/{connection}/imports/';
+};
+
+export type ImportDatabaseTableServicesDatabasesConnectionImportsPostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type ImportDatabaseTableServicesDatabasesConnectionImportsPostError = ImportDatabaseTableServicesDatabasesConnectionImportsPostErrors[keyof ImportDatabaseTableServicesDatabasesConnectionImportsPostErrors];
+
+export type ImportDatabaseTableServicesDatabasesConnectionImportsPostResponses = {
+    /**
+     * Successful Response
+     */
+    202: DatabaseImportResponse;
+};
+
+export type ImportDatabaseTableServicesDatabasesConnectionImportsPostResponse = ImportDatabaseTableServicesDatabasesConnectionImportsPostResponses[keyof ImportDatabaseTableServicesDatabasesConnectionImportsPostResponses];
 
 export type ListDatabaseTablesServicesDatabasesConnectionTablesGetData = {
     body?: never;

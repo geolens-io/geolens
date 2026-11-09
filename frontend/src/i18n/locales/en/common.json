@@ -40,6 +40,10 @@
     "created": {
       "label": "Created",
       "title": "Created in GeoLens as an editable layer"
+    },
+    "database": {
+      "label": "Database",
+      "title": "Copy imported from a database connection. Refresh it to pull newer data"
     }
   },
   "sourceState": {
@@ -307,8 +311,10 @@
     "jobFailureDatasetDeleted": "The dataset was deleted while this job was running.",
     "jobFailureDispatchInterrupted": "Fan-out dispatch was interrupted before any layer was queued. Re-upload the file to import its layers.",
     "jobFailureMissingCrs": "Missing CRS: no coordinate system detected. Ensure the file includes CRS information (e.g., .prj file for Shapefiles).",
+    "jobFailureMissingCrsDatabase": "Missing CRS: the table's geometries have no SRID (SRID 0), or it has no rows or only empty geometries. Import it again and choose its coordinate system.",
     "jobFailureMissingCrsRaster": "Missing CRS: raster has no coordinate reference system. Provide a CRS override (EPSG code) at import time.",
     "jobFailureMissingCrsReupload": "Missing CRS: no coordinate system detected. Ensure the file includes CRS information (e.g., .prj file for Shapefiles) or provide an SRID override.",
+    "jobFailureMixedSridDatabase": "The table's geometries use more than one SRID, so no single coordinate system describes them. Give them one SRID in a view and import that.",
     "jobFailureRefreshAbandoned": "The refresh task was never picked up by a worker, or the worker disappeared before recording an outcome.",
     "jobFailureRefreshOriginUnsupported": "This refresh was not started: only service datasets refresh this way.",
     "jobFailureReviewRequired": "This replacement changes the dataset in ways that need review, so it was not published. Review the changes on the dataset's Sources tab and accept them there.",

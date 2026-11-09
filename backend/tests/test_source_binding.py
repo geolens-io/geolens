@@ -271,8 +271,8 @@ def test_a_kind_with_no_source_to_reread_reads_as_none(kind) -> None:
 
 
 def test_an_unknown_kind_is_refused_rather_than_read() -> None:
-    with pytest.raises(ValueError, match="unknown origin kind 'database'"):
-        read_source("database", {"kind": "database", "table": "parcels"})
+    with pytest.raises(ValueError, match="unknown origin kind 'future_kind'"):
+        read_source("future_kind", {"kind": "future_kind", "table": "parcels"})
 
 
 @pytest.mark.parametrize("stored", ["yes", 1, "true", None, False])

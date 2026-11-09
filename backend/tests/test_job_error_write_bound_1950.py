@@ -40,6 +40,7 @@ _TEST_BUDGET_MS = 400
 # mapped to the budgeted loader that reads its job row first. The membership is
 # checked against the tree, not trusted.
 _HELPER_ROUTED_TAILS = {
+    ("tasks_database", "ingest_database"): "_job_phase_session",
     ("tasks_vector", "ingest_file"): "_job_phase_session",
     ("tasks_vector", "ingest_service"): "_job_phase_session",
     ("tasks_vrt", "ingest_vrt"): "load_job_for_error_write",
@@ -153,7 +154,9 @@ class TestTheBoundIsWhereTheBlockingStatementIs:
         )
 
     @pytest.mark.parametrize(
-        "module_name", ["tasks_raster", "tasks_vector"], ids=["raster", "vector"]
+        "module_name",
+        ["tasks_raster", "tasks_vector", "tasks_database"],
+        ids=["raster", "vector", "database"],
     )
     def test_the_bracketed_tails_name_the_shared_budget(self, module_name: str) -> None:
         import importlib
@@ -214,9 +217,13 @@ class TestTheBoundIsWhereTheBlockingStatementIs:
             ),
             # The helper-routed tails load the job row BEFORE the helper, under
             # the same budget, so an expiry there lands in a frame the helper's
-            # own handler cannot reach. The two vector tails guard that load in
-            # place; `load_job_for_error_write`'s guard is its own entry.
+            # own handler cannot reach. The vector and database tails guard that
+            # load in place; `load_job_for_error_write`'s guard is its own entry.
             ("ingest_file", lambda: _task_source("tasks_vector", "ingest_file")),
+            (
+                "ingest_database",
+                lambda: _task_source("tasks_database", "ingest_database"),
+            ),
             ("ingest_service", lambda: _task_source("tasks_vector", "ingest_service")),
             ("load_job_for_error_write", lambda: load_job_for_error_write),
         ],

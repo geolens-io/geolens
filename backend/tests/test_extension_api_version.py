@@ -147,11 +147,15 @@ class TestExtensionApiVersionConstant:
         ``BrandingExtension``. An overlay that replaces the ``branding`` key
         without it serves story and dashboard pages no reader theme.
 
+        v23 adds the required ``queue_ingest_job`` and ``refresh_database_task``
+        methods to ``CatalogPort``. An overlay that replaces the ``catalog_port``
+        key without them fails every database import and refresh.
+
         Update this pin, and the note above it, whenever the constant moves.
         """
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
-        assert EXTENSION_API_VERSION == 22
+        assert EXTENSION_API_VERSION == 23
 
 
 class TestCheckExtensionApiVersion:

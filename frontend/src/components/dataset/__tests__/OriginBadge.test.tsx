@@ -9,6 +9,7 @@ describe('OriginBadge source-mode copy', () => {
     ['service', 'Service', 'One-shot copy imported from a remote service'],
     ['stac', 'STAC', 'Live reference to an asset'],
     ['created', 'Created', 'Created in GeoLens as an editable layer'],
+    ['database', 'Database', 'Copy imported from a database connection'],
   ] satisfies Array<[DatasetOrigin, string, string]>)(
     'describes %s without implying an unsupported source mode',
     (origin, label, description) => {

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -313,6 +313,57 @@ def canonical_service_source_binding_fingerprint(source_binding: dict[str, Any])
     ).hexdigest()
 
 
+DATABASE_SINGLE_READ_POLICY = "database_single_read_v1"
+
+
+def canonical_database_source_binding_fingerprint(
+    source_binding: dict[str, Any],
+) -> str:
+    """Fingerprint a database binding: its connection name, schema and table.
+
+    The name is the identity, so pointing the connection at another server
+    keeps the fingerprint, as the binding does.
+    """
+    payload = {}
+    for key in ("connection", "schema", "table"):
+        value = source_binding.get(key)
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"database source binding requires a {key}")
+        payload[key] = value
+    return hashlib.sha256(
+        json.dumps(
+            {"kind": "database", **payload},
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode()
+    ).hexdigest()
+
+
+def canonical_source_binding_fingerprint(origin_ref: dict[str, Any]) -> str:
+    """The fingerprint of a stored ``origin_ref`` under its own kind's rule."""
+    if origin_ref.get("kind") == "database":
+        return canonical_database_source_binding_fingerprint(origin_ref)
+    return canonical_service_source_binding_fingerprint(origin_ref)
+
+
+def verify_database_refresh(
+    *, fetched_feature_count: int | None, **evidence: Any
+) -> dict[str, Any]:
+    """``database_single_read_v1``: the decision for a staged database read.
+
+    One statement read the table, so the rows it returned are the source
+    count: no count or id-set rejection applies and the count is never
+    unavailable. The review reasons do, ``empty_result`` among them.
+    """
+    return verify_service_refresh(
+        expected_feature_count=fetched_feature_count,
+        fetched_feature_count=fetched_feature_count,
+        binding_fingerprint=canonical_database_source_binding_fingerprint,
+        **evidence,
+    )
+
+
 def verify_service_refresh(
     *,
     source_binding: dict[str, Any],
@@ -329,6 +380,9 @@ def verify_service_refresh(
     accepted_run_id: str | None = None,
     data_revision_baseline: int | None = None,
     data_revision: int | None = None,
+    binding_fingerprint: Callable[
+        [dict[str, Any]], str
+    ] = canonical_service_source_binding_fingerprint,
 ) -> dict[str, Any]:
     """Return durable evidence and a publication decision for a staged fetch.
 
@@ -419,9 +473,7 @@ def verify_service_refresh(
     return {
         "decision": decision,
         "source_binding": source_binding,
-        "source_binding_fingerprint": canonical_service_source_binding_fingerprint(
-            source_binding
-        ),
+        "source_binding_fingerprint": binding_fingerprint(source_binding),
         "source_count": expected_feature_count,
         "fetched_count": fetched_feature_count,
         "count_status": count_status,

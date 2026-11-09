@@ -10,6 +10,7 @@ from sqlalchemy import text
 from tests.alembic_helpers import (
     enterprise_migrations_present,
     fresh_query,
+    normalize_database_origins,
     normalize_kept_versions,
     run_alembic,
 )
@@ -196,6 +197,7 @@ async def test_the_downgrade_refuses_while_restore_runs_exist(test_db_session) -
     run_id = run.id
     await session.commit()
     normalize_kept_versions()
+    normalize_database_origins()
     try:
         down = run_alembic("downgrade", "0076_feature_create_keys", normalize=False)
         assert down.returncode != 0
@@ -236,6 +238,7 @@ async def test_a_downgrade_refused_further_down_keeps_the_restore_check(
     normalize_seam_extents()
     normalize_restore_runs()
     normalize_kept_versions()
+    normalize_database_origins()
     try:
         down = run_alembic("downgrade", _PRE_API_KEY_HARDENING, normalize=False)
         assert down.returncode != 0, "precondition: 0029 refuses the downgrade"

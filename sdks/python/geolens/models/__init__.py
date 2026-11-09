@@ -302,6 +302,9 @@ from .dashboard_config_input_panel_type_0 import DashboardConfigInputPanelType0
 from .dashboard_config_input_theme_type_0 import DashboardConfigInputThemeType0
 from .dashboard_config_panel import DashboardConfigPanel
 from .dashboard_config_theme import DashboardConfigTheme
+from .database_import_request import DatabaseImportRequest
+from .database_import_request_visibility import DatabaseImportRequestVisibility
+from .database_import_response import DatabaseImportResponse
 from .database_table import DatabaseTable
 from .database_table_column_type import DatabaseTableColumnType
 from .database_table_list_response import DatabaseTableListResponse
@@ -1363,6 +1366,9 @@ __all__ = (
     "DashboardConfigInputThemeType0",
     "DashboardConfigPanel",
     "DashboardConfigTheme",
+    "DatabaseImportRequest",
+    "DatabaseImportRequestVisibility",
+    "DatabaseImportResponse",
     "DatabaseTable",
     "DatabaseTableColumnType",
     "DatabaseTableListResponse",

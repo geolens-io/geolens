@@ -44,6 +44,10 @@ from app.modules.catalog.datasets.api.refresh_acceptance import (
     held_reupload_binding,
     refuse_unless_reupload_source_current,
 )
+from app.modules.catalog.datasets.api.router_refresh_database import (
+    AcceptedRun,
+    dispatch_database_refresh,
+)
 from app.modules.catalog.datasets.domain.schemas import (
     DatasetRefreshRequest,
     DatasetRefreshResponse,
@@ -135,10 +139,11 @@ async def _prepare_blocked_refresh_acceptance(
 ) -> str | None:
     if run_id is None:
         return None
-    if origin_kind != "service":
+    if origin_kind not in ("service", "database"):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Only service refreshes can accept a blocked publication.",
+            detail="Only service and database refreshes can accept a blocked "
+            "publication.",
         )
     return await accepted_refresh_fingerprint(
         db,
@@ -940,6 +945,7 @@ def _refuse_publish_key_asset_repoint(db: AsyncSession, dataset) -> None:
 _OWN_REFRESH_STRATEGIES = {
     "postgis": _dispatch_postgis_refresh,
     "stac": _dispatch_stac_refresh,
+    "database": dispatch_database_refresh,
 }
 
 
@@ -1049,12 +1055,20 @@ async def refresh_dataset(
     )
     strategy = _OWN_REFRESH_STRATEGIES.get(origin_kind)
     if strategy is not None:
+        # An acceptance is resolved only for a kind whose runs can block, and
+        # of the kinds here that is the database one.
+        accepted = (
+            {"accepted": AcceptedRun(body.accept_blocked_run_id, accepted_fingerprint)}
+            if body.accept_blocked_run_id is not None and accepted_fingerprint
+            else {}
+        )
         return await strategy(
             db,
             dataset=dataset,
             dataset_id=dataset_id,
             user=user,
             token=service_token,
+            **accepted,
         )
     # Record-type eligibility isn't checked separately: `classify_origin`
     # already returns None for the two originless record types

@@ -31,6 +31,7 @@ from app.platform.request_credential import is_publish_key, refuse_publish_key
 from app.platform.extensions import get_permission_extension
 from app.platform.jobs.ledger import Outcome, cancel, retry
 from app.platform.jobs.models import (
+    DATABASE_SOURCE_METADATA_KEY,
     EMBEDDING_BACKFILL_METADATA_KEY,
     FAN_OUT_INTERRUPTED_METADATA_KEY,
     PUBLISH_OBLIGATIONS_FIELD,
@@ -537,6 +538,9 @@ async def _retry_capability(job: IngestJob) -> tuple[bool, str | None]:
         if metadata.get(marker):
             return False, reason
     if job.source_url and not job.file_path:
+        return True, None
+    # The connection is read from settings again, by name, when the job runs.
+    if metadata.get(DATABASE_SOURCE_METADATA_KEY) is not None:
         return True, None
     if not job.file_path:
         return False, "The source is no longer available. Start the import again."

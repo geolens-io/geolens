@@ -20,9 +20,10 @@ class DatabaseTableListResponse:
     Attributes:
         connection (str): Connection name from the deployment.
         database (str): Database the connection reads.
-        tables (list[DatabaseTable]): One entry per spatial column, ordered by schema, table and column.
+        tables (list[DatabaseTable]): One entry per table or view, ordered by schema and name, with the spatial column
+            an import reads: the first by column order.
         limit (int): Most entries one listing returns.
-        truncated (bool): True when the connection has more spatial columns than `limit`.
+        truncated (bool): True when the connection has more tables than `limit`.
     """
 
     connection: str

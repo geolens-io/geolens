@@ -32,7 +32,7 @@ SOURCE_FRESHNESS_VALUES: tuple[str, ...] = (FRESH, DUE, OVERDUE, UNKNOWN)
 # may not exist). Pinned against dataset_origin.ORIGIN_KINDS in tests, so
 # adding a kind fails loudly rather than defaulting silently.
 REFRESHABLE_ORIGINS: frozenset[str] = frozenset(
-    {"upload", "postgis", "service", "stac"}
+    {"upload", "postgis", "service", "stac", "database"}
 )
 
 # `created` is the whole reason origin is a parameter. A dataset drawn in

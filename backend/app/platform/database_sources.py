@@ -15,6 +15,7 @@ import asyncio
 import contextlib
 import json
 import os
+import re
 import tempfile
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -36,7 +37,7 @@ FREETDS_SECTION = "geolens"
 SUBPROCESS_TIMEOUT_SECONDS = 45.0
 _REAP_WAIT_SECONDS = 5.0
 _STDERR_LOG_CHARS = 2000
-# Rows (one per spatial column) a listing returns before it says it stopped.
+# Tables a listing returns before it says it stopped.
 LISTING_LIMIT = 500
 
 # GDAL prints this for every connect failure: host, port, login, database and
@@ -231,10 +232,14 @@ async def run_database_sql(name: str, sql: str) -> list[dict[str, object]]:
     ]
 
 
+_SPATIAL_TYPE = "t.name IN ('geometry', 'geography') AND t.schema_id = SCHEMA_ID('sys')"
+
+
 def _catalog_sql(limit: int) -> str:
     # Alias types can be named geometry too, hence the schema check. A table
     # the login can see but not read is left out, so the listing is what an
-    # import can actually read.
+    # import can actually read. Each table appears once, with the spatial
+    # column GDAL reads: the first by column order.
     return (
         f"SELECT TOP ({limit + 1}) s.name AS schema_name, o.name AS object_name, "
         "o.type AS object_type, c.name AS column_name, t.name AS type_name "
@@ -242,12 +247,14 @@ def _catalog_sql(limit: int) -> str:
         "JOIN sys.objects o ON o.object_id = c.object_id "
         "JOIN sys.schemas s ON s.schema_id = o.schema_id "
         "JOIN sys.types t ON t.user_type_id = c.user_type_id "
-        "WHERE t.name IN ('geometry', 'geography') "
-        "AND t.schema_id = SCHEMA_ID('sys') "
+        f"WHERE {_SPATIAL_TYPE} "
         "AND o.type IN ('U', 'V') AND o.is_ms_shipped = 0 "
         "AND HAS_PERMS_BY_NAME(QUOTENAME(s.name) + '.' + QUOTENAME(o.name), "
         "'OBJECT', 'SELECT') = 1 "
-        "ORDER BY s.name, o.name, c.name"
+        "AND c.column_id = (SELECT MIN(c2.column_id) FROM sys.columns c2 "
+        "JOIN sys.types t ON t.user_type_id = c2.user_type_id "
+        f"WHERE c2.object_id = c.object_id AND {_SPATIAL_TYPE}) "
+        "ORDER BY s.name, o.name"
     )
 
 
@@ -302,9 +309,12 @@ async def _probe_srids(
 
 
 async def list_spatial_tables(
-    name: str, *, limit: int = LISTING_LIMIT
+    name: str, *, limit: int = LISTING_LIMIT, probe_srids: bool = True
 ) -> SpatialTableListing:
-    """The spatial columns of the tables and views connection ``name`` can read."""
+    """The spatial columns of the tables and views connection ``name`` can read.
+
+    Without ``probe_srids`` every SRID is None and only the catalog is read.
+    """
     rows = _catalog_rows(await run_database_sql(name, _catalog_sql(limit)))
     truncated = len(rows) > limit
     rows = rows[:limit]
@@ -312,7 +322,7 @@ async def list_spatial_tables(
         await _probe_srids(
             name, [(r.schema_name, r.object_name, r.column_name) for r in rows]
         )
-        if rows
+        if rows and probe_srids
         else {}
     )
     tables = [
@@ -327,3 +337,76 @@ async def list_spatial_tables(
         for index, row in enumerate(rows)
     ]
     return SpatialTableListing(tables=tables, truncated=truncated)
+
+
+# SQL Server's regular identifiers. GDAL takes the table as a ``schema.table``
+# layer argument, so a name that needs quoting (a dot, a bracket, a space)
+# could name another layer.
+_IMPORTABLE_IDENTIFIER = re.compile(r"[^\W\d][\w@$#]{0,127}")
+
+
+def importable_identifier(name: str) -> bool:
+    """Whether ``name`` can reach GDAL as part of a layer argument."""
+    return _IMPORTABLE_IDENTIFIER.fullmatch(name) is not None
+
+
+@dataclass(frozen=True)
+class TableGeometry:
+    """The spatial column GDAL reads from a table, and its first value's SRID.
+
+    ``srid`` is ``None`` when that is 0 or the column holds no value.
+    ``mixed`` is whether its values carry more than one SRID, which one
+    assigned CRS can't describe.
+    """
+
+    column: str
+    srid: int | None
+    mixed: bool = False
+
+
+def _table_columns_sql(schema_name: str, table_name: str) -> str:
+    # GDAL reads the first spatial column by column order and passes the rest
+    # through as binary attributes.
+    qualified = f"{quote_identifier(schema_name)}.{quote_identifier(table_name)}"
+    literal = "N'" + qualified.replace("'", "''") + "'"
+    return (
+        "SELECT TOP (1) c.name AS column_name "
+        "FROM sys.columns c "
+        "JOIN sys.types t ON t.user_type_id = c.user_type_id "
+        f"WHERE c.object_id = OBJECT_ID({literal}) AND {_SPATIAL_TYPE} "
+        "ORDER BY c.column_id"
+    )
+
+
+def _table_srids_sql(schema_name: str, table_name: str, column: str) -> str:
+    # One read answers both: no row, the one SRID, or two that make it mixed.
+    # Two settle "mixed", so the DISTINCT may stop there.
+    col = quote_identifier(column)
+    table = f"{quote_identifier(schema_name)}.{quote_identifier(table_name)}"
+    return (
+        f"SELECT DISTINCT TOP (2) {col}.STSrid AS srid FROM {table} "
+        f"WHERE {col} IS NOT NULL"
+    )
+
+
+async def probe_table_geometry(
+    name: str, schema_name: str, table_name: str
+) -> TableGeometry:
+    """The spatial column of one table on connection ``name``, and its SRID.
+
+    Raises ``DatabaseTableError`` when the table has no spatial column the
+    login can see.
+    """
+    rows = await run_database_sql(name, _table_columns_sql(schema_name, table_name))
+    column = rows[0].get("column_name") if rows else None
+    if not isinstance(column, str):
+        raise DatabaseTableError(name)
+    srids = await run_database_sql(
+        name, _table_srids_sql(schema_name, table_name, column)
+    )
+    if len(srids) > 1:
+        return TableGeometry(column=column, srid=None, mixed=True)
+    srid = srids[0].get("srid") if srids else None
+    return TableGeometry(
+        column=column, srid=srid if isinstance(srid, int) and srid != 0 else None
+    )

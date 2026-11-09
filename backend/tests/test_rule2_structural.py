@@ -580,6 +580,15 @@ VECTOR_CLI_DRIVER_POLICY: dict[
         "MSSQLSpatial under the DATABASE env, which skips every other driver "
         "in the clamp",
     ),
+    ("processing/ingest/database_import.py", "copy_database_table", "ogr2ogr"): (
+        1,
+        OTHER_INPUT,
+        SAFE_DATABASE_ENV_HELPER,
+        "one table of an operator-configured SQL Server, named as a layer of "
+        "a GeoLens-built MSSQL: string over a generated freetds.conf section "
+        "and read with -if MSSQLSpatial under the DATABASE env; the schema "
+        "and table pass importable_identifier first",
+    ),
 }
 
 # Which policy kinds require the driver allowlist and the content check. The
@@ -6034,6 +6043,9 @@ def test_guard_service_env_shapes_that_skip_the_proxy_report():
 DATABASE_ENV_SITES: dict[tuple[str, str], str] = {
     ("platform/database_sources.py", "run_database_sql"): (
         "every SELECT GeoLens runs on an operator-configured SQL Server"
+    ),
+    ("processing/ingest/database_import.py", "copy_database_table"): (
+        "the ogr2ogr copy of one table into PostGIS, for import and refresh"
     ),
 }
 

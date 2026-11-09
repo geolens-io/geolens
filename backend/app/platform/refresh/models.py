@@ -60,7 +60,7 @@ class DatasetRefreshRun(Base):
         # retained previous version.
         CheckConstraint(
             "origin_kind IN ('upload', 'postgis', 'service', 'stac', 'raster', "
-            "'restore')",
+            "'restore', 'database')",
             name="chk_refresh_runs_origin_kind",
         ),
         # Admission control in the schema: at most one mutation per dataset

@@ -117,6 +117,7 @@ jobs:
       installer: ${{ steps.filter.outputs.installer }}
       backup: ${{ steps.filter.outputs.backup }}
       monitoring: ${{ steps.filter.outputs.monitoring }}
+      database_import: ${{ steps.filter.outputs.database_import }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -524,6 +525,26 @@ jobs:
               - 'infra/monitoring/**'
               # The job is defined in this workflow, so a change to its steps
               # must run them.
+              - '.github/workflows/ci.yml'
+            # The code between a database connection and a published copy, and
+            # the image that carries GDAL's MSSQLSpatial driver and FreeTDS.
+            database_import:
+              - 'backend/app/core/config_database_sources.py'
+              - 'backend/app/platform/database_sources.py'
+              - 'backend/app/platform/gdal_env.py'
+              - 'backend/app/platform/dataset_origin.py'
+              - 'backend/app/platform/refresh/**'
+              - 'backend/app/modules/catalog/sources/database_router.py'
+              - 'backend/app/modules/catalog/datasets/api/router_refresh*.py'
+              - 'backend/app/processing/ingest/database_import.py'
+              - 'backend/app/processing/ingest/tasks_database.py'
+              - 'backend/app/processing/ingest/tasks_reupload.py'
+              - 'backend/app/processing/ingest/tasks_common.py'
+              - 'backend/app/processing/ingest/tasks_staging.py'
+              - 'backend/app/processing/ingest/publication.py'
+              - 'backend/tests/test_database_import_mssql.py'
+              - 'backend/uv.lock'
+              - 'Dockerfile'
               - '.github/workflows/ci.yml'
 
   # ---------- backend ----------
@@ -2213,6 +2234,140 @@ jobs:
   # Still deliberately off merge_group: runtime-extension-image-probe (builds
   # images), e2e-test (the full nightly suite) and ai-evals (spends provider
   # tokens). They are not in this list and gate nothing here.
+  # ---------- SQL Server database import ----------
+  # Database import and refresh against a real SQL Server. The tests run inside
+  # the API image: it is the only place GDAL has the FreeTDS ODBC driver, and
+  # its FreeTDS is the one production reads with. Every secret is generated
+  # per run.
+  database-import-mssql:
+    name: SQL Server Import
+    needs: changes
+    if: needs.changes.outputs.database_import == 'true' || (github.event_name == 'push' && needs.changes.outputs.queue_verified != 'true') || github.event_name == 'merge_group'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Generate credentials
+        run: |
+          set -euo pipefail
+          # SQL Server's password policy wants mixed classes; the reader's must
+          # also be printable ASCII with no `;`, as DATABASE_SOURCES requires.
+          sa="Aa1!$(openssl rand -hex 16)"
+          reader="Rr1-$(openssl rand -hex 16)"
+          pg="$(openssl rand -hex 16)"
+          jwt="$(openssl rand -hex 32)"
+          admin="$(openssl rand -hex 16)"
+          for value in "$sa" "$reader" "$pg" "$jwt" "$admin"; do
+            echo "::add-mask::$value"
+          done
+          {
+            echo "MSSQL_SA_PASSWORD=$sa"
+            echo "GEOLENS_TEST_MSSQL_PASSWORD=$reader"
+            echo "GEOLENS_TEST_MSSQL_ADMIN_PASSWORD=$sa"
+            echo "POSTGRES_PASSWORD=$pg"
+            echo "JWT_SECRET_KEY=$jwt"
+            echo "GEOLENS_ADMIN_PASSWORD=$admin"
+          } >> "$GITHUB_ENV"
+
+      - name: Start SQL Server and PostgreSQL
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          docker network create geolens-mssql
+          docker run -d --name mssql --network geolens-mssql \
+            -e ACCEPT_EULA=Y -e MSSQL_PID=Developer -e MSSQL_SA_PASSWORD \
+            mcr.microsoft.com/mssql/server:2022-latest
+          for attempt in 1 2 3 4 5; do
+          docker build -t geolens-test-db -f - . <<'DOCKERFILE' && break
+          FROM postgis/postgis:18-3.6
+          RUN apt-get update \
+              && apt-get install -y --no-install-recommends postgresql-18-pgvector \
+              && rm -rf /var/lib/apt/lists/*
+          DOCKERFILE
+          [ "$attempt" -eq 5 ] && exit 1
+          echo "docker build failed (attempt $attempt/5), retrying in 10s..."
+          sleep 10
+          done
+          docker run -d --name test-postgres --network geolens-mssql \
+            -e POSTGRES_DB=postgres -e POSTGRES_USER=geolens -e POSTGRES_PASSWORD \
+            geolens-test-db
+
+      - name: Build the API image
+        timeout-minutes: 25
+        run: |
+          for attempt in 1 2 3; do
+            docker build --target api -t geolens-api:mssql-ci . && break
+            [ "$attempt" -eq 3 ] && exit 1
+            echo "docker build failed (attempt $attempt/3), retrying in 10s..."
+            sleep 10
+          done
+
+      - name: Create the test database and its read-only login
+        timeout-minutes: 5
+        env:
+          SQLCMD: /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -b
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            docker exec -e SQLCMDPASSWORD="$MSSQL_SA_PASSWORD" mssql $SQLCMD -Q "SELECT 1" >/dev/null 2>&1 && break
+            [ "$i" = 60 ] && { docker logs mssql | tail -20; exit 1; }
+            sleep 3
+          done
+          for i in $(seq 1 30); do
+            docker exec test-postgres pg_isready -U geolens -d postgres >/dev/null 2>&1 && break
+            [ "$i" = 30 ] && exit 1
+            sleep 2
+          done
+          # The reader's password reaches sqlcmd as a scripting variable read
+          # from the environment, never on a command line.
+          docker exec -i -e SQLCMDPASSWORD="$MSSQL_SA_PASSWORD" \
+            -e READER_PASSWORD="$GEOLENS_TEST_MSSQL_PASSWORD" mssql $SQLCMD <<'SQL'
+          CREATE DATABASE GeoLensTest;
+          GO
+          CREATE LOGIN geolens_reader WITH PASSWORD = '$(READER_PASSWORD)';
+          GO
+          USE GeoLensTest;
+          CREATE USER geolens_reader FOR LOGIN geolens_reader;
+          GRANT SELECT ON SCHEMA::dbo TO geolens_reader;
+          GO
+          SQL
+
+      - name: Run the SQL Server import tests
+        timeout-minutes: 15
+        env:
+          POSTGRES_HOST: test-postgres
+          POSTGRES_PORT: "5432"
+          POSTGRES_USER: geolens
+          POSTGRES_DB: postgres
+          GEOLENS_ADMIN_USERNAME: admin
+          GEOLENS_TEST_MSSQL_HOST: mssql
+          GEOLENS_TEST_MSSQL_PORT: "1433"
+          GEOLENS_TEST_MSSQL_DATABASE: GeoLensTest
+          GEOLENS_TEST_MSSQL_USER: geolens_reader
+          GEOLENS_TEST_MSSQL_ADMIN_USER: sa
+        run: |
+          set -euo pipefail
+          # A skipped module would pass while asserting nothing, so a skip fails.
+          docker run --rm --network geolens-mssql \
+            -e POSTGRES_HOST -e POSTGRES_PORT -e POSTGRES_USER -e POSTGRES_PASSWORD \
+            -e POSTGRES_DB -e JWT_SECRET_KEY -e GEOLENS_ADMIN_USERNAME \
+            -e GEOLENS_ADMIN_PASSWORD -e GEOLENS_TEST_MSSQL_HOST \
+            -e GEOLENS_TEST_MSSQL_PORT -e GEOLENS_TEST_MSSQL_DATABASE \
+            -e GEOLENS_TEST_MSSQL_USER -e GEOLENS_TEST_MSSQL_PASSWORD \
+            -e GEOLENS_TEST_MSSQL_ADMIN_USER -e GEOLENS_TEST_MSSQL_ADMIN_PASSWORD \
+            -e PYTHONPATH=/repo/backend -e UV_PROJECT_ENVIRONMENT=/tmp/venv \
+            -e UV_CACHE_DIR=/tmp/uv-cache -v "$PWD:/repo:ro" -w /repo/backend \
+            --entrypoint sh geolens-api:mssql-ci -c \
+            'uv sync --locked --dev --no-install-project && /tmp/venv/bin/python -m pytest -p no:cacheprovider -v -rs tests/test_database_import_mssql.py' \
+            | tee /tmp/mssql-tests.log
+          if grep -qE "SKIPPED|[0-9]+ skipped" /tmp/mssql-tests.log; then
+            echo "::error::the SQL Server import tests skipped, so nothing was asserted"
+            exit 1
+          fi
+
   ci-ok:
     name: CI OK
     needs:
@@ -2234,6 +2389,7 @@ jobs:
       # The promtool suite gates nothing unless it is here:
       # branch protection only sees CI OK.
       - monitoring-rules
+      - database-import-mssql
       # Always-run jobs must feed the aggregator too: otherwise
       # a failure in version-coherence or docs-contract could not block a
       # merge (branch protection only sees CI OK). changes and pre-commit are

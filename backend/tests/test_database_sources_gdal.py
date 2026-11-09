@@ -432,6 +432,15 @@ async def test_a_probe_that_times_out_still_lists_the_tables(
 
 
 @pytest.mark.anyio
+async def test_a_listing_without_srids_reads_only_the_catalog(configured, spawn):
+    calls, replies = spawn
+    replies.append(_Proc(stdout=_features([_catalog_row("dbo", "t", "g")])))
+    listing = await list_spatial_tables("gis", probe_srids=False)
+    assert [(t.table_name, t.srid) for t in listing.tables] == [("t", None)]
+    assert len(calls) == 1
+
+
+@pytest.mark.anyio
 async def test_an_empty_catalog_runs_no_probe(configured, spawn):
     calls, _replies = spawn
     listing = await list_spatial_tables("gis")
