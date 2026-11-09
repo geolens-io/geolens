@@ -212,6 +212,20 @@ describe('indicator reference display', () => {
     expect(container.querySelector('[aria-hidden="true"]')).toHaveTextContent('▲');
   });
 
+  it('shows the difference with no more decimals than the rounded value', () => {
+    const data = { op: 'stats', approximate: false, cached: false, result: { sum: 1408.38 } };
+    render(<IndicatorRenderer config={{ stat: 'sum', column: 'id', reference: 1239 }} data={data} />);
+    expect(screen.getByText('1,408')).toBeInTheDocument();
+    expect(screen.getByText('169 (13.7%) above the reference')).toBeInTheDocument();
+  });
+
+  it('keeps the difference decimals when the value keeps its own', () => {
+    const data = { op: 'stats', approximate: false, cached: false, result: { sum: 12.38 } };
+    render(<IndicatorRenderer config={{ stat: 'sum', column: 'id', reference: 10 }} data={data} />);
+    expect(screen.getByText('12.38')).toBeInTheDocument();
+    expect(screen.getByText('2.38 (23.8%) above the reference')).toBeInTheDocument();
+  });
+
   it('colours a shortfall as bad, or as good when lower is better', () => {
     const { rerender } = render(
       <IndicatorRenderer config={{ ...base, reference: 100 }} data={countOf(80)} />,

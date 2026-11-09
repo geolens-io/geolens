@@ -154,9 +154,23 @@ export function useIndicatorText(
   if (difference) {
     const unsigned = { signDisplay: 'never' } as const;
     const comparison = config.comparison ?? 'both';
+    // The difference never shows more decimals than the value it is computed
+    // from, so a rounded value and its difference cannot disagree.
+    const valueFractionDigits =
+      typeof value === 'number'
+        ? aggregateFractionDigits(value)
+        : typeof value === 'string'
+          ? Math.max(0, parseDecimal(value)?.scale ?? 0)
+          : 2;
     const amount =
       difference.amount !== null && (comparison !== 'percent' || difference.percent === null)
-        ? (new Intl.NumberFormat(i18n.language, { ...unsigned, maximumFractionDigits: typeof difference.amount === 'number' ? aggregateFractionDigits(difference.amount) : 2 }).format as (v: unknown) => string)(difference.amount)
+        ? (new Intl.NumberFormat(i18n.language, {
+            ...unsigned,
+            maximumFractionDigits:
+              typeof difference.amount === 'number'
+                ? Math.min(aggregateFractionDigits(difference.amount), valueFractionDigits)
+                : Math.min(2, valueFractionDigits),
+          }).format as (v: unknown) => string)(difference.amount)
         : null;
     const percent =
       comparison !== 'value' && difference.percent !== null
