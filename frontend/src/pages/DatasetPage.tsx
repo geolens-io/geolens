@@ -2,7 +2,7 @@ import { lazy, Suspense, useState, useCallback, useEffect, useMemo, useRef } fro
 import { useParams, Link, useNavigate, useLocation } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, Layers, Eye, EyeOff, ShieldAlert, Database, ChevronDown } from 'lucide-react';
+import { AlertTriangle, ImageOff, ArrowLeft, Download, Trash2, Upload, Globe, GlobeLock, Layers, Eye, EyeOff, ShieldAlert, Database, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { PageShell } from '@/components/layout/PageShell';
 import { ErrorState } from '@/components/layout/ErrorState';
@@ -13,6 +13,7 @@ import { IngestWarningsBanner } from '@/components/import/IngestWarningsBanner';
 import { useDatasetEditCapabilities, EDITABLE_FIELDS, type DatasetEditField } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
 import { useDraftEditing } from '@/components/dataset/hooks/use-draft-editing';
 import { useFeatureGid } from '@/components/dataset/hooks/use-feature-gid';
+import { useTileToken } from '@/hooks/use-tile-token';
 import { useHeroState } from '@/components/dataset/hooks/use-hero-state';
 import { useFeatureFlags } from '@/hooks/use-settings';
 import { useCanMutate } from '@/hooks/use-can-mutate';
@@ -261,6 +262,27 @@ export function DatasetPage() {
     hasTileUrl: !!dataset?.raster?.tile_url,
   });
 
+  // A DEM whose extent is withheld still gets the mosaic bounds in its tile
+  // token; the query is shared with DatasetMap's own token fetch.
+  const demNeedsTokenBounds =
+    !!dataset?.raster?.is_dem && !!dataset.raster.tile_url && !(dataset.extent_bbox && dataset.extent_bbox.length >= 4);
+  const {
+    data: demToken,
+    isPending: demTokenPending,
+    isError: demTokenIsError,
+    isFetching: demTokenFetching,
+    refetch: refetchDemToken,
+  } = useTileToken(
+    demNeedsTokenBounds ? id : undefined,
+  );
+
+  // A timeout while the token was pending left the hero in error; once the
+  // bounds arrive the map must start a fresh load rather than mount under it.
+  const demBoundsArrived = demToken?.kind === 'raster' && !!demToken.bounds && demToken.bounds.length >= 4;
+  useEffect(() => {
+    if (demBoundsArrived && heroState === 'error') handleReplaceComplete();
+  }, [demBoundsArrived, heroState, handleReplaceComplete]);
+
   // The ingest job carries structured warnings. A 404 is normal: the dataset
   // was registered from an existing table or created via a non-ingest path.
   const { data: datasetJob } = useDatasetJobStatus(relatedId ?? null);
@@ -378,6 +400,19 @@ export function DatasetPage() {
     dataset.extent_bbox && dataset.extent_bbox.length >= 4
       ? (dataset.extent_bbox as [number, number, number, number])
       : null;
+
+  // The DEM source opens at world zoom without bounds, where empty tiles beside
+  // the data tile make maplibre drop the data tile, so it waits for the token's
+  // bounds and shows no preview when there are none.
+  const tokenBounds = demToken?.kind === 'raster' && demToken.bounds && demToken.bounds.length >= 4
+    ? (demToken.bounds.slice(0, 4) as [number, number, number, number])
+    : null;
+  const mapBbox = bbox ?? (demNeedsTokenBounds ? tokenBounds : null);
+  const demAwaitingBounds = demNeedsTokenBounds && !mapBbox && demTokenPending;
+  // A failed token request is retryable; only a token that arrived without
+  // bounds means there is nothing to frame.
+  const demTokenFailed = demNeedsTokenBounds && demTokenIsError && !demTokenFetching;
+  const demWithoutExtent = demNeedsTokenBounds && !mapBbox && !!demToken;
 
   const isRaster = dataset.record_type === 'raster_dataset';
   const isVrt = dataset.record_type === 'vrt_dataset';
@@ -623,10 +658,10 @@ export function DatasetPage() {
               isDrawing ? 'h-[60vh]' : isOverview ? 'h-72 lg:h-96' : 'h-52 lg:h-56',
             )}
           >
-            {tracksHero && heroState === 'loading' && (
+            {tracksHero && !demWithoutExtent && heroState === 'loading' && (
               <Skeleton data-testid="hero-skeleton" className="absolute inset-0 z-10 rounded-lg" />
             )}
-            <MapErrorBoundary>
+            {!demWithoutExtent && !demAwaitingBounds && !demTokenFailed && <MapErrorBoundary>
               <Suspense
                 fallback={
                   <Skeleton
@@ -642,8 +677,8 @@ export function DatasetPage() {
                   // A map keeps every source it was given, so each dataset needs
                   // its own instance (for raster/VRT also per tile kind, DEM or
                   // imagery source type, and DEM extent).
-                  key={`${dataset.id}:${isRasterOrVrt ? `${mapKey}:${dataset.raster?.is_dem ? `dem:${bbox?.join(',')}` : 'img'}` : tileKind ?? 'no-tiles'}`}
-                  bbox={bbox}
+                  key={`${dataset.id}:${isRasterOrVrt ? `${mapKey}:${dataset.raster?.is_dem ? `dem:${mapBbox?.join(',')}` : 'img'}` : tileKind ?? 'no-tiles'}`}
+                  bbox={mapBbox}
                   tableName={dataset.table_name}
                   geometryType={dataset.geometry_type ?? null}
                   hasGenericGeometry={dataset.has_generic_geometry}
@@ -665,18 +700,27 @@ export function DatasetPage() {
                   } : {})}
                 />
               </Suspense>
-            </MapErrorBoundary>
+            </MapErrorBoundary>}
+            {demWithoutExtent && (
+              <div
+                data-testid="dem-no-preview"
+                className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 rounded-lg z-10"
+              >
+                <ImageOff className="size-8 text-muted-foreground mb-2" />
+                <p className="text-sm text-muted-foreground">{t('raster.previewUnavailable')}</p>
+              </div>
+            )}
             {dataset.record_type === 'raster_dataset' && !dataset.raster?.tile_url && heroState === 'loaded' && (
               <div className="absolute bottom-2 start-2 z-10 px-2 py-1 rounded-sm bg-muted/80 text-xs text-muted-foreground">
                 {t('raster.noTiles')}
               </div>
             )}
-            {tracksHero && heroState === 'error' && (
+            {tracksHero && !demWithoutExtent && (heroState === 'error' || demTokenFailed) && (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/80 rounded-lg z-10">
                 <AlertTriangle className="size-8 text-destructive mb-2" />
                 <p className="text-sm text-muted-foreground mb-3">{t('raster.previewUnavailable')}</p>
                 {retryCount < 3 ? (
-                  <Button size="sm" onClick={handleRetry}>{t('raster.retry')}</Button>
+                  <Button size="sm" onClick={() => { if (demNeedsTokenBounds) void refetchDemToken(); handleRetry(); }}>{t('raster.retry')}</Button>
                 ) : (
                   <p className="text-xs text-muted-foreground">{t('raster.tilesProcessing')}</p>
                 )}
