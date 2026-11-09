@@ -22,7 +22,7 @@ from app.core.tiles3d import (
     UNPUBLISHED_TILESET_ATTEMPTS_FIELD,
     tileset_attempt_prefix,
 )
-from app.platform.dataset_origin import set_dataset_origin
+from app.platform.dataset_origin import KEEP, SourceBinding, restamp
 from app.platform.jobs import ledger
 from app.platform.jobs.heartbeat import (
     JOB_ERROR_WRITE_TIMEOUT_MS,
@@ -145,7 +145,6 @@ async def create_tileset_dataset(
         id=dataset_id,
         record_id=record.id,
         table_name=f"tiles3d_{record.id.hex[:16]}",
-        source_format="3dtiles",
         source_filename=source_filename,
         last_refreshed_at=datetime.now(timezone.utc),
         tileset_version=facts.version,
@@ -156,7 +155,12 @@ async def create_tileset_dataset(
             list(contents.extensions_required) if contents else None
         ),
     )
-    set_dataset_origin(dataset, "upload", filename=source_filename)
+    restamp(
+        dataset,
+        SourceBinding.upload("3dtiles", filename=source_filename),
+        contacted_at=None,
+        refreshed_at=KEEP,
+    )
     session.add(dataset)
     await session.flush()
     session.add(

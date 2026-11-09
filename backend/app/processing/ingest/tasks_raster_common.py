@@ -12,7 +12,7 @@ import structlog
 from sqlalchemy import select, text
 
 from app.core.geo import crs_columns
-from app.platform.dataset_origin import set_dataset_origin
+from app.platform.dataset_origin import KEEP, SourceBinding, restamp
 from app.platform.jobs.models import UNPUBLISHED_STORAGE_KEYS_FIELD
 from app.processing.raster.probe import RasterProbeError, inspect_raster
 from app.platform.storage.titiler_url import resolve_current_storage_key
@@ -196,7 +196,6 @@ async def create_raster_dataset(
         **({"id": dataset_id} if dataset_id is not None else {}),
         record_id=record.id,
         table_name=table_name,
-        source_format="geotiff",
         source_filename=source_filename,
         srid=meta.get("epsg"),
         # The SRID the uploaded file declared, which under a `srid_override`
@@ -212,8 +211,13 @@ async def create_raster_dataset(
     # the origin is the uploaded file with no remote URI. file_hash is the
     # caller's source_sha256, as in the replace tail's call in
     # tasks_raster_swap.py.
-    set_dataset_origin(
-        dataset, "upload", filename=source_filename, file_hash=source_sha256
+    restamp(
+        dataset,
+        SourceBinding.upload(
+            "geotiff", filename=source_filename, file_hash=source_sha256
+        ),
+        contacted_at=None,
+        refreshed_at=KEEP,
     )
     session.add(dataset)
     await session.flush()

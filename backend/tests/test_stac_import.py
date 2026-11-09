@@ -748,7 +748,7 @@ class TestStacImport:
         per-item result."""
         detail = "internal failure text that must stay out of the response"
         with patch(
-            "app.modules.catalog.sources.stac_router.set_dataset_origin",
+            "app.modules.catalog.sources.stac_router.restamp",
             side_effect=RuntimeError(detail),
         ):
             resp = await client.post(
