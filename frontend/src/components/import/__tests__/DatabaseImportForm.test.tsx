@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import userEvent from '@testing-library/user-event';
 import { ApiError } from '@/api/client';
+import { translateApiErrorDetail } from '@/lib/error-map';
+import { toast } from 'sonner';
 import { useAuthStore } from '@/stores/auth-store';
 import { clearDatabaseImport } from '@/api/database-import-session';
 import { DatabaseImportForm } from '../DatabaseImportForm';
@@ -164,6 +166,25 @@ describe('DatabaseImportForm', () => {
     await user.click(screen.getByRole('button', { name: /import/i }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Already imported: "Parcels"');
+    expect(screen.queryByText(/Tracking/)).not.toBeInTheDocument();
+  });
+
+  it('reports a duplicate still being imported without a link to a dataset', async () => {
+    const body = { code: 'duplicate_source', existing_job_id: 'job-7' };
+    mockListTables.mockResolvedValue(listing([table()]));
+    mockStartImport.mockRejectedValue(
+      new ApiError(translateApiErrorDetail(body, 409), 409, body),
+    );
+    const user = userEvent.setup();
+    render(<DatabaseImportForm />);
+
+    await openReview(user, 'gis.parcels');
+    await user.click(screen.getByRole('button', { name: /import/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'This source is already being imported. Wait for that import to finish',
+    );
+    expect(toast.error).toHaveBeenCalledWith(expect.any(String));
     expect(screen.queryByText(/Tracking/)).not.toBeInTheDocument();
   });
 
