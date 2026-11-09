@@ -50,6 +50,10 @@ from app.platform.portal_link import (
     same_registrable_domain,
 )
 
+# Kinds whose import or refresh reads the data from its origin, so a
+# successful one dates the contact.
+CONTACTED_ORIGIN_KINDS: frozenset[str] = frozenset({"service", "stac", "database"})
+
 # Formats whose rows were pulled from a remote OGC/Esri service. Mirrors
 # SERVICE_FORMATS in frontend/src/components/dataset/OriginBadge.tsx.
 SERVICE_SOURCE_FORMATS: frozenset[str] = frozenset(

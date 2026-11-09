@@ -150,3 +150,19 @@ async def test_a_failed_database_import_can_be_retried() -> None:
     assert await get_retry_capability(job) == (True, None)
     job.user_metadata = {**job.user_metadata, "reupload": True, "refresh": True}
     assert (await get_retry_capability(job))[0] is False
+
+
+@pytest.mark.anyio
+async def test_table_probe_reports_a_column_that_mixes_srids(monkeypatch) -> None:
+    run = AsyncMock(
+        side_effect=[[{"column_name": "shape"}], [{"srid": 4326, "srids": 2}]]
+    )
+    monkeypatch.setattr(database_sources, "run_database_sql", run)
+    probed = await database_sources.probe_table_geometry("gis", "dbo", "t")
+    assert probed == database_sources.TableGeometry(
+        column="shape", srid=4326, mixed=True
+    )
+    assert "DISTINCT TOP (2) [shape].STSrid" in run.await_args_list[1].args[1]
+
+    run.side_effect = [[{"column_name": "shape"}], [{"srid": 4326, "srids": 1}]]
+    assert not (await database_sources.probe_table_geometry("gis", "dbo", "t")).mixed

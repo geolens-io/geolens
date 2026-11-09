@@ -355,10 +355,13 @@ class TableGeometry:
     """The spatial column GDAL reads from a table, and its first value's SRID.
 
     ``srid`` is ``None`` when that is 0 or the column holds no value.
+    ``mixed`` is whether its values carry more than one SRID, which one
+    assigned CRS can't describe.
     """
 
     column: str
     srid: int | None
+    mixed: bool = False
 
 
 def _table_columns_sql(schema_name: str, table_name: str) -> str:
@@ -375,6 +378,17 @@ def _table_columns_sql(schema_name: str, table_name: str) -> str:
     )
 
 
+def _table_srids_sql(schema_name: str, table_name: str, column: str) -> str:
+    # Two distinct values settle "mixed", so the DISTINCT may stop there.
+    col = quote_identifier(column)
+    table = f"{quote_identifier(schema_name)}.{quote_identifier(table_name)}"
+    return (
+        f"SELECT (SELECT TOP 1 {col}.STSrid FROM {table} WHERE {col} IS NOT NULL) "
+        "AS srid, (SELECT COUNT(*) FROM (SELECT DISTINCT TOP (2) "
+        f"{col}.STSrid AS s FROM {table} WHERE {col} IS NOT NULL) AS d) AS srids"
+    )
+
+
 async def probe_table_geometry(
     name: str, schema_name: str, table_name: str
 ) -> TableGeometry:
@@ -388,9 +402,12 @@ async def probe_table_geometry(
     if not isinstance(column, str):
         raise DatabaseTableError(name)
     probed = await run_database_sql(
-        name, srid_probe_sql([(schema_name, table_name, column)])
+        name, _table_srids_sql(schema_name, table_name, column)
     )
     srid = probed[0].get("srid") if probed else None
+    distinct = probed[0].get("srids") if probed else None
     return TableGeometry(
-        column=column, srid=srid if isinstance(srid, int) and srid != 0 else None
+        column=column,
+        srid=srid if isinstance(srid, int) and srid != 0 else None,
+        mixed=isinstance(distinct, int) and distinct > 1,
     )

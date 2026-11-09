@@ -22,7 +22,12 @@ import structlog
 
 from procrastinate import App
 
-from app.platform.dataset_origin import KEEP, SourceBinding, restamp
+from app.platform.dataset_origin import (
+    CONTACTED_ORIGIN_KINDS,
+    KEEP,
+    SourceBinding,
+    restamp,
+)
 from app.core.service_tokens import reset_registered_credential_secrets
 from app.core.url_redaction import redact_exception_text
 from app.platform.jobs.queue_connector import make_queue_connector
@@ -1374,15 +1379,15 @@ async def _finalize_ingest(ctx: IngestContext):
     binding = SourceBinding.from_ref(
         ctx.source_format, ctx.origin_ref, uri=ctx.origin_uri or ctx.source_url
     )
-    # A first service or STAC ingest fetched its bytes from the origin moments
-    # ago, so the import is a contact, as in the reupload swap. Otherwise a
+    # A first service, STAC or database ingest read its data from the origin
+    # moments ago, so the import is a contact, as in the reupload swap. Otherwise a
     # freshly imported service dataset would report last_checked_at NULL until
     # someone probed it. create_dataset dated freshness.
     restamp(
         dataset,
         binding,
         contacted_at=datetime.now(timezone.utc)
-        if binding.kind in ("service", "stac")
+        if binding.kind in CONTACTED_ORIGIN_KINDS
         else None,
         refreshed_at=KEEP,
     )
@@ -1832,12 +1837,12 @@ async def _write_reupload_catalog(
     # expired after flush, and the next read of dataset.last_refreshed_at then
     # lazy-loads against a session that may already be closed.
     swap_time = datetime.now(timezone.utc)
-    # For a service or STAC origin this swap is a contact: the bytes were
-    # fetched from that origin moments ago. Leaving last_checked_at NULL would
-    # make the API claim the origin was never contacted, and a NULL
+    # For a service, STAC or database origin this swap is a contact: the bytes
+    # were read from that origin moments ago. Leaving last_checked_at NULL
+    # would make the API claim the origin was never contacted, and a NULL
     # source_health would read as "unknown". A file upload or registered
     # table stamps nothing.
-    contacted = binding.kind in ("service", "stac")
+    contacted = binding.kind in CONTACTED_ORIGIN_KINDS
     link_losses = restamp(
         dataset,
         binding,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -94,3 +95,38 @@ def test_a_removed_column_waits_and_an_acceptance_publishes() -> None:
 def test_an_added_column_publishes() -> None:
     diff = {"row_count_old": 3, "columns_added": [{"name": "note"}]}
     assert _verify(schema_diff=diff)["decision"] == "allowed"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("code", ["mixed_srid_database", "missing_crs_database"])
+async def test_a_refused_table_is_a_coded_refusal(monkeypatch, code) -> None:
+    from app.processing.ingest import tasks_database
+
+    reason = {
+        "mixed_srid_database": tasks_database.MIXED_SRID_DATABASE,
+        "missing_crs_database": tasks_database.MISSING_CRS_DATABASE,
+    }[code]
+    refusal = tasks_database.DatabaseRefusal(reason)
+    failure = tasks_database._DatabaseRefresh(
+        job_id=str(uuid.uuid4()), user_id=str(uuid.uuid4())
+    ).classify(refusal)
+    assert (failure.error_code, failure.reason, failure.refused) == (
+        code,
+        reason,
+        True,
+    )
+
+
+@pytest.mark.anyio
+async def test_the_import_probe_refuses_mixed_srids(monkeypatch) -> None:
+    from app.platform.database_sources import TableGeometry
+    from app.processing.ingest import tasks_database
+
+    monkeypatch.setattr(
+        tasks_database,
+        "probe_table_geometry",
+        AsyncMock(return_value=TableGeometry(column="g", srid=4326, mixed=True)),
+    )
+    with pytest.raises(tasks_database.DatabaseRefusal) as raised:
+        await tasks_database.probe_import_srid("gis", "dbo", "t")
+    assert raised.value.reason.code == "mixed_srid_database"

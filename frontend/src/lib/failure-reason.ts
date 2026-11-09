@@ -27,6 +27,7 @@ const FIXED_FAILURE_CODE_KEYS: Record<string, `errors.${string}`> = {
   missing_crs_database: 'errors.jobFailureMissingCrsDatabase',
   missing_crs_raster: 'errors.jobFailureMissingCrsRaster',
   missing_crs_reupload: 'errors.jobFailureMissingCrsReupload',
+  mixed_srid_database: 'errors.jobFailureMixedSridDatabase',
   pointcloud_decode_failed: 'errors.uploadPointCloudDecodeFailed',
   pointcloud_invalid: 'errors.uploadPointCloudInvalid',
   pointcloud_no_crs: 'errors.uploadPointCloudNoCrs',

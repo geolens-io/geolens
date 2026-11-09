@@ -86,10 +86,25 @@ from app.processing.ingest.tasks_vector import (
 )
 
 MISSING_CRS_DATABASE = FixedReason(
-    "Missing CRS: the table's geometries have SRID 0 or the table has no "
-    "rows. Import it again and choose its coordinate system.",
+    "Missing CRS: the table's geometries have no SRID (SRID 0), or it has no "
+    "rows or only empty geometries. Import it again and choose its coordinate "
+    "system.",
     code="missing_crs_database",
 )
+
+MIXED_SRID_DATABASE = FixedReason(
+    "The table's geometries use more than one SRID, so no single coordinate "
+    "system describes them. Give them one SRID in a view and import that.",
+    code="mixed_srid_database",
+)
+
+
+class DatabaseRefusal(DatabaseImportError):
+    """A table GeoLens won't copy as it stands; ``reason`` says why."""
+
+    def __init__(self, reason: FixedReason) -> None:
+        super().__init__(str(reason))
+        self.reason = reason
 
 
 def job_database_source(user_metadata: object) -> DatabaseSource | Unavailable:
@@ -108,11 +123,16 @@ def job_database_source(user_metadata: object) -> DatabaseSource | Unavailable:
 async def probe_import_srid(
     connection: str, schema_name: str, table_name: str
 ) -> int | None:
-    """The SRID of the column GDAL will read, or ``None`` for 0 or no rows."""
+    """The SRID of the column GDAL will read, or ``None`` for 0 or no rows.
+
+    Raises ``DatabaseRefusal`` when the column mixes SRIDs.
+    """
     try:
         probed = await probe_table_geometry(connection, schema_name, table_name)
     except DatabaseSourceError as exc:
         raise DatabaseImportError(str(exc)) from None
+    if probed.mixed:
+        raise DatabaseRefusal(MIXED_SRID_DATABASE)
     return probed.srid
 
 
@@ -189,15 +209,20 @@ async def ingest_database(
                 um = job.user_metadata
             await session.commit()
 
-        srid = await probe_import_srid(source.connection, source.schema, source.table)
-        effective_srid = chosen_srid(srid, srid_override)
-        if effective_srid is None:
+        try:
+            srid = await probe_import_srid(
+                source.connection, source.schema, source.table
+            )
+            effective_srid = chosen_srid(srid, srid_override)
+            if effective_srid is None:
+                raise DatabaseRefusal(MISSING_CRS_DATABASE)
+        except DatabaseRefusal as refusal:
             async with _job_phase_session(
-                job_uuid, phase="missing_crs", attempt_id=attempt_uuid
+                job_uuid, phase="refused", attempt_id=attempt_uuid
             ) as (session, job):
                 if job is not None:
                     await ledger.fail(
-                        session, job_uuid, attempt_uuid, reason=MISSING_CRS_DATABASE
+                        session, job_uuid, attempt_uuid, reason=refusal.reason
                     )
                     await session.commit()
             return
@@ -339,7 +364,7 @@ class _DatabaseRefresh(_LiveComparison):
         # SRID 0 or an empty table: the SRID the copy was imported under.
         self.srid = chosen_srid(probed, self.stored_srid)
         if self.srid is None:
-            raise DatabaseImportError(str(MISSING_CRS_DATABASE))
+            raise DatabaseRefusal(MISSING_CRS_DATABASE)
         schema = _current_tenant_schema()
         await copy_database_table(
             source.connection,
@@ -488,14 +513,17 @@ class _DatabaseRefresh(_LiveComparison):
             verification=self.verification,
         )
         if self.unchanged:
-            return await self._publish_unchanged(
+            published = await self._publish_unchanged(
                 session,
                 dataset,
                 field_labels=None,
                 feature_count=self.measured_feature_count,
-                contacted_origin=False,
+                contacted_origin=True,
                 reembed=False,
             )
+            # The table was just read, as in a changed swap.
+            dataset.source_health = "healthy"
+            return published
         source = self.table
         version, schema_diff = await _write_reupload_catalog(
             session,
@@ -514,13 +542,16 @@ class _DatabaseRefresh(_LiveComparison):
             dataset_version_id=version.id,
             feature_count=self.measured_feature_count,
             schema_diff=schema_diff,
-            contacted_origin=False,
+            contacted_origin=True,
             verification=self.verification,
             live_table=dataset.table_name,
             quicklook_table=_quicklook_table(dataset, self.measurement),
         )
 
     def classify(self, exc: BaseException) -> Failure:
+        if isinstance(exc, DatabaseRefusal):
+            # The table as it stands, not a failed read: recorded, not raised.
+            return Failure(exc.reason.code, reason=exc.reason, refused=True)
         if isinstance(exc, CatalogLockConflict):
             code = CATALOG_LOCK_CONFLICT_CODE
         elif isinstance(exc, RefreshPublicationFenceError):

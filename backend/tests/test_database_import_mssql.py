@@ -200,6 +200,10 @@ async def test_geometry_table_imports_with_its_srid_and_key(
     }
     assert dataset.srid == 2263
     assert dataset.feature_count == 3
+    # The import read SQL Server, so it dates the contact; health is the
+    # probe's to say and stays unknown.
+    assert dataset.last_checked_at is not None
+    assert dataset.source_health is None
     rows = await _rows(
         test_db_session,
         dataset,
@@ -325,11 +329,15 @@ async def test_refresh_picks_up_updated_rows(
 ):
     kwargs = await _import(client, editor_auth_header, table)
     dataset_id = (await _job(test_db_session, kwargs["job_id"])).dataset_id
+    imported_at = (await _dataset(test_db_session, dataset_id)).last_checked_at
     await _admin(f"UPDATE dbo.{table} SET label = N'renamed' WHERE pk = 12")
 
     run = await _refresh(client, editor_auth_header, test_db_session, dataset_id)
 
     assert run.status == "succeeded", run.error_message
+    refreshed = await _dataset(test_db_session, dataset_id)
+    assert refreshed.last_checked_at > imported_at
+    assert refreshed.source_health == "healthy"
     assert run.verification["count_status"] == "matched"
     assert run.verification["review_reasons"] == []
     dataset = await _dataset(test_db_session, dataset_id)
@@ -435,3 +443,34 @@ async def test_an_import_by_a_user_at_quota_is_refused(
         )
     assert resp.status_code == 422, resp.text
     assert "quota" in resp.json()["detail"].lower()
+
+
+async def test_mixed_srids_are_refused_on_import_and_refresh(
+    client: AsyncClient, editor_auth_header, configured, table, test_db_session
+):
+    name = f"m_{uuid.uuid4().hex[:10]}"
+    await _admin(f"CREATE TABLE dbo.{name} (id int PRIMARY KEY, geom geometry)")
+    try:
+        await _admin(
+            f"INSERT INTO dbo.{name} VALUES "
+            "(1, geometry::STGeomFromText('POINT (1 1)', 4326)),"
+            "(2, geometry::STGeomFromText('POINT (500000 4500000)', 32618))"
+        )
+        asked = await _import(client, editor_auth_header, name)
+        job = await _job(test_db_session, asked["job_id"])
+        assert job.status == "failed"
+        assert job.error_code == "mixed_srid_database"
+        assert job.dataset_id is None
+    finally:
+        await _admin(f"DROP TABLE IF EXISTS dbo.{name}")
+
+    kwargs = await _import(client, editor_auth_header, table)
+    dataset_id = (await _job(test_db_session, kwargs["job_id"])).dataset_id
+    await _admin(
+        f"INSERT INTO dbo.{table} VALUES "
+        "(14, N'd', 4, geometry::STGeomFromText('POINT (1 1)', 4326))"
+    )
+    run = await _refresh(client, editor_auth_header, test_db_session, dataset_id)
+    assert run.status == "failed"
+    assert run.error_code == "mixed_srid_database"
+    assert (await _dataset(test_db_session, dataset_id)).feature_count == 3
