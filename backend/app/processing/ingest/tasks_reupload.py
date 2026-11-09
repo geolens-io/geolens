@@ -1556,12 +1556,7 @@ class _ServiceReupload(_LiveComparison):
             return Verdict(
                 publish=False,
                 reason=reason,
-                settle=partial(
-                    record_refresh_failure,
-                    ingest_job_id=self.job_uuid,
-                    error_code=reason.code,
-                    error_message=reason,
-                ),
+                settle=partial(self._refuse_second_copy, reason=reason),
                 notify=True,
             )
         if self.service_type == "arcgis_featureserver":
@@ -1721,6 +1716,14 @@ class _ServiceReupload(_LiveComparison):
                 accepted_run_id=self.accepted_run_id,
             ),
             data_revision=dataset.data_revision,
+        )
+
+    async def _refuse_second_copy(self, session, *, reason: FixedReason) -> None:
+        await record_refresh_failure(
+            session,
+            ingest_job_id=self.job_uuid,
+            error_code=reason.code,
+            error_message=reason,
         )
 
     async def _hold_back(
