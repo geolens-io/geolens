@@ -194,12 +194,12 @@ describe('ViewerMap drawn layers', () => {
     vi.mocked(fetchBoundedGeoJson).mockRejectedValue(new Error('offline'));
     const { rerender } = render(<ViewerWithLegend embedToken="first" />);
     const bikeRacks = () => within(within(screen.getByRole('region', { name: 'Layers' })).getByText('Bike racks').closest('li')!);
-    await waitFor(() => expect(bikeRacks().getByText('Point fallback')).toBeInTheDocument());
+    await waitFor(() => expect(bikeRacks().getByText('Shown as individual points')).toBeInTheDocument());
 
     vi.mocked(fetchBoundedGeoJson).mockReturnValue(new Promise(() => {}));
     rerender(<ViewerWithLegend embedToken="second" />);
 
-    await waitFor(() => expect(bikeRacks().getByText('Bounded cluster')).toBeInTheDocument());
+    await waitFor(() => expect(bikeRacks().getByText('Grouped into clusters as you zoom out')).toBeInTheDocument());
   });
 
   it('reports nothing while the bounded GeoJSON is loading', async () => {

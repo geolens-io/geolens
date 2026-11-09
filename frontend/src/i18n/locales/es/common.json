@@ -464,9 +464,9 @@
       "other": "Otros",
       "sampled": "Con este zoom solo se muestra una parte de los elementos. Acerca el zoom para verlos todos.",
       "cluster": {
-        "server": "Clúster del servidor",
-        "bounded": "Clúster acotado",
-        "fallback": "Alternativa de puntos",
+        "server": "Agrupado en clústeres al alejar el zoom",
+        "bounded": "Agrupado en clústeres al alejar el zoom",
+        "fallback": "Se muestra como puntos individuales",
         "pointsPerCluster": "Puntos por clúster"
       },
       "geometry": {

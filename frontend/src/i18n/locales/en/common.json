@@ -160,9 +160,9 @@
       "other": "Other",
       "sampled": "Showing a sample at this zoom. Zoom in to see all features.",
       "cluster": {
-        "server": "Server cluster",
-        "bounded": "Bounded cluster",
-        "fallback": "Point fallback",
+        "server": "Grouped into clusters as you zoom out",
+        "bounded": "Grouped into clusters as you zoom out",
+        "fallback": "Shown as individual points",
         "pointsPerCluster": "Points per cluster"
       },
       "geometry": {

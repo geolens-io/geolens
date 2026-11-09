@@ -464,9 +464,9 @@
       "other": "Sonstige",
       "sampled": "Bei dieser Zoomstufe wird nur eine Stichprobe angezeigt. Zoomen Sie hinein, um alle Objekte zu sehen.",
       "cluster": {
-        "server": "Server-Cluster",
-        "bounded": "Begrenzter Cluster",
-        "fallback": "Punkt-Fallback",
+        "server": "Beim Herauszoomen zu Clustern zusammengefasst",
+        "bounded": "Beim Herauszoomen zu Clustern zusammengefasst",
+        "fallback": "Als einzelne Punkte dargestellt",
         "pointsPerCluster": "Punkte pro Cluster"
       },
       "geometry": {

@@ -464,9 +464,9 @@
       "other": "Autres",
       "sampled": "Échantillon affiché à ce niveau de zoom. Zoomez pour afficher toutes les entités.",
       "cluster": {
-        "server": "Regroupement côté serveur",
-        "bounded": "Regroupement limité",
-        "fallback": "Points de secours",
+        "server": "Regroupé en clusters lorsque vous dézoomez",
+        "bounded": "Regroupé en clusters lorsque vous dézoomez",
+        "fallback": "Affiché sous forme de points individuels",
         "pointsPerCluster": "Points par cluster"
       },
       "geometry": {
