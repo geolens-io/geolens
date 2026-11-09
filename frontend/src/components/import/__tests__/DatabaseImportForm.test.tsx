@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { ApiError } from '@/api/client';
 import { useAuthStore } from '@/stores/auth-store';
+import { clearDatabaseImport } from '@/api/database-import-session';
 import { DatabaseImportForm } from '../DatabaseImportForm';
 import type { DatabaseTable } from '@/types/api';
 
@@ -52,6 +53,7 @@ function withConnections(...names: string[]) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  clearDatabaseImport();
   useAuthStore.setState({ token: 'token' });
   withConnections('warehouse');
 });
@@ -154,5 +156,63 @@ describe('DatabaseImportForm', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Already registered: "Parcels"');
     expect(screen.queryByText(/Tracking/)).not.toBeInTheDocument();
+  });
+
+  it('asks for a CRS from the row picked last, not an earlier one', async () => {
+    mockListTables.mockResolvedValue(
+      listing([table({ table_name: 'v_zones', srid: null }), table()]),
+    );
+    mockStartImport.mockResolvedValue({ job_id: 'job-9', status: 'pending', message: 'queued' });
+    const user = userEvent.setup();
+    render(<DatabaseImportForm />);
+
+    await openReview(user, 'gis.v_zones');
+    expect(screen.getByLabelText(/CRS/i)).toBeInTheDocument();
+    await user.type(screen.getByLabelText(/CRS/i), '3857');
+    await user.click(screen.getByRole('button', { name: 'Back to tables' }));
+    await openReview(user, 'gis.parcels');
+
+    expect(screen.queryByLabelText(/CRS Override/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /import/i }));
+    await waitFor(() =>
+      expect(mockStartImport).toHaveBeenCalledWith(
+        'warehouse',
+        expect.objectContaining({ table_name: 'parcels', srid_override: null }),
+      ),
+    );
+  });
+
+  it('keeps an in-flight import across an unmount and tracks its job on return', async () => {
+    mockListTables.mockResolvedValue(listing([table()]));
+    let resolveImport!: (value: unknown) => void;
+    mockStartImport.mockReturnValue(new Promise((resolve) => { resolveImport = resolve; }));
+    const user = userEvent.setup();
+    const first = render(<DatabaseImportForm />);
+
+    await openReview(user, 'gis.parcels');
+    await user.click(screen.getByRole('button', { name: /import/i }));
+    first.unmount();
+    resolveImport({ job_id: 'job-late', status: 'pending', message: 'queued' });
+
+    render(<DatabaseImportForm />);
+
+    expect(await screen.findByText('Tracking job-late')).toBeInTheDocument();
+    expect(mockStartImport).toHaveBeenCalledTimes(1);
+  });
+
+  it('resumes a still-pending import when the form is mounted again', async () => {
+    mockListTables.mockResolvedValue(listing([table()]));
+    let resolveImport!: (value: unknown) => void;
+    mockStartImport.mockReturnValue(new Promise((resolve) => { resolveImport = resolve; }));
+    const user = userEvent.setup();
+    const first = render(<DatabaseImportForm />);
+
+    await openReview(user, 'gis.parcels');
+    await user.click(screen.getByRole('button', { name: /import/i }));
+    first.unmount();
+    render(<DatabaseImportForm />);
+    resolveImport({ job_id: 'job-pending', status: 'pending', message: 'queued' });
+
+    expect(await screen.findByText('Tracking job-pending')).toBeInTheDocument();
   });
 });

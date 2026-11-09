@@ -314,6 +314,40 @@ describe('SourceRefreshAction', () => {
     });
   });
 
+  it('accepts a blocked database run with its id and no credential', async () => {
+    mutateAsync.mockResolvedValue({
+      run_id: 'run-45',
+      job_id: 'job-45',
+      dataset_id: 'dataset-1',
+      origin_kind: 'database',
+      trigger: 'api',
+      status: 'pending',
+      message: 'Refresh queued from the database table',
+    });
+    const user = userEvent.setup();
+    render(
+      <SourceRefreshAction
+        dataset={makeDataset({ origin: 'database' })}
+        watch={makeWatch()}
+        acceptBlockedRun={{ id: 'blocked-db-run' }}
+        onAcceptHandled={vi.fn()}
+      />,
+    );
+
+    await screen.findByRole('dialog');
+    expect(screen.queryByLabelText('Access token (optional)')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+
+    await waitFor(() =>
+      expect(mutateAsync).toHaveBeenCalledWith({
+        datasetId: 'dataset-1',
+        token: undefined,
+        auth: undefined,
+        acceptBlockedRunId: 'blocked-db-run',
+      }),
+    );
+  });
+
   it('preserves the blocked run’s strong ArcGIS verification policy on review retry', async () => {
     mutateAsync.mockResolvedValue({
       run_id: 'run-44',

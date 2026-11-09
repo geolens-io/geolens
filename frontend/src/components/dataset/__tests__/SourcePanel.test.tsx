@@ -1246,6 +1246,70 @@ describe('SourcePanel', () => {
     });
   });
 
+  describe('blocked database run', () => {
+    function blockedDatabaseRun(binding: Record<string, string>) {
+      vi.mocked(useDatasetRefreshRuns).mockReturnValue({
+        data: {
+          runs: [{
+            id: 'run-db-blocked',
+            dataset_id: 'dataset-1',
+            dataset_version_id: null,
+            ingest_job_id: 'job-1',
+            origin_kind: 'database',
+            trigger: 'api',
+            scheduled_for: null,
+            status: 'blocked',
+            triggered_by: 'user-1',
+            triggered_by_username: 'jdoe',
+            started_at: '2026-08-05T00:00:00Z',
+            claimed_at: '2026-08-05T00:00:01Z',
+            finished_at: '2026-08-05T00:01:00Z',
+            feature_count_before: 10,
+            feature_count_after: 0,
+            schema_diff: null,
+            verification: {
+              decision: 'blocked',
+              source_binding: { kind: 'database', ...binding },
+              source_count: 0,
+              fetched_count: 0,
+              count_status: 'matched',
+              identity_check: 'unavailable',
+              content_digest: 'sha256:x',
+              review_reasons: ['srid_changed'],
+              review_fingerprint: 'fingerprint',
+              accepted_blocked_run_id: null,
+            },
+            error_code: 'review_required',
+            error_message: 'Review the detected changes before publication.',
+          }],
+          total: 1,
+        },
+        isLoading: false,
+        isError: false,
+      } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+    }
+
+    const ref = { kind: 'database', connection: 'warehouse', schema: 'gis', table: 'parcels' };
+    const dataset = () => makeDataset({ origin: 'database', source_format: 'database', origin_ref: ref });
+
+    it('offers review and retry for the dataset\'s own binding and sends the run id', async () => {
+      const onAcceptBlockedRun = vi.fn();
+      blockedDatabaseRun({ connection: 'warehouse', schema: 'gis', table: 'parcels' });
+      render(<SourcePanel dataset={dataset()} canEdit onAcceptBlockedRun={onAcceptBlockedRun} />);
+
+      await userEvent.click(screen.getByRole('button', { name: 'Review and retry' }));
+
+      expect(onAcceptBlockedRun).toHaveBeenCalledWith({ id: 'run-db-blocked', verificationPolicy: undefined });
+    });
+
+    it('withholds it when the run was against a different table', () => {
+      blockedDatabaseRun({ connection: 'warehouse', schema: 'gis', table: 'zones' });
+      render(<SourcePanel dataset={dataset()} canEdit onAcceptBlockedRun={vi.fn()} />);
+
+      expect(screen.queryByRole('button', { name: 'Review and retry' })).not.toBeInTheDocument();
+    });
+  });
+
   it('offers a blocked-run retry when the bound URL differs only by a trailing slash', () => {
     const serviceUrl = 'https://services.example.com/arcgis/rest/services/Roads/FeatureServer';
     vi.mocked(useDatasetRefreshRuns).mockReturnValue({

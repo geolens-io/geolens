@@ -45,9 +45,16 @@ const LISTING = {
 test.describe('Database import source', () => {
   test('is hidden when the account has no database connection', async ({ page }) => {
     await mockCapabilities(page, []);
+    const capabilities = page.waitForResponse('**/api/capabilities/');
     await page.goto('/import');
+    await capabilities;
 
+    // The tab list renders before capabilities settle. Let the response reach
+    // the query cache and React paint again before asserting absence.
     await expect(page.getByRole('button', { name: 'Upload File' })).toBeVisible();
+    await page.evaluate(
+      () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
+    );
     await expect(page.getByRole('button', { name: 'Database', exact: true })).toHaveCount(0);
   });
 

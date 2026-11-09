@@ -180,6 +180,18 @@ function matchesCurrentServiceBinding(
     && sameServiceUrl(safeHttpPointer(binding.url), currentUrl);
 }
 
+function matchesCurrentDatabaseBinding(
+  dataset: DatasetResponse,
+  binding: Record<string, unknown>,
+): boolean {
+  if ((dataset.origin ?? datasetOrigin(dataset)) !== 'database') return false;
+  const ref = trustedRef(dataset, 'database');
+  return ['connection', 'schema', 'table'].every((key) => {
+    const current = refString(ref, key);
+    return current !== null && binding[key] === current;
+  });
+}
+
 // canonical_service_source_binding_fingerprint ignores a trailing slash too.
 function sameServiceUrl(a: string | null, b: string | null): boolean {
   return (a && stripTrailingSlashes(a)) === (b && stripTrailingSlashes(b));
@@ -591,7 +603,8 @@ function RefreshRunHistory({
                     && canEdit
                     && run.verification
                     && (run.origin_kind === 'upload'
-                      || matchesCurrentServiceBinding(dataset, run.verification.source_binding))
+                      || matchesCurrentServiceBinding(dataset, run.verification.source_binding)
+                      || matchesCurrentDatabaseBinding(dataset, run.verification.source_binding))
                     && run.verification.review_fingerprint
                     && !run.verification.acceptance_consumed_by_run_id
                     && !heldUploadSuperseded(run, runs)

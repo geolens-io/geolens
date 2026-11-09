@@ -1,9 +1,13 @@
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Database } from 'lucide-react';
 import { ApiError } from '@/api/client';
-import { startDatabaseImport } from '@/api/ingest';
+import {
+  beginDatabaseImport,
+  clearDatabaseImport,
+  peekDatabaseImport,
+} from '@/api/database-import-session';
 import { useDatabaseConnections, useDatabaseTables } from '@/components/import/hooks/use-ingest';
 import type { CommitImportRequest, DatabaseImportRequest, DatabaseTable } from '@/types/api';
 import { Button } from '@/components/ui/button';
@@ -14,23 +18,33 @@ import { JobProgress } from './JobProgress';
 
 type Step = 'pick' | 'review' | 'committing' | 'tracking';
 
-// A table with two spatial columns is listed once per column.
-const rowKey = (table: DatabaseTable) =>
-  `${table.schema_name}.${table.table_name}.${table.geometry_column}`;
+const rowKey = (table: DatabaseTable) => `${table.schema_name}.${table.table_name}`;
 
 export function DatabaseImportForm() {
   const { t } = useTranslation('import');
   const id = useId();
   const { data: connections = [], isLoading: connectionsLoading } = useDatabaseConnections();
-  const [chosenConnection, setChosenConnection] = useState<string | null>(null);
+  // A request started before a tab switch is adopted rather than lost.
+  const [adopted] = useState(peekDatabaseImport);
+  const [chosenConnection, setChosenConnection] = useState<string | null>(adopted?.connection ?? null);
   // A lone connection needs no choosing.
   const connection = chosenConnection ?? (connections.length === 1 ? connections[0].name : null);
   const { data: listing, isLoading, error: listError, refetch } = useDatabaseTables(connection);
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(adopted ? rowKey(adopted.table) : null);
+  const [picked, setPicked] = useState<DatabaseTable | null>(adopted?.table ?? null);
   const [filter, setFilter] = useState('');
-  const [step, setStep] = useState<Step>('pick');
+  const [step, setStep] = useState<Step>(
+    !adopted ? 'pick' : adopted.status === 'fulfilled' ? 'tracking' : adopted.status === 'rejected' ? 'review' : 'committing',
+  );
   const [error, setError] = useState<string | null>(null);
-  const [jobId, setJobId] = useState<string | null>(null);
+  const [jobId, setJobId] = useState<string | null>(adopted?.jobId ?? null);
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const tables = useMemo(() => listing?.tables ?? [], [listing]);
   const visible = useMemo(() => {
@@ -42,68 +56,90 @@ export function DatabaseImportForm() {
   const selected = tables.find((row) => rowKey(row) === selectedKey) ?? null;
 
   const reset = () => {
+    clearDatabaseImport();
+    setPicked(null);
     setStep('pick');
     setJobId(null);
     setError(null);
     setSelectedKey(null);
   };
 
+  const fail = (err: unknown) => {
+    clearDatabaseImport();
+    setStep('review');
+    if (err instanceof ApiError && err.status === 409) {
+      const body = err.body as { code?: string; existing_dataset_id?: string; existing_title?: string } | undefined;
+      if (body?.code === 'duplicate_source' && body.existing_dataset_id) {
+        const msg = t('serviceUrl.alreadyRegistered', {
+          title: body.existing_title ?? t('serviceUrl.unknownDataset'),
+        });
+        setError(msg);
+        toast.error(msg, {
+          action: {
+            label: t('serviceUrl.viewExisting'),
+            onClick: () => { window.location.href = `/datasets/${body.existing_dataset_id}`; },
+          },
+        });
+        return;
+      }
+    }
+    const msg = err instanceof ApiError ? err.message : t('database.importFailed');
+    setError(msg);
+    toast.error(msg);
+  };
+
+  const track = (promise: Promise<{ job_id: string }>) =>
+    promise.then(
+      (response) => {
+        if (!mountedRef.current) return;
+        setJobId(response.job_id);
+        setStep('tracking');
+      },
+      (err) => {
+        if (mountedRef.current) fail(err);
+      },
+    );
+
+  useEffect(() => {
+    if (!adopted) return;
+    if (adopted.status === 'rejected') fail(adopted.error);
+    else if (adopted.status === 'pending') void track(adopted.promise);
+    // Adopted once, on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleCommit = async (metadata: CommitImportRequest) => {
-    if (!connection || !selected) return;
+    if (!connection || !picked) return;
     setStep('committing');
     setError(null);
-    try {
-      const response = await startDatabaseImport(connection, {
-        schema_name: selected.schema_name,
-        table_name: selected.table_name,
-        title: metadata.title,
-        summary: metadata.summary,
-        visibility: (metadata.visibility ?? 'private') as DatabaseImportRequest['visibility'],
-        srid_override: selected.srid === null ? metadata.srid_override : null,
-      });
-      setJobId(response.job_id);
-      setStep('tracking');
-    } catch (err) {
-      setStep('review');
-      if (err instanceof ApiError && err.status === 409) {
-        const body = err.body as { code?: string; existing_dataset_id?: string; existing_title?: string } | undefined;
-        if (body?.code === 'duplicate_source' && body.existing_dataset_id) {
-          const msg = t('serviceUrl.alreadyRegistered', {
-            title: body.existing_title ?? t('serviceUrl.unknownDataset'),
-          });
-          setError(msg);
-          toast.error(msg, {
-            action: {
-              label: t('serviceUrl.viewExisting'),
-              onClick: () => { window.location.href = `/datasets/${body.existing_dataset_id}`; },
-            },
-          });
-          return;
-        }
-      }
-      const msg = err instanceof ApiError ? err.message : t('database.importFailed');
-      setError(msg);
-      toast.error(msg);
-    }
+    const session = beginDatabaseImport(connection, picked, {
+      schema_name: picked.schema_name,
+      table_name: picked.table_name,
+      title: metadata.title,
+      summary: metadata.summary,
+      visibility: (metadata.visibility ?? 'private') as DatabaseImportRequest['visibility'],
+      srid_override: picked.srid === null ? metadata.srid_override : null,
+    });
+    await track(session.promise);
   };
 
   if (step === 'tracking' && jobId) {
     return <JobProgress jobId={jobId} onReset={reset} />;
   }
 
-  if ((step === 'review' || step === 'committing') && selected) {
+  if ((step === 'review' || step === 'committing') && picked) {
     return (
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground">
           {t('database.reviewing', {
             connection,
-            table: `${selected.schema_name}.${selected.table_name}`,
+            table: `${picked.schema_name}.${picked.table_name}`,
           })}
         </p>
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         <ImportMetadataForm
-          defaultName={selected.table_name}
-          detectedCrs={selected.srid}
+          defaultName={picked.table_name}
+          detectedCrs={picked.srid}
           onCommit={handleCommit}
           isCommitting={step === 'committing'}
         />
@@ -225,7 +261,7 @@ export function DatabaseImportForm() {
               {selected?.srid === null && (
                 <p className="text-xs text-muted-foreground">{t('database.srsNeeded')}</p>
               )}
-              <Button disabled={!selected} onClick={() => setStep('review')}>
+              <Button disabled={!selected} onClick={() => { setPicked(selected); setStep('review'); }}>
                 {t('database.continue')}
               </Button>
             </>
