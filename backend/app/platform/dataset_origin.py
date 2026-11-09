@@ -588,8 +588,9 @@ class SourceBinding:
         uri: str | None = None,
     ) -> SourceBinding:
         """A binding from a payload without its ``kind``, which the format decides."""
-        kind = classify_origin(source_format)
-        return cls(source_format, uri, build_origin_ref(kind, **(ref or {})))
+        return cls._of(
+            classify_origin(source_format), source_format, uri, **(ref or {})
+        )
 
     @classmethod
     def upload(
