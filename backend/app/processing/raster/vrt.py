@@ -450,24 +450,28 @@ def overview_keys_for(vrt_key: str) -> list[str]:
     ]
 
 
-def members_lack_overviews(source_paths: list[str]) -> bool:
-    """Whether any member has no internal overviews, so a low-zoom read is full-size.
+def mosaic_needs_overview(vrt_path: str) -> bool:
+    """Whether GDAL exposes no overviews for the VRT, so a low-zoom read is full-size.
 
-    A member without overviews makes every coarse read decode it at full
-    resolution, so a single such member is enough. Stops at the first one.
-    A member the probe cannot read counts as lacking them: a broken member
-    fails the translate safely, and skipping would hide it from every
+    GDAL derives a VRT's overviews from its member's only when there is one
+    member. A mosaic of several has none even when every member has its own,
+    and a reprojected low-zoom read then decodes the full grid. Opening the VRT
+    reads its members, which can sit in object storage, so the probe gets the
+    render timeout. A VRT the probe cannot read counts as needing one: a broken
+    member fails the translate safely, and skipping would hide it from every
     low-zoom read.
     """
-    from app.processing.raster.probe import RasterProbeError, read_raster_metadata
+    from app.processing.raster.probe import (
+        RENDER_TIMEOUT_SECONDS,
+        RasterProbeError,
+        read_raster_metadata,
+    )
 
-    for path in source_paths:
-        try:
-            if not read_raster_metadata(path).get("overview_levels"):
-                return True
-        except RasterProbeError:
-            return True
-    return False
+    try:
+        meta = read_raster_metadata(vrt_path, timeout=RENDER_TIMEOUT_SECONDS)
+    except RasterProbeError:
+        return True
+    return not meta.get("overview_levels")
 
 
 # Bytes per sample by VRT data type, for the scratch-space estimate.
@@ -522,12 +526,12 @@ def _overview_exceeds_free_space(vrt_path: str, root, bands) -> bool:
     return estimate > free
 
 
-def add_vrt_overview(vrt_path: str, source_paths: list[str]) -> list[str] | None:
+def add_vrt_overview(vrt_path: str) -> list[str] | None:
     """Build overview images beside a VRT and reference each from every band.
 
-    Returns the files, finest first, or None when every member already has
-    overviews or the build was skipped or failed (the VRT is then left as it
-    was). The first is a half-resolution COG; each next one halves the previous
+    Returns the files, finest first, or None when GDAL already exposes
+    overviews for the VRT or the build was skipped or failed (the VRT is then
+    left as it was). The first is a half-resolution COG; each next one halves the previous
     until the longer side is at most 512 px, resampled by ``nearest`` for integer
     data and ``average`` for float. GDAL lists only the levels named by
     ``<Overview>`` elements, and TiTiler opens with
@@ -551,7 +555,7 @@ def add_vrt_overview(vrt_path: str, source_paths: list[str]) -> list[str] | None
     if reason:
         logger.info("VRT overview skipped: %s", reason)
         return None
-    if not members_lack_overviews(source_paths):
+    if not mosaic_needs_overview(vrt_path):
         return None
 
     from app.processing.raster.cog import _is_float_dtype
