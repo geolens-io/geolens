@@ -1368,7 +1368,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection and accepting a held run
     # by the door it came through, which records the capability it admitted under.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1385,
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1398,
     # Config planning, signed dry runs, application and the embedding column
     # rebuild an applied width needs share one import workflow.
     "backend/app/platform/config_ops/service.py": 1465,
@@ -1413,10 +1413,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/admin/service.py": 1057,
     # Ingest admission, staging, job settlement and table registration share one
     # orchestration boundary.
-    "backend/app/processing/ingest/service.py": 1559,
+    "backend/app/processing/ingest/service.py": 1585,
     # The PostGIS strategy: geometry and gid repair, the snapshot measurement and
     # its catalog writes.
-    "backend/app/processing/ingest/tasks_postgis_refresh.py": 696,
+    "backend/app/processing/ingest/tasks_postgis_refresh.py": 700,
     # Dataset request and verification response families share this public contract.
     "backend/app/modules/catalog/datasets/domain/schemas.py": 2025,
     # Records, datasets and their grant, translation and attribute children map

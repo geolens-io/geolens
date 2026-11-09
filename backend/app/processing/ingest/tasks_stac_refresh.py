@@ -37,7 +37,9 @@ from app.core.service_tokens import (
 from app.core.db.tenant_session import tenant_task
 from app.platform.dataset_origin import (
     BoundPointer,
+    StacSource,
     bound_pointer,
+    read_source,
     set_dataset_origin,
 )
 from app.platform.refresh.credentials import (
@@ -192,10 +194,8 @@ _CRS_UNIDENTIFIED_MESSAGE = (
 )
 
 
-def _stac_pointers(
-    origin_ref: dict | None,
-) -> tuple[str, str | None, str | None, str | None, str | None, str | None]:
-    """``(item_href, item_id, collection_id, asset_href, asset_key, url)``.
+def _stac_source(origin_ref: Any) -> StacSource:
+    """The stored STAC binding this refresh re-resolves.
 
     Raises when there is no ``item_href``: only the item document can answer
     where an asset moved to (the asset href answers a different question). A
@@ -204,23 +204,15 @@ def _stac_pointers(
     the worker's own copy of that refusal, since the binding could have
     changed since.
     """
-    ref = origin_ref or {}
-    item_href = ref.get("item_href")
-    if not item_href:
+    source = read_source("stac", origin_ref)
+    if not isinstance(source, StacSource):
         raise StacRefreshError(
             "This dataset's source binding does not record the STAC item its "
             "asset was published in, so there is nothing to re-resolve "
             "against. Re-import it from the catalog to record one.",
             error_code=_ERROR_CODE_GENERIC,
         )
-    return (
-        item_href,
-        ref.get("item_id"),
-        ref.get("collection_id"),
-        ref.get("asset_href"),
-        ref.get("asset_key"),
-        ref.get("url"),
-    )
+    return source
 
 
 def _failure_for(resolution: Any) -> StacRefreshError:
@@ -535,14 +527,14 @@ class _StacRefresh:
     async def fetch(self) -> None:
         from app.platform.extensions import get_processing_port
 
-        (
-            self.item_href,
-            self.item_id,
-            self.collection_id,
-            self.asset_href,
-            self.asset_key,
-            self.catalog_url,
-        ) = _stac_pointers(self.bound.origin_ref)
+        source = _stac_source(self.bound.origin_ref)
+        self.item_href = source.item_href
+        self.item_id = source.item_id
+        self.collection_id = source.collection_id
+        self.asset_href = source.asset_href
+        self.asset_key = source.asset_key
+        self.catalog_url = source.catalog_url
+        self.marked_before = source.auth_required
         # Redeemed after the claim, so a delivery that loses it spends nothing.
         self.credential = _claimed_credential(
             await resolve_worker_credential(None, self.credential_ref)
@@ -608,14 +600,13 @@ class _StacRefresh:
         # True or None, never False: the origin_ref allowlist drops a None
         # key, which is how "no credential was used" is spelled.
         auth_required = True if self.credential is not None else None
-        marked_before = (dataset.origin_ref or {}).get("auth_required") is True
         if (
             moved
             or resolution.item_href != self.item_href
             or resolution.item_id != self.item_id
             or resolution.asset_key != self.asset_key
             or learned_collection != self.collection_id
-            or marked_before != (auth_required is True)
+            or self.marked_before != (auth_required is True)
         ):
             _rebind(
                 dataset,

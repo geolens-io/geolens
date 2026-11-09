@@ -1,4 +1,5 @@
-"""The source binding's "same stored pointer" seam: ``bound_pointer`` and ``still_bound``."""
+"""The source binding's seams: the "same stored pointer" check (``bound_pointer``
+and ``still_bound``) and the typed read of each kind (``read_source``)."""
 
 from __future__ import annotations
 
@@ -9,10 +10,17 @@ import pytest
 from sqlalchemy import update
 
 import app.core.db as db_module
+from app.modules.catalog.datasets.api.router_refresh import _SERVICE_TYPE_LABELS
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.platform.dataset_origin import (
+    SERVICE_SOURCE_FORMATS,
     BoundPointer,
+    PostgisSource,
+    ServiceSource,
+    StacSource,
+    Unavailable,
     bound_pointer,
+    read_source,
     set_dataset_origin,
     set_postgis_origin,
     still_bound,
@@ -127,3 +135,171 @@ class TestStillBound:
 
         assert await _stamp(registered.id, bound_pointer(registered)) == 1
         assert await _stamp(drawn.id, bound_pointer(drawn)) == 1
+
+
+_SERVICE = {
+    "kind": "service",
+    "service_type": "wfs",
+    "url": "https://maps.example.org/wfs",
+    "layer_id": "topp:parcels",
+}
+_STAC = {
+    "kind": "stac",
+    "item_href": "https://stac.example.org/collections/dem/items/tile-1",
+    "item_id": "tile-1",
+    "collection_id": "dem",
+    "asset_href": "https://data.example.org/tile-1.tif",
+    "asset_key": "data",
+    "url": "https://stac.example.org",
+}
+_POSTGIS = {"kind": "postgis", "table_name": "data.parcels"}
+
+
+def _without(ref: dict, key: str) -> dict:
+    return {k: v for k, v in ref.items() if k != key}
+
+
+@pytest.mark.parametrize(
+    ("kind", "ref", "expected"),
+    [
+        (
+            "service",
+            _SERVICE,
+            ServiceSource(
+                service_type="wfs",
+                url="https://maps.example.org/wfs",
+                layer_id="topp:parcels",
+                auth_required=False,
+            ),
+        ),
+        (
+            "service",
+            {**_SERVICE, "auth_required": True},
+            ServiceSource(
+                service_type="wfs",
+                url="https://maps.example.org/wfs",
+                layer_id="topp:parcels",
+                auth_required=True,
+            ),
+        ),
+        (
+            "service",
+            {**_SERVICE, "service_type": "arcgis_featureserver", "layer_id": 3},
+            ServiceSource(
+                service_type="arcgis_featureserver",
+                url="https://maps.example.org/wfs",
+                layer_id="3",
+                auth_required=False,
+            ),
+        ),
+        (
+            "stac",
+            _STAC,
+            StacSource(
+                item_href="https://stac.example.org/collections/dem/items/tile-1",
+                item_id="tile-1",
+                collection_id="dem",
+                asset_href="https://data.example.org/tile-1.tif",
+                asset_key="data",
+                catalog_url="https://stac.example.org",
+                auth_required=False,
+            ),
+        ),
+        (
+            "stac",
+            {"kind": "stac", "item_href": "https://stac.example.org/i"},
+            StacSource(
+                item_href="https://stac.example.org/i",
+                item_id=None,
+                collection_id=None,
+                asset_href=None,
+                asset_key=None,
+                catalog_url=None,
+                auth_required=False,
+            ),
+        ),
+        ("postgis", _POSTGIS, PostgisSource(table_name="data.parcels", managed=False)),
+        (
+            "postgis",
+            {**_POSTGIS, "managed": True},
+            PostgisSource(table_name="data.parcels", managed=True),
+        ),
+    ],
+    ids=[
+        "service",
+        "service-marked",
+        "service-int-layer",
+        "stac",
+        "stac-item-only",
+        "postgis",
+        "postgis-managed",
+    ],
+)
+def test_a_complete_binding_reads_as_its_kind(kind, ref, expected) -> None:
+    assert read_source(kind, ref) == expected
+
+
+@pytest.mark.parametrize(
+    ("kind", "ref", "missing"),
+    [
+        ("service", None, "service_type"),
+        ("service", _without(_SERVICE, "service_type"), "service_type"),
+        ("service", {**_SERVICE, "service_type": "wms"}, "service_type"),
+        ("service", {**_SERVICE, "service_type": ["wfs"]}, "service_type"),
+        ("service", _without(_SERVICE, "url"), "url"),
+        ("service", {**_SERVICE, "url": ""}, "url"),
+        ("service", {**_SERVICE, "url": 7}, "url"),
+        ("service", _without(_SERVICE, "layer_id"), "layer_id"),
+        ("service", {**_SERVICE, "layer_id": True}, "layer_id"),
+        ("service", {**_SERVICE, "layer_id": ["a"]}, "layer_id"),
+        # Refresh reports a missing base before a missing layer.
+        ("service", {"service_type": "wfs"}, "url"),
+        ("stac", "not-a-ref", "item_href"),
+        ("stac", _without(_STAC, "item_href"), "item_href"),
+        ("stac", {**_STAC, "item_href": ""}, "item_href"),
+        ("stac", {**_STAC, "item_href": {"href": "x"}}, "item_href"),
+        ("postgis", {}, "table_name"),
+        ("postgis", {"table_name": ""}, "table_name"),
+        ("postgis", {"table_name": 12}, "table_name"),
+    ],
+)
+def test_an_incomplete_binding_names_the_first_missing_key(kind, ref, missing) -> None:
+    assert read_source(kind, ref) == Unavailable(kind=kind, missing=missing)
+
+
+@pytest.mark.parametrize("kind", [None, "upload", "created"])
+def test_a_kind_with_no_source_to_reread_reads_as_none(kind) -> None:
+    ref = {"kind": "upload", "filename": "parcels.gpkg", "url": "https://x.example"}
+    assert read_source(kind, ref) is None
+
+
+def test_an_unknown_kind_is_refused_rather_than_read() -> None:
+    with pytest.raises(ValueError, match="unknown origin kind 'database'"):
+        read_source("database", {"kind": "database", "table": "parcels"})
+
+
+@pytest.mark.parametrize("stored", ["yes", 1, "true", None, False])
+def test_only_a_stored_true_marks_a_credentialed_pull(stored) -> None:
+    service = read_source("service", {**_SERVICE, "auth_required": stored})
+    stac = read_source("stac", {**_STAC, "auth_required": stored})
+    managed = read_source("postgis", {**_POSTGIS, "managed": stored})
+    assert isinstance(service, ServiceSource) and not service.auth_required
+    assert isinstance(stac, StacSource) and not stac.auth_required
+    assert isinstance(managed, PostgisSource) and not managed.managed
+
+
+def test_wrong_typed_optional_stac_keys_read_as_absent() -> None:
+    source = read_source(
+        "stac", {**_STAC, "item_id": 5, "collection_id": [], "url": {"a": 1}}
+    )
+    assert isinstance(source, StacSource)
+    assert (source.item_id, source.collection_id, source.catalog_url) == (
+        None,
+        None,
+        None,
+    )
+
+
+def test_every_service_format_has_a_refresh_label() -> None:
+    """The refresh door looks a read service type up by key."""
+    assert set(_SERVICE_TYPE_LABELS) == SERVICE_SOURCE_FORMATS

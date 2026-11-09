@@ -1372,6 +1372,23 @@ def _assert_commit_credential_dispatchable(
         refuse_without_credential_store(door="import", operation="import")
 
 
+def _ingest_route(job: IngestJob) -> str | None:
+    """The ingest task a committed job runs as, or ``None`` when none here does.
+
+    A staged file runs as its ``file_type``; a vector file carries none.
+    """
+    if job.source_url and not job.file_path:
+        return "service"
+    if not job.file_path:
+        return None
+    file_type = (job.user_metadata or {}).get("file_type")
+    if file_type is None:
+        return "vector"
+    if file_type in ("raster", TILESET_FILE_TYPE, POINTCLOUD_FILE_TYPE):
+        return file_type
+    return None
+
+
 async def queue_ingest_job(
     job: IngestJob,
     user_id: str,
@@ -1384,15 +1401,17 @@ async def queue_ingest_job(
 
     Chooses between ``ingest_service`` (source_url set), ``ingest_raster``
     (file_type=raster), ``ingest_tileset`` (file_type=tiles3d),
-    ``ingest_pointcloud`` (file_type=pointcloud) and ``ingest_file`` (default
-    vector path), and sends small vector files to the priority queue.
+    ``ingest_pointcloud`` (file_type=pointcloud) and ``ingest_file`` (a
+    vector file, no file_type), and sends small vector files to the priority
+    queue.
 
     Each ``defer_async`` call is wrapped in ``defer_with_orphan_guard`` so a
     queue outage flips the committed pending job to ``failed`` and surfaces
     HTTP 503.
 
-    Raises ``HTTPException 400`` when the job has no file_path and no
-    source_url. Raises ``HTTPException 503`` when Procrastinate is
+    Raises ``HTTPException 400``, with the job failed, when it is neither a
+    service import nor a staged file of a known type. Raises
+    ``HTTPException 503`` when Procrastinate is
     unreachable, or when a service token cannot be staged because the
     credential store is not configured or cannot be reached (see
     ``resolve_dispatch_credential``).
@@ -1428,7 +1447,20 @@ async def queue_ingest_job(
         ingest_tileset,
     )
 
-    if job.source_url and not job.file_path:
+    route = _ingest_route(job)
+    if route is None:
+        refusal = HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Job is not a file or service import, so it cannot be queued",
+        )
+        # The job row is already committed; a bare raise would strand it.
+        await make_ingest_job_failed_rollback(
+            job, message_prefix="Job is not a file or service import"
+        )(refusal)
+        await db.commit()
+        raise refusal
+
+    if route == "service":
         # Capture source_url into a local so mypy preserves the ``str``
         # narrowing inside the nested closure.
         source_url = job.source_url
@@ -1497,18 +1529,12 @@ async def queue_ingest_job(
         )
         return
 
-    if not job.file_path:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Job has no file_path and no source_url — cannot queue ingest",
-        )
     file_path = job.file_path
-
     whole_file_task = {
         "raster": ingest_raster,
         TILESET_FILE_TYPE: ingest_tileset,
         POINTCLOUD_FILE_TYPE: ingest_pointcloud,
-    }.get((job.user_metadata or {}).get("file_type"))
+    }.get(route)
     if whole_file_task is not None:
 
         async def _defer_whole_file() -> None:

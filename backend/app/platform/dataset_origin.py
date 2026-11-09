@@ -13,6 +13,8 @@ domain, the ingest tasks, and the API response boundary.
   raises) and gate 2 (no external PostGIS federation — ``postgis`` accepts
   only ``table_name``). Widening the JSON blob alone can't add federation;
   it needs a new kind here.
+- ``read_source`` is the typed read of a stored binding: what a refresh or
+  probe of each kind can use, or which key it lacks.
 - ``bound_pointer`` and ``still_bound`` answer "is the dataset still bound to
   what I read?": a snapshot of the stored binding, and the SQL predicate a
   guarded write runs under so it lands only while that snapshot still holds.
@@ -29,6 +31,7 @@ Dataset ORM instance.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Literal, NamedTuple
 
 from sqlalchemy import and_
@@ -324,6 +327,123 @@ def service_auth_required(origin_ref: Any) -> bool:
     if not isinstance(origin_ref, dict):
         return False
     return origin_ref.get("auth_required") is True
+
+
+@dataclass(frozen=True)
+class ServiceSource:
+    """A service binding complete enough to re-pull one layer."""
+
+    service_type: str
+    url: str
+    layer_id: str
+    auth_required: bool
+
+
+@dataclass(frozen=True)
+class StacSource:
+    """A STAC binding that names the item document to re-resolve.
+
+    ``catalog_url`` is the stored ``url`` key: the catalog root the caller
+    submitted at import.
+    """
+
+    item_href: str
+    item_id: str | None
+    collection_id: str | None
+    asset_href: str | None
+    asset_key: str | None
+    catalog_url: str | None
+    auth_required: bool
+
+
+@dataclass(frozen=True)
+class PostgisSource:
+    """A registered table's binding: its schema-qualified name."""
+
+    table_name: str
+    managed: bool
+
+
+@dataclass(frozen=True)
+class Unavailable:
+    """A binding of ``kind`` that lacks ``missing``, or holds it unusably."""
+
+    kind: str
+    missing: str
+
+
+def _stored_text(ref: dict[str, Any], key: str) -> str | None:
+    value = ref.get(key)
+    return value if isinstance(value, str) else None
+
+
+def _read_service(ref: dict[str, Any]) -> ServiceSource | Unavailable:
+    service_type = _stored_text(ref, "service_type")
+    if service_type not in SERVICE_SOURCE_FORMATS:
+        return Unavailable("service", "service_type")
+    url = _stored_text(ref, "url")
+    if not url:
+        return Unavailable("service", "url")
+    layer_id = ref.get("layer_id")
+    if isinstance(layer_id, int) and not isinstance(layer_id, bool):
+        layer_id = str(layer_id)
+    if not isinstance(layer_id, str):
+        return Unavailable("service", "layer_id")
+    return ServiceSource(
+        service_type=service_type,
+        url=url,
+        layer_id=layer_id,
+        auth_required=service_auth_required(ref),
+    )
+
+
+def _read_stac(ref: dict[str, Any]) -> StacSource | Unavailable:
+    item_href = _stored_text(ref, "item_href")
+    if not item_href:
+        return Unavailable("stac", "item_href")
+    return StacSource(
+        item_href=item_href,
+        item_id=_stored_text(ref, "item_id"),
+        collection_id=_stored_text(ref, "collection_id"),
+        asset_href=_stored_text(ref, "asset_href"),
+        asset_key=_stored_text(ref, "asset_key"),
+        catalog_url=_stored_text(ref, "url"),
+        auth_required=service_auth_required(ref),
+    )
+
+
+def _read_postgis(ref: dict[str, Any]) -> PostgisSource | Unavailable:
+    table_name = _stored_text(ref, "table_name")
+    if not table_name:
+        return Unavailable("postgis", "table_name")
+    return PostgisSource(table_name=table_name, managed=ref.get("managed") is True)
+
+
+def read_source(
+    kind: str | None, origin_ref: Any
+) -> ServiceSource | StacSource | PostgisSource | Unavailable | None:
+    """The stored binding of an origin ``kind``, typed, or the key it lacks.
+
+    ``None`` for a kind with no source to read again (an upload, a drawn
+    layer, an originless record). Keys are checked in the order a refresh
+    reports them, so ``Unavailable.missing`` names the first gap. A value of
+    the wrong type counts as missing, and ``auth_required`` holds only for a
+    stored ``True``. Never raises HTTP; callers map ``Unavailable`` to their
+    own refusals. Raises ``ValueError`` for a kind outside ``ORIGIN_KINDS``,
+    so a new kind cannot pass through a reader written before it.
+    """
+    if kind is not None and kind not in ORIGIN_KINDS:
+        raise ValueError(
+            f"unknown origin kind {kind!r}; expected one of {sorted(ORIGIN_KINDS)}"
+        )
+    ref = origin_ref if isinstance(origin_ref, dict) else {}
+    if kind == "service":
+        return _read_service(ref)
+    if kind == "stac":
+        return _read_stac(ref)
+    if kind == "postgis":
+        return _read_postgis(ref)
+    return None
 
 
 def service_layer_identity(
