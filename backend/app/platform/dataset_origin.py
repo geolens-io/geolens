@@ -361,7 +361,6 @@ class PostgisSource:
     """A registered table's binding: its schema-qualified name."""
 
     table_name: str
-    managed: bool
 
 
 @dataclass(frozen=True)
@@ -416,7 +415,7 @@ def _read_postgis(ref: dict[str, Any]) -> PostgisSource | Unavailable:
     table_name = _stored_text(ref, "table_name")
     if not table_name:
         return Unavailable("postgis", "table_name")
-    return PostgisSource(table_name=table_name, managed=ref.get("managed") is True)
+    return PostgisSource(table_name=table_name)
 
 
 def read_source(

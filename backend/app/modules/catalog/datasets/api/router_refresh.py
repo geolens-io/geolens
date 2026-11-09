@@ -197,12 +197,16 @@ def _service_origin_unavailable(source: Unavailable) -> HTTPException:
             "cannot re-pull it without being told where from. "
             "Re-import the layer through the service import flow."
         )
+    return _origin_unavailable("service", message)
+
+
+def _origin_unavailable(origin_kind: str, message: str) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_409_CONFLICT,
         detail={
             "code": "origin_unavailable",
             "message": message,
-            "origin_kind": "service",
+            "origin_kind": origin_kind,
         },
     )
 
@@ -437,17 +441,11 @@ def _resolve_postgis_origin(dataset) -> _PostgisOrigin:
         )
     source = read_source("postgis", dataset.origin_ref)
     if not isinstance(source, PostgisSource):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "origin_unavailable",
-                "message": (
-                    "This dataset's source binding does not record which "
-                    "table it was registered from, so GeoLens cannot tell "
-                    "what to re-measure. Register the table again."
-                ),
-                "origin_kind": "postgis",
-            },
+        raise _origin_unavailable(
+            "postgis",
+            "This dataset's source binding does not record which "
+            "table it was registered from, so GeoLens cannot tell "
+            "what to re-measure. Register the table again.",
         )
     return _PostgisOrigin(table_name=source.table_name)
 
@@ -643,18 +641,12 @@ def _resolve_stac_origin(dataset) -> _StacOrigin:
         )
     source = read_source("stac", dataset.origin_ref)
     if not isinstance(source, StacSource):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "origin_unavailable",
-                "message": (
-                    "This dataset's source binding does not record the STAC "
-                    "item its asset was published in, so GeoLens cannot ask "
-                    "the catalog where that asset is now. Re-import it from "
-                    "the STAC catalog to record one."
-                ),
-                "origin_kind": "stac",
-            },
+        raise _origin_unavailable(
+            "stac",
+            "This dataset's source binding does not record the STAC "
+            "item its asset was published in, so GeoLens cannot ask "
+            "the catalog where that asset is now. Re-import it from "
+            "the STAC catalog to record one.",
         )
     if not states_verifiable_identity(
         item_href=source.item_href,
@@ -668,19 +660,13 @@ def _resolve_stac_origin(dataset) -> _StacOrigin:
         # publisher's answer against, and an unverified first answer would be
         # adopted AND recorded as durable truth. Re-importing records the
         # identity.
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "origin_unavailable",
-                "message": (
-                    "GeoLens cannot tell this dataset's STAC item from "
-                    "another one its stored URL might serve: the binding "
-                    "predates item-identity tracking and the catalog's item "
-                    "URLs carry no identity of their own. Re-import it from "
-                    "the STAC catalog to record one."
-                ),
-                "origin_kind": "stac",
-            },
+        raise _origin_unavailable(
+            "stac",
+            "GeoLens cannot tell this dataset's STAC item from "
+            "another one its stored URL might serve: the binding "
+            "predates item-identity tracking and the catalog's item "
+            "URLs carry no identity of their own. Re-import it from "
+            "the STAC catalog to record one.",
         )
     return _StacOrigin(
         item_href=source.item_href,
@@ -728,18 +714,12 @@ async def _dispatch_stac_refresh(
     # era name where the credential goes.
     catalog_url = candidate.catalog_url
     if token and not catalog_url:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "origin_unavailable",
-                "message": (
-                    "This dataset's source binding does not record which STAC "
-                    "catalog it was imported from, so GeoLens cannot tell "
-                    "which host the credential belongs to. Re-import it from "
-                    "the catalog, or refresh it without a credential."
-                ),
-                "origin_kind": "stac",
-            },
+        raise _origin_unavailable(
+            "stac",
+            "This dataset's source binding does not record which STAC "
+            "catalog it was imported from, so GeoLens cannot tell "
+            "which host the credential belongs to. Re-import it from "
+            "the catalog, or refresh it without a credential.",
         )
     credential_over_http_or_422(catalog_url, token)
 

@@ -218,12 +218,7 @@ def _without(ref: dict, key: str) -> dict:
                 auth_required=False,
             ),
         ),
-        ("postgis", _POSTGIS, PostgisSource(table_name="data.parcels", managed=False)),
-        (
-            "postgis",
-            {**_POSTGIS, "managed": True},
-            PostgisSource(table_name="data.parcels", managed=True),
-        ),
+        ("postgis", _POSTGIS, PostgisSource(table_name="data.parcels")),
     ],
     ids=[
         "service",
@@ -232,7 +227,6 @@ def _without(ref: dict, key: str) -> dict:
         "stac",
         "stac-item-only",
         "postgis",
-        "postgis-managed",
     ],
 )
 def test_a_complete_binding_reads_as_its_kind(kind, ref, expected) -> None:
@@ -282,10 +276,8 @@ def test_an_unknown_kind_is_refused_rather_than_read() -> None:
 def test_only_a_stored_true_marks_a_credentialed_pull(stored) -> None:
     service = read_source("service", {**_SERVICE, "auth_required": stored})
     stac = read_source("stac", {**_STAC, "auth_required": stored})
-    managed = read_source("postgis", {**_POSTGIS, "managed": stored})
     assert isinstance(service, ServiceSource) and not service.auth_required
     assert isinstance(stac, StacSource) and not stac.auth_required
-    assert isinstance(managed, PostgisSource) and not managed.managed
 
 
 def test_wrong_typed_optional_stac_keys_read_as_absent() -> None:
