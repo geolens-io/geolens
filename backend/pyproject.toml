@@ -90,7 +90,7 @@ dev = [
     "fakeredis[lua]>=2.37.0",
     "pystac>=1.15.2",
     # test_cli_round_trip drives the CLI through typer's CliRunner.
-    "typer>=0.24.1,<0.25",
+    "typer>=0.25.0,<0.26.0",
 ]
 # CI's pre-commit job installs only this group.
 pre-commit = ["pre-commit"]
