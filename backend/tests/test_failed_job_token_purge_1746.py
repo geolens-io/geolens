@@ -26,7 +26,7 @@ from unittest.mock import patch
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import text
+from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.catalog.datasets.domain.models import Dataset, Record
@@ -445,6 +445,9 @@ class TestCleanupFailuresDoNotMaskTheOriginalException:
     ):
         admin_id = await get_user_id(test_db_session, "admin")
         table_name = f"ds_cleanup_{uuid.uuid4().hex[:12]}"
+        layer_url = (
+            f"https://services.example.com/{uuid.uuid4().hex[:8]}/FeatureServer/0"
+        )
         record = Record(
             title="Cleanup Failure Reupload",
             summary="Failed-job token purge fixture",
@@ -454,13 +457,14 @@ class TestCleanupFailuresDoNotMaskTheOriginalException:
         )
         test_db_session.add(record)
         await test_db_session.flush()
+        record_id = record.id
         dataset = Dataset(
             record_id=record.id,
             table_name=table_name,
             feature_count=1,
             source_format="arcgis_featureserver",
             source_filename="quakes",
-            source_url="https://services.example.com/svc/FeatureServer/0",
+            source_url=layer_url,
         )
         test_db_session.add(dataset)
         await test_db_session.commit()
@@ -470,7 +474,7 @@ class TestCleanupFailuresDoNotMaskTheOriginalException:
         job = IngestJob(
             dataset_id=dataset_id,
             source_filename="quakes",
-            source_url="https://services.example.com/svc/FeatureServer/0",
+            source_url=layer_url,
             source_layer="0",
             created_by=admin_id,
             status="pending",
@@ -550,6 +554,15 @@ class TestCleanupFailuresDoNotMaskTheOriginalException:
         finally:
             await _drop_queue(test_db_session, queue)
             await test_db_session.rollback()
+            # A dataset left bound to a layer is a copy that a later import of
+            # that layer by the same user would be refused for.
+            await test_db_session.execute(
+                delete(IngestJob).where(IngestJob.id == job_id)
+            )
+            await test_db_session.execute(
+                delete(Dataset).where(Dataset.id == dataset_id)
+            )
+            await test_db_session.execute(delete(Record).where(Record.id == record_id))
             await test_db_session.execute(
                 text(f'DROP TABLE IF EXISTS data."{table_name}" CASCADE')
             )

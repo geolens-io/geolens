@@ -288,7 +288,7 @@ async def test_service_worker_advances_ogr2ogr_progress_while_remote_import_is_r
 
     job = IngestJob(
         source_filename="Add_addressPoint",
-        source_url="https://example.test/arcgis/rest/services/Address/FeatureServer",
+        source_url=f"https://example.test/arcgis/rest/services/Address{_uuid.uuid4().hex[:8]}/FeatureServer",
         source_layer="0",
         created_by=admin_id,
         status="pending",
@@ -384,7 +384,7 @@ async def test_service_worker_advances_ogr2ogr_progress_while_remote_import_is_r
         tasks_vector.ingest_service.func(
             job_id=str(job_id),
             attempt_id=str(job.attempt_id),
-            source_url="https://example.test/arcgis/rest/services/Address/FeatureServer",
+            source_url=job.source_url,
             source_layer="0",
             user_id=str(admin_id),
         )
@@ -438,7 +438,7 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
 
     job = IngestJob(
         source_filename="Big ArcGIS Layer",
-        source_url="https://example.test/arcgis/rest/services/Big/FeatureServer",
+        source_url=f"https://example.test/arcgis/rest/services/Big{_uuid.uuid4().hex[:8]}/FeatureServer",
         source_layer="0",
         created_by=admin_id,
         status="pending",
@@ -561,7 +561,7 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
     await tasks_vector.ingest_service.func(
         job_id=str(job_id),
         attempt_id=str(job.attempt_id),
-        source_url="https://example.test/arcgis/rest/services/Big/FeatureServer",
+        source_url=job.source_url,
         source_layer="0",
         user_id=str(admin_id),
     )
@@ -633,7 +633,7 @@ async def test_service_worker_skips_arcgis_chunking_without_pagination_support(
 
     job = IngestJob(
         source_filename="Legacy ArcGIS Layer",
-        source_url="https://example.test/arcgis/rest/services/Legacy/FeatureServer",
+        source_url=f"https://example.test/arcgis/rest/services/Legacy{_uuid.uuid4().hex[:8]}/FeatureServer",
         source_layer="0",
         created_by=admin_id,
         status="pending",
@@ -746,7 +746,7 @@ async def test_service_worker_skips_arcgis_chunking_without_pagination_support(
     await tasks_vector.ingest_service.func(
         job_id=str(job_id),
         attempt_id=str(job.attempt_id),
-        source_url="https://example.test/arcgis/rest/services/Legacy/FeatureServer",
+        source_url=job.source_url,
         source_layer="0",
         user_id=str(admin_id),
     )
@@ -784,7 +784,10 @@ async def test_service_worker_single_fetch_orders_by_the_layers_own_oid_field(
 
     admin_id = await _get_admin_id(test_db_session)
     table_name = f"tbl_arcgis_fid_{_uuid.uuid4().hex[:8]}"
-    source_url = "https://example.test/arcgis/rest/services/Countries/FeatureServer"
+    source_url = (
+        f"https://example.test/arcgis/rest/services/Countries{_uuid.uuid4().hex[:8]}"
+        "/FeatureServer"
+    )
 
     job = IngestJob(
         source_filename="Countries",
@@ -910,7 +913,7 @@ async def test_service_worker_skips_arcgis_chunking_without_order_field(
 
     job = IngestJob(
         source_filename="Unordered ArcGIS Layer",
-        source_url="https://example.test/arcgis/rest/services/Unordered/FeatureServer",
+        source_url=f"https://example.test/arcgis/rest/services/Unordered{_uuid.uuid4().hex[:8]}/FeatureServer",
         source_layer="0",
         created_by=admin_id,
         status="pending",
@@ -1023,7 +1026,7 @@ async def test_service_worker_skips_arcgis_chunking_without_order_field(
     await tasks_vector.ingest_service.func(
         job_id=str(job_id),
         attempt_id=str(job.attempt_id),
-        source_url="https://example.test/arcgis/rest/services/Unordered/FeatureServer",
+        source_url=job.source_url,
         source_layer="0",
         user_id=str(admin_id),
     )
