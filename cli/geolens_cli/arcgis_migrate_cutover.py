@@ -269,17 +269,26 @@ def inventory_changes(
         return f"{unchecked}: {exc}"
     if isinstance(changed, str):
         return f"{unchecked}: {changed}"
-    skipped = {i["id"] for i in plan.get("items", []) if i["action"] == _plan.SKIP}
-    changed = [item_id for item_id in changed if item_id not in skipped]
-    if changed:
-        shown = ", ".join(changed[:CHANGED_SHOWN])
-        if len(changed) > CHANGED_SHOWN:
-            shown += f" and {len(changed) - CHANGED_SHOWN} more"
-        return (
-            f"portal items changed after the inventory was read {age} ago "
-            f"({shown}); run inventory and plan again"
-        )
-    return None
+    items = plan.get("items", [])
+    planned = {i["id"] for i in items if i["action"] != _plan.SKIP}
+    held = {i["id"] for i in items}
+    found = [
+        f"portal items changed after the inventory was read {age} ago "
+        f"({_shown([i for i in changed if i in planned])})",
+        "portal items the plan doesn't hold were created or changed after the "
+        f"inventory was read {age} ago ({_shown([i for i in changed if i not in held])})",
+    ]
+    found = [line for line in found if not line.endswith("()")]
+    if not found:
+        return None
+    return "; ".join(found) + "; run inventory and plan again to include them"
+
+
+def _shown(ids: list[str]) -> str:
+    shown = ", ".join(ids[:CHANGED_SHOWN])
+    if len(ids) > CHANGED_SHOWN:
+        shown += f" and {len(ids) - CHANGED_SHOWN} more"
+    return shown
 
 
 def _changed_since(client: PortalClient, org: str, since: float) -> list[str] | str:

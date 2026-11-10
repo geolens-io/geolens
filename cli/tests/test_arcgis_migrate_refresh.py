@@ -1907,7 +1907,12 @@ def test_the_freshness_check_ignores_items_the_plan_skips():
         ]
     )
     reason = cutover_mod.inventory_changes(client, plan, _NOW)
-    assert "(imported, brand-new)" in reason
+    assert reason == (
+        "portal items changed after the inventory was read 10 days ago (imported); "
+        "portal items the plan doesn't hold were created or changed after the "
+        "inventory was read 10 days ago (brand-new); run inventory and plan again "
+        "to include them"
+    )
     assert [p["start"] for path, p in client.asked if path == "search"] == [1, 2]
 
 
