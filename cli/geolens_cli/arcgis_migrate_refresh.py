@@ -41,12 +41,15 @@ from .arcgis_migrate_layers import (
     _layer_key,
     _layer_label,
     _send,
+    _title,
+    _titles,
     attachment_flags,
     importable_layers,
     relationship_records,
 )
 from .arcgis_migrate_session import GeoLensError, ItemFailed, MigrationContext
 from .arcgis_migrate_state import ItemState, aware_time, whole_number
+from .arcgis_plan import IMPORT_FILE
 from .refresh import (
     RefreshPollResult,
     _value,
@@ -652,14 +655,36 @@ def _bring_one(
             "changed in GeoLens while its refresh ran; it was left as it is",
         )
     record(entry, dataset_id, published)
+    base = entry.metadata_baseline.get(dataset_id)
+    if base is not None and "title" not in base and isinstance(dataset.title, str):
+        # Unchanged in GeoLens since this command last left it, so the title is
+        # this command's; a state from before titles were recorded adopts it.
+        base["title"] = dataset.title
     ctx.save()
-    apply_item_metadata(ctx, item, entry, [dataset_id])
+    apply_item_metadata(ctx, item, entry, [dataset_id], _dataset_titles(item, entry))
     after = get_dataset(ctx, dataset_id)
     if not _published_unchanged(ctx, after, marker):
         return "changed in GeoLens while its metadata was written; it was left as it is"
     record(entry, dataset_id, after)
     ctx.save()
     return None
+
+
+def _dataset_titles(item: Mapping[str, Any], entry: ItemState) -> dict[str, str]:
+    """Dataset -> the title an import of the item would give it now, for the
+    datasets the state records the layer of."""
+    base = item["target"]["title"] or item["title"]
+    if item["action"] == IMPORT_FILE:
+        many = JOB_KEY not in entry.layer_datasets
+        return {
+            dataset: _title(base, _layer_name(key) if many else None)
+            for key, dataset in entry.layer_datasets.items()
+        }
+    recorded = (entry.import_pass or {}).get("layers") or {}
+    if not recorded or set(recorded) != set(entry.layer_datasets):
+        return {}
+    titles = _titles(base, [(r["label"], r["layer_id"]) for r in recorded.values()])
+    return {entry.layer_datasets[key]: t for key, t in zip(recorded, titles)}
 
 
 def _apply_visibility(

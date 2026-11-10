@@ -183,10 +183,10 @@ class FakeImport:
         if job in self.committed:
             return (400, _problem(400, "Job already processed"))
         self.committed.add(job)
-        # The dataset the job makes takes the commit's visibility.
-        self.fields.setdefault(dataset_id(name), {})["visibility"] = seen.json()[
-            "visibility"
-        ]
+        # The dataset the job makes takes the commit's title and visibility.
+        self.fields.setdefault(dataset_id(name), {}).update(
+            {k: seen.json()[k] for k in ("title", "visibility") if k in seen.json()}
+        )
         return (202, {"job_id": job, "status": "pending", "message": "queued"})
 
     def job(self, job_id: str, name: str, error: str | None) -> dict:

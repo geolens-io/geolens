@@ -732,6 +732,42 @@ def test_a_summary_cleared_in_the_portal_is_cleared_unless_edited_in_geolens(
         assert entry["metadata_baseline"][PARCELS]["summary"] == ""
 
 
+def _set_title(plan_file: Path, item_id: str, title: str) -> None:
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == item_id:
+            item["title"] = item["target"]["title"] = title
+    plan_file.write_text(json.dumps(plan))
+
+
+@pytest.mark.parametrize("edited", [False, True])
+def test_a_portal_rename_retitles_the_dataset_unless_edited_in_geolens(
+    runner, plan_file, geolens, edited
+):
+    service = _migrated(runner, plan_file, geolens)
+    FakeRefresh(geolens, service).allow(PARCELS)
+    first = service.fields[PARCELS]["title"]
+    # The rerun that records the title this command left.
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    if edited:
+        service.fields[PARCELS]["title"] = "Named in GeoLens"
+    _set_title(plan_file, A2, "Parcels renamed")
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    entry = _state(plan_file)["items"][A2]
+    if edited:
+        assert service.fields[PARCELS]["title"] == "Named in GeoLens"
+        assert f"kept the title edited in GeoLens on dataset {PARCELS}" in (
+            entry["notes"]
+        )
+        assert entry["metadata_baseline"][PARCELS]["title"] == first
+    else:
+        assert service.fields[PARCELS]["title"] == "Parcels renamed"
+        assert entry["metadata_baseline"][PARCELS]["title"] == "Parcels renamed"
+
+
 def _set_visibility(plan_file: Path, item_id: str, visibility: str) -> None:
     plan = json.loads(plan_file.read_text())
     for item in plan["items"]:
@@ -851,11 +887,18 @@ def test_a_data_file_is_downloaded_again_and_replaced(
             },
         }
     )
+    _set_title(plan_file, D3, "Inspections renamed")
+    before = len(geolens.seen)
 
     result, payload = _migrate(runner, plan_file, "--only", D3)
 
     assert result.exit_code == 0, result.output
     assert payload["refreshed"] == [D3] and payload["not_up_to_date"] == {}
+    assert [
+        s.json()["title"]
+        for s in geolens.seen[before:]
+        if s.method == "PATCH" and "title" in s.json()
+    ] == ["Inspections renamed"]
     assert len(portal.requests_to(item_data_path(D3))) == 2
     [body] = sent["upload"]
     assert files.CSV in body
