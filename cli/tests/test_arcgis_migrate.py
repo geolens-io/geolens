@@ -1234,14 +1234,17 @@ def test_each_accept_flag_lifts_only_its_own_check(runner, tmp_path, geolens, ha
     )
 
     assert result.exit_code == 1
-    assert payload["cutover"]["accepted"] == ["unresolved-users"]
-    # A v1 plan records no inventory scope.
+    # A v1 plan records no inventory scope, which refuses before the run that
+    # leaves the item waiting for its owner.
     assert payload["cutover"]["refused"] == ["incomplete-inventory"]
+    assert payload["cutover"]["accepted"] == [] and handled == []
 
     result, payload = _run(
         runner,
         tmp_path,
         plan,
+        "--unmapped-owner",
+        "operator",
         "--cutover",
         "--accept-incomplete-inventory",
         "--accept-unfinished-items",
@@ -1302,7 +1305,13 @@ def test_cutover_refuses_an_item_still_waiting_for_its_owner(
     plan = _plan([_item(L1)], owner_map={"agol_alice": "newbie"})
 
     result, payload = _run(
-        runner, tmp_path, plan, "--unmapped-owner", "operator", "--cutover"
+        runner,
+        tmp_path,
+        plan,
+        "--unmapped-owner",
+        "operator",
+        "--cutover",
+        "--accept-incomplete-inventory",
     )
 
     assert result.exit_code == 1
@@ -1727,7 +1736,11 @@ def test_an_object_transferred_in_geolens_keeps_its_owner_after_an_arcgis_change
     objects[object_id] = {"created_by": VIC, "updated_at": "2026-10-08T00:00:00Z"}
 
     result, payload = _run(
-        runner, tmp_path, _plan([_moved_to_bob(item)], BOB_OWNERS), "--cutover"
+        runner,
+        tmp_path,
+        _plan([_moved_to_bob(item)], BOB_OWNERS),
+        "--cutover",
+        "--accept-incomplete-inventory",
     )
 
     assert result.exit_code == 1

@@ -57,7 +57,12 @@ from .arcgis_migrate_export import (
     refresh_export,
     write_index,
 )
-from .arcgis_migrate_cutover import current, failing_checks, inventory_changes
+from .arcgis_migrate_cutover import (
+    current,
+    failing_checks,
+    inventory_changes,
+    refused_before_run,
+)
 from .arcgis_migrate_groups import (
     GroupPlan,
     NO_GROUP,
@@ -1971,6 +1976,20 @@ def _run(
             fmt.error(str(exc))
             return _PORTAL_EXIT.get(exc.kind, EXIT_GENERIC)
         auth = PortalAuth(client, renewable=sign_in is not None)
+
+    if opts.cutover and not opts.dry_run:
+        early = refused_before_run(
+            plan,
+            owners.unresolved,
+            inventory_changes(
+                auth.client if auth else None, plan, datetime.now(tz=UTC)
+            ),
+            opts.accept,
+        )
+        if early is not None:
+            return _report(
+                fmt, opts, plan, state, [], owners, RunSummary(), redact, early, groups
+            )
 
     if opts.dry_run:
         # As the run does first, so the dry run shows the status it will leave.

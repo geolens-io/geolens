@@ -319,6 +319,27 @@ def _inventory(plan: Mapping[str, Any], changed: str | None) -> list[dict[str, s
     return [{"item": "-", "reason": changed}] if changed else []
 
 
+def refused_before_run(
+    plan: Mapping[str, Any],
+    unresolved: Sequence[Mapping[str, str]],
+    inventory_changed: str | None,
+    accept: Iterable[str],
+) -> dict[str, Any] | None:
+    """The cutover's refusal for what no run can change, checked before the
+    run starts: the portal changed since the inventory, or a plan owner who
+    can't be resolved. None unless one of those fails unaccepted."""
+    found = {
+        INVENTORY: _inventory(plan, inventory_changed),
+        USERS: [{"item": u["item"], "reason": u["reason"]} for u in unresolved],
+    }
+    checks = [{"check": name, "items": found[name]} for name in found if found[name]]
+    accepted = [c["check"] for c in checks if c["check"] in accept]
+    refused = [c["check"] for c in checks if c["check"] not in accept]
+    if not refused:
+        return None
+    return {"marked": False, "refused": refused, "accepted": accepted, "checks": checks}
+
+
 def failing_checks(
     plan: Mapping[str, Any],
     state: MigrationState,

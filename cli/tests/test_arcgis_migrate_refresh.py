@@ -1624,7 +1624,7 @@ def test_cutover_refuses_a_plan_not_merged_from_a_complete_org_inventory(
 
     assert result.exit_code == 1
     assert payload["cutover"]["refused"] == ["incomplete-inventory"]
-    assert _state(plan_file)["cutover"] is None
+    assert not (plan_file.parent / "arcgis-migration-state.json").exists()
 
     FakeRefresh(geolens, service).allow(PARCELS)
     result, payload = _migrate(
@@ -1833,6 +1833,36 @@ def test_a_portal_changed_since_the_inventory_refuses_cutover(
     # The search goes out with the run's credential, though no item needs it.
     [client] = seen
     assert client.token == token
+    assert not (plan_file.parent / "arcgis-migration-state.json").exists()
+
+
+@pytest.mark.parametrize("refusal", ["inventory", "owner"])
+def test_a_cutover_refused_for_what_no_run_changes_runs_nothing(
+    runner, plan_file, geolens, monkeypatch, refusal
+):
+    _edit_plan(plan_file, (A2,))
+    service = FakeImport(geolens, [_layer(0, "Parcels", has_attachments=False)])
+    _migrate(runner, plan_file)
+    refresh = FakeRefresh(geolens, service).allow(PARCELS)
+    if refusal == "inventory":
+        monkeypatch.setattr(
+            migrate_mod,
+            "inventory_changes",
+            lambda client, plan, now: "portal items changed after the inventory",
+        )
+        check = "incomplete-inventory"
+    else:
+        monkeypatch.setattr(migrate_mod, "inventory_changes", lambda *a: None)
+        plan = json.loads(plan_file.read_text())
+        plan["owner_map"] = {k: "ghost" for k in plan["owner_map"]}
+        plan_file.write_text(json.dumps(plan))
+        check = "unresolved-users"
+
+    result, payload = _migrate(runner, plan_file, "--cutover")
+
+    assert result.exit_code == 1
+    assert payload["cutover"]["refused"] == [check]
+    assert payload["refreshed"] == [] and refresh.bodies == []
     assert _state(plan_file)["cutover"] is None
 
 
