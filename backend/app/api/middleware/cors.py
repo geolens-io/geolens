@@ -42,6 +42,26 @@ _PUBLIC_SEARCH_PATHS: tuple[str, ...] = (
 _STANDARDS_PUBLIC_METHODS = "GET, HEAD, POST, OPTIONS"
 _SEARCH_PUBLIC_METHODS = "GET, OPTIONS"
 
+# Native reads an anonymous caller may make, with the one method each answers
+# them on. Each handler runs its Rule 1 read guard with anonymous as no roles
+# (public maps and stories, public published datasets), and the map and story
+# reads drop layers, scenes and DEMs the caller can't read, so the wildcard
+# returns only what the anonymous answer already holds. Enumerated by exact
+# path, ids as canonical UUIDs, so the write routes that share these paths
+# (``PUT /maps/{id}``, ``PATCH /stories/{id}``) and the other routes under
+# ``/maps``, ``/stories`` and ``/datasets`` stay outside it. Aggregate is a
+# POST only because its query is a JSON body; it reads, it writes nothing.
+_UUID = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+_PUBLIC_READ_PATHS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"/capabilities/?"), "GET, OPTIONS"),
+    (re.compile(r"/stories/?"), "GET, OPTIONS"),
+    (re.compile(rf"/stories/{_UUID}"), "GET, OPTIONS"),
+    (re.compile(rf"/maps/{_UUID}"), "GET, OPTIONS"),
+    (re.compile(rf"/maps/{_UUID}/style\.json"), "GET, OPTIONS"),
+    (re.compile(rf"/datasets/{_UUID}/rows/"), "GET, OPTIONS"),
+    (re.compile(rf"/datasets/{_UUID}/aggregate/"), "POST, OPTIONS"),
+)
+
 # A COPC or 3D Tiles file route checks read access before anything else it
 # answers, and passes an anonymous caller only for a public, published dataset.
 # ``_dispatch`` adds the wildcard only to the statuses those routes give after
@@ -211,8 +231,8 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
             if self._is_header_key_request(request):
                 return await self._answer_header_key(request, call_next)
 
-            # Standards discovery and anonymous catalog search are meant to
-            # be usable by anonymous browser clients by default. A wildcard
+            # Standards discovery, catalog search and the listed public reads
+            # are meant to be usable by anonymous browser clients. A wildcard
             # is safe here since credential-bearing requests are excluded
             # and Access-Control-Allow-Credentials is never emitted.
             allow_methods = self._anonymous_public_methods(request)
@@ -393,6 +413,13 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
                 return allow_methods
         return None
 
+    @staticmethod
+    def _public_read_methods(request_path: str) -> str | None:
+        for pattern, allow_methods in _PUBLIC_READ_PATHS:
+            if pattern.fullmatch(request_path):
+                return allow_methods
+        return None
+
     @classmethod
     def _anonymous_public_methods(
         cls, request: Request, *, ignore_header_key: bool = False
@@ -402,9 +429,9 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         ``None`` means the request doesn't qualify, falling through to
         the explicit-origin policy or no CORS headers. Each surface
         advertises only the methods its routes answer: standards routes
-        GET/HEAD, plus POST on ``/stac/search``; search GET; the asset
-        files their own set, with the range and conditional request headers
-        allowed in the preflight. Everything after the surface check is shared
+        GET/HEAD, plus POST on ``/stac/search``; search GET; each public
+        read its one method; the asset files their own set, with the range
+        and conditional request headers allowed in the preflight. Everything after the surface check is shared
         deliberately: the credential exclusion and safelisted-header
         check make a wildcard safe, and a new surface must not opt out.
         ``ignore_header_key`` lets an X-Api-Key through, for a request whose
@@ -422,6 +449,9 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         elif request_path in _PUBLIC_SEARCH_PATHS:
             allow_methods = _SEARCH_PUBLIC_METHODS
             permitted = {"GET"}
+        elif (read_methods := cls._public_read_methods(request_path)) is not None:
+            allow_methods = read_methods
+            permitted = {m.strip() for m in read_methods.split(",")} - {"OPTIONS"}
         elif asset_methods is not None:
             allow_methods = asset_methods
             permitted = {m.strip() for m in asset_methods.split(",")} - {"OPTIONS"}
