@@ -364,6 +364,10 @@ _MAX_RASTER_MAXZOOM = 22
 # spiking the DEM boundary; -9999 is below any real terrain.
 _DEM_DEFAULT_NODATA = "-9999"
 
+# Titiler's nearest default repeats rows and columns when the source grid isn't
+# an integer multiple of the tile grid; a hillshade draws each repeat as a stripe.
+_DEM_RESAMPLING_PARAMS = "resampling=bilinear&reproject=bilinear"
+
 
 def _dem_nodata_param(recorded_nodata: str | None) -> str | None:
     """Resolve the Titiler ``nodata=`` value for a DEM terrainrgb tile.
@@ -1094,7 +1098,7 @@ async def raster_auth_check(
         # DEM terrain: terrainrgb with no rescale, which encodes raw elevation
         # into RGB. The nodata is masked so fill pixels in edge tiles are
         # transparent rather than an extreme elevation.
-        render_params = "algorithm=terrainrgb"
+        render_params = f"algorithm=terrainrgb&{_DEM_RESAMPLING_PARAMS}"
         nodata_param = _dem_nodata_param(meta.nodata)
         if nodata_param is not None:
             render_params = f"{render_params}&nodata={nodata_param}"

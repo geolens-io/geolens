@@ -7,6 +7,9 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+- Terrain-RGB tiles of a DEM are read with bilinear resampling for both overview reads and reprojection, where Titiler's nearest default repeated rows and columns and drew stripes under a hillshade. Categorical and photographic rasters are unchanged. Tiles already cached for a DEM are replaced within an hour.
+
 ## [1.31.0] - 2026-11-10
 
 An instance on 1.30.1 moves to 1.31.0 with one additive migration (0103,

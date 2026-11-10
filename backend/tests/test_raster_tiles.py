@@ -670,6 +670,37 @@ class TestDemTerrainNodataAuthCheck:
         assert "algorithm=terrainrgb" not in render_params
 
 
+class TestDemTerrainResamplingAuthCheck:
+    """Titiler reads elevation with nearest unless told otherwise, which repeats
+    rows and columns and shows as stripes under a hillshade."""
+
+    async def _render_params(self, client, session, **raster) -> list[str]:
+        admin_id = await _get_admin_id(session)
+        _, dataset, _ = await _create_raster_dataset(
+            session, created_by=admin_id, visibility="public", **raster
+        )
+        resp = await client.get(
+            "/tiles/raster-auth-check/", params={"dataset_id": str(dataset.id)}
+        )
+        assert resp.status_code == 200
+        return resp.headers["x-geolens-render-params"].split("&")
+
+    async def test_dem_decimates_and_warps_with_bilinear(
+        self, client: AsyncClient, test_db_session
+    ):
+        params = await self._render_params(
+            client, test_db_session, is_dem=True, nodata="-9999"
+        )
+        assert "resampling=bilinear" in params
+        assert "reproject=bilinear" in params
+
+    async def test_non_dem_raster_keeps_titiler_default_resampling(
+        self, client: AsyncClient, test_db_session
+    ):
+        params = await self._render_params(client, test_db_session, is_dem=False)
+        assert not [p for p in params if p.startswith(("resampling=", "reproject="))]
+
+
 class TestDefaultRescaleAuthCheck:
     """raster_auth_check flags float and single-band signed integer rasters whose
     default rescale is the data range."""
