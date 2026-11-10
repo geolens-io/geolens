@@ -488,39 +488,53 @@ def store_secret(account: str, value: str) -> str:
         log.warning("keyring_unavailable_falling_back_to_file", error=str(exc))
         _set_credential_field(account, _SECRET_FIELD, value)
         return "file"
-    # A copy written while the keyring was unavailable would be read first.
-    _delete_file_secret(account)
+    # A file copy is read first, so one that can't be removed is overwritten.
+    if not _delete_file_secret(account):
+        try:
+            _set_credential_field(account, _SECRET_FIELD, value)
+        except (CredentialsFileCorrupt, OSError) as exc:
+            log.warning("secret_file_cleanup_failed", error=str(exc))
     return "keyring"
 
 
-def load_secret(account: str) -> Optional[str]:
-    """The stored value for *account*, or None when there is none or neither
-    backend can be read."""
+def load_secrets(account: str) -> list[tuple[str, str]]:
+    """Each distinct stored value for *account* as (backend, value), the file
+    copy first; a backend that can't be read is skipped."""
+    found: list[tuple[str, str]] = []
     value = _read_credentials_section_tolerant(account).get(_SECRET_FIELD)
     if value:
-        return value
+        found.append(("file", value))
     try:
-        return keyring.get_password(SERVICE, account)
+        value = keyring.get_password(SERVICE, account)
     except KeyringError:
-        return None
+        value = None
+    if value and all(value != v for _, v in found):
+        found.append(("keyring", value))
+    return found
 
 
-def delete_secret(account: str) -> None:
-    """Best-effort delete of *account*'s value from both backends."""
-    try:
-        keyring.delete_password(SERVICE, account)
-    except (KeyringError, OSError):
-        pass
-    _delete_file_secret(account)
+def delete_secret(account: str, backend: Optional[str] = None) -> None:
+    """Best-effort delete of *account*'s value from *backend* ('file' or
+    'keyring'), or from both when it is None."""
+    if backend in (None, "keyring"):
+        try:
+            keyring.delete_password(SERVICE, account)
+        except (KeyringError, OSError):
+            pass
+    if backend in (None, "file"):
+        _delete_file_secret(account)
 
 
-def _delete_file_secret(account: str) -> None:
+def _delete_file_secret(account: str) -> bool:
+    """Remove *account*'s file section; False when one is left behind."""
     if not _read_credentials_section_tolerant(account):
-        return
+        return True
     try:
         _clear_credential_section(account)
     except (CredentialsFileCorrupt, OSError) as exc:
         log.warning("secret_file_cleanup_failed", error=str(exc))
+        return False
+    return True
 
 
 #: Field name for the "active credential kind" marker in credentials.toml; see

@@ -63,6 +63,10 @@ _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 _RETRYABLE_STATUSES = frozenset({429, 502, 503, 504})
 _TOKEN_REQUIRED = 499
 _TOKEN_INVALID = 498
+_OAUTH_REFUSALS = frozenset({400, 401, _TOKEN_INVALID, _TOKEN_REQUIRED})
+_OAUTH_REFUSAL_ERRORS = frozenset(
+    {"invalid_grant", "invalid_token", "invalid_client", "unauthorized_client"}
+)
 TOKEN_CHARS = re.compile(r"[\x21-\x7e]+")
 CLIENT_ID_CHARS = re.compile(r"[A-Za-z0-9._-]{1,128}")
 _CREDENTIAL_PARAM = re.compile(r"((?:token|password)=)[^&;#\s]+", re.IGNORECASE)
@@ -608,20 +612,34 @@ class PortalClient:
     def oauth_token(self, fields: Mapping[str, str]) -> Mapping[str, Any]:
         """POST *fields* to ``oauth2/token`` once and return the answer.
 
-        Never retried, since an authorization code is spent on first use. A
-        refusal raises ``PortalError`` of kind ``auth``; a network or server
-        failure keeps its own kind.
+        Never retried, since an authorization code is spent on first use. Only
+        an explicit refusal (HTTP or envelope code 400, 401, 498 or 499, or an
+        OAuth error such as ``invalid_grant``) raises ``PortalError`` of kind
+        ``auth``; a rate limit, network or server failure keeps its own kind,
+        and an answer without a token is ``invalid``.
         """
-        url = f"{self.root}/sharing/rest/oauth2/token"
+        path = "/sharing/rest/oauth2/token"
         try:
-            data = self._exchange("POST", url, {**fields, "f": "json"}, {}, attempts=1)
+            data = self._exchange(
+                "POST", f"{self.root}{path}", {**fields, "f": "json"}, {}, attempts=1
+            )
         except PortalError as exc:
-            if exc.kind not in ("auth", "refused"):
+            if exc.http_status not in _OAUTH_REFUSALS:
                 raise
             raise self._error(f"the portal refused the sign-in: {exc}", kind="auth")
-        if _envelope_code(data) is not None or "access_token" not in data:
-            detail = _envelope_message(data, self._redact) or "no token in the response"
-            raise self._error(f"the portal refused the sign-in: {detail}", kind="auth")
+        code = _envelope_code(data)
+        if code is not None:
+            error = data["error"]
+            if code in _OAUTH_REFUSALS or error.get("error") in _OAUTH_REFUSAL_ERRORS:
+                detail = _envelope_message(data, self._redact) or "no message"
+                raise self._error(
+                    f"the portal refused the sign-in: {detail}", kind="auth"
+                )
+            raise self._envelope_error(path, data, code)
+        if "access_token" not in data:
+            raise self._error(
+                "the portal's sign-in answer held no token", kind="invalid"
+            )
         return data
 
     def download(self, path: str, dest: Path, max_bytes: int | None) -> int:

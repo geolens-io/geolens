@@ -25,7 +25,9 @@ from . import analysis as _analysis
 from . import arcgis_inventory as _arcgis_inventory
 from . import arcgis_migrate as _arcgis_migrate
 from . import arcgis_migrate_cutover as _arcgis_cutover
+from . import arcgis_oauth as _arcgis_oauth
 from . import arcgis_plan as _arcgis_plan
+from . import arcgis_portal as _arcgis_portal
 from . import auth as _auth
 from . import config as _config
 from . import export_stac as _export_stac
@@ -2391,6 +2393,60 @@ def arcgis_migrate(
     )
     if code:
         raise typer.Exit(code)
+
+
+@arcgis_app.command("logout")
+def arcgis_logout(
+    ctx: typer.Context,
+    portal_url: Annotated[
+        str,
+        typer.Option(
+            "--portal-url",
+            help="The portal the sign-in was saved for, as passed to inventory "
+            "or in the plan's portal.url",
+        ),
+    ] = _arcgis_inventory.DEFAULT_PORTAL_URL,
+    client_id: Annotated[
+        Optional[str],
+        typer.Option(
+            "--client-id",
+            envvar="GEOLENS_ARCGIS_CLIENT_ID",
+            show_envvar=True,
+            help="The client ID the sign-in used",
+        ),
+    ] = None,
+) -> None:
+    """Forget the ArcGIS browser sign-in saved for a portal and client ID.
+
+    Deletes the refresh token from the OS keyring and credentials.toml, so the
+    next --client-id run signs in through the browser. Nothing is sent to the
+    portal.
+    """
+    state: AppState = ctx.obj
+    if not client_id:
+        state.output.error("pass --client-id or set GEOLENS_ARCGIS_CLIENT_ID")
+        raise typer.Exit(EXIT_USAGE)
+    try:
+        root = _arcgis_portal.portal_root(portal_url, True)
+    except ValueError as exc:
+        state.output.error(str(exc))
+        raise typer.Exit(EXIT_USAGE) from None
+    removed, left = _arcgis_oauth.forget(root, client_id)
+    if left:
+        state.output.error(
+            f"the saved ArcGIS sign-in for {client_id} at {root} could not be "
+            f"removed from: {', '.join(left)}"
+        )
+        raise typer.Exit(EXIT_GENERIC)
+    if removed:
+        where = " and ".join(
+            "the OS keyring" if b == "keyring" else "credentials.toml" for b in removed
+        )
+        state.output.success(
+            f"Removed the saved ArcGIS sign-in for {client_id} at {root} from {where}"
+        )
+    else:
+        state.output.success(f"No ArcGIS sign-in was saved for {client_id} at {root}")
 
 
 @admin_users_app.command("import")

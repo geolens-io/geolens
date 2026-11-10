@@ -9,6 +9,7 @@ import logging
 import re
 import socket
 import threading
+import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -17,6 +18,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 import pytest
 
 from geolens_cli import arcgis_inventory as inventory
+from geolens_cli import auth as _auth
 from geolens_cli import arcgis_migrate_session as session
 from geolens_cli import arcgis_oauth as oauth
 from geolens_cli import arcgis_portal
@@ -384,3 +386,169 @@ def test_client_id_with_another_credential_is_a_usage_error(invoke):
     assert result.exit_code == 2
     assert "--client-id" in result.stderr
     assert portal.seen == []
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        (429, {}),
+        {"error": {"code": 500, "message": "Internal server error"}},
+        {"error": {"code": 503, "message": "Service unavailable"}},
+    ],
+)
+def test_a_transient_failure_keeps_the_saved_sign_in(reply, mock_keyring, tmp_xdg_home):
+    mock_keyring[ACCOUNT] = STORED
+    redact = arcgis_portal.Redactor()
+    portal = FakePortal({"oauth2/token": reply})
+    client = _client(portal, redact)
+    opened: list[str] = []
+
+    with pytest.raises(arcgis_portal.PortalError) as caught:
+        oauth.sign_in(client, CLIENT_ID, redact, open_browser=opened.append)
+
+    assert caught.value.kind != "auth"
+    assert mock_keyring[ACCOUNT] == STORED
+    assert opened == []
+    assert len(portal.requests_to("oauth2/token")) == 1
+
+
+def test_a_browser_command_that_blocks_does_not_stall_the_callback(
+    mock_keyring, tmp_xdg_home
+):
+    redact = arcgis_portal.Redactor()
+    client = _client(FakePortal({"oauth2/token": TokenEndpoint()}), redact)
+    browser = Browser()
+    released = threading.Event()
+
+    def foreground_browser(url: str) -> None:
+        browser(url)
+        released.wait(10)
+
+    started = time.monotonic()
+    try:
+        oauth.sign_in(
+            client, CLIENT_ID, redact, open_browser=foreground_browser, notify=print
+        )
+    finally:
+        released.set()
+    browser.join()
+
+    assert time.monotonic() - started < 4
+    assert client.token == ACCESS
+
+
+def _trickle(prefix: bytes):
+    """A browser stand-in that sends *prefix* to the listener, then one more
+    byte every 0.1 s for 6 s."""
+
+    def open_browser(url: str) -> None:
+        params = dict(parse_qsl(urlsplit(url).query))
+        port = urlsplit(params["redirect_uri"]).port
+        head = prefix.replace(b"STATE", params["state"].encode())
+
+        def send() -> None:
+            with socket.create_connection(("127.0.0.1", port), timeout=10) as sock:
+                try:
+                    sock.sendall(head)
+                    for _ in range(60):
+                        time.sleep(0.1)
+                        sock.sendall(b"x")
+                except OSError:
+                    return
+
+        threading.Thread(target=send, daemon=True).start()
+
+    return open_browser
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        b"GET /callback?code=" + CODE.encode(),
+        b"GET /callback?code=" + CODE.encode() + b"&state=STATE HTTP/1.1\r\nX-Slow: ",
+    ],
+    ids=["request line", "headers"],
+)
+def test_a_trickled_request_cannot_outlast_the_deadline(
+    prefix, monkeypatch, mock_keyring, tmp_xdg_home
+):
+    monkeypatch.setattr(oauth, "SIGN_IN_TIMEOUT", 1.0)
+    redact = arcgis_portal.Redactor()
+    endpoint = TokenEndpoint()
+    client = _client(FakePortal({"oauth2/token": endpoint}), redact)
+    started = time.monotonic()
+
+    with pytest.raises(arcgis_portal.PortalError) as caught:
+        oauth.sign_in(
+            client, CLIENT_ID, redact, open_browser=_trickle(prefix), notify=print
+        )
+
+    assert time.monotonic() - started < 3
+    assert "no sign-in arrived" in str(caught.value)
+    assert endpoint.grants == []
+
+
+def _block_file_cleanup(monkeypatch) -> None:
+    def refuse(account: str) -> None:
+        raise OSError("read-only file system")
+
+    monkeypatch.setattr(_auth, "_clear_credential_section", refuse)
+
+
+def test_a_stale_file_sign_in_falls_back_to_the_keyring_one(
+    monkeypatch, mock_keyring, tmp_xdg_home
+):
+    _auth._set_credential_field(ACCOUNT[1], "secret", STORED)
+    mock_keyring[ACCOUNT] = REFRESH
+    _block_file_cleanup(monkeypatch)
+    endpoint = TokenEndpoint(valid=(REFRESH,))
+    redact = arcgis_portal.Redactor()
+    client = _client(FakePortal({"oauth2/token": endpoint}), redact)
+    opened: list[str] = []
+
+    oauth.sign_in(client, CLIENT_ID, redact, open_browser=opened.append, notify=print)
+
+    assert [g["refresh_token"] for g in endpoint.grants] == [STORED, REFRESH]
+    assert opened == []
+    assert mock_keyring[ACCOUNT] == REFRESH
+    assert client.token == ACCESS_2
+
+
+def test_a_new_sign_in_replaces_a_file_copy_it_cannot_remove(
+    monkeypatch, mock_keyring, tmp_xdg_home
+):
+    _auth._set_credential_field(ACCOUNT[1], "secret", STORED)
+    _block_file_cleanup(monkeypatch)
+    redact = arcgis_portal.Redactor()
+    client = _client(FakePortal({"oauth2/token": TokenEndpoint(valid=())}), redact)
+    browser = Browser()
+
+    oauth.sign_in(client, CLIENT_ID, redact, open_browser=browser, notify=print)
+    browser.join()
+
+    assert [v for _, v in _auth.load_secrets(ACCOUNT[1])] == [REFRESH]
+
+
+def test_arcgis_logout_forgets_the_saved_sign_in(runner, mock_keyring, tmp_xdg_home):
+    _auth._set_credential_field(ACCOUNT[1], "secret", STORED)
+    mock_keyring[ACCOUNT] = REFRESH
+    args = [
+        "arcgis",
+        "logout",
+        "--portal-url",
+        PORTAL + "/home",
+        "--client-id",
+        CLIENT_ID,
+    ]
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 0, result.output
+    assert "credentials.toml and the OS keyring" in result.stdout
+    assert ACCOUNT not in mock_keyring
+    assert _auth.load_secrets(ACCOUNT[1]) == []
+    _assert_no_secret(result.output)
+    again = runner.invoke(app, args)
+    assert again.exit_code == 0
+    assert "No ArcGIS sign-in was saved" in again.stdout
+    assert runner.invoke(app, ["arcgis", "logout"]).exit_code == 2

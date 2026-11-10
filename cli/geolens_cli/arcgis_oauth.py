@@ -20,8 +20,10 @@ from __future__ import annotations
 import base64
 import hashlib
 import secrets
+import socket
 import socketserver
 import sys
+import threading
 import time
 import webbrowser
 from collections.abc import Callable, Mapping
@@ -36,7 +38,7 @@ CALLBACK_PATH = "/callback"
 SIGN_IN_TIMEOUT = 300.0
 # The token endpoint's default when an answer omits expires_in.
 DEFAULT_LIFETIME = 1800
-# A browser that opens a connection and sends nothing can't hold the listener.
+# The longest one connection may take, however slowly it sends.
 _REQUEST_TIMEOUT = 10.0
 _POLL = 0.5
 _ERROR_TEXT_LIMIT = 300
@@ -83,8 +85,8 @@ def sign_in(
     ``auth`` when the sign-in fails, ``usage`` when the listener can't start.
     """
     account = _account(client.root, client_id)
-    stored = _auth.load_secret(account)
-    if stored:
+    saved = _auth.load_secrets(account)
+    for backend, stored in saved:
         redact.add(stored)
         session = _Session(client, client_id, account, redact, stored, notify)
         try:
@@ -93,7 +95,8 @@ def sign_in(
         except PortalError as exc:
             if exc.kind != "auth":
                 raise
-        _auth.delete_secret(account)
+        _auth.delete_secret(account, backend)
+    if saved:
         notify("The saved ArcGIS sign-in was refused; signing in through the browser.")
     verifier, challenge = pkce_pair()
     redact.add(verifier)
@@ -172,6 +175,16 @@ class _Session:
             )
 
 
+def forget(root: str, client_id: str) -> tuple[list[str], list[str]]:
+    """Delete the saved sign-in for *client_id* at the portal *root*; returns
+    (backends it was removed from, backends still holding it)."""
+    account = _account(root, client_id)
+    before = [backend for backend, _ in _auth.load_secrets(account)]
+    _auth.delete_secret(account)
+    after = [backend for backend, _ in _auth.load_secrets(account)]
+    return [b for b in before if b not in after], after
+
+
 class _Listener(socketserver.TCPServer):
     allow_reuse_address = False
 
@@ -179,6 +192,32 @@ class _Listener(socketserver.TCPServer):
         super().__init__(("127.0.0.1", port), _Callback)
         self.state = state
         self.outcome: tuple[str | None, str | None] | None = None
+        self.deadline = float("inf")
+        self.cut = threading.Event()
+
+    def finish_request(self, request: Any, client_address: Any) -> None:
+        # The handler's socket timeout bounds each read, not the whole request,
+        # so a client sending a byte at a time is cut off at a fixed time.
+        limit = min(self.deadline - time.monotonic(), _REQUEST_TIMEOUT)
+        self.cut = threading.Event()
+        timer = threading.Timer(max(limit, 0.0), _cut_off, (request, self.cut))
+        timer.daemon = True
+        timer.start()
+        try:
+            super().finish_request(request, client_address)
+        finally:
+            timer.cancel()
+
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        return
+
+
+def _cut_off(request: socket.socket, cut: threading.Event) -> None:
+    cut.set()
+    try:
+        request.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
 
 
 class _Callback(BaseHTTPRequestHandler):
@@ -186,6 +225,8 @@ class _Callback(BaseHTTPRequestHandler):
     server: _Listener
 
     def do_GET(self) -> None:
+        if self.server.cut.is_set():
+            return
         parts = urlsplit(self.path)
         if parts.path != CALLBACK_PATH or self.server.outcome is not None:
             self.send_error(404)
@@ -266,10 +307,11 @@ def _authorize(
             }
         )
         notify(f"Sign in to ArcGIS in your browser. If it doesn't open, visit:\n{url}")
-        try:
-            open_browser(url)
-        except Exception:  # broad: a missing browser leaves the printed URL
-            pass
+        listener.deadline = time.monotonic() + SIGN_IN_TIMEOUT
+        # A browser command run in the foreground returns only when it exits.
+        threading.Thread(
+            target=_open_quietly, args=(open_browser, url), daemon=True
+        ).start()
         code, problem = _wait(listener, SIGN_IN_TIMEOUT)
     if code is None:
         raise PortalError(redact(problem or "the sign-in did not finish"), kind="auth")
@@ -277,10 +319,16 @@ def _authorize(
     return code, redirect_uri
 
 
+def _open_quietly(open_browser: Callable[[str], Any], url: str) -> None:
+    try:
+        open_browser(url)
+    except Exception:  # broad: a missing browser leaves the printed URL
+        pass
+
+
 def _wait(listener: _Listener, timeout: float) -> tuple[str | None, str | None]:
-    deadline = time.monotonic() + timeout
     while listener.outcome is None:
-        remaining = deadline - time.monotonic()
+        remaining = listener.deadline - time.monotonic()
         if remaining <= 0:
             return None, (
                 f"no sign-in arrived within {timeout:g} seconds; run the command again"
