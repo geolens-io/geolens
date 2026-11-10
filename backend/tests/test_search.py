@@ -17,7 +17,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import func, update
 
-from app.modules.catalog.collections.models import Collection
+from app.modules.catalog.collections.models import Collection, CollectionDataset
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
     Record,
@@ -71,6 +71,7 @@ async def _create_search_dataset(
     theme_category: list[str] | None = None,
     lineage_summary: str | None = None,
     language: str | None = None,
+    license: str | None = None,
     record_type: str = "vector_dataset",
 ) -> Dataset:
     """Insert a Record + Dataset pair with optional spatial extent and keywords."""
@@ -86,6 +87,7 @@ async def _create_search_dataset(
         "theme_category": theme_category,
         "lineage_summary": lineage_summary,
         "record_type": record_type,
+        "license": license,
     }
     if language is not None:
         record_kwargs["language"] = language
@@ -1419,6 +1421,140 @@ async def test_search_collections_counted_in_number_matched(
     assert data["numberReturned"] == len(data["features"])
     # numberMatched accounts for datasets + appended collections.
     assert data["numberMatched"] == dataset_features + appended_collections
+
+
+@pytest.mark.anyio
+async def test_search_collection_feature_license_from_members(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    clean_tables,
+):
+    """Collection features report the license derived from their members.
+
+    A uniform collection reports its members' license, a mixed collection
+    reports "various" with its description unchanged, and an empty
+    collection keeps the "proprietary" fallback.
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    token = f"glic{uuid.uuid4().hex[:8]}"
+    pddl = "Open Data Commons PDDL 1.0"
+
+    uniform = Collection(
+        name=f"{token} Uniform",
+        description="PDDL only",
+        created_by=admin_id,
+    )
+    session.add(uniform)
+    await session.flush()
+    for i in range(2):
+        ds = await _create_search_dataset(
+            session,
+            created_by=admin_id,
+            name=f"{token} PDDL {i}",
+            license=pddl,
+        )
+        session.add(CollectionDataset(collection_id=uniform.id, dataset_id=ds.id))
+
+    mixed = Collection(
+        name=f"{token} Mixed",
+        description="Mixed licenses",
+        created_by=admin_id,
+    )
+    session.add(mixed)
+    await session.flush()
+    ds_pddl = await _create_search_dataset(
+        session,
+        created_by=admin_id,
+        name=f"{token} Mix PDDL",
+        license=pddl,
+    )
+    session.add(CollectionDataset(collection_id=mixed.id, dataset_id=ds_pddl.id))
+    ds_cc = await _create_search_dataset(
+        session,
+        created_by=admin_id,
+        name=f"{token} Mix CC",
+        license="CC-BY-4.0",
+    )
+    session.add(CollectionDataset(collection_id=mixed.id, dataset_id=ds_cc.id))
+
+    partial = Collection(
+        name=f"{token} Partial",
+        description="Licensed plus unlicensed",
+        created_by=admin_id,
+    )
+    session.add(partial)
+    await session.flush()
+    for lic in (pddl, None):
+        ds = await _create_search_dataset(
+            session, created_by=admin_id, name=f"{token} Part {lic}", license=lic
+        )
+        session.add(CollectionDataset(collection_id=partial.id, dataset_id=ds.id))
+
+    empty = Collection(
+        name=f"{token} Empty",
+        description="No members",
+        created_by=admin_id,
+    )
+    session.add(empty)
+    await session.commit()
+
+    resp = await client.get(
+        "/search/datasets/",
+        params={"q": token},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+    collections = {
+        f["id"]: f["properties"]
+        for f in resp.json()["features"]
+        if f["properties"].get("type") == "collection"
+    }
+    assert collections[str(uniform.id)]["license"] == pddl
+    assert collections[str(mixed.id)]["license"] == "various"
+    assert collections[str(mixed.id)]["description"] == "Mixed licenses"
+    assert collections[str(partial.id)]["license"] == "various"
+    assert collections[str(empty.id)]["license"] == "proprietary"
+
+
+@pytest.mark.anyio
+async def test_search_collection_license_ignores_invisible_members(
+    client: AsyncClient,
+    test_db_session,
+    clean_tables,
+):
+    """An anonymous caller's collection license ignores private members."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    token = f"glic{uuid.uuid4().hex[:8]}"
+    coll = Collection(
+        name=f"{token} Vis", description="Visibility", created_by=admin_id
+    )
+    session.add(coll)
+    await session.flush()
+    pub = await _create_search_dataset(
+        session, created_by=admin_id, name=f"{token} pub", license="PDDL-1.0"
+    )
+    priv = await _create_search_dataset(
+        session,
+        created_by=admin_id,
+        name=f"{token} priv",
+        license="Other",
+        visibility="private",
+    )
+    for ds in (pub, priv):
+        session.add(CollectionDataset(collection_id=coll.id, dataset_id=ds.id))
+    await session.commit()
+
+    resp = await client.get("/search/datasets/", params={"q": token})
+    assert resp.status_code == 200
+    props = {
+        f["id"]: f["properties"]
+        for f in resp.json()["features"]
+        if f["properties"].get("type") == "collection"
+    }
+    assert props[str(coll.id)]["license"] == "PDDL-1.0"
 
 
 @pytest.mark.anyio

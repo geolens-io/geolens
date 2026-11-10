@@ -32,6 +32,7 @@ from app.modules.catalog.datasets.domain.source_freshness import (
 )
 from app.modules.catalog.records.localization import select_localized_record_text
 from app.modules.catalog.search.record_metadata import (
+    PROPRIETARY_LICENSE,
     build_contacts,
     build_external_ids,
     build_themes,
@@ -394,7 +395,7 @@ def dataset_to_ogc_record(
     keywords = [keyword.keyword for keyword in record.keywords]
     if not keywords:
         keywords = list(record.theme_category or [])
-    license_value = record.license or "proprietary"
+    license_value = record.license or PROPRIETARY_LICENSE
 
     # Used for has_quicklook and formats below and for the STAC raster block.
     record_type = getattr(record, "record_type", "vector_dataset") or "vector_dataset"

@@ -1,6 +1,7 @@
 """Protocol helpers for the OGC API Records search surface."""
 
 import uuid
+from collections.abc import Sequence
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -10,6 +11,7 @@ from sqlalchemy.orm import joinedload
 from app.core.identity import Identity
 from app.modules.catalog.authorization import check_dataset_access_or_anonymous
 from app.modules.catalog.datasets.domain.models import Dataset
+from app.modules.catalog.search.record_metadata import PROPRIETARY_LICENSE
 from app.modules.catalog.search.schemas import OGCFeatureCollectionResponse
 from app.standards.ogc.utils import (
     build_url,
@@ -151,6 +153,18 @@ def standard_response_headers(
     return headers
 
 
+def derive_collection_license(licenses: Sequence[str | None] | None) -> str:
+    """Collapse member licenses to the collection license.
+
+    A member without a license counts as proprietary, as on its own record.
+    One distinct license: use it. Several: "various". No members: proprietary.
+    """
+    distinct = {lic or PROPRIETARY_LICENSE for lic in (licenses or [])}
+    if not distinct:
+        return PROPRIETARY_LICENSE
+    return distinct.pop() if len(distinct) == 1 else "various"
+
+
 def collection_search_feature(coll: dict, public_api_url: str) -> dict:
     """Serialize an augmented catalog Collection as a valid Record Feature."""
     created_at = coll["created_at"]
@@ -168,7 +182,7 @@ def collection_search_feature(coll: dict, public_api_url: str) -> dict:
             "title": coll["name"],
             "description": coll["description"] or coll["name"],
             "keywords": [],
-            "license": "proprietary",
+            "license": derive_collection_license(coll.get("licenses")),
             "themes": [],
             "contacts": [
                 {

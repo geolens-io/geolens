@@ -56,6 +56,7 @@ async def search_collections(
         select(
             CollectionDataset.collection_id,
             func.count().label("cnt"),
+            func.array_agg(func.distinct(Record.license)).label("licenses"),
         )
         .select_from(CollectionDataset)
         .join(Dataset, CollectionDataset.dataset_id == Dataset.id)
@@ -67,7 +68,9 @@ async def search_collections(
     )
     member_stmt = member_stmt.group_by(CollectionDataset.collection_id)
     member_result = await session.execute(member_stmt)
-    count_map = {row.collection_id: row.cnt for row in member_result.all()}
+    member_rows = member_result.all()
+    count_map = {row.collection_id: row.cnt for row in member_rows}
+    license_map = {row.collection_id: list(row.licenses or []) for row in member_rows}
 
     return [
         {
@@ -75,6 +78,7 @@ async def search_collections(
             "name": c.name,
             "description": c.description,
             "dataset_count": count_map.get(c.id, 0),
+            "licenses": license_map.get(c.id, []),
             "created_at": c.created_at.isoformat(),
         }
         for c in collections

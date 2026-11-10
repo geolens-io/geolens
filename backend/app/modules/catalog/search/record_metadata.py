@@ -3,6 +3,8 @@
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset
 
+PROPRIETARY_LICENSE = "proprietary"
+
 
 def build_themes(
     theme_category: list[str] | None,
