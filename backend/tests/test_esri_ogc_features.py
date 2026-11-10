@@ -11,9 +11,11 @@ its own offset.
 
 from __future__ import annotations
 
+import gzip
 import json
 import pathlib
 import secrets
+import zlib
 from unittest.mock import AsyncMock
 
 import httpx
@@ -26,8 +28,10 @@ from app.platform.security import make_safe_client
 from app.platform.service_endpoints import (
     EndpointCheckFailedError,
     assert_endpoints_stay_on_origin,
+    read_bounded_body,
 )
 from app.platform.service_items import (
+    EMPTY_PAGE_CODE,
     SERVICE_AUTH_REFUSED_CODE,
     SERVICE_ERROR_CODE,
     ItemFetchFailedError,
@@ -275,3 +279,115 @@ class TestErrorEnvelopesAreReportedAsErrors:
         assert caught.value.code == SERVICE_ERROR_CODE
         assert "400" in caught.value.policy
         assert list(tmp_path.iterdir()) == []
+
+
+def _encoded(body: bytes, encoding: str, *, chunk: int = 4096) -> httpx.Response:
+    async def _chunks():
+        for start in range(0, len(body), chunk):
+            yield body[start : start + chunk]
+
+    return httpx.Response(
+        200,
+        headers={"Content-Type": "application/json", "Content-Encoding": encoding},
+        content=_chunks(),
+    )
+
+
+def _repeat_aware(page: dict):
+    """ArcGIS Online's items endpoint: a gzip request gets the page, an
+    identity request gets it once and an empty 200 after that."""
+    served: set[str] = set()
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path.rstrip("/") != _ITEMS_PATH:
+            return _esri()(request)
+        if "gzip" in request.headers.get("Accept-Encoding", ""):
+            return _encoded(gzip.compress(json.dumps(page).encode()), "gzip")
+        if str(request.url) in served:
+            return _streamed(200, b"", "application/json")
+        served.add(str(request.url))
+        return _json(page)
+
+    return handle
+
+
+class TestItemsPagesAcceptGzip:
+    """Items pages may arrive gzip-encoded, inflated under the page budget."""
+
+    async def test_a_page_read_twice_is_read_both_times(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        _serve(monkeypatch, _repeat_aware(_fixture("items-last-partial-page.json")))
+
+        first = await _materialise(tmp_path)
+        second = await _materialise(tmp_path)
+
+        assert (first.features, second.features) == (1, 1)
+
+    async def test_a_gzip_bomb_is_refused_at_the_cap(self, monkeypatch) -> None:
+        budget = 1024 * 1024
+        bomb = gzip.compress(b" " * (64 * budget))
+        inflated: list[int] = []
+        real = zlib.decompressobj
+
+        class _Counting:
+            def __init__(self, *args) -> None:
+                self._inner = real(*args)
+
+            def decompress(self, data, max_length=0):
+                piece = self._inner.decompress(data, max_length)
+                inflated.append(len(piece))
+                return piece
+
+            def __getattr__(self, name):
+                return getattr(self._inner, name)
+
+        monkeypatch.setattr(zlib, "decompressobj", _Counting)
+
+        with pytest.raises(EndpointCheckFailedError):
+            await read_bounded_body(_encoded(bomb, "gzip"), budget, gzip=True)
+
+        assert sum(inflated) <= budget + 1
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            gzip.compress(b'{"type": "FeatureCollection"}')[:-6],
+            gzip.compress(b'{"type": "FeatureCollection"}') + b"trailing",
+            b"\x1f\x8b\x08\x00not a gzip stream",
+        ],
+        ids=["truncated", "trailing-garbage", "corrupt"],
+    )
+    async def test_an_unreadable_gzip_body_is_refused(self, body) -> None:
+        with pytest.raises(EndpointCheckFailedError):
+            await read_bounded_body(_encoded(body, "gzip"), 1024 * 1024, gzip=True)
+
+    @pytest.mark.parametrize("encoding", ["x-gzip", "deflate", "br", "zstd"])
+    async def test_another_encoding_is_refused(self, encoding) -> None:
+        body = gzip.compress(b'{"type": "FeatureCollection", "features": []}')
+
+        with pytest.raises(EndpointCheckFailedError):
+            await read_bounded_body(_encoded(body, encoding), 1024 * 1024, gzip=True)
+
+    async def test_gzip_is_refused_where_it_was_not_asked_for(self) -> None:
+        body = gzip.compress(b'{"links": []}')
+
+        with pytest.raises(EndpointCheckFailedError):
+            await read_bounded_body(_encoded(body, "gzip"), 1024 * 1024)
+
+
+class TestAnEmptyPageSaysSo:
+    @pytest.mark.parametrize("encoding", ["identity", "gzip"])
+    async def test_a_zero_byte_page(self, monkeypatch, tmp_path, encoding) -> None:
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.rstrip("/") == _ITEMS_PATH:
+                return _encoded(b"", encoding)
+            return _esri()(request)
+
+        _serve(monkeypatch, handle)
+
+        with pytest.raises(EndpointCheckFailedError) as caught:
+            await _materialise(tmp_path)
+
+        assert caught.value.code == EMPTY_PAGE_CODE
+        assert "Retry in a few minutes" in str(caught.value)

@@ -18,8 +18,9 @@ against the GetFeature endpoint ``service_endpoints`` already validates.
 
 What a collection may cost, since the whole chain is the service's to
 choose: ``MAX_PAGES`` requests, ``MAX_BYTES`` downloaded and the same
-again written to staging, ``MAX_PAGE_BYTES`` on the wire per page, and
-``MAX_STRUCTURAL_TOKENS`` values/containers per page once decoded.
+again written to staging, ``MAX_PAGE_BYTES`` per page on the wire and
+again inflated, and ``MAX_STRUCTURAL_TOKENS`` values/containers per page
+once decoded.
 Reaching any of them is a refusal, never a short answer — a caller can't
 tell a prefix from a collection, and the worker would import one over an
 existing dataset.
@@ -136,6 +137,22 @@ class ServiceErrorResponseError(ItemFetchFailedError):
         self.policy = SERVICE_AUTH_REFUSED_POLICY if auth else SERVICE_ERROR_POLICY
         if type(service_code) is int and 0 <= service_code < 10_000:
             self.policy += f" (Service error {service_code}.)"
+        self.args = (self.policy,)
+
+
+EMPTY_PAGE_CODE = "service_empty_page"
+EMPTY_PAGE_POLICY = (
+    "The service returned an empty page for this collection. Retry in a few minutes."
+)
+
+
+class EmptyPageError(ItemFetchFailedError):
+    """An HTTP 200 whose body is empty, which no document can be."""
+
+    def __init__(self) -> None:
+        super().__init__("empty page")
+        self.code = EMPTY_PAGE_CODE
+        self.policy = EMPTY_PAGE_POLICY
         self.args = (self.policy,)
 
 
@@ -377,14 +394,16 @@ async def _fetch_page(
     budget: int,
     token_budget: int | None = None,
     accept: str = OGC_JSON_ACCEPT,
+    gzip: bool = False,
     on_first_request: "Callable[[], None] | None" = None,
 ) -> tuple[object, int, str]:
-    """One items page, its wire size and its URL, or a refusal.
+    """One items page, its decoded size and its URL, or a refusal.
 
     The request itself is `fetch_document` in `service_endpoints`, shared
     with the description reads, so the protections the two paths need
     can't diverge. This adds only what's specific to an items page: the
-    caps it's read under, and the decode.
+    caps it's read under, gzip, and the decode. An empty body is refused
+    with `EmptyPageError`, whatever the encoding.
     """
     body, final_url = await fetch_document(
         client,
@@ -399,7 +418,10 @@ async def _fetch_page(
         token_budget=MAX_STRUCTURAL_TOKENS if token_budget is None else token_budget,
         error=ItemFetchFailedError,
         on_first_request=on_first_request,
+        gzip=gzip,
     )
+    if not body:
+        raise EmptyPageError()
     try:
         return json.loads(body), len(body), final_url
     except (ValueError, RecursionError) as exc:
@@ -641,6 +663,9 @@ async def _walk_pages(
             page_url,
             headers,
             budget=min(MAX_PAGE_BYTES, MAX_BYTES - downloaded),
+            # ArcGIS Online answers a repeat of an identity request for the
+            # same page with an empty 200 for minutes; gzip gets the page.
+            gzip=True,
             on_first_request=arm,
         )
         downloaded += size

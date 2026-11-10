@@ -4450,19 +4450,23 @@ class TestOnePageCannotCostTheWholeProcess:
         assert b"\\u" not in raw
         assert json.loads(raw.decode())["type"] == "FeatureCollection"
 
-    async def test_a_compressed_page_is_refused(self, monkeypatch, tmp_path) -> None:
-        """Identity is asked for, and the answer has to be identity.
+    async def test_a_page_in_another_encoding_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The collection document is read as identity, an items page as
+        identity or gzip, and any other encoding is refused.
 
-        `aiter_raw` hands back the compressed bytes, so the alternative is a
+        `aiter_raw` hands back the encoded bytes, so the alternative is a
         JSON error about the wrong thing.
         """
 
         def handle(request: httpx.Request) -> httpx.Response:
-            assert request.headers["Accept-Encoding"] == "identity"
             if not request.url.path.endswith("/items"):
+                assert request.headers["Accept-Encoding"] == "identity"
                 return httpx.Response(200, json=_collection_doc(None))
+            assert request.headers["Accept-Encoding"] == "gzip"
             return httpx.Response(
-                200, headers={"Content-Encoding": "gzip"}, json={"features": []}
+                200, headers={"Content-Encoding": "br"}, json={"features": []}
             )
 
         self._transport(monkeypatch, handle)
