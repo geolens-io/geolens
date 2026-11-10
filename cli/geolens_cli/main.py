@@ -2035,10 +2035,11 @@ def arcgis_inventory(
             show_envvar=True,
             help="Sign in through the browser with OAuth, which also works for "
             "accounts that use SAML or OpenID Connect. The client ID of an OAuth 2.0 "
-            "credentials item registered in your organization, whose redirect "
-            "URLs include http://127.0.0.1 (or http://127.0.0.1:<port>/callback "
-            "with --redirect-port). The sign-in is saved in the OS keyring for "
-            "the next run",
+            "credentials item registered in your organization. Register "
+            "http://127.0.0.1 (not localhost) as a redirect URL, which matches "
+            "any port, or the exact http://127.0.0.1:<port>/callback with "
+            "--redirect-port. The sign-in is saved in the OS keyring for the "
+            "next run",
         ),
     ] = None,
     redirect_port: Annotated[
@@ -2258,10 +2259,11 @@ def arcgis_migrate(
             show_envvar=True,
             help="Sign in through the browser with OAuth, which also works for "
             "accounts that use SAML or OpenID Connect. The client ID of an OAuth 2.0 "
-            "credentials item registered in your organization, whose redirect "
-            "URLs include http://127.0.0.1 (or http://127.0.0.1:<port>/callback "
-            "with --redirect-port). The sign-in is saved in the OS keyring for "
-            "the next run",
+            "credentials item registered in your organization. Register "
+            "http://127.0.0.1 (not localhost) as a redirect URL, which matches "
+            "any port, or the exact http://127.0.0.1:<port>/callback with "
+            "--redirect-port. The sign-in is saved in the OS keyring for the "
+            "next run",
         ),
     ] = None,
     redirect_port: Annotated[
