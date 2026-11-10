@@ -630,3 +630,16 @@ class TestTheHitsRead:
             )
             is None
         )
+
+
+class TestARefreshRefusedForItsTokenIsACredentialFailure:
+    def test_the_run_is_recorded_as_credential_expired(self) -> None:
+        from app.platform.service_items import ServiceErrorResponseError
+        from app.processing.ingest.tasks_reupload import _service_refresh_error_code
+
+        assert _service_refresh_error_code(ServiceErrorResponseError(498)) == (
+            "credential_expired"
+        )
+        assert _service_refresh_error_code(ServiceErrorResponseError(400)) == (
+            "service_refresh_failed"
+        )
