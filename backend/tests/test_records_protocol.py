@@ -30,9 +30,9 @@ class TestDeriveCollectionLicense:
         assert derive_collection_license(None) == "proprietary"
         assert derive_collection_license([]) == "proprietary"
 
-    def test_blank_licenses_are_ignored(self):
+    def test_blank_licenses_count_as_proprietary(self):
         assert derive_collection_license([None, ""]) == "proprietary"
-        assert derive_collection_license(["", PDDL, None]) == PDDL
+        assert derive_collection_license(["", PDDL, None]) == "various"
 
     def test_single_license_is_used(self):
         assert derive_collection_license([PDDL]) == PDDL

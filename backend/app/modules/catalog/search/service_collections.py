@@ -70,10 +70,7 @@ async def search_collections(
     member_result = await session.execute(member_stmt)
     member_rows = member_result.all()
     count_map = {row.collection_id: row.cnt for row in member_rows}
-    license_map = {
-        row.collection_id: sorted({lic for lic in (row.licenses or []) if lic})
-        for row in member_rows
-    }
+    license_map = {row.collection_id: list(row.licenses or []) for row in member_rows}
 
     return [
         {

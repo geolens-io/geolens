@@ -1479,6 +1479,19 @@ async def test_search_collection_feature_license_from_members(
     )
     session.add(CollectionDataset(collection_id=mixed.id, dataset_id=ds_cc.id))
 
+    partial = Collection(
+        name=f"{token} Partial",
+        description="Licensed plus unlicensed",
+        created_by=admin_id,
+    )
+    session.add(partial)
+    await session.flush()
+    for lic in (pddl, None):
+        ds = await _create_search_dataset(
+            session, created_by=admin_id, name=f"{token} Part {lic}", license=lic
+        )
+        session.add(CollectionDataset(collection_id=partial.id, dataset_id=ds.id))
+
     empty = Collection(
         name=f"{token} Empty",
         description="No members",
@@ -1501,6 +1514,7 @@ async def test_search_collection_feature_license_from_members(
     assert collections[str(uniform.id)]["license"] == pddl
     assert collections[str(mixed.id)]["license"] == "various"
     assert collections[str(mixed.id)]["description"] == "Mixed licenses"
+    assert collections[str(partial.id)]["license"] == "various"
     assert collections[str(empty.id)]["license"] == "proprietary"
 
 
