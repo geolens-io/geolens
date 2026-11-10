@@ -1361,6 +1361,7 @@ def _report(
     cutover: Mapping[str, Any] | None = None,
     groups: GroupPlan | None = None,
     notes: Mapping[str, list[str]] | None = None,
+    before_run: bool = False,
 ) -> int:
     groups = groups or GroupPlan()
     notes = notes or {}
@@ -1447,49 +1448,51 @@ def _report(
     if fmt.json_mode:
         fmt.json(payload)
     else:
-        verb = "Would run" if opts.dry_run else "Ran"
-        fmt.info(f"{verb} {len(rows)} item(s).")
-        for row in rows:
-            owner = f" as {row['owner']}" if row["owner"] else ""
-            fmt.info(f"  {row['id']} {row['action']}{owner}: {row['status']}")
-            for note in row["notes"]:
-                fmt.info(f"    {note}")
-            if row["error"]:
-                # An error, not a warning: --quiet must not hide a failed item.
-                fmt.error(f"{row['id']}: {row['error']}")
-        for item_id in failed:
-            if item_id not in ran:
-                # Failed before, left out of this run: the exit code counts it.
-                fmt.error(f"{item_id}: {state.item(item_id).error or 'failed'}")
-        _print_owners(fmt, owners, summary)
-        if opts.dry_run:
-            for planned in _planned_handovers(owners, opts.only):
-                fmt.info(f"{planned['item']} would be handed to {planned['owner']}")
-        _print_groups(fmt, groups, opts.dry_run)
-        verb = "Would bring" if opts.dry_run else "Brought"
-        brought = len(summary.refreshed)
-        # A dry run counts every item it would try; its stale reasons are old.
-        if not opts.dry_run:
-            brought -= len([i for i in stale if i in summary.refreshed])
-        fmt.info(f"{verb} {brought} migrated item(s) up to date.")
-        for item_id, reasons in stale.items():
-            for reason in reasons:
-                fmt.error(f"{item_id} is not up to date: {reason}")
-        if summary.unavailable:
-            fmt.warn(
-                f"{len(summary.unavailable)} item(s) use an action this version "
-                "can't run yet and were left pending."
-            )
-        if summary.unlisted:
-            fmt.warn(
-                f"{len(summary.unlisted)} item(s) are missing from the inventory the "
-                "plan was last merged from and were left pending; merge a complete "
-                "inventory to run them: " + ", ".join(summary.unlisted[:5])
-            )
-        for wait in summary.waiting:
-            fmt.warn(f"{wait['item']} waits on {', '.join(wait['waiting_on'])}")
-        if summary.stopped:
-            fmt.error(f"stopped: {summary.stopped}")
+        # A cutover refused before the run ran nothing, so only the refusal shows.
+        if not before_run:
+            verb = "Would run" if opts.dry_run else "Ran"
+            fmt.info(f"{verb} {len(rows)} item(s).")
+            for row in rows:
+                owner = f" as {row['owner']}" if row["owner"] else ""
+                fmt.info(f"  {row['id']} {row['action']}{owner}: {row['status']}")
+                for note in row["notes"]:
+                    fmt.info(f"    {note}")
+                if row["error"]:
+                    # An error, not a warning: --quiet must not hide a failed item.
+                    fmt.error(f"{row['id']}: {row['error']}")
+            for item_id in failed:
+                if item_id not in ran:
+                    # Failed before, left out of this run: the exit code counts it.
+                    fmt.error(f"{item_id}: {state.item(item_id).error or 'failed'}")
+            _print_owners(fmt, owners, summary)
+            if opts.dry_run:
+                for planned in _planned_handovers(owners, opts.only):
+                    fmt.info(f"{planned['item']} would be handed to {planned['owner']}")
+            _print_groups(fmt, groups, opts.dry_run)
+            verb = "Would bring" if opts.dry_run else "Brought"
+            brought = len(summary.refreshed)
+            # A dry run counts every item it would try; its stale reasons are old.
+            if not opts.dry_run:
+                brought -= len([i for i in stale if i in summary.refreshed])
+            fmt.info(f"{verb} {brought} migrated item(s) up to date.")
+            for item_id, reasons in stale.items():
+                for reason in reasons:
+                    fmt.error(f"{item_id} is not up to date: {reason}")
+            if summary.unavailable:
+                fmt.warn(
+                    f"{len(summary.unavailable)} item(s) use an action this version "
+                    "can't run yet and were left pending."
+                )
+            if summary.unlisted:
+                fmt.warn(
+                    f"{len(summary.unlisted)} item(s) are missing from the inventory the "
+                    "plan was last merged from and were left pending; merge a complete "
+                    "inventory to run them: " + ", ".join(summary.unlisted[:5])
+                )
+            for wait in summary.waiting:
+                fmt.warn(f"{wait['item']} waits on {', '.join(wait['waiting_on'])}")
+            if summary.stopped:
+                fmt.error(f"stopped: {summary.stopped}")
         _print_cutover(fmt, cutover, opts.dry_run)
         if state.cutover and not opts.cutover:
             fmt.warn(f"this migration was cut over at {state.cutover['at']}")
@@ -1997,7 +2000,17 @@ def _run(
         )
         if early is not None:
             return _report(
-                fmt, opts, plan, state, [], owners, RunSummary(), redact, early, groups
+                fmt,
+                opts,
+                plan,
+                state,
+                [],
+                owners,
+                RunSummary(),
+                redact,
+                early,
+                groups,
+                before_run=True,
             )
 
     if opts.dry_run:

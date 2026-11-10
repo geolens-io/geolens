@@ -15,6 +15,7 @@ from geolens_cli import arcgis_migrate as migrate_mod
 from geolens_cli import arcgis_migrate_cutover as cutover_mod
 from geolens_cli import arcgis_migrate_refresh as refresh_mod
 from geolens_cli.arcgis_portal import PortalError
+from geolens_cli.main import app
 
 from . import test_arcgis_migrate_files as files
 from . import test_arcgis_migrate_layers as layers
@@ -1964,6 +1965,10 @@ def test_a_cutover_refused_for_what_no_run_changes_runs_nothing(
     assert payload["cutover"]["refused"] == [check]
     assert payload["refreshed"] == [] and refresh.bodies == []
     assert _state(plan_file)["cutover"] is None
+    text = runner.invoke(app, ["arcgis", "migrate", str(plan_file), "--cutover"])
+    assert text.exit_code == 1
+    assert "cutover refused" in text.output
+    assert "up to date" not in text.output and "Ran 0" not in text.output
 
 
 def _set_row(plan_file: Path, item_id: str, **row) -> None:
