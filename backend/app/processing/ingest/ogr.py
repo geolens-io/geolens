@@ -23,7 +23,7 @@ from app.processing.ingest.shapefile_source import (
     declares_dbf_encoding,
     zip_dataset_root,
 )
-from app.platform.service_items import materialise_oapif_items
+from app.platform.service_items import is_arcgis_oapif, materialise_oapif_items
 from app.platform.service_endpoints import (
     assert_endpoints_stay_on_origin,
     fire_once,
@@ -1377,8 +1377,9 @@ async def run_ogr2ogr_service(
     # every request the process makes, and a collection whose page 2 names a
     # different origin would otherwise hand it the credential too. GDAL
     # 3.10.3 has no way to scope a header to one origin (measured; see
-    # `platform/service_items`). WFS is untouched: its driver pages by
-    # startIndex against the capabilities endpoint and ignores `next`.
+    # `platform/service_items`). An ArcGIS collection is read here with or
+    # without a credential, since GDAL keeps only its last page. WFS is
+    # untouched: its driver pages by startIndex and ignores `next`.
     items_path: str | None = None
     # One clock over the materialisation and the subprocess, or a service
     # trickling pages inside the per-read timeout could hold a worker for
@@ -1388,7 +1389,9 @@ async def run_ogr2ogr_service(
     # might reach the origin first (page walk, preflight, spawn), so a callee
     # that returns early or is stubbed cannot lose the contact date.
     arm_origin_contact = fire_once(on_spawn)
-    if token and service_type == "ogcapi_features":
+    if service_type == "ogcapi_features" and (
+        token or is_arcgis_oapif(gdal_source_url(gdal_source))
+    ):
         items_path = (
             await materialise_oapif_items(
                 gdal_source.split(":", 1)[1],
@@ -1396,7 +1399,8 @@ async def run_ogr2ogr_service(
                 credential_line=_sanitize_authorization_token(
                     token, service_format=service_type
                 )
-                or "",
+                if token
+                else None,
                 staging_dir=ensure_staging_ready(settings.upload_staging_dir),
                 deadline=deadline,
                 # Here the walk, not the subprocess, contacts the origin, so

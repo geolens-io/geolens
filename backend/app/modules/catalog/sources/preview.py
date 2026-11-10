@@ -35,6 +35,7 @@ from app.core.config import settings
 from app.core.runtime.staging import ensure_staging_ready
 from app.platform.service_items import (
     ItemFetchFailedError,
+    is_arcgis_oapif,
     materialise_oapif_items,
 )
 from app.platform.service_endpoints import (
@@ -94,26 +95,33 @@ async def _localise_protected_oapif(
     sample_limit: int,
     deadline: float,
 ) -> _Localised:
-    """Read a protected OGC API collection locally, and describe the file.
+    """Read a protected or ArcGIS OGC API collection locally, and describe
+    the file.
 
     GDAL_HTTP_HEADER_FILE is process-global and OAPIF paging follows a
     `next` link the origin chooses, so a same-origin first page could hand
     the credential to an origin named on page two; GDAL 3.10.3 has no way to
     scope it (measured, see `platform/service_items`). Pages are fetched
     with the bounded client, streamed to a local file, and ogrinfo reads
-    that instead. WFS pages by `startIndex` against the validated
-    capabilities endpoint and ignores `next`, so it is left alone.
+    that instead. An ArcGIS collection is read the same way without a
+    credential, since GDAL keeps only its last page. WFS pages by
+    `startIndex` against the validated capabilities endpoint and ignores
+    `next`, so it is left alone.
 
     Returns what to run ogrinfo against, the file to delete afterwards, and
     the name/total to report instead of trusting ogrinfo.
     """
-    if credential is None or not gdal_source.startswith("OAPIF:"):
+    if not gdal_source.startswith("OAPIF:") or (
+        credential is None and not is_arcgis_oapif(_service_url(gdal_source))
+    ):
         return _Localised(gdal_source, layer_name, credential, None, None, None)
     try:
         extract = await materialise_oapif_items(
             _service_url(gdal_source),
             layer_name,
-            credential_line=credential_header_line(
+            credential_line=None
+            if credential is None
+            else credential_header_line(
                 _required_pair(build_credential_header(credential))
             ),
             staging_dir=ensure_staging_ready(settings.upload_staging_dir),

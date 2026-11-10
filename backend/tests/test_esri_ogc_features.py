@@ -391,3 +391,107 @@ class TestAnEmptyPageSaysSo:
 
         assert caught.value.code == EMPTY_PAGE_CODE
         assert "Retry in a few minutes" in str(caught.value)
+
+
+class _Spawned:
+    returncode = 0
+
+    def __init__(self, stdout: bytes) -> None:
+        self._stdout = stdout
+
+    async def communicate(self):
+        return self._stdout, b""
+
+    async def wait(self):
+        return self.returncode
+
+
+def _spawn_reading_the_source(monkeypatch, *, stdout: bytes = b"") -> list[dict]:
+    """Stand in for GDAL, recording what each spawn was pointed at and what
+    that file held while it ran."""
+    seen: list[dict] = []
+
+    async def _fake(*argv, env=None, **kwargs):
+        local = [a for a in argv if pathlib.Path(str(a)).is_file()]
+        seen.append(
+            {
+                "argv": argv,
+                "features": [
+                    json.loads(pathlib.Path(a).read_text())["features"] for a in local
+                ],
+            }
+        )
+        return _Spawned(stdout)
+
+    monkeypatch.setattr("asyncio.create_subprocess_exec", _fake)
+    return seen
+
+
+def _three_esri_pages() -> dict[int, dict]:
+    return {
+        0: _page("items-page-with-next.json", next_offset=4),
+        4: _page("items-page-with-next.json", next_offset=8),
+        8: _fixture("items-last-partial-page.json"),
+    }
+
+
+class TestAnArcGISCollectionIsReadByTheWalkWithoutACredential:
+    """GDAL keeps only the last page of an ArcGIS OGC API collection, so the
+    import, the refresh (the same call) and the preview read it page by page
+    here, credential or not."""
+
+    @pytest.fixture(autouse=True)
+    def _staging_dir(self, tmp_path, monkeypatch):
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path / "staging"))
+
+    async def test_the_import_gets_every_page(self, monkeypatch) -> None:
+        from app.processing.ingest.ogr import run_ogr2ogr_service
+
+        recorded = _serve(monkeypatch, _esri(_three_esri_pages()))
+        seen = _spawn_reading_the_source(monkeypatch)
+
+        await run_ogr2ogr_service(
+            f"OAPIF:{_SERVICE}",
+            "0",
+            "target_table",
+            "PG:dbname=x",
+            "ogcapi_features",
+            schema="data",
+        )
+
+        (spawn,) = seen
+        assert not any(str(a).startswith("OAPIF:") for a in spawn["argv"])
+        assert [len(f) for f in spawn["features"]] == [9]
+        assert not any("Authorization" in r.headers for r in recorded)
+
+    async def test_other_ogc_api_servers_keep_gdal(self, monkeypatch) -> None:
+        from app.processing.ingest.ogr import run_ogr2ogr_service
+
+        recorded = _serve(monkeypatch, _esri())
+        seen = _spawn_reading_the_source(monkeypatch)
+
+        await run_ogr2ogr_service(
+            "OAPIF:https://ogc.example.test/features",
+            "0",
+            "target_table",
+            "PG:dbname=x",
+            "ogcapi_features",
+            schema="data",
+        )
+
+        assert "OAPIF:https://ogc.example.test/features" in seen[0]["argv"]
+        assert recorded == []
+
+    async def test_the_preview_reads_the_walk(self, monkeypatch) -> None:
+        from app.modules.catalog.sources.preview import run_service_preview
+
+        _serve(monkeypatch, _esri(_three_esri_pages()))
+        seen = _spawn_reading_the_source(monkeypatch, stdout=b"{}")
+
+        await run_service_preview(f"OAPIF:{_SERVICE}", "0")
+
+        (spawn,) = seen
+        assert not any(str(a).startswith("OAPIF:") for a in spawn["argv"])
+        assert spawn["features"] and spawn["features"][0]

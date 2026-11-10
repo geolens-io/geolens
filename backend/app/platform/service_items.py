@@ -86,6 +86,17 @@ MAX_STRUCTURAL_TOKENS = 2_000_000
 PAGE_SIZE = 1000
 
 
+def is_arcgis_oapif(url: str) -> bool:
+    """Whether an OGC API Features URL is an ArcGIS ``OGCFeatureServer``.
+
+    GDAL 3.10.3 keeps only the last page of such a collection: every page
+    before it carries ``exceededTransferLimit``, and the GeoJSON driver
+    opens it as an ArcGIS paging dataset that can't fetch its own pages.
+    So these collections are always read by this module's walk.
+    """
+    return "/ogcfeatureserver" in urlsplit(url).path.lower()
+
+
 class MaterialisedCollection(NamedTuple):
     """A local extract, and what is known about the collection behind it.
 
@@ -754,17 +765,19 @@ async def materialise_oapif_items(
     url: str,
     collection: str,
     *,
-    credential_line: str,
+    credential_line: str | None,
     staging_dir: str | Path,
     feature_limit: int | None = None,
     deadline: float | None = None,
     on_first_request: Callable[[], None] | None = None,
 ) -> MaterialisedCollection:
-    """Write a protected collection to a local GeoJSON file and describe it.
+    """Write a collection to a local GeoJSON file and describe it.
 
     The caller hands the returned path to GDAL INSTEAD of the OAPIF
     source, and writes no header file at all — that's what removes the
-    credential from everything GDAL does.
+    credential from everything GDAL does. ``credential_line`` is None for
+    an ArcGIS collection read anonymously (see `is_arcgis_oapif`); the walk
+    and its bounds are the same.
 
     ``feature_limit`` stops early for a preview, which needs a handful of
     rows rather than the collection.
@@ -785,7 +798,7 @@ async def materialise_oapif_items(
     than stopping short, since the caller can't tell a prefix from a
     collection and the worker would import one over an existing dataset.
     """
-    headers = credential_headers(credential_line)
+    headers = credential_headers(credential_line) if credential_line else {}
     # prefix/suffix come from the module that sweeps them, so
     # a file this writes is one that sweep recognises.
     handle, path = tempfile.mkstemp(
@@ -810,7 +823,7 @@ async def materialise_oapif_items(
         # the same outer-deadline shape `url_fetch` uses for the same reason.
         async with asyncio.timeout(budget):
             async with make_safe_client(
-                timeout=PROBE_TIMEOUT, credential_header=next(iter(headers))
+                timeout=PROBE_TIMEOUT, credential_header=next(iter(headers), None)
             ) as client:
                 # Binary: the features are encoded once, so the count that
                 # bounds the file is the count that is written.
