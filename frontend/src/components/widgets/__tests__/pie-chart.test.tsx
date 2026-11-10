@@ -43,13 +43,14 @@ describe('pie chart config', () => {
   });
 
   it('asks for the top values with counts, or a statistic grouped by the column', () => {
-    expect(pieChartWidget.dataRequest!(config)).toEqual({ op: 'value_counts', column: 'kind', limit: 2 });
+    expect(pieChartWidget.dataRequest!(config)).toEqual({ op: 'value_counts', column: 'kind', limit: 2, blank_text_as_null: true });
     expect(pieChartWidget.dataRequest!({ ...config, stat: 'mean', stat_column: 'area' })).toEqual({
       op: 'group_by',
       group_column: 'kind',
       stat: 'avg',
       column: 'area',
       limit: 2,
+      blank_text_as_null: true,
     });
     expect(pieChartWidget.picksColumn!(config)).toBe('kind');
   });

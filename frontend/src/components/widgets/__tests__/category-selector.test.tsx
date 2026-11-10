@@ -44,6 +44,7 @@ describe('category selector widget', () => {
       op: 'value_counts',
       column: 'land_use',
       limit: SELECTOR_OPTIONS,
+      blank_text_as_null: true,
     });
     expect(categorySelectorWidget.readsColumns!(config)).toEqual([{ name: 'land_use', numeric: false }]);
   });

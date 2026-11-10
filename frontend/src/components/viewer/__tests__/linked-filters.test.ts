@@ -31,6 +31,40 @@ const linkedPick = (widgetId: string, layerId: string, selection: WidgetSelectio
   cql2: selectionCql2(layer(layerId), selection)!,
 });
 
+describe('a null pick on a text column', () => {
+  const nullPick = pick([null, 'Residential']);
+  const matches = (filter: FilterSpecification, properties: Record<string, unknown>) =>
+    featureFilter(filter as never, 'filter').filter({ zoom: 0 }, { type: 1, properties } as never);
+
+  it('keeps empty text on the map, as the aggregate endpoint counts it', () => {
+    const filter = selectionFilter(nullPick, 'text');
+    expect(matches(filter, {})).toBe(true);
+    expect(matches(filter, { land_use: '' })).toBe(true);
+    expect(matches(filter, { land_use: 'Residential' })).toBe(true);
+    expect(matches(filter, { land_use: 'Commercial' })).toBe(false);
+  });
+
+  it('asks the server for the same rows', () => {
+    expect(selectionCql2(layer('a'), nullPick)).toEqual({
+      op: 'or',
+      args: [
+        { op: 'in', args: [{ property: 'land_use' }, ['Residential']] },
+        {
+          op: 'or',
+          args: [
+            { op: 'isNull', args: [{ property: 'land_use' }] },
+            { op: '=', args: [{ property: 'land_use' }, ''] },
+          ],
+        },
+      ],
+    });
+  });
+
+  it('leaves a number column to plain null', () => {
+    expect(matches(selectionFilter(pick([null], 'floors'), 'integer'), { floors: 0 })).toBe(false);
+  });
+});
+
 describe('selectionFilter', () => {
   it('keeps the picked text values, numbers and empty values, as the server reads them too', () => {
     expect(cql2(selectionFilter(pick(['Residential', 'Commercial'])))).toEqual({
@@ -147,7 +181,13 @@ describe('linkMapLayers', () => {
           op: 'or',
           args: [
             { op: 'in', args: [{ property: 'land_use' }, ['Residential']] },
-            { op: 'isNull', args: [{ property: 'land_use' }] },
+            {
+              op: 'or',
+              args: [
+                { op: 'isNull', args: [{ property: 'land_use' }] },
+                { op: '=', args: [{ property: 'land_use' }, ''] },
+              ],
+            },
           ],
         },
       ],

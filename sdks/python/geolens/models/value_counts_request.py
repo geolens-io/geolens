@@ -30,6 +30,8 @@ class ValueCountsRequest:
         bbox (list[float] | None | Unset): Map view `[west, south, east, north]` in WGS 84; west greater than east
             crosses the antimeridian. Omit for the whole layer.
         limit (int | Unset):  Default: 10.
+        blank_text_as_null (bool | Unset): Count a text column's empty strings with its NULLs, as one `null` key, before
+            the groups are limited. Whitespace-only text keeps its own key. Default: False.
     """
 
     op: Literal["value_counts"]
@@ -37,6 +39,7 @@ class ValueCountsRequest:
     filter_: None | Unset | ValueCountsRequestFilterType0 = UNSET
     bbox: list[float] | None | Unset = UNSET
     limit: int | Unset = 10
+    blank_text_as_null: bool | Unset = False
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.value_counts_request_filter_type_0 import (
@@ -66,6 +69,8 @@ class ValueCountsRequest:
 
         limit = self.limit
 
+        blank_text_as_null = self.blank_text_as_null
+
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
@@ -80,6 +85,8 @@ class ValueCountsRequest:
             field_dict["bbox"] = bbox
         if limit is not UNSET:
             field_dict["limit"] = limit
+        if blank_text_as_null is not UNSET:
+            field_dict["blank_text_as_null"] = blank_text_as_null
 
         return field_dict
 
@@ -134,12 +141,15 @@ class ValueCountsRequest:
 
         limit = d.pop("limit", UNSET)
 
+        blank_text_as_null = d.pop("blank_text_as_null", UNSET)
+
         value_counts_request = cls(
             op=op,
             column=column,
             filter_=filter_,
             bbox=bbox,
             limit=limit,
+            blank_text_as_null=blank_text_as_null,
         )
 
         return value_counts_request

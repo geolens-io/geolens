@@ -170,13 +170,14 @@ describe('bar chart widget', () => {
 
   it('asks for value counts, or a statistic grouped by the column', () => {
     const request = barChartWidget.dataRequest!;
-    expect(request(chart)).toEqual({ op: 'value_counts', column: 'land_use', limit: 3 });
+    expect(request(chart)).toEqual({ op: 'value_counts', column: 'land_use', limit: 3, blank_text_as_null: true });
     expect(request({ ...chart, stat: 'mean', stat_column: 'area' })).toEqual({
       op: 'group_by',
       group_column: 'land_use',
       stat: 'avg',
       column: 'area',
       limit: 3,
+      blank_text_as_null: true,
     });
   });
 
