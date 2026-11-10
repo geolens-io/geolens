@@ -179,6 +179,8 @@ async def test_a_public_manifest_update_records_its_admin_admission(
         async def get(self, _db):
             return True
 
+        get_uncached = get
+
     monkeypatch.setattr(persistent_config, "RESTRICT_PUBLIC_VISIBILITY", _Restricted())
     _stage_fixture()
     user = await _admin(test_db_session)

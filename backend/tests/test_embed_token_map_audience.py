@@ -27,6 +27,8 @@ def _restrict_public_visibility(monkeypatch):
         async def get(self, _db):
             return True
 
+        get_uncached = get
+
     monkeypatch.setattr(pc, "RESTRICT_PUBLIC_VISIBILITY", _AlwaysOn())
 
 

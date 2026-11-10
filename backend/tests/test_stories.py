@@ -644,6 +644,8 @@ def _restrict_public_visibility(monkeypatch):
         async def get(self, _db):
             return True
 
+        get_uncached = get
+
     monkeypatch.setattr(pc, "RESTRICT_PUBLIC_VISIBILITY", _AlwaysOn())
 
 
@@ -676,6 +678,8 @@ async def test_patch_judges_public_visibility_by_the_policy_read_under_the_lock(
         async def get(self, _db):
             return self.on
 
+        get_uncached = get
+
     policy = _Policy()
     monkeypatch.setattr(pc, "RESTRICT_PUBLIC_VISIBILITY", policy)
     real_lock_story = story_router.lock_story
@@ -694,6 +698,37 @@ async def test_patch_judges_public_visibility_by_the_policy_read_under_the_lock(
     assert refused.status_code == 403, refused.text
     after = await client.get(url, headers=people["owner"])
     assert after.json()["visibility"] == "private"
+
+
+async def test_patch_reads_the_committed_restriction_not_a_stale_cached_one(
+    client: AsyncClient, people, monkeypatch, test_db_session
+):
+    """A cached "off" does not let a non-admin make a story public once "on" is committed."""
+    from app.core.db.models import AppSetting
+    import app.core.persistent_config as pc
+
+    async def stale_off(_db):
+        return False
+
+    monkeypatch.setattr(pc.RESTRICT_PUBLIC_VISIBILITY, "get", stale_off)
+    await test_db_session.merge(
+        AppSetting(key="restrict_public_visibility", value={"v": True})
+    )
+    await test_db_session.commit()
+    try:
+        story = await _story(client, people["owner"])
+        url = f"/stories/{story['id']}"
+        refused = await client.patch(
+            url, json={"visibility": "public"}, headers=people["owner"]
+        )
+        assert refused.status_code == 403, refused.text
+        after = await client.get(url, headers=people["owner"])
+        assert after.json()["visibility"] == "private"
+    finally:
+        await test_db_session.execute(
+            sa_delete(AppSetting).where(AppSetting.key == "restrict_public_visibility")
+        )
+        await test_db_session.commit()
 
 
 async def test_publish_needs_the_current_revision(client: AsyncClient, people):

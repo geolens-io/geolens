@@ -1465,7 +1465,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # may see, and which groups can't read a dataset, share the permission
     # extension's one audience; map reads, and which groups can't read a map,
     # share the one map guard beside it.
-    "backend/app/modules/catalog/authorization.py": 1396,
+    "backend/app/modules/catalog/authorization.py": 1397,
 }
 
 
