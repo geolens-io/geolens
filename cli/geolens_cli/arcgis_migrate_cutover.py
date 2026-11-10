@@ -32,7 +32,6 @@ CHECKS = (UNFINISHED, INVENTORY, ATTACHMENTS, USERS, SHARING)
 ADMIN_VIEW_ITEMS = "portal:admin:viewItems"
 SEARCH_PAGE = 100
 SEARCH_PAGES = 10
-CHANGED_SHOWN = 5
 
 
 def _covers_org(inventory: Mapping[str, Any]) -> bool:
@@ -272,23 +271,22 @@ def inventory_changes(
     items = plan.get("items", [])
     planned = {i["id"] for i in items if i["action"] != _plan.SKIP}
     held = {i["id"] for i in items}
-    found = [
-        f"portal items changed after the inventory was read {age} ago "
-        f"({_shown([i for i in changed if i in planned])})",
-        "portal items the plan doesn't hold were created or changed after the "
-        f"inventory was read {age} ago ({_shown([i for i in changed if i not in held])})",
-    ]
-    found = [line for line in found if not line.endswith("()")]
+    mine = [i for i in changed if i in planned]
+    new = [i for i in changed if i not in held]
+    found = []
+    if mine:
+        found.append(
+            f"portal items changed after the inventory was read {age} ago "
+            f"({_plan._id_list(mine)})"
+        )
+    if new:
+        found.append(
+            "portal items the plan doesn't hold were created or changed after "
+            f"the inventory was read {age} ago ({_plan._id_list(new)})"
+        )
     if not found:
         return None
     return "; ".join(found) + "; run inventory and plan again to include them"
-
-
-def _shown(ids: list[str]) -> str:
-    shown = ", ".join(ids[:CHANGED_SHOWN])
-    if len(ids) > CHANGED_SHOWN:
-        shown += f" and {len(ids) - CHANGED_SHOWN} more"
-    return shown
 
 
 def _changed_since(client: PortalClient, org: str, since: float) -> list[str] | str:
