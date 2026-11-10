@@ -684,6 +684,27 @@ class TestBlankText:
         ]
         assert result["other_count"] == 10
 
+    async def test_a_padded_char_column_keeps_its_blank_apart_from_null(
+        self, client: AsyncClient, test_db_session, blank_text
+    ):
+        await test_db_session.execute(
+            text(f"ALTER TABLE data.{blank_text.table_name} ADD COLUMN c CHAR(3)")
+        )
+        await test_db_session.execute(
+            text(
+                f"UPDATE data.{blank_text.table_name} SET c = left(kind, 3) WHERE kind <> '  '"
+            )
+        )
+        await test_db_session.commit()
+
+        resp = await _aggregate(
+            client, blank_text.id, {"op": "value_counts", "column": "c"}
+        )
+
+        counts = {v["value"]: v["count"] for v in resp.json()["result"]["values"]}
+        assert counts[None] == 40
+        assert counts["   "] == 20
+
     async def test_group_by_counts_null_and_empty_text_as_one_group(
         self, client: AsyncClient, blank_text
     ):

@@ -2,7 +2,7 @@ import type { FilterSpecification } from 'maplibre-gl';
 import { convertFilter } from '@maplibre/maplibre-gl-style-spec';
 import { shouldFetchClusterGeoJson } from '@/components/builder/cluster-source';
 import type { SelectionValue, WidgetSelection } from '@/components/widgets/contract';
-import { isIntegerColumn, isTextColumn } from '@/lib/column-utils';
+import { isIntegerColumn } from '@/lib/column-utils';
 import {
   buildNullSafeNumericComparison,
   layerFilterToServerCql2,
@@ -32,7 +32,7 @@ function columnType(layer: SharedLayerResponse, column: string): string | undefi
  * it reads a saved filter. Numbers compare null-safely, as the editor's numeric
  * conditions do. On an integer column a range's edges move inward to the whole
  * numbers it holds, because the server takes only whole-number literals there.
- * A null pick on a text column also keeps its empty strings. With `geoJson`, each value or range edge also matches the spelling a
+ * A null pick on a text or varchar column also keeps its empty strings. With `geoJson`, each value or range edge also matches the spelling a
  * bounded cluster's GeoJSON gives it (`geoJsonSpellings`).
  */
 export function selectionFilter(selection: WidgetSelection, type?: string, geoJson = false): FilterSpecification {
@@ -72,7 +72,7 @@ export function selectionFilter(selection: WidgetSelection, type?: string, geoJs
   if (selection.values.includes(null)) {
     // The aggregate endpoint counts a text column's empty strings with its NULLs.
     parts.push(
-      isTextColumn(type)
+      type === 'text' || type === 'character varying'
         ? ['any', ['==', ['get', column], null], ['==', ['get', column], '']]
         : ['any', ['!', ['has', column]], ['==', ['get', column], null]],
     );

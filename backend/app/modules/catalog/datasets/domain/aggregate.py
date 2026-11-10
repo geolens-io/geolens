@@ -179,7 +179,8 @@ def _view_predicates(bbox: Sequence[float] | None, *, covered: bool) -> list[str
     return []
 
 
-_TEXT_TYPES = frozenset({"text", "character varying", "character"})
+# char(n) is left out: it pads an empty string, which the map filter can not match.
+_UNPADDED_TEXT_TYPES = frozenset({"text", "character varying"})
 
 
 def _key_sql(column: str, data_type: str, bucket: str | None = None) -> tuple[str, str]:
@@ -198,7 +199,7 @@ def _key_sql(column: str, data_type: str, bucket: str | None = None) -> tuple[st
                 "invalid_column", f"Column {column!r} is not a date ({data_type})"
             )
         return bucket_sql(quoted, data_type, bucket)
-    if data_type in _TEXT_TYPES:
+    if data_type in _UNPADDED_TEXT_TYPES:
         # An empty string counts with NULL, so both read as one missing value.
         return f"NULLIF({quoted}, '')", "_g._k"
     if data_type != "timestamp with time zone":
