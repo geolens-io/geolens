@@ -30,6 +30,9 @@ USERS = "unresolved-users"
 SHARING = "under-sharing"
 CHECKS = (UNFINISHED, INVENTORY, ATTACHMENTS, USERS, SHARING)
 ADMIN_VIEW_ITEMS = "portal:admin:viewItems"
+SEARCH_PAGE = 100
+SEARCH_PAGES = 10
+CHANGED_SHOWN = 5
 
 
 def _covers_org(inventory: Mapping[str, Any]) -> bool:
@@ -227,8 +230,9 @@ def inventory_changes(
     client: PortalClient | None, plan: Mapping[str, Any], now: datetime
 ) -> str | None:
     """Why the plan's inventory may be out of date, or None: the portal has an
-    item of the organization changed after the inventory was read, or the
-    portal couldn't be asked."""
+    item of the organization changed after the inventory was read, other than
+    one the plan skips, or the portal couldn't be asked. An item the plan
+    doesn't hold counts: it is new since the inventory."""
     inventory = plan["inventory"]
     # The start, not the end: an item changed while the inventory ran may
     # have been read before the change.
@@ -260,33 +264,61 @@ def inventory_changes(
                 f"administrator ({_plan.ORG_ADMIN}), so its search can miss items "
                 "not shared with it"
             )
+        changed = _changed_since(client, org, read_at.timestamp() * 1000)
+    except PortalError as exc:
+        return f"{unchecked}: {exc}"
+    if isinstance(changed, str):
+        return f"{unchecked}: {changed}"
+    skipped = {i["id"] for i in plan.get("items", []) if i["action"] == _plan.SKIP}
+    changed = [item_id for item_id in changed if item_id not in skipped]
+    if changed:
+        shown = ", ".join(changed[:CHANGED_SHOWN])
+        if len(changed) > CHANGED_SHOWN:
+            shown += f" and {len(changed) - CHANGED_SHOWN} more"
+        return (
+            f"portal items changed after the inventory was read {age} ago "
+            f"({shown}); run inventory and plan again"
+        )
+    return None
+
+
+def _changed_since(client: PortalClient, org: str, since: float) -> list[str] | str:
+    """The ids of the organization's items modified after *since* (epoch
+    milliseconds), newest first, or why the search can't tell."""
+    changed: list[str] = []
+    start = 1
+    for _ in range(SEARCH_PAGES):
         page = client.get_json(
             "search",
             {
                 "q": f"orgid:{org}",
                 "sortField": "modified",
                 "sortOrder": "desc",
-                "num": 1,
+                "num": SEARCH_PAGE,
+                "start": start,
             },
         )
-    except PortalError as exc:
-        return f"{unchecked}: {exc}"
-    results = page.get("results") if isinstance(page, dict) else None
-    if not isinstance(results, list):
-        return f"{unchecked}: the portal's search answered without results"
-    if not results:
-        # A plan with items to migrate came from this organization, so an
-        # empty search means the search didn't reach them.
-        return f"{unchecked}: the portal's search found no items of the organization"
-    newest = results[0].get("modified") if isinstance(results[0], dict) else None
-    if whole_number(newest) is None:
-        return f"{unchecked}: the portal's newest item has no usable modified time"
-    if newest > read_at.timestamp() * 1000:
-        return (
-            f"portal items changed after the inventory was read {age} ago; run "
-            "inventory and plan again"
-        )
-    return None
+        results = page.get("results") if isinstance(page, dict) else None
+        if not isinstance(results, list):
+            return "the portal's search answered without results"
+        if not results and start == 1:
+            # A plan with items to migrate came from this organization, so an
+            # empty search means the search didn't reach them.
+            return "the portal's search found no items of the organization"
+        for found in results:
+            modified = found.get("modified") if isinstance(found, dict) else None
+            if whole_number(modified) is None:
+                return "a portal item has no usable modified time"
+            if modified <= since:
+                return changed
+            if not isinstance(found.get("id"), str):
+                return "a portal item changed since has no id"
+            changed.append(found["id"])
+        next_start = whole_number(page.get("nextStart"))
+        if not results or next_start is None or next_start <= start:
+            return changed
+        start = next_start
+    return f"over {SEARCH_PAGES * SEARCH_PAGE} items changed since, more than it reads"
 
 
 def _org_admin(info: Any) -> bool:

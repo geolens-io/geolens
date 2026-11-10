@@ -759,8 +759,8 @@ def test_a_portal_rename_retitles_the_dataset_unless_edited_in_geolens(
     entry = _state(plan_file)["items"][A2]
     if edited:
         assert service.fields[PARCELS]["title"] == "Named in GeoLens"
-        assert f"kept the title edited in GeoLens on dataset {PARCELS}" in (
-            entry["notes"]
+        assert (
+            f"kept the title edited in GeoLens on dataset {PARCELS}" in (entry["notes"])
         )
         assert entry["metadata_baseline"][PARCELS]["title"] == first
     else:
@@ -1745,6 +1745,31 @@ def test_a_later_run_reports_the_cutover_in_the_report(runner, plan_file, geolen
     assert "**Cut over** at" in report
 
 
+def test_a_refused_cutover_keeps_the_earlier_one_in_the_report(
+    runner, plan_file, geolens, monkeypatch
+):
+    _edit_plan(plan_file, (A2,))
+    service = FakeImport(geolens, [_layer(0, "Parcels", has_attachments=False)])
+    result, _ = _migrate(runner, plan_file, "--cutover")
+    assert result.exit_code == 0, result.output
+    at = _state(plan_file)["cutover"]["at"]
+    report = plan_file.parent / "arcgis-migration-report.md"
+    assert f"**Cut over** at {at}; losses accepted: none" in report.read_text()
+    FakeRefresh(geolens, service).allow(PARCELS)
+    monkeypatch.setattr(
+        migrate_mod, "inventory_changes", lambda *a: "portal items changed"
+    )
+
+    result, payload = _migrate(runner, plan_file, "--cutover")
+
+    assert result.exit_code == 1
+    text = report.read_text()
+    assert f"**Cut over** at {at}; losses accepted: none" in text
+    assert "**Cutover refused:** incomplete-inventory" in text
+    saved = json.loads((plan_file.parent / "arcgis-migration-report.json").read_text())
+    assert saved["cutover"]["earlier"] == {"at": at, "accepted": []}
+
+
 _ORG = "ExAmPlEoRg0123"
 _ADMIN = {"id": _ORG, "user": {"username": "gis_admin", "role": "org_admin"}}
 
@@ -1780,10 +1805,16 @@ _PLAN = {
 @pytest.mark.parametrize(
     ("client", "says"),
     [
-        (_SearchPortal({"results": [{"modified": 1791000000000}]}), "changed after"),
+        (
+            _SearchPortal({"results": [{"id": "a1", "modified": 1791000000000}]}),
+            "changed after the inventory was read 10 days ago (a1)",
+        ),
         # Changed while the inventory ran, after its start, before its end.
-        (_SearchPortal({"results": [{"modified": 1790815000000}]}), "changed after"),
-        (_SearchPortal({"results": [{"modified": 1759000000000}]}), None),
+        (
+            _SearchPortal({"results": [{"id": "a1", "modified": 1790815000000}]}),
+            "changed after",
+        ),
+        (_SearchPortal({"results": [{"id": "a1", "modified": 1759000000000}]}), None),
         # An organization the plan came from has items; none is no answer.
         (_SearchPortal({"results": []}), "found no items of the organization"),
         (_SearchPortal({"results": []}, token=None), "no ArcGIS credential"),
@@ -1791,9 +1822,19 @@ _PLAN = {
         (_SearchPortal(PortalError("boom", kind="server")), "couldn't check"),
         (_SearchPortal({"error": "nope"}), "couldn't check"),
         (_SearchPortal({"results": [{}]}), "couldn't check"),
-        (_SearchPortal({"results": [{"modified": None}]}), "couldn't check"),
-        (_SearchPortal({"results": [{"modified": "1791000000000"}]}), "couldn't check"),
-        (_SearchPortal({"results": [{"modified": True}]}), "couldn't check"),
+        (
+            _SearchPortal({"results": [{"id": "a1", "modified": None}]}),
+            "couldn't check",
+        ),
+        (
+            _SearchPortal({"results": [{"id": "a1", "modified": "1791000000000"}]}),
+            "couldn't check",
+        ),
+        (
+            _SearchPortal({"results": [{"id": "a1", "modified": True}]}),
+            "couldn't check",
+        ),
+        (_SearchPortal({"results": [{"modified": 1791000000000}]}), "couldn't check"),
         (_SearchPortal({"results": ["item"]}), "couldn't check"),
     ],
 )
@@ -1807,7 +1848,57 @@ def test_cutover_asks_the_portal_for_items_changed_since_the_inventory(client, s
     if isinstance(client, _SearchPortal) and client.token:
         [(_self, _), (path, params)] = client.asked
         assert path == "search" and params["q"] == "orgid:ExAmPlEoRg0123"
-        assert params["sortField"] == "modified" and params["num"] == 1
+        assert params["sortField"] == "modified" and params["sortOrder"] == "desc"
+        assert params["start"] == 1
+
+
+class _PagedPortal(_SearchPortal):
+    """A search answering *pages* in turn, each with its nextStart."""
+
+    def __init__(self, pages) -> None:
+        super().__init__(None)
+        self.pages = list(pages)
+
+    def get_json(self, path, params=None):
+        self.asked.append((path, dict(params or {})))
+        if path == "portals/self":
+            return self.self_info
+        return self.pages.pop(0)
+
+
+def test_the_freshness_check_ignores_items_the_plan_skips():
+    newer, older = 1791000000000, 1759000000000
+    plan = {
+        **_PLAN,
+        "items": [
+            {"id": "skipped", "action": "skip"},
+            {"id": "imported", "action": "import_layers"},
+        ],
+    }
+    pages = [
+        {"results": [{"id": "skipped", "modified": newer}], "nextStart": 2},
+        {"results": [{"id": "imported", "modified": older}], "nextStart": 3},
+    ]
+
+    assert cutover_mod.inventory_changes(_PagedPortal(pages), plan, _NOW) is None
+
+    # The next page holds a planned item and a new one, changed after the read.
+    client = _PagedPortal(
+        [
+            pages[0],
+            {
+                "results": [
+                    {"id": "imported", "modified": newer},
+                    {"id": "brand-new", "modified": newer},
+                    {"id": "skipped", "modified": older},
+                ],
+                "nextStart": -1,
+            },
+        ]
+    )
+    reason = cutover_mod.inventory_changes(client, plan, _NOW)
+    assert "(imported, brand-new)" in reason
+    assert [p["start"] for path, p in client.asked if path == "search"] == [1, 2]
 
 
 def test_a_portal_changed_since_the_inventory_refuses_cutover(
