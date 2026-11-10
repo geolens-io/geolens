@@ -86,7 +86,7 @@ MAX_STRUCTURAL_TOKENS = 2_000_000
 PAGE_SIZE = 1000
 
 
-def is_arcgis_oapif(url: str) -> bool:
+def is_arcgis_oapif(url: str | None) -> bool:
     """Whether an OGC API Features URL is an ArcGIS ``OGCFeatureServer``.
 
     GDAL 3.10.3 keeps only the last page of such a collection: every page
@@ -94,7 +94,7 @@ def is_arcgis_oapif(url: str) -> bool:
     opens it as an ArcGIS paging dataset that can't fetch its own pages.
     So these collections are always read by this module's walk.
     """
-    return "/ogcfeatureserver" in urlsplit(url).path.lower()
+    return bool(url) and "/ogcfeatureserver" in urlsplit(url).path.lower()
 
 
 class MaterialisedCollection(NamedTuple):

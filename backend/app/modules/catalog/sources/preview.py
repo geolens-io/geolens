@@ -33,6 +33,7 @@ from app.platform.service_auth import (
 )
 from app.core.config import settings
 from app.core.runtime.staging import ensure_staging_ready
+from app.platform.arcgis_wfs import is_arcgis_wfs
 from app.platform.service_items import (
     ItemFetchFailedError,
     is_arcgis_oapif,
@@ -143,6 +144,14 @@ async def _localise_protected_oapif(
     # dropped (GeoJSON driver has exactly one layer); the collection the
     # caller asked for is still what gets reported.
     return _Localised(extract.path, "", None, extract.path, layer_name, extract.total)
+
+
+def _arcgis_wfs_args(gdal_source: str) -> list[str]:
+    """GDAL's paging off for an ArcGIS WFS, which reads COUNT as an end
+    index, so a paged read stops after the first page."""
+    if gdal_source.startswith("WFS:") and is_arcgis_wfs(_service_url(gdal_source)):
+        return ["--config", "OGR_WFS_PAGING_ALLOWED", "OFF"]
+    return []
 
 
 def _remove_quietly(path: str | None) -> None:
@@ -329,6 +338,7 @@ async def run_service_preview(
     ]
     if layer_name:
         cmd.append(layer_name)
+    cmd.extend(_arcgis_wfs_args(gdal_source))
 
     logger.info(
         "running ogrinfo for service preview",

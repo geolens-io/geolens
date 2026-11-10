@@ -495,3 +495,138 @@ class TestAnArcGISCollectionIsReadByTheWalkWithoutACredential:
         (spawn,) = seen
         assert not any(str(a).startswith("OAPIF:") for a in spawn["argv"])
         assert spawn["features"] and spawn["features"][0]
+
+
+_ARCGIS_WFS = (
+    "https://dservices.arcgis.example/ORG/arcgis/services/glTrial2Ogc/WFSServer"
+)
+_OTHER_WFS = "https://geoserver.example.test/geoserver/wfs"
+
+
+def _paging_off(argv) -> bool:
+    flat = [str(a) for a in argv]
+    return any(
+        flat[i : i + 3] == ["--config", "OGR_WFS_PAGING_ALLOWED", "OFF"]
+        for i in range(len(flat))
+    )
+
+
+class TestArcGISWFSIsReadUnpagedAndCounted:
+    """ArcGIS WFS reads COUNT as an end index, so GDAL's second page comes
+    back empty. Its imports run unpaged and are checked against the
+    ``resultType=hits`` total."""
+
+    @pytest.fixture
+    def hits(self, monkeypatch):
+        fetch = AsyncMock(return_value=None)
+        monkeypatch.setattr("app.processing.ingest.ogr.fetch_arcgis_wfs_hits", fetch)
+        return fetch
+
+    @pytest.fixture
+    def rows(self, monkeypatch):
+        count = AsyncMock(return_value=0)
+        monkeypatch.setattr("app.processing.ingest.ogr._staged_row_count", count)
+        return count
+
+    async def _import(self, url: str) -> None:
+        from app.processing.ingest.ogr import run_ogr2ogr_service
+
+        await run_ogr2ogr_service(
+            f"WFS:{url}", "glTrial2Ogc:pts", "t", "PG:dbname=x", "wfs", schema="data"
+        )
+
+    @pytest.mark.parametrize(("url", "off"), [(_ARCGIS_WFS, True), (_OTHER_WFS, False)])
+    async def test_paging_is_off_for_arcgis_only(
+        self, monkeypatch, hits, rows, url, off
+    ) -> None:
+        seen = _spawn_reading_the_source(monkeypatch)
+
+        await self._import(url)
+
+        assert _paging_off(seen[0]["argv"]) is off
+        assert hits.await_count == int(off)
+
+    @pytest.mark.parametrize(("url", "off"), [(_ARCGIS_WFS, True), (_OTHER_WFS, False)])
+    async def test_the_preview_reads_unpaged_for_arcgis_only(
+        self, monkeypatch, url, off
+    ) -> None:
+        from app.modules.catalog.sources.preview import run_service_preview
+
+        seen = _spawn_reading_the_source(monkeypatch, stdout=b"{}")
+
+        await run_service_preview(f"WFS:{url}", "glTrial2Ogc:pts")
+
+        assert _paging_off(seen[0]["argv"]) is off
+
+    async def test_fewer_features_than_the_total_fails_the_import(
+        self, monkeypatch, hits, rows
+    ) -> None:
+        from app.processing.ingest.ogr import IngestionError
+
+        _spawn_reading_the_source(monkeypatch)
+        hits.return_value, rows.return_value = 3000, 1000
+
+        with pytest.raises(IngestionError, match="returned 1000 of 3000 features"):
+            await self._import(_ARCGIS_WFS)
+
+    async def test_the_whole_layer_passes(self, monkeypatch, hits, rows) -> None:
+        _spawn_reading_the_source(monkeypatch)
+        hits.return_value, rows.return_value = 25, 25
+
+        await self._import(_ARCGIS_WFS)
+
+    async def test_no_total_is_no_check(self, monkeypatch, hits, rows) -> None:
+        _spawn_reading_the_source(monkeypatch)
+        rows.return_value = 1
+
+        await self._import(_ARCGIS_WFS)
+
+        rows.assert_not_awaited()
+
+
+class TestTheHitsRead:
+    def _serve_hits(self, monkeypatch, body: bytes) -> list[httpx.Request]:
+        monkeypatch.setattr(
+            "app.platform.arcgis_wfs.validate_url_for_ssrf", AsyncMock()
+        )
+        return _serve(monkeypatch, lambda r: _streamed(200, body, "application/xml"))
+
+    async def test_the_total_comes_from_number_matched(self, monkeypatch) -> None:
+        from app.platform.arcgis_wfs import fetch_arcgis_wfs_hits
+
+        recorded = self._serve_hits(
+            monkeypatch, (_FIXTURES / "wfs-hits.xml").read_bytes()
+        )
+        line = _credential_line()
+
+        total = await fetch_arcgis_wfs_hits(
+            f"{_ARCGIS_WFS}?token=abc", "glTrial2Ogc:pts", credential_line=line
+        )
+
+        assert total == 25
+        (request,) = recorded
+        assert request.url.params["RESULTTYPE"] == "hits"
+        assert request.url.params["TYPENAMES"] == "glTrial2Ogc:pts"
+        assert request.url.params["token"] == "abc"
+        assert request.headers["Authorization"] == line.partition(": ")[2]
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            b'<wfs:FeatureCollection xmlns:wfs="http://www.opengis.net/wfs/2.0"/>',
+            b'<wfs:FeatureCollection xmlns:wfs="http://www.opengis.net/wfs/2.0" numberMatched="unknown"/>',
+            b"<not xml",
+        ],
+        ids=["absent", "unknown", "unparsable"],
+    )
+    async def test_no_count_is_none(self, monkeypatch, body) -> None:
+        from app.platform.arcgis_wfs import fetch_arcgis_wfs_hits
+
+        self._serve_hits(monkeypatch, body)
+
+        assert (
+            await fetch_arcgis_wfs_hits(
+                _ARCGIS_WFS, "glTrial2Ogc:pts", credential_line=None
+            )
+            is None
+        )
