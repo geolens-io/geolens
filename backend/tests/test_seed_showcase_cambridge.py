@@ -1194,11 +1194,26 @@ def test_a_cambridge_stub_gets_the_neutral_summary(parcels_file):
     assert set(api.stub_summaries) == {cam.STUB_SUMMARY}
 
 
-def test_the_seeder_stub_summary_is_a_default_the_caller_can_replace():
-    import inspect
+def test_the_stub_upload_carries_the_summary_it_was_given(monkeypatch):
+    api = FakeApi()
+    response = httpx.Response(
+        409, text="duplicate_source", request=httpx.Request("POST", "http://x")
+    )
 
-    default = inspect.signature(seed.ingest_service).parameters["stub_summary"].default
-    assert default == seed._SERVICE_STUB_SUMMARY
+    def preview(body):
+        raise httpx.HTTPStatusError("dup", request=response.request, response=response)
+
+    sent = []
+    api.service_preview = preview
+    api.ingest_geojson = lambda name, data, title, summary, timeout=300: (
+        sent.append(summary) or "ds"
+    )
+    monkeypatch.setattr(seed, "service_binding_body", lambda *a: {})
+    monkeypatch.setattr(seed, "convert_to_service", lambda *a, **k: False)
+
+    seed.ingest_service(api, "http://svc", "T", stub_summary="neutral")
+    seed.ingest_service(api, "http://svc", "T")
+    assert sent == ["neutral", seed._SERVICE_STUB_SUMMARY]
 
 
 def test_a_map_only_run_refuses_a_binding_still_a_stub():
