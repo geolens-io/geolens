@@ -13,6 +13,7 @@ and releases use semantic versioning.
 - Add Data has a Database source when a connection is configured: pick a connection and a table, give a table without an SRID its CRS, and import. Each listed table now carries `importable`, and a name GeoLens can't import is shown but disabled. A database dataset's Source tab shows its connection and table, refreshes it, and can accept a refresh held for review. `geolens replace` refuses a database dataset, and the MCP client reports the `database` origin.
 
 ### Changed
+- The backend image no longer installs the FastAPI CLI extras (`fastapi[standard]`): the `fastapi` command, Jinja2 and `pydantic-extra-types` are gone, and Uvicorn is a direct dependency. Operators building their own images should start the API with `uvicorn`, as the bundled Compose files do.
 - Overlay authors: `EXTENSION_API_VERSION` is now 23. `CatalogPort` gains the
   required `queue_ingest_job()` and `refresh_database_task()`.
 - The viewer legend describes a clustered layer as "Grouped into clusters as you zoom out" or "Shown as individual points" instead of "Server cluster", "Bounded cluster" and "Point fallback".
@@ -23,6 +24,7 @@ and releases use semantic versioning.
 - Visiting `/stories` opens the Stories tab of the Maps page instead of a 404.
 - A user can no longer end up with two copies of one service layer or database table. A second import while the first is still queued or running answers 409 `duplicate_source` with `existing_job_id` in place of `existing_dataset_id` and `existing_title`. Retrying a failed import answers the same 409 while the job's owner holds a copy of its source, and works again once that copy is deleted. An import that reaches publication after a copy was published, or a service re-upload that would bind a second dataset to a layer the owner already holds, fails with error code `duplicate_source`. An import an admin committed for another user now retries for the admin, as the commit did, and only that admin or a user who may manage others' jobs can retry it. A service URL counts as the same source whatever its trailing slash, letter case of scheme and host, or protocol parameters such as `SERVICE` and `REQUEST`.
 - Collection records in search report their members' license, the shared one or `various`, instead of always `proprietary`.
+- Map thumbnail and social-card images that no map names any more, left behind by an interrupted upload or a failed cleanup, are now deleted by the six-hourly image sweep once they are a day old.
 
 ## [1.30.1] - 2026-11-08
 

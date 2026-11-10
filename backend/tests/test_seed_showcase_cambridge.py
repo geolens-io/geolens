@@ -43,6 +43,7 @@ class FakeApi:
         self.aggregates: list[dict] = []
         self.coded: dict[str, set[str]] = {}
         self.titles: dict[tuple[str, str], str] = {}
+        self.stub_summaries: list = []
 
     def _id(self, prefix: str) -> str:
         self.counter += 1
@@ -229,8 +230,9 @@ def helpers(api: FakeApi, *, fetch=None):
         **{name: getattr(seed, name) for name in cam.SEEDER_HELPERS}
     )
 
-    def ingest_service(api_, url, title, timeout=900):
+    def ingest_service(api_, url, title, timeout=900, **kw):
         api_.writes.append("ingest_service")
+        api_.stub_summaries.append(kw.get("stub_summary"))
         dataset_id = api_._dataset(title, origin="service")
         return dataset_id
 
@@ -295,7 +297,7 @@ def test_a_failed_binding_withdraws_the_public_stub(parcels_file):
     api = FakeApi()
     h = helpers(api)
 
-    def failing(api_, url, title, timeout=900):
+    def failing(api_, url, title, timeout=900, **kw):
         dataset_id = api_._dataset(title)
         api_.datasets[dataset_id]["summary"] = "Earthquake data"
         raise RuntimeError("service unreachable")
@@ -633,9 +635,11 @@ def test_the_neighborhood_picker_says_what_it_filters(built):
     api, h = built
     sent = api.maps[cam.seed_tree_dashboard(h, api)]["dashboard_sent"]
     picker = next(w for w in sent["widgets"] if w["type"] == "category_selector")
-    assert "site-type chart" in picker["title"]
+    assert "site-type chart and the trees layer" in picker["title"]
     about = next(w for w in sent["widgets"] if w["type"] == "markdown")
-    assert "site-type chart only" in about["config"]["text"]
+    text = about["config"]["text"]
+    assert "site-type chart and the trees layer only" in text
+    assert "follow the map view, not the neighborhood" in text
 
 
 def test_derived_datasets_do_not_name_the_city_as_publisher():
@@ -1181,3 +1185,75 @@ def test_the_zoning_legend_follows_the_parcel_ranking():
         for entry in layers["Zoning districts"]["style_config"]["categories"]
     ]
     assert values[: len(cam.ZONE_COLORS)] == [code for code, _ in cam.ZONE_COLORS]
+
+
+def test_a_cambridge_stub_gets_the_neutral_summary(parcels_file):
+    api = FakeApi()
+    h = helpers(api, fetch=lambda url: parcels_file)
+    cam.build_catalog(h, api)
+    assert set(api.stub_summaries) == {cam.STUB_SUMMARY}
+
+
+def test_the_stub_upload_carries_the_summary_it_was_given(monkeypatch):
+    api = FakeApi()
+    response = httpx.Response(
+        409, text="duplicate_source", request=httpx.Request("POST", "http://x")
+    )
+
+    def preview(body):
+        raise httpx.HTTPStatusError("dup", request=response.request, response=response)
+
+    sent = []
+    api.service_preview = preview
+    api.ingest_geojson = lambda name, data, title, summary, timeout=300: (
+        sent.append(summary) or "ds"
+    )
+    monkeypatch.setattr(seed, "service_binding_body", lambda *a: {})
+    monkeypatch.setattr(seed, "convert_to_service", lambda *a, **k: False)
+
+    seed.ingest_service(api, "http://svc", "T", stub_summary="neutral")
+    seed.ingest_service(api, "http://svc", "T")
+    assert sent == ["neutral", seed._SERVICE_STUB_SUMMARY]
+
+
+def test_a_map_only_run_refuses_a_binding_still_a_stub():
+    api = FakeApi()
+    api._dataset(cam.TREES_TITLE, origin="upload")
+    assert cam._datasets(api, (cam.TREES_TITLE,)) is None
+
+
+def test_enrich_continues_past_a_transport_error(built, monkeypatch):
+    api, h = built
+    real = cam._apply_metadata
+    seen = []
+
+    def flaky(api_, dataset_id, title):
+        seen.append(title)
+        if len(seen) == 1:
+            raise httpx.ConnectError("boom")
+        return real(api_, dataset_id, title)
+
+    monkeypatch.setattr(cam, "_apply_metadata", flaky)
+    failed = cam.enrich_existing(api)
+    assert failed == [seen[0]]
+    assert len(seen) > 1
+
+
+@pytest.mark.parametrize("missing", ["sitetype", "commonname", "diameter", "plantdate"])
+def test_the_trees_map_needs_its_style_and_popup_columns(built, missing):
+    api, h = built
+    full = FakeApi.dataset_columns(api, None)
+    api.dataset_columns = lambda i: full - {missing}
+    with pytest.raises(RuntimeError, match=missing):
+        cam.build_trees_map(h, api)
+    assert cam.TREES_MAP not in api.list_maps()
+
+
+@pytest.mark.parametrize("title", [cam.PARCELS_ZONED_TITLE, cam.PARCELS_FLOOD_TITLE])
+def test_the_land_dashboard_needs_ml_on_both_parcel_datasets(built, title):
+    api, h = built
+    dataset_id = api.datasets_by_title()[title]
+    full = FakeApi.dataset_columns(api, dataset_id)
+    api.dataset_columns = lambda i: full - {"ml"} if i == dataset_id else full
+    with pytest.raises(RuntimeError, match="ml"):
+        cam.seed_land_dashboard(h, api)
