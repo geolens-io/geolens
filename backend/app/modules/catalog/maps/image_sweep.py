@@ -43,7 +43,7 @@ _MAX_PAGES_PER_PASS = 100
 
 @dataclass
 class MapImageSweepOutcome:
-    """What one pass over both prefixes saw and did."""
+    """What one pass saw and did."""
 
     # False when neither prefix was walked: declined, or locked elsewhere.
     ran: bool = False
@@ -182,14 +182,11 @@ async def _sweep_page(
 
 
 async def _sweep_prefix(
-    db: AsyncSession,
-    prefix: str,
-    *,
-    cutoff: datetime,
-    now: datetime,
-    outcome: MapImageSweepOutcome,
-) -> bool:
-    """Walk one prefix; False when the pass declined it."""
+    db: AsyncSession, prefix: str, *, cutoff: datetime, now: datetime
+) -> MapImageSweepOutcome:
+    """Walk one prefix under its own delete budget, so objects that keep
+    failing under one prefix can't hold back the other."""
+    outcome = MapImageSweepOutcome(ran=True)
 
     async def handle_page(storage, physical_prefix, page, previous_end):
         return await _sweep_page(
@@ -214,20 +211,21 @@ async def _sweep_prefix(
         guard=lambda: _catalog_has_maps(db),
     )
     if progress is None:
-        return False
-    outcome.objects_listed += progress.objects_listed
-    return True
+        return MapImageSweepOutcome()
+    outcome.objects_listed = progress.objects_listed
+    return outcome
 
 
 async def _sweep(db: AsyncSession, *, now: datetime) -> MapImageSweepOutcome:
-    outcome = MapImageSweepOutcome()
+    total = MapImageSweepOutcome()
     cutoff = now - ORPHAN_OBJECT_MIN_AGE
     for prefix in MAP_IMAGE_PREFIXES:
-        if outcome.budget_spent():
-            break
-        if await _sweep_prefix(db, prefix, cutoff=cutoff, now=now, outcome=outcome):
-            outcome.ran = True
-    return outcome
+        part = await _sweep_prefix(db, prefix, cutoff=cutoff, now=now)
+        for name, value in asdict(part).items():
+            if name != "ran":
+                setattr(total, name, getattr(total, name) + value)
+        total.ran = total.ran or part.ran
+    return total
 
 
 async def sweep_unnamed_map_image_objects(

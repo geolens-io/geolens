@@ -16,13 +16,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.admin import story_asset_jobs
 from app.modules.catalog.maps.image_sweep import (
+    _MAX_DELETES_PER_PASS,
     ORPHAN_OBJECT_MIN_AGE,
     sweep_unnamed_map_image_objects,
 )
 from app.modules.catalog.maps.models import Map
 from app.modules.catalog.maps.service_crud import new_map_asset_key
-from app.platform.storage.provider import StoredObject
 from tests.factories import get_user_id
+from tests.test_story_asset_sweep import FakeStorage
 
 pytestmark = pytest.mark.anyio
 
@@ -33,26 +34,6 @@ PREFIXES = ("maps/thumbnails", "maps/og-images")
 COLUMNS = ("thumbnail_uri", "og_image_uri")
 
 _maps: list[uuid.UUID] = []
-
-
-class FakeStorage:
-    def __init__(self, objects: dict[str, datetime]) -> None:
-        self.objects = dict(objects)
-        self.deleted: list[str] = []
-        self.failing: set[str] = set()
-
-    async def iter_object_pages(self, prefix: str, *, start_after: str | None = None):
-        yield [
-            StoredObject(key=key, last_modified=modified)
-            for key, modified in sorted(self.objects.items())
-            if key.startswith(prefix) and (start_after is None or key > start_after)
-        ]
-
-    async def delete(self, key: str) -> None:
-        if key in self.failing:
-            raise OSError("storage unavailable")
-        self.deleted.append(key)
-        self.objects.pop(key, None)
 
 
 async def _map(session: AsyncSession, **image_columns: str) -> uuid.UUID:
@@ -220,6 +201,23 @@ async def test_a_failed_delete_is_counted_and_the_pass_goes_on(
 
     assert set(storage.objects) == {stuck}
     assert outcome.delete_failures == 1
+
+
+async def test_thumbnails_that_keep_failing_do_not_hold_back_social_cards(
+    test_db_session: AsyncSession,
+) -> None:
+    map_id = await _map(test_db_session)
+    stuck = {
+        new_map_asset_key("maps/thumbnails", map_id, "jpg")
+        for _ in range(_MAX_DELETES_PER_PASS)
+    }
+    social = new_map_asset_key("maps/og-images", map_id, "jpg")
+    storage = FakeStorage({key: OLD for key in stuck | {social}})
+    storage.failing |= stuck
+
+    await _run(test_db_session, storage)
+
+    assert set(storage.objects) == stuck
 
 
 async def test_a_listing_failure_ends_the_pass_without_raising(
