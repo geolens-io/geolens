@@ -60,9 +60,10 @@ from app.modules.catalog.collections.models import DatasetVersion
 from app.modules.catalog.datasets.api import router_refresh
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.platform.dataset_origin import (
+    KEEP,
+    SourceBinding,
     build_origin_ref,
-    set_dataset_origin,
-    set_postgis_origin,
+    restamp,
 )
 from app.platform.jobs.models import IngestJob
 from app.platform.jobs.router import sweep_stale_vrt_assets
@@ -228,13 +229,13 @@ async def _service_dataset(
     )
     enriched = f"{_WFS_BASE}/{layer_id}"
     dataset.source_url = enriched
-    set_dataset_origin(
+    restamp(
         dataset,
-        "service",
-        uri=enriched,
-        service_type="wfs",
-        url=_WFS_BASE,
-        layer_id=layer_id,
+        SourceBinding.service(
+            "wfs", url=_WFS_BASE, layer_id=layer_id, enriched_uri=enriched
+        ),
+        contacted_at=None,
+        refreshed_at=KEEP,
     )
     await session.commit()
     await session.refresh(dataset)
@@ -262,6 +263,7 @@ async def _execute_service(task_kwargs: dict, *, expected_token: str | None) -> 
         *,
         schema: str,
         on_spawn=None,
+        keep_z: bool = False,
     ) -> None:
         if token != expected_token:
             raise AssertionError(
@@ -342,7 +344,12 @@ async def _registered_postgis_dataset(session, *, created_by: uuid.UUID) -> Data
         source_format=None,
         source_filename=None,
     )
-    set_postgis_origin(dataset, table_name, schema="data")
+    restamp(
+        dataset,
+        SourceBinding.postgis(table_name, schema="data"),
+        contacted_at=None,
+        refreshed_at=KEEP,
+    )
     await session.commit()
     await session.refresh(dataset)
     return dataset
@@ -871,14 +878,14 @@ class TestLifecycleBraids:
         runs = await _runs_ordered(test_db_session, dataset.id)
         assert [r.status for r in runs] == ["blocked", "succeeded"]
 
-        set_dataset_origin(
+        restamp(
             dataset,
-            "upload",
-            uri=None,
-            filename="replacement.gpkg",
-            file_hash="deadbeef",
+            SourceBinding.upload(
+                "gpkg", filename="replacement.gpkg", file_hash="deadbeef"
+            ),
+            contacted_at=None,
+            refreshed_at=KEEP,
         )
-        dataset.source_format = "gpkg"
         await test_db_session.commit()
 
         async with _dispatch_harness() as task:

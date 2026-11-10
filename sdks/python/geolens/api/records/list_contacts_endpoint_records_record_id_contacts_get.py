@@ -117,7 +117,7 @@ def sync_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 100,
 ) -> Response[ContactListResponse | ProblemDetail]:
-    """List Contacts Endpoint
+    """List a record's contacts
 
      List all contacts for a record.
 
@@ -154,7 +154,7 @@ def sync(
     skip: int | Unset = 0,
     limit: int | Unset = 100,
 ) -> ContactListResponse | ProblemDetail | None:
-    """List Contacts Endpoint
+    """List a record's contacts
 
      List all contacts for a record.
 
@@ -186,7 +186,7 @@ async def asyncio_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 100,
 ) -> Response[ContactListResponse | ProblemDetail]:
-    """List Contacts Endpoint
+    """List a record's contacts
 
      List all contacts for a record.
 
@@ -221,7 +221,7 @@ async def asyncio(
     skip: int | Unset = 0,
     limit: int | Unset = 100,
 ) -> ContactListResponse | ProblemDetail | None:
-    """List Contacts Endpoint
+    """List a record's contacts
 
      List all contacts for a record.
 

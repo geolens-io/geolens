@@ -43,12 +43,20 @@ python scripts/seed-showcase.py \
   --password "$GEOLENS_ADMIN_PASSWORD" \
   --only hurricanes
 
-# Swap a fresh USGS 30-day feed into the earthquake datasets (in place), then exit.
+# Swap a fresh USGS 30-day feed into the earthquake dataset (in place), then exit.
 # Run every week or two so "last 30 days" stays honest on a long-lived instance.
 python scripts/seed-showcase.py \
   --username "${GEOLENS_ADMIN_USERNAME:-admin}" \
   --password "$GEOLENS_ADMIN_PASSWORD" \
   --refresh-quakes
+
+# Add (or update in place) the hurricane story and the earthquake dashboard map
+# on an instance that already has the hurricane and earthquake maps and their
+# datasets, then exit. A full seed creates both too.
+python scripts/seed-showcase.py \
+  --username "${GEOLENS_ADMIN_USERNAME:-admin}" \
+  --password "$GEOLENS_ADMIN_PASSWORD" \
+  --story-and-dashboard
 ```
 
 Run `python scripts/seed-showcase.py --help` for the flags and their defaults.
@@ -122,6 +130,7 @@ Wired into the `Makefile` / `package.json`, not run by operators directly:
 | `public_surface_gate.json` | Configure scan boundaries, forbidden pattern IDs, and exact allowlist entries |
 | `check_deployed_surface.py` | Check live marketing/docs pages after deploy (`make deployed-surface-check` / `npm run check:deployed-surface`) |
 | `deployed_surface_gate.json` | Configure deployed page URLs plus required and forbidden assertion IDs |
+| `previous-release-compat.sh` | Boot a published release's api and worker (default: the newest release and the newest of the minor line before it), upgrade the schema to this tree's heads under them, then read a dataset, ingest one and list datasets. CI's Previous-Release Compatibility job; run it locally before tagging (needs docker, uv and free ports, and pulls the release images) |
 
 Allowlist entries in `public_surface_gate.json` must name an exact path, pattern ID, match, and rationale. Wildcard allowlist paths and stale entries fail the gate.
 

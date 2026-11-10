@@ -21,6 +21,10 @@ from .client import AuthenticatedClient, Client
 
 __all__ = ["GeolensClient"]
 
+#: Sent on every request, so maps read with their ``restricted`` visibility. A
+#: client without it reads a restricted map as ``private``.
+_MAP_VISIBILITY_OPT_IN = {"X-GeoLens-Map-Visibility": "restricted"}
+
 
 class GeolensClient:
     """Single entry-point for the GeoLens Python SDK.
@@ -36,6 +40,7 @@ class GeolensClient:
         api_key: API key. Sent as `X-API-Key: <key>` (no prefix).
         client_options: Passed to the generated client, e.g. ``timeout=httpx.Timeout(30)``,
             ``verify_ssl``, ``headers``, ``httpx_args`` or ``raise_on_unexpected_status``.
+            ``headers`` may override the map visibility opt-in every client sends.
             They also apply to the client built by ``set_bearer_token`` and ``set_api_key``.
             Without ``timeout`` requests never time out.
 
@@ -88,6 +93,7 @@ class GeolensClient:
         for name in ("headers", "httpx_args"):
             if name in options:
                 options[name] = dict(options[name])
+        options["headers"] = {**_MAP_VISIBILITY_OPT_IN, **options.get("headers", {})}
         return options
 
     @property

@@ -169,13 +169,42 @@
     "visibilityPublic": "公开",
     "visibilityPrivate": "私有",
     "visibilityRestricted": "受限",
-    "visibilityHelp": "私有 = 仅所有者和管理员。内部 = 任何登录 GeoLens 的用户。公开 = 对所有人可见，包括未登录的访客。",
+    "visibilityHelp": "私有 = 仅所有者和管理员。受限 = 所有者、管理员以及所共享的用户组或角色中的任何人。内部 = 任何登录 GeoLens 的用户。公开 = 对所有人可见，包括未登录的访客。",
     "visibilityUpdated": "可见性已更新",
     "visibilityFailed": "无法更改可见性",
     "license": "许可协议",
     "vintageStart": "数据年份开始",
     "vintageEnd": "数据年份结束",
-    "saving": "正在保存..."
+    "saving": "正在保存...",
+    "publicConfirmTitle": "将此数据集设为公开？",
+    "publicConfirmDescription": "匿名用户将可以通过 OGC API 访问其要素、地图瓦片、下载内容及其目录记录。已与此数据集共享的群组保留其访问权限。",
+    "publicConfirmAction": "设为公开"
+  },
+  "groupShare": {
+    "title": "与用户组共享",
+    "help": "通过用户组，可以把私有数据集共享给一组人员，而无需对所有人可见。",
+    "selectedLabel": "已共享此数据集的用户组",
+    "none": "尚未与任何用户组共享。",
+    "remove": "移除 {{name}}",
+    "pickerLabel": "添加用户组",
+    "placeholder": "搜索用户组",
+    "noMatches": "没有匹配的用户组",
+    "results_one": "有 {{count}} 个用户组可选",
+    "results_many": "有 {{count}} 个用户组可选",
+    "results_other": "有 {{count}} 个用户组可选",
+    "noGroupsAvailable": "您不属于任何用户组。管理员可以把您加入某个用户组。",
+    "noGroupsAdmin": "还没有用户组。<1>请在“管理 > 用户组”中创建。</1>",
+    "added": "已添加 {{name}}。保存后生效。",
+    "removed": "已移除 {{name}}。保存后生效。",
+    "save": "保存用户组",
+    "saved": "用户组已保存。此数据集现在为{{visibility}}。",
+    "failed": "无法保存用户组",
+    "loadFailed": "无法加载您的用户组",
+    "effectPrivateEmpty": "此数据集为私有。添加用户组并保存后，它将变为受限。",
+    "effectToRestricted": "保存后此数据集将变为受限：只有您、管理员和这些用户组的成员可以打开它。",
+    "effectRestricted": "此数据集为受限。保存将改变可以打开它的用户组。",
+    "effectToPrivate": "保存将移除最后一个用户组。除非仍有其他访问授权，否则数据集将变为私有。",
+    "effectKept": "此数据集为{{visibility}}，因此保存不会改变谁可以打开它。用户组会保留。"
   },
   "export": {
     "gpkg": "GeoPackage",
@@ -199,6 +228,7 @@
     "editInvalidValue": "不是有效的 {{type}} 值",
     "noResults": "未找到匹配的行。",
     "showingExact": "正在显示第 {{start}}-{{end}} 行，共 {{total}} 行",
+    "showingAtLeast": "正在显示第 {{start}}-{{end}} 行，共超过 {{total}} 行",
     "rowsPerPage": "每页行数",
     "columns": "列",
     "loadFailed": "数据加载失败，请重试。",
@@ -206,6 +236,7 @@
     "cellEditorLabel": "编辑要素 {{gid}} 的 {{column}}",
     "selectPage": "选择本页所有行",
     "selectRow": "选择行 {{gid}}",
+    "rowActionLabel": "在地图上显示第 {{gid}} 行",
     "deleteRows_one": "删除 {{formattedCount}} 行",
     "deleteRows_many": "删除 {{formattedCount}} 行",
     "deleteRows_other": "删除 {{formattedCount}} 行",
@@ -296,6 +327,7 @@
       "committing": "正在提交重新上传...",
       "tracking": "数据集正在后台更新。",
       "complete": "数据集已成功更新。",
+      "unchanged": "重新上传已完成，数据集未发生变化。",
       "held": "此替换已暂缓，等待审核。",
       "error": "重新上传过程中出现问题。"
     },
@@ -354,10 +386,13 @@
     "trackingBackground": "数据集正在后台更新。",
     "completeTitle": "重新上传完成！",
     "completeMessage": "数据集已更新。",
+    "unchangedTitle": "没有变化",
+    "unchangedMessage": "数据与数据集现有内容一致，因此未发布新版本。",
     "errorFallback": "发生意外错误。",
     "tryAgain": "重试",
     "refreshingOrigin": "正在刷新...",
     "toastSuccess": "重新上传完成！",
+    "toastUnchanged": "重新上传完成：没有变化",
     "uploadFailed": "上传失败，请重试。",
     "commitFailed": "提交失败，请重试。",
     "originRefreshFailed": "此次冲突后无法刷新数据集信息。请重新加载页面后重试。",
@@ -779,7 +814,8 @@
       "stac": "从 STAC 目录远程引用。源资产必须保持可用。",
       "created": "在 GeoLens 中创建，并存储为自有、可编辑的数据集。",
       "vrt": "由 GeoLens 管理的其他栅格数据集组合而成。",
-      "unknown": "此数据集未记录机器可读的来源。"
+      "unknown": "此数据集未记录机器可读的来源。",
+      "database": "从已连接的数据库导入。GeoLens 保留自有副本；刷新会重新复制该表。"
     },
     "storage": {
       "upload": "自有副本",
@@ -788,8 +824,11 @@
       "stac": "远程引用",
       "created": "自有副本",
       "vrt": "合成",
-      "unknown": "未记录"
+      "unknown": "未记录",
+      "database": "自有副本"
     },
+    "openInArcgis": "在 ArcGIS 中打开",
+    "opensInNewTab": "在新标签页中打开",
     "pointer": {
       "filename": "源文件名",
       "fingerprint": "文件指纹",
@@ -799,7 +838,9 @@
       "endpoint": "数据源 URL（已移除凭据）",
       "collection": "STAC 集合",
       "asset": "STAC 资产",
-      "item": "STAC 条目"
+      "item": "STAC 条目",
+      "connection": "数据库连接",
+      "sourceTable": "源表"
     },
     "status": {
       "health": {
@@ -816,7 +857,7 @@
       },
       "drift": {
         "none": "无漂移",
-        "drifted": "检测到漂移",
+        "drifted": "上次刷新时列已更改",
         "unknown": "未比较"
       }
     },
@@ -928,6 +969,7 @@
         },
         "sourceCountUnavailable": "数据源计数不可用。",
         "identityUnavailable": "未比较记录标识。",
+        "dataUnchanged": "数据与数据集现有内容一致，因此未发布新版本。",
         "countEvidence": "源记录：{{source}} · 已获取：{{fetched}}",
         "sourceUsed": "使用的数据源：{{source}}",
         "columnsRemoved": "已删除列：{{columns}}",

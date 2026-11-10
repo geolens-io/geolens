@@ -274,6 +274,16 @@ class DefaultCatalogPort:
 
         return refresh_stac
 
+    async def queue_ingest_job(self, job, user_id, *, db):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.service import queue_ingest_job
+
+        await queue_ingest_job(job, user_id, db=db)
+
+    def refresh_database_task(self):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.tasks import refresh_database
+
+        return refresh_database
+
     def materialize_analysis_task(self):  # type: ignore[no-untyped-def]
         from app.processing.analysis.tasks import materialize_analysis
 

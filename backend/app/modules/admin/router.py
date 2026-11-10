@@ -38,6 +38,7 @@ from app.modules.admin.schemas import (
     UserUpdate,
 )
 from app.modules.admin.service import (
+    AdminNotFoundError,
     AdminService,
     PendingUserMutationError,
     PendingUserTransitionConflict,
@@ -64,6 +65,7 @@ from app.core.db.tenant_session import (
 from app.core.csv_safety import escape_csv_formula
 from app.core.dependencies import get_client_ip, get_db
 from app.core.url_redaction import redact_url_credentials
+from app.modules.admin.router_groups import router as groups_router
 from app.modules.admin.router_operations import router as operations_router
 from app.platform.binary_response import binary_response
 from app.platform.extensions import get_catalog_port
@@ -96,6 +98,7 @@ logger = structlog.stdlib.get_logger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["Admin"], responses=ERROR_RESPONSES_AUTH)
 router.include_router(operations_router)
+router.include_router(groups_router)
 
 require_ai_status_reader = require_mode_permission(
     single_tenant="manage_users", multi_tenant="manage_tenants"
@@ -157,12 +160,11 @@ def _refuse_backfill_in_flight(
 def _raise_on_error(exc: ValueError, default_status: int) -> NoReturn:
     """Map a service-layer ValueError to an HTTPException.
 
-    'not found' messages map to 404; everything else uses default_status.
+    AdminNotFoundError maps to 404; everything else uses default_status.
     """
-    detail = str(exc)
-    if "not found" in detail.lower():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
-    raise HTTPException(status_code=default_status, detail=detail)
+    if isinstance(exc, AdminNotFoundError):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    raise HTTPException(status_code=default_status, detail=str(exc))
 
 
 # Trailing slash is canonical (in OpenAPI); the no-slash form is a hidden alias
@@ -172,12 +174,14 @@ def _raise_on_error(exc: ValueError, default_status: int) -> NoReturn:
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
     include_in_schema=False,
+    summary="Create a user",
 )
 @router.post(
     "/users/",
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
     responses={409: CONFLICT_RESPONSE},
+    summary="Create a user",
 )
 @limiter.limit("30/minute")
 async def create_user(
@@ -230,11 +234,13 @@ async def create_user(
     response_model=UserListResponse,
     dependencies=[Depends(require_permission("manage_users"))],
     include_in_schema=False,
+    summary="List users",
 )
 @router.get(
     "/users/",
     response_model=UserListResponse,
     dependencies=[Depends(require_permission("manage_users"))],
+    summary="List users",
 )
 async def list_users(
     skip: int = Query(0, ge=0),
@@ -383,7 +389,9 @@ async def export_users_csv(
             with tenant_job_context(tenant_id):
                 async with async_session() as stream_db:
                     stmt = select(User).order_by(User.created_at.asc())
-                    result = await stream_db.stream(stmt)
+                    result = await stream_db.stream(
+                        stmt.execution_options(yield_per=100)
+                    )
                     async for (user,) in result:
                         writer.writerow(
                             [
@@ -420,11 +428,13 @@ async def export_users_csv(
     response_model=list[UserNameItem],
     dependencies=[Depends(require_permission("manage_users"))],
     include_in_schema=False,
+    summary="List usernames",
 )
 @router.get(
     "/users/names/",
     response_model=list[UserNameItem],
     dependencies=[Depends(require_permission("manage_users"))],
+    summary="List usernames",
 )
 async def list_user_names(
     db: AsyncSession = Depends(get_db),
@@ -448,6 +458,7 @@ async def list_user_names(
     "/users/{user_id}",
     response_model=UserResponse,
     dependencies=[Depends(require_permission("manage_users"))],
+    summary="Get a user",
 )
 async def get_user(
     user_id: uuid.UUID,
@@ -465,6 +476,7 @@ async def get_user(
 @router.patch(
     "/users/{user_id}",
     response_model=UserResponse,
+    summary="Update a user",
 )
 @limiter.limit("30/minute")
 async def update_user(
@@ -513,10 +525,12 @@ async def update_user(
     "/users/{user_id}/deactivate",
     response_model=UserResponse,
     include_in_schema=False,
+    summary="Deactivate a user",
 )
 @router.post(
     "/users/{user_id}/deactivate/",
     response_model=UserResponse,
+    summary="Deactivate a user",
 )
 @limiter.limit("30/minute")
 async def deactivate_user(
@@ -553,11 +567,13 @@ async def deactivate_user(
     "/users/{user_id}/reset-password",
     response_model=UserResponse,
     include_in_schema=False,
+    summary="Reset a user's password",
 )
 @router.post(
     "/users/{user_id}/reset-password/",
     response_model=UserResponse,
     responses={404: NOT_FOUND_RESPONSE},
+    summary="Reset a user's password",
 )
 @limiter.limit("30/minute")
 async def reset_user_password(
@@ -682,10 +698,12 @@ async def convert_saml_to_local(
     "/users/{user_id}/approve",
     response_model=UserResponse,
     include_in_schema=False,
+    summary="Approve a pending user",
 )
 @router.post(
     "/users/{user_id}/approve/",
     response_model=UserResponse,
+    summary="Approve a pending user",
 )
 @limiter.limit("30/minute")
 async def approve_user(
@@ -723,10 +741,12 @@ async def approve_user(
     "/users/{user_id}/reject",
     status_code=status.HTTP_204_NO_CONTENT,
     include_in_schema=False,
+    summary="Reject a pending user",
 )
 @router.post(
     "/users/{user_id}/reject/",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="Reject a pending user",
 )
 @limiter.limit("30/minute")
 async def reject_user(
@@ -761,6 +781,7 @@ async def reject_user(
 @router.delete(
     "/users/{user_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a user",
 )
 @limiter.limit("30/minute")
 async def delete_user(
@@ -795,10 +816,12 @@ async def delete_user(
     "/stats",
     response_model=CatalogStatsResponse,
     include_in_schema=False,
+    summary="Get catalog statistics",
 )
 @router.get(
     "/stats/",
     response_model=CatalogStatsResponse,
+    summary="Get catalog statistics",
 )
 async def get_catalog_stats(
     user: User = Depends(require_permission("manage_users")),
@@ -814,11 +837,13 @@ async def get_catalog_stats(
     response_model=AdminJobListResponse,
     dependencies=[Depends(require_permission("manage_users"))],
     include_in_schema=False,
+    summary="List all ingest jobs",
 )
 @router.get(
     "/jobs/",
     response_model=AdminJobListResponse,
     dependencies=[Depends(require_permission("manage_users"))],
+    summary="List all ingest jobs",
 )
 async def list_admin_jobs(
     status: str | None = Query(
@@ -961,12 +986,14 @@ def _ai_status(
     response_model_exclude_unset=True,
     dependencies=[Depends(require_ai_status_reader)],
     include_in_schema=False,
+    summary="Get the AI feature status",
 )
 @router.get(
     "/ai-status/",
     response_model=AIStatusResponse,
     response_model_exclude_unset=True,
     dependencies=[Depends(require_ai_status_reader)],
+    summary="Get the AI feature status",
 )
 # probe=true spends real provider quota and can hold a worker for
 # the probe timeout — same 30/minute cap as the PATCH sibling; plain status
@@ -1016,11 +1043,13 @@ async def get_ai_status(
     response_model=AIStatusResponse,
     response_model_exclude_unset=True,
     include_in_schema=False,
+    summary="Turn AI features on or off",
 )
 @router.patch(
     "/ai-status/",
     response_model=AIStatusResponse,
     response_model_exclude_unset=True,
+    summary="Turn AI features on or off",
 )
 @limiter.limit("30/minute")
 async def update_ai_status(
@@ -1061,11 +1090,13 @@ async def update_ai_status(
     response_model=EmbeddingStatsResponse,
     dependencies=[Depends(require_permission("manage_users"))],
     include_in_schema=False,
+    summary="Get embedding coverage",
 )
 @router.get(
     "/embedding-stats/",
     response_model=EmbeddingStatsResponse,
     dependencies=[Depends(require_permission("manage_users"))],
+    summary="Get embedding coverage",
 )
 async def get_embedding_stats(
     db: AsyncSession = Depends(get_db),
@@ -1130,11 +1161,13 @@ async def _require_backfill_permission(
     "/backfill-embeddings",
     response_model=BackfillResponse,
     include_in_schema=False,
+    summary="Queue an embedding backfill",
 )
 @router.post(
     "/backfill-embeddings/",
     response_model=BackfillResponse,
     responses={409: CONFLICT_RESPONSE, 503: QUEUE_UNAVAILABLE_RESPONSE},
+    summary="Queue an embedding backfill",
 )
 @limiter.limit("30/minute")
 async def trigger_backfill(

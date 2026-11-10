@@ -25,7 +25,7 @@ class Map(Base):
     __tablename__ = "maps"
     __table_args__ = (
         CheckConstraint(
-            "visibility IN ('private', 'public', 'internal')",
+            "visibility IN ('private', 'public', 'internal', 'restricted')",
             name="chk_maps_visibility",
         ),
         # Trigram GIN indexes (migration 0010), declared here so
@@ -91,6 +91,17 @@ class Map(Base):
     # Map-level terrain configuration (null = terrain disabled/unconfigured)
     terrain_config: Mapped[dict | None] = mapped_column(
         JSONB, nullable=True, default=None
+    )
+
+    # Widgets on the map's layers, validated by maps/dashboard.py (null = none)
+    dashboard_config: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, default=None
+    )
+
+    # Whether viewers offer the layers' attribute tables; embed tokens may page
+    # rows only while it is on.
+    show_attribute_table: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
     )
 
     # Visibility
@@ -213,6 +224,38 @@ class MapEditHistoryEvent(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class MapGroupGrant(Base):
+    """A sharing group that may read a ``restricted`` map."""
+
+    __tablename__ = "map_group_grants"
+    __table_args__ = (
+        Index("ix_map_group_grants_group_id", "group_id"),
+        Index(
+            "ix_map_group_grants_granted_by",
+            "granted_by",
+            postgresql_where=text("granted_by IS NOT NULL"),
+        ),
+        {"schema": "catalog"},
+    )
+
+    map_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("catalog.maps.id", ondelete="CASCADE"), primary_key=True
+    )
+    group_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("catalog.groups.id", ondelete="CASCADE"), primary_key=True
+    )
+    granted_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True
+    )
+    # Derived from the map by trigger, which also refuses another tenant's group.
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 

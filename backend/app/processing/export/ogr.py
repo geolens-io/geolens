@@ -97,9 +97,17 @@ def export_subprocess_timeout_seconds(deadline: float | None) -> float:
 
 
 # Defined here, not in `parquet.py` (which imports pyarrow at module scope), so
-# the format table can be read without pulling pyarrow in. `parquet.py`
-# re-exports it.
+# the format table can be read without pulling pyarrow in.
 PARQUET_MEDIA_TYPE = "application/vnd.apache.parquet"
+
+# Ceiling for full-table exports (by feature count): an unbounded ogr2ogr
+# writes an arbitrarily large temp file and holds a worker for the duration. A
+# tautological filter (where=1=1) cannot bypass the cap, since oversized
+# datasets get a bounded COUNT with the caller's filters applied. The
+# subprocess timeout bounds runtime regardless. The router skips its cap when a
+# dataset's feature_count is NULL (legacy/registered rows), so the parquet path
+# enforces the same bound itself.
+MAX_EXPORT_FEATURES = 5_000_000
 
 FORMAT_MAP: dict[str, dict[str, str]] = {
     "gpkg": {

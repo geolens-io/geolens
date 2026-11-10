@@ -72,3 +72,11 @@ def fake_geolens(monkeypatch, tmp_xdg_home) -> FakeGeoLens:
         ),
     )
     return fake
+
+
+@pytest.fixture(autouse=True)
+def portal_unchanged_since_inventory(monkeypatch):
+    """Cutover finds nothing changed in the portal unless a test says otherwise."""
+    monkeypatch.setattr(
+        "geolens_cli.arcgis_migrate.inventory_changes", lambda *args: None
+    )

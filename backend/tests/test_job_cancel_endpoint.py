@@ -42,6 +42,8 @@ from app.platform.refresh.service import (
     transition_run,
 )
 from tests.factories import create_dataset, create_user, get_user_id
+from tests.test_api_key_publish_scope import _mint
+from tests.test_api_key_scope_875 import _remove_keys_minted_by_the_test  # noqa: F401
 
 pytestmark = pytest.mark.anyio
 
@@ -106,6 +108,54 @@ class _RecordingJobManager:
 
 
 class TestCancelEndpoint:
+    async def test_publish_key_cannot_distinguish_another_users_job_from_unknown(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        _, owner_id = await create_user(client, admin_auth_header, "editor")
+        job = await _create_job(
+            test_db_session, created_by=uuid.UUID(owner_id), status="pending"
+        )
+        publish = await _mint(client, admin_auth_header, "publish")
+
+        unreadable = await client.post(f"/jobs/{job.id}/cancel", headers=publish)
+        unknown = await client.post(f"/jobs/{uuid.uuid4()}/cancel", headers=publish)
+
+        assert unreadable.status_code == unknown.status_code == 404
+        assert (
+            unreadable.json()["detail"] == unknown.json()["detail"] == "Job not found"
+        )
+
+    @pytest.mark.parametrize("role", ["editor", "viewer"])
+    @pytest.mark.parametrize("with_dataset", [False, True])
+    async def test_unreadable_job_is_indistinguishable_from_unknown(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        role,
+        with_dataset,
+    ):
+        headers, _ = await create_user(client, admin_auth_header, role)
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = (
+            await create_dataset(test_db_session, created_by=admin_id)
+            if with_dataset
+            else None
+        )
+        job = await _create_job(
+            test_db_session,
+            created_by=admin_id,
+            dataset_id=dataset.id if dataset else None,
+        )
+
+        unreadable = await client.post(f"/jobs/{job.id}/cancel", headers=headers)
+        unknown = await client.post(f"/jobs/{uuid.uuid4()}/cancel", headers=headers)
+
+        assert unreadable.status_code == unknown.status_code == 404
+        assert (
+            unreadable.json()["detail"] == unknown.json()["detail"] == "Job not found"
+        )
+
     async def test_cancel_pending_job_aborts_queue_row(
         self,
         client: AsyncClient,
@@ -584,7 +634,7 @@ class TestCancelAuthorization:
         await test_db_session.refresh(job)
         assert job.status == "cancelled"
 
-    async def test_stranger_is_403_and_writes_nothing(
+    async def test_stranger_is_404_and_writes_nothing(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
         """Neither owner, capability holder, nor dataset owner."""
@@ -599,7 +649,8 @@ class TestCancelAuthorization:
         )
 
         resp = await client.post(f"/jobs/{job.id}/cancel", headers=headers)
-        assert resp.status_code == 403
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Job not found"
 
         await test_db_session.refresh(job)
         assert job.status == "running"
@@ -665,7 +716,8 @@ class TestCancelDenialTelemetry:
         ) as denial_telemetry:
             resp = await client.post(f"/jobs/{job.id}/cancel", headers=headers)
 
-        assert resp.status_code == 403
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Job not found"
         assert denial_telemetry.call_count == 1
         # The same narrow shape the single-arm callers emit.
         assert denial_telemetry.call_args.args[2] == "manage_users"
@@ -690,7 +742,8 @@ class TestCancelDenialTelemetry:
         ) as denial_telemetry:
             resp = await client.post(f"/jobs/{job.id}/cancel", headers=headers)
 
-        assert resp.status_code == 403
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Job not found"
         assert denial_telemetry.call_count == 1
 
 

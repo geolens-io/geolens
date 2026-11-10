@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: StatusUpdate,
 ) -> Response[ProblemDetail | StatusUpdateResponse]:
-    """Set Target Status
+    """Move a dataset to a target publication status
 
      Walk the publication chain from current status to target in one request.
 
@@ -151,7 +151,7 @@ def sync(
     client: AuthenticatedClient,
     body: StatusUpdate,
 ) -> ProblemDetail | StatusUpdateResponse | None:
-    """Set Target Status
+    """Move a dataset to a target publication status
 
      Walk the publication chain from current status to target in one request.
 
@@ -185,7 +185,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: StatusUpdate,
 ) -> Response[ProblemDetail | StatusUpdateResponse]:
-    """Set Target Status
+    """Move a dataset to a target publication status
 
      Walk the publication chain from current status to target in one request.
 
@@ -222,7 +222,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: StatusUpdate,
 ) -> ProblemDetail | StatusUpdateResponse | None:
-    """Set Target Status
+    """Move a dataset to a target publication status
 
      Walk the publication chain from current status to target in one request.
 

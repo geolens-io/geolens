@@ -3,7 +3,7 @@ from urllib.parse import urlencode
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError, OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,7 +19,11 @@ from app.core.persistent_config import OGC_ITEMS_MAX_PAGE_SIZE
 from app.core.public_urls import get_public_api_url, get_public_app_url
 from app.core.tenancy import is_multi_tenant
 from app.core.tile_scope import tile_template_query, vector_tile_template
-from app.modules.auth.dependencies import get_optional_user
+from app.modules.auth.dependencies import (
+    BASIC_CHALLENGE,
+    get_optional_user,
+    get_optional_user_no_security_schema,
+)
 from app.modules.catalog.authorization import (
     apply_visibility_filter,
     get_user_roles,
@@ -239,7 +243,12 @@ async def _get_visible_dataset(
     return dataset
 
 
-@ogc_router.get("/", response_model=LandingPage, responses=ERROR_RESPONSES_PUBLIC)
+@ogc_router.get(
+    "/",
+    response_model=LandingPage,
+    responses=ERROR_RESPONSES_PUBLIC,
+    summary="Get the OGC API landing page",
+)
 async def landing_page(
     request: Request,
     response: Response,
@@ -301,8 +310,40 @@ async def landing_page(
     )
 
 
+@ogc_router.api_route("/desktop", methods=["GET", "HEAD"], include_in_schema=False)
+async def desktop_entry(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: Identity | None = Depends(get_optional_user_no_security_schema),
+) -> RedirectResponse:
+    """Challenge for HTTP Basic, then send a signed-in caller to the landing page.
+
+    ArcGIS Pro sends its saved login only in answer to a Basic challenge, and
+    the landing page serves anonymous callers, so this route asks every caller
+    without a working credential for one, whatever the catalog holds.
+    """
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={
+                "WWW-Authenticate": BASIC_CHALLENGE,
+                "Cache-Control": "no-store",
+            },
+        )
+    public_api_url = await get_public_api_url(db, request=request)
+    return RedirectResponse(
+        build_url("/", base_url=public_api_url),
+        status_code=status.HTTP_302_FOUND,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @ogc_router.get(
-    "/conformance", response_model=ConformanceResponse, responses=ERROR_RESPONSES_PUBLIC
+    "/conformance",
+    response_model=ConformanceResponse,
+    responses=ERROR_RESPONSES_PUBLIC,
+    summary="Get the OGC conformance declaration",
 )
 async def conformance(f: str | None = Query(None)) -> ConformanceResponse:
     """OGC conformance declaration -- lists supported specification classes."""
@@ -344,6 +385,7 @@ async def conformance(f: str | None = Query(None)) -> ConformanceResponse:
     "/collections/{dataset_id}",
     response_model=OGCCollectionMetadata,
     responses=ERROR_RESPONSES_PUBLIC,
+    summary="Get a dataset's OGC feature collection",
 )
 async def get_dataset_collection(
     request: Request,
@@ -511,6 +553,7 @@ async def get_dataset_collection(
     "/collections/{dataset_id}/queryables",
     response_class=JSONResponse,
     responses={**COLD_WARMING_RESPONSE, **ERROR_RESPONSES_PUBLIC},
+    summary="Get a feature collection's queryables",
 )
 async def get_collection_queryables(
     request: Request,
@@ -646,7 +689,7 @@ FILTER_BAD_REQUEST_RESPONSE = {
         **ERROR_RESPONSES_PUBLIC,
         400: FILTER_BAD_REQUEST_RESPONSE,
     },
-    include_in_schema=False,  # Trailing-slash alias hidden from OpenAPI.
+    include_in_schema=False,  # Trailing-slash alias hidden from OpenAPI., summary="List OGC features"
 )
 @ogc_features_router.get(
     "/collections/{dataset_id}/items",
@@ -663,6 +706,7 @@ FILTER_BAD_REQUEST_RESPONSE = {
         **ERROR_RESPONSES_PUBLIC,
         400: FILTER_BAD_REQUEST_RESPONSE,
     },
+    summary="List OGC features",
 )
 @limiter.limit(
     _FILTERED_ITEMS_RATE_LIMIT,
@@ -1059,6 +1103,7 @@ async def get_collection_items(
         **COLD_WARMING_RESPONSE,
         **ERROR_RESPONSES_PUBLIC,
     },
+    summary="Get an OGC feature",
 )
 async def get_collection_item_feature(
     request: Request,

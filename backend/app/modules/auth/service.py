@@ -7,6 +7,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import jwt
+from fastapi import HTTPException, status
 from sqlalchemy import delete, func, literal_column, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -643,6 +644,32 @@ class ApiKeyTargetUserInactiveError(ValueError):
 # Marks a GeoLens API key wherever one is pasted, so log redaction and secret
 # scanners can recognise it. Keys minted before the prefix still authenticate.
 API_KEY_PREFIX = "glk_"
+
+
+async def lock_current_session_owner(db: AsyncSession, identity: Identity) -> None:
+    """Row-lock the caller's account until the transaction ends.
+
+    Raises 401 when a built-in account's ``token_version`` moved after its
+    bearer token was checked, or its row is gone. Holding the lock through the
+    commit makes a concurrent revocation wait, so it also invalidates what this
+    transaction issues. Another identity's revocation belongs to its extension.
+    The lock leaves key-share room, so a key issued for another locked account
+    can still pass its foreign-key check instead of deadlocking.
+    """
+    admitted = identity.token_version if isinstance(identity, User) else None
+    current = (
+        await db.execute(
+            select(User.token_version)
+            .where(User.id == identity.id)
+            .with_for_update(key_share=True)
+        )
+    ).scalar_one_or_none()
+    if admitted is not None and current != admitted:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 async def create_api_key_for_user(

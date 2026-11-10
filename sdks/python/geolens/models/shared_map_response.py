@@ -12,6 +12,8 @@ from typing import cast
 
 if TYPE_CHECKING:
     from ..models.basemap_config import BasemapConfig
+    from ..models.dashboard_config import DashboardConfig
+    from ..models.reader_theme import ReaderTheme
     from ..models.shared_layer_response import SharedLayerResponse
     from ..models.terrain_config import TerrainConfig
 
@@ -28,15 +30,22 @@ class SharedMapResponse:
         center_lng (float):
         center_lat (float):
         zoom (float):
+        has_saved_view (bool): True when the map stores a center and zoom. When false, center and zoom are defaults and
+            a viewer should fit the layers instead.
         bearing (float):
         pitch (float):
         basemap_style (str):
         layers (list[SharedLayerResponse]):
         show_basemap_labels (bool | Unset):  Default: True.
+        show_attribute_table (bool | Unset): Whether the viewer offers each layer's attribute table. The columns an
+            embed may read come from each dataset's tile column allowlist. Default: True.
         basemap_config (BasemapConfig | None | Unset):
         terrain_config (None | TerrainConfig | Unset):
+        dashboard_config (DashboardConfig | None | Unset):
         has_non_public_layers (bool | Unset):  Default: False.
         legend_title (None | str | Unset):
+        reader_theme (None | ReaderTheme | Unset): The theme a branding extension sets for the viewer and its dashboard;
+            null without one.
     """
 
     name: str
@@ -44,19 +53,25 @@ class SharedMapResponse:
     center_lng: float
     center_lat: float
     zoom: float
+    has_saved_view: bool
     bearing: float
     pitch: float
     basemap_style: str
     layers: list[SharedLayerResponse]
     show_basemap_labels: bool | Unset = True
+    show_attribute_table: bool | Unset = True
     basemap_config: BasemapConfig | None | Unset = UNSET
     terrain_config: None | TerrainConfig | Unset = UNSET
+    dashboard_config: DashboardConfig | None | Unset = UNSET
     has_non_public_layers: bool | Unset = False
     legend_title: None | str | Unset = UNSET
+    reader_theme: None | ReaderTheme | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.basemap_config import BasemapConfig
+        from ..models.dashboard_config import DashboardConfig
+        from ..models.reader_theme import ReaderTheme
         from ..models.terrain_config import TerrainConfig
 
         name = self.name
@@ -70,6 +85,8 @@ class SharedMapResponse:
 
         zoom = self.zoom
 
+        has_saved_view = self.has_saved_view
+
         bearing = self.bearing
 
         pitch = self.pitch
@@ -82,6 +99,8 @@ class SharedMapResponse:
             layers.append(layers_item)
 
         show_basemap_labels = self.show_basemap_labels
+
+        show_attribute_table = self.show_attribute_table
 
         basemap_config: dict[str, Any] | None | Unset
         if isinstance(self.basemap_config, Unset):
@@ -99,6 +118,14 @@ class SharedMapResponse:
         else:
             terrain_config = self.terrain_config
 
+        dashboard_config: dict[str, Any] | None | Unset
+        if isinstance(self.dashboard_config, Unset):
+            dashboard_config = UNSET
+        elif isinstance(self.dashboard_config, DashboardConfig):
+            dashboard_config = self.dashboard_config.to_dict()
+        else:
+            dashboard_config = self.dashboard_config
+
         has_non_public_layers = self.has_non_public_layers
 
         legend_title: None | str | Unset
@@ -106,6 +133,14 @@ class SharedMapResponse:
             legend_title = UNSET
         else:
             legend_title = self.legend_title
+
+        reader_theme: dict[str, Any] | None | Unset
+        if isinstance(self.reader_theme, Unset):
+            reader_theme = UNSET
+        elif isinstance(self.reader_theme, ReaderTheme):
+            reader_theme = self.reader_theme.to_dict()
+        else:
+            reader_theme = self.reader_theme
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -116,6 +151,7 @@ class SharedMapResponse:
                 "center_lng": center_lng,
                 "center_lat": center_lat,
                 "zoom": zoom,
+                "has_saved_view": has_saved_view,
                 "bearing": bearing,
                 "pitch": pitch,
                 "basemap_style": basemap_style,
@@ -124,20 +160,28 @@ class SharedMapResponse:
         )
         if show_basemap_labels is not UNSET:
             field_dict["show_basemap_labels"] = show_basemap_labels
+        if show_attribute_table is not UNSET:
+            field_dict["show_attribute_table"] = show_attribute_table
         if basemap_config is not UNSET:
             field_dict["basemap_config"] = basemap_config
         if terrain_config is not UNSET:
             field_dict["terrain_config"] = terrain_config
+        if dashboard_config is not UNSET:
+            field_dict["dashboard_config"] = dashboard_config
         if has_non_public_layers is not UNSET:
             field_dict["has_non_public_layers"] = has_non_public_layers
         if legend_title is not UNSET:
             field_dict["legend_title"] = legend_title
+        if reader_theme is not UNSET:
+            field_dict["reader_theme"] = reader_theme
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.basemap_config import BasemapConfig
+        from ..models.dashboard_config import DashboardConfig
+        from ..models.reader_theme import ReaderTheme
         from ..models.shared_layer_response import SharedLayerResponse
         from ..models.terrain_config import TerrainConfig
 
@@ -157,6 +201,8 @@ class SharedMapResponse:
 
         zoom = d.pop("zoom")
 
+        has_saved_view = d.pop("has_saved_view")
+
         bearing = d.pop("bearing")
 
         pitch = d.pop("pitch")
@@ -171,6 +217,8 @@ class SharedMapResponse:
             layers.append(layers_item)
 
         show_basemap_labels = d.pop("show_basemap_labels", UNSET)
+
+        show_attribute_table = d.pop("show_attribute_table", UNSET)
 
         def _parse_basemap_config(data: object) -> BasemapConfig | None | Unset:
             if data is None:
@@ -206,6 +254,23 @@ class SharedMapResponse:
 
         terrain_config = _parse_terrain_config(d.pop("terrain_config", UNSET))
 
+        def _parse_dashboard_config(data: object) -> DashboardConfig | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                dashboard_config_type_0 = DashboardConfig.from_dict(data)
+
+                return dashboard_config_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(DashboardConfig | None | Unset, data)
+
+        dashboard_config = _parse_dashboard_config(d.pop("dashboard_config", UNSET))
+
         has_non_public_layers = d.pop("has_non_public_layers", UNSET)
 
         def _parse_legend_title(data: object) -> None | str | Unset:
@@ -217,21 +282,42 @@ class SharedMapResponse:
 
         legend_title = _parse_legend_title(d.pop("legend_title", UNSET))
 
+        def _parse_reader_theme(data: object) -> None | ReaderTheme | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                reader_theme_type_0 = ReaderTheme.from_dict(data)
+
+                return reader_theme_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | ReaderTheme | Unset, data)
+
+        reader_theme = _parse_reader_theme(d.pop("reader_theme", UNSET))
+
         shared_map_response = cls(
             name=name,
             description=description,
             center_lng=center_lng,
             center_lat=center_lat,
             zoom=zoom,
+            has_saved_view=has_saved_view,
             bearing=bearing,
             pitch=pitch,
             basemap_style=basemap_style,
             layers=layers,
             show_basemap_labels=show_basemap_labels,
+            show_attribute_table=show_attribute_table,
             basemap_config=basemap_config,
             terrain_config=terrain_config,
+            dashboard_config=dashboard_config,
             has_non_public_layers=has_non_public_layers,
             legend_title=legend_title,
+            reader_theme=reader_theme,
         )
 
         shared_map_response.additional_properties = d

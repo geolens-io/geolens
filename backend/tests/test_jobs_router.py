@@ -15,7 +15,9 @@ if TYPE_CHECKING:
 
 from app.platform.jobs.models import IngestJob, commit_attempted_marker
 
-from tests.factories import get_user_id
+from tests.factories import create_user, get_user_id
+from tests.test_api_key_publish_scope import _mint
+from tests.test_api_key_scope_875 import _remove_keys_minted_by_the_test  # noqa: F401
 
 
 async def _create_job(
@@ -57,6 +59,39 @@ async def _create_job(
 
 
 class TestGetJobStatus:
+    async def test_publish_key_cannot_distinguish_another_users_job_from_unknown(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        _, owner_id = await create_user(client, admin_auth_header, "editor")
+        job = await _create_job(
+            test_db_session, created_by=uuid.UUID(owner_id), status="pending"
+        )
+        publish = await _mint(client, admin_auth_header, "publish")
+
+        unreadable = await client.get(f"/jobs/{job.id}", headers=publish)
+        unknown = await client.get(f"/jobs/{uuid.uuid4()}", headers=publish)
+
+        assert unreadable.status_code == unknown.status_code == 404
+        assert (
+            unreadable.json()["detail"] == unknown.json()["detail"] == "Job not found"
+        )
+
+    @pytest.mark.parametrize("role", ["editor", "viewer"])
+    async def test_unreadable_job_is_indistinguishable_from_unknown(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, role
+    ):
+        headers, _ = await create_user(client, admin_auth_header, role)
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(test_db_session, created_by=admin_id)
+
+        unreadable = await client.get(f"/jobs/{job.id}", headers=headers)
+        unknown = await client.get(f"/jobs/{uuid.uuid4()}", headers=headers)
+
+        assert unreadable.status_code == unknown.status_code == 404
+        assert (
+            unreadable.json()["detail"] == unknown.json()["detail"] == "Job not found"
+        )
+
     async def test_get_job_status_as_creator(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
@@ -118,7 +153,7 @@ class TestGetJobStatus:
         editor_auth_header: dict,
         test_db_session,
     ):
-        """GET /jobs/{id} as non-creator non-admin returns 403."""
+        """GET /jobs/{id} as non-creator non-admin returns 404."""
         admin_id = await get_user_id(test_db_session, "admin")
         job = await _create_job(test_db_session, created_by=admin_id)
 
@@ -129,7 +164,8 @@ class TestGetJobStatus:
         ) as denial_telemetry:
             resp = await client.get(f"/jobs/{job.id}", headers=editor_auth_header)
 
-        assert resp.status_code == 403
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Job not found"
         denial_telemetry.assert_called_once()
         assert denial_telemetry.call_args.args[2] == "manage_users"
         assert denial_telemetry.call_args.kwargs == {"resource_type": "ingest_job"}
@@ -149,7 +185,8 @@ class TestGetJobStatus:
         with patch("app.modules.auth.dependencies.log") as denial_log:
             response = await client.get(f"/jobs/{job.id}", headers=editor_auth_header)
 
-        assert response.status_code == 403
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Job not found"
         denial_log.warning.assert_called_once()
         fields = denial_log.warning.call_args.kwargs
         assert fields["path"] == "/jobs/{job_id}"
@@ -1063,6 +1100,59 @@ class TestGetJobStatusByDataset:
 
 
 class TestRetryJob:
+    async def test_publish_key_cannot_retry_another_users_job_with_public_metadata(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """A non-owner's publish key gets 404 when user_metadata sets visibility public."""
+        _, owner_id = await create_user(client, admin_auth_header, "editor")
+        job = await _create_job(
+            test_db_session,
+            created_by=uuid.UUID(owner_id),
+            status="failed",
+            user_metadata={"visibility": "public"},
+        )
+        publish = await _mint(client, admin_auth_header, "publish")
+
+        resp = await client.post(f"/jobs/{job.id}/retry", headers=publish)
+
+        assert resp.status_code == 404, resp.text
+        assert resp.json()["detail"] == "Job not found"
+
+    async def test_publish_key_cannot_distinguish_another_users_job_from_unknown(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        _, owner_id = await create_user(client, admin_auth_header, "editor")
+        job = await _create_job(
+            test_db_session, created_by=uuid.UUID(owner_id), status="failed"
+        )
+        publish = await _mint(client, admin_auth_header, "publish")
+
+        unreadable = await client.post(f"/jobs/{job.id}/retry", headers=publish)
+        unknown = await client.post(f"/jobs/{uuid.uuid4()}/retry", headers=publish)
+
+        assert unreadable.status_code == unknown.status_code == 404
+        assert (
+            unreadable.json()["detail"] == unknown.json()["detail"] == "Job not found"
+        )
+
+    async def test_unreadable_job_is_indistinguishable_from_unknown(
+        self, client: AsyncClient, editor_auth_header: dict, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(test_db_session, created_by=admin_id, status="failed")
+
+        unreadable = await client.post(
+            f"/jobs/{job.id}/retry", headers=editor_auth_header
+        )
+        unknown = await client.post(
+            f"/jobs/{uuid.uuid4()}/retry", headers=editor_auth_header
+        )
+
+        assert unreadable.status_code == unknown.status_code == 404
+        assert (
+            unreadable.json()["detail"] == unknown.json()["detail"] == "Job not found"
+        )
+
     async def test_retry_not_found(self, client: AsyncClient, admin_auth_header: dict):
         """POST /jobs/{random_uuid}/retry returns 404."""
         resp = await client.post(
@@ -1120,7 +1210,8 @@ class TestRetryJob:
                 f"/jobs/{job.id}/retry", headers=editor_auth_header
             )
 
-        assert response.status_code == 403
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Job not found"
         denial_telemetry.assert_called_once()
         assert denial_telemetry.call_args.args[2] == "manage_users"
         assert denial_telemetry.call_args.kwargs == {"resource_type": "ingest_job"}

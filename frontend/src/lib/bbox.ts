@@ -12,6 +12,9 @@
 
 export type Bbox = [number, number, number, number];
 
+// MapLibre's globe fit returns no camera for a zero-size box.
+const POINT_FIT_HALF_SPAN = 5e-8;
+
 /**
  * True for a bbox in the spec form — `west > east`, i.e. it crosses the
  * antimeridian. NOT a validity check: a malformed pair is indistinguishable
@@ -70,10 +73,16 @@ export function bboxCenterLon(bbox: Bbox): number {
  * The corner pair MapLibre's `fitBounds` / `initialViewState.bounds` wants.
  * MapLibre normalizes longitudes itself, so a crossing bbox is expressed by
  * letting east run past 180 (`[178.5, …] → [181.5, …]`) rather than by
- * splitting.
+ * splitting. A single point widens to a box about a centimetre across.
  */
 export function toFitBounds(bbox: Bbox): [[number, number], [number, number]] {
   const [west, south, east, north] = bbox;
+  if (west === east && south === north) {
+    return [
+      [west - POINT_FIT_HALF_SPAN, Math.max(-90, south - POINT_FIT_HALF_SPAN)],
+      [east + POINT_FIT_HALF_SPAN, Math.min(90, north + POINT_FIT_HALF_SPAN)],
+    ];
+  }
   return [
     [west, south],
     [crossesAntimeridian(bbox) ? east + 360 : east, north],
@@ -82,11 +91,11 @@ export function toFitBounds(bbox: Bbox): [[number, number], [number, number]] {
 
 /**
  * The map wraps around, so a box drawn across the antimeridian carries
- * longitudes beyond +/-180. The search API reads west > east as a crossing box.
+ * longitudes beyond +/-180. Wraps them into [-180, 180]; a crossing box comes
+ * back with west > east, which the search and aggregate APIs read as one.
  */
-export function normalizeBboxLongitudes(bbox: string): string {
-  const [minX, minY, maxX, maxY] = bbox.split(',').map(Number);
-  if (maxX - minX >= 360) return `-180,${minY},180,${maxY}`;
+export function wrapBboxLongitudes([minX, minY, maxX, maxY]: Bbox): Bbox {
+  if (maxX - minX >= 360) return [-180, minY, 180, maxY];
   const wrap = (lng: number) =>
     lng >= -180 && lng <= 180
       ? lng
@@ -94,5 +103,64 @@ export function normalizeBboxLongitudes(bbox: string): string {
   const west = wrap(minX);
   // A box whose east edge is the seam itself ends at +180, not -180.
   const east = wrap(maxX) === -180 && maxX > minX ? 180 : wrap(maxX);
-  return `${west},${minY},${east},${maxY}`;
+  return [west, minY, east, maxY];
+}
+
+/** `wrapBboxLongitudes` for a `minx,miny,maxx,maxy` string. */
+export function normalizeBboxLongitudes(bbox: string): string {
+  return wrapBboxLongitudes(bbox.split(',').map(Number) as Bbox).join(',');
+}
+
+/**
+ * Envelope of one GeoJSON geometry as [west, south, east, north]. Collections
+ * fold member-by-member, recursing into nested collections; null when no
+ * coordinate is finite.
+ */
+export function geometryBounds(
+  geometry: GeoJSON.Geometry | null | undefined,
+): Bbox | null {
+  if (!geometry) return null;
+
+  let west = Number.POSITIVE_INFINITY;
+  let south = Number.POSITIVE_INFINITY;
+  let east = Number.NEGATIVE_INFINITY;
+  let north = Number.NEGATIVE_INFINITY;
+
+  const visitCoordinates = (value: unknown) => {
+    if (!Array.isArray(value)) return;
+    if (
+      value.length >= 2
+      && typeof value[0] === 'number'
+      && typeof value[1] === 'number'
+      && Number.isFinite(value[0])
+      && Number.isFinite(value[1])
+    ) {
+      west = Math.min(west, value[0]);
+      east = Math.max(east, value[0]);
+      south = Math.min(south, value[1]);
+      north = Math.max(north, value[1]);
+      return;
+    }
+    for (const item of value) visitCoordinates(item);
+  };
+
+  if (geometry.type === 'GeometryCollection') {
+    for (const item of geometry.geometries) {
+      const bounds = geometryBounds(item);
+      if (!bounds) continue;
+      west = Math.min(west, bounds[0]);
+      south = Math.min(south, bounds[1]);
+      east = Math.max(east, bounds[2]);
+      north = Math.max(north, bounds[3]);
+    }
+  } else {
+    visitCoordinates(geometry.coordinates);
+  }
+
+  return Number.isFinite(west) ? [west, south, east, north] : null;
+}
+
+/** Longitude relative to the origin, wrapped into [-180, 180) so a span across the antimeridian stays contiguous. */
+export function lngOffset(lng: number, originLng: number): number {
+  return ((((lng - originLng) % 360) + 540) % 360) - 180;
 }

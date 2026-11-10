@@ -24,7 +24,14 @@ def _get_kwargs(
     after: int | Unset = 0,
     sort: None | str | Unset = UNSET,
     order: GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset = "asc",
+    filter_: None | str | Unset = UNSET,
+    gid: int | None | Unset = UNSET,
+    with_bbox: bool | Unset = False,
+    x_embed_token: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
+    if not isinstance(x_embed_token, Unset):
+        headers["X-Embed-Token"] = x_embed_token
 
     params: dict[str, Any] = {}
 
@@ -45,6 +52,22 @@ def _get_kwargs(
 
     params["order"] = json_order
 
+    json_filter_: None | str | Unset
+    if isinstance(filter_, Unset):
+        json_filter_ = UNSET
+    else:
+        json_filter_ = filter_
+    params["filter"] = json_filter_
+
+    json_gid: int | None | Unset
+    if isinstance(gid, Unset):
+        json_gid = UNSET
+    else:
+        json_gid = gid
+    params["gid"] = json_gid
+
+    params["with_bbox"] = with_bbox
+
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
     _kwargs: dict[str, Any] = {
@@ -55,6 +78,7 @@ def _get_kwargs(
         "params": params,
     }
 
+    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -136,14 +160,34 @@ def sync_detailed(
     after: int | Unset = 0,
     sort: None | str | Unset = UNSET,
     order: GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset = "asc",
+    filter_: None | str | Unset = UNSET,
+    gid: int | None | Unset = UNSET,
+    with_bbox: bool | Unset = False,
+    x_embed_token: None | str | Unset = UNSET,
 ) -> Response[DatasetRowsResponse | ProblemDetail]:
-    """Get Dataset Rows Endpoint
+    """List dataset rows
 
      Get keyset-paginated rows from a dataset's data table.
 
     Uses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to
     fetch the next page, with or without ``sort``.
     Supports column filtering via query params: ``filter[column_name]=value``.
+    An optional CQL2-JSON ``filter`` expression ANDs with them.
+
+    Anonymous callers can read public, published datasets, and a signed-in
+    caller reads what their own permissions allow; an embed token that doesn't
+    cover the dataset changes neither. This route also answers an
+    ``X-Embed-Token`` for datasets in the token's scope while the token's map
+    has ``show_attribute_table`` on. That flag only decides whether viewers
+    offer the table: tiles, ``features.geojson`` and ``aggregate`` return the
+    same allowlisted values to the token either way. Any other caller gets 404.
+
+    A request only the embed token authorizes reads only the columns in the
+    dataset's tile column allowlist, when it has one: any other column is
+    treated as one the table lacks, in the returned columns, ``sort``,
+    ``filter`` and ``filter[column]``. ``gid`` is kept even when the allowlist
+    leaves it out: it stays in the rows, in ``sortable_columns`` and, when the
+    stored metadata lists it, in ``columns``.
 
     Args:
         dataset_id (UUID):
@@ -153,6 +197,17 @@ def sync_detailed(
             directions. An unknown or unsortable column returns 400.
         order (GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset): Sort direction;
             applies only with `sort`. Default: 'asc'.
+        filter_ (None | str | Unset): Optional CQL2-JSON filter expression (as the OGC items
+            route's ``filter-lang=cql2-json``). ANDs with the ``filter[column]`` ILIKE filters;
+            malformed expressions and unknown columns return 400.
+        gid (int | None | Unset): Return at most the row with this gid, ANDed with `filter` and
+            the `filter[column]` filters. The total counts it like a filter.
+        with_bbox (bool | Unset): Also return `bboxes`, each row's bounding box in EPSG:4326.
+            Default: False.
+        x_embed_token (None | str | Unset): Optional embed token. This route answers it for
+            datasets in the token's scope while the token's map has `show_attribute_table` on. A
+            caller who can read the dataset is served by their own permissions whatever the token
+            covers.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -168,6 +223,10 @@ def sync_detailed(
         after=after,
         sort=sort,
         order=order,
+        filter_=filter_,
+        gid=gid,
+        with_bbox=with_bbox,
+        x_embed_token=x_embed_token,
     )
 
     response = client.get_httpx_client().request(
@@ -185,14 +244,34 @@ def sync(
     after: int | Unset = 0,
     sort: None | str | Unset = UNSET,
     order: GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset = "asc",
+    filter_: None | str | Unset = UNSET,
+    gid: int | None | Unset = UNSET,
+    with_bbox: bool | Unset = False,
+    x_embed_token: None | str | Unset = UNSET,
 ) -> DatasetRowsResponse | ProblemDetail | None:
-    """Get Dataset Rows Endpoint
+    """List dataset rows
 
      Get keyset-paginated rows from a dataset's data table.
 
     Uses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to
     fetch the next page, with or without ``sort``.
     Supports column filtering via query params: ``filter[column_name]=value``.
+    An optional CQL2-JSON ``filter`` expression ANDs with them.
+
+    Anonymous callers can read public, published datasets, and a signed-in
+    caller reads what their own permissions allow; an embed token that doesn't
+    cover the dataset changes neither. This route also answers an
+    ``X-Embed-Token`` for datasets in the token's scope while the token's map
+    has ``show_attribute_table`` on. That flag only decides whether viewers
+    offer the table: tiles, ``features.geojson`` and ``aggregate`` return the
+    same allowlisted values to the token either way. Any other caller gets 404.
+
+    A request only the embed token authorizes reads only the columns in the
+    dataset's tile column allowlist, when it has one: any other column is
+    treated as one the table lacks, in the returned columns, ``sort``,
+    ``filter`` and ``filter[column]``. ``gid`` is kept even when the allowlist
+    leaves it out: it stays in the rows, in ``sortable_columns`` and, when the
+    stored metadata lists it, in ``columns``.
 
     Args:
         dataset_id (UUID):
@@ -202,6 +281,17 @@ def sync(
             directions. An unknown or unsortable column returns 400.
         order (GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset): Sort direction;
             applies only with `sort`. Default: 'asc'.
+        filter_ (None | str | Unset): Optional CQL2-JSON filter expression (as the OGC items
+            route's ``filter-lang=cql2-json``). ANDs with the ``filter[column]`` ILIKE filters;
+            malformed expressions and unknown columns return 400.
+        gid (int | None | Unset): Return at most the row with this gid, ANDed with `filter` and
+            the `filter[column]` filters. The total counts it like a filter.
+        with_bbox (bool | Unset): Also return `bboxes`, each row's bounding box in EPSG:4326.
+            Default: False.
+        x_embed_token (None | str | Unset): Optional embed token. This route answers it for
+            datasets in the token's scope while the token's map has `show_attribute_table` on. A
+            caller who can read the dataset is served by their own permissions whatever the token
+            covers.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -218,6 +308,10 @@ def sync(
         after=after,
         sort=sort,
         order=order,
+        filter_=filter_,
+        gid=gid,
+        with_bbox=with_bbox,
+        x_embed_token=x_embed_token,
     ).parsed
 
 
@@ -229,14 +323,34 @@ async def asyncio_detailed(
     after: int | Unset = 0,
     sort: None | str | Unset = UNSET,
     order: GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset = "asc",
+    filter_: None | str | Unset = UNSET,
+    gid: int | None | Unset = UNSET,
+    with_bbox: bool | Unset = False,
+    x_embed_token: None | str | Unset = UNSET,
 ) -> Response[DatasetRowsResponse | ProblemDetail]:
-    """Get Dataset Rows Endpoint
+    """List dataset rows
 
      Get keyset-paginated rows from a dataset's data table.
 
     Uses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to
     fetch the next page, with or without ``sort``.
     Supports column filtering via query params: ``filter[column_name]=value``.
+    An optional CQL2-JSON ``filter`` expression ANDs with them.
+
+    Anonymous callers can read public, published datasets, and a signed-in
+    caller reads what their own permissions allow; an embed token that doesn't
+    cover the dataset changes neither. This route also answers an
+    ``X-Embed-Token`` for datasets in the token's scope while the token's map
+    has ``show_attribute_table`` on. That flag only decides whether viewers
+    offer the table: tiles, ``features.geojson`` and ``aggregate`` return the
+    same allowlisted values to the token either way. Any other caller gets 404.
+
+    A request only the embed token authorizes reads only the columns in the
+    dataset's tile column allowlist, when it has one: any other column is
+    treated as one the table lacks, in the returned columns, ``sort``,
+    ``filter`` and ``filter[column]``. ``gid`` is kept even when the allowlist
+    leaves it out: it stays in the rows, in ``sortable_columns`` and, when the
+    stored metadata lists it, in ``columns``.
 
     Args:
         dataset_id (UUID):
@@ -246,6 +360,17 @@ async def asyncio_detailed(
             directions. An unknown or unsortable column returns 400.
         order (GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset): Sort direction;
             applies only with `sort`. Default: 'asc'.
+        filter_ (None | str | Unset): Optional CQL2-JSON filter expression (as the OGC items
+            route's ``filter-lang=cql2-json``). ANDs with the ``filter[column]`` ILIKE filters;
+            malformed expressions and unknown columns return 400.
+        gid (int | None | Unset): Return at most the row with this gid, ANDed with `filter` and
+            the `filter[column]` filters. The total counts it like a filter.
+        with_bbox (bool | Unset): Also return `bboxes`, each row's bounding box in EPSG:4326.
+            Default: False.
+        x_embed_token (None | str | Unset): Optional embed token. This route answers it for
+            datasets in the token's scope while the token's map has `show_attribute_table` on. A
+            caller who can read the dataset is served by their own permissions whatever the token
+            covers.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -261,6 +386,10 @@ async def asyncio_detailed(
         after=after,
         sort=sort,
         order=order,
+        filter_=filter_,
+        gid=gid,
+        with_bbox=with_bbox,
+        x_embed_token=x_embed_token,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -276,14 +405,34 @@ async def asyncio(
     after: int | Unset = 0,
     sort: None | str | Unset = UNSET,
     order: GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset = "asc",
+    filter_: None | str | Unset = UNSET,
+    gid: int | None | Unset = UNSET,
+    with_bbox: bool | Unset = False,
+    x_embed_token: None | str | Unset = UNSET,
 ) -> DatasetRowsResponse | ProblemDetail | None:
-    """Get Dataset Rows Endpoint
+    """List dataset rows
 
      Get keyset-paginated rows from a dataset's data table.
 
     Uses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to
     fetch the next page, with or without ``sort``.
     Supports column filtering via query params: ``filter[column_name]=value``.
+    An optional CQL2-JSON ``filter`` expression ANDs with them.
+
+    Anonymous callers can read public, published datasets, and a signed-in
+    caller reads what their own permissions allow; an embed token that doesn't
+    cover the dataset changes neither. This route also answers an
+    ``X-Embed-Token`` for datasets in the token's scope while the token's map
+    has ``show_attribute_table`` on. That flag only decides whether viewers
+    offer the table: tiles, ``features.geojson`` and ``aggregate`` return the
+    same allowlisted values to the token either way. Any other caller gets 404.
+
+    A request only the embed token authorizes reads only the columns in the
+    dataset's tile column allowlist, when it has one: any other column is
+    treated as one the table lacks, in the returned columns, ``sort``,
+    ``filter`` and ``filter[column]``. ``gid`` is kept even when the allowlist
+    leaves it out: it stays in the rows, in ``sortable_columns`` and, when the
+    stored metadata lists it, in ``columns``.
 
     Args:
         dataset_id (UUID):
@@ -293,6 +442,17 @@ async def asyncio(
             directions. An unknown or unsortable column returns 400.
         order (GetDatasetRowsEndpointDatasetsDatasetIdRowsGetOrder | Unset): Sort direction;
             applies only with `sort`. Default: 'asc'.
+        filter_ (None | str | Unset): Optional CQL2-JSON filter expression (as the OGC items
+            route's ``filter-lang=cql2-json``). ANDs with the ``filter[column]`` ILIKE filters;
+            malformed expressions and unknown columns return 400.
+        gid (int | None | Unset): Return at most the row with this gid, ANDed with `filter` and
+            the `filter[column]` filters. The total counts it like a filter.
+        with_bbox (bool | Unset): Also return `bboxes`, each row's bounding box in EPSG:4326.
+            Default: False.
+        x_embed_token (None | str | Unset): Optional embed token. This route answers it for
+            datasets in the token's scope while the token's map has `show_attribute_table` on. A
+            caller who can read the dataset is served by their own permissions whatever the token
+            covers.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -310,5 +470,9 @@ async def asyncio(
             after=after,
             sort=sort,
             order=order,
+            filter_=filter_,
+            gid=gid,
+            with_bbox=with_bbox,
+            x_embed_token=x_embed_token,
         )
     ).parsed

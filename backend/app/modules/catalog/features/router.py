@@ -31,6 +31,7 @@ from app.core.db.sqlstate import (
     sqlstate,
 )
 from app.core.identity import Identity
+from app.platform.dataset_origin import classify_origin
 from app.platform.request_credential import api_key_audit_details
 from app.platform.catalog_locks import (
     CatalogLockConflict,
@@ -49,6 +50,8 @@ from app.modules.catalog.authorization import (
     check_dataset_access,
     check_dataset_access_or_anonymous,
     check_dataset_write_access,
+    may_read_dataset,
+    readable_columns,
     require_dataset_editing_enabled,
 )
 from app.modules.catalog.datasets.domain.service import get_dataset
@@ -93,7 +96,9 @@ from app.modules.catalog.features.schemas import (
 from app.modules.catalog.features.service import (
     Bounds,
     FeatureBatchError,
+    FeatureNotFoundError,
     MissingFeaturesError,
+    UnknownPropertyError,
     UnwritablePropertyError,
     delete_feature,
     delete_features,
@@ -110,6 +115,7 @@ from app.modules.catalog.features.service import (
     parse_bbox,
     refresh_dataset_metadata,
     replace_feature,
+    unknown_property_detail,
     update_feature,
 )
 from app.standards.ogc.errors import (
@@ -308,7 +314,22 @@ def _dry_run_response(rows: list[dict], collection: bool) -> JSONResponse:
     )
 
 
-def _batch_feature_refused(error: FeatureBatchError) -> HTTPException:
+async def _write_refusal_detail(db: AsyncSession, dataset, error: Exception) -> str:
+    """The 400 text for a refused write, with the refresh hint where one applies."""
+    if not isinstance(error, UnknownPropertyError):
+        return str(error)
+    return await unknown_property_detail(
+        db,
+        error,
+        dataset.table_name,
+        registered=classify_origin(dataset.source_format, dataset.record.record_type)
+        == "postgis",
+    )
+
+
+def _batch_feature_refused(
+    error: FeatureBatchError, detail: str | None = None
+) -> HTTPException:
     """The refusal a single create would get, naming the feature that failed."""
     cause = error.cause
     if isinstance(cause, DBAPIError):
@@ -319,7 +340,7 @@ def _batch_feature_refused(error: FeatureBatchError) -> HTTPException:
         )
     else:
         refusal = HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(cause)
+            status_code=status.HTTP_400_BAD_REQUEST, detail=detail or str(cause)
         )
     if refusal.status_code >= 500:
         return refusal
@@ -360,10 +381,15 @@ async def _create_features(
             return _dry_run_response(rows, collection=True)
         table_oid = await current_table_oid(db, dataset.table_name)
     except FeatureBatchError as e:
+        # Read before the rollback expires the dataset.
+        detail = await _write_refusal_detail(db, dataset, e.cause)
         await db.rollback()
-        raise _batch_feature_refused(e)
+        raise _batch_feature_refused(e, detail=detail)
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=await _write_refusal_detail(db, dataset, e),
+        )
     except DBAPIError as exc:
         await db.rollback()
         raise _feature_write_db_error(exc)
@@ -573,10 +599,8 @@ async def _settle_repeat(
             await effective_geometry_type(db, dataset),
             dataset_srid=dataset.srid,
         )
-    except ValueError as exc:
-        if "not found" in str(exc).lower():
-            raise _feature_gone() from exc
-        raise
+    except FeatureNotFoundError as exc:
+        raise _feature_gone() from exc
     return _Repeat(
         written.feature,
         written.prior_bounds,
@@ -675,6 +699,7 @@ _FEATURES_GEOJSON_Z_SCHEMA = {
         },
         **ERROR_RESPONSES_AUTH,
     },
+    summary="Get features as GeoJSON with Z coordinates",
 )
 async def get_features_geojson_z_endpoint(
     dataset_id: uuid.UUID,
@@ -693,7 +718,9 @@ async def get_features_geojson_z_endpoint(
     """Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
 
     ``X-Embed-Token`` authorizes private datasets in the token's scope through
-    the same capability check used for tile requests.
+    the same capability check used for tile requests. A request only the embed
+    token authorizes gets only the properties in the dataset's tile column
+    allowlist, when it has one.
 
     Anonymous callers can read public, published datasets. Private or
     restricted datasets return 404 unless user or embed credentials authorize
@@ -727,6 +754,7 @@ async def get_features_geojson_z_endpoint(
 
     if not embed_ok:
         await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
+    embed_only = embed_ok and not await may_read_dataset(db, dataset, dataset_id, user)
 
     # Raster/VRT datasets have no feature table: a query would raise
     # UndefinedTableError -> 500 and hold a DB connection.
@@ -747,7 +775,11 @@ async def get_features_geojson_z_endpoint(
 
     try:
         rows, truncated, total_count = await get_features_geojson_z(
-            db, dataset.table_name, cap=5000, cached_feature_count=dataset.feature_count
+            db,
+            dataset.table_name,
+            cap=5000,
+            cached_feature_count=dataset.feature_count,
+            property_columns=readable_columns(dataset, embed_authorized=embed_only),
         )
     except (ProgrammingError, OperationalError):
         raise HTTPException(
@@ -786,6 +818,7 @@ async def get_features_geojson_z_endpoint(
         },
         **ERROR_RESPONSES_AUTH,
     },
+    summary="List features",
 )
 async def list_features(
     dataset_id: uuid.UUID,
@@ -973,6 +1006,7 @@ async def list_features(
         },
         **ERROR_RESPONSES_AUTH,
     },
+    summary="Get a feature",
 )
 async def get_single_feature(
     dataset_id: uuid.UUID,
@@ -1050,6 +1084,7 @@ async def get_single_feature(
         },
         **ERROR_RESPONSES_WRITE,
     },
+    summary="Create a feature",
 )
 async def create_feature(
     dataset_id: uuid.UUID,
@@ -1148,6 +1183,7 @@ async def create_feature(
         **ERROR_RESPONSES_WRITE,
         413: PAYLOAD_TOO_LARGE_RESPONSE,
     },
+    summary="Check a feature create without saving",
 )
 async def dry_run_create_feature(
     dataset_id: uuid.UUID,
@@ -1264,7 +1300,7 @@ async def _create(
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=await _write_refusal_detail(db, dataset, e),
         )
     except DBAPIError as exc:
         await db.rollback()
@@ -1326,6 +1362,7 @@ async def _create(
         },
         **ERROR_RESPONSES_WRITE,
     },
+    summary="Replace a feature",
 )
 async def replace_single_feature(
     dataset_id: uuid.UUID,
@@ -1370,15 +1407,15 @@ async def replace_single_feature(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(e),
         )
+    except FeatureNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
     except ValueError as e:
-        if "not found" in str(e).lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=str(e),
-            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=await _write_refusal_detail(db, dataset, e),
         )
     except DBAPIError as exc:
         await db.rollback()
@@ -1442,6 +1479,7 @@ async def replace_single_feature(
         },
         **ERROR_RESPONSES_WRITE,
     },
+    summary="Update a feature",
 )
 async def patch_single_feature(
     dataset_id: uuid.UUID,
@@ -1486,15 +1524,15 @@ async def patch_single_feature(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(e),
         )
+    except FeatureNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
     except ValueError as e:
-        if "not found" in str(e).lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=str(e),
-            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
+            detail=await _write_refusal_detail(db, dataset, e),
         )
     except DBAPIError as exc:
         await db.rollback()
@@ -1565,6 +1603,7 @@ async def patch_single_feature(
         },
         **ERROR_RESPONSES_WRITE,
     },
+    summary="Delete a feature",
 )
 async def delete_single_feature(
     dataset_id: uuid.UUID,
@@ -1601,12 +1640,12 @@ async def delete_single_feature(
         # The DELETE returns the envelope it removed, so the
         # metadata refresh reasons about the version actually deleted.
         prior_bounds = await delete_feature(db, dataset.table_name, gid)
+    except FeatureNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
     except ValueError as e:
-        if "not found" in str(e).lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=str(e),
-            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
@@ -1654,6 +1693,7 @@ async def delete_single_feature(
     "/{dataset_id}/features/delete/",
     response_model=FeatureBatchDeleted,
     responses=ERROR_RESPONSES_WRITE,
+    summary="Delete several features",
 )
 async def delete_features_batch(
     dataset_id: uuid.UUID,

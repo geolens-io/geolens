@@ -45,6 +45,109 @@ describe('useBuilderLayers — clean-state recheck', () => {
     expect(result.current.hasUnsavedChanges).toBe(false);
   });
 
+  it('is clean again once a dashboard edit is put back', () => {
+    // A widget counts only on a layer it can summarize.
+    const layer = makeBuilderLayer({ id: '0b7d2f4e-3c1a-4e8b-9f6d-5a2c7e1b9d34' });
+    const widget = {
+      id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+      type: 'indicator' as const,
+      v: 1 as const,
+      layer_id: '0b7d2f4e-3c1a-4e8b-9f6d-5a2c7e1b9d34',
+      scope: 'layer' as const,
+      config: { stat: 'count' as const, column: null },
+    };
+    const { result } = render({
+      ...makeBuilderMap([layer]),
+      dashboard_config: {
+        version: 1,
+        panel: 'right',
+        map_hidden: false,
+        theme: 'follow',
+        widgets: [widget],
+      },
+    });
+
+    act(() => result.current.handleDashboardChange({ panel: 'bottom', widgets: [widget] }));
+    expect(result.current.hasUnsavedChanges).toBe(true);
+
+    act(() => result.current.handleDashboardChange({ panel: 'right', widgets: [widget] }));
+    expect(result.current.hasUnsavedChanges).toBe(false);
+  });
+
+  it('keeps the flag when a dashboard edit is put back but a layer edit remains', () => {
+    const layer = makeBuilderLayer({ id: '0b7d2f4e-3c1a-4e8b-9f6d-5a2c7e1b9d34' });
+    const { result } = render(makeBuilderMap([layer]));
+
+    const widget = {
+      id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+      type: 'indicator',
+      v: 1,
+      layer_id: '0b7d2f4e-3c1a-4e8b-9f6d-5a2c7e1b9d34',
+      scope: 'layer' as const,
+      config: { stat: 'count', column: null },
+    };
+
+    act(() => {
+      result.current.handlePaintChange(layer.id, { 'fill-color': '#123456' });
+      result.current.handleDashboardChange({ panel: 'right', widgets: [widget] });
+    });
+    act(() => result.current.handleDashboardChange({ panel: 'right', widgets: [] }));
+
+    expect(result.current.hasUnsavedChanges).toBe(true);
+  });
+
+  it('is dirty after a visibility toggle off and clean once toggled back on', () => {
+    const layer = makeBuilderLayer({ visible: true });
+    const { result } = render(makeBuilderMap([layer]));
+
+    act(() => result.current.handleToggleVisibility(layer.id));
+    expect(result.current.hasUnsavedChanges).toBe(true);
+
+    act(() => result.current.handleToggleVisibility(layer.id));
+    expect(result.current.hasUnsavedChanges).toBe(false);
+  });
+
+  it('is dirty after a bulk hide and clean once the bulk show undoes it', () => {
+    const a = makeBuilderLayer({ id: 'layer-a', visible: true });
+    const b = makeBuilderLayer({ id: 'layer-b', visible: true });
+    const { result } = render(makeBuilderMap([a, b]));
+    const ids = new Set(['layer-a', 'layer-b']);
+
+    act(() => result.current.handleBulkVisibility(ids));
+    expect(result.current.hasUnsavedChanges).toBe(true);
+
+    act(() => result.current.handleBulkVisibility(ids));
+    expect(result.current.hasUnsavedChanges).toBe(false);
+  });
+
+  it('is clean once a hidden folder has each child shown again', () => {
+    const group = { ...makeBuilderLayer({ id: 'group-1' }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
+    const a = { ...makeBuilderLayer({ id: 'layer-a' }), parent_group_id: 'group-1' } as MapLayerResponse;
+    const b = { ...makeBuilderLayer({ id: 'layer-b' }), parent_group_id: 'group-1' } as MapLayerResponse;
+    const { result } = render(makeBuilderMap([group, a, b]));
+
+    act(() => result.current.dispatchLayerAction({ type: 'toggle_group_visibility', source: 'manual', groupId: 'group-1' }));
+    expect(result.current.hasUnsavedChanges).toBe(true);
+
+    act(() => result.current.handleToggleVisibility('layer-a'));
+    act(() => result.current.handleToggleVisibility('layer-b'));
+
+    expect(result.current.hasUnsavedChanges).toBe(false);
+  });
+
+  it('keeps the flag when a visibility toggle is undone but another edit remains', () => {
+    const layer = makeBuilderLayer({ visible: true });
+    const { result } = render(makeBuilderMap([layer]));
+
+    act(() => {
+      result.current.setLocalName('Renamed');
+      result.current.handleToggleVisibility(layer.id);
+    });
+    act(() => result.current.handleToggleVisibility(layer.id));
+
+    expect(result.current.hasUnsavedChanges).toBe(true);
+  });
+
   it('keeps the flag when another layer still has pending edits', () => {
     const a = makeBuilderLayer({ id: 'layer-a' });
     const b = makeBuilderLayer({ id: 'layer-b' });

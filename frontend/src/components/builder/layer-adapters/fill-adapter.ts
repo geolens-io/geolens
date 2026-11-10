@@ -153,7 +153,12 @@ export function resolvePolygonStroke(
   paint: Record<string, unknown>,
   builder: NonNullable<StyleConfig['builder']>,
 ): PolygonStroke {
-  const color = builder.outlineColor ?? paint['_outline-color'] ?? paint['outline-color'];
+  const nativeOutline = paint['fill-outline-color'];
+  const color =
+    builder.outlineColor ??
+    paint['_outline-color'] ??
+    paint['outline-color'] ??
+    (typeof nativeOutline === 'string' ? nativeOutline : undefined);
   const width = builder.outlineWidth ?? paint['_outline-width'] ?? paint['outline-width'];
   const authoredColor = typeof color === 'string' ? color : undefined;
   return {
@@ -178,7 +183,9 @@ function fillPaint(input: AdapterLayerInput, stroke: PolygonStroke): Record<stri
     ...Object.fromEntries(expressions),
     'fill-opacity': getFeatureOpacity(paint, 'fill'),
     'fill-layer-opacity': input.opacity ?? 1,
-    'fill-outline-color': stroke.disabled ? MAP_COLORS.transparent : (stroke.authoredColor ?? MAP_COLORS.transparent),
+    // The native outline is always one pixel wide, so a zero-width stroke hides it too.
+    'fill-outline-color':
+      stroke.disabled || stroke.width === 0 ? MAP_COLORS.transparent : (stroke.authoredColor ?? MAP_COLORS.transparent),
   };
 }
 

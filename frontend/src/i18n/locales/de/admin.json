@@ -224,7 +224,7 @@
     }
   },
   "audit": {
-    "title": "Protokoll",
+    "title": "Audit-Protokoll",
     "loading": "Protokolleinträge werden geladen...",
     "errorLoading": "Protokolleinträge konnten nicht geladen werden: {{message}}",
     "searchPlaceholder": "Benutzer / Aktion",
@@ -387,7 +387,7 @@
     "scopeFull": "Voller Zugriff",
     "scopeReadOnly": "Nur Lesen",
     "scopePublish": "Veröffentlichen",
-    "scopePublishDescription": "Fügt eigene Daten und Karten hinzu, bearbeitet die Angaben eigener Datensätze und ersetzt hochgeladene Datensätze; eine frühere Version bleibt erhalten. Kann nichts öffentlich machen oder die Sichtbarkeit eines Datensatzes erweitern, keine bestehende Karte aktualisieren, keine Raster-Datensätze oder an einen Dienst, ein STAC-Element oder eine Tabelle gebundene Datensätze ersetzen, keine Features schreiben und nichts löschen.",
+    "scopePublishDescription": "Fügt eigene Daten und Karten hinzu, bearbeitet die Angaben eigener Datensätze und ersetzt hochgeladene Datensätze; frühere Versionen bleiben erhalten. Kann nichts öffentlich machen oder die Sichtbarkeit eines Datensatzes erweitern, keine bestehende Karte aktualisieren, keine Raster-Datensätze oder an einen Dienst, ein STAC-Element oder eine Tabelle gebundene Datensätze ersetzen, keine Features schreiben und nichts löschen.",
     "scopeDatasetWrite": "Ein Datensatz",
     "scopeDatasetAppend": "Ein Datensatz, nur hinzufügen",
     "expiry": "Läuft ab",
@@ -695,6 +695,8 @@
       "invalidStorageQuantity": "Geben Sie eine Menge ein, die einer ganzen Anzahl von Bytes entspricht.",
       "maxDatasetsPerUser": "Max. Datensätze pro Benutzer",
       "maxDatasetsPerUserDescription": "Maximale Anzahl an Datensätzen, die jeder Benutzer erstellen kann (0 = unbegrenzt).",
+      "maxStoryImageMbPerUser": "Max. Story-Bildspeicher pro Benutzer (MB)",
+      "maxStoryImageMbPerUserDescription": "Die Gesamtgröße der Bilder, die die Storys eines Benutzers enthalten können, in Megabyte (0 = unbegrenzt). Bereits gespeicherte Bilder bleiben; nur neue Uploads und Kopien werden abgelehnt.",
       "saved": "Upload-Einstellungen gespeichert"
     },
     "oauth": {
@@ -804,6 +806,20 @@
       "registrationAdminConfirmDescription": "Jede Registrierung mit Passwort, die ihre E-Mail bestätigt, wird Administrator. Stellen Sie sicher, dass das beabsichtigt ist.",
       "signupAdminActivationDescription": "Nach dieser Änderung können Personen, die sich registrieren, ohne Freigabe durch einen Administrator zu Administratoren werden. Stellen Sie sicher, dass Sie das wollen.",
       "verificationNeedsRegistration": "Gilt, wenn die Selbstregistrierung aktiv ist."
+    },
+    "storyFrames": {
+      "title": "Einbettungen und Videos in Storys",
+      "description": "Websites, deren Seiten und Videoplayer Storys in einem Rahmen zeigen dürfen. Die Browser der Leser laden sie direkt von diesen Websites. Ohne Websites sind Einbettungs- und Videoblöcke aus.",
+      "empty": "Noch keine Websites, daher sind Einbettungs- und Videoblöcke aus.",
+      "hostLabel": "Hostname der Website",
+      "add": "Website hinzufügen",
+      "invalid": "Geben Sie einen Hostnamen wie media.example.org ein, ohne https:// oder Pfad. Platzhalter werden nicht akzeptiert.",
+      "duplicate": "Diese Website steht bereits auf der Liste.",
+      "full": "Die Liste fasst höchstens {{max}} Websites.",
+      "sameOrigin": "Herkunft der Website beibehalten",
+      "sameOriginHint": "Manche Videoplayer brauchen ihre eigene Herkunft zum Abspielen. Der Rahmen behält diese Herkunft, wohin die Website ihn auch führt, also erhält sie auch jede andere freigegebene Website, die er öffnet. Nur für eine Website einschalten, der Sie mit allen freigegebenen Websites vertrauen.",
+      "remove": "{{host}} entfernen",
+      "reloadHint": "Bereits geöffnete Seiten übernehmen die Liste nach dem Neuladen."
     }
   },
   "infrastructure": {
@@ -892,5 +908,66 @@
   "sortable": {
     "sortAscending": "aufsteigend sortieren",
     "sortDescending": "absteigend sortieren"
+  },
+  "groups": {
+    "title": "Gruppen",
+    "listHeading": "Freigabegruppen",
+    "errorLoading": "Gruppen konnten nicht geladen werden: {{message}}",
+    "nameLabel": "Gruppenname",
+    "actionsFor": "Aktionen für Gruppe {{name}}",
+    "table": {
+      "name": "Name",
+      "members": "Mitglieder",
+      "created": "Erstellt",
+      "actions": "Aktionen",
+      "manageMembers": "Mitglieder",
+      "memberCount_one": "{{count}} Mitglied",
+      "memberCount_other": "{{count}} Mitglieder"
+    },
+    "empty": {
+      "title": "Noch keine Gruppen",
+      "hint": "Legen Sie eine Gruppe an, fügen Sie Personen hinzu und geben Sie Datensätze, Karten und Stories für sie frei."
+    },
+    "create": {
+      "button": "Gruppe erstellen",
+      "title": "Gruppe erstellen",
+      "description": "Mit Gruppen geben Sie eingeschränkte Datensätze, Karten und Stories für einen festgelegten Personenkreis frei."
+    },
+    "rename": {
+      "button": "Umbenennen",
+      "title": "Gruppe umbenennen",
+      "description": "Wählen Sie einen neuen Namen für {{name}}."
+    },
+    "delete": {
+      "title": "{{name}} löschen?",
+      "description_one": "Diese Gruppe hat {{count}} Mitglied. Es verliert sofort den Zugriff auf die für die Gruppe freigegebenen Datensätze, Karten und Stories. Das lässt sich nicht rückgängig machen.",
+      "description_other": "Diese Gruppe hat {{count}} Mitglieder. Sie verlieren sofort den Zugriff auf die für die Gruppe freigegebenen Datensätze, Karten und Stories. Das lässt sich nicht rückgängig machen.",
+      "deleting": "Wird gelöscht..."
+    },
+    "members": {
+      "title": "Mitglieder von {{name}}",
+      "description": "Personen in dieser Gruppe können die für sie freigegebenen Datensätze, Karten und Stories öffnen.",
+      "addLabel": "Person hinzufügen",
+      "listHeading_one": "{{count}} Mitglied",
+      "listHeading_other": "{{count}} Mitglieder",
+      "listLabel": "Mitglieder von {{name}}",
+      "removeLabel": "{{name}} aus {{group}} entfernen",
+      "empty": "Diese Gruppe hat noch keine Mitglieder.",
+      "added": "{{name}} hinzugefügt",
+      "removed": "{{name}} entfernt",
+      "errorLoading": "Mitglieder konnten nicht geladen werden: {{message}}",
+      "needsUserManagement": "Zum Hinzufügen von Personen ist die Berechtigung zur Benutzerverwaltung nötig. Mitglieder können Sie weiterhin ansehen und entfernen."
+    },
+    "picker": {
+      "placeholder": "Nach Benutzernamen suchen",
+      "noMatches": "Keine passenden Personen",
+      "results_one": "{{count}} Person verfügbar",
+      "results_other": "{{count}} Personen verfügbar"
+    },
+    "toasts": {
+      "created": "Gruppe erstellt",
+      "renamed": "Gruppe umbenannt",
+      "deleted": "Gruppe gelöscht"
+    }
   }
 }

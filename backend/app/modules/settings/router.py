@@ -4,6 +4,7 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, NoReturn
+from urllib.parse import urlsplit
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -39,6 +40,7 @@ from app.core.persistent_config import (
     is_unset_model,
 )
 from app.platform.ratelimit import limiter
+from app.platform.story_frames import own_frame_host, parse_frame_hosts
 from app.core.public_urls import (
     _is_env_only,
     get_public_api_url,
@@ -382,8 +384,13 @@ async def _embedding_change(db: AsyncSession, needed: bool) -> AsyncIterator[Non
 
 # Trailing slash is canonical (in OpenAPI); the no-slash form is a hidden alias
 # because api/main.py sets redirect_slashes=False.
-@router.get("/all", response_model=SettingsAllResponse, include_in_schema=False)
-@router.get("/all/", response_model=SettingsAllResponse)
+@router.get(
+    "/all",
+    response_model=SettingsAllResponse,
+    include_in_schema=False,
+    summary="Get all settings",
+)
+@router.get("/all/", response_model=SettingsAllResponse, summary="Get all settings")
 async def get_all_settings(
     request: Request,
     _user: Identity = Depends(require_settings_admin),
@@ -480,7 +487,12 @@ async def get_enterprise_only_tabs(
 
 
 # The empty path "" registers PUT /settings (prefix-only, no trailing slash).
-@router.put("", response_model=SettingsAllResponse, include_in_schema=False)
+@router.put(
+    "",
+    response_model=SettingsAllResponse,
+    include_in_schema=False,
+    summary="Update settings",
+)
 @router.put(
     "/",
     response_model=SettingsAllResponse,
@@ -488,6 +500,7 @@ async def get_enterprise_only_tabs(
         409: EMBEDDING_CHANGE_CONFLICT_RESPONSE,
         503: EMBEDDING_REBUILD_UNAVAILABLE_RESPONSE,
     },
+    summary="Update settings",
 )
 @limiter.limit("30/minute")
 async def update_settings(
@@ -517,6 +530,23 @@ async def update_settings(
         _require_enterprise_for_key(key)
 
         validated_settings[key] = _canonicalize_setting_value(key, value, cfg)
+
+    if "story_frame_hosts" in validated_settings:
+        new_app_url = validated_settings.get("public_app_url")
+        own_host = (
+            urlsplit(str(new_app_url)).hostname
+            if new_app_url
+            else await own_frame_host(db)
+        )
+        try:
+            parse_frame_hosts(
+                validated_settings["story_frame_hosts"], own_host=own_host
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Validation error for 'story_frame_hosts': {exc}",
+            ) from exc
 
     # Answered read-only before the lock as well, so the lockout 422 never
     # depends on lock contention; the row-locked check below is authoritative.
@@ -637,7 +667,12 @@ async def update_settings(
     return await get_all_settings(request=request, _user=user, db=db)
 
 
-@router.post("/reset", response_model=SettingsAllResponse, include_in_schema=False)
+@router.post(
+    "/reset",
+    response_model=SettingsAllResponse,
+    include_in_schema=False,
+    summary="Reset settings to defaults",
+)
 @router.post(
     "/reset/",
     response_model=SettingsAllResponse,
@@ -645,6 +680,7 @@ async def update_settings(
         409: EMBEDDING_CHANGE_CONFLICT_RESPONSE,
         503: EMBEDDING_REBUILD_UNAVAILABLE_RESPONSE,
     },
+    summary="Reset settings to defaults",
 )
 @limiter.limit("30/minute")
 async def reset_settings(
@@ -751,8 +787,13 @@ async def reset_settings(
     "/api-key-status",
     response_model=ApiKeyStatusResponse,
     include_in_schema=False,
+    summary="Get LLM provider key status",
 )
-@router.get("/api-key-status/", response_model=ApiKeyStatusResponse)
+@router.get(
+    "/api-key-status/",
+    response_model=ApiKeyStatusResponse,
+    summary="Get LLM provider key status",
+)
 async def get_api_key_status(
     _user: Identity = Depends(require_settings_admin),
 ) -> ApiKeyStatusResponse:
@@ -768,11 +809,13 @@ async def get_api_key_status(
     "/detect-embedding-dims",
     response_model=DetectEmbeddingDimsResponse,
     include_in_schema=False,
+    summary="Detect embedding dimensions",
 )
 @router.post(
     "/detect-embedding-dims/",
     response_model=DetectEmbeddingDimsResponse,
     responses={502: BAD_GATEWAY_RESPONSE},
+    summary="Detect embedding dimensions",
 )
 async def detect_embedding_dims(
     _user: Identity = Depends(require_settings_admin),
@@ -803,8 +846,13 @@ async def detect_embedding_dims(
     "/notifications/status",
     response_model=NotificationStatusResponse,
     include_in_schema=False,
+    summary="Get notification channel status",
 )
-@router.get("/notifications/status/", response_model=NotificationStatusResponse)
+@router.get(
+    "/notifications/status/",
+    response_model=NotificationStatusResponse,
+    summary="Get notification channel status",
+)
 async def get_notification_status(
     _user: Identity = Depends(require_settings_admin),
 ) -> NotificationStatusResponse:
@@ -825,8 +873,13 @@ async def get_notification_status(
     "/notifications/test",
     response_model=NotificationTestResponse,
     include_in_schema=False,
+    summary="Send a test notification",
 )
-@router.post("/notifications/test/", response_model=NotificationTestResponse)
+@router.post(
+    "/notifications/test/",
+    response_model=NotificationTestResponse,
+    summary="Send a test notification",
+)
 async def send_test_notification(
     request: Request,
     user: Identity = Depends(require_settings_admin),
@@ -920,8 +973,17 @@ async def send_test_notification(
     return NotificationTestResponse(sent=any_ok, channels=results, message=message)
 
 
-@router.get("/config-mode", response_model=ConfigModeResponse, include_in_schema=False)
-@router.get("/config-mode/", response_model=ConfigModeResponse)
+@router.get(
+    "/config-mode",
+    response_model=ConfigModeResponse,
+    include_in_schema=False,
+    summary="Get the configuration mode",
+)
+@router.get(
+    "/config-mode/",
+    response_model=ConfigModeResponse,
+    summary="Get the configuration mode",
+)
 async def get_config_mode() -> ConfigModeResponse:
     """Return whether the app is in env-only config mode (public, no auth)."""
     return ConfigModeResponse(env_only=_is_env_only())
@@ -963,8 +1025,13 @@ def _snapshot_provider(provider) -> dict:
     "/oauth-providers",
     response_model=list[OAuthProviderResponse],
     include_in_schema=False,
+    summary="List OAuth providers",
 )
-@router.get("/oauth-providers/", response_model=list[OAuthProviderResponse])
+@router.get(
+    "/oauth-providers/",
+    response_model=list[OAuthProviderResponse],
+    summary="List OAuth providers",
+)
 async def list_oauth_providers(
     _user: Identity = Depends(require_settings_admin),
     db: AsyncSession = Depends(get_db),
@@ -981,12 +1048,14 @@ async def list_oauth_providers(
     response_model=OAuthProviderResponse,
     status_code=status.HTTP_201_CREATED,
     include_in_schema=False,
+    summary="Create an OAuth provider",
 )
 @router.post(
     "/oauth-providers/",
     response_model=OAuthProviderResponse,
     status_code=status.HTTP_201_CREATED,
     responses={409: CONFLICT_RESPONSE},
+    summary="Create an OAuth provider",
 )
 @limiter.limit("30/minute")
 async def create_oauth_provider(
@@ -1052,6 +1121,7 @@ async def create_oauth_provider(
     "/oauth-providers/{provider_id}",
     response_model=OAuthProviderResponse,
     responses={409: CONFLICT_RESPONSE},
+    summary="Update an OAuth provider",
 )
 @limiter.limit("30/minute")
 async def update_oauth_provider(
@@ -1155,6 +1225,7 @@ async def update_oauth_provider(
 @router.delete(
     "/oauth-providers/{provider_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete an OAuth provider",
 )
 @limiter.limit("30/minute")
 async def delete_oauth_provider(
@@ -1231,9 +1302,14 @@ async def delete_oauth_provider(
 
 
 @public_router.get(
-    "/tile-config", response_model=TileConfigResponse, include_in_schema=False
+    "/tile-config",
+    response_model=TileConfigResponse,
+    include_in_schema=False,
+    summary="Get tile configuration",
 )
-@public_router.get("/tile-config/", response_model=TileConfigResponse)
+@public_router.get(
+    "/tile-config/", response_model=TileConfigResponse, summary="Get tile configuration"
+)
 async def get_tile_config(
     request: Request,
     db: AsyncSession = Depends(get_db),

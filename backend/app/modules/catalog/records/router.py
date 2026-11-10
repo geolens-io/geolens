@@ -258,6 +258,7 @@ async def _check_record_ownership(
     "/{record_id}/translations/",
     response_model=TranslationListResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List a record's translations",
 )
 async def list_translations_endpoint(
     record_id: uuid.UUID,
@@ -276,6 +277,7 @@ async def list_translations_endpoint(
 @router.put(
     "/{record_id}/translations/{language}/",
     response_model=TranslationResponse,
+    summary="Set a record translation",
 )
 async def upsert_translation_endpoint(
     record_id: uuid.UUID,
@@ -321,6 +323,7 @@ async def upsert_translation_endpoint(
 @router.delete(
     "/{record_id}/translations/{language}/",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a record translation",
 )
 async def delete_translation_endpoint(
     record_id: uuid.UUID,
@@ -357,6 +360,7 @@ async def delete_translation_endpoint(
     "/{record_id}/contacts/",
     response_model=ContactListResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List a record's contacts",
 )
 async def list_contacts_endpoint(
     record_id: uuid.UUID,
@@ -381,6 +385,7 @@ async def list_contacts_endpoint(
     "/{record_id}/contacts/",
     response_model=ContactResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Add a record contact",
 )
 async def create_contact_endpoint(
     record_id: uuid.UUID,
@@ -426,7 +431,11 @@ async def create_contact_endpoint(
     return ContactResponse.model_validate(contact)
 
 
-@router.patch("/{record_id}/contacts/{contact_id}/", response_model=ContactResponse)
+@router.patch(
+    "/{record_id}/contacts/{contact_id}/",
+    response_model=ContactResponse,
+    summary="Update a record contact",
+)
 async def update_contact_endpoint(
     record_id: uuid.UUID,
     contact_id: uuid.UUID,
@@ -471,7 +480,9 @@ async def update_contact_endpoint(
 
 
 @router.delete(
-    "/{record_id}/contacts/{contact_id}/", status_code=status.HTTP_204_NO_CONTENT
+    "/{record_id}/contacts/{contact_id}/",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a record contact",
 )
 async def delete_contact_endpoint(
     record_id: uuid.UUID,
@@ -507,6 +518,7 @@ async def delete_contact_endpoint(
     "/{record_id}/keywords/",
     response_model=KeywordListResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List a record's keywords",
 )
 async def list_keywords_endpoint(
     record_id: uuid.UUID,
@@ -600,6 +612,7 @@ async def list_keywords_endpoint(
     "/{record_id}/keywords/",
     response_model=KeywordResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Add a record keyword",
 )
 async def create_keyword_endpoint(
     record_id: uuid.UUID,
@@ -642,7 +655,9 @@ async def create_keyword_endpoint(
 
 
 @router.delete(
-    "/{record_id}/keywords/{keyword_id}/", status_code=status.HTTP_204_NO_CONTENT
+    "/{record_id}/keywords/{keyword_id}/",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a record keyword",
 )
 async def delete_keyword_endpoint(
     record_id: uuid.UUID,
@@ -678,6 +693,7 @@ async def delete_keyword_endpoint(
     "/{record_id}/distributions/",
     response_model=DistributionListResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List a record's distributions",
 )
 async def list_distributions_endpoint(
     record_id: uuid.UUID,
@@ -728,6 +744,7 @@ def _distribution_conflict_detail(exc: IntegrityError) -> str:
     "/{record_id}/distributions/",
     response_model=DistributionResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Add a record distribution",
 )
 async def create_distribution_endpoint(
     record_id: uuid.UUID,
@@ -781,6 +798,7 @@ async def create_distribution_endpoint(
 @router.patch(
     "/{record_id}/distributions/{distribution_id}/",
     response_model=DistributionResponse,
+    summary="Update a record distribution",
 )
 async def update_distribution_endpoint(
     record_id: uuid.UUID,
@@ -831,6 +849,7 @@ async def update_distribution_endpoint(
 @router.delete(
     "/{record_id}/distributions/{distribution_id}/",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a record distribution",
 )
 async def delete_distribution_endpoint(
     record_id: uuid.UUID,

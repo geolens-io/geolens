@@ -92,15 +92,18 @@ class UserCreate(BaseModel):
 
 class RegisterResponse(BaseModel):
     message: str
-    # Computed purely from (config + submitted email), so it is IDENTICAL for a
-    # genuine new signup and a swallowed username/email collision — the
-    # collision path must not be distinguishable (enumeration-safety).
+    # On /register it is computed purely from (config + submitted email), so it
+    # is IDENTICAL for a genuine new signup and a swallowed username/email
+    # collision — the collision path must not be distinguishable
+    # (enumeration-safety).
     next_step: Literal["verify_email", "await_approval"] | None = Field(
         default=None,
         description=(
             "Post-registration step for the client to display: 'verify_email' when a "
             "verification email was (or, for a swallowed collision, would have been) sent; "
-            "'await_approval' for the admin-approval path. None on non-register responses."
+            "'await_approval' for the admin-approval path, and from verify-email when the "
+            "address is confirmed but the account still waits for an administrator. "
+            "None otherwise."
         ),
     )
 
@@ -384,3 +387,13 @@ class ChangePasswordRequest(BaseModel):
 
         validate_password_from_settings(v)
         return v
+
+
+class GroupRef(BaseModel):
+    id: uuid.UUID = Field(description="Unique group identifier.")
+    name: str = Field(description="Group name.")
+
+
+class GroupRefListResponse(BaseModel):
+    groups: list[GroupRef] = Field(description="Page of groups, by name.")
+    total: int = Field(description="Total number of groups (across all pages).")

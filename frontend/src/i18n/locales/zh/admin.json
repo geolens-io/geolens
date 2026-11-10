@@ -406,7 +406,7 @@
     "scopeFull": "完全访问",
     "scopeReadOnly": "只读",
     "scopePublish": "发布",
-    "scopePublishDescription": "添加您自己的数据与地图，编辑您的数据集信息，并替换已上传的数据集，保留一个先前版本。不能将任何内容设为公开或提高数据集的可见性级别，不能更新已有地图，不能替换栅格数据集或绑定到服务、STAC 项或数据表的数据集，不能写入要素，也不能删除任何内容。",
+    "scopePublishDescription": "添加您自己的数据与地图，编辑您的数据集信息，并替换已上传的数据集，保留其先前版本。不能将任何内容设为公开或提高数据集的可见性级别，不能更新已有地图，不能替换栅格数据集或绑定到服务、STAC 项或数据表的数据集，不能写入要素，也不能删除任何内容。",
     "scopeDatasetWrite": "单个数据集",
     "scopeDatasetAppend": "单个数据集，仅添加",
     "expiry": "有效期",
@@ -729,6 +729,8 @@
       "invalidStorageQuantity": "请输入可换算为整数个字节的数量。",
       "maxDatasetsPerUser": "每用户最大数据集数",
       "maxDatasetsPerUserDescription": "每个用户可创建的最大数据集数（0 = 不限）。",
+      "maxStoryImageMbPerUser": "每用户最大故事图片存储量（MB）",
+      "maxStoryImageMbPerUserDescription": "一个用户的所有故事可容纳的图片总大小，以兆字节计（0 = 不限）。已存储的图片保留；仅拒绝新的上传和复制。",
       "saved": "上传设置已保存"
     },
     "oauth": {
@@ -823,6 +825,20 @@
       "registrationAdminConfirmDescription": "每个通过邮箱验证的密码注册用户都将成为管理员。请确认这是您想要的。",
       "signupAdminActivationDescription": "此更改后，注册的人无需管理员批准即可成为管理员。请确认这是您想要的。",
       "verificationNeedsRegistration": "在启用自助注册时适用。"
+    },
+    "storyFrames": {
+      "title": "故事中的嵌入内容和视频",
+      "description": "故事可以在框架中显示其页面和视频播放器的网站。读者的浏览器会直接从这些网站加载内容。没有网站时，嵌入内容和视频块处于关闭状态。",
+      "empty": "尚未添加网站，因此嵌入内容和视频块处于关闭状态。",
+      "hostLabel": "网站主机名",
+      "add": "添加网站",
+      "invalid": "请输入主机名，例如 media.example.org，不含 https:// 或路径。不接受通配符。",
+      "duplicate": "该网站已在列表中。",
+      "full": "列表最多包含 {{max}} 个网站。",
+      "sameOrigin": "保留网站来源",
+      "sameOriginHint": "某些视频播放器需要保留自身来源才能播放。无论网站把框架带到哪里，框架都会保留该来源，因此它打开的任何其他已批准网站也会获得该来源。仅对您愿意连同所有已批准网站一并信任的网站启用。",
+      "remove": "移除 {{host}}",
+      "reloadHint": "已打开的页面需重新加载后才会使用此列表。"
     }
   },
   "saml": {
@@ -892,5 +908,66 @@
   "sortable": {
     "sortAscending": "升序排序",
     "sortDescending": "降序排序"
+  },
+  "groups": {
+    "title": "用户组",
+    "listHeading": "共享用户组",
+    "errorLoading": "无法加载用户组：{{message}}",
+    "nameLabel": "用户组名称",
+    "actionsFor": "用户组 {{name}} 的操作",
+    "table": {
+      "name": "名称",
+      "members": "成员",
+      "created": "创建时间",
+      "actions": "操作",
+      "manageMembers": "成员",
+      "memberCount_one": "{{count}} 位成员",
+      "memberCount_other": "{{count}} 位成员"
+    },
+    "empty": {
+      "title": "还没有用户组",
+      "hint": "创建用户组，添加成员，然后向该组共享数据集、地图和故事。"
+    },
+    "create": {
+      "button": "创建用户组",
+      "title": "创建用户组",
+      "description": "用户组可让您将受限的数据集、地图和故事共享给一组人员。"
+    },
+    "rename": {
+      "button": "重命名",
+      "title": "重命名用户组",
+      "description": "为 {{name}} 选择新名称。"
+    },
+    "delete": {
+      "title": "删除 {{name}}？",
+      "description_one": "该用户组有 {{count}} 位成员。他们将立即失去对共享给该组的数据集、地图和故事的访问权限。此操作无法撤销。",
+      "description_other": "该用户组有 {{count}} 位成员。他们将立即失去对共享给该组的数据集、地图和故事的访问权限。此操作无法撤销。",
+      "deleting": "正在删除..."
+    },
+    "members": {
+      "title": "{{name}} 的成员",
+      "description": "该组中的成员可以打开共享给该组的数据集、地图和故事。",
+      "addLabel": "添加成员",
+      "listHeading_one": "{{count}} 位成员",
+      "listHeading_other": "{{count}} 位成员",
+      "listLabel": "{{name}} 的成员",
+      "removeLabel": "将 {{name}} 从 {{group}} 中移除",
+      "empty": "该用户组还没有成员。",
+      "added": "已添加 {{name}}",
+      "removed": "已移除 {{name}}",
+      "errorLoading": "无法加载成员：{{message}}",
+      "needsUserManagement": "添加成员需要用户管理权限。您仍可查看和移除成员。"
+    },
+    "picker": {
+      "placeholder": "按用户名搜索",
+      "noMatches": "没有匹配的用户",
+      "results_one": "有 {{count}} 位可选用户",
+      "results_other": "有 {{count}} 位可选用户"
+    },
+    "toasts": {
+      "created": "用户组已创建",
+      "renamed": "用户组已重命名",
+      "deleted": "用户组已删除"
+    }
   }
 }

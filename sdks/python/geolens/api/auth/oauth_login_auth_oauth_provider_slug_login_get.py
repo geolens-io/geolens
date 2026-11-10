@@ -104,7 +104,7 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     nonce: str,
 ) -> Response[Any | ProblemDetail]:
-    """Oauth Login
+    """Start OAuth sign-in
 
      Redirect user to the IdP authorization URL with PKCE parameters.
 
@@ -146,7 +146,7 @@ def sync(
     client: AuthenticatedClient | Client,
     nonce: str,
 ) -> Any | ProblemDetail | None:
-    """Oauth Login
+    """Start OAuth sign-in
 
      Redirect user to the IdP authorization URL with PKCE parameters.
 
@@ -183,7 +183,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     nonce: str,
 ) -> Response[Any | ProblemDetail]:
-    """Oauth Login
+    """Start OAuth sign-in
 
      Redirect user to the IdP authorization URL with PKCE parameters.
 
@@ -223,7 +223,7 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     nonce: str,
 ) -> Any | ProblemDetail | None:
-    """Oauth Login
+    """Start OAuth sign-in
 
      Redirect user to the IdP authorization URL with PKCE parameters.
 

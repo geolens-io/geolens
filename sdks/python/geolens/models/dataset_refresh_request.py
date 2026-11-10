@@ -44,12 +44,17 @@ class DatasetRefreshRequest:
                 it back. A different result blocks again. A blocked file replacement is accepted from the upload its run kept.
             auth (None | ServiceAuthRequest | Unset): Structured credential for a protected service. Mutually exclusive with
                 the token field.
+            expected_data_revision (int | None | Unset): The dataset's `data_revision` the caller last saw. When it differs
+                from the revision this replacement is compared with, every write counts as later, so the run stops for review
+                with `live_data_changed` instead of publishing. Omit it to compare with the revision at admission only. Service
+                refreshes only; 422 for any other origin.
     """
 
     token: None | str | Unset = UNSET
     verification_policy: DatasetRefreshRequestVerificationPolicy | Unset = "standard"
     accept_blocked_run_id: None | Unset | UUID = UNSET
     auth: None | ServiceAuthRequest | Unset = UNSET
+    expected_data_revision: int | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -81,6 +86,12 @@ class DatasetRefreshRequest:
         else:
             auth = self.auth
 
+        expected_data_revision: int | None | Unset
+        if isinstance(self.expected_data_revision, Unset):
+            expected_data_revision = UNSET
+        else:
+            expected_data_revision = self.expected_data_revision
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
@@ -92,6 +103,8 @@ class DatasetRefreshRequest:
             field_dict["accept_blocked_run_id"] = accept_blocked_run_id
         if auth is not UNSET:
             field_dict["auth"] = auth
+        if expected_data_revision is not UNSET:
+            field_dict["expected_data_revision"] = expected_data_revision
 
         return field_dict
 
@@ -155,11 +168,23 @@ class DatasetRefreshRequest:
 
         auth = _parse_auth(d.pop("auth", UNSET))
 
+        def _parse_expected_data_revision(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        expected_data_revision = _parse_expected_data_revision(
+            d.pop("expected_data_revision", UNSET)
+        )
+
         dataset_refresh_request = cls(
             token=token,
             verification_policy=verification_policy,
             accept_blocked_run_id=accept_blocked_run_id,
             auth=auth,
+            expected_data_revision=expected_data_revision,
         )
 
         dataset_refresh_request.additional_properties = d

@@ -86,7 +86,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | StacCollection]:
-    """Get Collection
+    """Get a STAC collection
 
      Get a single STAC Collection.
 
@@ -117,7 +117,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> ProblemDetail | StacCollection | None:
-    """Get Collection
+    """Get a STAC collection
 
      Get a single STAC Collection.
 
@@ -143,7 +143,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | StacCollection]:
-    """Get Collection
+    """Get a STAC collection
 
      Get a single STAC Collection.
 
@@ -172,7 +172,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> ProblemDetail | StacCollection | None:
-    """Get Collection
+    """Get a STAC collection
 
      Get a single STAC Collection.
 

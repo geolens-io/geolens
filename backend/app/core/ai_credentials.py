@@ -206,3 +206,14 @@ def anthropic_unconfigured_reason() -> str | None:
 def anthropic_configured() -> bool:
     """Whether the selected Claude platform has the settings its client needs."""
     return anthropic_unconfigured_reason() is None
+
+
+def builtin_providers_configured() -> dict[str, bool]:
+    """Which built-in LLM providers have the credentials they need.
+
+    Overlay providers are not in the map; each caller decides how to treat one.
+    """
+    return {
+        "anthropic": anthropic_configured(),
+        "openai_compatible": bool(settings.openai_api_key),
+    }

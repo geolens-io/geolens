@@ -125,8 +125,7 @@ def test_rate_limited_operations_document_problem_429() -> None:
     }
     assert response["headers"]["Retry-After"]["schema"]["type"] == "integer"
     # The shared limiter has a global default, so undecorated routes also expose
-    # 429. Exempt vector routes document their own semaphore/pool-busy 429,
-    # while an exempt raster proxy with no equivalent failure remains outside.
+    # 429. Exempt tile routes document their own render-capacity 429.
     assert "429" in spec["paths"]["/auth/config/"]["get"]["responses"]
     vector = spec["paths"]["/tiles/{table_path}/{z}/{x}/{y}.pbf"]["get"]
     clusters = spec["paths"]["/tiles/clusters/{table_path}/{z}/{x}/{y}.pbf"]["get"]
@@ -135,7 +134,7 @@ def test_rate_limited_operations_document_problem_429() -> None:
     raster_proxy = spec["paths"]["/tiles/raster-proxy/{dataset_id}/{z}/{x}/{y}.{fmt}"][
         "get"
     ]
-    assert "429" not in raster_proxy["responses"]
+    assert "429" in raster_proxy["responses"]
 
 
 def test_global_exception_contracts_cover_reachable_operations() -> None:
@@ -722,3 +721,23 @@ def test_retained_validation_model_keeps_the_schema_it_references() -> None:
     }
     _drop_unreferenced_validation_models(unreferenced)
     assert set(unreferenced["components"]["schemas"]) == {"Kept"}
+
+
+async def test_snapshot_and_served_openapi_share_the_api_server() -> None:
+    """app.openapi() and the served /openapi.json both list /api once."""
+    from httpx import ASGITransport, AsyncClient
+
+    assert _openapi()["servers"] == [{"url": "/api"}]
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get("/openapi.json")
+    assert response.status_code == 200
+    assert response.json()["servers"] == [{"url": "/api"}]
+
+
+def test_story_summary_stays_a_published_schema_with_chapter_count():
+    """SDK consumers import StorySummary by name; the list item keeps it."""
+    schemas = _openapi()["components"]["schemas"]
+    assert "chapter_count" in schemas["StorySummary"]["properties"]
+    assert "chapter_count" not in schemas["StoryResponse"]["properties"]

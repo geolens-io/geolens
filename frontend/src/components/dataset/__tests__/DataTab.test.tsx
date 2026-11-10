@@ -10,6 +10,9 @@ import { DataTab } from '@/components/dataset/tabs/DataTab';
 vi.mock('@/components/dataset/AttributeTable', () => ({
   AttributeTable: () => null,
 }));
+vi.mock('@/components/dataset/hooks/use-dataset', () => ({
+  useAttributes: () => ({ data: undefined }),
+}));
 
 function root(container: HTMLElement): HTMLElement {
   return container.firstElementChild as HTMLElement;

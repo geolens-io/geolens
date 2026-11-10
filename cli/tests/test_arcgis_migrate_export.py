@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import json
 import secrets
+import shutil
 import stat
 from pathlib import Path
 
+import httpx
 import pytest
 
 from geolens_cli import arcgis_migrate as migrate
+from geolens_cli import arcgis_migrate_export as export_module
+from geolens_cli.arcgis_migrate_state import MigrationState
 from geolens_cli.arcgis_portal import redact_json
 
 from . import test_arcgis_migrate_layers as layers
@@ -61,6 +65,30 @@ def _plan(tmp_path: Path, rows: dict | None = None) -> Path:
 
 def _export(plan_file: Path, *parts: str) -> Path:
     return plan_file.parent.joinpath("export", *parts)
+
+
+def test_the_index_is_written_when_the_export_folder_is_gone(tmp_path):
+    from types import SimpleNamespace
+
+    from geolens_cli import arcgis_migrate_export as export
+    from geolens_cli.arcgis_portal import Redactor
+
+    item = {
+        "id": C3,
+        "title": "Parcel dashboard",
+        "type": "Dashboard",
+        "owner": "o",
+        "action": "export_only",
+    }
+    record = {"bytes": 1024, "partial": False, "errors": [], "path": "export/d"}
+    state = SimpleNamespace(items={C3: SimpleNamespace(export=record, status="done")})
+    folder = tmp_path / "run" / "export"
+    ctx = SimpleNamespace(export_dir=folder, redact=Redactor())
+
+    export.write_index(ctx, {"items": [item]}, state)
+
+    assert "Parcel dashboard" in (folder / "INDEX.md").read_text()
+    assert stat.S_IMODE(folder.stat().st_mode) == 0o700
 
 
 def test_a_dashboard_is_saved_with_its_data_and_resources(
@@ -179,9 +207,29 @@ def test_a_storymap_gets_story_text_images_and_map_links(
     assert _state(plan_file)["items"][C2]["export"]["story"] is True
 
 
+_TILE_CONFIG = "GET /settings/tile-config/"
+
+
+def _lost_on_the_network(seen):
+    raise httpx.ReadTimeout("slow")
+
+
+@pytest.mark.parametrize(
+    ("reply", "origin"),
+    [
+        ({"public_app_url": "https://maps.example.org/"}, "https://maps.example.org"),
+        ({"public_app_url": None}, "https://geolens.example.org"),
+        (
+            (500, {"detail": "boom", "status": 500, "title": "Error"}),
+            "https://geolens.example.org",
+        ),
+        (_lost_on_the_network, "https://geolens.example.org"),
+    ],
+)
 def test_a_story_links_to_the_geolens_map_made_from_its_web_map(
-    runner, tmp_path, geolens, install
+    runner, tmp_path, geolens, install, reply, origin
 ):
+    geolens.routes[_TILE_CONFIG] = reply
     data = json.loads((STORY_FIXTURE / "storymap_data.json").read_text())
     install({f"content/items/{C2}/data": data})
     plan_file = _plan(tmp_path, rows={C2: {"type": "StoryMap"}})
@@ -201,7 +249,111 @@ def test_a_story_links_to_the_geolens_map_made_from_its_web_map(
 
     assert result.exit_code == 0, result.output
     text = (_export(plan_file, "storymap", C2) / "story.md").read_text()
-    assert "https://geolens.example.org/maps/m-123" in text
+    assert f"({origin}/maps/m-123)" in text
+    # Read once, when the story first links to a GeoLens map.
+    reads = [s for s in geolens.seen if s.url.endswith("/settings/tile-config/")]
+    assert len(reads) == 1
+
+
+def test_a_lookup_lost_on_the_network_is_asked_again_for_the_next_story():
+    from types import SimpleNamespace
+
+    import typer
+
+    from geolens_cli import arcgis_migrate_export as export
+    from geolens_cli._sdk_helpers import EXIT_NETWORK
+    from geolens_cli.arcgis_migrate_session import MigrationContext
+
+    replies: list[object] = [
+        typer.Exit(EXIT_NETWORK),
+        SimpleNamespace(public_app_url="https://maps.example.org"),
+    ]
+
+    class GeoLens:
+        def call(self, fn):
+            reply = replies.pop(0)
+            if isinstance(reply, BaseException):
+                raise reply
+            return reply
+
+    ctx = MigrationContext(
+        geolens=GeoLens(),
+        inventory={},
+        portal=None,
+        save=lambda: None,
+        items={"a": SimpleNamespace(map_id="m-1"), "b": SimpleNamespace(map_id="m-2")},
+        web_origin="https://geolens.example.org",
+    )
+
+    assert [export._map_link(ctx, i) for i in ("a", "b")] == [
+        "https://geolens.example.org/maps/m-1",
+        "https://maps.example.org/maps/m-2",
+    ]
+
+
+def test_a_story_asks_for_the_app_url_once_even_when_it_is_lost():
+    from types import SimpleNamespace
+
+    import typer
+
+    from geolens_cli import arcgis_migrate_export as export
+    from geolens_cli._sdk_helpers import EXIT_NETWORK
+    from geolens_cli.arcgis_migrate_session import MigrationContext
+
+    calls: list[object] = []
+
+    class GeoLens:
+        def call(self, fn):
+            calls.append(fn)
+            raise typer.Exit(EXIT_NETWORK)
+
+    ctx = MigrationContext(
+        geolens=GeoLens(),
+        inventory={},
+        portal=None,
+        save=lambda: None,
+        items={"a": SimpleNamespace(map_id="m-1"), "b": SimpleNamespace(map_id="m-2")},
+        web_origin="https://geolens.example.org",
+    )
+
+    link = export._story_links(ctx)
+    assert [link(i) for i in ("a", "b", "a")] == [
+        "https://geolens.example.org/maps/m-1",
+        "https://geolens.example.org/maps/m-2",
+        "https://geolens.example.org/maps/m-1",
+    ]
+    assert len(calls) == 1
+    export._story_links(ctx)("a")
+    assert len(calls) == 2
+
+
+def test_the_web_app_url_is_read_once_for_every_story_link():
+    from types import SimpleNamespace
+
+    from geolens_cli import arcgis_migrate_export as export
+    from geolens_cli.arcgis_migrate_session import MigrationContext
+
+    calls: list[object] = []
+
+    class GeoLens:
+        def call(self, fn):
+            calls.append(fn)
+            return SimpleNamespace(public_app_url="https://maps.example.org")
+
+    ctx = MigrationContext(
+        geolens=GeoLens(),
+        inventory={},
+        portal=None,
+        save=lambda: None,
+        items={"a": SimpleNamespace(map_id="m-1"), "b": SimpleNamespace(map_id="m-2")},
+        web_origin="https://geolens.example.org",
+    )
+
+    assert [export._map_link(ctx, i) for i in ("a", "b")] == [
+        "https://maps.example.org/maps/m-1",
+        "https://maps.example.org/maps/m-2",
+    ]
+    assert len(calls) == 1
 
 
 def test_the_size_cap_stops_the_download_and_marks_the_item_partial(
@@ -951,3 +1103,378 @@ def test_recovery_never_deletes_the_only_copy_of_a_bundle(tmp_path):
 
     assert (backup / "item.json").read_text() == "only copy"
     assert not trash.exists()
+
+
+def _exported_c3(runner, tmp_path, install, **routes):
+    portal = install({f"content/items/{C3}/resources": _resources(), **routes})
+    plan_file = _plan(tmp_path)
+    result, _ = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+    assert result.exit_code == 0, result.output
+    return portal, plan_file
+
+
+def _change_in_portal(portal, **fields) -> None:
+    item = portal.routes[f"content/items/{C3}"]
+    portal.routes[f"content/items/{C3}"] = {
+        **item,
+        "modified": item["modified"] + 60_000,
+        **fields,
+    }
+
+
+def test_a_rerun_leaves_an_unchanged_bundle_alone(runner, tmp_path, geolens, install):
+    portal, plan_file = _exported_c3(runner, tmp_path, install)
+    assert (
+        _state(plan_file)["items"][C3]["export"]["modified"]
+        == (portal.routes[f"content/items/{C3}"]["modified"])
+    )
+    downloads = len(portal.requests_to(f"content/items/{C3}/data"))
+
+    result, payload = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    assert payload["refreshed"] == [C3] and payload["not_up_to_date"] == {}
+    assert len(portal.requests_to(f"content/items/{C3}/data")) == downloads
+
+
+@pytest.mark.parametrize("old_state", [False, True])
+def test_a_bundle_the_portal_changed_since_is_exported_again(
+    runner, tmp_path, geolens, install, old_state
+):
+    portal, plan_file = _exported_c3(runner, tmp_path, install)
+    portal.routes[f"content/items/{C3}/data"] = {"title": "new"}
+    if old_state:
+        # A state file from before the change time was recorded.
+        state = _state(plan_file)
+        del state["items"][C3]["export"]["modified"]
+        (plan_file.parent / "arcgis-migration-state.json").write_text(json.dumps(state))
+    else:
+        _change_in_portal(portal)
+
+    result, payload = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    assert payload["not_up_to_date"] == {}
+    folder = _export(plan_file, "dashboard", C3)
+    assert json.loads((folder / "data.json").read_text()) == {"title": "new"}
+    recorded = _state(plan_file)["items"][C3]["export"]["modified"]
+    assert recorded == portal.routes[f"content/items/{C3}"]["modified"]
+
+
+def test_a_failed_export_of_a_changed_item_keeps_the_bundle_and_blocks_cutover(
+    runner, tmp_path, geolens, install
+):
+    portal, plan_file = _exported_c3(runner, tmp_path, install)
+    folder = _export(plan_file, "dashboard", C3)
+    before = _tree(folder)
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] != C3:
+            item["action"] = "skip"
+    plan_file.write_text(json.dumps(plan))
+    _change_in_portal(portal)
+    portal.routes[f"content/items/{C3}/data"] = (503, {"error": {"code": 503}})
+
+    result, payload = _migrate(runner, plan_file, "--token", TOKEN, "--cutover")
+
+    assert result.exit_code == 1
+    [reason] = payload["not_up_to_date"][C3]
+    assert "exporting it again failed" in reason
+    assert _tree(folder) == before
+    assert payload["cutover"]["refused"] == ["unfinished-items"]
+
+
+@pytest.mark.parametrize(
+    "answer", [(500, {"error": {"code": 500}}), {"id": C3, "title": "no date"}]
+)
+def test_a_bundle_whose_item_change_time_cant_be_read_is_reported(
+    runner, tmp_path, geolens, install, answer
+):
+    portal, plan_file = _exported_c3(runner, tmp_path, install)
+    portal.routes[f"content/items/{C3}"] = answer
+
+    result, payload = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+
+    assert result.exit_code == 1
+    assert payload["not_up_to_date"][C3]
+
+
+@pytest.mark.parametrize("left", ["old", "nothing"])
+def test_a_bundle_missing_from_its_path_is_put_back_or_exported_again(
+    runner, tmp_path, geolens, install, left
+):
+    portal, plan_file = _exported_c3(runner, tmp_path, install)
+    folder = _export(plan_file, "dashboard", C3)
+    before = _tree(folder)
+    if left == "old":
+        # A run killed inside the swap, after the old bundle moved aside.
+        folder.rename(folder.with_name(f".{C3}.old-4242"))
+    else:
+        shutil.rmtree(folder)
+
+    result, payload = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    assert payload["not_up_to_date"] == {}
+    assert _tree(folder) == before
+
+
+def test_a_missing_bundle_that_cant_be_exported_again_blocks_cutover(
+    runner, tmp_path, geolens, install
+):
+    portal, plan_file = _exported_c3(runner, tmp_path, install)
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] != C3:
+            item["action"] = "skip"
+    plan_file.write_text(json.dumps(plan))
+    shutil.rmtree(_export(plan_file, "dashboard", C3))
+    portal.routes[f"content/items/{C3}/data"] = (503, {"error": {"code": 503}})
+
+    result, payload = _migrate(runner, plan_file, "--token", TOKEN, "--cutover")
+
+    assert result.exit_code == 1
+    [reason] = payload["not_up_to_date"][C3]
+    assert reason.startswith("its bundle is missing")
+    assert payload["cutover"]["refused"] == ["unfinished-items"]
+
+
+def test_a_partial_export_bundle_blocks_cutover(runner, tmp_path, geolens, install):
+    install(
+        {
+            f"content/items/{C3}/resources": _resources("a.bin", "b.bin"),
+            f"content/items/{C3}/resources/a.bin": b"x" * 600_000,
+            f"content/items/{C3}/resources/b.bin": b"y" * 600_000,
+        }
+    )
+    plan_file = _plan(tmp_path)
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] != C3:
+            item["action"] = "skip"
+    plan_file.write_text(json.dumps(plan))
+    args = ("--token", TOKEN, "--export-cap-mb", "1")
+    _migrate(runner, plan_file, *args)
+    assert _state(plan_file)["items"][C3]["export"]["partial"] is True
+
+    result, payload = _migrate(runner, plan_file, *args, "--cutover")
+
+    assert result.exit_code == 1
+    assert payload["cutover"]["refused"] == ["unfinished-items"]
+    [check] = payload["cutover"]["checks"]
+    [found] = check["items"]
+    assert found["item"] == C3
+    assert found["reason"].startswith("its export bundle is missing files: ")
+
+
+def test_an_export_with_no_portal_connection_is_reported():
+    from types import SimpleNamespace
+
+    from geolens_cli.arcgis_migrate_export import refresh_export
+    from geolens_cli.arcgis_migrate_state import ItemState
+
+    ctx = SimpleNamespace(portal=None)
+    item = {"id": C3, "type": "Dashboard"}
+
+    assert refresh_export(ctx, item, ItemState(status="done")) == [
+        "the run can't read this item from the portal to check it for changes"
+    ]
+
+
+def test_an_export_whose_change_time_cant_be_read_blocks_cutover(
+    runner, tmp_path, geolens, install
+):
+    portal, plan_file = _exported_c3(runner, tmp_path, install)
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] != C3:
+            item["action"] = "skip"
+    plan_file.write_text(json.dumps(plan))
+    portal.routes[f"content/items/{C3}"] = {"id": C3, "title": "no date"}
+
+    result, payload = _migrate(runner, plan_file, "--token", TOKEN, "--cutover")
+
+    assert result.exit_code == 1
+    [reason] = payload["not_up_to_date"][C3]
+    assert "doesn't say when the item last changed" in reason
+    assert payload["cutover"]["refused"] == ["unfinished-items"]
+
+
+@pytest.mark.parametrize(
+    "damage", ["deleted", "truncated", "same_length", "no_file_list", "sizes_only"]
+)
+def test_a_bundle_missing_a_file_it_recorded_is_exported_again(
+    runner, tmp_path, geolens, install, damage
+):
+    portal, plan_file = _exported_c3(runner, tmp_path, install)
+    folder = _export(plan_file, "dashboard", C3)
+    before = _tree(folder)
+    if damage == "deleted":
+        (folder / "item.json").unlink()
+    elif damage == "truncated":
+        (folder / "data.json").write_text("{}")
+    elif damage == "same_length":
+        data = (folder / "data.json").read_bytes()
+        (folder / "data.json").write_bytes(b"X" * len(data))
+    elif damage == "sizes_only":
+        # A record from before the digests were kept.
+        state = _state(plan_file)
+        recorded = state["items"][C3]["export"]["files"]
+        state["items"][C3]["export"]["files"] = {
+            name: entry["size"] for name, entry in recorded.items()
+        }
+        (plan_file.parent / "arcgis-migration-state.json").write_text(json.dumps(state))
+    else:
+        # A record from before the file list was kept.
+        state = _state(plan_file)
+        del state["items"][C3]["export"]["files"]
+        (plan_file.parent / "arcgis-migration-state.json").write_text(json.dumps(state))
+    downloads = len(portal.requests_to(f"content/items/{C3}/data"))
+
+    result, payload = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    assert payload["not_up_to_date"] == {}
+    assert len(portal.requests_to(f"content/items/{C3}/data")) == downloads + 1
+    assert _tree(folder) == before
+    assert set(_state(plan_file)["items"][C3]["export"]["files"]) == set(before)
+
+
+def test_a_bundle_missing_a_file_that_cant_be_exported_again_blocks_cutover(
+    runner, tmp_path, geolens, install
+):
+    portal, plan_file = _exported_c3(runner, tmp_path, install)
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] != C3:
+            item["action"] = "skip"
+    plan_file.write_text(json.dumps(plan))
+    (_export(plan_file, "dashboard", C3) / "item.json").unlink()
+    portal.routes[f"content/items/{C3}/data"] = (503, {"error": {"code": 503}})
+
+    result, payload = _migrate(runner, plan_file, "--token", TOKEN, "--cutover")
+
+    assert result.exit_code == 1
+    [reason] = payload["not_up_to_date"][C3]
+    assert reason.startswith("its bundle is missing")
+    assert payload["cutover"]["refused"] == ["unfinished-items"]
+
+
+def test_a_bundle_recorded_with_no_files_is_exported_again(
+    runner, tmp_path, geolens, install
+):
+    portal, plan_file = _exported_c3(runner, tmp_path, install)
+    folder = _export(plan_file, "dashboard", C3)
+    # An empty folder matches an empty record, but proves nothing was saved.
+    shutil.rmtree(folder)
+    folder.mkdir()
+    state = _state(plan_file)
+    state["items"][C3]["export"]["files"] = {}
+    (plan_file.parent / "arcgis-migration-state.json").write_text(json.dumps(state))
+    downloads = len(portal.requests_to(f"content/items/{C3}/data"))
+
+    result, payload = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    assert len(portal.requests_to(f"content/items/{C3}/data")) == downloads + 1
+    assert (folder / "item.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("item_type", "name", "expected"),
+    [
+        ("CSV", None, "data.csv"),
+        ("PDF", "Report.PDF", "data.pdf"),
+        ("Image Service", None, "data.bin"),
+        ("Image", None, "data.bin"),
+        ("Microsoft Excel", None, "data.bin"),
+        ("CSV", "../../etc/passwd", "data.csv"),
+        ("Feature Service", "notes.tar.gz", "data.gz"),
+        ("Image Service", "a/b\\evil.sh;rm", "data.bin"),
+        ("Image Service", "x.json", "data.bin"),
+        ("Image Service", "x.waytoolongext", "data.bin"),
+    ],
+)
+def test_a_raw_file_keeps_its_type_and_never_a_portal_path(item_type, name, expected):
+    full = {"name": name} if name is not None else {}
+
+    assert export_module._raw_name({"type": item_type}, full) == expected
+
+
+@pytest.mark.parametrize(
+    ("action", "defaults", "expected"),
+    [
+        ("export_only", {"action": "export_only"}, "Source file of Layer"),
+        ("export_only", None, "Source file of Layer"),
+        ("import_file", {"action": "export_only"}, "No equivalent in GeoLens."),
+        ("import_file", {"action": "import_file"}, "Source file of Layer"),
+    ],
+)
+def test_the_hosted_layer_note_follows_the_items_current_action(
+    tmp_path, action, defaults, expected
+):
+    state = MigrationState(tmp_path / "s.json", "p", "i", str, persist=False)
+    item = {"id": D1, "type": "CSV", "action": action, "superseded_by": C1}
+    if defaults is not None:
+        item["defaults"] = defaults
+    plan = {"items": [item, {"id": C1, "title": "Layer"}]}
+
+    assert export_module.item_replacement(item, plan, state).startswith(
+        expected
+    )
+
+
+def _dashboard_plan(map_ids, map_widgets):
+    maps = [{"id": m, "type": "Web Map", "title": f"Map {m}"} for m in [C2, C3]]
+    dash = {"id": D1, "type": "Dashboard", "action": "export_only", "reason": "read"}
+    if map_widgets is not None:
+        dash["map_widgets"] = map_widgets
+        dash["map_widget_maps"] = list(map_ids)
+    return dash, {"items": [dash, *maps]}
+
+
+def _note(tmp_path, map_ids, map_widgets):
+    state = MigrationState(tmp_path / "s.json", "p", "i", str, persist=False)
+    dash, plan = _dashboard_plan(map_ids, map_widgets)
+    return export_module.item_replacement(dash, plan, state)
+
+
+def test_a_dashboard_with_no_map_widget_is_to_be_rebuilt_with_the_map_hidden(tmp_path):
+    note = _note(tmp_path, [], 0)
+
+    assert "It has no map widget: rebuild it with the map hidden" in note
+    assert "histogram" in note and "API-only" not in note
+
+
+def test_a_dashboard_with_several_maps_names_only_the_maps_its_widgets_show(tmp_path):
+    note = _note(tmp_path, [C2, C3], 2)
+
+    assert f"It has 2 map widgets on Map {C2}, Map {C3}" in note
+    assert "convert it to a single-map dashboard or split it" in note
+
+
+def test_two_map_widgets_on_one_web_map_still_ask_for_a_split(tmp_path):
+    note = _note(tmp_path, [C2], 2)
+
+    assert f"It has 2 map widgets on Map {C2}:" in note
+    assert f"Map {C3}" not in note
+
+
+def test_a_one_map_widget_dashboard_gets_only_the_general_note(tmp_path):
+    assert _note(tmp_path, [C2], 1) == export_module.replacement_note("Dashboard")
+
+
+def test_a_dashboard_whose_widgets_were_not_read_says_the_count_is_unknown(tmp_path):
+    note = _note(tmp_path, [], None)
+
+    assert "Its map widgets could not be counted" in note
+    assert "with none, rebuild it with the map hidden" in note
+    assert "map widgets (" not in note
+
+
+def test_one_widget_that_shows_two_maps_gets_its_own_wording(tmp_path):
+    note = _note(tmp_path, [C2, C3], 1)
+
+    assert f"Its map widget shows 2 maps (Map {C2}, Map {C3})" in note
+    assert "map widgets (" not in note
+    assert "convert it to a single-map dashboard or split it" in note

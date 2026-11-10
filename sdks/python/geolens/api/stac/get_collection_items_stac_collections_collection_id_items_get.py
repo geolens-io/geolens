@@ -119,7 +119,7 @@ def sync_detailed(
     limit: int | Unset = 10,
     offset: int | Unset = 0,
 ) -> Response[ProblemDetail | StacItemCollectionResponse]:
-    """Get Collection Items
+    """List STAC items in a collection
 
      List STAC Items within a collection.
 
@@ -165,7 +165,7 @@ def sync(
     limit: int | Unset = 10,
     offset: int | Unset = 0,
 ) -> ProblemDetail | StacItemCollectionResponse | None:
-    """Get Collection Items
+    """List STAC items in a collection
 
      List STAC Items within a collection.
 
@@ -206,7 +206,7 @@ async def asyncio_detailed(
     limit: int | Unset = 10,
     offset: int | Unset = 0,
 ) -> Response[ProblemDetail | StacItemCollectionResponse]:
-    """Get Collection Items
+    """List STAC items in a collection
 
      List STAC Items within a collection.
 
@@ -250,7 +250,7 @@ async def asyncio(
     limit: int | Unset = 10,
     offset: int | Unset = 0,
 ) -> ProblemDetail | StacItemCollectionResponse | None:
-    """Get Collection Items
+    """List STAC items in a collection
 
      List STAC Items within a collection.
 

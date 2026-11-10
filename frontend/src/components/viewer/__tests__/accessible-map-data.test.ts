@@ -74,8 +74,80 @@ describe('toAccessibleMapFeatures', () => {
         geometryType: 'LineString',
         bounds: [-76.5, 39.1, -75.2, 40.4],
         properties: [['name', 'Market Street'], ['speed', 25]],
+        ungroupedKeys: new Set(),
+        datasetId: layer.dataset_id,
+        gid: 7,
+        columnNames: null,
+        fetchRow: false,
       }],
     });
+  });
+
+  describe('fetchRow', () => {
+    const fetchRowFor = (
+      layer: ReturnType<typeof makeLayer>,
+      feature: MapGeoJSONFeature,
+      colsOnly: boolean,
+    ) => toAccessibleMapFeatures(
+      [feature],
+      (mapLayerId) => mapLayerId === 'viewer-layer-layer-1' ? layer : null,
+      undefined,
+      colsOnly,
+    ).features[0].fetchRow;
+
+    const defaultPopup = () => makeLayer({ popup_config: { enabled: true, visible_fields: null } });
+
+    it('is set for default popup settings on lean tiles', () => {
+      expect(fetchRowFor(defaultPopup(), makeFeature(), true)).toBe(true);
+    });
+
+    it('is off when the tile is not lean', () => {
+      expect(fetchRowFor(defaultPopup(), makeFeature(), false)).toBe(false);
+    });
+
+    it('is off when the author chose the fields', () => {
+      const layer = makeLayer({ popup_config: { enabled: true, visible_fields: ['name'] } });
+      expect(fetchRowFor(layer, makeFeature(), true)).toBe(false);
+    });
+
+    it('is off for a feature that did not come from a vector tile source', () => {
+      expect(fetchRowFor(defaultPopup(), makeFeature({ sourceLayer: undefined }), true)).toBe(false);
+    });
+
+    it('is off for a gid the map cannot hold exactly, and the tile attributes stay', () => {
+      const feature = makeFeature({ id: Number('9007199254740993') });
+      const layer = defaultPopup();
+      const [item] = toAccessibleMapFeatures([feature], (id) => id === 'viewer-layer-layer-1' ? layer : null, undefined, true).features;
+      expect(item.fetchRow).toBe(false);
+      expect(item.gid).toBeUndefined();
+      expect(item.properties.length).toBeGreaterThan(0);
+    });
+
+    it('keeps the fetch for a gid within the safe range', () => {
+      expect(fetchRowFor(defaultPopup(), makeFeature({ id: 9007199254740991 }), true)).toBe(true);
+    });
+
+    it('is off for a cluster', () => {
+      const cluster = makeFeature({ properties: { point_count: 12 } });
+      expect(fetchRowFor(defaultPopup(), cluster, true)).toBe(false);
+    });
+  });
+
+  it('lists identifier and temporal columns as ungrouped', () => {
+    const layer = makeLayer({
+      column_info: [
+        { name: 'name', type: 'text', semantic_role: 'identifier' },
+        { name: 'speed', type: 'integer', semantic_role: 'measure' },
+        { name: 'built', type: 'integer', semantic_role: 'temporal' },
+        { name: 'lanes', type: 'integer' },
+      ],
+    });
+    const result = toAccessibleMapFeatures(
+      [makeFeature()],
+      (mapLayerId) => mapLayerId === 'viewer-layer-layer-1' ? layer : null,
+    );
+
+    expect(result.features[0].ungroupedKeys).toEqual(new Set(['name', 'built']));
   });
 
   it('excludes basemap/unmanaged features and honors disabled popups', () => {

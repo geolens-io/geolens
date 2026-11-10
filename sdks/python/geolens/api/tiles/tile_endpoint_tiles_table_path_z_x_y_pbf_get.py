@@ -24,6 +24,7 @@ def _get_kwargs(
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
     cols: None | str | Unset = UNSET,
+    cols_only: bool | Unset = False,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -55,6 +56,8 @@ def _get_kwargs(
     else:
         json_cols = cols
     params["cols"] = json_cols
+
+    params["cols_only"] = cols_only
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -143,8 +146,9 @@ def sync_detailed(
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
     cols: None | str | Unset = UNSET,
+    cols_only: bool | Unset = False,
 ) -> Response[File | ProblemDetail]:
-    """Tile Endpoint
+    """Get a vector tile
 
      Serve a vector tile as gzipped MVT binary.
 
@@ -179,13 +183,15 @@ def sync_detailed(
 
     A malformed table path or an out-of-range tile coordinate answers 400. A
     tile holding no features answers 204, and a repeat request whose
-    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    ``If-None-Match`` matches answers 304. When the tile holds more than 50,000
+    features, it carries a fixed sample of them spread across the tile and
+    ``X-GeoLens-Tile-Sampled: true``. Where a deployment runs cold storage,
     a dataset still being restored answers 202 with a job id to poll. Requests
     answer 429 with ``Retry-After`` when the per-process capacity for uncached
-    renders stays full for a short wait, tile-pool acquisition times out, a
-    tile query exceeds the pool's per-command timeout, or the configured
-    per-tenant concurrency limit is exceeded. Any other failure serving the
-    tile answers 503.
+    renders stays full for a short wait, tile-pool acquisition times out, or the
+    configured per-tenant concurrency limit is exceeded. A tile query that
+    exceeds the pool's per-command timeout answers 503 without ``Retry-After``
+    and is not cached, as does any other failure serving the tile.
 
     Args:
         table_path (str):
@@ -196,6 +202,8 @@ def sync_detailed(
         exp (int | None | Unset):
         scope (None | str | Unset):
         cols (None | str | Unset):
+        cols_only (bool | Unset): Carry only the columns named by `cols`, at every zoom. Default:
+            False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -214,6 +222,7 @@ def sync_detailed(
         exp=exp,
         scope=scope,
         cols=cols,
+        cols_only=cols_only,
     )
 
     response = client.get_httpx_client().request(
@@ -234,8 +243,9 @@ def sync(
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
     cols: None | str | Unset = UNSET,
+    cols_only: bool | Unset = False,
 ) -> File | ProblemDetail | None:
-    """Tile Endpoint
+    """Get a vector tile
 
      Serve a vector tile as gzipped MVT binary.
 
@@ -270,13 +280,15 @@ def sync(
 
     A malformed table path or an out-of-range tile coordinate answers 400. A
     tile holding no features answers 204, and a repeat request whose
-    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    ``If-None-Match`` matches answers 304. When the tile holds more than 50,000
+    features, it carries a fixed sample of them spread across the tile and
+    ``X-GeoLens-Tile-Sampled: true``. Where a deployment runs cold storage,
     a dataset still being restored answers 202 with a job id to poll. Requests
     answer 429 with ``Retry-After`` when the per-process capacity for uncached
-    renders stays full for a short wait, tile-pool acquisition times out, a
-    tile query exceeds the pool's per-command timeout, or the configured
-    per-tenant concurrency limit is exceeded. Any other failure serving the
-    tile answers 503.
+    renders stays full for a short wait, tile-pool acquisition times out, or the
+    configured per-tenant concurrency limit is exceeded. A tile query that
+    exceeds the pool's per-command timeout answers 503 without ``Retry-After``
+    and is not cached, as does any other failure serving the tile.
 
     Args:
         table_path (str):
@@ -287,6 +299,8 @@ def sync(
         exp (int | None | Unset):
         scope (None | str | Unset):
         cols (None | str | Unset):
+        cols_only (bool | Unset): Carry only the columns named by `cols`, at every zoom. Default:
+            False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -306,6 +320,7 @@ def sync(
         exp=exp,
         scope=scope,
         cols=cols,
+        cols_only=cols_only,
     ).parsed
 
 
@@ -320,8 +335,9 @@ async def asyncio_detailed(
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
     cols: None | str | Unset = UNSET,
+    cols_only: bool | Unset = False,
 ) -> Response[File | ProblemDetail]:
-    """Tile Endpoint
+    """Get a vector tile
 
      Serve a vector tile as gzipped MVT binary.
 
@@ -356,13 +372,15 @@ async def asyncio_detailed(
 
     A malformed table path or an out-of-range tile coordinate answers 400. A
     tile holding no features answers 204, and a repeat request whose
-    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    ``If-None-Match`` matches answers 304. When the tile holds more than 50,000
+    features, it carries a fixed sample of them spread across the tile and
+    ``X-GeoLens-Tile-Sampled: true``. Where a deployment runs cold storage,
     a dataset still being restored answers 202 with a job id to poll. Requests
     answer 429 with ``Retry-After`` when the per-process capacity for uncached
-    renders stays full for a short wait, tile-pool acquisition times out, a
-    tile query exceeds the pool's per-command timeout, or the configured
-    per-tenant concurrency limit is exceeded. Any other failure serving the
-    tile answers 503.
+    renders stays full for a short wait, tile-pool acquisition times out, or the
+    configured per-tenant concurrency limit is exceeded. A tile query that
+    exceeds the pool's per-command timeout answers 503 without ``Retry-After``
+    and is not cached, as does any other failure serving the tile.
 
     Args:
         table_path (str):
@@ -373,6 +391,8 @@ async def asyncio_detailed(
         exp (int | None | Unset):
         scope (None | str | Unset):
         cols (None | str | Unset):
+        cols_only (bool | Unset): Carry only the columns named by `cols`, at every zoom. Default:
+            False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -391,6 +411,7 @@ async def asyncio_detailed(
         exp=exp,
         scope=scope,
         cols=cols,
+        cols_only=cols_only,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -409,8 +430,9 @@ async def asyncio(
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
     cols: None | str | Unset = UNSET,
+    cols_only: bool | Unset = False,
 ) -> File | ProblemDetail | None:
-    """Tile Endpoint
+    """Get a vector tile
 
      Serve a vector tile as gzipped MVT binary.
 
@@ -445,13 +467,15 @@ async def asyncio(
 
     A malformed table path or an out-of-range tile coordinate answers 400. A
     tile holding no features answers 204, and a repeat request whose
-    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    ``If-None-Match`` matches answers 304. When the tile holds more than 50,000
+    features, it carries a fixed sample of them spread across the tile and
+    ``X-GeoLens-Tile-Sampled: true``. Where a deployment runs cold storage,
     a dataset still being restored answers 202 with a job id to poll. Requests
     answer 429 with ``Retry-After`` when the per-process capacity for uncached
-    renders stays full for a short wait, tile-pool acquisition times out, a
-    tile query exceeds the pool's per-command timeout, or the configured
-    per-tenant concurrency limit is exceeded. Any other failure serving the
-    tile answers 503.
+    renders stays full for a short wait, tile-pool acquisition times out, or the
+    configured per-tenant concurrency limit is exceeded. A tile query that
+    exceeds the pool's per-command timeout answers 503 without ``Retry-After``
+    and is not cached, as does any other failure serving the tile.
 
     Args:
         table_path (str):
@@ -462,6 +486,8 @@ async def asyncio(
         exp (int | None | Unset):
         scope (None | str | Unset):
         cols (None | str | Unset):
+        cols_only (bool | Unset): Carry only the columns named by `cols`, at every zoom. Default:
+            False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -482,5 +508,6 @@ async def asyncio(
             exp=exp,
             scope=scope,
             cols=cols,
+            cols_only=cols_only,
         )
     ).parsed

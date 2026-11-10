@@ -1,0 +1,379 @@
+import { arrayMove } from '@dnd-kit/sortable';
+import { BUTTON_DEFAULT_CONFIG, buttonNeedsAttention } from '@/components/widgets/button/definition';
+import { approvedFrameHost, FRAME_DEFAULT_CONFIG, frameUrlHost } from '@/components/widgets/embed/frame';
+import { MAX_GALLERY_IMAGES } from '@/components/widgets/gallery/definition';
+import { IMAGE_DEFAULT_CONFIG, imageNeedsAlt } from '@/components/widgets/image/definition';
+import { SEPARATOR_DEFAULT_CONFIG, type SeparatorStyle } from '@/components/widgets/separator/definition';
+import { deepEqual } from '@/lib/deep-equal';
+import type { StoryCamera, StoryChapter, StoryFrameHost, StoryScene, StorySettings } from '@/types/api';
+
+export const STORY_TITLE_MAX_LENGTH = 200;
+export const STORY_SUMMARY_MAX_LENGTH = 2000;
+export const CHAPTER_TITLE_MAX_LENGTH = 200;
+/** The server's caps on a story document (`StoryDocumentInput` in backend stories/schemas.py). */
+export const MAX_CHAPTERS = 200;
+export const MAX_BLOCKS_PER_CHAPTER = 100;
+export const MAX_DOCUMENT_BYTES = 2 * 1024 * 1024;
+
+export type SceneTransition = NonNullable<StoryScene['transition']>;
+
+type Block = NonNullable<StoryChapter['blocks']>[number];
+export type GalleryKind = 'gallery' | 'carousel';
+type FrameKind = 'embed' | 'video';
+type GalleryBlock = Extract<Block, { type: GalleryKind }>;
+type GalleryImage = GalleryBlock['config']['images'][number];
+
+function isGallery(block: Block): block is GalleryBlock {
+  return block.type === 'gallery' || block.type === 'carousel';
+}
+
+/**
+ * Edits to a draft's chapters, addressed by chapter id so an edit that lands
+ * late (after a reorder or delete) reaches the right chapter or none. Each
+ * returns a new list and never changes the one passed in.
+ */
+export type DraftEdit =
+  | { type: 'addChapter'; id: string; blockId: string }
+  | { type: 'removeChapter'; chapterId: string }
+  | { type: 'moveChapter'; chapterId: string; by: -1 | 1 }
+  | { type: 'setTitle'; chapterId: string; title: string }
+  | { type: 'setMap'; chapterId: string; mapId: string; camera: StoryCamera }
+  | { type: 'clearScene'; chapterId: string }
+  | { type: 'setCamera'; chapterId: string; camera: StoryCamera }
+  | { type: 'setLayerVisible'; chapterId: string; layerId: string; visible: boolean }
+  | { type: 'setTransition'; chapterId: string; transition: SceneTransition | null }
+  | { type: 'addTextBlock'; chapterId: string; blockId: string }
+  | { type: 'setBlockText'; chapterId: string; blockId: string; text: string }
+  | { type: 'addImageBlock'; chapterId: string; blockId: string; assetId: string }
+  | {
+      type: 'setImage';
+      chapterId: string;
+      blockId: string;
+      assetId?: string;
+      alt?: string;
+      decorative?: boolean;
+      caption?: string;
+    }
+  | { type: 'addGalleryBlock'; chapterId: string; blockId: string; kind: GalleryKind; assetId: string }
+  | { type: 'addGalleryImage'; chapterId: string; blockId: string; assetId: string }
+  | {
+      type: 'setGalleryImage';
+      chapterId: string;
+      blockId: string;
+      index: number;
+      alt?: string;
+      decorative?: boolean;
+      caption?: string;
+    }
+  | { type: 'moveGalleryImage'; chapterId: string; blockId: string; index: number; by: -1 | 1 }
+  | { type: 'removeGalleryImage'; chapterId: string; blockId: string; index: number }
+  | { type: 'addButtonBlock'; chapterId: string; blockId: string }
+  | { type: 'setButton'; chapterId: string; blockId: string; label?: string; url?: string; newTab?: boolean }
+  | { type: 'addSeparatorBlock'; chapterId: string; blockId: string }
+  | { type: 'addFrameBlock'; chapterId: string; blockId: string; kind: FrameKind }
+  | { type: 'setFrame'; chapterId: string; blockId: string; url?: string; title?: string }
+  | { type: 'setSeparator'; chapterId: string; blockId: string; style: SeparatorStyle }
+  | { type: 'moveBlock'; chapterId: string; blockId: string; by: -1 | 1 }
+  | { type: 'removeBlock'; chapterId: string; blockId: string };
+
+/** What a story without stored reader settings behaves as. */
+const DEFAULT_STORY_SETTINGS: StorySettings = {
+  navigation: false,
+  layout: 'side',
+  panel_position: 'left',
+  theme: 'follow',
+  transition: 'fly',
+};
+
+/** Stored settings with every default filled in. */
+export function readSettings(settings: StorySettings | null | undefined): StorySettings {
+  return { ...DEFAULT_STORY_SETTINGS, ...settings };
+}
+
+/** A change to the reader settings. */
+export type SettingsEdit = Partial<StorySettings>;
+
+/** The settings after an edit; unchanged settings come back as the same object. */
+export function applySettingsEdit(settings: StorySettings | null | undefined, edit: SettingsEdit): StorySettings | null | undefined {
+  const current = readSettings(settings);
+  const changed = (Object.keys(edit) as (keyof SettingsEdit)[]).some((key) => edit[key] !== current[key]);
+  if (!changed) return settings;
+  const { transition, ...rest } = { ...current, ...edit };
+  // A server from before this setting rejects the key, so it is sent only once stored or chosen.
+  return (settings && 'transition' in settings) || 'transition' in edit ? { ...rest, transition } : rest as StorySettings;
+}
+
+function textBlock(id: string): Block {
+  return { id, type: 'markdown', v: 1, title: null, config: { text: '' } };
+}
+
+function imageBlock(id: string, assetId: string): Block {
+  return { id, type: 'image', v: 1, title: null, asset_id: assetId, config: { ...IMAGE_DEFAULT_CONFIG } };
+}
+
+function galleryBlock(id: string, kind: GalleryKind, assetId: string): Block {
+  return { id, type: kind, v: 1, title: null, config: { images: [{ asset_id: assetId, ...IMAGE_DEFAULT_CONFIG }] } };
+}
+
+/** Applies `change` to a gallery block's images; other blocks stay as they are. */
+function updateGalleryImages(
+  chapters: StoryChapter[],
+  chapterId: string,
+  blockId: string,
+  change: (images: GalleryImage[]) => GalleryImage[],
+) {
+  return updateBlock(chapters, chapterId, blockId, (block) =>
+    isGallery(block) ? { ...block, config: { images: change(block.config.images) } } : block,
+  );
+}
+
+function buttonBlock(id: string): Block {
+  return { id, type: 'button', v: 1, title: null, config: { ...BUTTON_DEFAULT_CONFIG } };
+}
+
+function separatorBlock(id: string): Block {
+  return { id, type: 'separator', v: 1, title: null, config: { ...SEPARATOR_DEFAULT_CONFIG } };
+}
+
+function frameBlock(id: string, kind: FrameKind): Block {
+  return { id, type: kind, v: 1, title: null, config: { ...FRAME_DEFAULT_CONFIG } };
+}
+
+/**
+ * Whether the server would refuse this embed or video block: no title, or an
+ * address that isn't https on an approved host. `hosts` is undefined while
+ * the list loads, when only the address's shape is checked.
+ */
+function frameNeedsAttention(
+  config: { url: string; title: string },
+  hosts: readonly StoryFrameHost[] | undefined,
+): boolean {
+  if (config.title.trim() === '' || frameUrlHost(config.url) === null) return true;
+  return hosts !== undefined && approvedFrameHost(hosts, config.url) === undefined;
+}
+
+/** How many embed and video blocks the server would refuse; it refuses a draft with any. */
+export function framesNeedingAttention(
+  chapters: readonly StoryChapter[],
+  hosts: readonly StoryFrameHost[] | undefined,
+): number {
+  return chapters
+    .flatMap((chapter) => chapter.blocks ?? [])
+    .filter((block) => (block.type === 'embed' || block.type === 'video') && frameNeedsAttention(block.config, hosts))
+    .length;
+}
+
+/** How many button blocks still lack a label or an http(s) address; the server refuses a draft with any. */
+export function buttonsNeedingAttention(chapters: readonly StoryChapter[]): number {
+  return chapters
+    .flatMap((chapter) => chapter.blocks ?? [])
+    .filter((block) => block.type === 'button' && buttonNeedsAttention(block.config)).length;
+}
+
+/** How many image blocks still need alt text; the server refuses a draft with any. */
+export function imagesMissingAlt(chapters: readonly StoryChapter[]): number {
+  return chapters
+    .flatMap((chapter) => chapter.blocks ?? [])
+    .reduce((count, block) => {
+      if (block.type === 'image') return count + (imageNeedsAlt(block.config) ? 1 : 0);
+      return isGallery(block) ? count + block.config.images.filter(imageNeedsAlt).length : count;
+    }, 0);
+}
+
+function update(chapters: StoryChapter[], chapterId: string, change: (c: StoryChapter) => StoryChapter) {
+  return chapters.map((chapter) => (chapter.id === chapterId ? change(chapter) : chapter));
+}
+
+/** Changes a chapter's scene; a chapter without one is left alone. */
+function updateScene(chapters: StoryChapter[], chapterId: string, change: (scene: StoryScene) => StoryScene) {
+  return update(chapters, chapterId, (c) => (c.scene ? { ...c, scene: change(c.scene) } : c));
+}
+
+function updateBlocks(chapter: StoryChapter, change: (blocks: Block[]) => Block[]): StoryChapter {
+  return { ...chapter, blocks: change(chapter.blocks ?? []) };
+}
+
+/** Adds a block to a chapter unless it is full. */
+function appendBlock(chapters: StoryChapter[], chapterId: string, block: Block) {
+  return update(chapters, chapterId, (c) =>
+    (c.blocks?.length ?? 0) >= MAX_BLOCKS_PER_CHAPTER ? c : updateBlocks(c, (blocks) => [...blocks, block]),
+  );
+}
+
+/** Changes one block; `change` returns any block it doesn't edit unchanged. */
+function updateBlock(chapters: StoryChapter[], chapterId: string, blockId: string, change: (block: Block) => Block) {
+  return update(chapters, chapterId, (c) =>
+    updateBlocks(c, (blocks) => blocks.map((block) => (block.id === blockId ? change(block) : block))),
+  );
+}
+
+export function applyDraftEdit(chapters: StoryChapter[], edit: DraftEdit): StoryChapter[] {
+  switch (edit.type) {
+    case 'addChapter':
+      if (chapters.length >= MAX_CHAPTERS) return chapters;
+      return [
+        ...chapters,
+        { id: edit.id, title: null, scene: null, scene_hidden: false, blocks: [textBlock(edit.blockId)] },
+      ];
+    case 'removeChapter':
+      return chapters.filter((c) => c.id !== edit.chapterId);
+    case 'moveChapter': {
+      const from = chapters.findIndex((c) => c.id === edit.chapterId);
+      const to = from + edit.by;
+      if (from < 0 || to < 0 || to >= chapters.length) return chapters;
+      return arrayMove(chapters, from, to);
+    }
+    case 'setTitle':
+      return update(chapters, edit.chapterId, (c) => ({ ...c, title: edit.title || null }));
+    case 'setMap':
+      return update(chapters, edit.chapterId, (c) => ({
+        ...c,
+        scene: { map_id: edit.mapId, camera: edit.camera, layer_visibility: {} },
+        scene_hidden: false,
+      }));
+    case 'clearScene':
+      // Clearing scene_hidden too drops a stored scene on a map the editor can't read.
+      return update(chapters, edit.chapterId, (c) => ({ ...c, scene: null, scene_hidden: false }));
+    case 'setCamera':
+      return updateScene(chapters, edit.chapterId, (scene) => ({ ...scene, camera: edit.camera }));
+    case 'setTransition':
+      return updateScene(chapters, edit.chapterId, (scene) => {
+        const next = { ...scene };
+        if (edit.transition === null) delete next.transition;
+        else next.transition = edit.transition;
+        return next;
+      });
+    case 'setLayerVisible':
+      return updateScene(chapters, edit.chapterId, (scene) => ({
+        ...scene,
+        layer_visibility: { ...scene.layer_visibility, [edit.layerId]: edit.visible },
+      }));
+    case 'addTextBlock':
+      return appendBlock(chapters, edit.chapterId, textBlock(edit.blockId));
+    case 'setBlockText':
+      return updateBlock(chapters, edit.chapterId, edit.blockId, (block) =>
+        block.type === 'markdown' ? { ...block, config: { text: edit.text } } : block,
+      );
+    case 'addImageBlock':
+      return appendBlock(chapters, edit.chapterId, imageBlock(edit.blockId, edit.assetId));
+    case 'setImage':
+      return updateBlock(chapters, edit.chapterId, edit.blockId, (block) => {
+        if (block.type !== 'image') return block;
+        const config = { ...block.config };
+        if (edit.alt !== undefined) config.alt = edit.alt;
+        if (edit.decorative !== undefined) config.decorative = edit.decorative;
+        if (edit.caption !== undefined) config.caption = edit.caption || null;
+        // The server refuses blank alt text, and stores neither field unset.
+        if (!config.decorative) delete config.decorative;
+        if (config.decorative && !config.alt?.trim()) delete config.alt;
+        return { ...block, asset_id: edit.assetId ?? block.asset_id, config };
+      });
+    case 'addGalleryBlock':
+      return appendBlock(chapters, edit.chapterId, galleryBlock(edit.blockId, edit.kind, edit.assetId));
+    case 'addGalleryImage':
+      return updateGalleryImages(chapters, edit.chapterId, edit.blockId, (images) =>
+        images.length >= MAX_GALLERY_IMAGES
+          ? images
+          : [...images, { asset_id: edit.assetId, ...IMAGE_DEFAULT_CONFIG }],
+      );
+    case 'setGalleryImage':
+      return updateGalleryImages(chapters, edit.chapterId, edit.blockId, (images) =>
+        images.map((image, i) => {
+          if (i !== edit.index) return image;
+          const next = { ...image };
+          if (edit.alt !== undefined) next.alt = edit.alt;
+          if (edit.decorative !== undefined) next.decorative = edit.decorative;
+          if (edit.caption !== undefined) next.caption = edit.caption || null;
+          if (!next.decorative) delete next.decorative;
+          if (next.decorative && !next.alt?.trim()) delete next.alt;
+          return next;
+        }),
+      );
+    case 'moveGalleryImage':
+      return updateGalleryImages(chapters, edit.chapterId, edit.blockId, (images) => {
+        const from = edit.index;
+        const to = from + edit.by;
+        return from < 0 || from >= images.length || to < 0 || to >= images.length ? images : arrayMove(images, from, to);
+      });
+    case 'removeGalleryImage':
+      return updateGalleryImages(chapters, edit.chapterId, edit.blockId, (images) =>
+        images.length > 1 ? images.filter((_, i) => i !== edit.index) : images,
+      );
+    case 'addButtonBlock':
+      return appendBlock(chapters, edit.chapterId, buttonBlock(edit.blockId));
+    case 'setButton':
+      return updateBlock(chapters, edit.chapterId, edit.blockId, (block) =>
+        block.type === 'button'
+          ? {
+              ...block,
+              config: {
+                label: edit.label ?? block.config.label,
+                url: edit.url ?? block.config.url,
+                new_tab: edit.newTab ?? block.config.new_tab,
+              },
+            }
+          : block,
+      );
+    case 'addSeparatorBlock':
+      return appendBlock(chapters, edit.chapterId, separatorBlock(edit.blockId));
+    case 'setSeparator':
+      return updateBlock(chapters, edit.chapterId, edit.blockId, (block) =>
+        block.type === 'separator' ? { ...block, config: { style: edit.style } } : block,
+      );
+    case 'addFrameBlock':
+      return appendBlock(chapters, edit.chapterId, frameBlock(edit.blockId, edit.kind));
+    case 'setFrame':
+      return updateBlock(chapters, edit.chapterId, edit.blockId, (block) =>
+        block.type === 'embed' || block.type === 'video'
+          ? { ...block, config: { url: edit.url ?? block.config.url, title: edit.title ?? block.config.title } }
+          : block,
+      );
+    case 'moveBlock': {
+      const blocks = chapters.find((c) => c.id === edit.chapterId)?.blocks ?? [];
+      const from = blocks.findIndex((block) => block.id === edit.blockId);
+      const to = from + edit.by;
+      if (from < 0 || to < 0 || to >= blocks.length) return chapters;
+      return update(chapters, edit.chapterId, (c) => updateBlocks(c, (list) => arrayMove(list, from, to)));
+    }
+    case 'removeBlock':
+      return update(chapters, edit.chapterId, (c) =>
+        updateBlocks(c, (blocks) => blocks.filter((block) => block.id !== edit.blockId)),
+      );
+  }
+}
+
+/** Whether two documents differ in what they save: chapters or reader settings, stored or defaulted. */
+export function storyDocumentChanged(
+  a: { chapters: readonly StoryChapter[]; settings?: StorySettings | null },
+  b: { chapters: readonly StoryChapter[]; settings?: StorySettings | null },
+): boolean {
+  return !deepEqual(a.chapters, b.chapters) || !deepEqual(readSettings(a.settings), readSettings(b.settings));
+}
+
+// Python's compact `json.dumps`, which the server measures with, escapes every
+// non-ASCII UTF-16 unit as six bytes (`\uXXXX`).
+function jsonBytes(value: unknown): number {
+  const json = JSON.stringify(value);
+  let escaped = 0;
+  for (let i = 0; i < json.length; i++) if (json.charCodeAt(i) > 0x7f) escaped++;
+  return json.length + 5 * escaped;
+}
+
+// Edits copy only the chapters they change, so an unchanged chapter keeps its
+// measured size and a keystroke re-measures one chapter, not the document.
+const chapterBytes = new WeakMap<StoryChapter, number>();
+
+/** The size the server measures a draft at, in bytes. */
+export function documentBytes(chapters: readonly StoryChapter[], settings?: StorySettings | null): number {
+  let total =
+    '{"version":1,"chapters":[],"settings":}'.length + jsonBytes(settings ?? null) + Math.max(0, chapters.length - 1);
+  for (const chapter of chapters) {
+    let size = chapterBytes.get(chapter);
+    if (size === undefined) {
+      size = jsonBytes(chapter);
+      chapterBytes.set(chapter, size);
+    }
+    total += size;
+  }
+  return total;
+}

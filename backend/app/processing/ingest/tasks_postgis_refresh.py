@@ -28,6 +28,12 @@ from sqlalchemy.exc import DBAPIError
 from app.core.db.sqlstate import sqlstate
 from app.core.db.tenant_session import tenant_task
 from app.platform.catalog_locks import bump_tile_cache_version_atomic
+from app.platform.dataset_origin import (
+    BoundPointer,
+    PostgisSource,
+    bound_pointer,
+    read_source,
+)
 from app.processing.ingest.catalog_projection import measure, project
 from app.processing.ingest.publication import (
     PUBLISH,
@@ -265,16 +271,15 @@ def _resolve_bound_table(dataset: Any, *, schema: str) -> str:
     writes both from one value, so disagreement is a fault (hand-edited row,
     interrupted tenant migration) that stops the refresh.
     """
-    ref = dataset.origin_ref or {}
-    bound = ref.get("table_name")
-    if not bound:
+    source = read_source("postgis", dataset.origin_ref)
+    if not isinstance(source, PostgisSource):
         raise PostgisRefreshError(
             "This dataset's source binding does not record which table it "
             "was registered from, so there is nothing to re-measure.",
             error_code=_ERROR_CODE_GENERIC,
         )
     expected = f"{schema}.{dataset.table_name}"
-    if bound != expected:
+    if source.table_name != expected:
         raise PostgisRefreshError(
             "This dataset's source binding names a different table than the "
             "one it serves from, so the refresh was stopped rather than "
@@ -494,7 +499,7 @@ class _PostgisRefresh:
         # The binding this attempt measured against; None until the
         # measurement reads it, since nothing earlier says anything about an
         # origin.
-        self.bound: tuple | None = None
+        self.bound: BoundPointer | None = None
 
     def prepare(self, job, dataset, staging_table: str) -> None:
         return None
@@ -547,7 +552,7 @@ class _PostgisRefresh:
             ).scalar_one_or_none()
             if dataset is None:
                 raise DatasetDeleted
-            self.bound = (dataset.origin_uri, dataset.origin_ref, dataset.source_format)
+            self.bound = bound_pointer(dataset)
             table_name = _resolve_bound_table(dataset, schema=schema)
             # The fence `write` checks: the tile version moves with every
             # change to this dataset's content.
@@ -631,7 +636,7 @@ class _PostgisRefresh:
             )
         # With no staging copy the diff is the live table against what was
         # recorded. Drift is recorded, never refused.
-        schema_diff = await project(session, dataset, self.measurement)
+        schema_diff = await project(session, dataset, self.measurement, field_labels={})
         # The measurement read the relation, so it exists and is readable, and
         # this strategy is the only writer of its origin kind's verdict.
         dataset.source_health = _HEALTHY

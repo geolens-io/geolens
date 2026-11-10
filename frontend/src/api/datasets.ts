@@ -38,6 +38,7 @@ import type {
   ApiKeyCreateResponse,
   DatasetApiKeyCreateRequest,
   DatasetApiKeyResponse,
+  DatasetGroupsResponse,
 } from '@/types/api';
 
 export async function createDataset(data: CreateDatasetRequest): Promise<DatasetResponse> {
@@ -63,6 +64,14 @@ export async function getDatasetRows(
     after?: number;
     filters?: Record<string, string>;
     sort?: DatasetRowsSort;
+    /** CQL2-JSON filter expression, sent verbatim as `filter`. */
+    cql2Filter?: string;
+    /** Narrows the rows to this one feature; ANDs with the other filters. */
+    gid?: number;
+    /** Also returns `bboxes`, each row's EPSG:4326 bounding box. */
+    withBbox?: boolean;
+    /** Sent as `X-Embed-Token`, for an embedded map's reader. */
+    embedToken?: string;
   } = {},
 ): Promise<DatasetRowsResponse> {
   const query = new URLSearchParams();
@@ -72,13 +81,19 @@ export async function getDatasetRows(
     query.set('sort', params.sort.column);
     query.set('order', params.sort.desc ? 'desc' : 'asc');
   }
+  if (params.cql2Filter) query.set('filter', params.cql2Filter);
+  if (params.gid !== undefined) query.set('gid', String(params.gid));
+  if (params.withBbox) query.set('with_bbox', 'true');
   if (params.filters) {
     for (const [col, value] of Object.entries(params.filters)) {
       if (value) query.set(`filter[${col}]`, value);
     }
   }
   const qs = query.toString();
-  return apiFetch<DatasetRowsResponse>(`/datasets/${encodeURIComponent(id)}/rows/${qs ? `?${qs}` : ''}`);
+  return apiFetch<DatasetRowsResponse>(
+    `/datasets/${encodeURIComponent(id)}/rows/${qs ? `?${qs}` : ''}`,
+    params.embedToken ? { headers: { 'X-Embed-Token': params.embedToken } } : undefined,
+  );
 }
 
 function getExportUrl(
@@ -168,6 +183,17 @@ export async function updateDataset(
   return apiFetch<DatasetResponse>(`/datasets/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
+  });
+}
+
+/** Share a dataset with exactly these groups; an empty list unshares it. */
+export async function setDatasetGroups(
+  id: string,
+  groupIds: string[],
+): Promise<DatasetGroupsResponse> {
+  return apiFetch<DatasetGroupsResponse>(`/datasets/${encodeURIComponent(id)}/groups/`, {
+    method: 'PUT',
+    body: JSON.stringify({ group_ids: groupIds }),
   });
 }
 

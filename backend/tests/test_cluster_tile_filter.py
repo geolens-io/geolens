@@ -126,6 +126,29 @@ async def test_filter_narrows_the_clustered_points(client, cluster_table):
     )
 
 
+async def test_nested_and_or_groups_narrow_the_clustered_points(client, cluster_table):
+    # A saved filter and a dashboard pick of a value or no value, as the viewer nests them.
+    nested = {
+        "op": "and",
+        "args": [
+            {"op": "or", "args": [_cmp("=", "name", "b"), _cmp("=", "yr", 2001)]},
+            {
+                "op": "or",
+                "args": [
+                    _cmp(">=", "score", 4.5),
+                    {"op": "isNull", "args": [{"property": "name"}]},
+                    {
+                        "op": "and",
+                        "args": [_cmp("<", "score", 2.0), _cmp("=", "name", "a")],
+                    },
+                ],
+            },
+        ],
+    }
+    # yr 2001 (score 1.0, name a) and yr 2005 (score 5.0, name b).
+    assert await _cluster_count(client, cluster_table, nested) == "2"
+
+
 async def test_filter_leaving_one_point_forms_no_cluster(client, cluster_table):
     assert await _cluster_count(client, cluster_table, _cmp("=", "yr", 2004)) is None
 

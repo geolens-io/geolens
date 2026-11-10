@@ -71,6 +71,14 @@ _RLS_TABLES = [
     "oauth_accounts",
     "audit_logs",
     "ingest_jobs",
+    "groups",
+    "group_members",
+    "dataset_group_grants",
+    "map_group_grants",
+    "stories",
+    "story_maps",
+    "story_assets",
+    "story_group_grants",
 ]
 
 

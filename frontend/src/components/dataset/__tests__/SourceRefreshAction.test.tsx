@@ -194,6 +194,28 @@ describe('SourceRefreshAction', () => {
     expect(screen.getByRole('button', { name: 'Start refresh' })).toBeInTheDocument();
   });
 
+  it('dispatches a database refresh with no token or credential field', async () => {
+    mutateAsync.mockResolvedValue({
+      run_id: 'run-1',
+      job_id: 'job-1',
+      dataset_id: 'dataset-1',
+      origin_kind: 'database',
+      trigger: 'api',
+      status: 'pending',
+      message: 'Refresh queued from the connected database',
+    });
+    const user = userEvent.setup();
+    render(<SourceRefreshAction dataset={makeDataset({ origin: 'database' })} watch={makeWatch()} />);
+
+    await openDialog(user);
+    expect(screen.queryByLabelText('Access token (optional)')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+
+    await waitFor(() => {
+      expect(mutateAsync).toHaveBeenCalledWith({ datasetId: 'dataset-1', token: undefined });
+    });
+  });
+
   it('dispatches a postgis refresh with no token, since none was ever offered', async () => {
     mutateAsync.mockResolvedValue({
       run_id: 'run-1',
@@ -290,6 +312,40 @@ describe('SourceRefreshAction', () => {
       auth: undefined,
       acceptBlockedRunId: 'blocked-run-1',
     });
+  });
+
+  it('accepts a blocked database run with its id and no credential', async () => {
+    mutateAsync.mockResolvedValue({
+      run_id: 'run-45',
+      job_id: 'job-45',
+      dataset_id: 'dataset-1',
+      origin_kind: 'database',
+      trigger: 'api',
+      status: 'pending',
+      message: 'Refresh queued from the database table',
+    });
+    const user = userEvent.setup();
+    render(
+      <SourceRefreshAction
+        dataset={makeDataset({ origin: 'database' })}
+        watch={makeWatch()}
+        acceptBlockedRun={{ id: 'blocked-db-run' }}
+        onAcceptHandled={vi.fn()}
+      />,
+    );
+
+    await screen.findByRole('dialog');
+    expect(screen.queryByLabelText('Access token (optional)')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+
+    await waitFor(() =>
+      expect(mutateAsync).toHaveBeenCalledWith({
+        datasetId: 'dataset-1',
+        token: undefined,
+        auth: undefined,
+        acceptBlockedRunId: 'blocked-db-run',
+      }),
+    );
   });
 
   it('preserves the blocked run’s strong ArcGIS verification policy on review retry', async () => {
@@ -755,6 +811,31 @@ describe('SourceRefreshAction', () => {
   // date goes stale (and the timer fires almost immediately, wiping the
   // "Signed in" state before an assertion ever sees it).
   const FAR_FUTURE_EXPIRY = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+  it('explains a refused http credential without pointing at a URL field', async () => {
+    mutateAsync.mockRejectedValue(
+      new ApiError('credential_over_http', 422, {
+        code: 'credential_over_http',
+        message: 'raw diagnostic text, never rendered',
+        field: 'url',
+      }),
+    );
+    const user = userEvent.setup();
+    render(
+      <SourceRefreshAction
+        dataset={makeDataset({ source_format: 'arcgis_featureserver' })}
+        watch={makeWatch()}
+      />,
+    );
+
+    await openDialog(user);
+    await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+
+    expect(
+      await screen.findByText(/Re-import the data from the service's https:\/\/ address/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('raw diagnostic text, never rendered')).not.toBeInTheDocument();
+  });
 
   describe('service_token_required credential prompt', () => {
     it('keeps the dialog open on the 422 and never echoes the raw response text into the DOM', async () => {
@@ -1441,13 +1522,13 @@ describe('SourceRefreshAction', () => {
 });
 
 describe('REFRESHABLE_ORIGINS', () => {
-  it('mirrors the refresh door dispatch table — the three kinds with a strategy', () => {
+  it('mirrors the refresh door dispatch table — the kinds with a strategy', () => {
     // router_refresh.py routes every origin it does
     // not name through _resolve_service_origin(), which refuses upload and
     // created with 409 refresh_not_applicable. This is the value DetailPanel
     // gates on; a widened set here without a matching backend strategy would
     // show the "Refresh from source" control for origins the backend refuses.
     // Stac gained one.
-    expect([...REFRESHABLE_ORIGINS].sort()).toEqual(['postgis', 'service', 'stac']);
+    expect([...REFRESHABLE_ORIGINS].sort()).toEqual(['database', 'postgis', 'service', 'stac']);
   });
 });

@@ -16,7 +16,8 @@ interface OklchColor {
 
 function lightThemeBlock(css: string): string {
   const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
-  const match = withoutComments.match(/:root\s*\{([^}]+)\}/);
+  // The light tokens are shared with the scoped `.light` class, so the selector list may continue after :root.
+  const match = withoutComments.match(/:root\s*(?:,\s*[^{]*)?\{([^}]+)\}/);
   if (!match) throw new Error('Could not find the :root light-theme token block in index.css');
   return match[1];
 }

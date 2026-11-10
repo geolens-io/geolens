@@ -1,0 +1,393 @@
+"""A dataset or map write naming a stale expected_updated_at is refused with 409."""
+
+from __future__ import annotations
+
+import asyncio
+import time
+import uuid
+
+import pytest
+from httpx import AsyncClient
+from sqlalchemy import func, select, text, update
+
+from app.modules.audit.models import AuditLog
+from app.modules.catalog.datasets.domain.models import Record
+from app.modules.catalog.maps.models import Map
+from tests.factories import (
+    create_dataset as _create_dataset,
+    create_map_via_api,
+    create_user,
+    get_user_id,
+)
+
+
+async def _dataset(client: AsyncClient, headers: dict, test_db_session) -> tuple:
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _create_dataset(test_db_session, created_by=admin_id)
+    read = await client.get(f"/datasets/{dataset.id}", headers=headers)
+    assert read.status_code == 200, read.text
+    return dataset, read.json()["updated_at"]
+
+
+async def test_a_write_naming_the_current_version_is_applied(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+) -> None:
+    dataset, updated_at = await _dataset(client, admin_auth_header, test_db_session)
+
+    resp = await client.patch(
+        f"/datasets/{dataset.id}",
+        json={"summary": "Written", "expected_updated_at": updated_at},
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["summary"] == "Written"
+
+
+async def test_a_write_naming_an_older_version_is_refused(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+) -> None:
+    dataset, updated_at = await _dataset(client, admin_auth_header, test_db_session)
+    edit = await client.patch(
+        f"/datasets/{dataset.id}",
+        json={"summary": "Edited in GeoLens"},
+        headers=admin_auth_header,
+    )
+    assert edit.status_code == 200, edit.text
+
+    resp = await client.patch(
+        f"/datasets/{dataset.id}",
+        json={"summary": "From the portal", "expected_updated_at": updated_at},
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "stale_write"
+    after = await client.get(f"/datasets/{dataset.id}", headers=admin_auth_header)
+    assert after.json()["summary"] == "Edited in GeoLens"
+
+
+async def test_a_write_without_an_expected_version_is_unconditional(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+) -> None:
+    dataset, _ = await _dataset(client, admin_auth_header, test_db_session)
+    await client.patch(
+        f"/datasets/{dataset.id}",
+        json={"summary": "Edited in GeoLens"},
+        headers=admin_auth_header,
+    )
+
+    resp = await client.patch(
+        f"/datasets/{dataset.id}",
+        json={"summary": "Overwritten"},
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["summary"] == "Overwritten"
+
+
+async def test_the_expected_version_is_not_recorded_as_an_edit(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+) -> None:
+    dataset, updated_at = await _dataset(client, admin_auth_header, test_db_session)
+
+    resp = await client.patch(
+        f"/datasets/{dataset.id}",
+        json={"summary": "Written", "expected_updated_at": updated_at},
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 200, resp.text
+    details = (
+        await test_db_session.execute(
+            select(AuditLog.details).where(
+                AuditLog.resource_id == dataset.id, AuditLog.action == "metadata.edit"
+            )
+        )
+    ).scalar_one()
+    assert details == {"summary": "Written"}
+
+
+async def test_an_owner_transfer_naming_an_older_version_is_refused(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+) -> None:
+    dataset, updated_at = await _dataset(client, admin_auth_header, test_db_session)
+    _, target_id = await create_user(client, admin_auth_header, "editor")
+    await client.patch(
+        f"/datasets/{dataset.id}",
+        json={"summary": "Edited in GeoLens"},
+        headers=admin_auth_header,
+    )
+
+    resp = await client.patch(
+        f"/datasets/{dataset.id}",
+        json={"owner_id": target_id, "expected_updated_at": updated_at},
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "stale_write"
+    after = await client.get(f"/datasets/{dataset.id}", headers=admin_auth_header)
+    assert after.json()["created_by"] != target_id
+
+
+async def _map(client: AsyncClient, admin_auth_header: dict) -> tuple:
+    owner_headers, owner_id = await create_user(client, admin_auth_header, "editor")
+    _, target_id = await create_user(client, admin_auth_header, "editor")
+    created = await create_map_via_api(client, owner_headers)
+    return created, owner_headers, owner_id, target_id
+
+
+async def test_a_map_transfer_naming_the_current_version_is_applied(
+    client: AsyncClient, admin_auth_header: dict
+) -> None:
+    created, _, _, target_id = await _map(client, admin_auth_header)
+
+    resp = await client.patch(
+        f"/maps/{created['id']}",
+        json={"owner_id": target_id, "expected_updated_at": created["updated_at"]},
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["created_by"] == target_id
+
+
+@pytest.mark.parametrize("expected", ["older", "absent"])
+async def test_a_map_transfer_after_an_edit(
+    client: AsyncClient, admin_auth_header: dict, expected: str
+) -> None:
+    created, owner_headers, owner_id, target_id = await _map(client, admin_auth_header)
+    edit = await client.put(
+        f"/maps/{created['id']}", json={"name": "Edited"}, headers=owner_headers
+    )
+    assert edit.status_code == 200, edit.text
+    body = {"owner_id": target_id}
+    if expected == "older":
+        body["expected_updated_at"] = created["updated_at"]
+
+    resp = await client.patch(
+        f"/maps/{created['id']}", json=body, headers=admin_auth_header
+    )
+
+    if expected == "older":
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["detail"]["code"] == "stale_write"
+        after = await client.get(f"/maps/{created['id']}", headers=admin_auth_header)
+        assert after.json()["created_by"] == owner_id
+    else:
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["created_by"] == target_id
+
+
+async def _wait_for_a_blocked_writer(session) -> None:
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        # The activity view is snapshotted once per transaction.
+        await session.execute(text("SELECT pg_stat_clear_snapshot()"))
+        blocked = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM pg_stat_activity"
+                    " WHERE pg_backend_pid() = ANY(pg_blocking_pids(pid))"
+                )
+            )
+        ).scalar_one()
+        if blocked:
+            return
+        await asyncio.sleep(0.1)
+    pytest.fail("the write never waited on the locked row")
+
+
+async def _race(
+    session, client: AsyncClient, path: str, body: dict, headers, row, method="PATCH"
+):
+    """Send the write while *session* holds an uncommitted edit of *row*, then
+    commit the edit once the write waits on it."""
+    model, row_id = row
+    await session.execute(
+        update(model)
+        .where(model.id == row_id)
+        .values(updated_at=func.clock_timestamp())
+    )
+    write = asyncio.create_task(
+        client.request(method, path, json=body, headers=headers)
+    )
+    try:
+        await _wait_for_a_blocked_writer(session)
+        await session.commit()
+    finally:
+        await session.rollback()
+    return await asyncio.wait_for(write, timeout=20)
+
+
+async def test_an_edit_committed_while_a_dataset_write_waits_is_seen(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+) -> None:
+    dataset, updated_at = await _dataset(client, admin_auth_header, test_db_session)
+
+    resp = await _race(
+        test_db_session,
+        client,
+        f"/datasets/{dataset.id}",
+        {"summary": "Written", "expected_updated_at": updated_at},
+        admin_auth_header,
+        (Record, dataset.record_id),
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "stale_write"
+
+
+async def test_an_edit_committed_while_a_map_transfer_waits_is_seen(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "app.modules.catalog.maps.service_layers._LAYER_LOCK_TIMEOUT", "30s"
+    )
+    created, _, owner_id, target_id = await _map(client, admin_auth_header)
+
+    resp = await _race(
+        test_db_session,
+        client,
+        f"/maps/{created['id']}",
+        {"owner_id": target_id, "expected_updated_at": created["updated_at"]},
+        admin_auth_header,
+        (Map, uuid.UUID(created["id"])),
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "stale_write"
+    after = await client.get(f"/maps/{created['id']}", headers=admin_auth_header)
+    assert after.json()["created_by"] == owner_id
+
+
+async def test_a_map_save_naming_the_current_version_is_applied(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+) -> None:
+    created, owner_headers, _, _ = await _map(client, admin_auth_header)
+
+    resp = await client.put(
+        f"/maps/{created['id']}",
+        json={"name": "Written", "expected_updated_at": created["updated_at"]},
+        headers=owner_headers,
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["name"] == "Written"
+    details = (
+        await test_db_session.execute(
+            select(AuditLog.details).where(
+                AuditLog.resource_id == uuid.UUID(created["id"]),
+                AuditLog.action == "map.update",
+            )
+        )
+    ).scalar_one()
+    assert details == {"changed_fields": ["name"]}
+
+
+@pytest.mark.parametrize("expected", ["older", "absent"])
+async def test_a_map_save_after_an_edit(
+    client: AsyncClient, admin_auth_header: dict, expected: str
+) -> None:
+    created, owner_headers, _, _ = await _map(client, admin_auth_header)
+    edit = await client.put(
+        f"/maps/{created['id']}", json={"name": "Edited"}, headers=owner_headers
+    )
+    assert edit.status_code == 200, edit.text
+    body = {"name": "From the portal", "layers": []}
+    if expected == "older":
+        body["expected_updated_at"] = created["updated_at"]
+
+    resp = await client.put(
+        f"/maps/{created['id']}", json=body, headers=admin_auth_header
+    )
+
+    after = await client.get(f"/maps/{created['id']}", headers=admin_auth_header)
+    if expected == "older":
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["detail"]["code"] == "stale_write"
+        assert after.json()["name"] == "Edited"
+    else:
+        assert resp.status_code == 200, resp.text
+        assert after.json()["name"] == "From the portal"
+
+
+async def test_an_edit_committed_while_a_map_save_waits_is_seen(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "app.modules.catalog.maps.service_layers._LAYER_LOCK_TIMEOUT", "30s"
+    )
+    created, _, _, _ = await _map(client, admin_auth_header)
+
+    resp = await _race(
+        test_db_session,
+        client,
+        f"/maps/{created['id']}",
+        {"name": "From the portal", "expected_updated_at": created["updated_at"]},
+        admin_auth_header,
+        (Map, uuid.UUID(created["id"])),
+        method="PUT",
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "stale_write"
+    after = await client.get(f"/maps/{created['id']}", headers=admin_auth_header)
+    assert after.json()["name"] != "From the portal"
+
+
+async def _layer_edit(client, headers, map_id: str, layer_id: str, dataset_id, edit):
+    if edit == "add":
+        return await client.post(
+            f"/maps/{map_id}/layers", json={"dataset_id": dataset_id}, headers=headers
+        )
+    if edit == "diff":
+        body = {"updated": [{"id": layer_id, "opacity": 0.5}]}
+        return await client.patch(f"/maps/{map_id}/layers", json=body, headers=headers)
+    if edit == "remove":
+        return await client.delete(f"/maps/{map_id}/layers/{layer_id}", headers=headers)
+    if edit == "bulk_remove":
+        return await client.post(
+            f"/maps/{map_id}/layers/bulk-delete",
+            json={"layer_ids": [layer_id]},
+            headers=headers,
+        )
+    return await client.put(
+        f"/maps/{map_id}",
+        json={"layers": [{"id": layer_id, "dataset_id": dataset_id, "opacity": 0.5}]},
+        headers=headers,
+    )
+
+
+@pytest.mark.parametrize("edit", ["add", "diff", "remove", "bulk_remove", "replace"])
+async def test_a_layer_only_edit_moves_the_map_version(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, edit: str
+) -> None:
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _create_dataset(test_db_session, created_by=admin_id)
+    created = await create_map_via_api(client, admin_auth_header)
+    map_id = created["id"]
+    added = await client.post(
+        f"/maps/{map_id}/layers",
+        json={"dataset_id": str(dataset.id)},
+        headers=admin_auth_header,
+    )
+    assert added.status_code == 201, added.text
+    before = (await client.get(f"/maps/{map_id}", headers=admin_auth_header)).json()
+
+    resp = await _layer_edit(
+        client, admin_auth_header, map_id, added.json()["id"], str(dataset.id), edit
+    )
+
+    assert resp.status_code < 300, resp.text
+    after = (await client.get(f"/maps/{map_id}", headers=admin_auth_header)).json()
+    assert after["updated_at"] > before["updated_at"]
+    stale = await client.put(
+        f"/maps/{map_id}",
+        json={"name": "From the portal", "expected_updated_at": before["updated_at"]},
+        headers=admin_auth_header,
+    )
+    assert stale.status_code == 409, stale.text
+    assert stale.json()["detail"]["code"] == "stale_write"

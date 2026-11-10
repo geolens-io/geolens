@@ -14,8 +14,14 @@ from pydantic import (
 )
 
 from app.core.url_redaction import has_url_credentials
+from app.platform.value_labels import (
+    MAX_VALUE_LABEL_LENGTH,
+    MAX_VALUE_LABELS,
+    is_storable_text,
+)
 from app.core.text import normalize_nfc as _nfc
 from app.core.text import reject_html_markup as _reject_markup
+from app.modules.auth.schemas import GroupRef
 from app.modules.catalog.sources.origin_probe import DETAIL_CODES
 from app.modules.catalog.sources.schemas import (
     DEPRECATED_TOKEN_SUFFIX,
@@ -602,6 +608,13 @@ class DatasetResponse(BaseModel):
     owner_org: str | None = Field(default=None, description="Owning organization name")
     published_at: datetime | None = None
     updated_by: uuid.UUID | None = None
+    data_revision: int | None = Field(
+        default=None,
+        description=(
+            "Counts writes to the dataset's features and columns. Owner and "
+            "admin only; null for other readers."
+        ),
+    )
     record_type: str = Field(
         default="vector_dataset",
         description=(
@@ -662,8 +675,46 @@ class DatasetResponse(BaseModel):
             "the detail endpoint only; null elsewhere."
         ),
     )
+    groups: list[GroupRef] | None = Field(
+        default=None,
+        description=(
+            "The sharing groups the dataset is shared with, by name. Set on "
+            "the detail endpoint for the owner and admins only; null elsewhere."
+        ),
+    )
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class DatasetGroupsUpdate(BaseModel):
+    group_ids: list[uuid.UUID] = Field(
+        max_length=100,
+        description=(
+            "Every group the dataset is shared with afterwards; an empty list "
+            "unshares it. An owner may add only groups they belong to, and an "
+            "admin any group."
+        ),
+    )
+
+
+class DatasetGroupsResponse(BaseModel):
+    visibility: str = Field(
+        description=(
+            "The dataset's visibility after the change: a private dataset "
+            "shared with a group becomes restricted, and a restricted one "
+            "left with no group or role grant becomes private."
+        )
+    )
+    groups: list[GroupRef] = Field(
+        description="The sharing groups the dataset is shared with, by name."
+    )
+    metadata_warnings: list[str] | None = Field(
+        default=None,
+        description=(
+            "Advisory warnings, as on the metadata PATCH. The change has "
+            "already applied."
+        ),
+    )
 
 
 class StatusUpdateResponse(BaseModel):
@@ -833,12 +884,21 @@ class DatasetMeta(BaseModel):
         max_length=100,
         description=(
             "Ordered vector-tile property allowlist; null restores zoom defaults, "
-            "[] emits geometry-only tiles, list emits those properties at any zoom."
+            "[] emits geometry-only tiles, list emits those properties at any zoom. "
+            "Reads authorized only by an embed token are limited to these columns too."
         ),
     )
     owner_id: uuid.UUID | None = Field(
         default=None,
         description="Admin only: transfer the dataset to this active user.",
+    )
+    expected_updated_at: datetime | None = Field(
+        default=None,
+        description=(
+            "The dataset's `updated_at` the caller read. When set and the dataset "
+            "has changed since, nothing is written and the answer is 409 with "
+            "`detail.code` `stale_write`. Omit it to write unconditionally."
+        ),
     )
 
     @field_validator("language")
@@ -1016,6 +1076,14 @@ class ReuploadPreviewRequest(BaseModel):
     )
 
 
+_EXPECTED_DATA_REVISION_DESCRIPTION = (
+    "The dataset's `data_revision` the caller last saw. When it differs from "
+    "the revision this replacement is compared with, every write counts as "
+    "later, so the run stops for review with `live_data_changed` instead of "
+    "publishing. Omit it to compare with the revision at admission only."
+)
+
+
 class ReuploadCommitRequest(BaseModel):
     srid_override: int | None = Field(default=None, ge=1, le=998999)
     expected_origin_kind: OriginKind | None = Field(
@@ -1047,6 +1115,9 @@ class ReuploadCommitRequest(BaseModel):
             "with review reasons publishes only when the worker's own "
             "fingerprint matches; otherwise its run ends `blocked`."
         ),
+    )
+    expected_data_revision: int | None = Field(
+        default=None, ge=0, description=_EXPECTED_DATA_REVISION_DESCRIPTION
     )
     _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
 
@@ -1097,7 +1168,22 @@ class DatasetRefreshRequest(BaseModel):
     auth: ServiceAuthRequest | None = Field(
         default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
     )
+    expected_data_revision: int | None = Field(
+        default=None,
+        ge=0,
+        description=_EXPECTED_DATA_REVISION_DESCRIPTION
+        + " Service refreshes only; 422 for any other origin.",
+    )
     _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
+
+    @model_validator(mode="after")
+    def _reject_expected_revision_with_acceptance(self) -> "DatasetRefreshRequest":
+        if self.expected_data_revision is not None and self.accept_blocked_run_id:
+            raise ValueError(
+                "expected_data_revision can't be combined with accept_blocked_run_id: "
+                "an acceptance compares with the revision of the run it accepts"
+            )
+        return self
 
 
 class DatasetRefreshResponse(BaseModel):
@@ -1152,7 +1238,18 @@ class DatasetRowsResponse(BaseModel):
     columns: list[ColumnChange]
     rows: list[dict[str, Any]]
     approximate_total: int = Field(
-        description="Estimated total row count (may use pg stats)"
+        description=(
+            "Total row count, or with `filter[...]` or the CQL2 `filter` the "
+            "matching rows; `total_kind` says how exact it is."
+        )
+    )
+    total_kind: Literal["estimate", "exact", "at_least"] = Field(
+        default="estimate",
+        description=(
+            "`estimate` for the table's planner statistics (no filter), "
+            "`exact` for counted matches, `at_least` when more rows match "
+            "than the 10,000 that are counted."
+        ),
     )
     next_cursor: int | None = Field(
         default=None, description="Cursor value for the next page, null if last"
@@ -1160,6 +1257,14 @@ class DatasetRowsResponse(BaseModel):
     sortable_columns: list[str] = Field(
         default_factory=list,
         description="Columns the rows endpoint accepts as `sort`.",
+    )
+    bboxes: list[list[float] | None] | None = Field(
+        default=None,
+        description=(
+            "With `with_bbox=true`, one entry per row in `rows` order: the "
+            "row's [minx, miny, maxx, maxy] in EPSG:4326, or null for a row "
+            "without geometry. Null otherwise."
+        ),
     )
     table_id: str | None = Field(
         default=None,
@@ -1208,6 +1313,10 @@ class AttributeMetadataResponse(BaseModel):
     )
     example_values: list | None = Field(
         default=None, description="Sample values from the column"
+    )
+    value_labels: dict[str, str] | None = Field(
+        default=None,
+        description="Label for each stored code, keyed by the code as text.",
     )
     ordinal_position: int | None = Field(
         default=None, description="Column position in the table (1-based)"
@@ -1323,6 +1432,28 @@ class AttributeMetadataUpdate(BaseModel):
     domain_type: DOMAIN_TYPES | None = Field(
         default=None, description="Value domain: continuous, categorical, coded, etc."
     )
+    value_labels: dict[str, str] | None = Field(
+        default=None,
+        description="Label for each stored code, keyed by the code as text.",
+    )
+
+    @field_validator("value_labels")
+    @classmethod
+    def _bound_value_labels(cls, labels: dict[str, str] | None):
+        if labels is None:
+            return labels
+        if len(labels) > MAX_VALUE_LABELS:
+            raise ValueError(f"At most {MAX_VALUE_LABELS} value labels")
+        for code, label in labels.items():
+            if max(len(code), len(label)) > MAX_VALUE_LABEL_LENGTH:
+                raise ValueError(
+                    f"Codes and labels are at most {MAX_VALUE_LABEL_LENGTH} characters"
+                )
+            if not (is_storable_text(code) and is_storable_text(label)):
+                raise ValueError(
+                    "Codes and labels must be valid UTF-8 text without NUL"
+                )
+        return labels
 
 
 class RelatedDatasetItem(BaseModel):
@@ -1780,7 +1911,25 @@ class RefreshVerification(BaseModel):
         ),
     )
     accepted_blocked_run_id: uuid.UUID | None
+    data_unchanged: bool | None = Field(
+        default=None,
+        description=(
+            "True when this service refresh or file re-upload brought exactly "
+            "the columns and rows the dataset already held, so it published no "
+            "new version; last_refreshed_at still moves. False when the data "
+            "differed or could not be compared. Null when the run made no "
+            "comparison: a service re-upload, a file replacing data that came "
+            "from another origin, or a run verification held back."
+        ),
+    )
     acceptance_consumed_by_run_id: uuid.UUID | None = None
+    data_revision: int | None = Field(
+        default=None,
+        description=(
+            "The dataset's data revision when this run checked its live table. "
+            "A run accepted after a live edit publishes over this revision."
+        ),
+    )
 
 
 class DatasetRefreshRunResponse(BaseModel):

@@ -105,7 +105,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[EmbedTokenResponse | ProblemDetail]:
-    """Revoke Embed Token Endpoint
+    """Revoke an embed token
 
      Revoke an embed token.
 
@@ -139,7 +139,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> EmbedTokenResponse | ProblemDetail | None:
-    """Revoke Embed Token Endpoint
+    """Revoke an embed token
 
      Revoke an embed token.
 
@@ -168,7 +168,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[EmbedTokenResponse | ProblemDetail]:
-    """Revoke Embed Token Endpoint
+    """Revoke an embed token
 
      Revoke an embed token.
 
@@ -200,7 +200,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> EmbedTokenResponse | ProblemDetail | None:
-    """Revoke Embed Token Endpoint
+    """Revoke an embed token
 
      Revoke an embed token.
 

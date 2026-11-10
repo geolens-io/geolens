@@ -83,6 +83,10 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
   const [previewData, setPreviewData] = useState<ServicePreviewResponse | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The probe's 403 is the only failure that blames the credential; matching
+  // on the message lets any later setError() clear it without extra resets.
+  const [credentialRefusal, setCredentialRefusal] = useState<string | null>(null);
+  const credentialInvalid = error !== null && error === credentialRefusal;
 
   // ArcGIS sign-in.
   const [arcgisAuthMethod, setArcgisAuthMethod] = useState<ArcgisAuthMethod>('none');
@@ -423,6 +427,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
       setStep('layer-select');
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : t('serviceUrl.connectFailed');
+      setCredentialRefusal(err instanceof ApiError && err.status === 403 ? msg : null);
       setError(msg);
       setStep('idle');
       toast.error(msg);
@@ -760,7 +765,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
           </div>
 
           {error && (
-            <p className="border-t border-border px-5 py-3 text-sm text-destructive">{error}</p>
+            <p role="alert" className="border-t border-border px-5 py-3 text-sm text-destructive">{error}</p>
           )}
         </div>
       </div>
@@ -771,7 +776,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
     return (
       <div className="space-y-4">
         <ImportPreview preview={previewData} source="service" />
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         <ImportMetadataForm
           defaultName={previewData.source_filename ?? previewData.layer_name}
           detectedCrs={previewData.crs}
@@ -793,7 +798,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
     <div className="rounded-xl border border-border bg-card p-5">
       <form onSubmit={handleConnect} className="space-y-5">
         <div>
-          <label className="eyebrow mb-2.5 block">
+          <label htmlFor="service-url" className="eyebrow mb-2.5 block">
             {t('serviceUrl.label', { defaultValue: 'Service URL — we\'ll auto-detect the type' })}
           </label>
           <div className="flex items-stretch overflow-hidden rounded-lg border-[1.5px] border-border bg-surface-0 transition-colors focus-within:border-primary">
@@ -802,7 +807,10 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
               URL
             </span>
             <input
+              id="service-url"
               type="url"
+              aria-invalid={error && !credentialInvalid ? true : undefined}
+              aria-describedby={error && !credentialInvalid ? 'service-url-error' : undefined}
               placeholder={t('serviceUrl.placeholder')}
               value={url}
               onChange={(e) => setUrl(e.target.value)}
@@ -889,6 +897,8 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
                   placeholder={t('serviceUrl.tokenPlaceholder')}
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
+                  aria-invalid={credentialInvalid ? true : undefined}
+                  aria-describedby={credentialInvalid ? 'access-token-help service-url-error' : 'access-token-help'}
                   className="font-mono text-sm"
                   // A request-only service token, not a login credential, and
                   // autocomplete="off" alone doesn't stop Chrome offering a saved
@@ -898,7 +908,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
                   data-lpignore="true"
                   data-bwignore
                 />
-                <p className="text-xs text-muted-foreground">
+                <p id="access-token-help" className="text-xs text-muted-foreground">
                   {t('serviceUrl.arcgisTokenHelpText', {
                     defaultValue:
                       "Use an API key if your account can create one; Viewer accounts and accounts using single sign-on or multi-factor authentication can't. Otherwise, generate one from your portal's Sharing API with client=referer. Tokens last at most 15 days.",
@@ -957,6 +967,8 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
                       setPassword(e.target.value);
                       invalidateMintedCredential();
                     }}
+                    aria-invalid={signinError ? true : undefined}
+                    aria-describedby={signinError ? 'arcgis-signin-error' : undefined}
                     className="text-sm"
                     // A third-party ArcGIS login, not a GeoLens one; a password
                     // manager would save it against the GeoLens origin, which is
@@ -969,7 +981,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
                 </div>
 
                 {signinError && (
-                  <p className="text-sm text-destructive">{signinError}</p>
+                  <p id="arcgis-signin-error" role="alert" className="text-sm text-destructive">{signinError}</p>
                 )}
 
                 <div className="flex flex-wrap items-center gap-3">
@@ -992,7 +1004,7 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
                     </span>
                   )}
                   {tokenExpired && (
-                    <span className="text-xs text-destructive">
+                    <span role="alert" className="text-xs text-destructive">
                       {t('serviceUrl.tokenExpired', {
                         defaultValue: 'Token expired, sign in again',
                       })}
@@ -1074,6 +1086,8 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
                 <Input
                   id="service-credential-token"
                   type="password"
+                  aria-invalid={credentialInvalid ? true : undefined}
+                  aria-describedby={credentialInvalid ? 'service-url-error' : undefined}
                   placeholder={t('serviceUrl.credentialTokenPlaceholder', {
                     defaultValue: 'Paste your bearer token',
                   })}
@@ -1177,7 +1191,11 @@ export function ServiceUrlForm({ initialUrl = '' }: { initialUrl?: string }) {
           </div>
         )}
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && (
+          <p id="service-url-error" role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        )}
       </form>
     </div>
   );

@@ -23,8 +23,8 @@ vi.mock('@/api/search', () => ({
 
 const mutateAsync = vi.fn();
 
-function record(id: string, title: string) {
-  return { id, properties: { title } };
+function record(id: string, title: string, description?: string) {
+  return { id, properties: { title, description } };
 }
 
 function page(features: ReturnType<typeof record>[], hasNext = false) {
@@ -57,6 +57,17 @@ describe('CollectionMembershipManager', () => {
     const [params] = vi.mocked(searchDatasets).mock.calls[0];
     expect(params).toMatchObject({ sort_by: 'date_added', sort_desc: 'true', offset: '0' });
     expect(params.q).toBeUndefined();
+  });
+
+  it('prints a title once when the description repeats it', async () => {
+    vi.mocked(searchDatasets).mockResolvedValue(
+      page([record('a', 'Alpha', 'Alpha'), record('b', 'Beta', 'Roads of Beta')]),
+    );
+    render(<CollectionMembershipManager collectionId="col-1" />);
+
+    await screen.findByRole('checkbox', { name: 'Select Alpha' });
+    expect(screen.getAllByText('Alpha')).toHaveLength(1);
+    expect(screen.getByText('Roads of Beta')).toBeInTheDocument();
   });
 
   it('hides datasets already in the collection', async () => {

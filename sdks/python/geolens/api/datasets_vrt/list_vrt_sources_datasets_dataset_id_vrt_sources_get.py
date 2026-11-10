@@ -102,7 +102,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | VrtSourceListResponse]:
-    """List Vrt Sources
+    """List a VRT dataset's sources
 
      Return ordered list of COG sources for a VRT dataset.
 
@@ -133,7 +133,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | VrtSourceListResponse | None:
-    """List Vrt Sources
+    """List a VRT dataset's sources
 
      Return ordered list of COG sources for a VRT dataset.
 
@@ -159,7 +159,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | VrtSourceListResponse]:
-    """List Vrt Sources
+    """List a VRT dataset's sources
 
      Return ordered list of COG sources for a VRT dataset.
 
@@ -188,7 +188,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | VrtSourceListResponse | None:
-    """List Vrt Sources
+    """List a VRT dataset's sources
 
      Return ordered list of COG sources for a VRT dataset.
 

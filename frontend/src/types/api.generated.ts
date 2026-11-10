@@ -12,7 +12,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Landing Page
+         * Get the OGC API landing page
          * @description OGC API landing page -- entry point for machine clients.
          */
         get: operations["landing_page__get"];
@@ -32,7 +32,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Ai Status
+         * Get the AI feature status
          * @description Return single-deployment AI status; no provider-routing policy controls (admin only).
          */
         get: operations["get_ai_status_admin_ai_status__get"];
@@ -42,7 +42,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Update Ai Status
+         * Turn AI features on or off
          * @description Toggle base AI features on/off at runtime; no provider-routing policy controls (admin only).
          */
         patch: operations["update_ai_status_admin_ai_status__patch"];
@@ -56,13 +56,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Api Keys
+         * List all API keys
          * @description List all API keys (admin only). Never returns the raw key.
          */
         get: operations["list_api_keys_admin_api_keys__get"];
         put?: never;
         /**
-         * Create Api Key
+         * Create an API key for a user
          * @description Create an API key for a user (admin only).
          *
          *     The raw key is returned only in this response and cannot be retrieved again.
@@ -86,7 +86,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Revoke Api Key
+         * Revoke any API key
          * @description Revoke (soft-delete) an API key (admin only).
          */
         delete: operations["revoke_api_key_admin_api_keys__key_id__delete"];
@@ -103,7 +103,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Audit Logs
+         * List audit log entries
          * @description Query audit logs with optional filters and sort (admin only).
          *
          *     `sort` and `order` are closed enums, so an unrecognised value is refused
@@ -148,7 +148,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Trigger Backfill
+         * Queue an embedding backfill
          * @description Queue semantic-search embedding generation for records (admin only).
          *
          *     Pass ?force=true to regenerate every record and replace its stored vectors.
@@ -184,7 +184,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List All Embed Tokens
+         * List embed tokens
          * @description List basic embed-token inventory across maps; no quota or domain-policy controls (admin only).
          */
         get: operations["list_all_embed_tokens_admin_embed_tokens__get"];
@@ -206,7 +206,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Bulk Revoke
+         * Revoke several embed tokens
          * @description Bulk-revoke basic embed tokens; no quota or domain-policy controls (admin only).
          */
         post: operations["bulk_revoke_admin_embed_tokens_bulk_revoke__post"];
@@ -224,13 +224,119 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Embedding Stats
+         * Get embedding coverage
          * @description Return embedding coverage and the state of the backfill runs (admin only).
          */
         get: operations["get_embedding_stats_admin_embedding_stats__get"];
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/groups/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List sharing groups
+         * @description List sharing groups by name, with member counts (admin only).
+         */
+        get: operations["list_groups_admin_groups__get"];
+        put?: never;
+        /**
+         * Create a sharing group
+         * @description Create an empty sharing group (admin only). A duplicate name is 409.
+         */
+        post: operations["create_group_admin_groups__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/groups/{group_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a sharing group
+         * @description Get one sharing group with its member count (admin only).
+         */
+        get: operations["get_group_admin_groups__group_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a sharing group
+         * @description Delete a sharing group and all its memberships (admin only).
+         *
+         *     Its members lose the group's datasets, maps and stories at once, signed
+         *     tile URLs included. A restricted map or story shared only with this group
+         *     becomes private.
+         */
+        delete: operations["delete_group_admin_groups__group_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename a sharing group
+         * @description Rename a sharing group (admin only). A name already in use is 409.
+         */
+        patch: operations["rename_group_admin_groups__group_id__patch"];
+        trace?: never;
+    };
+    "/admin/groups/{group_id}/members/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List sharing group members
+         * @description List a sharing group's members by username (admin only).
+         */
+        get: operations["list_group_members_admin_groups__group_id__members__get"];
+        put?: never;
+        /**
+         * Add users to a sharing group
+         * @description Add users to a sharing group (admin only).
+         *
+         *     Users already in the group are skipped. If any id matches no user, the
+         *     request is 404 and nobody is added. 422 when the new members' access to
+         *     the group's datasets would let a VRT reach past one of its sources.
+         */
+        post: operations["add_group_members_admin_groups__group_id__members__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/groups/{group_id}/members/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a user from a sharing group
+         * @description Remove one user from a sharing group (admin only).
+         *
+         *     The user loses the group's datasets at once, signed tile URLs included.
+         */
+        delete: operations["remove_group_member_admin_groups__group_id__members__user_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -244,7 +350,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Infrastructure
+         * Get infrastructure status
          * @description Return infrastructure configuration, live health status, and OIDC provider connectivity.
          */
         get: operations["get_infrastructure_admin_infrastructure__get"];
@@ -264,7 +370,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Admin Jobs
+         * List all ingest jobs
          * @description List all ingestion jobs with optional status/user/search/sort filters (admin only).
          *
          *     `sort` and `order` are closed enums, so an unrecognised value is refused
@@ -287,7 +393,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Share Tokens Endpoint
+         * List share tokens
          * @description List basic share-token inventory with map info; no quotas or domain controls (admin only).
          *
          *     `sort` and `order` are closed enums, so an unrecognised value is refused
@@ -313,7 +419,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Admin Revoke Share Token
+         * Revoke a share token
          * @description Revoke a basic share token and cascade to its embed tokens; no quota controls (admin only).
          */
         delete: operations["admin_revoke_share_token_admin_share_tokens__token_id__delete"];
@@ -330,7 +436,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Catalog Stats
+         * Get catalog statistics
          * @description Return catalog statistics: counts, storage, breakdowns (admin only).
          */
         get: operations["get_catalog_stats_admin_stats__get"];
@@ -350,7 +456,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Users
+         * List users
          * @description List users with optional status, role, search, and sort filters (admin only).
          *
          *     `sort` and `order` are closed enums, so an unrecognised value is refused
@@ -359,7 +465,7 @@ export interface paths {
         get: operations["list_users_admin_users__get"];
         put?: never;
         /**
-         * Create User
+         * Create a user
          * @description Create a new user with the specified role (admin only).
          */
         post: operations["create_user_admin_users__post"];
@@ -401,7 +507,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List User Names
+         * List usernames
          * @description Return lightweight id+username list for filter dropdowns.
          *
          *     Paginated to bound response size on deployments with many users. Default
@@ -426,21 +532,21 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get User
+         * Get a user
          * @description Get a specific user by ID (admin only).
          */
         get: operations["get_user_admin_users__user_id__get"];
         put?: never;
         post?: never;
         /**
-         * Delete User
+         * Delete a user
          * @description Hard-delete a user (admin only). Returns 400 for self-deletion or last-admin.
          */
         delete: operations["delete_user_admin_users__user_id__delete"];
         options?: never;
         head?: never;
         /**
-         * Update User
+         * Update a user
          * @description Update a user's fields and/or role (admin only).
          */
         patch: operations["update_user_admin_users__user_id__patch"];
@@ -456,7 +562,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Approve User
+         * Approve a pending user
          * @description Approve a pending user with the specified role (admin only).
          */
         post: operations["approve_user_admin_users__user_id__approve__post"];
@@ -476,7 +582,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Deactivate User
+         * Deactivate a user
          * @description Deactivate a user (admin only).
          */
         post: operations["deactivate_user_admin_users__user_id__deactivate__post"];
@@ -496,7 +602,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reject User
+         * Reject a pending user
          * @description Reject a pending user by hard-deleting them (admin only).
          */
         post: operations["reject_user_admin_users__user_id__reject__post"];
@@ -516,7 +622,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reset User Password
+         * Reset a user's password
          * @description Set a user's password (admin only).
          *
          *     The ``manage_users`` permission authorizes this recovery path, so no current
@@ -545,7 +651,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Ai Availability Endpoint
+         * Check whether AI chat is available
          * @description Report whether builder AI chat is usable.
          *
          *     Requires ``use_ai_chat``. Returns ``available=false`` when provider keys
@@ -570,7 +676,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Chat Endpoint
+         * Edit a map with AI chat
          * @description Chat-based map editing: send a message and get back edit actions.
          */
         post: operations["chat_endpoint_ai_chat__post"];
@@ -590,7 +696,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Dataset Chat Stream Endpoint
+         * Ask AI about a dataset
          * @description Dataset-scoped AI chat: ask questions about a single dataset's data.
          *
          *     Read-only by construction — ``can_edit=False`` selects the query_data-only
@@ -616,7 +722,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Chat Stream Endpoint
+         * Edit a map with AI chat as a stream
          * @description Chat-based map editing with server-sent event streaming.
          */
         post: operations["chat_stream_endpoint_ai_chat_stream__post"];
@@ -636,7 +742,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Generate Map Endpoint
+         * Generate a map from a prompt
          * @description Generate a map from a natural language prompt using an LLM.
          */
         post: operations["generate_map_endpoint_ai_generate_map__post"];
@@ -656,7 +762,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Generate Map Stream Endpoint
+         * Generate a map from a prompt as a stream
          * @description Generate a map from a natural language prompt with streaming progress events.
          */
         post: operations["generate_map_stream_endpoint_ai_generate_map_stream__post"];
@@ -676,7 +782,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Generate Metadata Keywords
+         * Suggest dataset keywords with AI
          * @description Generate AI-suggested keywords for a dataset.
          */
         post: operations["generate_metadata_keywords_ai_metadata_keywords__post"];
@@ -696,7 +802,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Generate Metadata Lineage
+         * Draft dataset lineage with AI
          * @description Generate an AI-drafted lineage summary for a dataset.
          */
         post: operations["generate_metadata_lineage_ai_metadata_lineage__post"];
@@ -716,7 +822,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Generate Metadata Quality Statement
+         * Draft a dataset quality statement with AI
          * @description Generate an AI-drafted quality statement for a dataset.
          */
         post: operations["generate_metadata_quality_statement_ai_metadata_quality_statement__post"];
@@ -736,7 +842,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Generate Metadata Summary
+         * Draft a dataset summary with AI
          * @description Generate an AI-drafted summary for a dataset.
          */
         post: operations["generate_metadata_summary_ai_metadata_summary__post"];
@@ -754,7 +860,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Column Ddl Feed
+         * List a dataset's column change history
          * @description Return the column-DDL audit history for a dataset.
          *
          *     Surfaces the column-DDL events to dataset owners so they can detect
@@ -785,13 +891,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List My Api Keys
+         * List your API keys
          * @description List the current user's API keys.
          */
         get: operations["list_my_api_keys_auth_api_keys__get"];
         put?: never;
         /**
-         * Create My Api Key
+         * Create an API key
          * @description Create an API key for the current user.
          *
          *     The raw key is returned only in this response and cannot be retrieved again.
@@ -815,7 +921,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Revoke My Api Key
+         * Revoke an API key
          * @description Revoke (soft-delete) one of the current user's API keys.
          */
         delete: operations["revoke_my_api_key_auth_api_keys__key_id__delete"];
@@ -834,7 +940,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Change Password
+         * Change your password
          * @description Change the current user's password (requires current password).
          */
         post: operations["change_password_auth_change_password__post"];
@@ -852,7 +958,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Config
+         * Get the public sign-in configuration
          * @description Return public auth configuration (no authentication required).
          */
         get: operations["config_auth_config__get"];
@@ -874,7 +980,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Create Download Token Endpoint
+         * Create a download token for a dataset
          * @description Mint a short-lived download-scoped JWT for a single dataset.
          *
          *     The COG download URL path requires a
@@ -902,7 +1008,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Login
+         * Sign in with a username and password
          * @description Authenticate with username and password, receive a JWT token.
          *
          *     GH-1302: a caller sending ``X-GeoLens-Auth-Mode: cookie`` receives the
@@ -927,7 +1033,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Logout
+         * Sign out everywhere
          * @description Revoke all refresh tokens and bump token_version for the current user.
          *
          *     Logout invalidates the access JWT used for this call and all other active
@@ -956,7 +1062,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Logout Current Session
+         * Sign out of the current session
          * @description Revoke only the presented session's refresh-token family.
          *
          *     Other devices and API keys survive. Access JWTs remain usable until their
@@ -984,7 +1090,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Me
+         * Get the signed-in user
          * @description Return the currently authenticated user's profile and roles.
          */
         get: operations["me_auth_me__get"];
@@ -1004,7 +1110,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Me Permissions
+         * Get the signed-in user's permissions
          * @description Return the effective permissions for the currently authenticated user.
          */
         get: operations["me_permissions_auth_me_permissions__get"];
@@ -1024,7 +1130,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Me Usage
+         * Get the signed-in user's quota usage
          * @description Return the authenticated user's own storage and dataset quota usage.
          */
         get: operations["me_usage_auth_me_usage__get"];
@@ -1046,7 +1152,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Exchange Sign In Code
+         * Exchange a sign-in code for a session
          * @description Exchange a single sign-on code for a browser session.
          *
          *     When the SPA shares the API's origin, an OAuth or SAML callback redirects
@@ -1074,7 +1180,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Public Providers
+         * List sign-in providers
          * @description Return the list of enabled OAuth providers for the login page.
          */
         get: operations["list_public_providers_auth_oauth_providers__get"];
@@ -1094,7 +1200,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Oauth Callback
+         * Finish OAuth sign-in
          * @description Handle IdP callback: exchange code, find/create user, redirect to frontend.
          *
          *     The frontend redirect carries a one-time sign-in code, or on a
@@ -1120,7 +1226,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Oauth Login
+         * Start OAuth sign-in
          * @description Redirect user to the IdP authorization URL with PKCE parameters.
          *
          *     The redirect_uri is handed to the IdP, where an
@@ -1148,7 +1254,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Refresh
+         * Refresh the access token
          * @description Exchange a valid refresh token for a new access + refresh token pair.
          *
          *     Multi-tenant clients must call this endpoint on their tenant host. Refresh
@@ -1181,7 +1287,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Register
+         * Register an account
          * @description Create a password account.
          *
          *     Needs both self-registration and password login enabled; otherwise 403.
@@ -1211,8 +1317,11 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Resend Verification
+         * Resend the verification email
          * @description Re-issue and re-send a verification email.
+         *
+         *     Sends nothing unless self-registration is on and requires email
+         *     verification, since only then can the link activate an account.
          *
          *     Enumeration-safe: ALWAYS returns the same 200 body
          *     regardless of whether the email exists, is unknown, or is already verified.
@@ -1235,12 +1344,14 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Verify Email
-         * @description Redeem a verification token to activate the account.
+         * Verify an email address
+         * @description Redeem a verification token, confirming the address.
          *
-         *     A valid single-use expiring token flips email_verified=True,
-         *     is_active=True, and status="active" so the user can log in via the
-         *     existing auth gate in dependencies.py.
+         *     A valid single-use expiring token sets email_verified=True. While
+         *     self-registration is on and requires email verification, it also
+         *     activates a pending account with the default self-registration role.
+         *     Otherwise a pending account stays pending and the response carries
+         *     ``next_step="await_approval"``.
          *
          *     Expired, unknown, and already-consumed tokens all return the same
          *     "Invalid or expired" error (enumeration-safe).
@@ -1260,7 +1371,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Capabilities
+         * Get server capabilities
          * @description Describe what this server offers, for a client's first call.
          *
          *     Anonymous callers get the server, sign-in, basemap, workflow and rate-limit
@@ -1283,13 +1394,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Collections Endpoint
+         * List collections
          * @description List all collections with dataset_count and extent computed per-user.
          */
         get: operations["list_collections_endpoint_catalog_collections__get"];
         put?: never;
         /**
-         * Create Collection Endpoint
+         * Create a collection
          * @description Create a new collection.
          */
         post: operations["create_collection_endpoint_catalog_collections__post"];
@@ -1307,21 +1418,21 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Collection Endpoint
+         * Get a collection
          * @description Get a single collection with dataset_count and extent.
          */
         get: operations["get_collection_endpoint_catalog_collections__collection_id__get"];
         put?: never;
         post?: never;
         /**
-         * Delete Collection Endpoint
+         * Delete a collection
          * @description Delete a collection. Owner or admin only.
          */
         delete: operations["delete_collection_endpoint_catalog_collections__collection_id__delete"];
         options?: never;
         head?: never;
         /**
-         * Update Collection Endpoint
+         * Update a collection
          * @description Update a collection's name and/or description. Owner or admin only.
          */
         patch: operations["update_collection_endpoint_catalog_collections__collection_id__patch"];
@@ -1335,13 +1446,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Collection Datasets Endpoint
+         * List a collection's datasets
          * @description Get datasets in a collection with RBAC filtering.
          */
         get: operations["get_collection_datasets_endpoint_catalog_collections__collection_id__datasets__get"];
         put?: never;
         /**
-         * Add Datasets Endpoint
+         * Add datasets to a collection
          * @description Add datasets to a collection. Collection owner or admin only.
          */
         post: operations["add_datasets_endpoint_catalog_collections__collection_id__datasets__post"];
@@ -1362,7 +1473,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Remove Dataset Endpoint
+         * Remove a dataset from a collection
          * @description Remove a dataset from a collection. Collection owner or admin only.
          */
         delete: operations["remove_dataset_endpoint_catalog_collections__collection_id__datasets__dataset_id__delete"];
@@ -1379,7 +1490,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Collections
+         * List OGC collections
          * @description List available OGC collections (catalog + per-dataset feature collections).
          */
         get: operations["list_collections_collections_get"];
@@ -1399,7 +1510,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Collection Metadata
+         * Get the datasets collection
          * @description Get metadata for the datasets collection.
          */
         get: operations["get_collection_metadata_collections_datasets_get"];
@@ -1419,7 +1530,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Collection Items
+         * List catalog records
          * @description OGC API Records items endpoint -- mirrors /search/datasets.
          */
         get: operations["collection_items_collections_datasets_items_get"];
@@ -1439,7 +1550,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Collection Item
+         * Get a catalog record
          * @description Get a single dataset as an OGC Record Feature.
          */
         get: operations["get_collection_item_collections_datasets_items__record_id__get"];
@@ -1459,7 +1570,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Queryables
+         * Get the datasets collection queryables
          * @description Queryable properties for the datasets collection (OGC API Features Part 3).
          */
         get: operations["get_queryables_collections_datasets_queryables_get"];
@@ -1479,7 +1590,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Record Schema
+         * Get the catalog record schema
          * @description JSON Schema describing a catalog record (OGC API Common Part 3).
          */
         get: operations["get_record_schema_collections_datasets_schema_get"];
@@ -1499,7 +1610,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Sortables
+         * Get the datasets collection sortables
          * @description Sortable properties for the datasets collection (OGC API Records).
          */
         get: operations["get_sortables_collections_datasets_sortables_get"];
@@ -1519,7 +1630,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Dataset Collection
+         * Get a dataset's OGC feature collection
          * @description Per-dataset OGC collection metadata with extent, CRS, and items link.
          */
         get: operations["get_dataset_collection_collections__dataset_id__get"];
@@ -1539,7 +1650,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Collection Items
+         * List OGC features
          * @description OGC API Features items endpoint -- returns GeoJSON FeatureCollection for a dataset.
          *
          *     Note: ``datetime`` is accepted per OGC API Features Core but acts as a
@@ -1565,7 +1676,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Collection Item Feature
+         * Get an OGC feature
          * @description OGC API Features single feature endpoint -- returns a GeoJSON Feature.
          */
         get: operations["get_collection_item_feature_collections__dataset_id__items__feature_id__get"];
@@ -1585,7 +1696,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Collection Queryables
+         * Get a feature collection's queryables
          * @description Queryable properties for one feature collection (OGC Features Part 3).
          *
          *     Derived from the live table schema rather than the stored column_info
@@ -1612,7 +1723,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Dry Run Configuration
+         * Preview a configuration import
          * @description Preview what an import would change without applying any modifications.
          */
         post: operations["dry_run_configuration_config_ops_dry_run__post"];
@@ -1630,7 +1741,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Export Configuration
+         * Export the configuration
          * @description Export full configuration as JSON (settings + OAuth providers, secrets redacted).
          *
          *     Returns a downloadable JSON payload with Content-Disposition header. This is a
@@ -1658,7 +1769,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Import Configuration
+         * Import a configuration
          * @description Import configuration in merge or overwrite mode.
          *
          *     Merge mode: updates existing settings and OAuth providers, adds new ones.
@@ -1681,7 +1792,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Validate Configuration
+         * Validate the configuration
          * @description Validate storage, cache, credential handoff, and enabled OIDC providers.
          *
          *     Returns pass/fail with latency and error details for each service.
@@ -1701,7 +1812,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Conformance
+         * Get the OGC conformance declaration
          * @description OGC conformance declaration -- lists supported specification classes.
          */
         get: operations["conformance_conformance_get"];
@@ -1721,7 +1832,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List All Datasets
+         * List datasets
          * @description List datasets with visibility filtering and pagination.
          */
         get: operations["list_all_datasets_datasets__get"];
@@ -1743,7 +1854,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Bulk Delete Datasets Endpoint
+         * Delete several datasets
          * @description Delete multiple datasets in one request. Returns per-item results.
          */
         post: operations["bulk_delete_datasets_endpoint_datasets_bulk_delete__post"];
@@ -1763,7 +1874,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Create Empty Dataset Endpoint
+         * Create an empty dataset
          * @description Create an empty dataset with user-defined columns.
          *
          *     Creates a PostGIS table in the data schema and a catalog record.
@@ -1783,7 +1894,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Dcat Us3 Catalog
+         * Get the DCAT-US 3 catalog
          * @description DCAT-US Schema v3.0 catalog feed. Respects dataset visibility.
          */
         get: operations["get_dcat_us3_catalog_datasets_dcat_us_3_0__get"];
@@ -1803,7 +1914,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Validate Dcat Us3 Catalog
+         * Validate the DCAT-US 3 catalog
          * @description Validate the visible DCAT-US Schema v3.0 catalog feed.
          */
         get: operations["validate_dcat_us3_catalog_datasets_dcat_us_3_0_validation__get"];
@@ -1823,7 +1934,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Dcat Catalog
+         * Get the DCAT 3 catalog
          * @description DCAT 3 JSON-LD catalog feed. Respects dataset visibility.
          */
         get: operations["get_dcat_catalog_datasets_dcat__get"];
@@ -1843,7 +1954,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Validate Dcat3 Catalog
+         * Validate the DCAT 3 catalog
          * @description Validate the visible W3C DCAT 3 catalog feed.
          */
         get: operations["validate_dcat3_catalog_datasets_dcat_validation__get"];
@@ -1863,7 +1974,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Geodcat Ap Catalog
+         * Get the GeoDCAT-AP catalog
          * @description GeoDCAT-AP 2.0.0 catalog feed. Respects dataset visibility.
          */
         get: operations["get_geodcat_ap_catalog_datasets_geodcat_ap__get"];
@@ -1883,7 +1994,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Validate Geodcat Ap Catalog
+         * Validate the GeoDCAT-AP catalog
          * @description Validate the visible GeoDCAT-AP 2.0.0 catalog feed.
          */
         get: operations["validate_geodcat_ap_catalog_datasets_geodcat_ap_validation__get"];
@@ -1906,7 +2017,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete Dataset Relationship
+         * Delete a dataset relationship
          * @description Delete a FK relationship. Editor+ required.
          */
         delete: operations["delete_dataset_relationship_datasets_relationships__relationship_id___delete"];
@@ -1923,24 +2034,65 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Single Dataset
+         * Get a dataset
          * @description Get a single dataset by ID with visibility check.
          */
         get: operations["get_single_dataset_datasets__dataset_id__get"];
         put?: never;
         post?: never;
         /**
-         * Delete Dataset Endpoint
+         * Delete a dataset
          * @description Delete a dataset with cascade cleanup. Owner or admin only, requires confirm_title.
          */
         delete: operations["delete_dataset_endpoint_datasets__dataset_id__delete"];
         options?: never;
         head?: never;
         /**
-         * Update Dataset Metadata
+         * Update dataset metadata
          * @description Update user-editable dataset metadata.
          */
         patch: operations["update_dataset_metadata_datasets__dataset_id__patch"];
+        trace?: never;
+    };
+    "/datasets/{dataset_id}/aggregate/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compute a dataset aggregate
+         * @description Compute one exact aggregate over a dataset's rows, for a widget.
+         *
+         *     Anonymous callers can read public, published datasets; ``X-Embed-Token``
+         *     authorizes datasets in the token's scope. Other datasets return 404. A
+         *     request only the embed token authorizes may read only the columns in the
+         *     dataset's tile column allowlist, when it has one; any other column is
+         *     refused as an unknown one.
+         *
+         *     With ``bbox``, a view the planner expects to hold more than 500,000 rows
+         *     is refused with 422 and the code ``too_wide`` rather than approximated. A
+         *     ``bbox`` that contains the whole dataset is answered as the whole layer.
+         *     The ``rows`` operation lists features a page at a time, with each row's
+         *     ``bbox`` when the dataset has geometry, and never returns a geometry.
+         *     Refusals carry a ``code`` in ``detail``: ``too_wide``, ``invalid_column``,
+         *     ``invalid_cursor``, ``invalid_filter``, ``no_geometry``, ``query_timeout``,
+         *     ``query_data_error``, ``result_too_large``, and with 429 ``query_busy``
+         *     (this caller already has two aggregates running) or ``query_at_capacity``,
+         *     and with 503 ``query_unavailable`` when the database could not serve the
+         *     query, for example under memory pressure.
+         *
+         *     Clients should keep at most two requests in flight per caller and retry a
+         *     429 after 200-400 ms with jitter, and a 503 after its ``Retry-After``.
+         */
+        post: operations["aggregate_endpoint_datasets__dataset_id__aggregate__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/datasets/{dataset_id}/analysis/materialize/": {
@@ -1953,7 +2105,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Analysis Materialize Endpoint
+         * Save a spatial analysis as a dataset
          * @description Materialize an analysis result as a new private dataset (async job).
          *
          *     Requires the ``upload`` and ``export`` permissions (this endpoint
@@ -1980,7 +2132,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Analysis Preview Endpoint
+         * Preview a spatial analysis
          * @description Run a parameterized PostGIS operation and return a GeoJSON preview.
          *
          *     Synchronous, read-only, and capped: results are for on-map preview, not
@@ -2001,7 +2153,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Dataset Api Keys
+         * List a dataset's API keys
          * @description List the active keys bound to this dataset, newest first.
          *
          *     Requires write access to the dataset. The dataset's owner and admins see
@@ -2011,7 +2163,7 @@ export interface paths {
         get: operations["list_dataset_api_keys_datasets__dataset_id__api_keys_get"];
         put?: never;
         /**
-         * Create Dataset Api Key
+         * Create a dataset API key
          * @description Create a key that reaches only this dataset's features.
          *
          *     A ``dataset_write`` key, the default, authenticates the dataset's feature
@@ -2046,7 +2198,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Revoke Dataset Api Key
+         * Revoke a dataset API key
          * @description Revoke a key bound to this dataset.
          *
          *     The key's creator may revoke it while they can see the dataset, even
@@ -2068,7 +2220,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Attributes Endpoint
+         * List a dataset's attributes
          * @description List all attribute metadata for a dataset.
          */
         get: operations["list_attributes_endpoint_datasets__dataset_id__attributes__get"];
@@ -2088,7 +2240,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Attribute Endpoint
+         * Get an attribute
          * @description Get a single attribute metadata entry.
          */
         get: operations["get_attribute_endpoint_datasets__dataset_id__attributes__attribute_id___get"];
@@ -2098,7 +2250,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Update Attribute Endpoint
+         * Update an attribute
          * @description Update user-editable attribute metadata fields.
          */
         patch: operations["update_attribute_endpoint_datasets__dataset_id__attributes__attribute_id___patch"];
@@ -2114,7 +2266,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reset Attribute Endpoint
+         * Reset an attribute to its detected values
          * @description Reset attribute metadata to auto-populated values, clearing user_modified_fields.
          */
         post: operations["reset_attribute_endpoint_datasets__dataset_id__attributes__attribute_id__reset__post"];
@@ -2132,7 +2284,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Column Stats Endpoint
+         * Get a numeric column's statistics
          * @description Get statistics for a numeric dataset column (for graduated styling).
          */
         get: operations["get_column_stats_endpoint_datasets__dataset_id__columns__column_name__stats__get"];
@@ -2152,7 +2304,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Column Values
+         * List a column's distinct values
          * @description Get distinct values for a dataset column (for categorical styling).
          */
         get: operations["get_column_values_datasets__dataset_id__columns__column_name__values__get"];
@@ -2172,7 +2324,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Pointcloud File
+         * Get a COPC point cloud file
          * @description Serve a published COPC point cloud's file, whole or by HTTP byte range.
          *
          *     Point a client at the dataset's ``pointcloud.url``. The path names the
@@ -2211,7 +2363,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Dcat Us3 Record
+         * Get a DCAT-US 3 record
          * @description DCAT-US Schema v3.0 JSON-LD for a single dataset.
          */
         get: operations["get_dcat_us3_record_datasets__dataset_id__dcat_us_3_0__get"];
@@ -2231,7 +2383,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Validate Dcat Us3 Record
+         * Validate a dataset as DCAT-US 3
          * @description Validate a single dataset as DCAT-US Schema v3.0.
          */
         get: operations["validate_dcat_us3_record_datasets__dataset_id__dcat_us_3_0_validation__get"];
@@ -2251,7 +2403,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Dcat Record
+         * Get a DCAT 3 record
          * @description DCAT 3 JSON-LD for a single dataset.
          */
         get: operations["get_dcat_record_datasets__dataset_id__dcat__get"];
@@ -2271,7 +2423,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Validate Dcat3 Record
+         * Validate a dataset as DCAT 3
          * @description Validate a single dataset as W3C DCAT 3.
          */
         get: operations["validate_dcat3_record_datasets__dataset_id__dcat_validation__get"];
@@ -2291,7 +2443,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Download Cog
+         * Download a raster as a Cloud-Optimized GeoTIFF
          * @description Download the Cloud-Optimized GeoTIFF for a raster dataset.
          *
          *     On S3 storage with presigned downloads enabled, answers 302 to a
@@ -2325,7 +2477,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Export Dataset Endpoint
+         * Export a dataset
          * @description Export a dataset as a downloadable file.
          *
          *     Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet,
@@ -2350,11 +2502,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Features Geojson Z Endpoint
+         * Get features as GeoJSON with Z coordinates
          * @description Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.
          *
          *     ``X-Embed-Token`` authorizes private datasets in the token's scope through
-         *     the same capability check used for tile requests.
+         *     the same capability check used for tile requests. A request only the embed
+         *     token authorizes gets only the properties in the dataset's tile column
+         *     allowlist, when it has one.
          *
          *     Anonymous callers can read public, published datasets. Private or
          *     restricted datasets return 404 unless user or embed credentials authorize
@@ -2380,7 +2534,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Features
+         * List features
          * @description Get paginated GeoJSON features for a dataset.
          *
          *     Offset pagination can skip or duplicate rows during concurrent writes,
@@ -2392,7 +2546,7 @@ export interface paths {
         get: operations["list_features_datasets__dataset_id__features__get"];
         put?: never;
         /**
-         * Create Feature
+         * Create a feature
          * @description Insert a new GeoJSON feature into a dataset.
          *
          *     Send the same `Idempotency-Key` on every attempt to create one feature, and
@@ -2448,7 +2602,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Delete Features Batch
+         * Delete several features
          * @description Delete up to 1,000 features by gid in one transaction (hard delete).
          *
          *     Either every listed feature is deleted or none is. If any gid does not
@@ -2474,7 +2628,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Dry Run Create Feature
+         * Check a feature create without saving
          * @description Check a feature create without writing it.
          *
          *     Takes the body `POST /datasets/{dataset_id}/features/` takes and runs
@@ -2508,7 +2662,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Single Feature
+         * Get a feature
          * @description Get a single GeoJSON feature by gid.
          *
          *     `table_id` identifies the data table the feature was read from. Send it
@@ -2517,13 +2671,13 @@ export interface paths {
          */
         get: operations["get_single_feature_datasets__dataset_id__features__gid__get"];
         /**
-         * Replace Single Feature
+         * Replace a feature
          * @description Full replacement of a feature (PUT semantics).
          */
         put: operations["replace_single_feature_datasets__dataset_id__features__gid__put"];
         post?: never;
         /**
-         * Delete Single Feature
+         * Delete a feature
          * @description Delete a feature by gid (hard delete).
          *
          *     The X-GeoLens-Tile-Cache-Version response header carries the dataset's
@@ -2535,7 +2689,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Patch Single Feature
+         * Update a feature
          * @description Partial update of a feature (PATCH semantics).
          */
         patch: operations["patch_single_feature_datasets__dataset_id__features__gid__patch"];
@@ -2549,7 +2703,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Feature Related Records
+         * List a feature's related records
          * @description Get related records for a feature via FK relationship.
          */
         get: operations["get_feature_related_records_datasets__dataset_id__features__gid__related__relationship_id___get"];
@@ -2569,7 +2723,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Geodcat Ap Record
+         * Get a GeoDCAT-AP record
          * @description GeoDCAT-AP 2.0.0 JSON-LD for a single dataset.
          */
         get: operations["get_geodcat_ap_record_datasets__dataset_id__geodcat_ap__get"];
@@ -2589,11 +2743,38 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Validate Geodcat Ap Record
+         * Validate a dataset as GeoDCAT-AP
          * @description Validate a single dataset as GeoDCAT-AP 2.0.0.
          */
         get: operations["validate_geodcat_ap_record_datasets__dataset_id__geodcat_ap_validation__get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/datasets/{dataset_id}/groups/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set the sharing groups for a dataset
+         * @description Share a dataset with exactly these sharing groups (owner or admin).
+         *
+         *     An owner may add only groups they belong to (403); an admin may add any.
+         *     A private dataset shared with a group becomes restricted, and a restricted
+         *     one left with no group or role grant becomes private; internal and public
+         *     datasets keep their audience. 404 for an unknown group, and 422 when the
+         *     change would hide the dataset from viewers of the owner's shared maps or
+         *     let a VRT reach people who cannot see all of its sources.
+         */
+        put: operations["set_dataset_groups_endpoint_datasets__dataset_id__groups__put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2609,7 +2790,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Dataset History
+         * List a dataset's audit history
          * @description Get audit log history for a specific dataset.
          */
         get: operations["get_dataset_history_datasets__dataset_id__history_get"];
@@ -2629,7 +2810,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Dataset Maps
+         * List maps that use a dataset
          * @description Return maps that contain this dataset, filtered by caller's RBAC visibility.
          */
         get: operations["dataset_maps_datasets__dataset_id__maps__get"];
@@ -2652,7 +2833,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete Previous Version
+         * Delete the previous version
          * @deprecated
          * @description Delete the dataset's newest kept version, so it can no longer be restored.
          *
@@ -2676,7 +2857,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Restore Previous Version
+         * Restore the previous version
          * @deprecated
          * @description Publish the dataset's newest kept version as its live data again.
          *
@@ -2702,7 +2883,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete Kept Version
+         * Delete a kept version
          * @description Delete one of the dataset's kept previous versions, so it can no longer be restored.
          *
          *     Refuses with 404 ``no_previous_version`` when the dataset does not keep
@@ -2726,7 +2907,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Restore Kept Version
+         * Restore a kept version
          * @description Publish one of the dataset's kept previous versions as its live data again.
          *
          *     The dataset detail lists the kept versions in ``previous_versions``. The
@@ -2756,7 +2937,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Quicklook
+         * Get a dataset quicklook image
          * @description Serve a quicklook PNG image for a dataset.
          */
         get: operations["get_quicklook_datasets__dataset_id__quicklook_get"];
@@ -2778,7 +2959,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Refresh Dataset
+         * Refresh a dataset from its source
          * @description Re-pull this dataset's data from the origin it was imported from.
          *
          *     One request, no source pointer, no layer selection. The dataset keeps
@@ -2829,7 +3010,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Dataset Refresh Runs
+         * List a dataset's refresh runs
          * @description Return durable refresh history for a dataset.
          *
          *     Readers can see the timeline and outcomes. Only the dataset owner and
@@ -2853,7 +3034,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Related Datasets
+         * List related datasets
          * @description Return top-5 datasets similar to this one by embedding cosine similarity.
          */
         get: operations["list_related_datasets_datasets__dataset_id__related__get"];
@@ -2873,7 +3054,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Dataset Relationships
+         * List a dataset's relationships
          * @description List FK relationships for a dataset.
          *
          *     Paginated via ``skip`` and ``limit`` to bound response size for datasets
@@ -2885,7 +3066,7 @@ export interface paths {
         get: operations["list_dataset_relationships_datasets__dataset_id__relationships__get"];
         put?: never;
         /**
-         * Create Dataset Relationship
+         * Create a dataset relationship
          * @description Create a new FK relationship. Editor+ required.
          */
         post: operations["create_dataset_relationship_datasets__dataset_id__relationships__post"];
@@ -2904,7 +3085,7 @@ export interface paths {
         };
         get?: never;
         /**
-         * Set Dataset Retention
+         * Set a dataset's row retention
          * @description Set or clear how many days of rows a feature dataset keeps.
          *
          *     Hourly worker runs delete rows whose retention column is older than the
@@ -2932,7 +3113,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reupload Dataset
+         * Stage a file to replace a dataset's data
          * @description Upload a new file to replace the data in an existing dataset.
          */
         post: operations["reupload_dataset_datasets__dataset_id__reupload_post"];
@@ -2952,7 +3133,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Request Presigned Reupload
+         * Request a presigned re-upload
          * @description Request presigned URL(s) for direct-to-S3 reupload.
          */
         post: operations["request_presigned_reupload_datasets__dataset_id__reupload_presigned_post"];
@@ -2972,7 +3153,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Complete Presigned Reupload
+         * Complete a presigned re-upload
          * @description Notify that direct-to-S3 reupload is complete.
          */
         post: operations["complete_presigned_reupload_datasets__dataset_id__reupload_presigned__job_id__complete_post"];
@@ -2992,7 +3173,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reupload Service Preview
+         * Preview a service layer for re-upload
          * @description Preview a remote service layer for dataset re-upload.
          */
         post: operations["reupload_service_preview_datasets__dataset_id__reupload_service_preview_post"];
@@ -3012,7 +3193,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reupload Commit
+         * Commit a re-upload
          * @description Commit a re-upload, queuing the background swap task.
          */
         post: operations["reupload_commit_datasets__dataset_id__reupload__job_id__commit_post"];
@@ -3032,7 +3213,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reupload Preview
+         * Preview a re-upload
          * @description Preview the schema diff between old dataset and new upload.
          *
          *     When the uploaded file contains multiple layers, the response includes
@@ -3056,12 +3237,28 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Dataset Rows Endpoint
+         * List dataset rows
          * @description Get keyset-paginated rows from a dataset's data table.
          *
          *     Uses cursor-based pagination: pass ``after`` (the ``next_cursor`` gid) to
          *     fetch the next page, with or without ``sort``.
          *     Supports column filtering via query params: ``filter[column_name]=value``.
+         *     An optional CQL2-JSON ``filter`` expression ANDs with them.
+         *
+         *     Anonymous callers can read public, published datasets, and a signed-in
+         *     caller reads what their own permissions allow; an embed token that doesn't
+         *     cover the dataset changes neither. This route also answers an
+         *     ``X-Embed-Token`` for datasets in the token's scope while the token's map
+         *     has ``show_attribute_table`` on. That flag only decides whether viewers
+         *     offer the table: tiles, ``features.geojson`` and ``aggregate`` return the
+         *     same allowlisted values to the token either way. Any other caller gets 404.
+         *
+         *     A request only the embed token authorizes reads only the columns in the
+         *     dataset's tile column allowlist, when it has one: any other column is
+         *     treated as one the table lacks, in the returned columns, ``sort``,
+         *     ``filter`` and ``filter[column]``. ``gid`` is kept even when the allowlist
+         *     leaves it out: it stays in the rows, in ``sortable_columns`` and, when the
+         *     stored metadata lists it, in ``columns``.
          */
         get: operations["get_dataset_rows_endpoint_datasets__dataset_id__rows__get"];
         put?: never;
@@ -3082,7 +3279,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Check Source Health
+         * Check a dataset's source
          * @description Contact this dataset's origin and record what came back.
          *
          *     Owner-or-admin: this makes GeoLens issue an outbound request on the
@@ -3110,7 +3307,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Update Publication Status
+         * Change a dataset's publication status
          * @description Transition a dataset's publication status following allowed paths.
          *
          *     The allowed set comes from the workflow extension's
@@ -3134,7 +3331,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Set Target Status
+         * Move a dataset to a target publication status
          * @description Walk the publication chain from current status to target in one request.
          *
          *     Executes each intermediate transition so the full chain completes
@@ -3153,7 +3350,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Tileset File
+         * Get a 3D Tiles file
          * @description Serve one file of a published 3D Tiles tileset.
          *
          *     Point a client at the dataset's ``tileset.url``, this route's
@@ -3189,7 +3386,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Validate Dataset
+         * Get a dataset's validation status
          * @description Get validation status for a dataset. Shows hard errors and soft warnings.
          *
          *     By default returns the quality score persisted at ingest time. Pass
@@ -3214,7 +3411,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Dataset Versions Endpoint
+         * List a dataset's versions
          * @description Get paginated version history for a dataset.
          *
          *     A caller who is neither the owner nor an administrator gets the version
@@ -3239,7 +3436,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Vrt Sources
+         * List a VRT dataset's sources
          * @description Return ordered list of COG sources for a VRT dataset.
          */
         get: operations["list_vrt_sources_datasets__dataset_id__vrt_sources__get"];
@@ -3259,7 +3456,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Vrt Generations
+         * List a VRT dataset's generations
          * @description Return paginated generation history for a VRT dataset.
          *
          *     Not every caller gets every field. Seeing the dataset decides whether there
@@ -3286,7 +3483,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Regenerate Vrt Endpoint
+         * Regenerate a VRT dataset
          * @description Trigger manual VRT regeneration with advisory lock to prevent concurrent rebuilds.
          */
         post: operations["regenerate_vrt_endpoint_datasets__dataset_id__vrt_regenerate__post"];
@@ -3304,10 +3501,32 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Vrt Status
+         * Get a VRT dataset's status
          * @description Return VRT dataset status, last generation time, source count, and per-source health.
          */
         get: operations["get_vrt_status_datasets__dataset_id__vrt_status__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/groups/mine/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the sharing groups you can share with
+         * @description List the sharing groups the caller may share with, by name.
+         *
+         *     That is the groups the caller belongs to, or every group for an admin.
+         */
+        get: operations["list_my_groups_groups_mine__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3324,7 +3543,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Health
+         * Check service health
          * @description Health check endpoint for ALB, Docker, and Nginx.
          */
         get: operations["health_health_get"];
@@ -3346,7 +3565,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Commit Fan Out
+         * Commit a staged file as one import per layer
          * @description Convert a single pending IngestJob into N independent per-layer ingest tasks.
          *
          *     For multi-layer sources (e.g. GeoPackage with 2+ layers), this endpoint
@@ -3381,7 +3600,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Commit Import
+         * Commit a staged file for import
          * @description Commit a staged file for ingestion with user-supplied metadata.
          *
          *     Stores user metadata on the job and queues the ingest task.
@@ -3404,7 +3623,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Discover Tables
+         * Discover unregistered PostGIS tables
          * @description Discover unregistered tables in the data schema.
          *
          *     Returns tables not yet in the catalog, excluding staging, old, and
@@ -3432,7 +3651,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Apply Manifest Endpoint
+         * Apply an ingest manifest
          * @description Apply a versioned manifest through the ingest service layer.
          */
         post: operations["apply_manifest_endpoint_ingest_manifest_apply_post"];
@@ -3452,7 +3671,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Preview File
+         * Preview a staged file
          * @description Run preview on a staged file and return preview data.
          *
          *     For vector files: returns columns, CRS, geometry type, feature count, sample rows.
@@ -3481,7 +3700,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Register Table
+         * Register a PostGIS table
          * @description Register an existing PostGIS table as a dataset.
          *
          *     Verifies the table exists, extracts metadata, and creates a
@@ -3504,7 +3723,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Bulk Register Tables
+         * Register several PostGIS tables
          * @description Bulk-register multiple existing PostGIS tables as datasets.
          *
          *     Administrators only. Each table is registered independently -- one
@@ -3529,7 +3748,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Upload File
+         * Upload a file for staging
          * @description Upload a geospatial file for staging.
          *
          *     Validates the file extension, creates an ingest job, and saves the file
@@ -3550,7 +3769,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Upload Config
+         * Get the upload configuration
          * @description Return upload configuration including presigned upload availability.
          */
         get: operations["get_upload_config_ingest_upload_config_get"];
@@ -3572,7 +3791,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Request Presigned Upload
+         * Request a presigned upload
          * @description Request presigned URL(s) for direct-to-S3 file upload.
          */
         post: operations["request_presigned_upload_ingest_upload_presigned_post"];
@@ -3592,7 +3811,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Complete Presigned Upload
+         * Complete a presigned upload
          * @description Notify that direct-to-S3 upload is complete.
          */
         post: operations["complete_presigned_upload_ingest_upload_presigned__job_id__complete_post"];
@@ -3612,7 +3831,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Upload From Url
+         * Import a file from a URL
          * @description Start importing a geospatial file from an HTTP(S) URL.
          *
          *     The server fetches the file and sends the staged bytes through the same
@@ -3647,7 +3866,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Create Vrt
+         * Create a VRT dataset
          * @description Create a VRT dataset by combining existing raster datasets.
          *
          *     Validates sources synchronously, then defers VRT assembly to an async task.
@@ -3671,7 +3890,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Add Vrt Source
+         * Add a source to a VRT dataset
          * @description Add a COG source to an existing VRT and trigger async regeneration.
          *
          *     Validates the new source against existing sources synchronously.
@@ -3697,7 +3916,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Remove Vrt Source
+         * Remove a source from a VRT dataset
          * @description Remove a COG source from an existing VRT and trigger async regeneration.
          *
          *     Returns 202 Accepted with a job_id for polling.
@@ -3719,7 +3938,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Job Status By Dataset
+         * Get a dataset's latest ingest job
          * @description Look up the most recent ingest job for a dataset.
          *
          *     Used by the dataset detail page to surface ingest warnings permanently
@@ -3764,7 +3983,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Cleanup Stale Jobs
+         * Fail stale ingest jobs
          * @description Fail all stale jobs: pending >1h or running >1h.
          *
          *     **Ops-only.** Not used by the GeoLens UI — invoke from `curl`/`gh api`/cron
@@ -3790,7 +4009,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Get Job Statuses
+         * Get the status of several ingest jobs
          * @description Get the status of up to 100 ingestion jobs in one request.
          *
          *     Applies the same access rule as `GET /jobs/{id}`: the job creator, or a
@@ -3813,7 +4032,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Job Status
+         * Get an ingest job's status
          * @description Get the status of an ingestion job.
          *
          *     Only the job creator or an admin can view job status.
@@ -3837,7 +4056,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Cancel Job
+         * Cancel an ingest job
          * @description Cancel a pending or running ingest job.
          *
          *     The database marks the job and any bound refresh run as cancelled before
@@ -3864,7 +4083,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Retry Job
+         * Retry a failed ingest job
          * @description Retry a failed ingestion job by re-queuing.
          *
          *     Only callable on jobs with status 'failed'. The staging file must
@@ -3887,7 +4106,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Create Layer Endpoint
+         * Create an empty layer
          * @description Create a new empty spatial layer.
          *
          *     Creates a PostGIS table with a typed geometry column, runs the full
@@ -3913,7 +4132,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Add Column Endpoint
+         * Add a column
          * @description Add a column to an existing layer.
          */
         post: operations["add_column_endpoint_layers__dataset_id__columns__post"];
@@ -3934,7 +4153,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Drop Column Endpoint
+         * Drop a column
          * @description Remove a column from an existing layer.
          */
         delete: operations["drop_column_endpoint_layers__dataset_id__columns__column_name__delete"];
@@ -3957,7 +4176,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Rename Column Endpoint
+         * Rename a column
          * @description Rename a column on an existing layer.
          */
         patch: operations["rename_column_endpoint_layers__dataset_id__columns__column_name__name_patch"];
@@ -3971,7 +4190,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Column References Endpoint
+         * Count maps that reference a column
          * @description Count saved maps whose layer config references a column.
          *
          *     The schema editor uses this count before a rename or drop. Map titles are
@@ -4000,7 +4219,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Alter Column Type Endpoint
+         * Change a column's type
          * @description Change a column's type on an existing layer.
          *
          *     Postgres performs an implicit ``column::TYPE`` cast; values that cannot be
@@ -4017,17 +4236,17 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Maps Endpoint
-         * @description List maps. Admins see all; authenticated users see own + internal + public; anonymous see public only.
+         * List maps
+         * @description List maps. Admins see all; authenticated users see own + internal + public + restricted maps shared with their groups; anonymous see public only.
          *
          *     Supports search (ILIKE on name+description), sort_by (name/created_at/updated_at),
-         *     sort_dir (asc/desc), and visibility filter (private/internal/public).
+         *     sort_dir (asc/desc), and visibility filter (private/internal/public/restricted).
          *     owned_only restricts results to the caller's maps; anonymous callers get no maps.
          */
         get: operations["list_maps_endpoint_maps__get"];
         put?: never;
         /**
-         * Create Map Endpoint
+         * Create a map
          * @description Create a new map.
          */
         post: operations["create_map_endpoint_maps__post"];
@@ -4045,13 +4264,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Map Icons Endpoint
+         * List map icons
          * @description List reusable default and uploaded map icons.
          */
         get: operations["list_map_icons_endpoint_maps_icons_get"];
         put?: never;
         /**
-         * Upload Map Icon Endpoint
+         * Upload a map icon
          * @description Upload a reusable SVG or PNG icon for symbol layers.
          */
         post: operations["upload_map_icon_endpoint_maps_icons_post"];
@@ -4069,7 +4288,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Map Icon Asset Endpoint
+         * Get a map icon image
          * @description Serve an uploaded or bundled icon asset by stable icon ID.
          *
          *     SVG responses carry Content-Security-Policy
@@ -4098,7 +4317,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Import Map Style Endpoint
+         * Import a MapLibre style as a map
          * @description Import a MapLibre style JSON document into a new GeoLens map.
          *
          *     The request body is a typed Pydantic model rather than a bare ``dict``. ``MapStyleImportRequest`` mirrors the MapLibre style
@@ -4114,6 +4333,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/maps/import/arcgis-webmap/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import an ArcGIS web map
+         * @description Import an ArcGIS web map as a new GeoLens map.
+         *
+         *     Translates the web map's operational layers, renderers, labels, popups and
+         *     scale ranges, and reports everything it could not carry over in
+         *     `loss_report`. Only layers named in `dataset_matches` are imported, and
+         *     every matched dataset must be readable by the caller (404 otherwise). The
+         *     report is also written to the map's private notes. With `dry_run` nothing
+         *     is created and `map` is null.
+         */
+        post: operations["import_arcgis_webmap_endpoint_maps_import_arcgis_webmap__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/maps/shared/{token}": {
         parameters: {
             query?: never;
@@ -4122,7 +4368,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Shared Map Endpoint
+         * Get a shared map
          * @description Get a shared map by token. Optionally authenticated for non-public layers.
          *
          *     Emits ``Content-Security-Policy: frame-ancestors
@@ -4150,7 +4396,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Geolens Sprite Index Endpoint
+         * Get the GeoLens sprite index
          * @description Serve the stable GeoLens sprite JSON index.
          */
         get: operations["get_geolens_sprite_index_endpoint_maps_sprites_geolens_json_get"];
@@ -4170,7 +4416,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Geolens Sprite Png Endpoint
+         * Get the GeoLens sprite sheet
          * @description Serve the generated GeoLens sprite sheet for stable icon IDs.
          */
         get: operations["get_geolens_sprite_png_endpoint_maps_sprites_geolens_png_get"];
@@ -4190,25 +4436,25 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Map Endpoint
+         * Get a map
          * @description Get a single map with its layers.
          */
         get: operations["get_map_endpoint_maps__map_id__get"];
         /**
-         * Update Map Endpoint
+         * Update a map
          * @description Update a map's metadata and/or replace its layers.
          */
         put: operations["update_map_endpoint_maps__map_id__put"];
         post?: never;
         /**
-         * Delete Map Endpoint
+         * Delete a map
          * @description Delete a map. Only the owner or an admin can delete.
          */
         delete: operations["delete_map_endpoint_maps__map_id__delete"];
         options?: never;
         head?: never;
         /**
-         * Patch Map Endpoint
+         * Transfer a map to another owner
          * @description Transfer a map to another owner. Admin only.
          */
         patch: operations["patch_map_endpoint_maps__map_id__patch"];
@@ -4222,7 +4468,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Map Access Endpoint
+         * Get the caller's access to a map
          * @description Return server-confirmed route access for the map viewer gate.
          */
         get: operations["get_map_access_endpoint_maps__map_id__access__get"];
@@ -4244,7 +4490,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Duplicate Map Endpoint
+         * Duplicate a map
          * @description Fork a map with RBAC-filtered layers. Any authenticated user can fork.
          */
         post: operations["duplicate_map_endpoint_maps__map_id__duplicate__post"];
@@ -4262,13 +4508,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Embed Tokens Endpoint
+         * List a map's embed tokens
          * @description List all embed tokens for a map.
          */
         get: operations["list_embed_tokens_endpoint_maps__map_id__embed_tokens__get"];
         put?: never;
         /**
-         * Create Embed Token Endpoint
+         * Create an embed token
          * @description Create an embed token scoped to a map's current layers.
          *
          *     The default 30-day unrestricted token is always available. Custom lifetimes
@@ -4292,19 +4538,51 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Revoke Embed Token Endpoint
+         * Revoke an embed token
          * @description Revoke an embed token.
          */
         delete: operations["revoke_embed_token_endpoint_maps__map_id__embed_tokens__token_id___delete"];
         options?: never;
         head?: never;
         /**
-         * Update Embed Token Endpoint
+         * Update an embed token
          * @description Update embed token allowed_origins.
          *
          *     Null clears restrictions. Non-empty origin restrictions require advanced sharing controls.
          */
         patch: operations["update_embed_token_endpoint_maps__map_id__embed_tokens__token_id___patch"];
+        trace?: never;
+    };
+    "/maps/{map_id}/groups/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set the sharing groups for a map
+         * @description Share a map with exactly these sharing groups (owner or admin).
+         *
+         *     An owner may add only groups they belong to (403); an admin may add any.
+         *     A private map shared with a group becomes restricted and its members can
+         *     read it; a restricted one left with no group becomes private. Internal
+         *     and public maps keep their audience. Becoming restricted revokes the
+         *     map's share link and embed tokens. 404 for an unknown group.
+         *
+         *     409 (`detail.code` `layers_hidden_from_groups`, the layers under
+         *     `detail.layers`) when new groups can't read some layers; see `confirm`.
+         *     A lock wait that times out also answers 409, without `detail.code`.
+         *     With `expected_updated_at`, a map changed since that value answers 409
+         *     with `detail.code` `stale_write` and nothing is written.
+         */
+        put: operations["set_map_groups_endpoint_maps__map_id__groups__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/maps/{map_id}/history": {
@@ -4315,7 +4593,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Map History Endpoint
+         * List a map's edit history
          * @description Return recent builder edit history for a map.
          */
         get: operations["get_map_history_endpoint_maps__map_id__history_get"];
@@ -4337,7 +4615,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Add Layer Endpoint
+         * Add a layer to a map
          * @description Add a layer to a map.
          *
          *     Declared on both slash variants directly so neither emits a 307.
@@ -4354,7 +4632,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Patch Map Layers Endpoint
+         * Change a map's layers
          * @description Apply incremental layer additions, patches, removals, and ordering.
          *
          *     Declared on both slash variants directly, mirroring the POST route
@@ -4379,7 +4657,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Bulk Delete Layers Endpoint
+         * Remove several layers from a map
          * @description Batch-delete multiple layers from a map in a single request.
          *
          *     One additive endpoint that reduces N sequential DELETEs to a single
@@ -4407,7 +4685,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Remove Layer Endpoint
+         * Remove a layer from a map
          * @description Remove a layer from a map.
          */
         delete: operations["remove_layer_endpoint_maps__map_id__layers__layer_id__delete"];
@@ -4424,7 +4702,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Og Image
+         * Get a map social card image
          * @description Serve the OG social-card image from storage (visibility-checked).
          *
          *     Mirrors get_thumbnail but reads ``og_image_uri`` and uses the
@@ -4432,7 +4710,7 @@ export interface paths {
          */
         get: operations["get_og_image_maps__map_id__og_image__get"];
         /**
-         * Upload Og Image
+         * Upload a map social card image
          * @description Upload a base64 OG social-card image (up to 750KB) for a map.
          *
          *     Accepts a data:image/ URI, decodes the base64 payload, validates the
@@ -4462,30 +4740,55 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Map Share Token Endpoint
+         * Get a map's share token
          * @description Return the active share token for a map, or null if none exists.
          */
         get: operations["get_map_share_token_endpoint_maps__map_id__share__get"];
         put?: never;
         /**
-         * Share Map Endpoint
+         * Create a map share token
          * @description Create or retrieve a share token for a public map.
          */
         post: operations["share_map_endpoint_maps__map_id__share__post"];
         /**
-         * Revoke Map Share Endpoint
+         * Revoke a map share token
          * @description Revoke share token(s) for a map. Owner or admin only.
          */
         delete: operations["revoke_map_share_endpoint_maps__map_id__share__delete"];
         options?: never;
         head?: never;
         /**
-         * Update Map Share Token Endpoint
+         * Update a map share token
          * @description Update expiration on an existing share token. Owner or admin only.
          *
          *     A fixed-day preset is always available. Null clears expiration.
          */
         patch: operations["update_map_share_token_endpoint_maps__map_id__share__patch"];
+        trace?: never;
+    };
+    "/maps/{map_id}/stories/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List stories that use a map
+         * @description List the stories whose scenes use this map (owner or admin).
+         *
+         *     Stories you can't read are only counted, in `hidden_count`. Deleting the
+         *     map keeps each story's chapters and their text; a chapter whose scene
+         *     used the map loses that scene. 404 when you can't read the map, 403 when
+         *     you can but don't own it.
+         */
+        get: operations["list_map_stories_endpoint_maps__map_id__stories__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/maps/{map_id}/style.json": {
@@ -4496,7 +4799,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Export Map Style Endpoint
+         * Export a map as a MapLibre style
          * @description Export a saved map as a complete MapLibre style JSON document.
          */
         get: operations["export_map_style_endpoint_maps__map_id__style_json_get"];
@@ -4516,12 +4819,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Thumbnail
+         * Get a map thumbnail
          * @description Serve map thumbnail image from storage (visibility-checked).
          */
         get: operations["get_thumbnail_maps__map_id__thumbnail__get"];
         /**
-         * Upload Thumbnail
+         * Upload a map thumbnail
          * @description Upload a base64 thumbnail for a map.
          *
          *     Accepts a data:image/ URI, decodes the base64 payload, writes the image
@@ -4543,13 +4846,11 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Visibility Check Endpoint
-         * @description Check if a map has non-public datasets. Informational only.
+         * Check which layers a map's audience cannot see
+         * @description Check which layers a map's audience can't see. Informational only.
          *
-         *     Owner-or-admin like the other sharing mutations: the response names
-         *     non-public dataset titles, which read access alone must not reveal.
-         *     Read access is checked first so unreadable maps keep answering 404
-         *     (existence-hiding); readable non-owners get 403.
+         *     Owner-or-admin, since the answer names datasets that read access alone
+         *     must not reveal. Unreadable maps answer 404; readable non-owners get 403.
          */
         get: operations["visibility_check_endpoint_maps__map_id__visibility_check__get"];
         put?: never;
@@ -4596,13 +4897,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Contacts Endpoint
+         * List a record's contacts
          * @description List all contacts for a record.
          */
         get: operations["list_contacts_endpoint_records__record_id__contacts__get"];
         put?: never;
         /**
-         * Create Contact Endpoint
+         * Add a record contact
          * @description Create a new contact for a record.
          */
         post: operations["create_contact_endpoint_records__record_id__contacts__post"];
@@ -4623,14 +4924,14 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete Contact Endpoint
+         * Delete a record contact
          * @description Delete a contact.
          */
         delete: operations["delete_contact_endpoint_records__record_id__contacts__contact_id___delete"];
         options?: never;
         head?: never;
         /**
-         * Update Contact Endpoint
+         * Update a record contact
          * @description Update a contact.
          */
         patch: operations["update_contact_endpoint_records__record_id__contacts__contact_id___patch"];
@@ -4644,13 +4945,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Distributions Endpoint
+         * List a record's distributions
          * @description List all distributions for a record.
          */
         get: operations["list_distributions_endpoint_records__record_id__distributions__get"];
         put?: never;
         /**
-         * Create Distribution Endpoint
+         * Add a record distribution
          * @description Create a manual distribution for a record.
          */
         post: operations["create_distribution_endpoint_records__record_id__distributions__post"];
@@ -4671,14 +4972,14 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete Distribution Endpoint
+         * Delete a record distribution
          * @description Delete a distribution (manual only; auto-generated distributions are immutable).
          */
         delete: operations["delete_distribution_endpoint_records__record_id__distributions__distribution_id___delete"];
         options?: never;
         head?: never;
         /**
-         * Update Distribution Endpoint
+         * Update a record distribution
          * @description Update a distribution (manual only; auto-generated distributions are immutable).
          */
         patch: operations["update_distribution_endpoint_records__record_id__distributions__distribution_id___patch"];
@@ -4692,13 +4993,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Keywords Endpoint
+         * List a record's keywords
          * @description List all keywords for a record, marking analysis-inherited ones.
          */
         get: operations["list_keywords_endpoint_records__record_id__keywords__get"];
         put?: never;
         /**
-         * Create Keyword Endpoint
+         * Add a record keyword
          * @description Create a new keyword for a record.
          */
         post: operations["create_keyword_endpoint_records__record_id__keywords__post"];
@@ -4719,7 +5020,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete Keyword Endpoint
+         * Delete a record keyword
          * @description Delete a keyword.
          */
         delete: operations["delete_keyword_endpoint_records__record_id__keywords__keyword_id___delete"];
@@ -4736,7 +5037,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Translations Endpoint
+         * List a record's translations
          * @description List localized title/summary variants visible with the parent record.
          */
         get: operations["list_translations_endpoint_records__record_id__translations__get"];
@@ -4757,13 +5058,13 @@ export interface paths {
         };
         get?: never;
         /**
-         * Upsert Translation Endpoint
+         * Set a record translation
          * @description Create or replace one localized title/summary variant.
          */
         put: operations["upsert_translation_endpoint_records__record_id__translations__language___put"];
         post?: never;
         /**
-         * Delete Translation Endpoint
+         * Delete a record translation
          * @description Delete one localized title/summary variant.
          */
         delete: operations["delete_translation_endpoint_records__record_id__translations__language___delete"];
@@ -4780,7 +5081,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Search Datasets Endpoint
+         * Search datasets
          * @description Search datasets with text, spatial, and faceted filters.
          */
         get: operations["search_datasets_endpoint_search_datasets__get"];
@@ -4800,7 +5101,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Search Facets Endpoint
+         * Get search facet counts
          * @description Return record_type facet counts for the given filters.
          */
         get: operations["search_facets_endpoint_search_facets__get"];
@@ -4820,13 +5121,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Saved Searches Endpoint
+         * List saved searches
          * @description List saved searches for the authenticated user.
          */
         get: operations["list_saved_searches_endpoint_search_saved__get"];
         put?: never;
         /**
-         * Create Saved Search Endpoint
+         * Save a search
          * @description Save a search query with a name for later reuse.
          */
         post: operations["create_saved_search_endpoint_search_saved__post"];
@@ -4844,14 +5145,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Saved Search Endpoint
+         * Get a saved search
          * @description Get a single saved search by ID.
          */
         get: operations["get_saved_search_endpoint_search_saved__search_id__get"];
         put?: never;
         post?: never;
         /**
-         * Delete Saved Search Endpoint
+         * Delete a saved search
          * @description Delete a saved search.
          */
         delete: operations["delete_saved_search_endpoint_search_saved__search_id__delete"];
@@ -4870,7 +5171,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Arcgis Signin
+         * Sign in to an ArcGIS portal
          * @description Sign in to an ArcGIS portal and return a short-lived token.
          *
          *     Asks the portal's own token service for a token valid for 60 minutes and
@@ -4898,7 +5199,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Connectors Endpoint
+         * List connectors
          * @description List persistent connectors supplied by an installed overlay.
          *
          *     Community's no-op extension returns an empty list; one-shot WFS, OGC API,
@@ -4923,7 +5224,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Discover Connector Resources Endpoint
+         * Discover connector resources
          * @description Validate connector config and discover non-secret source resources.
          */
         post: operations["discover_connector_resources_endpoint_services_connectors__connector_name__discover__post"];
@@ -4943,10 +5244,59 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Dispatch Connector Ingest Endpoint
+         * Start a connector ingest
          * @description Dispatch an overlay-owned ingest and return its opaque job id.
          */
         post: operations["dispatch_connector_ingest_endpoint_services_connectors__connector_name__ingest__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/services/databases/{connection}/imports/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import a table from a database connection
+         * @description Copy one listed table or view into a new dataset, as an ingest job.
+         *
+         *     The table must be one the connection's listing returns for this request.
+         *     A second import of the same table by the same user answers 409
+         *     `duplicate_source` naming the existing dataset; refresh that one instead.
+         */
+        post: operations["import_database_table_services_databases__connection__imports__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/services/databases/{connection}/tables/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a database connection's spatial tables
+         * @description List the tables and views with a geometry or geography column that the
+         *     connection's login can read.
+         *
+         *     Connections come from the deployment's `DATABASE_SOURCES`. A 502 means the
+         *     server could not be reached or signed in to, or a table could not be read;
+         *     the detail names only the connection.
+         */
+        get: operations["list_database_tables_services_databases__connection__tables__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4963,7 +5313,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Preview Service Layer
+         * Preview a remote service layer
          * @description Preview a selected remote layer via ogrinfo and create a pending IngestJob.
          *
          *     Validates the URL against SSRF, builds the GDAL driver source string,
@@ -4987,7 +5337,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Probe Service Url
+         * Probe a remote service URL
          * @description Probe a remote service URL to detect its type and list available layers.
          *
          *     Validates the URL against SSRF, detects whether it is a WFS or ArcGIS
@@ -5010,7 +5360,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Stac Asset Sizes
+         * Look up STAC asset sizes
          * @description Look up the size of data assets whose item publishes no ``file:size``.
          *
          *     Asks each asset's server for its length (HEAD, then a one-byte range
@@ -5033,7 +5383,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Stac Collections
+         * List collections in a STAC API
          * @description List collections from a connected STAC API.
          *
          *     Accepts a credential for a protected catalog, applied to this call.
@@ -5055,7 +5405,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Stac Connect
+         * Connect to a STAC API
          * @description Connect to a STAC API and validate the endpoint.
          *
          *     Accepts a credential for a protected catalog, applied to this call.
@@ -5077,7 +5427,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Stac Import
+         * Import STAC items as datasets
          * @description Import selected STAC items as raster datasets.
          *
          *     Each item is registered as a raster_dataset record referencing the
@@ -5101,7 +5451,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Stac Search
+         * Search items in a STAC API
          * @description Search items in a STAC API with spatial/temporal filters.
          *
          *     Accepts a credential for a protected catalog, applied to this call.
@@ -5122,7 +5472,7 @@ export interface paths {
         };
         get?: never;
         /**
-         * Update Settings
+         * Update settings
          * @description Update one or more settings (admin only). Returns updated settings.
          */
         put: operations["update_settings_settings__put"];
@@ -5141,7 +5491,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get All Settings
+         * Get all settings
          * @description Return all settings grouped by tab with source indicators (admin only).
          */
         get: operations["get_all_settings_settings_all__get"];
@@ -5161,7 +5511,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Api Key Status
+         * Get LLM provider key status
          * @description Return which LLM providers are configured (without exposing values).
          */
         get: operations["get_api_key_status_settings_api_key_status__get"];
@@ -5181,7 +5531,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Basemaps
+         * Get basemaps
          * @description Return the configured basemap list (public, no auth required).
          *
          *     Basemaps with ``{api_key}`` in the URL are filtered out when no key is
@@ -5213,7 +5563,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Branding
+         * Get branding
          * @description Return branding configuration (public, no auth required).
          *
          *     The active ``BrandingExtension`` provides initial defaults for branding
@@ -5238,7 +5588,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Config Mode
+         * Get the configuration mode
          * @description Return whether the app is in env-only config mode (public, no auth).
          */
         get: operations["get_config_mode_settings_config_mode__get"];
@@ -5260,7 +5610,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Detect Embedding Dims
+         * Detect embedding dimensions
          * @description Probe the configured embedding model and return its output dimensions.
          */
         post: operations["detect_embedding_dims_settings_detect_embedding_dims__post"];
@@ -5298,7 +5648,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Enabled Plugins
+         * Get enabled plugins
          * @description Return enabled plugin IDs. null = no restriction (all shown), [] = none, [...ids] = only those.
          */
         get: operations["get_enabled_plugins_settings_enabled_plugins__get"];
@@ -5343,7 +5693,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Feature Flags
+         * Get feature flags
          * @description Return public feature flags (no auth required).
          */
         get: operations["get_feature_flags_settings_feature_flags__get"];
@@ -5363,7 +5713,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Map Defaults
+         * Get map defaults
          * @description Return the default map center and zoom (public, no auth required).
          */
         get: operations["get_map_defaults_settings_map_defaults__get"];
@@ -5383,7 +5733,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Notification Status
+         * Get notification channel status
          * @description Return which notification channels are configured (booleans only — no secrets).
          *
          *     Mirrors get_api_key_status: returns presence flags derived from env/settings
@@ -5409,7 +5759,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Send Test Notification
+         * Send a test notification
          * @description Send a canned test notification through each configured channel (admin only).
          *
          *     Mirrors detect_embedding_dims: admin-gated probe that reports per-channel
@@ -5435,13 +5785,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Oauth Providers
+         * List OAuth providers
          * @description List all OAuth providers (admin only).
          */
         get: operations["list_oauth_providers_settings_oauth_providers__get"];
         put?: never;
         /**
-         * Create Oauth Provider
+         * Create an OAuth provider
          * @description Create a new OAuth or SAML provider (admin only).
          *
          *     Audit-log payload includes the full ``created`` snapshot with non-secret
@@ -5464,7 +5814,7 @@ export interface paths {
         };
         get?: never;
         /**
-         * Update Oauth Provider
+         * Update an OAuth provider
          * @description Update an existing OAuth or SAML provider (admin only).
          *
          *     Audit-log payload contains ``details.changes`` with per-field
@@ -5475,7 +5825,7 @@ export interface paths {
         put: operations["update_oauth_provider_settings_oauth_providers__provider_id__put"];
         post?: never;
         /**
-         * Delete Oauth Provider
+         * Delete an OAuth provider
          * @description Delete an OAuth or SAML provider (admin only).
          *
          *     Audit-log payload contains a ``deleted`` snapshot with the pre-delete
@@ -5498,7 +5848,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reset Settings
+         * Reset settings to defaults
          * @description Reset one or more settings to their defaults (admin only). Returns updated settings.
          */
         post: operations["reset_settings_settings_reset__post"];
@@ -5516,7 +5866,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Tile Config
+         * Get tile configuration
          * @description Return tile delivery configuration (public, no auth required).
          */
         get: operations["get_tile_config_settings_tile_config__get"];
@@ -5536,7 +5886,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Landing Page
+         * Get the STAC landing page
          * @description STAC Catalog landing page.
          */
         get: operations["landing_page_stac__get"];
@@ -5556,7 +5906,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Collections
+         * List STAC collections
          * @description List all STAC Collections.
          */
         get: operations["get_collections_stac_collections_get"];
@@ -5576,7 +5926,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Collection
+         * Get a STAC collection
          * @description Get a single STAC Collection.
          */
         get: operations["get_collection_stac_collections__collection_id__get"];
@@ -5596,7 +5946,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Collection Items
+         * List STAC items in a collection
          * @description List STAC Items within a collection.
          */
         get: operations["get_collection_items_stac_collections__collection_id__items_get"];
@@ -5616,7 +5966,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Collection Item
+         * Get a STAC item in a collection
          * @description Get a single STAC Item within a collection.
          */
         get: operations["get_collection_item_stac_collections__collection_id__items__item_id__get"];
@@ -5636,7 +5986,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Conformance
+         * Get the STAC conformance classes
          * @description STAC API conformance classes.
          */
         get: operations["conformance_stac_conformance_get"];
@@ -5656,7 +6006,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Item
+         * Get a STAC item
          * @description Get a single STAC Item by dataset ID.
          */
         get: operations["get_item_stac_items__item_id__get"];
@@ -5676,16 +6026,298 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Search Get
+         * Search STAC items with GET
          * @description STAC Item Search (GET).
          */
         get: operations["search_get_stac_search_get"];
         put?: never;
         /**
-         * Search Post
+         * Search STAC items with POST
          * @description STAC Item Search (POST with JSON body).
          */
         post: operations["search_post_stac_search_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stories/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List stories
+         * @description List the stories the caller may read, most recently updated first.
+         *
+         *     Anyone sees published public stories, signed-in users also published
+         *     internal ones, owners their own (published or not), and admins all.
+         */
+        get: operations["list_stories_endpoint_stories__get"];
+        put?: never;
+        /**
+         * Create a story
+         * @description Create a private, unpublished story with an empty draft.
+         */
+        post: operations["create_story_endpoint_stories__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stories/frame-hosts/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List hosts a story may embed
+         * @description The hosts story embed and video blocks may frame (public, no auth required).
+         *
+         *     An admin sets them in `story_frame_hosts`. Empty means neither block can
+         *     be added, and none is shown to readers.
+         */
+        get: operations["story_frame_hosts_endpoint_stories_frame_hosts__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stories/{story_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a story
+         * @description Read a story's published document.
+         *
+         *     Scenes on maps the caller can't read come back without their scene. An
+         *     unpublished story is readable only by its owner and admins, with a null
+         *     document. 404 when the caller can't read the story.
+         */
+        get: operations["get_story_endpoint_stories__story_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a story
+         * @description Delete a story and its images (owner or admin). The maps it uses are
+         *     untouched.
+         */
+        delete: operations["delete_story_endpoint_stories__story_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update a story
+         * @description Change a story's title, summary, visibility or cover (owner or admin).
+         *
+         *     These apply at once, without Publish. A visibility wider than a map the
+         *     published story uses answers 409 `maps_narrower_than_story`; a narrower
+         *     one is always allowed. A story shared with groups stays restricted when
+         *     made private.
+         */
+        patch: operations["update_story_endpoint_stories__story_id__patch"];
+        trace?: never;
+    };
+    "/stories/{story_id}/assets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload a story image
+         * @description Upload an image, the multipart part `file`, for the story's blocks or
+         *     cover (owner or admin).
+         *
+         *     PNG, JPEG and WebP, told apart by their bytes. It's stored as sRGB WebP
+         *     without its metadata. 400 `story_image_unreadable`, 413
+         *     `story_image_too_large`, 415 `story_image_unsupported`, 409
+         *     `story_asset_limit` or `story_asset_owner_limit`, 503 `story_image_busy`.
+         *     Readers get it once a published block or the cover uses it.
+         */
+        post: operations["upload_story_asset_endpoint_stories__story_id__assets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stories/{story_id}/assets/{asset_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a story image
+         * @description Serve one of the story's images, as WebP unless `variant` says otherwise.
+         *
+         *     Its owner and admins get any of them. Anyone else who can read the story
+         *     gets the cover and the images its published document uses. 404 otherwise.
+         */
+        get: operations["get_story_asset_endpoint_stories__story_id__assets__asset_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stories/{story_id}/discard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Discard a story draft
+         * @description Revert the draft to the published document, or to an empty one for a
+         *     story never published (owner or admin).
+         *
+         *     `revision` must match the stored draft's, or 409 `stale_revision`, so a
+         *     stale tab or a retry can't erase a draft saved since.
+         */
+        post: operations["discard_story_draft_endpoint_stories__story_id__discard_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stories/{story_id}/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a story draft
+         * @description Read the draft with its revision (owner or admin).
+         *
+         *     Scenes on maps you can't read come back without their scene, marked
+         *     `scene_hidden`. 404 when you can't read the story, 403 when you can but
+         *     don't own it.
+         */
+        get: operations["get_story_draft_endpoint_stories__story_id__draft_get"];
+        /**
+         * Save a story draft
+         * @description Replace the whole draft (owner or admin). Readers keep the published
+         *     document until Publish.
+         *
+         *     `revision` must match the stored draft's, or 409 `stale_revision`. 422
+         *     for an unknown or invalid block, for a scene on a map you can't read
+         *     (`detail.code` `story_maps_not_found`), for an image block naming an
+         *     image this story doesn't have (`story_assets_not_found`), or for an
+         *     embed or video block whose host isn't approved
+         *     (`story_frame_host_not_allowed`, the blocks under `detail.blocks`). Blocks
+         *     you can't see and scenes sent back with `scene_hidden` are kept as stored.
+         */
+        put: operations["save_story_draft_endpoint_stories__story_id__draft_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stories/{story_id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duplicate a story
+         * @description Copy a story you can read into a new private draft you own.
+         *
+         *     Its owner or an admin copies the draft; anyone else the published
+         *     document. Scenes on maps you can't read are left out of the copy. The
+         *     copy gets its own copies of the images it uses and of the cover.
+         */
+        post: operations["duplicate_story_endpoint_stories__story_id__duplicate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stories/{story_id}/groups/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set the sharing groups for a story
+         * @description Share a story with exactly these sharing groups (owner or admin).
+         *
+         *     An owner may add only groups they belong to (403); an admin may add any.
+         *     A private story shared with a group becomes restricted, and once
+         *     published its members can read it; a restricted one left with no group
+         *     becomes private. Internal and public stories keep their audience. 404 for
+         *     an unknown group.
+         *
+         *     409 `maps_narrower_than_story` when the published story uses maps some
+         *     member of a new group can't read: `detail.maps` names the ones you can
+         *     read, each with `can_share`, and `detail.unreadable_maps` counts the
+         *     rest; see `confirm`.
+         */
+        put: operations["set_story_groups_endpoint_stories__story_id__groups__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stories/{story_id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish a story
+         * @description Publish the draft (owner or admin): readers get it from now on.
+         *
+         *     `revision` must match the stored draft's, or 409 `stale_revision`. 409
+         *     `maps_narrower_than_story` when a map a scene uses can't be read by
+         *     everyone the story's visibility reaches: `detail.maps` names the ones you
+         *     can read and `detail.unreadable_maps` counts the rest. For a restricted
+         *     story, a map only some of its groups lack is `can_share`; see `confirm`.
+         *     422 `story_frame_host_not_allowed` when an embed or video block frames a
+         *     host that isn't approved now; `detail.blocks` names each one.
+         */
+        post: operations["publish_story_endpoint_stories__story_id__publish_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5700,7 +6332,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Cluster Tile Endpoint
+         * Get a clustered vector tile
          * @description Serve a server-side clustered vector tile for a point dataset.
          *
          *     URL pattern: ``/tiles/clusters/data.{table_name}/{z}/{x}/{y}.pbf``
@@ -5735,13 +6367,15 @@ export interface paths {
          *     a malformed table path or an out-of-range tile coordinate.
          *
          *     A tile holding no features answers 204, and a repeat request whose
-         *     ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+         *     ``If-None-Match`` matches answers 304. When more than 100,000 points fall
+         *     in or next to the tile, or it would hold more than 50,000 features, it
+         *     holds a fixed sample and carries ``X-GeoLens-Tile-Sampled: true``. Where a deployment runs cold storage,
          *     a dataset still being restored answers 202 with a job id to poll. Requests
          *     answer 429 with ``Retry-After`` when the per-process capacity for uncached
-         *     renders stays full for a short wait, tile-pool acquisition times out, a
-         *     tile query exceeds the pool's per-command timeout, or the configured
-         *     per-tenant concurrency limit is exceeded. Any other failure serving the
-         *     tile answers 503.
+         *     renders stays full for a short wait, tile-pool acquisition times out, or the
+         *     configured per-tenant concurrency limit is exceeded. A tile query that
+         *     exceeds the pool's per-command timeout answers 503 without ``Retry-After``
+         *     and is not cached, as does any other failure serving the tile.
          */
         get: operations["cluster_tile_endpoint_tiles_clusters__table_path___z___x___y__pbf_get"];
         put?: never;
@@ -5760,7 +6394,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Raster Tile Proxy
+         * Get a raster tile
          * @description Render one raster tile and return the image.
          *
          *     Returns the image itself rather than a redirect: the dataset is
@@ -5792,9 +6426,10 @@ export interface paths {
          *     unsupported format, 401 when a request that no capability authorized
          *     carried a credential which did not resolve, 403 when the embed token is
          *     invalid or expired or a multi-tenant request arrives with no tenant
-         *     context, 422 for an out-of-range stretch parameter, and 503 when the
-         *     renderer cannot be reached. A different failure from the renderer is
-         *     passed through with its own status.
+         *     context, 422 for an out-of-range stretch parameter, 429 with
+         *     ``Retry-After`` when the per-process capacity for uncached raster renders
+         *     stays full for a short wait, and 503 when the renderer cannot be reached. A
+         *     different failure from the renderer is passed through with its own status.
          *
          *     404 covers more than a missing dataset. A dataset that is unknown, is not a
          *     raster or has no image answers 404. Where no capability authorized the
@@ -5822,7 +6457,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Tile Token
+         * Create a tile token
          * @description Generate a tile token for a dataset.
          *
          *     For vector datasets: returns HMAC-signed token (sig, exp, scope, expires_in).
@@ -5853,7 +6488,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Get Tile Tokens Batch
+         * Create tile tokens for several datasets
          * @description Generate tile tokens for up to 50 datasets in one request.
          *
          *     The list must hold between 1 and 50 ids, and a request outside that is 422.
@@ -5890,7 +6525,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Tile Endpoint
+         * Get a vector tile
          * @description Serve a vector tile as gzipped MVT binary.
          *
          *     URL pattern: ``/tiles/data.{table_name}/{z}/{x}/{y}.pbf``
@@ -5924,13 +6559,15 @@ export interface paths {
          *
          *     A malformed table path or an out-of-range tile coordinate answers 400. A
          *     tile holding no features answers 204, and a repeat request whose
-         *     ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+         *     ``If-None-Match`` matches answers 304. When the tile holds more than 50,000
+         *     features, it carries a fixed sample of them spread across the tile and
+         *     ``X-GeoLens-Tile-Sampled: true``. Where a deployment runs cold storage,
          *     a dataset still being restored answers 202 with a job id to poll. Requests
          *     answer 429 with ``Retry-After`` when the per-process capacity for uncached
-         *     renders stays full for a short wait, tile-pool acquisition times out, a
-         *     tile query exceeds the pool's per-command timeout, or the configured
-         *     per-tenant concurrency limit is exceeded. Any other failure serving the
-         *     tile answers 503.
+         *     renders stays full for a short wait, tile-pool acquisition times out, or the
+         *     configured per-tenant concurrency limit is exceeded. A tile query that
+         *     exceeds the pool's per-command timeout answers 503 without ``Retry-After``
+         *     and is not cached, as does any other failure serving the tile.
          */
         get: operations["tile_endpoint_tiles__table_path___z___x___y__pbf_get"];
         put?: never;
@@ -6373,6 +7010,26 @@ export interface components {
              */
             role: string;
         };
+        /** AggregateRow */
+        AggregateRow: {
+            /**
+             * Gid
+             * @description The feature's id; text at or beyond 2^53, as for a value.
+             */
+            gid: number | string;
+            /**
+             * Values
+             * @description By column. The column's value. A number JSON cannot carry exactly, such as an integer beyond 2^53 or NaN, comes back as text.
+             */
+            values: {
+                [key: string]: string | number | boolean | null;
+            };
+            /**
+             * Bbox
+             * @description Present only when the dataset has geometry: the feature's `[west, south, east, north]` in WGS 84, or null without a shape.
+             */
+            bbox?: number[] | null;
+        };
         /** AlterColumnTypeRequest */
         AlterColumnTypeRequest: {
             /**
@@ -6733,6 +7390,156 @@ export interface components {
              */
             expires_at: string;
         };
+        /** ArcgisLossItem */
+        ArcgisLossItem: {
+            /**
+             * Path
+             * @description JSON path of the web map part that was not carried over.
+             */
+            path: string;
+            /**
+             * Kind
+             * @description Stable code for the kind of loss.
+             */
+            kind: string;
+            /**
+             * Detail
+             * @description Free text; not localized.
+             * @default
+             */
+            detail: string;
+        };
+        /** ArcgisLossReport */
+        ArcgisLossReport: {
+            /** Items */
+            items: components["schemas"]["ArcgisLossItem"][];
+            /**
+             * Summary
+             * @description Item count per `kind`.
+             */
+            summary: {
+                [key: string]: number;
+            };
+        };
+        /** ArcgisTranslatedView */
+        ArcgisTranslatedView: {
+            /**
+             * Basemap Style
+             * @description The GeoLens basemap id.
+             */
+            basemap_style: string | null;
+            /**
+             * Center Lng
+             * @description Initial center longitude.
+             */
+            center_lng: number | null;
+            /**
+             * Center Lat
+             * @description Initial center latitude.
+             */
+            center_lat: number | null;
+            /**
+             * Zoom
+             * @description Initial zoom level.
+             */
+            zoom: number | null;
+            /**
+             * Bearing
+             * @description Initial rotation in degrees.
+             */
+            bearing: number | null;
+        };
+        /** ArcgisUnmatchedLayer */
+        ArcgisUnmatchedLayer: {
+            /** Layer Id */
+            layer_id: string;
+            /** Title */
+            title: string;
+            /** Url */
+            url: string;
+            /**
+             * Reason
+             * @description `no_match` or `invalid`.
+             */
+            reason: string;
+        };
+        /** ArcgisWebmapImportRequest */
+        ArcgisWebmapImportRequest: {
+            /**
+             * Webmap
+             * @description The web map item data JSON, at most 1 MB serialized.
+             */
+            webmap: {
+                [key: string]: unknown;
+            };
+            /**
+             * Name
+             * @description Map name. Defaults to `title`.
+             */
+            name?: string | null;
+            /**
+             * Title
+             * @description The web map item's title.
+             */
+            title?: string | null;
+            /**
+             * @description Visibility of the new map: private, internal or public. A map becomes restricted by sharing it with groups afterwards.
+             * @default private
+             */
+            visibility: components["schemas"]["MapVisibility"];
+            /**
+             * Basemap Map
+             * @description Esri basemap URL or style URL (the first base map layer's `url` or `styleUrl`) to a GeoLens basemap id. An unmapped basemap falls back to the first enabled basemap and is reported.
+             */
+            basemap_map?: {
+                [key: string]: string;
+            };
+            /**
+             * Dataset Matches
+             * @description Operational layer id to GeoLens dataset id. Every dataset must be one the caller can read, or the request is refused with 404. A layer with no entry is not imported and is listed as unmatched.
+             */
+            dataset_matches?: {
+                [key: string]: string;
+            };
+            /**
+             * Dry Run
+             * @description Return the translation without creating a map.
+             * @default false
+             */
+            dry_run: boolean;
+        };
+        /** ArcgisWebmapImportResponse */
+        ArcgisWebmapImportResponse: {
+            /** @description The new map; null on a dry run. */
+            map: components["schemas"]["MapResponse"] | null;
+            /**
+             * Layers
+             * @description The translated layers, in draw order.
+             */
+            layers: components["schemas"]["MapLayerInput"][];
+            /**
+             * Layer Ids
+             * @description Operational layer id to the id of the map layer created for it. Layers that were not imported are absent; see `loss_report`. Empty on a dry run.
+             */
+            layer_ids?: {
+                [key: string]: string;
+            };
+            loss_report: components["schemas"]["ArcgisLossReport"];
+            /** Unmatched Layers */
+            unmatched_layers: components["schemas"]["ArcgisUnmatchedLayer"][];
+            /**
+             * Layer Sources
+             * @description The operational layer id each entry of `layers` was translated from, in the same order.
+             */
+            layer_sources?: string[];
+            /** @description The initial view and basemap the map gets. */
+            view?: components["schemas"]["ArcgisTranslatedView"] | null;
+            /**
+             * Notes
+             * @description The loss report as the import writes it to the map's notes.
+             */
+            notes?: string | null;
+        };
         /** AttributeMetadataListResponse */
         AttributeMetadataListResponse: {
             /** Attributes */
@@ -6775,6 +7582,13 @@ export interface components {
              */
             example_values?: unknown[] | null;
             /**
+             * Value Labels
+             * @description Label for each stored code, keyed by the code as text.
+             */
+            value_labels?: {
+                [key: string]: string;
+            } | null;
+            /**
              * Ordinal Position
              * @description Column position in the table (1-based)
              */
@@ -6816,6 +7630,13 @@ export interface components {
              * @description Value domain: continuous, categorical, coded, etc.
              */
             domain_type?: ("continuous" | "discrete" | "categorical" | "coded" | "codedValue" | "boolean" | "text" | "date" | "temporal" | "geometry" | "range") | null;
+            /**
+             * Value Labels
+             * @description Label for each stored code, keyed by the code as text.
+             */
+            value_labels?: {
+                [key: string]: string;
+            } | null;
         };
         /** AuditLogListResponse */
         AuditLogListResponse: {
@@ -6999,6 +7820,102 @@ export interface components {
              * @enum {string}
              */
             status: "pending" | "already_running" | "not_queued";
+        };
+        /** BarChartConfig */
+        BarChartConfig: {
+            /**
+             * Mode
+             * @description `category`: one bar per value of `column`. `by_feature`: one bar per feature, labelled by `label_column`, sized by `value_column`. `by_fields`: one bar per name in `fields`, each showing `stat` of that field. `date`: `column` grouped by `date_bucket`.
+             * @default category
+             * @enum {string}
+             */
+            mode: "category" | "by_feature" | "by_fields" | "date";
+            /**
+             * Column
+             * @description The column whose values become bars (`category` and `date`).
+             */
+            column?: string | null;
+            /**
+             * Stat
+             * @default count
+             * @enum {string}
+             */
+            stat: "count" | "sum" | "mean" | "min" | "max";
+            /** Stat Column */
+            stat_column?: string | null;
+            /**
+             * Limit
+             * @default 10
+             */
+            limit: number;
+            /**
+             * Label Column
+             * @description `by_feature`: the field that labels each bar.
+             */
+            label_column?: string | null;
+            /**
+             * Value Column
+             * @description `by_feature`: the numeric field that sizes each bar.
+             */
+            value_column?: string | null;
+            /**
+             * Sort
+             * @description `by_feature`: bar order by value.
+             * @default desc
+             * @enum {string}
+             */
+            sort: "asc" | "desc";
+            /**
+             * Fields
+             * @description `by_fields`: the numeric fields to chart, one bar each.
+             */
+            fields?: string[];
+            /**
+             * Date Bucket
+             * @description `date`: the span each bar covers.
+             */
+            date_bucket?: ("day" | "week" | "month" | "year") | null;
+            /**
+             * Use Layer Colors
+             * @description `category`: colour bars as the layer does when `column` is its style column.
+             * @default true
+             */
+            use_layer_colors: boolean;
+        };
+        /** BarChartWidget */
+        BarChartWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * Layer Id
+             * Format: uuid
+             * @description A layer of the host's map.
+             */
+            layer_id: string;
+            /**
+             * Scope
+             * @description Summarize the whole layer, or only what the map view shows.
+             * @default layer
+             * @enum {string}
+             */
+            scope: "layer" | "view";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "bar_chart";
+            /**
+             * V
+             * @enum {integer}
+             */
+            v: 1 | 2;
+            config: components["schemas"]["BarChartConfig"];
         };
         /** BasemapConfig */
         BasemapConfig: {
@@ -7341,6 +8258,44 @@ export interface components {
             /** Revoked Count */
             revoked_count: number;
         };
+        /** ButtonConfig */
+        ButtonConfig: {
+            /** Label */
+            label: string;
+            /**
+             * Url
+             * @description An http or https address; any other scheme is refused.
+             */
+            url: string;
+            /**
+             * New Tab
+             * @description Open the link in a new tab.
+             * @default false
+             */
+            new_tab: boolean;
+        };
+        /** ButtonWidget */
+        ButtonWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "button";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            config: components["schemas"]["ButtonConfig"];
+        };
         /** CapabilitiesAuth */
         CapabilitiesAuth: {
             /**
@@ -7366,6 +8321,19 @@ export interface components {
              * @description Display name.
              */
             name: string;
+        };
+        /** CapabilitiesDatabaseConnection */
+        CapabilitiesDatabaseConnection: {
+            /**
+             * Name
+             * @description Connection name to list and import tables from.
+             */
+            name: string;
+            /**
+             * Database
+             * @description Database the connection reads.
+             */
+            database: string;
         };
         /** CapabilitiesKey */
         CapabilitiesKey: {
@@ -7399,6 +8367,11 @@ export interface components {
              * @description Datasets the account can still create, or null when uncapped.
              */
             remaining_dataset_quota: number | null;
+            /**
+             * Database Connections
+             * @description Database connections the deployment configures, listed only for an account that can create datasets.
+             */
+            database_connections?: components["schemas"]["CapabilitiesDatabaseConnection"][];
         };
         /** CapabilitiesRateLimits */
         CapabilitiesRateLimits: {
@@ -7470,6 +8443,28 @@ export interface components {
              */
             presigned: boolean;
         };
+        /** CarouselWidget */
+        CarouselWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "carousel";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            config: components["schemas"]["GalleryConfig"];
+        };
         /** CatalogStatsResponse */
         CatalogStatsResponse: {
             /**
@@ -7521,6 +8516,51 @@ export interface components {
              * @default 0
              */
             total_users: number;
+        };
+        /** CategorySelectorConfig */
+        CategorySelectorConfig: {
+            /** Column */
+            column: string;
+            /**
+             * Multiple
+             * @default true
+             */
+            multiple: boolean;
+        };
+        /** CategorySelectorWidget */
+        CategorySelectorWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * Layer Id
+             * Format: uuid
+             * @description A layer of the host's map.
+             */
+            layer_id: string;
+            /**
+             * Scope
+             * @description Summarize the whole layer, or only what the map view shows.
+             * @default layer
+             * @enum {string}
+             */
+            scope: "layer" | "view";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "category_selector";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            config: components["schemas"]["CategorySelectorConfig"];
         };
         /** ChangePasswordRequest */
         ChangePasswordRequest: {
@@ -8019,6 +9059,16 @@ export interface components {
              * @default false
              */
             strict_cog: boolean;
+            /**
+             * Item Id
+             * @description Vector file only: ArcGIS portal item ID the file came from, at most 64 characters (longer is refused with 422). Stored as provenance when it is 32 hex characters, otherwise dropped and reported in origin_link_loss; other import types report it as 'origin_link_unsupported'.
+             */
+            item_id?: string | null;
+            /**
+             * Portal Url
+             * @description Vector file only: ArcGIS portal address for the item link, at most 2048 characters (longer is refused with 422). Stored only when it is an https URL, otherwise dropped and reported in origin_link_loss; other import types report it as 'origin_link_unsupported'.
+             */
+            portal_url?: string | null;
         };
         /** CommitResponse */
         CommitResponse: {
@@ -8038,6 +9088,11 @@ export interface components {
              * @description Human-readable commit result.
              */
             message: string;
+            /**
+             * Origin Link Loss
+             * @description Reasons the ArcGIS item link was dropped: 'item_id_invalid', 'portal_url_invalid', 'portal_url_domain_mismatch' or 'origin_link_unsupported'. Empty when nothing was dropped.
+             */
+            origin_link_loss?: string[];
         };
         /**
          * ConfigImportRequest
@@ -8323,6 +9378,49 @@ export interface components {
             /** Sort Order */
             sort_order?: number | null;
         };
+        /** CountRequest */
+        CountRequest: {
+            /**
+             * Filter
+             * @description CQL2-JSON filter, as the OGC API Features `filter` accepts.
+             */
+            filter?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Bbox
+             * @description Map view `[west, south, east, north]` in WGS 84; west greater than east crosses the antimeridian. Omit for the whole layer.
+             */
+            bbox?: number[] | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "count";
+        };
+        /** CountResponse */
+        CountResponse: {
+            /**
+             * Approximate
+             * @description Always false: a view too wide to count exactly is refused.
+             * @default false
+             * @constant
+             */
+            approximate: false;
+            /** Cached */
+            cached: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "count";
+            result: components["schemas"]["CountResult"];
+        };
+        /** CountResult */
+        CountResult: {
+            /** Count */
+            count: number;
+        };
         /** CreateEmptyDatasetRequest */
         CreateEmptyDatasetRequest: {
             /** Title */
@@ -8394,6 +9492,193 @@ export interface components {
              * @description Creation timestamp
              */
             created_at: string;
+        };
+        /** DashboardConfig */
+        DashboardConfig: {
+            /** Version */
+            version: number;
+            /**
+             * Panel
+             * @description Where the panel sits beside the map: `right` or `bottom`. On narrow screens it is always below the map.
+             * @default right
+             * @enum {string}
+             */
+            panel: "right" | "bottom";
+            /**
+             * Map Hidden
+             * @description Show the widgets across the full page and don't mount the map. Widgets scoped to the map view fall back to the whole layer.
+             * @default false
+             */
+            map_hidden: boolean;
+            /**
+             * Theme
+             * @description The page's colours: `light`, `dark`, or `follow` the reader's setting.
+             * @default follow
+             * @enum {string}
+             */
+            theme: "follow" | "light" | "dark";
+            /**
+             * Widgets
+             * @description The widgets on layers this response shows, in panel order.
+             */
+            widgets: (components["schemas"]["MarkdownWidget"] | components["schemas"]["IndicatorWidget"] | components["schemas"]["BarChartWidget"] | components["schemas"]["PieChartWidget"] | components["schemas"]["FeatureListWidget"] | components["schemas"]["TableWidget"] | components["schemas"]["HistogramWidget"] | components["schemas"]["CategorySelectorWidget"])[];
+        };
+        /** DashboardConfigInput */
+        DashboardConfigInput: {
+            /**
+             * Version
+             * @default 1
+             * @constant
+             */
+            version: 1;
+            /**
+             * Panel
+             * @description Where the panel sits beside the map: `right` or `bottom`. On narrow screens it is always below the map. Leave it out to keep the stored panel.
+             */
+            panel?: ("right" | "bottom") | null;
+            /**
+             * Map Hidden
+             * @description Show the widgets across the full page and don't mount the map. Widgets scoped to the map view fall back to the whole layer. Leave it out to keep the stored value.
+             */
+            map_hidden?: boolean | null;
+            /**
+             * Theme
+             * @description The page's colours: `light`, `dark`, or `follow` the reader's setting. Leave it out to keep the stored theme.
+             */
+            theme?: ("follow" | "light" | "dark") | null;
+            /**
+             * Readable
+             * @description The widget `type:v` pairs this client can parse, such as `bar_chart:1`. Stored widgets outside the list are kept in place. Leave it out for the widgets of earlier releases.
+             */
+            readable?: string[] | null;
+            /**
+             * Widgets
+             * @description Widgets in panel order. Each, except a text widget, names a layer of this map that you can read. Stored widgets you can't see are kept in place.
+             */
+            widgets?: (components["schemas"]["MarkdownWidget"] | components["schemas"]["IndicatorWidget"] | components["schemas"]["BarChartWidget"] | components["schemas"]["PieChartWidget"] | components["schemas"]["FeatureListWidget"] | components["schemas"]["TableWidget"] | components["schemas"]["HistogramWidget"] | components["schemas"]["CategorySelectorWidget"])[];
+        };
+        /** DatabaseImportRequest */
+        DatabaseImportRequest: {
+            /**
+             * Schema Name
+             * @description Schema of the table, as listed.
+             */
+            schema_name: string;
+            /**
+             * Table Name
+             * @description Table or view name, as listed.
+             */
+            table_name: string;
+            /**
+             * Title
+             * @description Dataset title. Defaults to the table name.
+             */
+            title?: string | null;
+            /**
+             * Summary
+             * @description Optional dataset description shown in the catalog.
+             */
+            summary?: string | null;
+            /**
+             * Visibility
+             * @description Dataset visibility: private, restricted, internal or public.
+             * @default private
+             * @enum {string}
+             */
+            visibility: "private" | "restricted" | "internal" | "public";
+            /**
+             * Srid Override
+             * @description EPSG code the table's coordinates are read under when the table has no SRID of its own: its geometries have SRID 0 or it has no rows. A table with an SRID is always read under that SRID.
+             */
+            srid_override?: number | null;
+        };
+        /** DatabaseImportResponse */
+        DatabaseImportResponse: {
+            /**
+             * Job Id
+             * Format: uuid
+             * @description Ingest job that copies the table.
+             */
+            job_id: string;
+            /**
+             * Status
+             * @description Status of the new job.
+             * @constant
+             */
+            status: "pending";
+            /**
+             * Message
+             * @description What happened.
+             */
+            message: string;
+        };
+        /** DatabaseTable */
+        DatabaseTable: {
+            /**
+             * Schema Name
+             * @description Schema that holds the table or view.
+             */
+            schema_name: string;
+            /**
+             * Table Name
+             * @description Table or view name.
+             */
+            table_name: string;
+            /**
+             * Object Type
+             * @description Table or view.
+             * @enum {string}
+             */
+            object_type: "table" | "view";
+            /**
+             * Geometry Column
+             * @description Spatial column.
+             */
+            geometry_column: string;
+            /**
+             * Column Type
+             * @description SQL Server spatial type of the column.
+             * @enum {string}
+             */
+            column_type: "geometry" | "geography";
+            /**
+             * Srid
+             * @description SRID of the column's first non-null value, or null when it is 0, the table has no rows, or it couldn't be read.
+             */
+            srid: number | null;
+            /**
+             * Importable
+             * @description False when the schema or table name has characters an import refuses; such an entry is listed but can't be imported.
+             */
+            importable: boolean;
+        };
+        /** DatabaseTableListResponse */
+        DatabaseTableListResponse: {
+            /**
+             * Connection
+             * @description Connection name from the deployment.
+             */
+            connection: string;
+            /**
+             * Database
+             * @description Database the connection reads.
+             */
+            database: string;
+            /**
+             * Tables
+             * @description One entry per table or view, ordered by schema and name, with the spatial column an import reads: the first by column order.
+             */
+            tables: components["schemas"]["DatabaseTable"][];
+            /**
+             * Limit
+             * @description Most entries one listing returns.
+             */
+            limit: number;
+            /**
+             * Truncated
+             * @description True when the connection has more tables than `limit`.
+             */
+            truncated: boolean;
         };
         /** DatasetApiKeyCreateRequest */
         DatasetApiKeyCreateRequest: {
@@ -8498,6 +9783,32 @@ export interface components {
              */
             confirm_title: string;
         };
+        /** DatasetGroupsResponse */
+        DatasetGroupsResponse: {
+            /**
+             * Visibility
+             * @description The dataset's visibility after the change: a private dataset shared with a group becomes restricted, and a restricted one left with no group or role grant becomes private.
+             */
+            visibility: string;
+            /**
+             * Groups
+             * @description The sharing groups the dataset is shared with, by name.
+             */
+            groups: components["schemas"]["GroupRef"][];
+            /**
+             * Metadata Warnings
+             * @description Advisory warnings, as on the metadata PATCH. The change has already applied.
+             */
+            metadata_warnings?: string[] | null;
+        };
+        /** DatasetGroupsUpdate */
+        DatasetGroupsUpdate: {
+            /**
+             * Group Ids
+             * @description Every group the dataset is shared with afterwards; an empty list unshares it. An owner may add only groups they belong to, and an admin any group.
+             */
+            group_ids: string[];
+        };
         /** DatasetListResponse */
         DatasetListResponse: {
             /** Datasets */
@@ -8599,7 +9910,7 @@ export interface components {
             is_dem?: boolean | null;
             /**
              * Tile Columns
-             * @description Ordered vector-tile property allowlist; null restores zoom defaults, [] emits geometry-only tiles, list emits those properties at any zoom.
+             * @description Ordered vector-tile property allowlist; null restores zoom defaults, [] emits geometry-only tiles, list emits those properties at any zoom. Reads authorized only by an embed token are limited to these columns too.
              */
             tile_columns?: string[] | null;
             /**
@@ -8607,6 +9918,11 @@ export interface components {
              * @description Admin only: transfer the dataset to this active user.
              */
             owner_id?: string | null;
+            /**
+             * Expected Updated At
+             * @description The dataset's `updated_at` the caller read. When set and the dataset has changed since, nothing is written and the answer is 409 with `detail.code` `stale_write`. Omit it to write unconditionally.
+             */
+            expected_updated_at?: string | null;
         };
         /**
          * DatasetRefreshRequest
@@ -8637,6 +9953,11 @@ export interface components {
             accept_blocked_run_id?: string | null;
             /** @description Structured credential for a protected service. Mutually exclusive with the token field. */
             auth?: components["schemas"]["ServiceAuthRequest"] | null;
+            /**
+             * Expected Data Revision
+             * @description The dataset's `data_revision` the caller last saw. When it differs from the revision this replacement is compared with, every write counts as later, so the run stops for review with `live_data_changed` instead of publishing. Omit it to compare with the revision at admission only. Service refreshes only; 422 for any other origin.
+             */
+            expected_data_revision?: number | null;
         };
         /**
          * DatasetRefreshResponse
@@ -9090,6 +10411,11 @@ export interface components {
             /** Updated By */
             updated_by?: string | null;
             /**
+             * Data Revision
+             * @description Counts writes to the dataset's features and columns. Owner and admin only; null for other readers.
+             */
+            data_revision?: number | null;
+            /**
              * Record Type
              * @description Record type: 'vector_dataset' (spatial features), 'raster_dataset' (single COG), 'vrt_dataset' (VRT mosaic), 'table' (non-spatial tabular), 'map' (saved map), 'service' (catalogued remote service), 'collection' (flat dataset group), 'tiles3d_dataset' (3D Tiles tileset), 'pointcloud_dataset' (COPC point cloud).
              * @default vector_dataset
@@ -9127,6 +10453,11 @@ export interface components {
              * @description The kept previous versions, newest first, each of which POST /previous-versions/{version_number}/restore publishes again. An administrator sets how many a dataset keeps. Set on the detail endpoint only; null elsewhere.
              */
             previous_versions?: components["schemas"]["PreviousVersionResponse"][] | null;
+            /**
+             * Groups
+             * @description The sharing groups the dataset is shared with, by name. Set on the detail endpoint for the owner and admins only; null elsewhere.
+             */
+            groups?: components["schemas"]["GroupRef"][] | null;
         };
         /**
          * DatasetRetention
@@ -9172,9 +10503,16 @@ export interface components {
             }[];
             /**
              * Approximate Total
-             * @description Estimated total row count (may use pg stats)
+             * @description Total row count, or with `filter[...]` or the CQL2 `filter` the matching rows; `total_kind` says how exact it is.
              */
             approximate_total: number;
+            /**
+             * Total Kind
+             * @description `estimate` for the table's planner statistics (no filter), `exact` for counted matches, `at_least` when more rows match than the 10,000 that are counted.
+             * @default estimate
+             * @enum {string}
+             */
+            total_kind: "estimate" | "exact" | "at_least";
             /**
              * Next Cursor
              * @description Cursor value for the next page, null if last
@@ -9185,6 +10523,11 @@ export interface components {
              * @description Columns the rows endpoint accepts as `sort`.
              */
             sortable_columns?: string[];
+            /**
+             * Bboxes
+             * @description With `with_bbox=true`, one entry per row in `rows` order: the row's [minx, miny, maxx, maxy] in EPSG:4326, or null for a row without geometry. Null otherwise.
+             */
+            bboxes?: (number[] | null)[] | null;
             /**
              * Table Id
              * @description Opaque id of the data table these rows were read from. Send it as the `table_id` query parameter of a feature write or batch delete to have it refused if a reupload or overwrite replaced the table since.
@@ -9512,8 +10855,15 @@ export interface components {
             basemap_style: string;
             /** Show Basemap Labels */
             show_basemap_labels: boolean;
+            /**
+             * Show Attribute Table
+             * @description Whether viewers offer each layer's attribute table. Embed tokens for the map may read a layer's rows only while it is on; the columns they may read come from each dataset's tile column allowlist.
+             * @default true
+             */
+            show_attribute_table: boolean;
             basemap_config?: components["schemas"]["BasemapConfig"] | null;
             terrain_config?: components["schemas"]["TerrainConfig"] | null;
+            dashboard_config?: components["schemas"]["DashboardConfig"] | null;
             visibility: components["schemas"]["MapVisibility"];
             /** Thumbnail Url */
             thumbnail_url?: string | null;
@@ -9548,6 +10898,13 @@ export interface components {
             plugins?: string[] | null;
             /** Legend Title */
             legend_title?: string | null;
+            /**
+             * Groups
+             * @description The sharing groups the map is shared with, by name. Set on the detail endpoint for the owner and admins only; null elsewhere.
+             */
+            groups?: components["schemas"]["GroupRef"][] | null;
+            /** @description The theme a branding extension sets for the map's viewer and dashboard; null without one. The Builder ignores it. */
+            reader_theme?: components["schemas"]["ReaderTheme"] | null;
             /**
              * Excluded Layer Count
              * @description Layers skipped due to access restrictions
@@ -9698,6 +11055,28 @@ export interface components {
              */
             allowed_origins?: string[] | null;
         };
+        /** EmbedWidget */
+        EmbedWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "embed";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            config: components["schemas"]["FrameConfig"];
+        };
         /** EmbeddingStatsResponse */
         EmbeddingStatsResponse: {
             /**
@@ -9811,6 +11190,16 @@ export interface components {
              * @description Layers to ingest as separate datasets. Maximum 50 per request.
              */
             layers: components["schemas"]["FanOutLayerRequest"][];
+            /**
+             * Item Id
+             * @description ArcGIS portal item ID the file came from. Stored as provenance when it is 32 hex characters, otherwise dropped and reported in origin_link_loss.
+             */
+            item_id?: string | null;
+            /**
+             * Portal Url
+             * @description ArcGIS portal address for the item link. Stored only when it is an https URL, otherwise dropped and reported in origin_link_loss.
+             */
+            portal_url?: string | null;
         };
         /**
          * FanOutCommitResponse
@@ -9828,6 +11217,11 @@ export interface components {
              * @description Per-layer outcomes in the same order as the request layers.
              */
             results: components["schemas"]["FanOutLayerResult"][];
+            /**
+             * Origin Link Loss
+             * @description Reasons the ArcGIS item link was dropped: 'item_id_invalid', 'portal_url_invalid', 'portal_url_domain_mismatch' or 'origin_link_unsupported'. Empty when nothing was dropped.
+             */
+            origin_link_loss?: string[];
         };
         /**
          * FanOutLayerRequest
@@ -9953,6 +11347,61 @@ export interface components {
              */
             restrict_public_visibility: boolean;
         };
+        /** FeatureListConfig */
+        FeatureListConfig: {
+            /** Title Column */
+            title_column: string;
+            /** Subtitle Column */
+            subtitle_column?: string | null;
+            /** Sort Column */
+            sort_column?: string | null;
+            /**
+             * Sort
+             * @default asc
+             * @enum {string}
+             */
+            sort: "asc" | "desc";
+            /**
+             * Page Size
+             * @default 25
+             */
+            page_size: number;
+        };
+        /** FeatureListWidget */
+        FeatureListWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * Layer Id
+             * Format: uuid
+             * @description A layer of the host's map.
+             */
+            layer_id: string;
+            /**
+             * Scope
+             * @description Summarize the whole layer, or only what the map view shows.
+             * @default layer
+             * @enum {string}
+             */
+            scope: "layer" | "view";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "feature_list";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            config: components["schemas"]["FeatureListConfig"];
+        };
         /**
          * FeatureReplace
          * @description Full feature replacement (PUT semantics).
@@ -9976,6 +11425,70 @@ export interface components {
             properties?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /** FrameConfig */
+        FrameConfig: {
+            /**
+             * Url
+             * @description An https address on a host an admin approved for stories. Stored as given and never fetched by the server.
+             */
+            url: string;
+            /**
+             * Title
+             * @description Names the frame for screen readers.
+             */
+            title: string;
+        };
+        /** GalleryConfig */
+        GalleryConfig: {
+            /**
+             * Images
+             * @description Images uploaded to the host story, in reading order.
+             */
+            images: components["schemas"]["GalleryImage"][];
+        };
+        /** GalleryImage */
+        GalleryImage: {
+            /**
+             * Alt
+             * @description Text that stands in for the image; required unless it is decorative.
+             */
+            alt?: string | null;
+            /**
+             * Decorative
+             * @description True when the image adds nothing a reader needs: readers get an empty alt, and `alt` may be left out.
+             */
+            decorative?: boolean | null;
+            /** Caption */
+            caption?: string | null;
+            /**
+             * Asset Id
+             * Format: uuid
+             * @description An image uploaded to the host story.
+             */
+            asset_id: string;
+        };
+        /** GalleryWidget */
+        GalleryWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "gallery";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            config: components["schemas"]["GalleryConfig"];
         };
         /**
          * GeoJSONFeature
@@ -10048,6 +11561,227 @@ export interface components {
             /** Geometries */
             geometries: components["schemas"]["GeoJSONGeometry"][];
         };
+        /** GroupByRequest */
+        GroupByRequest: {
+            /**
+             * Filter
+             * @description CQL2-JSON filter, as the OGC API Features `filter` accepts.
+             */
+            filter?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Bbox
+             * @description Map view `[west, south, east, north]` in WGS 84; west greater than east crosses the antimeridian. Omit for the whole layer.
+             */
+            bbox?: number[] | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "group_by";
+            /** Group Column */
+            group_column: string;
+            /**
+             * Stat
+             * @description One statistic; or give `stats`.
+             */
+            stat?: ("count" | "sum" | "avg" | "min" | "max") | null;
+            /**
+             * Column
+             * @description The numeric column `stat` reads; omit for `count`.
+             */
+            column?: string | null;
+            /**
+             * Stats
+             * @description Statistics returned as each group's `values`, in this order.
+             */
+            stats?: components["schemas"]["GroupStat"][] | null;
+            /**
+             * Date Bucket
+             * @description Group a date or timestamp column by the UTC day, Monday-first week, month or year it falls in.
+             */
+            date_bucket?: ("day" | "week" | "month" | "year") | null;
+            /**
+             * Sort By
+             * @description Order and keep groups by a statistic's index in `stats` (0 with `stat`) or by `group`. Defaults to the first statistic, or to the group with `date_bucket`.
+             */
+            sort_by?: "group" | number | null;
+            /**
+             * Sort
+             * @description Defaults to `desc`, or `asc` with `date_bucket`.
+             */
+            sort?: ("asc" | "desc") | null;
+            /**
+             * Limit
+             * @default 10
+             */
+            limit: number;
+        };
+        /** GroupByResponse */
+        GroupByResponse: {
+            /**
+             * Approximate
+             * @description Always false: a view too wide to count exactly is refused.
+             * @default false
+             * @constant
+             */
+            approximate: false;
+            /** Cached */
+            cached: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "group_by";
+            result: components["schemas"]["GroupByResult"];
+        };
+        /** GroupByResult */
+        GroupByResult: {
+            /**
+             * Groups
+             * @description In the requested order; by default the largest value first.
+             */
+            groups: components["schemas"]["GroupValue"][];
+            /**
+             * Truncated
+             * @description Whether more groups matched than `limit` lists.
+             * @default false
+             */
+            truncated: boolean;
+        };
+        /** GroupListResponse */
+        GroupListResponse: {
+            /**
+             * Groups
+             * @description Page of groups, by name.
+             */
+            groups: components["schemas"]["GroupResponse"][];
+            /**
+             * Total
+             * @description Total number of groups (across all pages).
+             */
+            total: number;
+        };
+        /** GroupMemberListResponse */
+        GroupMemberListResponse: {
+            /**
+             * Members
+             * @description Page of group members, by username.
+             */
+            members: components["schemas"]["UserNameItem"][];
+            /**
+             * Total
+             * @description Total number of members (across all pages).
+             */
+            total: number;
+        };
+        /** GroupMembersAdd */
+        GroupMembersAdd: {
+            /**
+             * User Ids
+             * @description Users to add. Users already in the group are left as they are; if any id matches no user, none are added.
+             */
+            user_ids: string[];
+        };
+        /** GroupRef */
+        GroupRef: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Unique group identifier.
+             */
+            id: string;
+            /**
+             * Name
+             * @description Group name.
+             */
+            name: string;
+        };
+        /** GroupRefListResponse */
+        GroupRefListResponse: {
+            /**
+             * Groups
+             * @description Page of groups, by name.
+             */
+            groups: components["schemas"]["GroupRef"][];
+            /**
+             * Total
+             * @description Total number of groups (across all pages).
+             */
+            total: number;
+        };
+        /** GroupResponse */
+        GroupResponse: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Unique group identifier.
+             */
+            id: string;
+            /**
+             * Name
+             * @description Group name.
+             */
+            name: string;
+            /**
+             * Member Count
+             * @description Number of users in the group.
+             */
+            member_count: number;
+            /**
+             * Created At
+             * Format: date-time
+             * @description When the group was created.
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             * @description When the group was last renamed.
+             */
+            updated_at: string;
+        };
+        /** GroupStat */
+        GroupStat: {
+            /**
+             * Stat
+             * @enum {string}
+             */
+            stat: "count" | "sum" | "avg" | "min" | "max";
+            /**
+             * Column
+             * @description The numeric column `stat` reads. Optional for `count`, which then counts rows, and otherwise counts the column's non-null values.
+             */
+            column?: string | null;
+        };
+        /** GroupValue */
+        GroupValue: {
+            /**
+             * Key
+             * @description The column's value. A number JSON cannot carry exactly, such as an integer beyond 2^53 or NaN, comes back as text.
+             */
+            key: string | number | boolean | null;
+            /**
+             * Value
+             * @description Exact for count, sum, min and max, as for a key; avg is a float. With `stats`, the first statistic's value.
+             */
+            value: number | string | null;
+            /**
+             * Values
+             * @description Present with `stats`: each one's value in order. Exact for count, sum, min and max, as for a key; avg is a float.
+             */
+            values?: (number | string | null)[] | null;
+        };
+        /** GroupWrite */
+        GroupWrite: {
+            /**
+             * Name
+             * @description Group name, unique across the instance. Leading and trailing whitespace is removed.
+             * @example Planning
+             */
+            name: string;
+        };
         /** HealthResponse */
         HealthResponse: {
             /** Status */
@@ -10060,6 +11794,162 @@ export interface components {
             providers: {
                 [key: string]: components["schemas"]["ServiceHealth"];
             };
+        };
+        /** HistogramBin */
+        HistogramBin: {
+            /** Lower */
+            lower: number;
+            /** Upper */
+            upper: number;
+            /** Count */
+            count: number;
+        };
+        /** HistogramConfig */
+        HistogramConfig: {
+            /** Column */
+            column: string;
+            /**
+             * Bins
+             * @default 20
+             */
+            bins: number;
+        };
+        /** HistogramRequest */
+        HistogramRequest: {
+            /**
+             * Filter
+             * @description CQL2-JSON filter, as the OGC API Features `filter` accepts.
+             */
+            filter?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Bbox
+             * @description Map view `[west, south, east, north]` in WGS 84; west greater than east crosses the antimeridian. Omit for the whole layer.
+             */
+            bbox?: number[] | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "histogram";
+            /** Column */
+            column: string;
+            /**
+             * Bins
+             * @default 10
+             */
+            bins: number;
+        };
+        /** HistogramResponse */
+        HistogramResponse: {
+            /**
+             * Approximate
+             * @description Always false: a view too wide to count exactly is refused.
+             * @default false
+             * @constant
+             */
+            approximate: false;
+            /** Cached */
+            cached: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "histogram";
+            result: components["schemas"]["HistogramResult"];
+        };
+        /** HistogramResult */
+        HistogramResult: {
+            /**
+             * Bins
+             * @description Equal-width bins over the finite values, empty with none. Unless whole_numbers is true, a bin holds its lower edge but not its upper one, and the last bin holds both.
+             */
+            bins: components["schemas"]["HistogramBin"][];
+            /**
+             * Whole Numbers
+             * @description Whether each bin holds the whole numbers from its lower edge to one below its upper edge. Only an integer column has whole-number bins, and only while every edge is a safe JavaScript integer; they may then number fewer than requested, and the last may be narrower.
+             * @default false
+             */
+            whole_numbers: boolean;
+        };
+        /** HistogramWidget */
+        HistogramWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * Layer Id
+             * Format: uuid
+             * @description A layer of the host's map.
+             */
+            layer_id: string;
+            /**
+             * Scope
+             * @description Summarize the whole layer, or only what the map view shows.
+             * @default layer
+             * @enum {string}
+             */
+            scope: "layer" | "view";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "histogram";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            config: components["schemas"]["HistogramConfig"];
+        };
+        /** ImageConfig */
+        ImageConfig: {
+            /**
+             * Alt
+             * @description Text that stands in for the image; required unless it is decorative.
+             */
+            alt?: string | null;
+            /**
+             * Decorative
+             * @description True when the image adds nothing a reader needs: readers get an empty alt, and `alt` may be left out.
+             */
+            decorative?: boolean | null;
+            /** Caption */
+            caption?: string | null;
+        };
+        /** ImageWidget */
+        ImageWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "image";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            /**
+             * Asset Id
+             * Format: uuid
+             * @description An image uploaded to the host story.
+             */
+            asset_id: string;
+            config: components["schemas"]["ImageConfig"];
         };
         /**
          * ImportResult
@@ -10102,6 +11992,72 @@ export interface components {
              * @default 0
              */
             oauth_accounts_deleted: number;
+        };
+        /** IndicatorConfig */
+        IndicatorConfig: {
+            /**
+             * Stat
+             * @enum {string}
+             */
+            stat: "count" | "sum" | "mean" | "min" | "max";
+            /** Column */
+            column?: string | null;
+            /**
+             * Reference
+             * @description A fixed number to compare the value with. The indicator shows the difference from it.
+             */
+            reference?: number | null;
+            /**
+             * Reference Label
+             * @description A short name for the reference, such as `Target`. Needs `reference`.
+             */
+            reference_label?: string | null;
+            /**
+             * Higher Is Better
+             * @description Whether a value above the reference is the good outcome. Absent means true.
+             */
+            higher_is_better?: boolean | null;
+            /**
+             * Comparison
+             * @description Show the difference as a `value`, a `percent` change, or `both`. Absent means `both`.
+             */
+            comparison?: ("value" | "percent" | "both") | null;
+        };
+        /** IndicatorWidget */
+        IndicatorWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * Layer Id
+             * Format: uuid
+             * @description A layer of the host's map.
+             */
+            layer_id: string;
+            /**
+             * Scope
+             * @description Summarize the whole layer, or only what the map view shows.
+             * @default layer
+             * @enum {string}
+             */
+            scope: "layer" | "view";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "indicator";
+            /**
+             * V
+             * @description `2` when the config sets any reference option, else `1`. A `1` that sets one is refused.
+             * @enum {integer}
+             */
+            v: 1 | 2;
+            config: components["schemas"]["IndicatorConfig"];
         };
         /** InfrastructureConfig */
         InfrastructureConfig: {
@@ -10458,6 +12414,16 @@ export interface components {
              */
             importable: boolean;
             /**
+             * Has Attachments
+             * @description Whether the ArcGIS layer reports file attachments. Null when the service does not say, and for other service types.
+             */
+            has_attachments?: boolean | null;
+            /**
+             * Relationships
+             * @description Relationship classes the ArcGIS layer takes part in. Empty when the service declares none or does not say, and for other service types.
+             */
+            relationships?: components["schemas"]["LayerRelationship"][];
+            /**
              * Layer Id
              * @description Numeric or string layer ID used by ArcGIS services.
              */
@@ -10483,6 +12449,37 @@ export interface components {
             feature_count?: number | null;
             /** Field Count */
             field_count?: number | null;
+        };
+        /**
+         * LayerRelationship
+         * @description An ArcGIS relationship class as one of its two layers declares it.
+         */
+        LayerRelationship: {
+            /**
+             * Id
+             * @description Relationship ID on the layer.
+             */
+            id?: number | null;
+            /**
+             * Name
+             * @description Relationship class name.
+             */
+            name?: string | null;
+            /**
+             * Related Layer Id
+             * @description ArcGIS ID of the layer or table at the other end.
+             */
+            related_layer_id: number | string;
+            /**
+             * Cardinality
+             * @description 'OneToOne', 'OneToMany' or 'ManyToMany', when the service says.
+             */
+            cardinality?: string | null;
+            /**
+             * Role
+             * @description 'Origin' or 'Destination': this layer's end of the relationship.
+             */
+            role?: string | null;
         };
         /**
          * LineageDraftResponse
@@ -10611,7 +12608,7 @@ export interface components {
         ManifestSource: {
             /**
              * Type
-             * @description Source modality. Vector sources require zip, gpkg, geojson, json, csv, xlsx, xls, fgb, kml, or kmz; raster_cog sources require tif or tiff.
+             * @description Source modality. Vector sources require zip, gpkg, geojson, json, csv, xlsx, xls, fgb, kml, kmz, or parquet; raster_cog sources require tif or tiff.
              * @enum {string}
              */
             type: "vector" | "raster_cog";
@@ -10704,6 +12701,49 @@ export interface components {
             /** Datasets Used */
             datasets_used: string[];
         };
+        /** MapGroupsResponse */
+        MapGroupsResponse: {
+            /** @description The map's visibility after the change: a private map shared with a group becomes restricted, and a restricted one left with no group becomes private. */
+            visibility: components["schemas"]["MapVisibility"];
+            /**
+             * Groups
+             * @description The sharing groups the map is shared with, by name.
+             */
+            groups: components["schemas"]["GroupRef"][];
+            /**
+             * Shared Dataset Ids
+             * @description Datasets this request shared with the map's new groups.
+             */
+            shared_dataset_ids?: string[];
+            /**
+             * Hidden Layers
+             * @description Layers that some of the map's new groups still can't read; the same shape a 409 lists under `detail.layers`.
+             */
+            hidden_layers?: components["schemas"]["MapLayerAccessGap"][];
+            /**
+             * Updated At
+             * @description The map's `updated_at` after the change, which any change to its groups moves.
+             */
+            updated_at?: string | null;
+        };
+        /** MapGroupsUpdate */
+        MapGroupsUpdate: {
+            /**
+             * Group Ids
+             * @description Every group the map is shared with afterwards; an empty list unshares it. An owner may add only groups they belong to, and an admin any group.
+             */
+            group_ids: string[];
+            /**
+             * Confirm
+             * @description Required when the map would become restricted with layers some of its new groups can't read; without it the request answers 409 and lists them. `share_datasets` also shares each such dataset the caller may share with the groups that lack it; `map_only` leaves those layers hidden from them.
+             */
+            confirm?: ("share_datasets" | "map_only") | null;
+            /**
+             * Expected Updated At
+             * @description The map's `updated_at` the caller read. When set and the map has changed since, its groups included, nothing is written and the answer is 409 with `detail.code` `stale_write`. Omit it to write unconditionally.
+             */
+            expected_updated_at?: string | null;
+        };
         /** MapHistoryEventResponse */
         MapHistoryEventResponse: {
             /**
@@ -10778,6 +12818,33 @@ export interface components {
              */
             builtin: boolean;
         };
+        /** MapLayerAccessGap */
+        MapLayerAccessGap: {
+            /**
+             * Layer Id
+             * Format: uuid
+             */
+            layer_id: string;
+            /** Layer Title */
+            layer_title: string;
+            /**
+             * Dataset Id
+             * Format: uuid
+             */
+            dataset_id: string;
+            /** Dataset Title */
+            dataset_title: string;
+            /**
+             * Group Ids
+             * @description The map's groups that have a member who can't read it.
+             */
+            group_ids: string[];
+            /**
+             * Can Share
+             * @description Whether `confirm: share_datasets` would share the dataset with those groups.
+             */
+            can_share: boolean;
+        };
         /** MapLayerDiffRequest */
         MapLayerDiffRequest: {
             /**
@@ -10839,7 +12906,7 @@ export interface components {
             } | null;
             /**
              * Layout
-             * @description MapLibre layout properties override
+             * @description MapLibre layout properties override. `_minzoom` and `_maxzoom` set the zoom range where the layer is visible; the exported style writes them as `minzoom` and `maxzoom`.
              */
             layout?: {
                 [key: string]: unknown;
@@ -10865,7 +12932,7 @@ export interface components {
             popup_config?: components["schemas"]["PopupConfig"] | null;
             /**
              * Style Config
-             * @description Data-driven and builder UI style configuration. Accepted top-level keys: breaks, builder, categories, classCount, colorLabel, colors, column, heatmapPaint, legendLabel, method, mode, ramp, render_mode, reversed, savedCirclePaint, sizeLabel, sizeRange, sizes, symbol, target; other top-level keys are dropped when the map is exported as a MapLibre style. Builder-only state lives under builder, whose interpreted keys are arrow_color, arrow_size, arrow_spacing, cluster_color, cluster_color_ramp, cluster_max_zoom, cluster_radius, cluster_show_counts, cluster_text_color, cluster_text_size, colormap, extrusion_min_zoom, extrusion_opacity, fill_color_saved, fill_disabled, fill_opacity_saved, folder_group_expanded, folder_group_id, folder_group_name, heatmap_ramp, heatmap_reversed, heatmap_weight_column, height_column, height_scale, hypso_enabled, hypso_ramp, hypso_reversed, lineGradient, outline_color, outline_width, outline_width_saved, pmax, pmin, sigma, stretch, stroke_disabled, symbol. Other builder keys are stored and exported unchanged but have no effect. See https://docs.getgeolens.com/guides/api/publishing-from-desktop-gis/
+             * @description Data-driven and builder UI style configuration. Accepted top-level keys: breaks, builder, categories, classCount, colorLabel, colors, column, heatmapPaint, legendLabel, method, mode, ramp, render_mode, reversed, savedCirclePaint, sizeLabel, sizeRange, sizes, symbol, target; other top-level keys are dropped when the map is exported as a MapLibre style. Builder-only state lives under builder, whose interpreted keys are arrow_color, arrow_size, arrow_spacing, cluster_color, cluster_color_ramp, cluster_max_zoom, cluster_radius, cluster_show_counts, cluster_text_color, cluster_text_size, colormap, extrusion_min_zoom, extrusion_opacity, fill_color_saved, fill_disabled, fill_opacity_saved, folder_group_expanded, folder_group_id, folder_group_name, heatmap_ramp, heatmap_reversed, heatmap_weight_column, height_column, height_scale, hypso_enabled, hypso_ramp, hypso_reversed, lineGradient, outline_color, outline_width, outline_width_saved, pmax, pmin, sigma, stretch, stroke_disabled, symbol. Other builder keys are stored and exported unchanged but have no effect. legendLabel replaces the layer's name in the legend and layer list; colorLabel and sizeLabel replace the column name in the title of the color and size legend sections. See https://docs.getgeolens.com/guides/api/publishing-from-desktop-gis/
              */
             style_config?: {
                 [key: string]: unknown;
@@ -10904,7 +12971,7 @@ export interface components {
             } | null;
             /**
              * Layout
-             * @description MapLibre layout properties override
+             * @description MapLibre layout properties override. `_minzoom` and `_maxzoom` set the zoom range where the layer is visible.
              */
             layout?: {
                 [key: string]: unknown;
@@ -10953,10 +13020,18 @@ export interface components {
             dataset_table_name: string;
             /** Dataset Extent Bbox */
             dataset_extent_bbox: number[] | null;
-            /** Dataset Column Info */
+            /**
+             * Dataset Column Info
+             * @description The dataset's columns, each with its name and type. In a map response each also carries its current attribute title, semantic role and value labels when set.
+             */
             dataset_column_info?: {
                 [key: string]: unknown;
             }[] | null;
+            /**
+             * Dataset Tile Columns
+             * @description Dataset tile attribute allowlist, used to check cluster filters; null allows all queryable columns, [] exposes none.
+             */
+            dataset_tile_columns?: string[] | null;
             /** Dataset Feature Count */
             dataset_feature_count?: number | null;
             /** Dataset Sample Values */
@@ -11039,6 +13114,11 @@ export interface components {
              * @description Admin only: transfer the map to this active user.
              */
             owner_id: string;
+            /**
+             * Expected Updated At
+             * @description The map's `updated_at` the caller read. When set and the map has changed since, nothing is written and the answer is 409 with `detail.code` `stale_write`. Omit it to write unconditionally.
+             */
+            expected_updated_at?: string | null;
         };
         /** MapResponse */
         MapResponse: {
@@ -11067,8 +13147,15 @@ export interface components {
             basemap_style: string;
             /** Show Basemap Labels */
             show_basemap_labels: boolean;
+            /**
+             * Show Attribute Table
+             * @description Whether viewers offer each layer's attribute table. Embed tokens for the map may read a layer's rows only while it is on; the columns they may read come from each dataset's tile column allowlist.
+             * @default true
+             */
+            show_attribute_table: boolean;
             basemap_config?: components["schemas"]["BasemapConfig"] | null;
             terrain_config?: components["schemas"]["TerrainConfig"] | null;
+            dashboard_config?: components["schemas"]["DashboardConfig"] | null;
             visibility: components["schemas"]["MapVisibility"];
             /** Thumbnail Url */
             thumbnail_url?: string | null;
@@ -11103,6 +13190,13 @@ export interface components {
             plugins?: string[] | null;
             /** Legend Title */
             legend_title?: string | null;
+            /**
+             * Groups
+             * @description The sharing groups the map is shared with, by name. Set on the detail endpoint for the owner and admins only; null elsewhere.
+             */
+            groups?: components["schemas"]["GroupRef"][] | null;
+            /** @description The theme a branding extension sets for the map's viewer and dashboard; null without one. The Builder ignores it. */
+            reader_theme?: components["schemas"]["ReaderTheme"] | null;
         };
         /**
          * MapSpriteEntry
@@ -11114,6 +13208,29 @@ export interface components {
             /** Url */
             url: string;
         };
+        /** MapStoriesResponse */
+        MapStoriesResponse: {
+            /**
+             * Stories
+             * @description Stories using the map that you can read, by title.
+             */
+            stories: components["schemas"]["MapStoryReference"][];
+            /**
+             * Hidden Count
+             * @description Stories using the map that you can't read; not named.
+             */
+            hidden_count: number;
+        };
+        /** MapStoryReference */
+        MapStoryReference: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+        };
         /**
          * MapStyleImportRequest
          * @description Typed request body for POST /maps/import.
@@ -11123,10 +13240,6 @@ export interface components {
          *     forward-compatibility with future MapLibre fields (e.g. ``projection``,
          *     ``light``, ``transition``) so adding a new key on the client side
          *     doesn't require a server release.
-         *
-         *     Replacing the previous bare-``dict`` body parameter removes
-         *     ``additionalProperties: true`` from the OpenAPI schema and lets
-         *     openapi-python-client generate a navigable named model class.
          */
         MapStyleImportRequest: {
             /**
@@ -11253,6 +13366,12 @@ export interface components {
             thumbnail_updated_at?: string | null;
             /** Layer Count */
             layer_count: number;
+            /**
+             * Has Dashboard
+             * @description True when the map shows you at least one dashboard widget.
+             * @default false
+             */
+            has_dashboard: boolean;
             /** Created By Username */
             created_by_username?: string | null;
             /**
@@ -11308,11 +13427,18 @@ export interface components {
             basemap_style?: string | null;
             /** Show Basemap Labels */
             show_basemap_labels?: boolean | null;
+            /**
+             * Show Attribute Table
+             * @description Whether viewers offer each layer's attribute table. Embed tokens for the map may read a layer's rows only while it is on; the columns they may read come from each dataset's tile column allowlist.
+             */
+            show_attribute_table?: boolean | null;
             /** @description Curated map-level basemap appearance preferences */
             basemap_config?: components["schemas"]["BasemapConfig"] | null;
             /** @description Map-level terrain source and exaggeration preferences */
             terrain_config?: components["schemas"]["TerrainConfig"] | null;
-            /** @description private, internal, or public */
+            /** @description The dashboard. Omit to keep it; null removes the widgets you see. */
+            dashboard_config?: components["schemas"]["DashboardConfigInput"] | null;
+            /** @description private, internal, public or restricted. A map shared with groups is restricted when it would otherwise be private, so private keeps it restricted; restricted needs at least one group. */
             visibility?: components["schemas"]["MapVisibility"] | null;
             /**
              * Layers
@@ -11329,12 +13455,47 @@ export interface components {
              * @description Custom map-level legend title. Null or empty leaves the legend without a heading override. At most 120 characters.
              */
             legend_title?: string | null;
+            /**
+             * Expected Updated At
+             * @description The map's `updated_at` the caller read. When set and the map has changed since, nothing is written and the answer is 409 with `detail.code` `stale_write`. Omit it to write unconditionally.
+             */
+            expected_updated_at?: string | null;
         };
         /**
          * MapVisibility
+         * @description Who may read a map. A response names `restricted` only to a client
+         *     that sends `X-GeoLens-Map-Visibility: restricted`; any other client
+         *     reads a restricted map as `private`.
          * @enum {string}
          */
-        MapVisibility: "private" | "internal" | "public";
+        MapVisibility: "private" | "internal" | "public" | "restricted";
+        /** MarkdownConfig */
+        MarkdownConfig: {
+            /** Text */
+            text: string;
+        };
+        /** MarkdownWidget */
+        MarkdownWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "markdown";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            config: components["schemas"]["MarkdownConfig"];
+        };
         /**
          * MercatorClipDetail
          * @description Counts geometry changed by the Web Mercator clamp.
@@ -12224,6 +14385,69 @@ export interface components {
                 [key: string]: boolean;
             };
         };
+        /** PieChartConfig */
+        PieChartConfig: {
+            /**
+             * Column
+             * @description The column whose values become slices.
+             */
+            column: string;
+            /**
+             * Stat
+             * @default count
+             * @enum {string}
+             */
+            stat: "count" | "sum" | "mean" | "min" | "max";
+            /** Stat Column */
+            stat_column?: string | null;
+            /**
+             * Limit
+             * @description Slices beyond this many are merged into Other.
+             * @default 10
+             */
+            limit: number;
+            /**
+             * Use Layer Colors
+             * @description Colour slices as the layer does when `column` is its style column.
+             * @default true
+             */
+            use_layer_colors: boolean;
+        };
+        /** PieChartWidget */
+        PieChartWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * Layer Id
+             * Format: uuid
+             * @description A layer of the host's map.
+             */
+            layer_id: string;
+            /**
+             * Scope
+             * @description Summarize the whole layer, or only what the map view shows.
+             * @default layer
+             * @enum {string}
+             */
+            scope: "layer" | "view";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "pie_chart";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            config: components["schemas"]["PieChartConfig"];
+        };
         /**
          * PointCloudMetadata
          * @description A COPC point cloud's published file.
@@ -12844,6 +15068,31 @@ export interface components {
             /** Format */
             format: string;
         };
+        /**
+         * ReaderTheme
+         * @description An accent colour, a logo and a font family for reader-facing pages.
+         *
+         *     The frontend applies these as theme tokens only. A font is named, never
+         *     fetched: the operator ships the font file, since the CSP allows no remote
+         *     fonts.
+         */
+        ReaderTheme: {
+            /**
+             * Accent
+             * @description The accent colour as `#rrggbb`.
+             */
+            accent?: string | null;
+            /**
+             * Logo Url
+             * @description An https URL of the logo shown in the page header.
+             */
+            logo_url?: string | null;
+            /**
+             * Font Family
+             * @description A CSS font family list the page's text uses first.
+             */
+            font_family?: string | null;
+        };
         /** RefreshRequest */
         RefreshRequest: {
             /** Refresh Token */
@@ -12906,8 +15155,18 @@ export interface components {
             review_acknowledged_by?: ("preview" | "accepted_run") | null;
             /** Accepted Blocked Run Id */
             accepted_blocked_run_id: string | null;
+            /**
+             * Data Unchanged
+             * @description True when this service refresh or file re-upload brought exactly the columns and rows the dataset already held, so it published no new version; last_refreshed_at still moves. False when the data differed or could not be compared. Null when the run made no comparison: a service re-upload, a file replacing data that came from another origin, or a run verification held back.
+             */
+            data_unchanged?: boolean | null;
             /** Acceptance Consumed By Run Id */
             acceptance_consumed_by_run_id?: string | null;
+            /**
+             * Data Revision
+             * @description The dataset's data revision when this run checked its live table. A run accepted after a live edit publishes over this revision.
+             */
+            data_revision?: number | null;
         };
         /** RegisterRequest */
         RegisterRequest: {
@@ -12940,7 +15199,7 @@ export interface components {
             message: string;
             /**
              * Next Step
-             * @description Post-registration step for the client to display: 'verify_email' when a verification email was (or, for a swallowed collision, would have been) sent; 'await_approval' for the admin-approval path. None on non-register responses.
+             * @description Post-registration step for the client to display: 'verify_email' when a verification email was (or, for a swallowed collision, would have been) sent; 'await_approval' for the admin-approval path, and from verify-email when the address is confirmed but the account still waits for an administrator. None otherwise.
              */
             next_step?: ("verify_email" | "await_approval") | null;
         };
@@ -13034,7 +15293,7 @@ export interface components {
              * Expected Origin Kind
              * @description The dataset origin the client saw when it staged this replacement. When set, the commit is refused with 409 `origin_changed` if the dataset's origin no longer matches, so a service, STAC or registered-table binding established after the upload is not silently rebound to an upload. A client may omit the field to skip this concurrency check.
              */
-            expected_origin_kind?: ("upload" | "postgis" | "service" | "stac" | "created") | null;
+            expected_origin_kind?: ("upload" | "postgis" | "service" | "stac" | "created" | "database") | null;
             /**
              * Token
              * @description Deprecated: use the auth object with method bearer.
@@ -13049,6 +15308,11 @@ export interface components {
              * @description The preview's `review_fingerprint`, sent once a person has seen the changes it describes. A file replacement or service re-upload with review reasons publishes only when the worker's own fingerprint matches; otherwise its run ends `blocked`.
              */
             review_fingerprint?: string | null;
+            /**
+             * Expected Data Revision
+             * @description The dataset's `data_revision` the caller last saw. When it differs from the revision this replacement is compared with, every write counts as later, so the run stops for review with `live_data_changed` instead of publishing. Omit it to compare with the revision at admission only.
+             */
+            expected_data_revision?: number | null;
         };
         /** ReuploadCommitResponse */
         ReuploadCommitResponse: {
@@ -13149,6 +15413,79 @@ export interface components {
             object_id_field?: string | null;
             /** @description Structured credential for a protected service. Mutually exclusive with the token field. */
             auth?: components["schemas"]["ServiceAuthRequest"] | null;
+        };
+        /** RowsRequest */
+        RowsRequest: {
+            /**
+             * Filter
+             * @description CQL2-JSON filter, as the OGC API Features `filter` accepts.
+             */
+            filter?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Bbox
+             * @description Map view `[west, south, east, north]` in WGS 84; west greater than east crosses the antimeridian. Omit for the whole layer.
+             */
+            bbox?: number[] | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "rows";
+            /** Columns */
+            columns: string[];
+            /**
+             * Sort Column
+             * @description Order rows by this column with nulls last, then by gid; omit to order by gid.
+             */
+            sort_column?: string | null;
+            /**
+             * Sort
+             * @default asc
+             * @enum {string}
+             */
+            sort: "asc" | "desc";
+            /**
+             * Limit
+             * @default 25
+             */
+            limit: number;
+            /**
+             * Cursor
+             * @description The previous page's `next_cursor`, under the same sort.
+             */
+            cursor?: string | null;
+        };
+        /** RowsResponse */
+        RowsResponse: {
+            /**
+             * Approximate
+             * @description Always false: a view too wide to count exactly is refused.
+             * @default false
+             * @constant
+             */
+            approximate: false;
+            /** Cached */
+            cached: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "rows";
+            result: components["schemas"]["RowsResult"];
+        };
+        /** RowsResult */
+        RowsResult: {
+            /** Rows */
+            rows: components["schemas"]["AggregateRow"][];
+            /**
+             * Next Cursor
+             * @description Pass as `cursor` for the next page.
+             */
+            next_cursor: string | null;
+            /** Has More */
+            has_more: boolean;
         };
         /**
          * SSEActionsEvent
@@ -13382,6 +15719,38 @@ export interface components {
              */
             row_count_delta: number | null;
         };
+        /** SeparatorConfig */
+        SeparatorConfig: {
+            /**
+             * Style
+             * @description A thin line, or a larger empty gap.
+             * @default line
+             * @enum {string}
+             */
+            style: "line" | "gap";
+        };
+        /** SeparatorWidget */
+        SeparatorWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "separator";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            config: components["schemas"]["SeparatorConfig"];
+        };
         /**
          * ServiceAuthRequest
          * @description How one request authenticates to the remote service it names.
@@ -13467,6 +15836,16 @@ export interface components {
             object_id_field?: string | null;
             /** @description Structured credential for a protected service. Mutually exclusive with the token field. */
             auth?: components["schemas"]["ServiceAuthRequest"] | null;
+            /**
+             * Item Id
+             * @description ArcGIS portal item ID the layer was published from, at most 64 characters (longer is refused with 422). Stored as provenance when it is 32 hex characters, otherwise dropped and reported in origin_link_loss. Dropped for a non-ArcGIS service type.
+             */
+            item_id?: string | null;
+            /**
+             * Portal Url
+             * @description ArcGIS portal address for the item link, at most 2048 characters (longer is refused with 422). Stored only when it is https and shares a registrable domain with the service URL, otherwise dropped and reported in origin_link_loss.
+             */
+            portal_url?: string | null;
         };
         /** ServicePreviewResponse */
         ServicePreviewResponse: {
@@ -13515,6 +15894,11 @@ export interface components {
              * @description Layer name as it appears in the remote service.
              */
             layer_name: string;
+            /**
+             * Origin Link Loss
+             * @description Reasons the item link was dropped: 'item_id_invalid', 'portal_url_invalid', 'portal_url_domain_mismatch' or 'origin_link_unsupported'. Empty when nothing was dropped.
+             */
+            origin_link_loss?: string[];
         };
         /**
          * ServiceProbeResult
@@ -13730,6 +16114,11 @@ export interface components {
             dataset_attribution?: string | null;
             /** Dataset Extent Bbox */
             dataset_extent_bbox?: number[] | null;
+            /**
+             * Dataset Tile Columns
+             * @description Dataset tile attribute allowlist, as on MapLayerResponse: null allows all queryable columns, [] exposes none.
+             */
+            dataset_tile_columns?: string[] | null;
         };
         /** SharedMapResponse */
         SharedMapResponse: {
@@ -13743,6 +16132,11 @@ export interface components {
             center_lat: number;
             /** Zoom */
             zoom: number;
+            /**
+             * Has Saved View
+             * @description True when the map stores a center and zoom. When false, center and zoom are defaults and a viewer should fit the layers instead.
+             */
+            has_saved_view: boolean;
             /** Bearing */
             bearing: number;
             /** Pitch */
@@ -13754,8 +16148,15 @@ export interface components {
              * @default true
              */
             show_basemap_labels: boolean;
+            /**
+             * Show Attribute Table
+             * @description Whether the viewer offers each layer's attribute table. The columns an embed may read come from each dataset's tile column allowlist.
+             * @default true
+             */
+            show_attribute_table: boolean;
             basemap_config?: components["schemas"]["BasemapConfig"] | null;
             terrain_config?: components["schemas"]["TerrainConfig"] | null;
+            dashboard_config?: components["schemas"]["DashboardConfig"] | null;
             /**
              * Has Non Public Layers
              * @default false
@@ -13765,6 +16166,8 @@ export interface components {
             legend_title?: string | null;
             /** Layers */
             layers: components["schemas"]["SharedLayerResponse"][];
+            /** @description The theme a branding extension sets for the viewer and its dashboard; null without one. */
+            reader_theme?: components["schemas"]["ReaderTheme"] | null;
         };
         /**
          * SourceHealthResponse
@@ -14707,6 +17110,67 @@ export interface components {
             /** Total Affected */
             total_affected: number;
         };
+        /** StatsRequest */
+        StatsRequest: {
+            /**
+             * Filter
+             * @description CQL2-JSON filter, as the OGC API Features `filter` accepts.
+             */
+            filter?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Bbox
+             * @description Map view `[west, south, east, north]` in WGS 84; west greater than east crosses the antimeridian. Omit for the whole layer.
+             */
+            bbox?: number[] | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "stats";
+            /** Column */
+            column: string;
+            /** Stats */
+            stats: ("count" | "sum" | "avg" | "min" | "max")[];
+        };
+        /** StatsResponse */
+        StatsResponse: {
+            /**
+             * Approximate
+             * @description Always false: a view too wide to count exactly is refused.
+             * @default false
+             * @constant
+             */
+            approximate: false;
+            /** Cached */
+            cached: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "stats";
+            result: components["schemas"]["StatsResult"];
+        };
+        /**
+         * StatsResult
+         * @description The requested statistics; one over no rows is null.
+         *
+         *     ``sum``, ``min`` and ``max`` are exact: a number when JSON can carry it
+         *     exactly, else text. ``avg`` is a float, or text for NaN and infinity.
+         */
+        StatsResult: {
+            /** Count */
+            count?: number | null;
+            /** Sum */
+            sum?: number | string | null;
+            /** Avg */
+            avg?: number | string | null;
+            /** Min */
+            min?: number | string | null;
+            /** Max */
+            max?: number | string | null;
+        };
         /**
          * StatusUpdate
          * @example {
@@ -14735,6 +17199,414 @@ export interface components {
              */
             metadata_warnings?: string[] | null;
         };
+        /**
+         * StoredStoryVisibility
+         * @description A story's visibility as stored. A private story shared with groups is
+         *     ``restricted``: its groups' members read it too.
+         * @enum {string}
+         */
+        StoredStoryVisibility: "private" | "internal" | "public" | "restricted";
+        /** StoryAssetResponse */
+        StoryAssetResponse: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Served at `/stories/{story_id}/assets/{id}` as WebP.
+             */
+            id: string;
+            /** Width */
+            width: number;
+            /** Height */
+            height: number;
+            /**
+             * Byte Size
+             * @description Size of the stored image in all its sizes.
+             */
+            byte_size: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** StoryCamera */
+        StoryCamera: {
+            /**
+             * Center
+             * @description Longitude, latitude.
+             */
+            center: [
+                number,
+                number
+            ];
+            /** Zoom */
+            zoom: number;
+            /**
+             * Bearing
+             * @default 0
+             */
+            bearing: number;
+            /**
+             * Pitch
+             * @default 0
+             */
+            pitch: number;
+        };
+        /** StoryChapter */
+        StoryChapter: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            scene?: components["schemas"]["StoryScene"] | null;
+            /**
+             * Scene Hidden
+             * @description The chapter has a scene on a map you can't read, so it's shown without one.
+             * @default false
+             */
+            scene_hidden: boolean;
+            /** Blocks */
+            blocks?: (components["schemas"]["MarkdownWidget"] | components["schemas"]["ImageWidget"] | components["schemas"]["GalleryWidget"] | components["schemas"]["CarouselWidget"] | components["schemas"]["ButtonWidget"] | components["schemas"]["SeparatorWidget"] | components["schemas"]["EmbedWidget"] | components["schemas"]["VideoWidget"])[];
+        };
+        /** StoryChapterInput */
+        StoryChapterInput: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            scene?: components["schemas"]["StoryScene"] | null;
+            /**
+             * Scene Hidden
+             * @description Send back as read to keep a scene on a map you can't read; with it false, a chapter without a scene loses its stored one.
+             * @default false
+             */
+            scene_hidden: boolean;
+            /** Blocks */
+            blocks?: (components["schemas"]["MarkdownWidget"] | components["schemas"]["ImageWidget"] | components["schemas"]["GalleryWidget"] | components["schemas"]["CarouselWidget"] | components["schemas"]["ButtonWidget"] | components["schemas"]["SeparatorWidget"] | components["schemas"]["EmbedWidget"] | components["schemas"]["VideoWidget"])[];
+        };
+        /** StoryCreate */
+        StoryCreate: {
+            /** Title */
+            title: string;
+            /** Summary */
+            summary?: string | null;
+        };
+        /** StoryDocument */
+        StoryDocument: {
+            /** Version */
+            version: number;
+            /** Chapters */
+            chapters: components["schemas"]["StoryChapter"][];
+            settings?: components["schemas"]["StorySettings"] | null;
+        };
+        /** StoryDocumentInput */
+        StoryDocumentInput: {
+            /**
+             * Version
+             * @default 1
+             * @constant
+             */
+            version: 1;
+            /** Chapters */
+            chapters?: components["schemas"]["StoryChapterInput"][];
+            /** @description Reader settings; absent means every default. */
+            settings?: components["schemas"]["StorySettings"] | null;
+        };
+        /** StoryDraftResponse */
+        StoryDraftResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+            /** Summary */
+            summary: string | null;
+            visibility: components["schemas"]["StoredStoryVisibility"];
+            /** Created By */
+            created_by: string | null;
+            /**
+             * Published At
+             * @description When the story was last published; null if never.
+             */
+            published_at: string | null;
+            /**
+             * Cover Asset Id
+             * @description The cover image, served at `/stories/{id}/assets/{cover_asset_id}`; null without one.
+             */
+            cover_asset_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Can Edit */
+            can_edit: boolean;
+            /** Revision */
+            revision: number;
+            document: components["schemas"]["StoryDocument"];
+            /**
+             * Groups
+             * @description The sharing groups the story is shared with, by name.
+             */
+            groups?: components["schemas"]["GroupRef"][];
+        };
+        /** StoryDraftUpdate */
+        StoryDraftUpdate: {
+            /**
+             * Revision
+             * @description The draft revision this save replaces.
+             */
+            revision: number;
+            document: components["schemas"]["StoryDocumentInput"];
+        };
+        /**
+         * StoryFrameHost
+         * @description One approved host.
+         */
+        StoryFrameHost: {
+            /**
+             * Host
+             * @description An exact host name, such as media.example.org.
+             */
+            host: string;
+            /**
+             * Allow Same Origin
+             * @description Let this host's frames keep their origin, which some video players need. The frame keeps it wherever the page sends it, so any other approved host it opens gets the same.
+             * @default false
+             */
+            allow_same_origin: boolean;
+        };
+        /** StoryGroupsResponse */
+        StoryGroupsResponse: {
+            /** @description The story's visibility after the change: a private story shared with a group becomes restricted, and a restricted one left with no group becomes private. */
+            visibility: components["schemas"]["StoredStoryVisibility"];
+            /**
+             * Groups
+             * @description The sharing groups the story is shared with, by name.
+             */
+            groups: components["schemas"]["GroupRef"][];
+            /**
+             * Shared Map Ids
+             * @description Maps this request shared with the story's new groups.
+             */
+            shared_map_ids?: string[];
+        };
+        /** StoryGroupsUpdate */
+        StoryGroupsUpdate: {
+            /**
+             * Group Ids
+             * @description Every group the story is shared with afterwards; an empty list unshares it. An owner may add only groups they belong to, and an admin any group.
+             */
+            group_ids: string[];
+            /**
+             * Confirm
+             * @description Required to go ahead when maps the story uses block some of its groups; without it the request answers 409 and lists them. `share_maps` first shares each map marked `can_share` with the groups that lack it, which makes a private one restricted. The request is still refused while any other map blocks it.
+             */
+            confirm?: "share_maps" | null;
+        };
+        /** StoryListResponse */
+        StoryListResponse: {
+            /** Stories */
+            stories: components["schemas"]["StorySummary"][];
+            /** Total */
+            total: number;
+        };
+        /** StoryPublish */
+        StoryPublish: {
+            /**
+             * Revision
+             * @description The draft revision this publish or discard acts on.
+             */
+            revision: number;
+            /**
+             * Confirm
+             * @description Required to go ahead when maps the story uses block some of its groups; without it the request answers 409 and lists them. `share_maps` first shares each map marked `can_share` with the groups that lack it, which makes a private one restricted. The request is still refused while any other map blocks it.
+             */
+            confirm?: "share_maps" | null;
+        };
+        /** StoryResponse */
+        StoryResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+            /** Summary */
+            summary: string | null;
+            visibility: components["schemas"]["StoredStoryVisibility"];
+            /** Created By */
+            created_by: string | null;
+            /**
+             * Published At
+             * @description When the story was last published; null if never.
+             */
+            published_at: string | null;
+            /**
+             * Cover Asset Id
+             * @description The cover image, served at `/stories/{id}/assets/{cover_asset_id}`; null without one.
+             */
+            cover_asset_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Can Edit */
+            can_edit: boolean;
+            /** @description The published document; null until the story is published. */
+            document: components["schemas"]["StoryDocument"] | null;
+            /** @description The theme a branding extension sets for the story's reader; null without one. */
+            reader_theme?: components["schemas"]["ReaderTheme"] | null;
+        };
+        /** StoryRevision */
+        StoryRevision: {
+            /**
+             * Revision
+             * @description The draft revision this publish or discard acts on.
+             */
+            revision: number;
+        };
+        /** StoryScene */
+        StoryScene: {
+            /**
+             * Map Id
+             * Format: uuid
+             */
+            map_id: string;
+            camera: components["schemas"]["StoryCamera"];
+            /**
+             * Layer Visibility
+             * @description Visibility by map layer id. Layers the map no longer has are ignored, and a layer left out keeps its saved visibility.
+             */
+            layer_visibility?: {
+                [key: string]: boolean;
+            };
+            /**
+             * Transition
+             * @description How the map moves into this scene; absent uses the story setting.
+             */
+            transition?: ("fly" | "glide" | "cut") | null;
+        };
+        /** StorySettings */
+        StorySettings: {
+            /**
+             * Navigation
+             * @description Show the chapter navigation bar.
+             * @default false
+             */
+            navigation: boolean;
+            /**
+             * Layout
+             * @description Chapter panel beside the map or floating over it.
+             * @default side
+             * @enum {string}
+             */
+            layout: "side" | "floating";
+            /**
+             * Panel Position
+             * @description Where a floating panel sits.
+             * @default left
+             * @enum {string}
+             */
+            panel_position: "left" | "right" | "center";
+            /**
+             * Theme
+             * @description Reader page theme; follow uses the reader's.
+             * @default follow
+             * @enum {string}
+             */
+            theme: "follow" | "light" | "dark";
+            /**
+             * Transition
+             * @description How the map moves into a chapter whose scene sets no transition.
+             * @default fly
+             * @enum {string}
+             */
+            transition: "fly" | "glide" | "cut";
+        };
+        /** StorySummary */
+        StorySummary: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+            /** Summary */
+            summary: string | null;
+            visibility: components["schemas"]["StoredStoryVisibility"];
+            /** Created By */
+            created_by: string | null;
+            /**
+             * Published At
+             * @description When the story was last published; null if never.
+             */
+            published_at: string | null;
+            /**
+             * Cover Asset Id
+             * @description The cover image, served at `/stories/{id}/assets/{cover_asset_id}`; null without one.
+             */
+            cover_asset_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Can Edit */
+            can_edit: boolean;
+            /**
+             * Chapter Count
+             * @description Chapters in the published document; 0 until published.
+             */
+            chapter_count: number;
+        };
+        /** StoryUpdate */
+        StoryUpdate: {
+            /** Title */
+            title?: string | null;
+            /** Summary */
+            summary?: string | null;
+            /** @description Refused with 409 when a map the published story uses is narrower than the new visibility. */
+            visibility?: components["schemas"]["StoryVisibility"] | null;
+            /**
+             * Cover Asset Id
+             * @description An image uploaded to this story to use as its cover, or null for none. 422 `story_assets_not_found` for an image this story doesn't have.
+             */
+            cover_asset_id?: string | null;
+        };
+        /**
+         * StoryVisibility
+         * @description Who may read a published story, besides its owner and admins.
+         * @enum {string}
+         */
+        StoryVisibility: "private" | "internal" | "public";
         /**
          * SublayerOverride
          * @description Per-sublayer style override for a single basemap sublayer.
@@ -14800,6 +17672,29 @@ export interface components {
              */
             draft: string;
         };
+        /** TableConfig */
+        TableConfig: {
+            /** Group Column */
+            group_column: string;
+            /** Stats */
+            stats: components["schemas"]["TableStat"][];
+            /**
+             * Sort By
+             * @description The index in `stats` of the statistic to sort by; leave it out to sort by the group value.
+             */
+            sort_by?: number | null;
+            /**
+             * Sort
+             * @default desc
+             * @enum {string}
+             */
+            sort: "asc" | "desc";
+            /**
+             * Limit
+             * @default 10
+             */
+            limit: number;
+        };
         /** TableRegisterResponse */
         TableRegisterResponse: {
             /**
@@ -14818,6 +17713,51 @@ export interface components {
              * @description Source PostgreSQL table that was registered.
              */
             table_name: string;
+        };
+        /** TableStat */
+        TableStat: {
+            /**
+             * Stat
+             * @enum {string}
+             */
+            stat: "count" | "sum" | "mean" | "min" | "max";
+            /** Column */
+            column?: string | null;
+        };
+        /** TableWidget */
+        TableWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * Layer Id
+             * Format: uuid
+             * @description A layer of the host's map.
+             */
+            layer_id: string;
+            /**
+             * Scope
+             * @description Summarize the whole layer, or only what the map view shows.
+             * @default layer
+             * @enum {string}
+             */
+            scope: "layer" | "view";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "table";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            config: components["schemas"]["TableConfig"];
         };
         /** TerrainConfig */
         TerrainConfig: {
@@ -15287,6 +18227,74 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        /** ValueCount */
+        ValueCount: {
+            /**
+             * Value
+             * @description The column's value. A number JSON cannot carry exactly, such as an integer beyond 2^53 or NaN, comes back as text.
+             */
+            value: string | number | boolean | null;
+            /** Count */
+            count: number;
+        };
+        /** ValueCountsRequest */
+        ValueCountsRequest: {
+            /**
+             * Filter
+             * @description CQL2-JSON filter, as the OGC API Features `filter` accepts.
+             */
+            filter?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Bbox
+             * @description Map view `[west, south, east, north]` in WGS 84; west greater than east crosses the antimeridian. Omit for the whole layer.
+             */
+            bbox?: number[] | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "value_counts";
+            /** Column */
+            column: string;
+            /**
+             * Limit
+             * @default 10
+             */
+            limit: number;
+        };
+        /** ValueCountsResponse */
+        ValueCountsResponse: {
+            /**
+             * Approximate
+             * @description Always false: a view too wide to count exactly is refused.
+             * @default false
+             * @constant
+             */
+            approximate: false;
+            /** Cached */
+            cached: boolean;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "value_counts";
+            result: components["schemas"]["ValueCountsResult"];
+        };
+        /** ValueCountsResult */
+        ValueCountsResult: {
+            /**
+             * Values
+             * @description Most frequent first.
+             */
+            values: components["schemas"]["ValueCount"][];
+            /**
+             * Other Count
+             * @description Rows whose value is not listed.
+             */
+            other_count: number;
+        };
         /** VectorTileToken */
         VectorTileToken: {
             /**
@@ -15316,6 +18324,28 @@ export interface components {
              */
             token: string;
         };
+        /** VideoWidget */
+        VideoWidget: {
+            /**
+             * Id
+             * Format: uuid
+             * @description Made by the client and stable across saves.
+             */
+            id: string;
+            /** Title */
+            title?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "video";
+            /**
+             * V
+             * @constant
+             */
+            v: 1;
+            config: components["schemas"]["FrameConfig"];
+        };
         /** VisibilityCheckResponse */
         VisibilityCheckResponse: {
             /**
@@ -15328,6 +18358,11 @@ export interface components {
              * @description True if any layer references a non-public dataset
              */
             has_non_public: boolean;
+            /**
+             * Hidden From Groups
+             * @description On a restricted map, the layers some of its groups can't read, among those the caller reads. Empty on other maps, and when the permission authority can't say who reads a dataset.
+             */
+            hidden_from_groups?: components["schemas"]["MapLayerAccessGap"][];
         };
         /** VrtActiveGeneration */
         VrtActiveGeneration: {
@@ -16624,6 +19659,803 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["EmbeddingStatsResponse"];
                 };
+            };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    list_groups_admin_groups__get: {
+        parameters: {
+            query?: {
+                skip?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupListResponse"];
+                };
+            };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    create_group_admin_groups__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GroupWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupResponse"];
+                };
+            };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    get_group_admin_groups__group_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupResponse"];
+                };
+            };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    delete_group_admin_groups__group_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    rename_group_admin_groups__group_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GroupWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupResponse"];
+                };
+            };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    list_group_members_admin_groups__group_id__members__get: {
+        parameters: {
+            query?: {
+                skip?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupMemberListResponse"];
+                };
+            };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    add_group_members_admin_groups__group_id__members__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GroupMembersAdd"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupResponse"];
+                };
+            };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    remove_group_member_admin_groups__group_id__members__user_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Bad request — invalid query parameters or payload */
             400: {
@@ -21345,6 +25177,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
+            /** @description The account can't be activated yet */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
             /** @description Validation error */
             422: {
                 headers: {
@@ -25027,6 +28868,109 @@ export interface operations {
             };
         };
     };
+    aggregate_endpoint_datasets__dataset_id__aggregate__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Optional embed token. Datasets in the token's scope are authorized even without user credentials (embed viewers). */
+                "X-Embed-Token"?: string | null;
+            };
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CountRequest"] | components["schemas"]["StatsRequest"] | components["schemas"]["ValueCountsRequest"] | components["schemas"]["HistogramRequest"] | components["schemas"]["GroupByRequest"] | components["schemas"]["RowsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CountResponse"] | components["schemas"]["StatsResponse"] | components["schemas"]["ValueCountsResponse"] | components["schemas"]["HistogramResponse"] | components["schemas"]["GroupByResponse"] | components["schemas"]["RowsResponse"];
+                };
+            };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a valid X-Embed-Token that authorizes the request on its own. That request is served and the unrelated credential is ignored. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
     analysis_materialize_endpoint_datasets__dataset_id__analysis_materialize__post: {
         parameters: {
             query?: never;
@@ -28592,6 +32536,115 @@ export interface operations {
             };
         };
     };
+    set_dataset_groups_endpoint_datasets__dataset_id__groups__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DatasetGroupsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetGroupsResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
     get_dataset_history_datasets__dataset_id__history_get: {
         parameters: {
             query?: {
@@ -30716,8 +34769,17 @@ export interface operations {
                 sort?: string | null;
                 /** @description Sort direction; applies only with `sort`. */
                 order?: "asc" | "desc";
+                /** @description Optional CQL2-JSON filter expression (as the OGC items route's ``filter-lang=cql2-json``). ANDs with the ``filter[column]`` ILIKE filters; malformed expressions and unknown columns return 400. */
+                filter?: string | null;
+                /** @description Return at most the row with this gid, ANDed with `filter` and the `filter[column]` filters. The total counts it like a filter. */
+                gid?: number | null;
+                /** @description Also return `bboxes`, each row's bounding box in EPSG:4326. */
+                with_bbox?: boolean;
             };
-            header?: never;
+            header?: {
+                /** @description Optional embed token. This route answers it for datasets in the token's scope while the token's map has `show_attribute_table` on. A caller who can read the dataset is served by their own permissions whatever the token covers. */
+                "X-Embed-Token"?: string | null;
+            };
             path: {
                 dataset_id: string;
             };
@@ -30743,7 +34805,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description Unauthorized — missing or invalid credentials */
+            /** @description Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a valid X-Embed-Token that authorizes the request on its own. That request is served and the unrelated credential is ignored. */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -31839,6 +35901,103 @@ export interface operations {
             };
             /** @description Conflict — resource state prevents the operation */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    list_my_groups_groups_mine__get: {
+        parameters: {
+            query?: {
+                skip?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupRefListResponse"];
+                };
+            };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -35498,6 +39657,113 @@ export interface operations {
             };
         };
     };
+    import_arcgis_webmap_endpoint_maps_import_arcgis_webmap__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArcgisWebmapImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArcgisWebmapImportResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
     get_shared_map_endpoint_maps_shared__token__get: {
         parameters: {
             query?: never;
@@ -36837,6 +41103,115 @@ export interface operations {
             };
         };
     };
+    set_map_groups_endpoint_maps__map_id__groups__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                map_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MapGroupsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MapGroupsResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Layers some new groups can't read (`detail.code` `layers_hidden_from_groups`), or another change to the map holding its lock (no `detail.code`); branch on `detail.code`. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
     get_map_history_endpoint_maps__map_id__history_get: {
         parameters: {
             query?: {
@@ -37937,6 +42312,111 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ShareTokenResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    list_map_stories_endpoint_maps__map_id__stories__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                map_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MapStoriesResponse"];
                 };
             };
             /** @description Bad request — invalid payload */
@@ -41025,6 +45505,240 @@ export interface operations {
             };
         };
     };
+    import_database_table_services_databases__connection__imports__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Connection name. */
+                connection: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DatabaseImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatabaseImportResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Bad gateway — an upstream provider failed */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    list_database_tables_services_databases__connection__tables__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Connection name. */
+                connection: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatabaseTableListResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Bad gateway — an upstream provider failed */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
     preview_service_layer_services_preview__post: {
         parameters: {
             query?: never;
@@ -43923,9 +48637,9 @@ export interface operations {
                 bbox?: string | null;
                 /** @description OGC datetime interval */
                 datetime?: string | null;
-                /** @description Comma-separated collection IDs */
+                /** @description Comma-separated collection IDs, at most 1000; more answer 400. */
                 collections?: string | null;
-                /** @description Comma-separated item IDs */
+                /** @description Comma-separated item IDs, at most 1000; more answer 400. */
                 ids?: string | null;
                 /** @description GeoJSON geometry for spatial intersection. At most 10000 characters, which fits a polygon of several hundred vertices at 2-decimal-place lat/lon coordinates. */
                 intersects?: string | null;
@@ -44087,6 +48801,1555 @@ export interface operations {
             };
         };
     };
+    list_stories_endpoint_stories__get: {
+        parameters: {
+            query?: {
+                skip?: number;
+                limit?: number;
+                owned_only?: boolean;
+                /** @description Case-insensitive match on title and summary. */
+                search?: string | null;
+                /** @description Leave out stories that were never published. */
+                published_only?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryListResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    create_story_endpoint_stories__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoryCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryDraftResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    story_frame_hosts_endpoint_stories_frame_hosts__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryFrameHost"][];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    get_story_endpoint_stories__story_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                story_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    delete_story_endpoint_stories__story_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                story_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    update_story_endpoint_stories__story_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                story_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoryUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Maps the story uses are narrower than its visibility (`detail.code` `maps_narrower_than_story`, the maps under `detail.maps`), a stale draft revision (`stale_revision`), or another change holding the story's lock (no `detail.code`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    upload_story_asset_endpoint_stories__story_id__assets_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                story_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryAssetResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The story already holds its most images or bytes (`detail.code` `story_asset_limit`), its owner's stories hold the most image bytes the admin allows (`story_asset_owner_limit`), or another change holds its lock. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Payload too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not a PNG, JPEG or WebP image */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Bad gateway — an upstream provider failed */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Other images are being processed (`detail.code` `story_image_busy`); retry after `Retry-After` seconds. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    get_story_asset_endpoint_stories__story_id__assets__asset_id__get: {
+        parameters: {
+            query?: {
+                /** @description `card`: at most 640 pixels wide, as WebP. `social`: 1200 by 630, cropped to fill, as JPEG. An image uploaded before these sizes existed answers with the original. */
+                variant?: ("card" | "social") | null;
+            };
+            header?: never;
+            path: {
+                story_id: string;
+                asset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The image */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/jpeg": string;
+                    "image/webp": string;
+                };
+            };
+            /** @description Your copy, named by `If-None-Match`, is current. */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    discard_story_draft_endpoint_stories__story_id__discard_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                story_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoryRevision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryDraftResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    get_story_draft_endpoint_stories__story_id__draft_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                story_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryDraftResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    save_story_draft_endpoint_stories__story_id__draft_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                story_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoryDraftUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryDraftResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Maps the story uses are narrower than its visibility (`detail.code` `maps_narrower_than_story`, the maps under `detail.maps`), a stale draft revision (`stale_revision`), or another change holding the story's lock (no `detail.code`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    duplicate_story_endpoint_stories__story_id__duplicate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                story_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryDraftResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The copied images would take your stories past the most image bytes the admin allows (`detail.code` `story_asset_owner_limit`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Bad gateway — an upstream provider failed */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    set_story_groups_endpoint_stories__story_id__groups__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                story_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoryGroupsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryGroupsResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Maps the published story uses that some new groups can't read (`detail.code` `maps_narrower_than_story`, the maps under `detail.maps`), or another change holding the story's lock (no `detail.code`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    publish_story_endpoint_stories__story_id__publish_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                story_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoryPublish"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Maps the story uses are narrower than its visibility (`detail.code` `maps_narrower_than_story`, the maps under `detail.maps`), a stale draft revision (`stale_revision`), or another change holding the story's lock (no `detail.code`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
     cluster_tile_endpoint_tiles_clusters__table_path___z___x___y__pbf_get: {
         parameters: {
             query?: {
@@ -44094,6 +50357,8 @@ export interface operations {
                 exp?: number | null;
                 scope?: string | null;
                 cols?: string | null;
+                /** @description Carry only the columns named by `cols`, at every zoom. */
+                cols_only?: boolean;
                 cluster_radius?: number;
                 cluster_max_zoom?: number;
                 filter?: string | null;
@@ -44262,6 +50527,17 @@ export interface operations {
             /** @description Validation error */
             422: {
                 headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -44451,6 +50727,8 @@ export interface operations {
                 exp?: number | null;
                 scope?: string | null;
                 cols?: string | null;
+                /** @description Carry only the columns named by `cols`, at every zoom. */
+                cols_only?: boolean;
             };
             header?: never;
             path: {

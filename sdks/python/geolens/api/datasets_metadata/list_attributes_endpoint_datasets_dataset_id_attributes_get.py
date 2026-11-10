@@ -113,7 +113,7 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     include_removed: bool | Unset = False,
 ) -> Response[AttributeMetadataListResponse | ProblemDetail]:
-    """List Attributes Endpoint
+    """List a dataset's attributes
 
      List all attribute metadata for a dataset.
 
@@ -147,7 +147,7 @@ def sync(
     client: AuthenticatedClient | Client,
     include_removed: bool | Unset = False,
 ) -> AttributeMetadataListResponse | ProblemDetail | None:
-    """List Attributes Endpoint
+    """List a dataset's attributes
 
      List all attribute metadata for a dataset.
 
@@ -176,7 +176,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     include_removed: bool | Unset = False,
 ) -> Response[AttributeMetadataListResponse | ProblemDetail]:
-    """List Attributes Endpoint
+    """List a dataset's attributes
 
      List all attribute metadata for a dataset.
 
@@ -208,7 +208,7 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     include_removed: bool | Unset = False,
 ) -> AttributeMetadataListResponse | ProblemDetail | None:
-    """List Attributes Endpoint
+    """List a dataset's attributes
 
      List all attribute metadata for a dataset.
 

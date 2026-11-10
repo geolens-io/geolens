@@ -14,7 +14,6 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import ValidationError
 from slowapi.util import get_remote_address
-from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.url_redaction import (
@@ -24,9 +23,8 @@ from app.core.url_redaction import (
 )
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.crs_uri import parse_crs_uri
-from app.core.identity import Identity
+from app.core.identity import Identity, IdentitySnapshot
 from app.modules.auth.dependencies import require_permission
-from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.core.dependencies import get_db
 from app.platform.jobs import ledger
 from app.platform.jobs.models import IngestJob
@@ -85,6 +83,7 @@ from app.platform.ratelimit import limiter
 from app.platform.service_auth import (
     credential_or_422,
     custom_credential_header_name,
+    credential_over_http_or_422,
     url_query_token,
 )
 from app.platform.probe_bounds import bounded_probe_read
@@ -102,7 +101,16 @@ from app.platform.security import (
     make_safe_client,
     validate_url_for_ssrf,
 )
-from app.platform.dataset_origin import service_layer_identity
+from app.platform.source_copies import (
+    importing_copy,
+    published_copy,
+    service_identity,
+    visible_conflict,
+)
+from app.platform.portal_link import (
+    PortalLink,
+    resolve_portal_link,
+)
 from app.standards.ogc.errors import (
     ERROR_RESPONSES_WRITE,
     PROBLEM_RESPONSE,
@@ -294,9 +302,14 @@ def _validate_connector_job(job_id: object) -> ConnectorIngestResponse:
 
 
 @router.get(
-    "/connectors", response_model=ConnectorListResponse, include_in_schema=False
+    "/connectors",
+    response_model=ConnectorListResponse,
+    include_in_schema=False,
+    summary="List connectors",
 )
-@router.get("/connectors/", response_model=ConnectorListResponse)
+@router.get(
+    "/connectors/", response_model=ConnectorListResponse, summary="List connectors"
+)
 async def list_connectors_endpoint(
     _user: Identity = Depends(require_permission("upload")),
 ) -> ConnectorListResponse:
@@ -324,11 +337,13 @@ async def list_connectors_endpoint(
     response_model=ConnectorDiscoverResponse,
     responses=_CONNECTOR_OPERATION_RESPONSES,
     include_in_schema=False,
+    summary="Discover connector resources",
 )
 @router.post(
     "/connectors/{connector_name}/discover/",
     response_model=ConnectorDiscoverResponse,
     responses=_CONNECTOR_OPERATION_RESPONSES,
+    summary="Discover connector resources",
 )
 async def discover_connector_resources_endpoint(
     connector_name: str,
@@ -396,12 +411,14 @@ async def discover_connector_resources_endpoint(
     responses=_CONNECTOR_OPERATION_RESPONSES,
     status_code=status.HTTP_202_ACCEPTED,
     include_in_schema=False,
+    summary="Start a connector ingest",
 )
 @router.post(
     "/connectors/{connector_name}/ingest/",
     response_model=ConnectorIngestResponse,
     responses=_CONNECTOR_OPERATION_RESPONSES,
     status_code=status.HTTP_202_ACCEPTED,
+    summary="Start a connector ingest",
 )
 async def dispatch_connector_ingest_endpoint(
     connector_name: str,
@@ -806,6 +823,7 @@ async def _create_preview_job(
             "layer_id": effective_layer_id,
             "object_id_field": request.object_id_field,
             **{k: preview_data.get(k) for k in ("geometry_type", "field_labels")},
+            **_portal_link(request).fields,
         },
     )
     await db.flush()
@@ -834,6 +852,12 @@ async def _create_preview_job(
     return job
 
 
+def _portal_link(request: ServicePreviewRequest) -> PortalLink:
+    if not request.service_type.startswith("ArcGIS"):
+        return PortalLink.unsupported(request.item_id, request.portal_url)
+    return resolve_portal_link(request.item_id, request.portal_url, request.url)
+
+
 def _build_preview_response(
     request: ServicePreviewRequest, preview_data: dict, job: IngestJob
 ) -> ServicePreviewResponse:
@@ -848,14 +872,22 @@ def _build_preview_response(
         layer_name=request.layer_name
         if request.service_type.startswith("ArcGIS")
         else preview_data["layer_name"],
+        origin_link_loss=_portal_link(request).losses,
     )
 
 
 # Dual-shape decorator: the trailing-slash and bare forms register against
 # the same handler. The slash form is canonical (in OpenAPI); the bare form is
 # a hidden alias, since redirect_slashes=False (api/main.py) would 404 it.
-@router.post("/probe", response_model=ProbeResponse, include_in_schema=False)
-@router.post("/probe/", response_model=ProbeResponse)
+@router.post(
+    "/probe",
+    response_model=ProbeResponse,
+    include_in_schema=False,
+    summary="Probe a remote service URL",
+)
+@router.post(
+    "/probe/", response_model=ProbeResponse, summary="Probe a remote service URL"
+)
 async def probe_service_url(
     request: ProbeRequest,
     user: Identity = Depends(require_permission("create_layers")),
@@ -890,6 +922,7 @@ async def probe_service_url(
             WFS_SERVICE_FORMAT if sends_a_header else ARCGIS_SERVICE_FORMAT
         ),
     )
+    credential_over_http_or_422(request.url, service_credential)
     safe_url = redact_url_credentials(request.url)
     # Read off `user` before the release below expires it.
     user_id = user.id
@@ -1096,8 +1129,17 @@ async def probe_service_url(
 
 
 # Dual-shape decorator; see /probe above.
-@router.post("/preview", response_model=ServicePreviewResponse, include_in_schema=False)
-@router.post("/preview/", response_model=ServicePreviewResponse)
+@router.post(
+    "/preview",
+    response_model=ServicePreviewResponse,
+    include_in_schema=False,
+    summary="Preview a remote service layer",
+)
+@router.post(
+    "/preview/",
+    response_model=ServicePreviewResponse,
+    summary="Preview a remote service layer",
+)
 async def preview_service_layer(
     request: ServicePreviewRequest,
     user: Identity = Depends(require_permission("create_layers")),
@@ -1117,6 +1159,7 @@ async def preview_service_layer(
         service_credential_from_request(request.auth, request.token),
         service_format=_preview_service_format(request.service_type),
     )
+    credential_over_http_or_422(request.url, service_credential)
     # ArcGIS is the only branch reading a bare token (`build_gdal_source`
     # percent-encodes it into the ESRIJSON query); header-auth formats get
     # None here and travel as a header instead.
@@ -1124,6 +1167,7 @@ async def preview_service_layer(
     safe_url = redact_url_credentials(request.url)
     # Read off `user` before either release below expires it.
     user_id = user.id
+    viewer = IdentitySnapshot.of(user)
     # Released ABOVE the SSRF check, not below: it awaits `getaddrinfo` in a
     # thread, so an unresponsive resolver would otherwise pin the connection
     # before any preview work.
@@ -1150,82 +1194,26 @@ async def preview_service_layer(
         await db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
-    # Duplicate source detection (ArcGIS and WFS only): the stored URL
-    # includes the layer suffix (via enrich_source_url), so reconstruct the
-    # enriched form before querying (source_url, source_format, created_by).
-    try:
-        _, source_format = get_catalog_port().resolve_service_type(request.service_type)
-        try:
-            base_url, url_layer_id = normalize_arcgis_url(request.url)
-        except Exception:  # broad: malformed input; degrade to raw URL
-            base_url, url_layer_id = request.url, None
-        effective_layer_id = (
-            request.layer_id if request.layer_id is not None else url_layer_id
+    identity = service_identity(
+        request.service_type,
+        request.url,
+        layer_id=request.layer_id,
+        layer_name=request.layer_name,
+    )
+    if identity is not None:
+        existing = await published_copy(db, user_id, identity) or await importing_copy(
+            db, user_id, identity
         )
-        enriched_url = (
-            f"{base_url}/{effective_layer_id}"
-            if effective_layer_id is not None
-            else base_url
-        )
-        # Keyed on the structured `origin_ref` (service_type, base_url, layer
-        # identity), not `origin_uri`'s string spelling, which can drift
-        # across writers and miss a duplicate. `source_url` is only a narrow
-        # fallback for rows whose structured identity migration 0036 could
-        # not backfill (a WFS/OGC row whose service backfill populated
-        # `origin_uri` but left `origin_ref` without url/layer_id, having no
-        # typename to recover), gated on the structured identity being
-        # incomplete, not on `origin_uri IS NULL` alone. `source_url` is
-        # reachable through the metadata PATCH, so keying the guard on it
-        # alone would let an owner edit past it.
-        canonical_layer_id = service_layer_identity(
-            source_format, layer_id=effective_layer_id, layer_name=request.layer_name
-        )
-        origin_ref_url = Dataset.origin_ref["url"].astext
-        origin_ref_layer_id = Dataset.origin_ref["layer_id"].astext
-        existing_stmt = (
-            select(Dataset.id, Record.title)
-            .join(Record, Dataset.record_id == Record.id)
-            .where(
-                or_(
-                    and_(
-                        Dataset.origin_ref["service_type"].astext == source_format,
-                        origin_ref_url == base_url,
-                        origin_ref_layer_id.is_(None)
-                        if canonical_layer_id is None
-                        else origin_ref_layer_id == canonical_layer_id,
-                    ),
-                    and_(
-                        or_(origin_ref_url.is_(None), origin_ref_layer_id.is_(None)),
-                        Dataset.source_url == enriched_url,
-                    ),
-                ),
-                Dataset.source_format == source_format,
-                Record.created_by == user_id,
+        if existing is not None:
+            raise await visible_conflict(
+                db,
+                viewer,
+                existing,
+                "A dataset from this source URL is already registered (existing: "
+                "'{title}'). To pull the latest data into it, refresh that "
+                "dataset instead of importing it again; to keep both, register "
+                "a different layer.",
             )
-            .limit(1)
-        )
-        existing = (await db.execute(existing_stmt)).first()
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "code": "duplicate_source",
-                    "message": (
-                        f"A dataset from this source URL is already registered "
-                        f"(existing: '{existing.title}'). To pull the latest data "
-                        f"into it, refresh that dataset instead of importing it "
-                        f"again; to keep both, register a different layer."
-                    ),
-                    "existing_dataset_id": str(existing.id),
-                    "existing_title": existing.title,
-                },
-            )
-    except HTTPException:
-        raise
-    except (ValueError, KeyError, IngestionError):
-        # resolve_service_type raises IngestionError for unknown service
-        # types; skip the duplicate check and let build_gdal_source refuse.
-        pass
 
     # Released again, because the duplicate-source query above re-acquired.
     # Every gate has run and nothing is written yet.
@@ -1564,11 +1552,13 @@ _ARCGIS_SIGNIN_RESPONSES = {
     response_model=ArcGISSignInResponse,
     responses=_ARCGIS_SIGNIN_RESPONSES,
     include_in_schema=False,
+    summary="Sign in to an ArcGIS portal",
 )
 @router.post(
     "/arcgis/signin/",
     response_model=ArcGISSignInResponse,
     responses=_ARCGIS_SIGNIN_RESPONSES,
+    summary="Sign in to an ArcGIS portal",
 )
 @limiter.limit(_arcgis_signin_user_limit, key_func=_signin_user_key)
 @limiter.limit(_arcgis_signin_portal_limit, key_func=_signin_portal_key)

@@ -1,3 +1,4 @@
+import { featureFilter } from '@maplibre/maplibre-gl-style-spec';
 import { describe, it, expect } from 'vitest';
 import type { FilterSpecification } from 'maplibre-gl';
 import {
@@ -6,8 +7,17 @@ import {
   validateRawFilter,
   FilterValidationError,
   maplibreFilterToCql2,
+  layerFilterToServerCql2,
+  legacyFilterToExpression,
+  isCql2LiteralCompatible,
   utcTimestampText,
 } from '../maplibre-filter-utils';
+
+// MapLibre's own filter evaluator, so the test sees what the map draws.
+function drawn(filter: FilterSpecification | null, props: Record<string, unknown>): boolean {
+  const test = featureFilter(filter ?? undefined, 'layers[0].filter').filter;
+  return test({ zoom: 0 }, { type: 1, properties: props } as never);
+}
 
 // ---------------------------------------------------------------------------
 // Empty-array -> null boundary hardening in sanitizeNullableNumericFilter
@@ -22,21 +32,75 @@ describe('sanitizeNullableNumericFilter', () => {
     expect(sanitizeNullableNumericFilter(undefined)).toBeNull();
   });
 
-  it('wraps a non-empty numeric comparison with the nullable-safe accessor (existing behavior preserved)', () => {
+  it('guards a numeric comparison with a type check so a null value never satisfies it', () => {
     const filter = ['==', ['get', 'pop'], 5] as unknown as FilterSpecification;
     const result = sanitizeNullableNumericFilter(filter);
-    expect(result).toEqual([
-      '==',
-      ['to-number', ['get', 'pop'], -1_000_000_000_000],
-      5,
-    ]);
+    expect(result).toEqual(['all', ['!=', ['typeof', ['get', 'pop']], 'null'], ['==', ['to-number', ['get', 'pop'], -1_000_000_000_000], 5]]);
+  });
+
+  it.each([
+    ['==', 0],
+    ['>=', -5],
+    ['<', 3],
+    ['!=', 0],
+  ])('a null value does not match %s %s on the map', (operator, value) => {
+    const result = sanitizeNullableNumericFilter([
+      operator,
+      ['get', 'n'],
+      value,
+    ] as unknown as FilterSpecification);
+
+    expect(drawn(result, { n: null })).toBe(false);
+    expect(drawn(result, {})).toBe(false);
+    expect(drawn(result, { n: value })).toBe(operator === '==' || operator === '>=');
+    // A value that satisfies the comparison still draws.
+    expect(drawn(result, { n: operator === '<' ? value - 1 : value + 1 })).toBe(operator !== '==');
+  });
+
+  it('keeps a null out of a negated numeric comparison too', () => {
+    const negated = ['!', ['==', ['to-number', ['get', 'n'], -1_000_000_000_000], 0]] as unknown as FilterSpecification;
+    const result = sanitizeNullableNumericFilter(negated);
+
+    expect(drawn(result, { n: null })).toBe(false);
+    expect(drawn(result, {})).toBe(false);
+    expect(drawn(result, { n: 0 })).toBe(false);
+    expect(drawn(result, { n: 4 })).toBe(true);
+    expect(sanitizeNullableNumericFilter(result)).toBe(result);
+  });
+
+  it('leaves a hand-authored to-number fallback as it is', () => {
+    const authored = ['>=', ['to-number', ['get', 'score'], 100], 5] as unknown as FilterSpecification;
+    const result = sanitizeNullableNumericFilter(authored);
+
+    expect(result).toBe(authored);
+    expect(drawn(result, { score: 'unknown' })).toBe(true);
+  });
+
+  it('still reads a numeric string as a number, as to-number always did', () => {
+    const legacy = ['>=', ['to-number', ['get', 'score'], -1_000_000_000_000], 5] as unknown as FilterSpecification;
+    const result = sanitizeNullableNumericFilter(legacy);
+
+    expect(drawn(result, { score: '10' })).toBe(true);
+    expect(drawn(result, { score: 10 })).toBe(true);
+    expect(drawn(result, { score: null })).toBe(false);
+    expect(drawn(result, {})).toBe(false);
+  });
+
+  it('rewrites a saved legacy to-number accessor to the guarded form', () => {
+    const legacy = ['==', ['to-number', ['get', 'pop'], -1_000_000_000_000], 0] as unknown as FilterSpecification;
+    expect(sanitizeNullableNumericFilter(legacy)).toEqual(['all', ['!=', ['typeof', ['get', 'pop']], 'null'], ['==', ['to-number', ['get', 'pop'], -1_000_000_000_000], 0]]);
+  });
+
+  it('keeps a guarded filter as it is, however often it is sanitized', () => {
+    const once = sanitizeNullableNumericFilter(['all', ['<', ['get', 'pop'], 3]] as unknown as FilterSpecification);
+    expect(sanitizeNullableNumericFilter(once)).toBe(once);
   });
 
   it('FL-01: returns the SAME reference for an already-sanitized filter (structurally unchanged)', () => {
     const filter = [
       'all',
-      ['==', ['to-number', ['get', 'pop'], -1_000_000_000_000], 5],
-      ['>', ['to-number', ['get', 'area'], -1_000_000_000_000], 10],
+      ['all', ['!=', ['typeof', ['get', 'pop']], 'null'], ['==', ['to-number', ['get', 'pop'], -1_000_000_000_000], 5]],
+      ['all', ['!=', ['typeof', ['get', 'area']], 'null'], ['>', ['to-number', ['get', 'area'], -1_000_000_000_000], 10]],
     ] as unknown as FilterSpecification;
     const result = sanitizeNullableNumericFilter(filter);
     expect(result).toBe(filter);
@@ -46,11 +110,7 @@ describe('sanitizeNullableNumericFilter', () => {
     const filter = ['==', ['get', 'pop'], 5] as unknown as FilterSpecification;
     const result = sanitizeNullableNumericFilter(filter);
     expect(result).not.toBe(filter);
-    expect(result).toEqual([
-      '==',
-      ['to-number', ['get', 'pop'], -1_000_000_000_000],
-      5,
-    ]);
+    expect(result).toEqual(['all', ['!=', ['typeof', ['get', 'pop']], 'null'], ['==', ['to-number', ['get', 'pop'], -1_000_000_000_000], 5]]);
   });
 });
 
@@ -65,6 +125,20 @@ describe('parseCanonicalFilter', () => {
       expect(result.combinator).toBe('all');
       expect(result.conditions[0]).toMatchObject({ field: 'name', operator: '==', value: 'foo', rawValue: 'foo' });
     }
+  });
+
+  it('parses the null-safe numeric comparison back to one condition', () => {
+    const expr = ['all', ['!=', ['typeof', ['get', 'pop']], 'null'], ['>', ['to-number', ['get', 'pop'], -1_000_000_000_000], 5]] as FilterSpecification;
+    expect(parseCanonicalFilter(expr)).toEqual({
+      kind: 'editable',
+      combinator: 'all',
+      conditions: [{ field: 'pop', operator: '>', value: '5', rawValue: 5, toNumber: true, nullGuarded: true }],
+    });
+  });
+
+  it('does not offer a guarded comparison with its own fallback to the editor', () => {
+    const expr = ['all', ['!=', ['typeof', ['get', 'pop']], 'null'], ['>', ['to-number', ['get', 'pop'], 7], 5]] as FilterSpecification;
+    expect(parseCanonicalFilter(expr).kind).toBe('opaque');
   });
 
   it('FILT-01: parses a to-number numeric comparison back to field + numeric rawValue', () => {
@@ -146,6 +220,18 @@ describe('validateRawFilter', () => {
   });
 });
 
+describe('isCql2LiteralCompatible', () => {
+  it.each([
+    ['non-scalar', {}, undefined, false],
+    ['non-finite', Infinity, undefined, false],
+    ['invalid date', 'last week', 'date', false],
+    ['valid date', '2024-01-01', 'date', true],
+    ['untyped scalar', '5', undefined, true],
+  ] as const)('checks %s', (_label, value, pgType, compatible) => {
+    expect(isCql2LiteralCompatible(value, pgType)).toBe(compatible);
+  });
+});
+
 describe('maplibreFilterToCql2', () => {
   const p = (field: string) => ({ property: field });
   const isNull = (field: string) => ({ op: 'isNull', args: [p(field)] });
@@ -158,12 +244,16 @@ describe('maplibreFilterToCql2', () => {
   it.each([
     [['==', ['get', 'kind'], 'a'], { op: '=', args: [p('kind'), 'a'] }],
     [['>', ['to-number', ['get', 'mag'], -1e12], 5], { op: '>', args: [p('mag'), 5] }],
-    // `to-number` reads a missing value as 0, which passes `< 5` on the map.
+    // The editor's own bare accessor is migrated to the null-guarded form, as on the map.
+    [['<', ['to-number', ['get', 'mag'], 1e12], 5], { op: '<', args: [p('mag'), 5] }],
+    // A hand-authored fallback is left alone: `to-number` reads a missing value as 0, which passes `< 5`.
     [
-      ['<', ['to-number', ['get', 'mag'], 1e12], 5],
+      ['<', ['to-number', ['get', 'mag'], 7], 5],
       { op: 'or', args: [isNull('mag'), { op: '<', args: [p('mag'), 5] }] },
     ],
     [['!=', ['to-number', ['get', 'mag'], -1e12], 0], { op: '<>', args: [p('mag'), 0] }],
+    // Behind the null guard, a null never satisfies it, on the map or in SQL.
+    [['all', ['!=', ['typeof', ['get', 'mag']], 'null'], ['<', ['to-number', ['get', 'mag'], 1_000_000_000_000], 5]], { op: '<', args: [p('mag'), 5] }],
     [['==', ['get', 'ok'], true], { op: '=', args: [p('ok'), true] }],
     // A feature with no value passes a MapLibre `!=`, so SQL must keep nulls.
     [
@@ -202,9 +292,31 @@ describe('maplibreFilterToCql2', () => {
     });
   });
 
+  it('nests and/or for nested all/any groups, as a saved filter and a dashboard pick make', () => {
+    const notNull = (field: string) => ({ op: 'not', args: [isNull(field)] });
+    expect(
+      maplibreFilterToCql2([
+        'all',
+        ['any', ['==', ['get', 'zone'], 'A'], ['==', ['get', 'zone'], 'B']],
+        ['any', ['in', ['get', 'kind'], ['literal', ['park']]], ['any', ['!', ['has', 'kind']], ['==', ['get', 'kind'], null]]],
+        ['all', ['has', 'a'], ['any', ['has', 'b'], ['has', 'c']]],
+      ] as unknown as FilterSpecification),
+    ).toEqual({
+      op: 'and',
+      args: [
+        { op: 'or', args: [{ op: '=', args: [p('zone'), 'A'] }, { op: '=', args: [p('zone'), 'B'] }] },
+        { op: 'or', args: [{ op: 'in', args: [p('kind'), ['park']] }, isNull('kind')] },
+        { op: 'and', args: [notNull('a'), { op: 'or', args: [notNull('b'), notNull('c')] }] },
+      ],
+    });
+    // A group with no conditions matches everything: dropped from an `all`, and it makes an `any` match everything.
+    expect(maplibreFilterToCql2(['all', ['all'], ['has', 'a']] as unknown as FilterSpecification)).toEqual(notNull('a'));
+    expect(maplibreFilterToCql2(['any', ['all'], ['has', 'a']] as unknown as FilterSpecification)).toBeNull();
+  });
+
   it.each([
     ['an expression outside the editor subset', ['match', ['get', 'k'], 'a', true, false]],
-    ['a nested combinator', ['all', ['any', ['has', 'a'], ['has', 'b']]]],
+    ['a nested combinator holding an unsupported member', ['all', ['any', ['has', 'a'], ['match', ['get', 'k'], 'a', true, false]]]],
     ['a legacy pseudo-field', ['has', '$id']],
     ['a non-scalar comparison value', ['==', ['get', 'a'], ['get', 'b']]],
     // MapLibre shows no features for it, so dropping it would analyse them all.
@@ -269,6 +381,9 @@ describe('maplibreFilterToCql2', () => {
         ['>=', ['get', 'atz'], '2024-11-03T05:30:00+00:00'],
         { op: '>=', args: [p('atz'), { timestamp: '2024-11-03T05:30:00Z' }] },
       ],
+      // Scalar compatibility for cluster tiles must not narrow shared analysis conversion.
+      [['==', ['get', 'pop'], '5'], { op: '=', args: [p('pop'), '5'] }],
+      [['==', ['get', 'Zone'], 5], { op: '=', args: [p('Zone'), 5] }],
       [['==', ['get', 'pop'], 5], { op: '=', args: [p('pop'), 5] }],
       [['has', 'seen'], { op: 'not', args: [isNull('seen')] }],
       // A column the layer does not list is sent untyped; the server decides.
@@ -306,6 +421,154 @@ describe('maplibreFilterToCql2', () => {
     ])('refuses %s', (_label, filter) => {
       expect(convert(filter)).toBe('unsupported');
     });
+  });
+});
+
+describe('legacy saved filters', () => {
+  const p = (field: string) => ({ property: field });
+  const isNull = (field: string) => ({ op: 'isNull', args: [p(field)] });
+  const columns = [
+    { name: 'kind', type: 'text' },
+    { name: 'pop', type: 'integer' },
+    { name: 'seen', type: 'date' },
+  ];
+  const features = [
+    { kind: 'a', pop: 5, seen: '2024-01-01' },
+    { kind: 'b', pop: 12, seen: '2024-06-01' },
+    { kind: 'c', pop: 7 },
+    { pop: 0 },
+    {},
+  ];
+
+  it.each([
+    [['in', 'kind', 'a', 'b'], { op: 'in', args: [p('kind'), ['a', 'b']] }],
+    [['in', 'pop', 5, 12], { op: 'in', args: [p('pop'), [5, 12]] }],
+    [
+      ['!in', 'kind', 'a'],
+      { op: 'or', args: [isNull('kind'), { op: 'not', args: [{ op: 'in', args: [p('kind'), ['a']] }] }] },
+    ],
+    [['==', 'kind', 'a'], { op: 'in', args: [p('kind'), ['a']] }],
+    [
+      ['!=', 'pop', 5],
+      { op: 'or', args: [isNull('pop'), { op: 'not', args: [{ op: 'in', args: [p('pop'), [5]] }] }] },
+    ],
+    [['>', 'pop', 6], { op: '>', args: [p('pop'), 6] }],
+    [['!has', 'kind'], isNull('kind')],
+    [
+      ['all', ['in', 'kind', 'a', 'c'], ['>=', 'pop', 5]],
+      { op: 'and', args: [{ op: 'in', args: [p('kind'), ['a', 'c']] }, { op: '>=', args: [p('pop'), 5] }] },
+    ],
+    [
+      ['any', ['==', 'kind', 'a'], ['<', 'pop', 6]],
+      { op: 'or', args: [{ op: 'in', args: [p('kind'), ['a']] }, { op: '<', args: [p('pop'), 6] }] },
+    ],
+  ])('translates %j to the CQL2 that keeps the features the map draws', (legacy, expected) => {
+    const filter = legacy as unknown as FilterSpecification;
+    expect(maplibreFilterToCql2(filter, columns)).toEqual(expected);
+    const translated = legacyFilterToExpression(filter);
+    expect(translated).not.toBe('unsupported');
+    for (const feature of features) {
+      expect(drawn(translated as FilterSpecification, feature)).toBe(drawn(filter, feature));
+    }
+  });
+
+  it.each(['<', '<=', '>', '>='])('keeps a legacy %s order comparison strict about number values', (op) => {
+    const filter = [op, 'pop', 6] as unknown as FilterSpecification;
+    const translated = legacyFilterToExpression(filter) as FilterSpecification;
+    for (const pop of [12, 6, 5, '12', '5', null, true]) {
+      expect(drawn(translated, { pop })).toBe(drawn(filter, { pop }));
+    }
+    expect(drawn(translated, { pop: '12' })).toBe(false);
+    expect(drawn(translated, { pop: '5' })).toBe(false);
+  });
+
+  const valueMatrix: Array<[string, Record<string, unknown>]> = [
+    ['a missing key', {}],
+    ['null', { k: null }],
+    ['true', { k: true }],
+    ['false', { k: false }],
+    ['0', { k: 0 }],
+    ['12', { k: 12 }],
+    ['-5', { k: -5 }],
+    ["'12'", { k: '12' }],
+    ["'b'", { k: 'b' }],
+    ["''", { k: '' }],
+    ["['a']", { k: ['a'] }],
+    ["['b']", { k: ['b'] }],
+    ['an object', { k: { k: 1 } }],
+  ];
+
+  it.each([
+    ['==', ['==', 'k', 'b']],
+    ['== number', ['==', 'k', 12]],
+    ['== boolean', ['==', 'k', true]],
+    ['!=', ['!=', 'k', 'b']],
+    ['!= number', ['!=', 'k', 12]],
+    ['<', ['<', 'k', 6]],
+    ['<=', ['<=', 'k', 12]],
+    ['>', ['>', 'k', 6]],
+    ['>=', ['>=', 'k', 12]],
+    ['in', ['in', 'k', 'b', 12, true]],
+    ['!in', ['!in', 'k', 'b', 12, true]],
+    ['has', ['has', 'k']],
+    ['!has', ['!has', 'k']],
+    ['all', ['all', ['!=', 'k', 'b'], ['>', 'k', -9]]],
+    ['any', ['any', ['==', 'k', 'b'], ['<', 'k', 6]]],
+    ['has under any', ['any', ['==', 'k', 'b'], ['has', 'k']]],
+    ['!= under any', ['any', ['!=', 'k', 'b'], ['<', 'k', 6]]],
+    ['nested', ['all', ['any', ['!in', 'k', 'b'], ['has', 'k']], ['!=', 'k', 12]]],
+  ])('draws a translated legacy %s as the legacy filter does on every value type', (_label, legacy) => {
+    const filter = legacy as unknown as FilterSpecification;
+    const translated = legacyFilterToExpression(filter);
+    if (translated === 'unsupported') return;
+    for (const [label, props] of valueMatrix) {
+      expect(drawn(translated as FilterSpecification, props), label).toBe(drawn(filter, props));
+    }
+  });
+
+  it('sends the drawn translation of a legacy filter as the same CQL2 the filter gives', () => {
+    for (const legacy of [
+      ['!=', 'kind', 'b'],
+      ['!in', 'kind', 'a', 'b'],
+      ['==', 'kind', 'a'],
+      ['in', 'pop', 5, 12],
+      ['all', ['!=', 'kind', 'b'], ['>', 'pop', 6]],
+    ]) {
+      const filter = legacy as unknown as FilterSpecification;
+      const drawnForm = legacyFilterToExpression(filter) as FilterSpecification;
+      expect(maplibreFilterToCql2(drawnForm, columns)).toEqual(maplibreFilterToCql2(filter, columns));
+    }
+  });
+
+  it('types the values as the expression forms do', () => {
+    // Text values can't be compared with an integer column, so the server would refuse them.
+    const textOnInteger = ['in', 'pop', '5', '12'] as unknown as FilterSpecification;
+    expect(layerFilterToServerCql2(textOnInteger, columns)).toBe(
+      layerFilterToServerCql2(['in', ['get', 'pop'], ['literal', ['5', '12']]] as FilterSpecification, columns),
+    );
+    expect(layerFilterToServerCql2(textOnInteger, columns)).toBe('unsupported');
+    expect(layerFilterToServerCql2(['in', 'kind', 'a'] as unknown as FilterSpecification, columns)).toEqual({
+      op: 'in',
+      args: [p('kind'), ['a']],
+    });
+  });
+
+  it.each([
+    ['none', ['none', ['==', 'kind', 'a']]],
+    ['a $type test', ['==', '$type', 'Point']],
+    ['an $id list', ['in', '$id', 1, 2]],
+    ['a null comparison', ['==', 'kind', null]],
+    ['a text order comparison', ['<', 'seen', '2024-03-01']],
+  ])('refuses %s', (_label, legacy) => {
+    const filter = legacy as unknown as FilterSpecification;
+    expect(legacyFilterToExpression(filter)).toBe('unsupported');
+    expect(maplibreFilterToCql2(filter, columns)).toBe('unsupported');
+  });
+
+  it('leaves an expression filter alone', () => {
+    const filter = ['in', ['get', 'kind'], ['literal', ['a']]] as FilterSpecification;
+    expect(legacyFilterToExpression(filter)).toBe(filter);
+    expect(legacyFilterToExpression(null)).toBeNull();
   });
 });
 

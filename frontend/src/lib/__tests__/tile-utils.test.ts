@@ -436,3 +436,30 @@ describe('refreshRasterTileSources (fix #907)', () => {
     expect(refreshTiles).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('cols_only', () => {
+  const token = { sig: 'abc', exp: 1, scope: 's' };
+
+  it('adds cols_only after cols on the plain tile URL', () => {
+    expect(buildSignedTileUrl('t', token, 'https://x.test', undefined, ['b', 'a'], true)).toBe(
+      'https://x.test/tiles/data.t/{z}/{x}/{y}.pbf?sig=abc&exp=1&scope=s&cols=a%2Cb&cols_only=true',
+    );
+  });
+
+  it('adds cols_only on the cluster tile URL', () => {
+    expect(buildClusterTileUrl('t', null, 'https://x.test', undefined, {}, ['a'], true)).toBe(
+      'https://x.test/tiles/clusters/data.t/{z}/{x}/{y}.pbf?cols=a&cols_only=true',
+    );
+  });
+
+  it('sends cols_only without cols so the tile carries nothing', () => {
+    expect(buildSignedTileUrl('t', null, 'https://x.test', undefined, [], true)).toBe(
+      'https://x.test/tiles/data.t/{z}/{x}/{y}.pbf?cols_only=true',
+    );
+  });
+
+  it('leaves the URL unchanged by default', () => {
+    expect(buildSignedTileUrl('t', null, 'https://x.test', undefined, ['a'])).not.toContain('cols_only');
+    expect(buildClusterTileUrl('t', null, 'https://x.test', undefined, {}, ['a'])).not.toContain('cols_only');
+  });
+});

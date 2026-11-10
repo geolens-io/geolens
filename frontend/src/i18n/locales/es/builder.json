@@ -184,6 +184,7 @@
     "layerOpacity": "Opacidad de la capa",
     "pointOpacityHelp": "Opacidad del relleno de cada punto. La opacidad de la capa, más abajo, se multiplica sobre este valor.",
     "layerOpacityHelp": "Se combina con los ajustes de opacidad anteriores.",
+    "tileCapHint": "Las teselas del mapa admiten hasta {{limit}} entidades y esta capa tiene {{count}}. Al alejar el zoom, los lectores ven una muestra. Agrupa los puntos o define un zoom mínimo para mostrarlos todos.",
     "color": "Color",
     "hexValueFor": "Valor hexadecimal de {{label}}",
     "hexColorValue": "Valor de color hexadecimal",
@@ -492,9 +493,9 @@
     "graduated": "Graduado",
     "column": "Columna",
     "selectColumn": "Seleccionar columna",
-    "noTextColumns": "Sin columnas de texto",
+    "noTextColumns": "Sin columnas de texto ni enteras",
     "noNumericColumns": "Sin columnas numéricas",
-    "noTextColumnsHelp": "Los estilos categóricos necesitan una columna de texto. Cambie a modo graduado o añada un atributo de texto.",
+    "noTextColumnsHelp": "Los estilos categóricos necesitan una columna de texto o entera. Cambie a modo graduado o añada un atributo de texto.",
     "noNumericColumnsHelp": "Los estilos graduados necesitan una columna numérica. Cambie a modo categórico o añada un atributo numérico.",
     "numericColumnsAvailable": "{{count}} columnas numéricas disponibles en modo graduado.",
     "switchToGraduated": "Cambiar a modo graduado",
@@ -578,7 +579,8 @@
     "retry": "Volver a intentarlo",
     "browseCatalogCta": "Explorar catálogo público →",
     "basemap": "Mapa base",
-    "anotherRendering": "otra representación",
+    "anotherRendering": "Añadir otra representación",
+    "anotherRenderingNamed": "Añadir otra representación: {{name}}",
     "swap": "cambiar",
     "importData": "Importar datos...",
     "filters": "Filtros",
@@ -611,6 +613,10 @@
     "internal": "Interno",
     "privateTitle": "Solo tú",
     "privateDescription": "Solo tú y los administradores pueden ver este mapa",
+    "restrictedTitle": "Grupos concretos",
+    "restrictedDescription": "Solo tú, los administradores y los miembros de los grupos que elijas",
+    "restrictedNeedsGroups": "Añade primero un grupo abajo",
+    "privateDescriptionRestricted": "Solo tú y los administradores. Los miembros de sus grupos pierden el acceso.",
     "internalTitle": "Todos los miembros del equipo",
     "internalDescription": "Cualquier usuario con sesión en GeoLens puede ver este mapa",
     "publicTitle": "Público",
@@ -632,6 +638,7 @@
     "embedTokenInfo": "Se incluyen capas no públicas. Un token de inserción gestiona el acceso automáticamente.",
     "unsavedWarning": "Los cambios sin guardar solo están en la vista previa del constructor. Guarda antes de copiar enlaces o inserciones.",
     "audienceHiddenWarning": "Ocultas para los visitantes: {{layers}}. Los conjuntos de datos de estas capas no son visibles para el público de este mapa, por lo que solo tú podrás verlas.",
+    "groupHiddenWarning": "Ocultas para algunos grupos de este mapa: {{layers}}. Algunos de sus miembros no pueden leer los conjuntos de datos de estas capas, así que no las verán.",
     "savingWarning": "Guardando cambios. Los enlaces e inserciones se actualizan cuando termine este guardado.",
     "saveFailedWarning": "Error al guardar. Los enlaces e inserciones siguen mostrando el último mapa guardado hasta que reintentes correctamente.",
     "expirationLabel": "Caducidad",
@@ -643,6 +650,7 @@
     "customizeZoom": "-- nivel de zoom",
     "customizeCenter": "-- centro del mapa",
     "customizeLegend": "-- mostrar/ocultar leyenda",
+    "dashboardCollapsed": "Abrir con el panel plegado",
     "revokeShareLink": "Revocar enlace compartido",
     "restrictToDomains": "Restringir a dominios",
     "visibilityLabel": "Visibilidad del mapa: {{status}}",
@@ -690,18 +698,52 @@
     "revokeConfirmDescription": "El enlace dejará de funcionar de inmediato y se invalidarán los tokens de inserción de este mapa. No se puede deshacer.",
     "revokeConfirmCancel": "Cancelar",
     "revokeConfirmAction": "Revocar enlace",
-    "visibilityConfirmCancel": "Cancelar",
     "makePublicConfirmTitle": "¿Hacer público este mapa?",
     "makePublicBlockedTitle": "Este mapa aún no puede ser público",
     "makePublicConfirmDescription": "Todos podrán ver este mapa y encontrarlo en el catálogo de Mapas, sin un enlace compartido.",
-    "makePublicBlockedIntro": "Este mapa usa conjuntos de datos que no son públicos:",
-    "makePublicBlockedRemedy": "Elimine esas capas y guarde el mapa, o haga públicos los conjuntos de datos si todos deben poder verlos.",
+    "makePublicBlockedIntro": "Este mapa usa conjuntos de datos que no son públicos o no están publicados:",
+    "makePublicBlockedRemedy": "Elimine esas capas y guarde el mapa, o haga públicos y publique los conjuntos de datos si todos deben poder verlos.",
     "makePublicCheckFailed": "No se pudo comprobar si este mapa puede ser público.",
     "makePublicCheckRetry": "Reintentar",
     "makePublicConfirmAction": "Hacer público",
     "leavePublicConfirmTitle": "¿Dejar de compartir públicamente?",
     "leavePublicConfirmDescription": "Los enlaces para compartir y los códigos de inserción existentes dejarán de funcionar de inmediato.",
-    "leavePublicConfirmAction": "Dejar de compartir públicamente"
+    "leavePublicConfirmAction": "Dejar de compartir públicamente",
+    "groups": {
+      "title": "Grupos",
+      "selectedLabel": "Grupos con los que se comparte este mapa",
+      "help": "Elige los grupos que pueden abrir este mapa. Sus capas siguen el acceso propio de cada conjunto de datos.",
+      "openedHint": "Elige grupos y luego guarda.",
+      "effectPrivateEmpty": "Elige un grupo y guarda para compartir este mapa con grupos concretos.",
+      "effectToRestricted": "Al guardar, este mapa se comparte con grupos concretos: solo tú, los administradores y los miembros de estos grupos pueden abrirlo.",
+      "effectRestricted": "Al guardar cambian los grupos que pueden abrir este mapa.",
+      "effectToPrivate": "Al guardar se quita el último grupo. Solo tú y los administradores pueden abrir este mapa.",
+      "effectKept": "Los grupos no cambian quién puede abrir este mapa ahora. Se aplican si eliges Grupos concretos.",
+      "linksRevoked": "El enlace para compartir y los tokens de incrustación de este mapa dejan de funcionar cuando se comparte con grupos.",
+      "save": "Guardar grupos",
+      "saved": "Grupos guardados.",
+      "savedRestricted": "Grupos guardados. Este mapa ahora se comparte solo con grupos concretos.",
+      "savedPrivate": "Grupos quitados. Solo tú y los administradores pueden abrir este mapa.",
+      "failed": "No se pudieron guardar los grupos",
+      "confirm": {
+        "title": "Algunas capas no pueden leerlas estos grupos",
+        "description": "Las personas de los grupos elegidos no pueden abrir las capas siguientes. Decide qué hacer antes de compartir el mapa.",
+        "layer": "{{layer}} (conjunto de datos: {{dataset}})",
+        "lacking": "No pueden leerla: {{groups}}",
+        "canShare": "Puedes compartir este conjunto de datos con esos grupos.",
+        "cannotShare": "No puedes compartir este conjunto de datos, así que la capa sigue oculta para ellos.",
+        "someStayHidden": "Las capas cuyo conjunto de datos no puedes compartir siguen ocultas para esos grupos en ambos casos.",
+        "mapOnly": "Compartir solo el mapa",
+        "shareDatasets": "Compartir mapa y conjuntos de datos",
+        "mapShared": "Mapa compartido.",
+        "sharedDatasets_one": "Mapa compartido, junto con {{count}} conjunto de datos.",
+        "sharedDatasets_many": "Mapa compartido, junto con {{count}} conjuntos de datos.",
+        "sharedDatasets_other": "Mapa compartido, junto con {{count}} conjuntos de datos.",
+        "hiddenLayers_one": "{{count}} capa sigue oculta para algunos grupos.",
+        "hiddenLayers_many": "{{count}} capas siguen ocultas para algunos grupos.",
+        "hiddenLayers_other": "{{count}} capas siguen ocultas para algunos grupos."
+      }
+    }
   },
   "chat": {
     "toolProgress": {
@@ -809,6 +851,9 @@
     "smallDemWarning": "Este DEM solo cubre una pequeña parte de la vista actual. Acérquese a la extensión del DEM o use como fuente de terreno un DEM que cubra toda el área del mapa."
   },
   "featurePopup": {
+    "rowGone": "Este elemento ya no está en el conjunto de datos.",
+    "loadingFields": "Cargando más campos…",
+    "fieldsFailed": "No se pudieron cargar los demás campos.",
     "noAttributes": "Sin atributos",
     "zoomForAttributes": "Sin atributos en este nivel de zoom",
     "booleanTrue": "Sí",
@@ -818,8 +863,7 @@
     "prev": "Elemento anterior",
     "next": "Elemento siguiente",
     "close": "Cerrar popup",
-    "dialogLabel": "Detalles del elemento",
-    "youtubeTitle": "Vídeo de YouTube"
+    "dialogLabel": "Detalles del elemento"
   },
   "descriptionPlaceholder": "Agregar una descripción...",
   "titleBar": {
@@ -887,7 +931,10 @@
     "exportSuccess": "Mapa exportado como PNG",
     "mapNowPublic": "El mapa ahora es público",
     "mapNowPrivate": "El mapa ahora es privado",
+    "mapStillRestricted": "Este mapa sigue compartido con grupos, así que solo tú, los administradores y esos grupos pueden abrirlo",
     "mapNowInternal": "El mapa ahora es visible para los miembros del equipo",
+    "mapNowRestricted": "El mapa ahora se comparte con grupos concretos",
+    "mapNowPrivateGroupsCleared": "El mapa ahora es privado. Los miembros de sus grupos ya no tienen acceso.",
     "visibilityFailed": "Error al actualizar la visibilidad",
     "shareLinkCopied": "Enlace copiado",
     "embedCodeCopied": "Código de inserción copiado",
@@ -914,7 +961,10 @@
     "bulkGroupSkippedGroupRow": "Los grupos no se pueden agrupar; quita las filas de grupo de tu selección e inténtalo de nuevo",
     "bulkDeleteOnlyGroupRows": "Las filas de grupo no se pueden eliminar en bloque; usa el menú de la fila del grupo para eliminarlo",
     "bulkGrouped": "{{count}} capas agrupadas en «{{name}}»",
-    "bulkUngrouped": "{{count}} grupos desagrupados"
+    "bulkUngrouped": "{{count}} grupos desagrupados",
+    "dashboardWidgetInvalid": "No se puede guardar: un widget del panel lee «{{column}}», una columna que su capa no tiene o que no es numérica. Corrígelo en Panel.",
+    "dashboardViewWithoutGeometry": "No se puede guardar: un widget del panel sigue la vista del mapa en una capa sin geometría. En Panel, haz que abarque toda la capa.",
+    "dashboardChangedElsewhere": "El panel de este mapa se cambió en otro lugar. Tus cambios sin guardar se conservan y, al guardar, reemplazan ese cambio."
   },
   "builderMap": {
     "loading": "Cargando mapa...",
@@ -964,7 +1014,13 @@
   "mapDelete": {
     "title": "Eliminar mapa",
     "description": "¿Está seguro de que desea eliminar <1>{{mapName}}</1>? Esta acción no se puede deshacer.",
-    "deleting": "Eliminando..."
+    "deleting": "Eliminando...",
+    "storiesUsing_one": "Este mapa se usa en {{count}} historia. Sus capítulos conservan el texto, pero pierden las escenas de este mapa.",
+    "storiesUsing_other": "Este mapa se usa en {{count}} historias. Sus capítulos conservan el texto, pero pierden las escenas de este mapa.",
+    "hiddenStories_one": "{{count}} historia que no puede ver",
+    "hiddenStories_other": "{{count}} historias que no puede ver",
+    "checkingStories": "Comprobando qué historias usan este mapa…",
+    "storiesCheckFailed": "No se pudo comprobar qué historias usan este mapa. Si alguna lo usa, sus capítulos pierden las escenas de este mapa."
   },
   "analysisTools": {
     "title": "Análisis",
@@ -1165,7 +1221,9 @@
     "askAi": "Preguntar a IA",
     "history": "Historial",
     "notes": "Notas",
-    "notesPlaceholder": "Agregar notas sobre este mapa..."
+    "notesPlaceholder": "Agregar notas sobre este mapa...",
+    "dashboard": "Panel",
+    "dashboardDescription": "Widgets que los lectores ven junto al mapa"
   },
   "leaveWarning": {
     "title": "Cambios sin guardar",
@@ -1288,6 +1346,7 @@
     "emptyRegionLabel": "Sin capas — empezar",
     "emptySearchButton": "Buscar y abrir el cuadro Agregar datos",
     "emptySearchInput": "Buscar conjuntos de datos para agregar",
+    "emptySearchHint": "Pulse Intro para buscar",
     "suggestedListLabel": "Conjuntos de datos sugeridos",
     "browseAllLabel": "Explorar todos los conjuntos de datos en el cuadro Agregar datos",
     "basemapSublayers": "Subcapas del mapa base",
@@ -1310,7 +1369,9 @@
     "aiGoToSettings": "Ir a Configuración",
     "aiConfigureSettings": "Configurar en Configuración",
     "closePanel": "Cerrar panel",
-    "notesButtonWithNotes": "Notas (el mapa tiene notas)"
+    "notesButtonWithNotes": "Notas (el mapa tiene notas)",
+    "dashboardButtonWithWidgets_one": "Panel ({{count}} widget)",
+    "dashboardButtonWithWidgets_other": "Panel ({{count}} widgets)"
   },
   "stackRow": {
     "dragHandle": "Arrastrar para reordenar {{name}}",
@@ -1336,6 +1397,7 @@
     "kebabGroupTrigger": "Opciones de grupo para {{name}}",
     "kebabZoomToLayer": "Acercar a la capa",
     "kebabAnalyzeLayer": "Analizar esta capa",
+    "kebabAttributeTable": "Abrir tabla de atributos",
     "kebabCopyStyle": "Copiar estilo",
     "kebabPasteStyle": "Pegar estilo",
     "kebabPasteStyleHint": "Copia primero un estilo de una capa compatible",
@@ -1413,9 +1475,21 @@
     "newGroupItem": "Nuevo grupo…",
     "toggleExpand": "Alternar grupo de carpetas"
   },
+  "attributeTableDrawer": {
+    "layerPicker": "Capa de la tabla de atributos",
+    "filterUnsupported": "No se pudo aplicar el filtro de la capa; se muestran todas las filas.",
+    "resizeHandle": "Redimensionar la tabla de atributos",
+    "close": "Cerrar la tabla de atributos",
+    "selectionMissing": "El elemento seleccionado no está en esta página.",
+    "selectionShow": "Mostrar selección",
+    "selectionShowing": "Mostrando solo el elemento seleccionado.",
+    "selectionShowAll": "Mostrar todas las filas",
+    "selectionHiddenByFilters": "Los filtros de la tabla ocultan el elemento seleccionado."
+  },
   "layerEditor": {
     "close": "Cerrar editor de capa",
     "tabsLabel": "Pestañas del editor de capa",
+    "openAttributeTable": "Abrir tabla de atributos",
     "section": {
       "renderAs": "Renderizar como",
       "appearance": "Apariencia",
@@ -1496,7 +1570,11 @@
     "projectionAria": "Proyección del mapa",
     "globeDisclaimer": "La proyección de globo es experimental. Es posible que algunas capas no se rendericen correctamente.",
     "terrainSmallDemTip": "Consejo: un mapa tiene una sola fuente de terreno. Para un DEM pequeño de alta resolución, acérquese a su extensión o use un DEM que cubra toda el área del mapa.",
-    "openTerrainLayer": "Abrir capa de terreno"
+    "openTerrainLayer": "Abrir capa de terreno",
+    "readersLabel": "LECTORES",
+    "attributeTable": "Los lectores pueden abrir la tabla de atributos",
+    "attributeTableOn": "Tabla activada",
+    "attributeTableOff": "Tabla desactivada"
   },
   "common": {
     "reload": "Recargar"

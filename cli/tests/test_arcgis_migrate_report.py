@@ -93,6 +93,7 @@ def test_follow_ups_name_what_the_operator_still_has_to_do(tmp_path):
     plan = _plan(tmp_path)
     for item in plan["items"]:
         if item["id"] == A2:
+            item["target"]["visibility"] = "restricted"
             item["target"]["groups"] = ["g1"]
         if item["id"] == D3:
             item["superseded_by"] = A1
@@ -126,7 +127,7 @@ def test_follow_ups_name_what_the_operator_still_has_to_do(tmp_path):
     report = report_mod.build_run_report(plan, state, runnable={"import_layers"})
 
     kinds = {(f["item"], f["kind"]) for f in report["follow_ups"]}
-    assert (A2, "group_sharing") in kinds
+    assert (A2, "under_shared") in kinds
     assert (A2, "skipped_layer") in kinds
     assert (D3, "superseded") in kinds
     assert (A3, "quota") in kinds
@@ -146,6 +147,59 @@ def test_unsupported_items_are_grouped_by_type_with_one_replacement_note(tmp_pat
 
     assert text.count("Maps carry over") == 1
     assert "### Dashboard" in text and "`export/dashboard/x`" in text
+
+
+def _superseded_report(tmp_path, *, layer_migrated: bool):
+    plan = _plan(tmp_path)
+    layer_title = next(i["title"] for i in plan["items"] if i["id"] == A1)
+    for item in plan["items"]:
+        if item["id"] == D3:
+            item["superseded_by"] = A1
+    state = _state(tmp_path)
+    export = {"path": "export/csv/x", "bytes": 5, "partial": False, "errors": []}
+    _set(state, D3, "done", export=export)
+    if layer_migrated:
+        _set(state, A1, "done", dataset_ids=["ds-1"])
+    else:
+        _set(state, A1, "failed", error="probe failed")
+    report = report_mod.build_run_report(plan, state)
+    return layer_title, report, report_mod.render_run_markdown(report)
+
+
+def test_a_source_file_superseded_by_a_hosted_layer_is_not_reported_as_unhostable(
+    tmp_path,
+):
+    layer_title, report, text = _superseded_report(tmp_path, layer_migrated=True)
+
+    assert report["unsupported"][0]["replacement"] == (
+        f"Published as {layer_title}; migrated with it."
+    )
+    assert "No equivalent in GeoLens." not in text
+    assert "## Items GeoLens can't host" not in text
+    assert "## Source files published as hosted layers" in text
+
+
+def test_a_superseded_source_file_whose_layer_did_not_migrate_says_so(tmp_path):
+    layer_title, report, _text = _superseded_report(tmp_path, layer_migrated=False)
+
+    replacement = report["unsupported"][0]["replacement"]
+    assert replacement == f"Source file of {layer_title}, which has not migrated."
+    assert "migrated with it" not in replacement
+
+
+def test_a_layer_with_a_dataset_that_then_failed_is_not_called_migrated(tmp_path):
+    plan = _plan(tmp_path)
+    for item in plan["items"]:
+        if item["id"] == D3:
+            item["superseded_by"] = A1
+    state = _state(tmp_path)
+    export = {"path": "export/csv/x", "bytes": 5, "partial": False, "errors": []}
+    _set(state, D3, "done", export=export)
+    _set(state, A1, "failed", dataset_ids=["ds-1"], error="second layer failed")
+
+    report = report_mod.build_run_report(plan, state)
+
+    assert "migrated with it" not in report["unsupported"][0]["replacement"]
 
 
 def _run(runner, plan_file: Path, *flags: str):
@@ -204,6 +258,7 @@ def test_a_group_shared_export_gets_no_audience_follow_up(tmp_path):
     plan = _plan(tmp_path)
     for item in plan["items"]:
         if item["id"] == C3:
+            item["target"]["visibility"] = "restricted"
             item["target"]["groups"] = ["g1"]
     state = _state(tmp_path)
     _set(
@@ -215,7 +270,7 @@ def test_a_group_shared_export_gets_no_audience_follow_up(tmp_path):
 
     report = report_mod.build_run_report(plan, state, runnable={"import_layers"})
 
-    assert (C3, "group_sharing") not in {
+    assert (C3, "under_shared") not in {
         (f["item"], f["kind"]) for f in report["follow_ups"]
     }
 
@@ -269,18 +324,25 @@ def test_group_sharing_that_was_never_read_is_a_follow_up(tmp_path):
     plan = _plan(tmp_path)
     for item in plan["items"]:
         if item["id"] == A1:
+            item["target"]["visibility"] = "restricted"
             item["target"]["groups"] = None
         if item["id"] == A2:
-            item["target"]["groups"] = []
+            # Shared with the organization, so its groups add no one.
+            item["target"]["visibility"] = "internal"
+            item["target"]["groups"] = None
     state = _state(tmp_path)
     _set(state, A1, "done", dataset_ids=["ds-1"])
     _set(state, A2, "done", dataset_ids=["ds-2"])
 
     report = report_mod.build_run_report(plan, state, runnable={"import_layers"})
 
-    kinds = {(f["item"], f["kind"]) for f in report["follow_ups"]}
-    assert (A1, "group_unknown") in kinds
-    assert (A2, "group_unknown") not in kinds and (A2, "group_sharing") not in kinds
+    under = {
+        f["item"]: f["text"]
+        for f in report["follow_ups"]
+        if f["kind"] == "under_shared"
+    }
+    assert "group sharing wasn't read" in under[A1]
+    assert A2 not in under
 
 
 def test_a_superseding_layer_that_never_migrated_says_so(tmp_path):
@@ -295,6 +357,29 @@ def test_a_superseding_layer_that_never_migrated_says_so(tmp_path):
 
     text = next(f["text"] for f in report["follow_ups"] if f["kind"] == "superseded")
     assert text.endswith("GeoLens dataset: not migrated")
+
+
+def test_a_source_file_whose_action_was_changed_gets_no_superseded_follow_up(
+    tmp_path,
+):
+    plan = _plan(tmp_path)
+    for item in plan["items"]:
+        if item["id"] == D3:
+            item["superseded_by"] = A1
+            item["defaults"].update(action="export_only", superseded_by=A1)
+            item["action"] = "export_only"
+    state = _state(tmp_path)
+    _set(state, A1, "done", dataset_ids=["ds-1"])
+
+    def kinds() -> set[str]:
+        report = report_mod.build_run_report(plan, state, runnable={"import_file"})
+        return {f["kind"] for f in report["follow_ups"] if f["item"] == D3}
+
+    assert "superseded" in kinds()
+    for item in plan["items"]:
+        if item["id"] == D3:
+            item["action"] = "import_file"
+    assert "superseded" not in kinds()
 
 
 def test_an_unexpected_error_still_writes_the_report(
@@ -511,3 +596,79 @@ def test_an_early_exit_says_where_the_report_is(runner, tmp_path, geolens, monke
 
     assert result.exit_code == 130
     assert "arcgis-migration-report.md" in result.output
+
+
+def _dashboard_layout_follow_ups(
+    tmp_path, map_widgets, maps=(), status=None, action=None, removed=False
+):
+    plan = _plan(tmp_path)
+    for item in plan["items"]:
+        if item["id"] == C3:
+            item["type"] = "Dashboard"
+            item.pop("map_widgets", None)
+            if map_widgets is not None:
+                item["map_widgets"] = map_widgets
+                item["map_widget_maps"] = list(maps)
+            if action:
+                item["action"] = action
+            if removed:
+                item["removed"] = True
+        if item["id"] in (A1, A2):
+            item["type"] = "Web Map"
+    state = _state(tmp_path)
+    if status:
+        export = {
+            "path": "export/dashboard/x",
+            "bytes": 1,
+            "partial": False,
+            "errors": [],
+        }
+        _set(state, C3, status, export=export if status == "done" else None)
+    report = report_mod.build_run_report(plan, state, runnable=set())
+    return [
+        f["text"]
+        for f in report["follow_ups"]
+        if f["kind"] == "dashboard_layout" and f["item"] == C3
+    ]
+
+
+def test_a_dashboard_without_a_map_is_a_follow_up_to_rebuild_with_the_map_hidden(
+    tmp_path,
+):
+    [text] = _dashboard_layout_follow_ups(tmp_path, 0, status="done")
+
+    assert "no map widget: rebuild it with the map hidden" in text
+
+
+def test_a_dashboard_with_two_maps_is_a_follow_up_naming_them(tmp_path):
+    [text] = _dashboard_layout_follow_ups(tmp_path, 2, [A1, A2], status="done")
+
+    assert "2 map widgets" in text
+    assert "convert it to a single-map dashboard or split it" in text
+
+
+def test_a_pending_dashboard_is_named_before_it_has_an_export(tmp_path):
+    [text] = _dashboard_layout_follow_ups(tmp_path, 0)
+
+    assert "no map widget" in text
+
+
+def test_a_dashboard_whose_export_failed_is_still_named(tmp_path):
+    [text] = _dashboard_layout_follow_ups(tmp_path, 3, [A1], status="failed")
+
+    assert "3 map widgets" in text
+
+
+def test_a_removed_or_skipped_dashboard_is_not_named(tmp_path):
+    assert _dashboard_layout_follow_ups(tmp_path, 0, removed=True) == []
+    assert _dashboard_layout_follow_ups(tmp_path, 0, action="skip") == []
+
+
+def test_a_one_map_widget_dashboard_has_no_layout_follow_up(tmp_path):
+    assert _dashboard_layout_follow_ups(tmp_path, 1, [A1], status="done") == []
+
+
+def test_a_dashboard_with_an_unread_widget_list_says_the_count_is_unknown(tmp_path):
+    [text] = _dashboard_layout_follow_ups(tmp_path, None)
+
+    assert "could not be counted" in text

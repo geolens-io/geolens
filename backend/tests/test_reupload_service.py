@@ -178,11 +178,13 @@ class TestServiceReuploadWorker:
     ):
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _create_dataset(test_db_session, created_by=admin_id)
+        # Each run binds its own layer: an owner holds one dataset per layer.
+        source_url = f"https://services.example.com/{uuid.uuid4().hex[:8]}/wfs"
         job = await _create_service_reupload_job(
             test_db_session,
             dataset_id=dataset.id,
             created_by=admin_id,
-            source_url="https://services.example.com/wfs",
+            source_url=source_url,
             source_layer="roads",
             source_filename="roads_wfs",
         )
@@ -203,6 +205,7 @@ class TestServiceReuploadWorker:
             *,
             schema: str,
             on_spawn=None,
+            keep_z: bool = False,
         ) -> None:
             # Mirrors the real runner: a successful spawn fires on_spawn
             # (fix #1271 review — the contact-stamp signal).
@@ -337,7 +340,7 @@ class TestServiceReuploadWorker:
         assert dataset.table_name == original_table_name
         assert dataset.current_version == original_version + 1
         assert dataset.feature_count == 275
-        assert dataset.source_url == "https://services.example.com/wfs"
+        assert dataset.source_url == source_url
         assert dataset.source_format == "wfs"
         assert dataset.source_filename == "roads_wfs"
 

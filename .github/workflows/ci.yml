@@ -32,13 +32,11 @@ concurrency:
   # Include the event name so daily dependabot pushes cannot cancel the
   # scheduled run, which would let the e2e suite silently rot.
   #
-  # This shape is already safe for the
-  # merge queue. Each queue entry runs on its own `gh-readonly-queue/main/pr-N-<sha>`
-  # ref, so `github.ref` alone puts every entry in a distinct group — two
-  # batches in flight cannot cancel each other, and a queue run and the PR run
-  # it came from differ in both ref and event name. `cancel-in-progress` stays
-  # true because the only thing that can now share a group is a re-run of the
-  # same queue entry.
+  # Each queue entry runs on its own `gh-readonly-queue/main/pr-N-<sha>` ref, so
+  # two batches in flight never cancel each other, and a queue run and the PR
+  # run it came from differ in both ref and event name. A rebuilt entry gets a
+  # new ref and so a new group; the `cancel-superseded-queue-runs` job stops the
+  # runs it replaced.
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
@@ -48,6 +46,51 @@ permissions:
   contents: read
 
 jobs:
+  # A rebuilt queue entry gets a new ref, so nothing shares a concurrency group
+  # with the run it replaces. This stops the same PR's runs whose queue branch
+  # is gone. It gates nothing and is not in `ci-ok`.
+  cancel-superseded-queue-runs:
+    name: Cancel superseded queue runs
+    if: github.event_name == 'merge_group'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      QUEUE_REF: ${{ github.ref_name }}
+    steps:
+      - name: Cancel runs on queue branches that no longer exist
+        run: |
+          set -euo pipefail
+          prefix='gh-readonly-queue/main/pr-'
+          if [[ ! "$QUEUE_REF" =~ ^gh-readonly-queue/main/pr-([0-9]+)-[0-9a-f]+$ ]]; then
+            echo "Not a queue ref: $QUEUE_REF"
+            exit 0
+          fi
+          pr="${BASH_REMATCH[1]}"
+          for status in queued in_progress; do
+            gh run list --workflow ci.yml --event merge_group --status "$status" \
+              --limit 100 --json databaseId,headBranch \
+              --jq '.[] | "\(.databaseId) \(.headBranch)"' |
+            while read -r run_id branch; do
+              # Only this PR's own queue branches, never this run's, never
+              # another PR's (the trailing dash stops pr-12 matching pr-123).
+              [[ "$branch" == "${prefix}${pr}-"* && "$branch" != "$QUEUE_REF" ]] || continue
+              # Cancel only on a definite 404; any other API error leaves the run alone.
+              if out=$(gh api "repos/$GH_REPO/git/ref/heads/$branch" 2>&1); then
+                echo "Keeping run $run_id: $branch still exists"
+              elif [[ "$out" == *"HTTP 404"* ]]; then
+                echo "Cancelling run $run_id on removed branch $branch"
+                gh run cancel "$run_id" || true
+              else
+                echo "Keeping run $run_id: could not check $branch: $out"
+              fi
+            done
+          done
+
   # ---------- detect changed paths for conditional jobs ----------
   changes:
     name: Detect Changes
@@ -70,9 +113,11 @@ jobs:
       mcp: ${{ steps.filter.outputs.mcp }}
       sdks: ${{ steps.filter.outputs.sdks }}
       alembic: ${{ steps.filter.outputs.alembic }}
+      compat: ${{ steps.filter.outputs.compat }}
       installer: ${{ steps.filter.outputs.installer }}
       backup: ${{ steps.filter.outputs.backup }}
       monitoring: ${{ steps.filter.outputs.monitoring }}
+      database_import: ${{ steps.filter.outputs.database_import }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -404,6 +449,11 @@ jobs:
               - 'backend/app/core/db/models.py'
               - 'backend/app/processing/**/models.py'
               - 'db/**'
+            # The previous-release check also runs on every migration or model
+            # change above; this adds its own inputs.
+            compat:
+              - 'scripts/previous-release-compat.sh'
+              - '.github/workflows/ci.yml'
             installer:
               - 'scripts/install.sh'
               - 'scripts/upgrade.sh'
@@ -417,6 +467,7 @@ jobs:
               - 'scripts/backup-entrypoint.sh'
               - 'scripts/tests/test-install-tag-resolution.sh'
               - 'scripts/tests/test-install-secret-generation.sh'
+              - 'scripts/tests/test-install-bundled-cache.sh'
               - 'scripts/tests/test-install-main-wrapper.sh'
               - 'scripts/tests/test-upgrade-order.sh'
               - 'scripts/tests/test-upgrading-doc-consistency.sh'
@@ -475,6 +526,26 @@ jobs:
               # The job is defined in this workflow, so a change to its steps
               # must run them.
               - '.github/workflows/ci.yml'
+            # The code between a database connection and a published copy, and
+            # the image that carries GDAL's MSSQLSpatial driver and FreeTDS.
+            database_import:
+              - 'backend/app/core/config_database_sources.py'
+              - 'backend/app/platform/database_sources.py'
+              - 'backend/app/platform/gdal_env.py'
+              - 'backend/app/platform/dataset_origin.py'
+              - 'backend/app/platform/refresh/**'
+              - 'backend/app/modules/catalog/sources/database_router.py'
+              - 'backend/app/modules/catalog/datasets/api/router_refresh*.py'
+              - 'backend/app/processing/ingest/database_import.py'
+              - 'backend/app/processing/ingest/tasks_database.py'
+              - 'backend/app/processing/ingest/tasks_reupload.py'
+              - 'backend/app/processing/ingest/tasks_common.py'
+              - 'backend/app/processing/ingest/tasks_staging.py'
+              - 'backend/app/processing/ingest/publication.py'
+              - 'backend/tests/test_database_import_mssql.py'
+              - 'backend/uv.lock'
+              - 'Dockerfile'
+              - '.github/workflows/ci.yml'
 
   # ---------- backend ----------
   backend-lint:
@@ -491,13 +562,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           version: "0.10.2"
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.14"
 
@@ -532,7 +603,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.14"
 
@@ -540,8 +611,18 @@ jobs:
         with:
           node-version: 22
 
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.10.2"
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+
+      # Installs the hash-locked pre-commit group from backend/uv.lock, not the
+      # backend project itself.
       - name: Install pre-commit
-        run: python -m pip install pre-commit
+        run: |
+          uv sync --project backend --locked --only-group pre-commit
+          echo "$PWD/backend/.venv/bin" >> "$GITHUB_PATH"
 
       # Security guardrails (SSRF/IDOR) + generic hygiene. Ruff is covered by the
       # backend-lint job; gitleaks runs as a dedicated full-tree scan below (the
@@ -594,6 +675,9 @@ jobs:
 
       - name: Installer secret-generation regression test
         run: sh scripts/tests/test-install-secret-generation.sh
+
+      - name: Installer bundled-cache regression test
+        run: sh scripts/tests/test-install-bundled-cache.sh
 
       - name: Installer main() wrapper regression test
         run: sh scripts/tests/test-install-main-wrapper.sh
@@ -769,6 +853,8 @@ jobs:
               && break
             echo "apt attempt $i failed"
             [ "$i" = 3 ] && exit 1
+            # A stalled Azure mirror stays stalled for the retries, so fall back to archive.ubuntu.com.
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt 2>/dev/null || true
             sudo pkill -TERM -x apt-get || true
             sudo pkill -TERM -x dpkg || true
             sleep 5
@@ -1002,13 +1088,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           version: "0.10.2"
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.14"
 
@@ -1036,13 +1122,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           version: "0.10.2"
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.14"
 
@@ -1086,7 +1172,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.14"
 
@@ -1125,7 +1211,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.14"
 
@@ -1287,12 +1373,12 @@ jobs:
             sleep 2
           done
 
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           version: "0.10.2"
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.14"
 
@@ -1309,6 +1395,10 @@ jobs:
           uv sync --locked --dev
           uv pip install -e ../sdks/python
           uv pip install -e "../cli[dev]"
+
+      - name: CLI ruff check
+        working-directory: cli
+        run: uv run --project ../backend ruff check .
 
       # Structural gate (1/2): no direct httpx/requests imports.
       # `grep -rE` returns exit 1 when no matches → success for us; flip
@@ -1379,12 +1469,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           version: "0.10.2"
           enable-cache: true
           cache-dependency-glob: "mcp/pyproject.toml"
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.14"
 
@@ -1513,13 +1603,13 @@ jobs:
             sleep 2
           done
 
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           version: "0.10.2"
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.14"
 
@@ -1535,6 +1625,8 @@ jobs:
               && break
             echo "apt attempt $i failed"
             [ "$i" = 3 ] && exit 1
+            # A stalled Azure mirror stays stalled for the retries, so fall back to archive.ubuntu.com.
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt 2>/dev/null || true
             sudo pkill -TERM -x apt-get || true
             sudo pkill -TERM -x dpkg || true
             sleep 5
@@ -1746,13 +1838,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           version: "0.10.2"
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.14"
 
@@ -1826,13 +1918,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           version: "0.10.2"
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.14"
 
@@ -1847,6 +1939,50 @@ jobs:
           # is better than relying on bash defaults.
           ALEMBIC_TEST_DB_PORT: 54399
           ALEMBIC_TEST_TIMEOUT: 90
+
+  # ---------- previous-release compatibility ----------
+  # A release's migrations run while the previous release's api and worker
+  # still serve, as in a rolling upgrade. Boot the newest release and the
+  # newest of the minor line before it from their published images, upgrade
+  # the schema to this tree's heads under them, then read a dataset, ingest
+  # one and list datasets. Advisory: it stays out of ci-ok and the queue.
+  previous-release-compat:
+    name: Previous-Release Compatibility
+    needs: changes
+    if: needs.changes.outputs.alembic == 'true' || needs.changes.outputs.compat == 'true' || github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+        with:
+          version: "0.10.2"
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.14"
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: uv sync --locked --no-dev
+
+      - name: Log in to GHCR
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6  # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run the previous releases against this schema
+        run: scripts/previous-release-compat.sh
 
   # ---------- frontend ----------
   frontend-lint:
@@ -1864,7 +2000,7 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           version: "0.10.2"
 
@@ -2056,13 +2192,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           version: "0.10.2"
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.14"
 
@@ -2098,6 +2234,140 @@ jobs:
   # Still deliberately off merge_group: runtime-extension-image-probe (builds
   # images), e2e-test (the full nightly suite) and ai-evals (spends provider
   # tokens). They are not in this list and gate nothing here.
+  # ---------- SQL Server database import ----------
+  # Database import and refresh against a real SQL Server. The tests run inside
+  # the API image: it is the only place GDAL has the FreeTDS ODBC driver, and
+  # its FreeTDS is the one production reads with. Every secret is generated
+  # per run.
+  database-import-mssql:
+    name: SQL Server Import
+    needs: changes
+    if: needs.changes.outputs.database_import == 'true' || (github.event_name == 'push' && needs.changes.outputs.queue_verified != 'true') || github.event_name == 'merge_group'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Generate credentials
+        run: |
+          set -euo pipefail
+          # SQL Server's password policy wants mixed classes; the reader's must
+          # also be printable ASCII with no `;`, as DATABASE_SOURCES requires.
+          sa="Aa1!$(openssl rand -hex 16)"
+          reader="Rr1-$(openssl rand -hex 16)"
+          pg="$(openssl rand -hex 16)"
+          jwt="$(openssl rand -hex 32)"
+          admin="$(openssl rand -hex 16)"
+          for value in "$sa" "$reader" "$pg" "$jwt" "$admin"; do
+            echo "::add-mask::$value"
+          done
+          {
+            echo "MSSQL_SA_PASSWORD=$sa"
+            echo "GEOLENS_TEST_MSSQL_PASSWORD=$reader"
+            echo "GEOLENS_TEST_MSSQL_ADMIN_PASSWORD=$sa"
+            echo "POSTGRES_PASSWORD=$pg"
+            echo "JWT_SECRET_KEY=$jwt"
+            echo "GEOLENS_ADMIN_PASSWORD=$admin"
+          } >> "$GITHUB_ENV"
+
+      - name: Start SQL Server and PostgreSQL
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          docker network create geolens-mssql
+          docker run -d --name mssql --network geolens-mssql \
+            -e ACCEPT_EULA=Y -e MSSQL_PID=Developer -e MSSQL_SA_PASSWORD \
+            mcr.microsoft.com/mssql/server:2022-latest
+          for attempt in 1 2 3 4 5; do
+          docker build -t geolens-test-db -f - . <<'DOCKERFILE' && break
+          FROM postgis/postgis:18-3.6
+          RUN apt-get update \
+              && apt-get install -y --no-install-recommends postgresql-18-pgvector \
+              && rm -rf /var/lib/apt/lists/*
+          DOCKERFILE
+          [ "$attempt" -eq 5 ] && exit 1
+          echo "docker build failed (attempt $attempt/5), retrying in 10s..."
+          sleep 10
+          done
+          docker run -d --name test-postgres --network geolens-mssql \
+            -e POSTGRES_DB=postgres -e POSTGRES_USER=geolens -e POSTGRES_PASSWORD \
+            geolens-test-db
+
+      - name: Build the API image
+        timeout-minutes: 25
+        run: |
+          for attempt in 1 2 3; do
+            docker build --target api -t geolens-api:mssql-ci . && break
+            [ "$attempt" -eq 3 ] && exit 1
+            echo "docker build failed (attempt $attempt/3), retrying in 10s..."
+            sleep 10
+          done
+
+      - name: Create the test database and its read-only login
+        timeout-minutes: 5
+        env:
+          SQLCMD: /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -b
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            docker exec -e SQLCMDPASSWORD="$MSSQL_SA_PASSWORD" mssql $SQLCMD -Q "SELECT 1" >/dev/null 2>&1 && break
+            [ "$i" = 60 ] && { docker logs mssql | tail -20; exit 1; }
+            sleep 3
+          done
+          for i in $(seq 1 30); do
+            docker exec test-postgres pg_isready -U geolens -d postgres >/dev/null 2>&1 && break
+            [ "$i" = 30 ] && exit 1
+            sleep 2
+          done
+          # The reader's password reaches sqlcmd as a scripting variable read
+          # from the environment, never on a command line.
+          docker exec -i -e SQLCMDPASSWORD="$MSSQL_SA_PASSWORD" \
+            -e READER_PASSWORD="$GEOLENS_TEST_MSSQL_PASSWORD" mssql $SQLCMD <<'SQL'
+          CREATE DATABASE GeoLensTest;
+          GO
+          CREATE LOGIN geolens_reader WITH PASSWORD = '$(READER_PASSWORD)';
+          GO
+          USE GeoLensTest;
+          CREATE USER geolens_reader FOR LOGIN geolens_reader;
+          GRANT SELECT ON SCHEMA::dbo TO geolens_reader;
+          GO
+          SQL
+
+      - name: Run the SQL Server import tests
+        timeout-minutes: 15
+        env:
+          POSTGRES_HOST: test-postgres
+          POSTGRES_PORT: "5432"
+          POSTGRES_USER: geolens
+          POSTGRES_DB: postgres
+          GEOLENS_ADMIN_USERNAME: admin
+          GEOLENS_TEST_MSSQL_HOST: mssql
+          GEOLENS_TEST_MSSQL_PORT: "1433"
+          GEOLENS_TEST_MSSQL_DATABASE: GeoLensTest
+          GEOLENS_TEST_MSSQL_USER: geolens_reader
+          GEOLENS_TEST_MSSQL_ADMIN_USER: sa
+        run: |
+          set -euo pipefail
+          # A skipped module would pass while asserting nothing, so a skip fails.
+          docker run --rm --network geolens-mssql \
+            -e POSTGRES_HOST -e POSTGRES_PORT -e POSTGRES_USER -e POSTGRES_PASSWORD \
+            -e POSTGRES_DB -e JWT_SECRET_KEY -e GEOLENS_ADMIN_USERNAME \
+            -e GEOLENS_ADMIN_PASSWORD -e GEOLENS_TEST_MSSQL_HOST \
+            -e GEOLENS_TEST_MSSQL_PORT -e GEOLENS_TEST_MSSQL_DATABASE \
+            -e GEOLENS_TEST_MSSQL_USER -e GEOLENS_TEST_MSSQL_PASSWORD \
+            -e GEOLENS_TEST_MSSQL_ADMIN_USER -e GEOLENS_TEST_MSSQL_ADMIN_PASSWORD \
+            -e PYTHONPATH=/repo/backend -e UV_PROJECT_ENVIRONMENT=/tmp/venv \
+            -e UV_CACHE_DIR=/tmp/uv-cache -v "$PWD:/repo:ro" -w /repo/backend \
+            --entrypoint sh geolens-api:mssql-ci -c \
+            'uv sync --locked --dev --no-install-project && /tmp/venv/bin/python -m pytest -p no:cacheprovider -v -rs tests/test_database_import_mssql.py' \
+            | tee /tmp/mssql-tests.log
+          if grep -qE "SKIPPED|[0-9]+ skipped" /tmp/mssql-tests.log; then
+            echo "::error::the SQL Server import tests skipped, so nothing was asserted"
+            exit 1
+          fi
+
   ci-ok:
     name: CI OK
     needs:
@@ -2119,6 +2389,7 @@ jobs:
       # The promtool suite gates nothing unless it is here:
       # branch protection only sees CI OK.
       - monitoring-rules
+      - database-import-mssql
       # Always-run jobs must feed the aggregator too: otherwise
       # a failure in version-coherence or docs-contract could not block a
       # merge (branch protection only sees CI OK). changes and pre-commit are
@@ -2246,9 +2517,11 @@ jobs:
       && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-26.04
     needs: [backend-lint, backend-test, frontend-lint, frontend-test, security-scan]
-    # A clean run includes fixture ingestion, 150+ checks, retries, and cleanup.
-    # Keep enough headroom for the whole suite to finish on a shared runner.
-    timeout-minutes: 30
+    # A clean run takes about 27 minutes. Playwright's CI globalTimeout stops
+    # the main suite at 30, so failing specs that each burn their retries
+    # still reach the failure summary below. The cap also covers a slow setup:
+    # the browser install alone may take 13 minutes.
+    timeout-minutes: 50
     # Failing spec names travel to nightly-e2e-report as a job
     # output (readable from `needs` even when this job fails), so the
     # tracking issue can name specs instead of only "e2e-test: failure".
@@ -2353,6 +2626,8 @@ jobs:
             timeout -k 10 180 npx playwright install --with-deps chromium && break
             echo "playwright install attempt $i failed"
             [ "$i" = 3 ] && exit 1
+            # A stalled Azure mirror stays stalled for the retries, so fall back to archive.ubuntu.com.
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt 2>/dev/null || true
             sudo pkill -TERM -x apt-get || true
             sudo pkill -TERM -x dpkg || true
             sleep 5
@@ -2443,7 +2718,7 @@ jobs:
   # a core user flow merge green, and the breakage surfaces days later (the
   # nightly was once silently cancelled; see the
   # concurrency comment at the top of this file). This job runs the small
-  # `e2e:smoke:core` script (root package.json; ~1 min of specs against the
+  # `e2e:smoke:core` script (root package.json; a few minutes of specs against the
   # composed stack) on PRs whose changes can affect it, per the `e2e` path
   # filter. It needs only `changes` so it starts in parallel with the
   # lint/test jobs instead of stacking on top of them; ci-ok still blocks the
@@ -2563,6 +2838,8 @@ jobs:
             timeout -k 10 180 npx playwright install --with-deps chromium && break
             echo "playwright install attempt $i failed"
             [ "$i" = 3 ] && exit 1
+            # A stalled Azure mirror stays stalled for the retries, so fall back to archive.ubuntu.com.
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt 2>/dev/null || true
             sudo pkill -TERM -x apt-get || true
             sudo pkill -TERM -x dpkg || true
             sleep 5
@@ -2687,13 +2964,13 @@ jobs:
             sleep 2
           done
 
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           version: "0.10.2"
           enable-cache: true
           cache-dependency-glob: "backend/uv.lock"
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.14"
 
@@ -2709,6 +2986,8 @@ jobs:
               && break
             echo "apt attempt $i failed"
             [ "$i" = 3 ] && exit 1
+            # A stalled Azure mirror stays stalled for the retries, so fall back to archive.ubuntu.com.
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt 2>/dev/null || true
             sudo pkill -TERM -x apt-get || true
             sudo pkill -TERM -x dpkg || true
             sleep 5
@@ -2880,6 +3159,8 @@ jobs:
             timeout -k 10 180 npx playwright install --with-deps chromium && break
             echo "playwright install attempt $i failed"
             [ "$i" = 3 ] && exit 1
+            # A stalled Azure mirror stays stalled for the retries, so fall back to archive.ubuntu.com.
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt 2>/dev/null || true
             sudo pkill -TERM -x apt-get || true
             sudo pkill -TERM -x dpkg || true
             sleep 5

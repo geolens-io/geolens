@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { ApiError } from '@/api/client';
 import { useAuthStore } from '@/stores/auth-store';
 import { Button } from '@/components/ui/button';
+import { UnavailableState } from '@/components/layout/UnavailableState';
 
 interface MapUnavailableStateProps {
   error: unknown;
@@ -20,17 +21,17 @@ export function MapUnavailableState({ error, mapId }: MapUnavailableStateProps) 
   const isAnonymous = !hasToken;
 
   return (
-    <div className="app-surface-gradient flex min-h-0 flex-1 overflow-y-auto px-6">
-      <div className="m-auto flex w-full max-w-xl flex-col items-center rounded-2xl border bg-background/95 p-8 text-center shadow-lg backdrop-blur">
-        <MapPinOff className="size-10 text-muted-foreground" />
-        <div className="mt-4 space-y-2 text-center">
-          <h1 className="text-2xl font-semibold text-foreground">
-            {is403
-              ? t('viewer.accessDenied', { defaultValue: 'Access denied' })
-              : is404
-                ? t('viewer.mapNotFound')
-                : t('viewer.loadFailed')}
-          </h1>
+    <UnavailableState
+      icon={MapPinOff}
+      title={
+        is403
+          ? t('viewer.accessDenied', { defaultValue: 'Access denied' })
+          : is404
+            ? t('viewer.mapNotFound')
+            : t('viewer.loadFailed')
+      }
+      body={
+        <>
           <p className="mx-auto max-w-md text-sm text-muted-foreground">
             {t('viewer.mapNotFoundDescription')}
           </p>
@@ -41,8 +42,10 @@ export function MapUnavailableState({ error, mapId }: MapUnavailableStateProps) 
                   defaultValue: 'Open your maps list to confirm access, or head back to the catalog to keep working.',
                 })}
           </p>
-        </div>
-        <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+        </>
+      }
+      actions={
+        <>
           {isAnonymous ? (
             <Button asChild>
               <Link to="/login" state={{ from: `/maps/${mapId ?? ''}` }}>
@@ -61,8 +64,8 @@ export function MapUnavailableState({ error, mapId }: MapUnavailableStateProps) 
               {t('viewer.browseCatalog', { defaultValue: 'Browse catalog' })}
             </Link>
           </Button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    />
   );
 }

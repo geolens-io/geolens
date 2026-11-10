@@ -14,6 +14,7 @@ import pytest
 
 from app.core.service_tokens import register_credential_secret
 from app.modules.catalog.sources.preview import build_gdal_source
+from app.core.config import settings
 from app.platform import egress_proxy, security
 from app.processing.ingest.arcgis_errors import MAX_DETAIL_CHARS, arcgis_error_detail
 from app.processing.ingest.ogr import IngestionError, run_ogr2ogr_service
@@ -190,6 +191,8 @@ def loopback_service_host(monkeypatch) -> None:
 
     monkeypatch.setattr(egress_proxy, "_resolve_all_and_validate", resolve_all)
     monkeypatch.setattr(security, "_resolve_and_validate", resolve_one)
+    # The fixture serves plain http, so its host is listed as an operator would.
+    monkeypatch.setattr(settings, "service_credentials_allow_http_hosts", _HOST)
 
 
 @needs_ogr

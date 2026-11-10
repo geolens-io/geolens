@@ -26,6 +26,7 @@ from app.modules.catalog.features.idempotency import (  # noqa: F401 - façade f
     current_table_oid,
 )
 from app.platform.extensions import get_catalog_port
+from app.platform.timestamptz_text import utc_timestamptz_text
 
 if TYPE_CHECKING:
     from app.modules.catalog.datasets.domain.models import Dataset
@@ -162,6 +163,18 @@ class UnwritablePropertyError(ValueError):
     """
 
 
+class UnknownPropertyError(ValueError):
+    """A property key that is not in the dataset's stored column list."""
+
+    def __init__(self, columns: list[str]) -> None:
+        super().__init__(f"Unknown property columns: {', '.join(columns)}")
+        self.columns = columns
+
+
+class FeatureNotFoundError(ValueError):
+    """The addressed feature row does not exist."""
+
+
 def is_writable_feature_column(name: str) -> bool:
     """Whether the feature write path can address a column by this name.
 
@@ -190,7 +203,7 @@ def _reject_unknown_properties(
     if properties:
         unknown = sorted(k for k in properties if k not in allowed)
         if unknown:
-            raise ValueError(f"Unknown property columns: {', '.join(unknown)}")
+            raise UnknownPropertyError(unknown)
     named = allowed if replaces_all else {k for k in (properties or {}) if k in allowed}
     unwritable = sorted(n for n in named if not is_writable_feature_column(n))
     if unwritable:
@@ -268,7 +281,12 @@ def parse_bbox(bbox: str | Sequence[float]) -> list[float]:
     return values
 
 
-async def live_property_columns(db: AsyncSession, table_name: str) -> str:
+async def live_property_columns(
+    db: AsyncSession,
+    table_name: str,
+    *,
+    only: list[str] | None = None,
+) -> str:
     """Quoted select-list of the table's live columns minus gid/geom/geom_4326.
 
     `to_jsonb` serializes EVERY column first, and the
@@ -277,25 +295,63 @@ async def live_property_columns(db: AsyncSession, table_name: str) -> str:
     `Dataset.column_info`, which can drift on re-upload. Colons
     are backslash-escaped too (`text()` parses `:name` as a bind param even
     quoted; Socrata ships columns named `:id`). Valid only inside `text()`.
+    ``only`` keeps just the named columns; an empty list keeps none. A
+    timestamptz column is projected under its own name as the UTC text vector
+    tiles carry, so a value reads the same on every route whatever the
+    session's TimeZone.
     """
+    allowed = None if only is None else set(only)
+    columns = []
+    for name, is_timestamptz in await _table_columns(db, table_name):
+        if name in ("gid", "geom", "geom_4326") or (
+            allowed is not None and name not in allowed
+        ):
+            continue
+        quoted = '"' + name.replace('"', '""').replace(":", "\\:") + '"'
+        columns.append(
+            f"{utc_timestamptz_text(quoted)} AS {quoted}" if is_timestamptz else quoted
+        )
+    return ", ".join(columns)
+
+
+async def _table_columns(db: AsyncSession, table_name: str) -> list[tuple[str, bool]]:
+    """The tenant-schema table's live columns in column order, each with whether it is a timestamptz."""
     from app.core.db.tenant_schema import tenant_data_schema
     from app.core.db.tenant_session import current_tenant_var
 
-    schema = tenant_data_schema(current_tenant_var.get())
     result = await db.execute(
         text(
-            "SELECT a.attname FROM pg_attribute a "
+            "SELECT a.attname, a.atttypid = 'timestamptz'::regtype "
+            "FROM pg_attribute a "
             "JOIN pg_class c ON c.oid = a.attrelid "
             "JOIN pg_namespace n ON n.oid = c.relnamespace "
             "WHERE n.nspname = :schema AND c.relname = :tn "
             "AND c.relkind IN ('r', 'p', 'v', 'm', 'f') "
-            "AND a.attnum > 0 AND NOT a.attisdropped "
-            "AND a.attname NOT IN ('gid', 'geom', 'geom_4326') ORDER BY a.attnum"
-        ).bindparams(schema=schema, tn=table_name)
+            "AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum"
+        ).bindparams(schema=tenant_data_schema(current_tenant_var.get()), tn=table_name)
     )
-    return ", ".join(
-        '"' + name.replace('"', '""').replace(":", "\\:") + '"'
-        for (name,) in result.all()
+    return [(name, bool(is_timestamptz)) for name, is_timestamptz in result.all()]
+
+
+async def unknown_property_detail(
+    db: AsyncSession, error: UnknownPropertyError, table_name: str, *, registered: bool
+) -> str:
+    """The refusal text, plus the way out when the column was added after registration.
+
+    Reads use the live table while writes check the stored column list, so a
+    column added in SQL to a registered table is readable but not yet writable
+    until a refresh re-reads the table.
+    """
+    detail = str(error)
+    if not registered:
+        return detail
+    live = {name for name, _ in await _table_columns(db, table_name)}
+    present = [c for c in error.columns if c in live and is_writable_feature_column(c)]
+    if not present:
+        return detail
+    return (
+        f"{detail}. {', '.join(present)} exists in the table but not in "
+        "GeoLens's column list; refresh the dataset to pick it up."
     )
 
 
@@ -333,21 +389,27 @@ async def get_feature_queryable_columns(
 
 
 async def _projected_row_source(
-    db: AsyncSession, table_name: str, *, with_geometry: bool
+    db: AsyncSession,
+    table_name: str,
+    *,
+    with_geometry: bool,
+    only: list[str] | None = None,
+    where_sql: str = "",
 ) -> str:
     """Render the projected FROM source feature readers serialize from.
 
     See ``live_property_columns`` for why the row is projected before
-    ``to_jsonb``. ``geom_4326`` rides along when the table is spatial so
-    bbox predicates and the geometry select keep working; the planner
-    flattens the subquery, so index use is unchanged.
+    ``to_jsonb``, and for ``only``. ``geom_4326`` rides along when the table
+    is spatial so the geometry select keeps working. ``where_sql`` filters the
+    base table aliased ``t``, where columns keep their stored types; the
+    planner flattens the subquery, so index use is unchanged.
     """
-    prop_cols = await live_property_columns(db, table_name)
+    prop_cols = await live_property_columns(db, table_name, only=only)
     prop_sel = f", {prop_cols}" if prop_cols else ""
     geom_sel = ", geom_4326" if with_geometry else ""
     return (
         f"(SELECT gid{geom_sel}{prop_sel} "
-        f"FROM {get_catalog_port().quote_table(table_name)})"
+        f"FROM {get_catalog_port().quote_table(table_name)} t {where_sql})"
     )
 
 
@@ -416,7 +478,7 @@ def number_matched_headers(total_is_estimate: bool) -> dict[str, str]:
     return {NUMBER_MATCHED_HEADER: "estimated"} if total_is_estimate else {}
 
 
-async def _planner_row_estimate(
+async def planner_row_estimate(
     db: AsyncSession, quoted_table: str, where_sql: str, binds: dict, apply_binds
 ) -> int:
     """The planner's row estimate for the filtered predicate, or 0.
@@ -458,7 +520,7 @@ async def _bounded_total(
     counted = int(capped_result.scalar_one())
     if counted <= _FILTERED_COUNT_CAP:
         return counted, False
-    estimate = await _planner_row_estimate(db, quoted, where_sql, binds, apply_binds)
+    estimate = await planner_row_estimate(db, quoted, where_sql, binds, apply_binds)
     return max(counted, estimate), True
 
 
@@ -520,36 +582,29 @@ async def get_features(
 
     # Build SELECT columns over the projected row (see live_property_columns
     # for why geom must never reach to_jsonb).
-    if has_geometry and include_geometry:
+    with_geometry = has_geometry and include_geometry
+    if with_geometry:
         select_cols = (
             "gid, ST_AsGeoJSON(geom_4326, 6)::json AS geometry, "
             "to_jsonb(t.*) - 'gid' - 'geom_4326' AS properties"
         )
-    elif has_geometry:
-        select_cols = (
-            "gid, NULL::json AS geometry, "
-            "to_jsonb(t.*) - 'gid' - 'geom_4326' AS properties"
-        )
     else:
         select_cols = "gid, NULL::json AS geometry, to_jsonb(t.*) - 'gid' AS properties"
-    row_source = await _projected_row_source(db, table_name, with_geometry=has_geometry)
 
     where_clauses: list[str] = []
     bind_values: dict = {}
 
     if bbox is not None and has_geometry:
         if bbox[0] > bbox[2]:
-            # Antimeridian-crossing: split into two envelopes (each with && pre-filter for index)
+            # Antimeridian-crossing: split into two envelopes. ST_Intersects supplies
+            # the index condition itself; a separate && would count its selectivity twice.
             where_clauses.append(
-                "((geom_4326 && ST_MakeEnvelope(:minx, :miny, 180, :maxy, 4326)"
-                " AND ST_Intersects(geom_4326, ST_MakeEnvelope(:minx, :miny, 180, :maxy, 4326)))"
-                " OR (geom_4326 && ST_MakeEnvelope(-180, :miny, :maxx, :maxy, 4326)"
-                " AND ST_Intersects(geom_4326, ST_MakeEnvelope(-180, :miny, :maxx, :maxy, 4326))))"
+                "(ST_Intersects(geom_4326, ST_MakeEnvelope(:minx, :miny, 180, :maxy, 4326))"
+                " OR ST_Intersects(geom_4326, ST_MakeEnvelope(-180, :miny, :maxx, :maxy, 4326)))"
             )
         else:
             where_clauses.append(
-                "geom_4326 && ST_MakeEnvelope(:minx, :miny, :maxx, :maxy, 4326)"
-                " AND ST_Intersects(geom_4326, ST_MakeEnvelope(:minx, :miny, :maxx, :maxy, 4326))"
+                "ST_Intersects(geom_4326, ST_MakeEnvelope(:minx, :miny, :maxx, :maxy, 4326))"
             )
         bind_values["minx"] = bbox[0]
         bind_values["miny"] = bbox[1]
@@ -577,17 +632,13 @@ async def get_features(
     where_sql = ""
     if where_clauses:
         where_sql = "WHERE " + " AND ".join(where_clauses)
+    row_source = await _projected_row_source(
+        db, table_name, with_geometry=with_geometry, where_sql=where_sql
+    )
 
-    if use_keyset:
-        data_sql = (
-            f"SELECT {select_cols} FROM {row_source} t "
-            f"{where_sql} ORDER BY gid LIMIT :limit"
-        )
-    else:
-        data_sql = (
-            f"SELECT {select_cols} FROM {row_source} t "
-            f"{where_sql} ORDER BY gid LIMIT :limit OFFSET :offset"
-        )
+    data_sql = f"SELECT {select_cols} FROM {row_source} t ORDER BY gid LIMIT :limit"
+    if not use_keyset:
+        data_sql += " OFFSET :offset"
         bind_values["offset"] = offset
     # One row past the page, so `has_more` is a fact about the
     # rows rather than a comparison against a count that may be estimated.
@@ -642,6 +693,7 @@ async def get_features_geojson_z(
     *,
     cap: int = 5000,
     cached_feature_count: int | None = None,
+    property_columns: list[str] | None = None,
 ) -> tuple[list[dict], bool, int]:
     """Fetch up to `cap` features with Z coordinates preserved.
 
@@ -651,12 +703,15 @@ async def get_features_geojson_z(
     ST_AsGeoJSON natively preserves Z when the geometry has Z.
     total_count: actual row count when not truncated, COUNT(*) when truncated.
     cached_feature_count is ignored — always uses authoritative count.
+    ``property_columns``, when given, limits ``properties`` to those columns.
     """
     select_cols = (
         "gid, ST_AsGeoJSON(geom_4326, 6)::json AS geometry, "
         "to_jsonb(t.*) - 'gid' - 'geom_4326' AS properties"
     )
-    row_source = await _projected_row_source(db, table_name, with_geometry=True)
+    row_source = await _projected_row_source(
+        db, table_name, with_geometry=True, only=property_columns
+    )
     data_sql = f"SELECT {select_cols} FROM {row_source} t ORDER BY gid LIMIT :limit"
     result = await db.execute(text(data_sql).bindparams(limit=cap + 1))
     rows = [dict(row._mapping) for row in result.all()]
@@ -1154,7 +1209,7 @@ async def replace_feature(
     result = await db.execute(text(sql).bindparams(**params))
     prior = result.first()
     if prior is None:
-        raise ValueError("Feature not found")
+        raise FeatureNotFoundError("Feature not found")
 
     row = await get_feature_by_id(db, table_name, gid)
     if row is None:
@@ -1214,7 +1269,7 @@ async def update_feature(
     result = await db.execute(text(sql).bindparams(**params))
     prior = result.first()
     if prior is None:
-        raise ValueError("Feature not found")
+        raise FeatureNotFoundError("Feature not found")
 
     row = await get_feature_by_id(db, table_name, gid)
     if row is None:
@@ -1244,7 +1299,7 @@ async def delete_feature(
     )
     row = result.first()
     if row is None:
-        raise ValueError("Feature not found")
+        raise FeatureNotFoundError("Feature not found")
     return _prior_bounds_from_row(row)
 
 

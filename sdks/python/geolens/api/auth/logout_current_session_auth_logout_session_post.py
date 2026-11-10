@@ -112,7 +112,7 @@ def sync_detailed(
     authorization: None | str | Unset = UNSET,
     x_csrf_token: None | str | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
-    """Logout Current Session
+    """Sign out of the current session
 
      Revoke only the presented session's refresh-token family.
 
@@ -162,7 +162,7 @@ def sync(
     authorization: None | str | Unset = UNSET,
     x_csrf_token: None | str | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
-    """Logout Current Session
+    """Sign out of the current session
 
      Revoke only the presented session's refresh-token family.
 
@@ -207,7 +207,7 @@ async def asyncio_detailed(
     authorization: None | str | Unset = UNSET,
     x_csrf_token: None | str | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
-    """Logout Current Session
+    """Sign out of the current session
 
      Revoke only the presented session's refresh-token family.
 
@@ -255,7 +255,7 @@ async def asyncio(
     authorization: None | str | Unset = UNSET,
     x_csrf_token: None | str | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
-    """Logout Current Session
+    """Sign out of the current session
 
      Revoke only the presented session's refresh-token family.
 

@@ -2,13 +2,14 @@ import type { ReactNode } from 'react';
 import { Link, Route, Routes } from 'react-router';
 import { act, fireEvent, render, screen, within } from '@/test/test-utils';
 import { PublicViewerPage } from '../PublicViewerPage';
+import { ThemeProvider } from '@/components/theme-provider';
 import { useSharedMap } from '@/hooks/use-maps';
 import { useViewerLayers } from '@/components/viewer/hooks/use-viewer-layers';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { ApiError } from '@/api/client';
 import type { ViewerMap } from '@/components/viewer/ViewerMap';
 import type { LayerLegend } from '@/components/viewer/LayerLegend';
-import type { SharedMapResponse } from '@/types/api';
+import type { DashboardConfig, SharedMapResponse } from '@/types/api';
 
 const viewerMapMock = vi.hoisted(() => ({
   props: null as React.ComponentProps<typeof ViewerMap> | null,
@@ -32,7 +33,7 @@ vi.mock('@/hooks/use-document-title', () => ({
 vi.mock('@/components/viewer/ViewerMap', () => ({
   ViewerMap: (props: React.ComponentProps<typeof ViewerMap>) => {
     viewerMapMock.props = props;
-    return <div data-testid="viewer-map">viewer map</div>;
+    return <div data-testid="viewer-map">viewer map{props.overlays}</div>;
   },
 }));
 
@@ -68,10 +69,12 @@ const SHARED_MAP: SharedMapResponse = {
   center_lng: -73.9857,
   center_lat: 40.7484,
   zoom: 10,
+  has_saved_view: true,
   bearing: 0,
   pitch: 0,
   basemap_style: 'carto-light',
   show_basemap_labels: true,
+  show_attribute_table: true,
   basemap_config: {
     label_mode: 'subtle',
     road_visibility: 'hidden',
@@ -135,10 +138,41 @@ describe('PublicViewerPage', () => {
 
     mockedUseViewerLayers.mockReturnValue({
       visibleLayers: new Set(['shared-layer-1']),
+      hiddenByReader: new Set<string>(),
       handleToggleVisibility: vi.fn(),
       isLegendOpen: true,
       setIsLegendOpen: vi.fn(),
     } as ReturnType<typeof useViewerLayers>);
+  });
+
+  it.each([
+    ['open', '/m/share-token?embed=true', 'Hide dashboard'],
+    ['collapsed when the embed asks', '/m/share-token?embed=true&dashboard=collapsed', 'Open dashboard'],
+  ])('starts an embed\'s dashboard %s', (_label, route, button) => {
+    mockedUseSharedMap.mockReturnValue({
+      data: {
+        ...SHARED_MAP,
+        dashboard_config: {
+          version: 1,
+          panel: 'right',
+          widgets: [
+            {
+              id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+              type: 'indicator',
+              v: 1,
+              layer_id: 'shared-layer-1',
+              scope: 'layer',
+              config: { stat: 'count', column: null },
+            },
+          ],
+        },
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as unknown as ReturnType<typeof useSharedMap>);
+    renderPage(route);
+    expect(screen.getByRole('button', { name: button })).toBeInTheDocument();
   });
 
   it('titles the document with the shared map name', () => {
@@ -193,6 +227,141 @@ describe('PublicViewerPage', () => {
     expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
   });
 
+  describe('embed legend default', () => {
+    const categorical = {
+      ...SHARED_MAP.layers[0],
+      geometry_type: 'MULTIPOINT',
+      paint: {
+        'circle-radius': 5,
+        'circle-color': ['match', ['get', 'kind'], 'school', '#f472b6', '#cccccc'],
+      },
+      style_config: {
+        mode: 'categorical' as const,
+        column: 'kind',
+        categories: [{ value: 'school', label: 'School', color: '#f472b6' }],
+      },
+    };
+
+    function mapWith(layer: SharedMapResponse['layers'][number]) {
+      mockedUseSharedMap.mockReturnValue({
+        data: { ...SHARED_MAP, layers: [layer] },
+        isLoading: false,
+        isError: false,
+        error: null,
+      } as ReturnType<typeof useSharedMap>);
+    }
+
+    const clusterRamp = {
+      ...SHARED_MAP.layers[0],
+      style_config: {
+        render_mode: 'cluster' as const,
+        builder: {
+          clusterColorRamp: [
+            { count: 0, color: '#818cf8' },
+            { count: 25, color: '#6366f1' },
+            { count: 2500, color: '#4338ca' },
+          ],
+        },
+      },
+    };
+
+    async function renderEmbed(drawsAs: 'circle' | 'cluster', query = 'embed=true') {
+      renderPage(`/m/share-token?${query}`);
+      await screen.findByTestId('viewer-map');
+      act(() =>
+        viewerMapMock.props?.onDrawnChange?.(new Map([['shared-layer-1', { drawsAs }]])),
+      );
+    }
+
+    it('shows the legend in an embed when a visible layer is styled by category', async () => {
+      mapWith(categorical);
+      await renderEmbed('circle');
+
+      expect(screen.getByTestId('layer-legend')).toBeInTheDocument();
+      expect(mockedUseViewerLayers).toHaveBeenLastCalledWith(
+        expect.anything(),
+        expect.objectContaining({ showLegend: true }),
+      );
+    });
+
+    it('waits for what the map drew before opening the embed legend', async () => {
+      mapWith(categorical);
+      renderPage('/m/share-token?embed=true');
+      await screen.findByTestId('viewer-map');
+
+      expect(screen.queryByTestId('layer-legend')).not.toBeInTheDocument();
+    });
+
+    it('shows the legend in an embed when the only classes are cluster count colours', async () => {
+      mapWith(clusterRamp);
+      await renderEmbed('cluster');
+
+      expect(screen.getByTestId('layer-legend')).toBeInTheDocument();
+    });
+
+    it('keeps the embed legend hidden when a cluster fell back to plain points', async () => {
+      mapWith(clusterRamp);
+      await renderEmbed('circle');
+
+      expect(screen.queryByTestId('layer-legend')).not.toBeInTheDocument();
+    });
+
+    it('keeps the embed legend hidden for a single-colour layer', async () => {
+      await renderEmbed('circle');
+
+      expect(screen.queryByTestId('layer-legend')).not.toBeInTheDocument();
+    });
+
+    it('keeps the embed legend hidden when the category layer is hidden', async () => {
+      mapWith({ ...categorical, visible: false });
+      await renderEmbed('circle');
+
+      expect(screen.queryByTestId('layer-legend')).not.toBeInTheDocument();
+    });
+
+    it('lets legend=false hide the embed legend', async () => {
+      mapWith(categorical);
+      await renderEmbed('circle', 'embed=true&legend=false');
+
+      expect(screen.queryByTestId('layer-legend')).not.toBeInTheDocument();
+    });
+  });
+
+  it.each(['/m/share-token', '/m/share-token?embed=true&dashboard=collapsed'])(
+    'shows only the dashboard, mounting no map, when the map is hidden (%s)',
+    (route) => {
+      mockedUseSharedMap.mockReturnValue({
+        data: {
+          ...SHARED_MAP,
+          dashboard_config: {
+            version: 1,
+            panel: 'right',
+            map_hidden: true,
+            widgets: [
+              {
+                id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+                type: 'indicator',
+                v: 1,
+                layer_id: 'shared-layer-1',
+                scope: 'layer',
+                config: { stat: 'count', column: null },
+              },
+            ],
+          },
+        },
+        isLoading: false,
+        isError: false,
+        error: null,
+      } as unknown as ReturnType<typeof useSharedMap>);
+      renderPage(route);
+      expect(screen.getByRole('region', { name: 'Dashboard' })).toBeInTheDocument();
+      expect(screen.queryByTestId('viewer-map')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('layer-legend')).not.toBeInTheDocument();
+      expect(viewerMapMock.props).toBeNull();
+      expect(screen.getAllByRole('main')).toHaveLength(1);
+    },
+  );
+
   it('hands the legend what the viewer map reports drawing', async () => {
     renderPage();
     await screen.findByTestId('viewer-map');
@@ -210,7 +379,25 @@ describe('PublicViewerPage', () => {
 
     expect(mockedUseSharedMap).toHaveBeenCalledWith('share-token', 'embed-token');
     expect(JSON.stringify(mockedUseSharedMap.mock.calls)).not.toContain('account-key');
-    expect(JSON.stringify(viewerMapMock.props)).not.toContain('account-key');
+    // The overlays are React elements, which don't serialize; they carry no credential.
+    expect(JSON.stringify({ ...viewerMapMock.props, overlays: undefined })).not.toContain('account-key');
+  });
+
+  it.each([
+    [false, true],
+    [true, false],
+  ])('sets dataset links for has_non_public_layers=%s to %s', async (hasNonPublic, allowed) => {
+    mockedUseSharedMap.mockReturnValue({
+      data: { ...SHARED_MAP, has_non_public_layers: hasNonPublic },
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useSharedMap>);
+    renderPage();
+
+    await screen.findByTestId('viewer-map');
+
+    expect(viewerMapMock.props?.datasetLinksAllowed).toBe(allowed);
   });
 
   it('forwards persisted basemap appearance into the viewer map', async () => {
@@ -222,6 +409,55 @@ describe('PublicViewerPage', () => {
       basemapConfig: SHARED_MAP.basemap_config,
       terrainConfig: SHARED_MAP.terrain_config,
       showBasemapLabels: true,
+    });
+  });
+
+  describe('initial view', () => {
+    const extentLayer = { ...SHARED_MAP.layers[0], dataset_extent_bbox: [-74.3, 40.5, -73.7, 40.9] };
+
+    function mapWithView(hasSavedView: boolean) {
+      mockedUseSharedMap.mockReturnValue({
+        data: { ...SHARED_MAP, has_saved_view: hasSavedView, layers: [extentLayer] },
+        isLoading: false,
+        isError: false,
+        error: null,
+      } as ReturnType<typeof useSharedMap>);
+    }
+
+    it('fits the visible layers when the map has no saved view', async () => {
+      mapWithView(false);
+      renderPage();
+
+      await screen.findByTestId('viewer-map');
+
+      expect(viewerMapMock.props?.fitLayers).toBe(true);
+      expect(viewerMapMock.props?.layers).toEqual([extentLayer]);
+    });
+
+    it('opens at the saved view when the map has one', async () => {
+      mapWithView(true);
+      renderPage();
+
+      await screen.findByTestId('viewer-map');
+
+      expect(viewerMapMock.props?.fitLayers).toBe(false);
+      expect(viewerMapMock.props?.initialViewState).toMatchObject({
+        center_lng: SHARED_MAP.center_lng,
+        center_lat: SHARED_MAP.center_lat,
+        zoom: SHARED_MAP.zoom,
+      });
+    });
+
+    it.each([
+      ['center', '?center=2.35,48.86'],
+      ['zoom', '?zoom=6'],
+    ])('lets a URL %s override the fit', async (_name, query) => {
+      mapWithView(false);
+      renderPage(`/m/share-token${query}`);
+
+      await screen.findByTestId('viewer-map');
+
+      expect(viewerMapMock.props?.fitLayers).toBe(false);
     });
   });
 
@@ -323,5 +559,27 @@ describe('PublicViewerPage', () => {
       expect(screen.getByTestId('basemap-toggle')).toHaveTextContent('chosen-basemap');
       expect(legendMock.props?.drawn).toBe(drawn);
     });
+  });
+
+  it('shows a dark dashboard dark to a reader on light', async () => {
+    mockedUseSharedMap.mockReturnValue({
+      data: {
+        ...SHARED_MAP,
+        dashboard_config: { version: 1, panel: 'right', map_hidden: false, theme: 'dark', widgets: [] } as DashboardConfig,
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useSharedMap>);
+    render(
+      <ThemeProvider defaultTheme="light">
+        <Routes>
+          <Route path="/m/:token" element={<PublicViewerPage />} />
+        </Routes>
+      </ThemeProvider>,
+      { route: '/m/share-token?embed=true' },
+    );
+    await screen.findByTestId('viewer-map');
+    expect(document.documentElement).toHaveClass('dark');
   });
 });

@@ -10,7 +10,7 @@ import { getSourceIdForLayer, TERRAIN_SOURCE_ID } from '@/components/builder/map
 import { readMapCamera, sameMapCamera, type BuilderCamera } from '@/components/builder/builder-camera';
 import { hasGlobeSpaceBackdrop } from '@/components/builder/map-composition-sync';
 import { ApiError } from '@/api/client';
-import { useUpdateMap, useDuplicateMap, usePatchMapLayers } from '@/hooks/use-maps';
+import { mapDetailQuery, useUpdateMap, useDuplicateMap, usePatchMapLayers } from '@/hooks/use-maps';
 import { useEnabledPlugins } from '@/hooks/use-settings';
 import { useEdition } from '@/hooks/use-edition';
 import { demChipGlyph, getLayerColors } from '@/components/map/layer-icons';
@@ -22,7 +22,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { getDefaultPluginIds, resolveAvailablePluginIds, samePluginIds } from '@/components/map-plugins';
 import { legendFacts, rampGradient } from '@/components/map/legend-facts';
 import { syntheticTerrainEntry } from '@/components/builder/terrain-legend';
-import { getPersistedFolderGroup, prepareLayersForPersistence, stampPersistedFolderGroupExpanded, type FolderGroupMeta } from '@/components/builder/folder-groups';
+import { getPersistedFolderGroup, hydrateFolderGroupLayers, prepareLayersForPersistence, stampPersistedFolderGroupExpanded, type FolderGroupMeta } from '@/components/builder/folder-groups';
 import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import { MAP_COLORS } from '@/lib/map-colors';
 // The rendered-image paths composite from the WebGL canvas, which no DOM
@@ -38,6 +38,13 @@ import {
 } from '@/lib/map-image-attribution';
 // Detects fields the builder has no editor for on a given layer type.
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
+import { classifyApiError } from '@/lib/error-map';
+import {
+  canonicalDashboard,
+  dashboardSavePayload,
+  firstWidgetProblem,
+  type DashboardDraft,
+} from '@/components/builder/dashboard-draft';
 
 /** Center-crop `srcCanvas` to the target dimensions without distortion
  *  (letterbox / pillarbox math), for any aspect ratio.
@@ -806,9 +813,121 @@ type BuilderSaveStatus = 'saved' | 'unsaved' | 'saving' | 'failed';
 
 /** Bridge between the layer-mutation hooks and useBuilderSave's diff baseline.
  *  `add` registers a layer in the baseline; `remove` is its inverse. */
+/** handleSave's side of useBuilderLayers' save fence. */
+export interface SaveFence {
+  inFlight: (mapId: string) => boolean;
+  begin: (mapId: string) => void;
+  settle: (mapId: string) => void;
+}
+
 export interface SaveBaselineSync {
   add: (layer: MapLayerResponse) => void;
   remove: (layerIds: Iterable<string>) => void;
+}
+
+type BaselineRegistration = { add: MapLayerResponse } | { remove: ReadonlySet<string> };
+
+function applyBaselineRegistration(
+  baseline: MapLayerResponse[],
+  registration: BaselineRegistration,
+): MapLayerResponse[] {
+  if ('add' in registration) {
+    const layer = registration.add;
+    return baseline.some((l) => l.id === layer.id) ? baseline : [...baseline, { ...layer }];
+  }
+  return baseline.filter((l) => !registration.remove.has(l.id));
+}
+
+/**
+ * Pair each sent layer that a full replacement stored under a new id with its
+ * new row. The PUT keeps a listed id the map still has and creates a row for
+ * one it doesn't, such as a layer deleted while the PUT was in flight. Rows
+ * created during the save are never paired; sent layers and new rows of the
+ * same dataset pair in stack order.
+ */
+function pairReplacedLayerIds(
+  sent: readonly MapLayerResponse[],
+  stored: readonly MapLayerResponse[],
+  createdIds: ReadonlySet<string>,
+  pairable: ReadonlySet<string> | null,
+  existingIds: ReadonlySet<string>,
+): Map<string, string> {
+  const sentIds = new Set(sent.map((layer) => layer.id));
+  const storedIds = new Set(stored.map((layer) => layer.id));
+  const newRowsByDataset = new Map<string, string[]>();
+  for (const row of stored) {
+    if (sentIds.has(row.id) || createdIds.has(row.id) || existingIds.has(row.id)) continue;
+    const queue = newRowsByDataset.get(row.dataset_id);
+    if (queue) queue.push(row.id);
+    else newRowsByDataset.set(row.dataset_id, [row.id]);
+  }
+  const pairs = new Map<string, string>();
+  for (const layer of sent) {
+    if (storedIds.has(layer.id) || (pairable && !pairable.has(layer.id))) continue;
+    const next = newRowsByDataset.get(layer.dataset_id)?.shift();
+    if (next) pairs.set(layer.id, next);
+  }
+  return pairs;
+}
+
+/**
+ * The save-diff baseline after a full replacement: what the server stored of
+ * this save's layers. The PUT deletes layers created while it was in flight
+ * and recreates layers deleted meanwhile under new ids, so the next save sends
+ * those creates again and removes the recreated rows. A create recorded before
+ * `stored` was read and missing from it is left out of the baseline: sending
+ * it again is safer than losing it. Registrations from `readFrom` on landed
+ * after the read, so they are replayed. `renamed` maps each sent layer the
+ * server stored under a new id to that id; `pairable`, when given, limits that
+ * pairing to the layers a PATCH added, and rows in `existingIds`, which the
+ * map held before the save, are never paired.
+ */
+function replacedBaseline(
+  sent: readonly MapLayerResponse[],
+  stored: MapLayerResponse[],
+  registrations: readonly BaselineRegistration[],
+  readFrom: number,
+  pairable: ReadonlySet<string> | null,
+  existingIds: ReadonlySet<string>,
+): { renamed: Map<string, string>; baseline: MapLayerResponse[] } {
+  const createdIds = new Set<string>();
+  for (const r of registrations) if ('add' in r) createdIds.add(r.add.id);
+  const renamed = pairReplacedLayerIds(sent, stored, createdIds, pairable, existingIds);
+  // Rows another session added aren't in the local stack, so a baseline that
+  // held them would make the next save delete them. A sent layer it deleted
+  // stays in the baseline, so the next save doesn't create it again.
+  const known = new Set([...sent.map((l) => l.id), ...renamed.values(), ...createdIds]);
+  const storedIds = new Set(stored.map((l) => l.id));
+  const deletedElsewhere = sent.filter((l) => !storedIds.has(l.id) && !renamed.has(l.id));
+  return {
+    renamed,
+    // A DELETE that committed after the read-back isn't in `stored`.
+    baseline: registrations
+      .filter((r, i) => 'remove' in r || i >= readFrom)
+      .reduce(applyBaselineRegistration, [
+        ...hydrateFolderGroupLayers(stored.filter((l) => known.has(l.id))).layers,
+        ...deletedElsewhere,
+      ]),
+  };
+}
+
+/** ``payload`` with its dashboard widgets pointed at the ids ``renamed`` gives their layers. */
+function withRenamedWidgetLayers(
+  payload: MapUpdateRequest,
+  renamed: ReadonlyMap<string, string>,
+): MapUpdateRequest {
+  const config = payload.dashboard_config;
+  if (!config?.widgets || renamed.size === 0) return payload;
+  return {
+    ...payload,
+    dashboard_config: {
+      ...config,
+      widgets: config.widgets.map((w) => {
+        const next = 'layer_id' in w && renamed.get(w.layer_id);
+        return next ? { ...w, layer_id: next } : w;
+      }),
+    },
+  };
 }
 
 export function buildLayerDiff(
@@ -911,10 +1030,23 @@ interface SaveState {
   localDescription: string;
   /** Custom map-level legend title. Null = no override. */
   legendTitle: string | null;
+  /** Whether readers can open the Map data table. */
+  showAttributeTable?: boolean;
   dockNotes: string;
+  /** The Builder's dashboard; a save sends it only when `dashboardEdited`. */
+  dashboard: DashboardDraft;
+  savedDashboard: DashboardDraft;
+  dashboardEdited: boolean;
+  /**
+   * Told what a save sends, so the saved dashboard coming back isn't taken for
+   * another editor's; the returned callback hears whether the server stored it.
+   */
+  onDashboardSave?: (draft: DashboardDraft) => (stored: boolean) => void;
   mapInstanceRef: React.RefObject<MaplibreMap | null>;
   setHasUnsavedChanges: (v: boolean) => void;
   hasUnsavedChanges: boolean;
+  /** Unsaved changes other than a camera-only move; these ask before leaving. */
+  hasUnsavedEdits: boolean;
   hasThumbnail?: boolean;
   /** Callback ref populated by useBuilderSave and invoked by useBuilderLayers'
    *  layer-create paths (handleAddDataset / handleDuplicateRendering) so the
@@ -922,11 +1054,23 @@ interface SaveState {
    *  inserted. `remove` is the delete half, called by the single and bulk
    *  delete paths alongside their savedLayerBaselineRef prune. */
   saveBaselineSyncRef: React.MutableRefObject<SaveBaselineSync>;
+  /** Renames local layers (old id to new id) after a full-replacement save
+   *  stored them under new ids. */
+  remapLayerIds: (ids: ReadonlyMap<string, string>) => void;
+  /** useBuilderLayers' save fence: begun when the round trip starts, settled
+   *  when it ends. */
+  saveFence: SaveFence;
   /** True when the builder was opened with a ?add_dataset URL param, so the
    *  first auto-capture is deferred until the layer-add effect has synced
    *  localLayers. */
   pendingLayerAdd?: boolean;
 }
+
+const DASHBOARD_SAVE_ERRORS = new Set([
+  'errors.dashboardTooNew',
+  'errors.dashboardTooManyWidgets',
+  'errors.dashboardWidgetsRefused',
+]);
 
 /** The state fields handleSave snapshots into its payloads. If any changes
  *  identity while the save's network round-trip is in flight, the dirty flag
@@ -938,7 +1082,9 @@ const SAVE_SNAPSHOT_FIELDS = [
   'localName',
   'localDescription',
   'legendTitle',
+  'showAttributeTable',
   'dockNotes',
+  'dashboard',
   'localBasemap',
   'showBasemapLabels',
   'basemapConfig',
@@ -1004,19 +1150,23 @@ export function useBuilderSave(state: SaveState) {
     return SAVE_SNAPSHOT_FIELDS.some((field) => sent[field] !== latest[field]);
   }
 
+  // A save's sent snapshot predates layers created or deleted while it is in
+  // flight, so each save logs those registrations and replays them when the
+  // baseline advances to its snapshot.
+  const inFlightRegistrationsRef = useRef(new Set<BaselineRegistration[]>());
   const { saveBaselineSyncRef } = state;
   useEffect(() => {
+    const register = (registration: BaselineRegistration) => {
+      baselineLayersRef.current = applyBaselineRegistration(baselineLayersRef.current, registration);
+      for (const log of inFlightRegistrationsRef.current) log.push(registration);
+    };
     // Let layer-create paths register the server-created layer into the
     // save-diff baseline. Otherwise a dirty map inserted with a POST-created
     // layer leaves the baseline unaware of the new server id, buildLayerDiff
     // reports it as added and the PATCH creates a duplicate. The pure server
     // layer is registered (no local grouping/reorder) so those still diff.
     saveBaselineSyncRef.current = {
-      add: (layer: MapLayerResponse) => {
-        if (!baselineLayersRef.current.some((l) => l.id === layer.id)) {
-          baselineLayersRef.current = [...baselineLayersRef.current, { ...layer }];
-        }
-      },
+      add: (layer: MapLayerResponse) => register({ add: layer }),
       // The mirror of `add`. The baseline effect above refreshes only while the
       // map is clean, so a delete on a dirty map would leave the deleted ids
       // in the baseline, the next save would emit them in diff.removed and the
@@ -1024,7 +1174,7 @@ export function useBuilderSave(state: SaveState) {
       remove: (layerIds: Iterable<string>) => {
         const ids = new Set(layerIds);
         if (ids.size === 0) return;
-        baselineLayersRef.current = baselineLayersRef.current.filter((l) => !ids.has(l.id));
+        register({ remove: ids });
       },
     };
   });
@@ -1036,15 +1186,21 @@ export function useBuilderSave(state: SaveState) {
       localName,
       localDescription,
       legendTitle,
+      showAttributeTable,
       dockNotes,
+      dashboard,
+      savedDashboard,
+      dashboardEdited: sendDashboard,
       localBasemap,
       localLayers,
       groupMeta = {},
       showBasemapLabels,
       basemapConfig,
       terrainConfig,
+      saveFence,
     } = state;
-    if (!id) return;
+    // Overlapping saves can land out of order and let the older snapshot win.
+    if (!id || saveFence.inFlight(id)) return;
     setLastSaveFailed(false);
     // The plugin set the payload below serializes, so the post-await
     // comparison can detect a mid-save toggle.
@@ -1065,21 +1221,73 @@ export function useBuilderSave(state: SaveState) {
       toast.error(t('toasts.popupConfigInvalidNamed', { layerName }), { id: 'popup-config-invalid', duration: 6000 });
       return;
     }
+    const widgetIssue = sendDashboard ? firstWidgetProblem(dashboard, localLayers) : null;
+    if (widgetIssue) {
+      toast.error(
+        widgetIssue.kind === 'viewWithoutGeometry'
+          ? t('toasts.dashboardViewWithoutGeometry')
+          : t('toasts.dashboardWidgetInvalid', { column: widgetIssue.column }),
+        { id: 'dashboard-widget-invalid', duration: 6000 },
+      );
+      return;
+    }
 
     const map = mapInstanceRef.current;
     // The persisted camera goes through the normalizer the builder's dirty
     // check also reads, so a pan that would change the stored view is exactly
     // the pan that marks the map unsaved.
     const camera = readMapCamera(map);
+    const registrations: BaselineRegistration[] = [];
+    // Rows the map held before this save, as last read; none is a row it creates.
+    const existingIds = new Set(
+      (queryClient.getQueryData<MapResponse>(queryKeys.maps.detail(id))?.layers ?? []).map((l) => l.id),
+    );
+    let replacedLayers: MapLayerResponse[] | null = null;
+    let replacedReadFrom = 0;
+    // The layers a PATCH added, the only ones it stored under new ids.
+    let patchedAdds: ReadonlySet<string> | null = null;
+    // Layers the server stored under new ids, which the metadata PUT's
+    // dashboard must name.
+    let layerRenames: ReadonlyMap<string, string> = new Map();
+    // A layer PATCH commits even when the metadata PUT after it fails, so the
+    // baseline advances as soon as it lands; otherwise the retry re-sends
+    // removals the server already applied. Layers created or deleted while the
+    // save was in flight are replayed onto the sent layers.
+    const commitLayerBaseline = () => {
+      // The hooks stay mounted across a map switch, so the baseline may
+      // belong to another map by now.
+      if (latestStateRef.current.mapId !== id) return;
+      if (replacedLayers) {
+        const { renamed, baseline } = replacedBaseline(
+          persistableLayers,
+          replacedLayers,
+          registrations,
+          replacedReadFrom,
+          patchedAdds,
+          existingIds,
+        );
+        layerRenames = renamed;
+        // The latest render's, whose dashboard draft holds edits made since.
+        if (renamed.size > 0) latestStateRef.current.remapLayerIds(renamed);
+        baselineLayersRef.current = baseline;
+        return;
+      }
+      baselineLayersRef.current = registrations.reduce(
+        applyBaselineRegistration,
+        // The save-diff baseline carries the sent collapse state (see the
+        // baseline effect).
+        stampPersistedFolderGroupExpanded(localLayers, groupMeta),
+      );
+    };
     // useUpdateMap only invalidates the detail query, so mapData keeps the
     // pre-save camera until the refetch lands (and forever if it fails). The
     // dirty check reads mapData, so publish what the server holds.
-    const commitSavedCamera = () => {
-      if (!id) return;
+    const commitSaved = () => {
       queryClient.setQueryData<MapResponse>(
         queryKeys.maps.detail(id),
         (prev) => (prev ? { ...prev, ...camera } : prev),
       );
+      commitLayerBaseline();
     };
 
     // basemap_position is a field of basemapConfig (MapBasemapConfig jsonb), so
@@ -1101,6 +1309,10 @@ export function useBuilderSave(state: SaveState) {
       plugins: resolvePluginsPayload(id, queryClient, enabledPluginIds),
       // Empty/null clears the custom legend title server-side.
       legend_title: legendTitle && legendTitle.trim() ? legendTitle.trim() : null,
+      ...(showAttributeTable === undefined ? {} : { show_attribute_table: showAttributeTable }),
+      ...(sendDashboard
+        ? { dashboard_config: dashboardSavePayload(dashboard, localLayers, savedDashboard) }
+        : {}),
     };
     const persistableLayers = prepareLayersForPersistence(localLayers, groupMeta);
     const fullReplacementPayload: MapUpdateRequest = {
@@ -1108,6 +1320,40 @@ export function useBuilderSave(state: SaveState) {
       layers: persistableLayers.map(toLayerInput),
     };
 
+    const settleDashboard = sendDashboard
+      ? state.onDashboardSave?.(canonicalDashboard(dashboard, localLayers))
+      : undefined;
+    // Set once a PUT carrying the dashboard succeeds; every PUT below does.
+    let dashboardStored = false;
+    const putMap = async (data: MapUpdateRequest) => {
+      const saved = await updateMap.mutateAsync({ id, data });
+      dashboardStored = true;
+      return saved;
+    };
+    const replaceLayers = async () => {
+      const saved = await putMap(fullReplacementPayload);
+      replacedReadFrom = registrations.length;
+      try {
+        // Joins the detail refetch the PUT started, if one is running. Unlike
+        // the PUT response, it includes creates and deletes that landed after
+        // the PUT.
+        const stored = await queryClient.fetchQuery({ ...mapDetailQuery(id), staleTime: 0 });
+        replacedLayers = stored.layers ?? [];
+      } catch {
+        replacedLayers = saved.layers ?? [];
+      }
+    };
+    // The server stores added layers under new ids, so reconcile from a
+    // PATCH's rows as after a replacement. A PATCH deletes nothing it doesn't
+    // name, so every create made during the save is kept.
+    const adoptPatched = (layerDiff: MapLayerDiffRequest, patched: MapResponse) => {
+      if (!layerDiff.added?.length) return;
+      replacedLayers = patched.layers ?? [];
+      replacedReadFrom = 0;
+      patchedAdds = new Set(layerDiff.added.flatMap((l) => (l.id ? [l.id] : [])));
+    };
+    saveFence.begin(id);
+    inFlightRegistrationsRef.current.add(registrations);
     try {
       const { diff, unsupported } = buildLayerDiff(baselineLayersRef.current, localLayers, groupMeta);
       // The DEM hillshade overlay (style_config.render_mode) and the 3D terrain
@@ -1118,11 +1364,12 @@ export function useBuilderSave(state: SaveState) {
       // avoids forcing every combined save through the lossy full-replacement
       // PUT (see below). The failed-save toast prompts a retry.
       if (unsupported) {
-        await updateMap.mutateAsync({ id, data: fullReplacementPayload });
+        await replaceLayers();
       } else {
         if (hasDiff(diff)) {
           try {
-            await patchMapLayers.mutateAsync({ id, diff });
+            adoptPatched(diff, await patchMapLayers.mutateAsync({ id, diff }));
+            commitLayerBaseline();
           } catch (error) {
             // A stale diff is a conflict, not a missing endpoint. Refetch, drop
             // the ids the server no longer has, and retry the PATCH. A failure
@@ -1136,14 +1383,14 @@ export function useBuilderSave(state: SaveState) {
                 const serverLayerIds = (fresh.layers ?? []).map((l) => l.id);
                 const reconciled = reconcileLayerDiffWithServer(diff, serverLayerIds);
                 if (hasDiff(reconciled)) {
-                  await patchMapLayers.mutateAsync({ id, diff: reconciled });
+                  adoptPatched(reconciled, await patchMapLayers.mutateAsync({ id, diff: reconciled }));
                 }
               } catch {
                 throw new StaleLayerDiffError();
               }
-              await updateMap.mutateAsync({ id, data: metadataPayload });
-              baselineLayersRef.current = stampPersistedFolderGroupExpanded(localLayers, groupMeta);
-              commitSavedCamera();
+              commitLayerBaseline();
+              await putMap(withRenamedWidgetLayers(metadataPayload, layerRenames));
+              commitSaved();
               toast.warning(t('toasts.mapSavedAfterRemoteChange'));
               if (!editedDuringSave(state, sentPluginSet, camera)) {
                 state.setHasUnsavedChanges(false);
@@ -1157,15 +1404,12 @@ export function useBuilderSave(state: SaveState) {
             // style_config/paint round-trip, fresh layer-row UUIDs). It is
             // surfaced to the user rather than reported as a plain "Map saved",
             // so they double-check layer styling.
-            await updateMap.mutateAsync({ id, data: fullReplacementPayload });
-            // Baseline carries the sent collapse state (see baseline effect).
-            baselineLayersRef.current = stampPersistedFolderGroupExpanded(localLayers, groupMeta);
-            commitSavedCamera();
+            await replaceLayers();
+            commitSaved();
             toast.warning(t('toasts.mapSavedFullResync', {
               defaultValue: 'Map saved, but required a full re-sync. Please double-check layer styling.',
             }));
-            // The baseline is the sent snapshot; clear the dirty flag only when
-            // nothing was edited during the await.
+            // Clear the dirty flag only when nothing was edited during the await.
             if (!editedDuringSave(state, sentPluginSet, camera)) {
               state.setHasUnsavedChanges(false);
             }
@@ -1173,12 +1417,10 @@ export function useBuilderSave(state: SaveState) {
             return;
           }
         }
-        await updateMap.mutateAsync({ id, data: metadataPayload });
+        await putMap(withRenamedWidgetLayers(metadataPayload, layerRenames));
       }
 
-      // Baseline carries the sent collapse state (see baseline effect).
-      baselineLayersRef.current = stampPersistedFolderGroupExpanded(localLayers, groupMeta);
-      commitSavedCamera();
+      commitSaved();
       toast.success(t('toasts.mapSaved'));
       // The baseline is the sent snapshot; clear the dirty flag only when
       // nothing was edited during the await, or the baseline effect would
@@ -1220,7 +1462,16 @@ export function useBuilderSave(state: SaveState) {
           return;
         }
       }
+      // A dashboard the server refused says why; the error already carries the localized reason.
+      if (err instanceof ApiError && DASHBOARD_SAVE_ERRORS.has(classifyApiError(err.body, err.status).key)) {
+        toast.error(err.message);
+        return;
+      }
       toast.error(t('toasts.saveFailed'));
+    } finally {
+      settleDashboard?.(dashboardStored);
+      inFlightRegistrationsRef.current.delete(registrations);
+      saveFence.settle(id);
     }
   }
 
@@ -1515,8 +1766,8 @@ export function useBuilderSave(state: SaveState) {
     return () => { captureSignalRef.current.cancelled = true; };
   }, []);
 
-  // Warn before tab close / refresh with unsaved changes, and block in-app navigation
-  const blocker = useUnsavedGuard(state.hasUnsavedChanges);
+  // Warn before tab close / refresh with unsaved edits, and block in-app navigation
+  const blocker = useUnsavedGuard(state.hasUnsavedEdits);
 
   // Keyboard shortcut: Ctrl/Cmd+S
   const handleSaveRef = useRef(handleSave);

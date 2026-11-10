@@ -88,6 +88,32 @@ def test_backup_base_is_digest_pinned():
     )
 
 
+def test_external_base_images_are_digest_pinned():
+    # A FROM that names an earlier stage is local; every other base keeps its
+    # tag for Dependabot and pins the multi-arch index digest.
+    for dockerfile in (
+        DOCKERFILE,
+        REPO_ROOT / "db" / "Dockerfile",
+        REPO_ROOT / "frontend" / "Dockerfile.dev",
+    ):
+        text = dockerfile.read_text()
+        froms = re.findall(
+            r"^FROM\s+(?:--platform=\S+\s+)?(\S+)(?:\s+AS\s+(\S+))?\s*$",
+            text,
+            re.MULTILINE,
+        )
+        assert len(froms) == len(re.findall(r"^FROM\s", text, re.MULTILINE))
+        stages: set[str] = set()
+        for image, stage in froms:
+            if image not in stages:
+                assert re.fullmatch(r"[\w./-]+:[\w.-]+@sha256:[0-9a-f]{64}", image), (
+                    f"{dockerfile.relative_to(REPO_ROOT)}: pin {image} as "
+                    "image:tag@sha256:<index digest>"
+                )
+            if stage:
+                stages.add(stage)
+
+
 def test_docker_audit_matrix_is_derived_not_a_second_literal_copy():
     # dep-audit.yml derives node/python/nginx from the Dockerfile
     # at run time instead of a second literal matrix copy that can drift —

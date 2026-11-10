@@ -6,7 +6,8 @@
     "url": "URL de fichier",
     "register": "Enregistrer une table",
     "service": "URL de service",
-    "stac": "Catalogue STAC"
+    "stac": "Catalogue STAC",
+    "database": "Base de données"
   },
   "vrt": {
     "pageTitle": "Créer un Raster Virtuel",
@@ -146,7 +147,7 @@
     "tilesetSubtext": "GeoLens vérifie chaque archive et lit son tileset.json avant tout stockage."
   },
   "stac": {
-    "label": "URL de l'API STAC; collez le point d'accès racine du catalogue",
+    "label": "URL de l'API STAC · collez le point d'accès racine du catalogue",
     "connect": "Connecter",
     "connecting": "Connexion au catalogue STAC...",
     "searching": "Recherche d'éléments...",
@@ -167,9 +168,11 @@
     "failureGroupCount_one": "{{count}} élément",
     "failureGroupCount_other": "{{count}} éléments",
     "failureUnknown": "Erreur inconnue",
+    "itemErrorImportFailed": "Cet élément n'a pas pu être importé.",
+    "itemErrorTooLong": "L'identifiant de l'élément ou le lien de la ressource est trop long pour être enregistré.",
     "importMore": "Importer davantage",
     "backToResults": "Retour aux résultats",
-    "catalogConnected": "Catalogue STAC; connecté",
+    "catalogConnected": "Catalogue STAC · connecté",
     "clear": "Effacer",
     "collectionsAvailable_one": "{{count}} collection disponible",
     "collectionsAvailable_other": "{{count}} collections disponibles",
@@ -262,7 +265,7 @@
     "connectFailed": "Échec de la connexion au service",
     "previewFailed": "Échec de l'aperçu de la couche",
     "commitFailed": "Échec du lancement de l'importation",
-    "detectedLabel": "URL de service; détectée",
+    "detectedLabel": "URL de service · détectée",
     "clear": "Effacer",
     "layersAvailable_one": "{{count}} calque disponible",
     "layersAvailable_other": "{{count}} calques disponibles",
@@ -294,7 +297,7 @@
     "arcgisTokenExpiredMidImport": "Votre connexion ArcGIS a expiré pendant que cette fenêtre était ouverte. Revenez en arrière et reconnectez-vous pour continuer."
   },
   "urlImport": {
-    "label": "URL de fichier; récupérée côté serveur",
+    "label": "URL de fichier · récupérée côté serveur",
     "placeholder": "https://data.source.coop/…/buildings.parquet",
     "fetch": "Récupérer →",
     "fetching": "Téléchargement du fichier...",
@@ -333,6 +336,7 @@
     },
     "visibilityLabel": "Visibilité",
     "visibilityPrivate": "Privé",
+    "visibilityInternal": "Interne",
     "visibilityPublic": "Publique",
     "registering": "Enregistrement...",
     "registerButton_one": "Enregistrer {{count}} table",
@@ -400,6 +404,7 @@
     "descriptionPlaceholder": "Description facultative",
     "visibilityLabel": "Visibilité",
     "visibilityPrivate": "Privé",
+    "visibilityInternal": "Interne",
     "visibilityPublic": "Publique",
     "crsLabel": "Remplacement du SCR",
     "crsPlaceholderDetected": "Laissez vide pour utiliser le SCR détecté ({{crs}})",
@@ -654,7 +659,10 @@
     "completePointCloudDesc": "Ouvrez l’onglet Accès pour obtenir l’URL du fichier COPC.",
     "completeDesc": "Les jeux de données terminés sont dans le catalogue.",
     "pointcloudLabel": "Nuage de points COPC",
-    "pointcloudDesc": "accessible aux clients COPC externes ; pas d’aperçu cartographique."
+    "pointcloudDesc": "accessible aux clients COPC externes ; pas d’aperçu cartographique.",
+    "databaseHint": "Importer depuis une base de données",
+    "databaseDesc": "Choisissez une table ou une vue spatiale d'une base de données connectée par votre administrateur. GeoLens la copie dans le catalogue pour la tuiler et l'interroger.",
+    "databaseNote": "Accès en lecture seule · une actualisation recopie la table"
   },
   "status": {
     "uploading": "Téléversement",
@@ -669,5 +677,31 @@
     "crs": "SCR",
     "pointFormat": "Format des points",
     "size": "Taille"
-  }
+  },
+  "database": {
+    "loadingConnections": "Chargement des connexions de base de données…",
+    "connection": "Connexion",
+    "loadingTables": "Liste des tables spatiales…",
+    "listFailed": "Impossible de lister les tables de cette connexion.",
+    "retry": "Réessayer",
+    "noTables": "Aucune table ni vue spatiale trouvée dans {{database}}.",
+    "filterLabel": "Filtrer les tables",
+    "filterPlaceholder": "schéma.table",
+    "tablesLegend": "Tables spatiales dans {{database}}",
+    "view": "Vue",
+    "table": "Table",
+    "noSrid": "Sans SRID",
+    "noMatches": "Aucune table ne correspond au filtre.",
+    "truncated": "Seules les {{limit}} premières colonnes spatiales sont listées, une table peut donc manquer.",
+    "srsNeeded": "Cette table n'a pas de SRID propre. Saisissez à l'étape suivante le code EPSG de ses coordonnées.",
+    "continue": "Continuer",
+    "back": "Retour aux tables",
+    "reviewing": "Importation de {{table}} depuis {{connection}}",
+    "importFailed": "Impossible de lancer l'importation.",
+    "crsHint": "Cette table n'a pas de SRID. Saisissez le code EPSG utilisé par ses coordonnées.",
+    "alreadyImported": "Déjà importé : « {{title}} »",
+    "notImportable": "Ce nom contient des caractères que GeoLens ne peut pas importer."
+  },
+  "capabilitiesFailed": "Impossible de vérifier les connexions de base de données disponibles ; la source Base de données peut donc être absente.",
+  "capabilitiesRetry": "Réessayer"
 }

@@ -63,7 +63,7 @@ describe('LayerLegend keyboard trap regression (GLUX-001)', () => {
       />,
     );
 
-    // The outer toggle button (aria-controls="layer-legend-panel") is always visible.
+    // The outer toggle button (aria-controls the panel) is always visible.
     expect(screen.getByRole('button', { name: 'Show legend' })).toBeInTheDocument();
   });
 
@@ -110,5 +110,30 @@ describe('LayerLegend keyboard trap regression (GLUX-001)', () => {
 
     expect(screen.getByRole('heading', { level: 2, name: 'Layers' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { level: 3, name: 'Layers' })).not.toBeInTheDocument();
+  });
+});
+
+describe('LayerLegend panel ids', () => {
+  it('gives each legend on the page its own panel, which its toggle controls', () => {
+    const legend = () => (
+      <LayerLegend
+        layers={[makeLayer()]}
+        visibleLayers={new Set(['layer-1'])}
+        onToggleVisibility={vi.fn()}
+        isOpen={true}
+        onToggle={vi.fn()}
+      />
+    );
+    const { container } = render(
+      <>
+        {legend()}
+        {legend()}
+      </>,
+    );
+    const toggles = [...container.querySelectorAll('button[aria-controls]')];
+    const panels = toggles.map((toggle) => container.querySelector(`[id="${toggle.getAttribute('aria-controls')}"]`));
+    expect(new Set(toggles.map((toggle) => toggle.getAttribute('aria-controls'))).size).toBe(2);
+    expect(panels[0]).not.toBe(panels[1]);
+    expect(panels.every(Boolean)).toBe(true);
   });
 });

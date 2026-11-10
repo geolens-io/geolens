@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AJAXError } from 'maplibre-gl';
 import { tileRetryProtocol } from '../tile-retry-protocol';
 import { buildTileTransformRequest } from '../tile-utils';
+import { isTileSampled } from '../tile-sampling';
 
 vi.unmock('maplibre-gl');
 
@@ -42,6 +43,18 @@ it('preserves the strong ETag for MapLibre tile revalidation', async () => {
   const response = await tileRetryProtocol(request, new AbortController());
 
   expect(response.etag).toBe(etag);
+});
+
+it('records whether the server sent the tile as a sample', async () => {
+  vi.stubGlobal('fetch', vi.fn()
+    .mockResolvedValueOnce(new Response('tile', { headers: { 'X-GeoLens-Tile-Sampled': 'true' } }))
+    .mockResolvedValueOnce(new Response('tile')));
+
+  await tileRetryProtocol(request, new AbortController());
+  expect(isTileSampled(url)).toBe(true);
+
+  await tileRetryProtocol(request, new AbortController());
+  expect(isTileSampled(url)).toBe(false);
 });
 
 it('stops after two retries', async () => {

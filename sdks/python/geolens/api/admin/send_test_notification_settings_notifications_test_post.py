@@ -90,7 +90,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[NotificationTestResponse | ProblemDetail]:
-    """Send Test Notification
+    """Send a test notification
 
      Send a canned test notification through each configured channel (admin only).
 
@@ -123,7 +123,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> NotificationTestResponse | ProblemDetail | None:
-    """Send Test Notification
+    """Send a test notification
 
      Send a canned test notification through each configured channel (admin only).
 
@@ -152,7 +152,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[NotificationTestResponse | ProblemDetail]:
-    """Send Test Notification
+    """Send a test notification
 
      Send a canned test notification through each configured channel (admin only).
 
@@ -183,7 +183,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> NotificationTestResponse | ProblemDetail | None:
-    """Send Test Notification
+    """Send a test notification
 
      Send a canned test notification through each configured channel (admin only).
 

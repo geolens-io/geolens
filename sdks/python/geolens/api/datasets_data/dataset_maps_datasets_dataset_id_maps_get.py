@@ -117,7 +117,7 @@ def sync_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[MapListResponse | ProblemDetail]:
-    """Dataset Maps
+    """List maps that use a dataset
 
      Return maps that contain this dataset, filtered by caller's RBAC visibility.
 
@@ -154,7 +154,7 @@ def sync(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> MapListResponse | ProblemDetail | None:
-    """Dataset Maps
+    """List maps that use a dataset
 
      Return maps that contain this dataset, filtered by caller's RBAC visibility.
 
@@ -186,7 +186,7 @@ async def asyncio_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[MapListResponse | ProblemDetail]:
-    """Dataset Maps
+    """List maps that use a dataset
 
      Return maps that contain this dataset, filtered by caller's RBAC visibility.
 
@@ -221,7 +221,7 @@ async def asyncio(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> MapListResponse | ProblemDetail | None:
-    """Dataset Maps
+    """List maps that use a dataset
 
      Return maps that contain this dataset, filtered by caller's RBAC visibility.
 

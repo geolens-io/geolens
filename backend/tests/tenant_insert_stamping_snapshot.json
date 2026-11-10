@@ -44,6 +44,15 @@
     },
     {
       "schema": "catalog",
+      "table": "dataset_group_grants",
+      "name": "trg_stamp_current_tenant_on_insert",
+      "type_mask": 7,
+      "enabled": "O",
+      "function_schema": "catalog",
+      "function_name": "stamp_current_tenant_on_insert"
+    },
+    {
+      "schema": "catalog",
       "table": "datasets",
       "name": "trg_stamp_current_tenant_on_insert",
       "type_mask": 7,
@@ -62,7 +71,34 @@
     },
     {
       "schema": "catalog",
+      "table": "group_members",
+      "name": "trg_stamp_current_tenant_on_insert",
+      "type_mask": 7,
+      "enabled": "O",
+      "function_schema": "catalog",
+      "function_name": "stamp_current_tenant_on_insert"
+    },
+    {
+      "schema": "catalog",
+      "table": "groups",
+      "name": "trg_stamp_current_tenant_on_insert",
+      "type_mask": 7,
+      "enabled": "O",
+      "function_schema": "catalog",
+      "function_name": "stamp_current_tenant_on_insert"
+    },
+    {
+      "schema": "catalog",
       "table": "ingest_jobs",
+      "name": "trg_stamp_current_tenant_on_insert",
+      "type_mask": 7,
+      "enabled": "O",
+      "function_schema": "catalog",
+      "function_name": "stamp_current_tenant_on_insert"
+    },
+    {
+      "schema": "catalog",
+      "table": "map_group_grants",
       "name": "trg_stamp_current_tenant_on_insert",
       "type_mask": 7,
       "enabled": "O",
@@ -90,6 +126,42 @@
     {
       "schema": "catalog",
       "table": "records",
+      "name": "trg_stamp_current_tenant_on_insert",
+      "type_mask": 7,
+      "enabled": "O",
+      "function_schema": "catalog",
+      "function_name": "stamp_current_tenant_on_insert"
+    },
+    {
+      "schema": "catalog",
+      "table": "stories",
+      "name": "trg_stamp_current_tenant_on_insert",
+      "type_mask": 7,
+      "enabled": "O",
+      "function_schema": "catalog",
+      "function_name": "stamp_current_tenant_on_insert"
+    },
+    {
+      "schema": "catalog",
+      "table": "story_assets",
+      "name": "trg_stamp_current_tenant_on_insert",
+      "type_mask": 7,
+      "enabled": "O",
+      "function_schema": "catalog",
+      "function_name": "stamp_current_tenant_on_insert"
+    },
+    {
+      "schema": "catalog",
+      "table": "story_group_grants",
+      "name": "trg_stamp_current_tenant_on_insert",
+      "type_mask": 7,
+      "enabled": "O",
+      "function_schema": "catalog",
+      "function_name": "stamp_current_tenant_on_insert"
+    },
+    {
+      "schema": "catalog",
+      "table": "story_maps",
       "name": "trg_stamp_current_tenant_on_insert",
       "type_mask": 7,
       "enabled": "O",

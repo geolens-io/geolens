@@ -84,7 +84,7 @@ def test_sqlstate_sets_do_not_overlap() -> None:
 
 async def test_absent_table_still_yields_an_empty_page(test_db_session) -> None:
     """Raster and VRT datasets have no data table; the endpoint must stay generic."""
-    rows, total, columns, cursor = await get_dataset_rows(
+    rows, total, _kind, columns, cursor = await get_dataset_rows(
         test_db_session, "raster_0123456789abcdef", column_info=[]
     )
 

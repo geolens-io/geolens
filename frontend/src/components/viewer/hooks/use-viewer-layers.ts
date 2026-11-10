@@ -13,6 +13,8 @@ const EMPTY_TOGGLES: ReadonlyMap<string, boolean> = new Map();
 
 interface UseViewerLayersResult {
   visibleLayers: Set<string>;
+  /** Ids of the layers the reader turned off in this session; layers saved hidden aren't among them. */
+  hiddenByReader: ReadonlySet<string>;
   handleToggleVisibility: (layerKey: string) => void;
   isLegendOpen: boolean;
   setIsLegendOpen: (open: boolean | ((prev: boolean) => boolean)) => void;
@@ -59,6 +61,16 @@ export function useViewerLayers(
     [toggles, layerEntries],
   );
 
+  const hiddenByReader = useMemo(
+    () =>
+      new Set(
+        layerEntries
+          .filter(({ key, layer }) => layer.id && toggles.get(key) === false)
+          .map(({ layer }) => layer.id as string),
+      ),
+    [toggles, layerEntries],
+  );
+
   const handleToggleVisibility = useCallback(
     (layerKey: string) => {
       const saved = layerEntries.find(({ key }) => key === layerKey)?.layer.visible ?? false;
@@ -91,6 +103,10 @@ export function useViewerLayers(
   useEffect(() => {
     if (!showLegend) return;
 
+    // The map loads after the first render, so an embed can turn the legend on
+    // once it knows the layers; open it by width unless the visitor already chose.
+    if (!userHasToggled.current) setIsLegendOpenRaw(window.innerWidth >= 500);
+
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const handleResize = () => {
       if (timeoutId) clearTimeout(timeoutId);
@@ -107,5 +123,5 @@ export function useViewerLayers(
     };
   }, [showLegend]);
 
-  return { visibleLayers, handleToggleVisibility, isLegendOpen, setIsLegendOpen };
+  return { visibleLayers, hiddenByReader, handleToggleVisibility, isLegendOpen, setIsLegendOpen };
 }

@@ -35,7 +35,8 @@ class MapLayerPatch:
         visible (bool | None | Unset):
         opacity (float | None | Unset):
         paint (MapLayerPatchPaintType0 | None | Unset): MapLibre paint properties override
-        layout (MapLayerPatchLayoutType0 | None | Unset): MapLibre layout properties override
+        layout (MapLayerPatchLayoutType0 | None | Unset): MapLibre layout properties override. `_minzoom` and `_maxzoom`
+            set the zoom range where the layer is visible.
         display_name (None | str | Unset):
         filter_ (list[Any] | None | Unset): MapLibre filter expression
         label_config (MapLayerPatchLabelConfigType0 | None | Unset): Text label configuration

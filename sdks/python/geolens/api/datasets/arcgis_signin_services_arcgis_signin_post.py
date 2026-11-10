@@ -116,7 +116,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: ArcGISSignInRequest,
 ) -> Response[ArcGISSignInResponse | ProblemDetail]:
-    """Arcgis Signin
+    """Sign in to an ArcGIS portal
 
      Sign in to an ArcGIS portal and return a short-lived token.
 
@@ -164,7 +164,7 @@ def sync(
     client: AuthenticatedClient,
     body: ArcGISSignInRequest,
 ) -> ArcGISSignInResponse | ProblemDetail | None:
-    """Arcgis Signin
+    """Sign in to an ArcGIS portal
 
      Sign in to an ArcGIS portal and return a short-lived token.
 
@@ -207,7 +207,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: ArcGISSignInRequest,
 ) -> Response[ArcGISSignInResponse | ProblemDetail]:
-    """Arcgis Signin
+    """Sign in to an ArcGIS portal
 
      Sign in to an ArcGIS portal and return a short-lived token.
 
@@ -253,7 +253,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: ArcGISSignInRequest,
 ) -> ArcGISSignInResponse | ProblemDetail | None:
-    """Arcgis Signin
+    """Sign in to an ArcGIS portal
 
      Sign in to an ArcGIS portal and return a short-lived token.
 

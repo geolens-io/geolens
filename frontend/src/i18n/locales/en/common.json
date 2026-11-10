@@ -40,6 +40,10 @@
     "created": {
       "label": "Created",
       "title": "Created in GeoLens as an editable layer"
+    },
+    "database": {
+      "label": "Database",
+      "title": "Copy imported from a database connection. Refresh it to pull newer data"
     }
   },
   "sourceState": {
@@ -135,7 +139,8 @@
     "settingsAppearance": "Appearance",
     "settingsInfrastructure": "Infrastructure",
     "configOps": "Config Operations",
-    "backToApp": "Back to App"
+    "backToApp": "Back to App",
+    "groups": "Groups"
   },
   "viewer": {
     "loading": "Loading map...",
@@ -157,10 +162,11 @@
       "weightedBy": "Weighted by: {{column}}",
       "weightedByScaled": "Weighted by: {{column}} (scaled)",
       "other": "Other",
+      "sampled": "Showing a sample at this zoom. Zoom in to see all features.",
       "cluster": {
-        "server": "Server cluster",
-        "bounded": "Bounded cluster",
-        "fallback": "Point fallback",
+        "server": "Grouped into clusters as you zoom out",
+        "bounded": "Grouped into clusters as you zoom out",
+        "fallback": "Shown as individual points",
         "pointsPerCluster": "Points per cluster"
       },
       "geometry": {
@@ -196,7 +202,34 @@
       "booleanFalse": "False",
       "resultSummary_one": "{{count}} visible feature",
       "resultSummary_other": "{{count}} visible features",
-      "resultSummaryTruncated": "Showing {{shown}} of {{total}} visible features"
+      "resultSummaryTruncated": "Showing {{shown}} of {{total}} visible features",
+      "truncatedHint": "Zoom in or pan the map to list the rest of the features.",
+      "openDatasetData": "View all data for {{name}}",
+      "tableView": "Table",
+      "listView": "List",
+      "viewSwitch": "Map data view",
+      "layerPicker": "Table layer",
+      "inView": "In view",
+      "inViewNoGeometry": "This layer has no geometry to filter by the map view",
+      "filteredByMap": "Filtered by map",
+      "filterUnsupported": "The layer's filter could not be applied. Showing every row.",
+      "close": "Close map data",
+      "resize": "Resize map data",
+      "expand": "Expand map data",
+      "collapse": "Collapse map data",
+      "emptyFiltered": "No rows match the map's filters",
+      "emptyInView": "No rows in view. Pan the map or turn off In view.",
+      "unavailable": "This layer's table isn't available here.",
+      "loadingRows": "Loading rows",
+      "allFields": "All fields",
+      "loadingFields": "Loading more fields…",
+      "fieldsFailed": "Could not load the other fields.",
+      "selectionMissing": "The selected feature isn't on this page.",
+      "selectionShow": "Show selected",
+      "selectionShowing": "Showing the selected feature only.",
+      "selectionShowAll": "Show all rows",
+      "selectionHiddenByFilters": "The selected feature is hidden by the table's filters.",
+      "openInTable": "Open {{name}} in the table"
     },
     "heatmapLow": "Low",
     "heatmapHigh": "High",
@@ -277,10 +310,14 @@
     "jobFailureBackfillWorkerShutdown": "Embedding backfill was cancelled by a worker shutdown. Records it had already reached carry their new vectors and the rest are unchanged; re-run to finish the remainder.",
     "jobFailureDatasetDeleted": "The dataset was deleted while this job was running.",
     "jobFailureDispatchInterrupted": "Fan-out dispatch was interrupted before any layer was queued. Re-upload the file to import its layers.",
+    "jobFailureDuplicateSource": "This source was already imported as another dataset. Refresh that dataset instead.",
     "jobFailureMissingCrs": "Missing CRS: no coordinate system detected. Ensure the file includes CRS information (e.g., .prj file for Shapefiles).",
+    "jobFailureMissingCrsDatabase": "Missing CRS: the table's geometries have no SRID (SRID 0), or it has no rows or only empty geometries. Import it again and choose its coordinate system.",
     "jobFailureMissingCrsRaster": "Missing CRS: raster has no coordinate reference system. Provide a CRS override (EPSG code) at import time.",
     "jobFailureMissingCrsReupload": "Missing CRS: no coordinate system detected. Ensure the file includes CRS information (e.g., .prj file for Shapefiles) or provide an SRID override.",
+    "jobFailureMixedSridDatabase": "The table's geometries use more than one SRID, so no single coordinate system describes them. Give them one SRID in a view and import that.",
     "jobFailureRefreshAbandoned": "The refresh task was never picked up by a worker, or the worker disappeared before recording an outcome.",
+    "jobFailureRefreshOriginUnsupported": "This refresh was not started: only service datasets refresh this way.",
     "jobFailureReviewRequired": "This replacement changes the dataset in ways that need review, so it was not published. Review the changes on the dataset's Sources tab and accept them there.",
     "jobFailureScheduledClaimExpired": "Scheduled refresh was not claimed before its deadline.",
     "jobFailureScheduledExecutionTimeout": "The admitted refresh exceeded its execution time limit.",
@@ -289,6 +326,7 @@
     "jobFailureStaleNeverQueued": "Stale: pending too long (never queued)",
     "jobFailureUploadAbandoned": "Abandoned: upload was never completed",
     "jobFailureUserCancelled": "Cancelled by user",
+    "jobFailureCredentialOverHttp": "This dataset's service uses plain HTTP, so its credential was not sent. Re-import it from the service's https:// address, or ask an administrator to allow its host.",
     "jobFailureWorkerLost": "Stale: the job ran too long without its worker reporting progress",
     "requestFailed": "The request could not be completed. Try again.",
     "badRequest": "The request could not be completed. Check your input.",
@@ -316,13 +354,16 @@
     "sharedQueryBusy": "Analysis previews and AI chat share one data query at a time, and one is already running. Wait for it to finish and try again.",
     "analysisVectorRequired": "Analysis needs a vector dataset — this layer is not one.",
     "analysisMaskPolygonRequired": "The clip mask must be a polygon layer.",
+    "datasetUnpublishBlockedByMaps": "These maps share the dataset with an audience that would lose it if it were unpublished: {{maps}}. Remove the layer there, or narrow those maps first.",
     "datasetVisibilityBlockedByMaps": "These maps share the dataset with an audience that would lose it: {{maps}}. Remove the layer there, or narrow those maps first.",
     "workflowTransitionDeniedNoneAllowed": "This dataset can't move from “{{from}}” to “{{to}}” under the publication workflow, and no other step is open to you. Ask a reviewer or an administrator with the required role.",
     "workflowTransitionDenied": "This dataset can't move from “{{from}}” to “{{to}}” under the publication workflow. Steps open to you from here: {{allowed}}.",
     "analysisUnknownDissolveColumn": "The column “{{column}}” does not exist on this dataset. Pick a different group-by field.",
+    "columnsNeedRefresh": "The table has columns GeoLens doesn't know yet: {{columns}}. Refresh the dataset, then try again.",
     "corsWildcardNotAllowed": "Wildcard origins are not accepted. Credentialed requests require every origin listed in full, for example https://example.com.",
     "embedDomainLockUnenforceable": "This deployment cannot enforce a domain lock yet: its public app URL is set to {{resolved}}, but you reached it at {{origin}}. An embed loads the map through GeoLens itself, so the lock would block every viewer. Set PUBLIC_APP_URL to {{origin}}, then create the token.",
     "duplicateSource": "A dataset from this source is already registered ({{title}}).",
+    "duplicateSourceImporting": "This source is already being imported. Wait for that import to finish, then refresh the dataset it creates.",
     "refreshDatasetBusy": "A refresh is already running for this dataset. Wait for it to finish, then try again.",
     "refreshReviewSuperseded": "The dataset changed after this replacement was held. Upload the file again.",
     "refreshOriginChanged": "This dataset's source changed while the refresh was being queued. Review the source and try again.",
@@ -337,9 +378,13 @@
     "arcgisSigninInProgress": "Another sign-in for this account is already running. Try again in a moment.",
     "arcgisPortalNotHttps": "This portal, or the token service it points to, doesn't use HTTPS. GeoLens won't send a password over plain HTTP; use an https:// portal URL.",
     "arcgisPortalHostInvalid": "That portal address isn't a usable hostname. Check the URL, for example https://your-org.maps.arcgis.com.",
+    "credentialOverHttp": "This service address uses plain HTTP, so GeoLens won't send a credential to it. Use the service's https:// address, or ask an administrator to allow this host.",
+    "credentialOverHttpRefresh": "This dataset's source uses plain HTTP, so GeoLens won't send a credential to it. Re-import the data from the service's https:// address, or ask an administrator to allow this host.",
     "refreshServiceTokenRequired": "This dataset's source needs a service credential to refresh. Provide one below to continue.",
     "refreshSourceUrlBlocked": "This dataset's stored source URL failed a safety check and can't be refreshed automatically. Contact an administrator.",
     "reuploadGeometryLoss": "This replacement has no geometry and this dataset stores geometry, so nothing was changed. Import the file as a new dataset instead.",
+    "serviceLayerNoFeatures": "This layer holds no features (a group, raster, annotation, topology or utility network layer). Import one of its feature layers or tables instead.",
+    "serviceGeometryUnsupported": "This layer holds multipatch geometry, which can't be imported. Publish it as a feature layer with another geometry type.",
     "reuploadOriginChanged": "This dataset's source changed while the replacement was being prepared, so nothing was queued. Check the dataset's source before replacing its data.",
     "reuploadPointCloudUnsupported": "Point cloud datasets don't support re-upload. Upload the new point cloud as a new dataset instead.",
     "reuploadTilesetUnsupported": "3D Tiles datasets don't support re-upload. Upload the new tileset as a new dataset instead.",
@@ -446,6 +491,7 @@
     "userNotFound": "User not found",
     "apiKeyNotFound": "API key not found",
     "datasetKeyLimit": "This dataset already has 100 active write keys. Revoke one to create another.",
+    "valueLabelsTooLarge": "The value labels for this dataset are over the 1 MB limit. Remove some labels to add more.",
     "accessDenied": "Access denied",
     "couldNotValidateCredentials": "Could not validate credentials",
     "inactiveUser": "Inactive user",
@@ -465,6 +511,7 @@
     "stagingFileUnavailable": "Staging file no longer available. Please re-upload.",
     "serviceRequiresAuth": "This service requires authentication. Provide an access token and try again.",
     "couldNotReachService": "Could not reach the service. Check the URL and try again.",
+    "serviceNotRecognized": "Couldn't detect the service type. Supported: WFS, ArcGIS Feature Service, and OGC API Features.",
     "serviceTimeout": "Service didn't respond in time. Check the URL and try again.",
     "remoteServiceError": "Remote service returned an error",
     "aiSummaryFailed": "Failed to generate summary",
@@ -496,7 +543,32 @@
     "retentionColumnNotTemporal": "The column {{column}} isn't a date or timestamp column. Choose a date or timestamp column.",
     "retentionColumnInUse": "Retention deletes rows by the column {{column}}. Turn retention off or move it to another column before you change that column or give another column its name.",
     "retentionGidUnusable": "Retention pages through the table by its whole-number gid column, which this table no longer has. Restore an integer gid column to use retention.",
-    "retentionDeleteTrigger": "Retention can't run on a table with a delete trigger, because the trigger can keep rows or change other rows when old ones are deleted. Remove the trigger to use retention."
+    "retentionDeleteTrigger": "Retention can't run on a table with a delete trigger, because the trigger can keep rows or change other rows when old ones are deleted. Remove the trigger to use retention.",
+    "groupNotFound": "Group not found",
+    "groupNotJoined": "You can share only with groups you belong to.",
+    "mapRestrictedNeedsGroups": "Share the map with a group before making it restricted.",
+    "mapChangeInProgress": "Another change to this map is in progress. Try again shortly.",
+    "groupMemberNotFound": "That person is not a member of this group",
+    "groupNameTaken": "A group named \"{{name}}\" already exists",
+    "vrtAudienceExceedsSources": "A VRT dataset would reach people who cannot see all of its source datasets. Narrow the VRT's visibility or use sources its audience can see.",
+    "storyNotFound": "Story not found.",
+    "storyLocked": "Another change to this story is in progress. Try again in a moment.",
+    "storyNewerVersion": "This story was saved by a newer version of GeoLens and can't be changed here.",
+    "storyScenesUnreadable": "Some scenes were saved by a newer version of GeoLens and can't be published here.",
+    "storyVisibilityUnsupported": "Stories can't be published with this visibility yet.",
+    "dashboardTooNew": "This dashboard was saved by a newer version of GeoLens and can't be changed here.",
+    "dashboardTooManyWidgets": "A dashboard holds at most 50 widgets. Remove some before saving.",
+    "dashboardWidgetsRefused": "Some dashboard widgets name layers that aren't on this map or that you can't read. Remove them or pick other layers.",
+    "storyImageUnreadable": "The file isn't a readable image.",
+    "storyImageTooLarge": "This image is too large. Upload a file under 50 MB with fewer pixels.",
+    "storyImageUnsupported": "Only PNG, JPEG and WebP images can be uploaded.",
+    "storyImageBusy": "Other images are being processed. Try again in a moment.",
+    "storyImageMissing": "No image was sent. Choose a file and try again.",
+    "storyAssetLimit": "This story already holds its most images: 200, or 250 MB of them.",
+    "storyAssetOwnerLimit": "Your stories already hold the most image storage an admin allows. Remove images from your stories, or ask an admin to raise the limit.",
+    "storyAssetsNotFound": "Some images in this story weren't found. Remove those image blocks and save again.",
+    "storyFrameHostNotAllowed": "Some embeds or videos use a site an admin hasn't approved. Fix or remove them, then try again.",
+    "databaseConnectionMissing": "The database connection {{connection}} is no longer configured. Ask an administrator to restore it."
   },
   "settings": {
     "apiKeys": {
@@ -541,6 +613,7 @@
     "private": "Private",
     "internal": "Internal",
     "public": "Public",
+    "restricted": "Restricted",
     "listView": "List view",
     "gridView": "Grid view",
     "loadFailed": "Failed to load maps: {{message}}",
@@ -559,7 +632,8 @@
     "card": {
       "previewAlt": "{{name}} preview",
       "updated": "Updated {{date}}",
-      "delete": "Delete map"
+      "delete": "Delete map",
+      "dashboard": "Dashboard"
     }
   },
   "enums": {
@@ -747,7 +821,8 @@
     "adminSaml": "SAML SSO Configuration",
     "verifyEmail": "Verify email",
     "signingIn": "Signing in",
-    "trustBrowser": "Remember this browser"
+    "trustBrowser": "Remember this browser",
+    "adminGroups": "Admin Groups"
   },
   "sidebar": {
     "title": "Sidebar",

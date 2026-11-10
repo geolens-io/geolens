@@ -1,6 +1,7 @@
 import { useCallback, useMemo, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FileText, History, Sparkles, ChevronRight, Loader2, BotOff, FlaskConical } from 'lucide-react';
+import type { TFunction } from 'i18next';
+import { FileText, History, Sparkles, ChevronRight, Loader2, BotOff, FlaskConical, LayoutDashboard } from 'lucide-react';
 import { Link } from 'react-router';
 import { LazyLoadErrorBoundary } from '@/components/error/LazyLoadErrorBoundary';
 import { cn } from '@/lib/utils';
@@ -15,9 +16,13 @@ import { HistoryPanel } from '@/components/builder/HistoryPanel';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { useSettingsAdmin } from '@/hooks/use-settings-admin';
 import { Textarea } from '@/components/ui/textarea';
+import type { DashboardDraft } from '@/components/builder/dashboard-draft';
 
 const ChatPanel = lazy(() => import('@/components/builder/ChatPanel').then(m => ({ default: m.ChatPanel })));
 const AnalysisPanel = lazy(() => import('@/components/builder/AnalysisPanel').then(m => ({ default: m.AnalysisPanel })));
+const DashboardEditorPanel = lazy(() =>
+  import('@/components/builder/DashboardEditorPanel').then((m) => ({ default: m.DashboardEditorPanel })),
+);
 
 /**
  * Structured disabled-state for the AI rail panel: per-reason copy, plus a
@@ -86,7 +91,27 @@ function AIDisabledState() {
   );
 }
 
-export type RailPanel = 'notes' | 'history' | 'analysis' | 'ai' | null;
+export type RailPanel = 'notes' | 'dashboard' | 'history' | 'analysis' | 'ai' | null;
+
+/**
+ * A rail button's accessible name and whether it shows the 6px presence dot:
+ * Notes with text, and Dashboard with widgets. The dot is decorative and the
+ * state lives in the name, since aria-label replaces the button's subtree.
+ */
+export function railButtonPresence(
+  id: Exclude<RailPanel, null>,
+  label: string,
+  { notes, widgetCount }: { notes: string; widgetCount: number },
+  t: TFunction<'builder'>,
+): { label: string; dot: boolean } {
+  if (id === 'notes' && notes.trim().length > 0) {
+    return { label: t('rail.notesButtonWithNotes', { defaultValue: 'Notes (map has notes)' }), dot: true };
+  }
+  if (id === 'dashboard' && widgetCount > 0) {
+    return { label: t('rail.dashboardButtonWithWidgets', { count: widgetCount }), dot: true };
+  }
+  return { label, dot: false };
+}
 
 interface BuilderRailProps {
   activePanel: RailPanel;
@@ -96,6 +121,11 @@ interface BuilderRailProps {
   // Notes
   notes: string;
   onNotesChange: (value: string) => void;
+  // Dashboard
+  dashboard?: DashboardDraft;
+  onDashboardChange?: (draft: DashboardDraft) => void;
+  /** The Builder's map once loaded; the dashboard preview reads its view. */
+  map?: MaplibreMap | null;
   // AI Chat
   mapId?: string;
   layers?: MapLayerResponse[];
@@ -141,6 +171,9 @@ export function BuilderRail({
   aiAvailable,
   notes,
   onNotesChange,
+  dashboard,
+  onDashboardChange,
+  map,
   mapId,
   layers,
   layerActions,
@@ -192,11 +225,20 @@ export function BuilderRail({
     }
   }, [activePanel, onPanelChange]);
 
+  const widgetCount = dashboard?.widgets.length ?? 0;
+
   const railButtons = useMemo(() => [
     {
       id: 'notes' as const,
       icon: FileText,
       label: t('dock.notes', { defaultValue: 'Notes' }),
+      disabled: false,
+      unavailable: false,
+    },
+    {
+      id: 'dashboard' as const,
+      icon: LayoutDashboard,
+      label: t('dock.dashboard'),
       disabled: false,
       unavailable: false,
     },
@@ -235,7 +277,9 @@ export function BuilderRail({
           aria-label={t('rail.toolsLabel', { defaultValue: 'Builder tools' })}
           className="w-11 bg-background border-s flex flex-col items-center pt-2.5 gap-1 shrink-0"
         >
-          {railButtons.map(btn => (
+          {railButtons.map((btn) => {
+            const presence = railButtonPresence(btn.id, btn.label, { notes, widgetCount }, t);
+            return (
             <button
               key={btn.id}
               data-rail-button={btn.id}
@@ -243,14 +287,7 @@ export function BuilderRail({
               disabled={btn.disabled}
               data-unavailable={btn.unavailable || undefined}
               title={btn.label}
-              // The notes-presence state lives in the button's accessible name:
-              // aria-label replaces the subtree, so a label on the dot span would
-              // never be exposed (and is invalid ARIA on a role-less span).
-              aria-label={
-                btn.id === 'notes' && notes.trim().length > 0
-                  ? t('rail.notesButtonWithNotes', { defaultValue: 'Notes (map has notes)' })
-                  : btn.label
-              }
+              aria-label={presence.label}
               aria-pressed={activePanel === btn.id}
               // The only ambient signal that a materialize job is still running
               // once the panel is closed; the completion toast fires at the end,
@@ -270,17 +307,15 @@ export function BuilderRail({
               ) : (
                 <btn.icon className="h-4 w-4" />
               )}
-              {/* Presence dot: non-whitespace notes render a 6px primary-color
-                  dot at the button's top-right. Decorative and static; the state
-                  is announced via the button's conditional aria-label above. */}
-              {btn.id === 'notes' && notes.trim().length > 0 && (
+              {presence.dot && (
                 <span
                   aria-hidden="true"
                   className="absolute -top-0.5 -end-0.5 size-1.5 rounded-full bg-primary"
                 />
               )}
             </button>
-          ))}
+            );
+          })}
         </aside>
       )}
 
@@ -312,6 +347,7 @@ export function BuilderRail({
             <div className="flex items-center gap-2">
               <span id="builder-rail-panel-title" className="text-sm font-medium">
                 {activePanel === 'notes' && t('dock.notes', { defaultValue: 'Notes' })}
+                {activePanel === 'dashboard' && t('dock.dashboard')}
                 {activePanel === 'history' && t('dock.history', { defaultValue: 'History' })}
                 {activePanel === 'analysis' && t('analysisTools.title', { defaultValue: 'Analysis' })}
                 {activePanel === 'ai' && (aiAvailable
@@ -343,6 +379,23 @@ export function BuilderRail({
                   }}
                 />
               </div>
+            )}
+
+            {activePanel === 'dashboard' && dashboard && onDashboardChange && layers && (
+              <LazyLoadErrorBoundary>
+                <Suspense fallback={
+                  <div className="flex-1 flex items-center justify-center p-4">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  </div>
+                }>
+                  <DashboardEditorPanel
+                    draft={dashboard}
+                    onChange={onDashboardChange}
+                    layers={layers}
+                    map={map ?? null}
+                  />
+                </Suspense>
+              </LazyLoadErrorBoundary>
             )}
 
             {activePanel === 'history' && (

@@ -1,6 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@/test/test-utils';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen } from '@/test/test-utils';
+import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
+import { ApiError } from '@/api/client';
 import { FeaturePopup, type FeatureInfo } from '../FeaturePopup';
 
 // ---------------------------------------------------------------------------
@@ -75,19 +77,21 @@ describe('FeaturePopup — EASY-11 rich-text rendering', () => {
     expect(video).toHaveAttribute('preload', 'metadata');
   });
 
-  it('EASY-11 — YouTube URL value renders an <iframe> with sandbox and title', () => {
+  it('renders a YouTube URL value as a link without an iframe', () => {
     const features: FeatureInfo[] = [
       makeFeature({
         properties: { video: 'https://youtu.be/dQw4w9WgXcQ' },
         visibleFields: ['video'],
       }),
     ];
-    render(<FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />);
-    const iframe = document.querySelector('iframe');
-    expect(iframe).not.toBeNull();
-    expect(iframe!.getAttribute('src')).toContain('youtube.com/embed/dQw4w9WgXcQ');
-    expect(iframe!.getAttribute('sandbox')).toContain('allow-scripts');
-    expect(iframe!.getAttribute('title')).toBeTruthy();
+    const { container } = render(
+      <FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />,
+    );
+    expect(container.querySelector('iframe')).toBeNull();
+    const anchor = screen.getByRole('link', { name: 'https://youtu.be/dQw4w9WgXcQ' });
+    expect(anchor).toHaveAttribute('href', 'https://youtu.be/dQw4w9WgXcQ');
+    expect(anchor).toHaveAttribute('target', '_blank');
+    expect(anchor).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
   it('EASY-11 — plain URL value (no extension) renders as anchor (backward-compat regression pin)', () => {
@@ -116,6 +120,92 @@ describe('FeaturePopup — EASY-11 rich-text rendering', () => {
     expect(screen.queryByRole('link')).toBeNull();
     // The text content appears as plain text
     expect(screen.getByText('javascript:alert(1)')).toBeInTheDocument();
+  });
+});
+
+describe('FeaturePopup keyboard activation', () => {
+  it.each(['Enter', ' '])('leaves %j on the image link uncanceled without copying the value', async (key) => {
+    userEvent.setup();
+    const writeText = vi.spyOn(navigator.clipboard, 'writeText');
+    render(
+      <FeaturePopup
+        longitude={0}
+        latitude={0}
+        features={[makeFeature({ properties: { photo: 'https://example.com/x.jpg' } })]}
+        onClose={vi.fn()}
+      />,
+    );
+    const anchor = screen.getByRole('link', { name: 'https://example.com/x.jpg' });
+    anchor.focus();
+    const activation = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+
+    await act(async () => { fireEvent(anchor, activation); });
+
+    expect(activation.defaultPrevented).toBe(false);
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it.each(['Enter', ' '])('leaves %j on the rich-text link uncanceled without copying the value', async (key) => {
+    userEvent.setup();
+    const writeText = vi.spyOn(navigator.clipboard, 'writeText');
+    render(
+      <FeaturePopup
+        longitude={0}
+        latitude={0}
+        features={[makeFeature({ properties: { description: 'See https://example.com/x.jpg for details' } })]}
+        onClose={vi.fn()}
+      />,
+    );
+    const anchor = screen.getByRole('link', { name: 'https://example.com/x.jpg' });
+    anchor.focus();
+    const activation = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+
+    await act(async () => { fireEvent(anchor, activation); });
+
+    expect(activation.defaultPrevented).toBe(false);
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it('leaves Enter on the YouTube link uncanceled without copying the value', async () => {
+    userEvent.setup();
+    const writeText = vi.spyOn(navigator.clipboard, 'writeText');
+    render(
+      <FeaturePopup
+        longitude={0}
+        latitude={0}
+        features={[makeFeature({ properties: { video: 'https://youtu.be/dQw4w9WgXcQ' } })]}
+        onClose={vi.fn()}
+      />,
+    );
+    const anchor = screen.getByRole('link', { name: 'https://youtu.be/dQw4w9WgXcQ' });
+    anchor.focus();
+    const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+
+    await act(async () => { fireEvent(anchor, enter); });
+
+    expect(enter.defaultPrevented).toBe(false);
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it.each(['Enter', ' '])('copies the value when the property row receives %j', async (key) => {
+    userEvent.setup();
+    const writeText = vi.spyOn(navigator.clipboard, 'writeText');
+    render(
+      <FeaturePopup
+        longitude={0}
+        latitude={0}
+        features={[makeFeature({ properties: { video: 'https://youtu.be/dQw4w9WgXcQ' } })]}
+        onClose={vi.fn()}
+      />,
+    );
+    const row = screen.getByRole('button', { name: /Video/ });
+    row.focus();
+    const activation = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+
+    await act(async () => { fireEvent(row, activation); });
+
+    expect(activation.defaultPrevented).toBe(true);
+    expect(writeText).toHaveBeenCalledExactlyOnceWith('https://youtu.be/dQw4w9WgXcQ');
   });
 });
 
@@ -300,6 +390,18 @@ describe('FeaturePopup Escape', () => {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true, bubbles: true }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it('leaves Escape alone while the popup sits inside an inert subtree', () => {
+    const onClose = vi.fn();
+    render(
+      <div inert>
+        <FeaturePopup longitude={0} latitude={0} features={[makeFeature()]} onClose={onClose} />
+      </div>,
+    );
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true, bubbles: true }));
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -309,8 +411,12 @@ describe('FeaturePopup Escape', () => {
 const mockUseAttributes = vi.fn((_datasetId?: string): { data?: unknown } => ({
   data: undefined,
 }));
+const mockUseDatasetRows = vi.fn((..._args: unknown[]): { data?: unknown; isError?: boolean; error?: unknown; isPlaceholderData?: boolean } => ({
+  data: undefined,
+}));
 vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useAttributes: (datasetId?: string) => mockUseAttributes(datasetId),
+  useDatasetRows: (...args: unknown[]) => mockUseDatasetRows(...args),
 }));
 
 function attribute(field_name: string, title: string | null, is_current = true) {
@@ -416,5 +522,306 @@ describe('FeaturePopup — attribute titles', () => {
     );
 
     expect(screen.getByText('Current label')).toBeInTheDocument();
+  });
+});
+
+describe('FeaturePopup — coded values', () => {
+  const labelled = {
+    id: 'status',
+    dataset_id: 'ds-1',
+    field_name: 'status',
+    title: 'Status',
+    is_current: true,
+    value_labels: { '1': 'Active', '2': 'Retired' },
+  };
+
+  function renderStatus(status: unknown, attributes: unknown[] = [labelled]) {
+    mockUseAttributes.mockReturnValue({ data: { attributes, total: attributes.length } });
+    render(
+      <FeaturePopup
+        longitude={0}
+        latitude={0}
+        features={[
+          makeFeature({
+            datasetId: 'ds-1',
+            properties: { status },
+            visibleFields: ['status'],
+          }),
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+  }
+
+  it('shows the label with the raw code kept in the row', () => {
+    renderStatus(1);
+    const row = screen.getByRole('button', { name: /Status/ });
+    expect(row).toHaveTextContent('StatusActive (1)');
+    expect(screen.getByText('(1)')).toHaveClass('group-focus-visible:opacity-100');
+  });
+
+  it('shows the raw value when the code has no label or the column has none', () => {
+    renderStatus(3);
+    expect(screen.getByRole('button', { name: /Status/ })).toHaveTextContent('Status3');
+  });
+
+  it('shows labels carried in column_info when the attributes call returns nothing', () => {
+    mockUseAttributes.mockReturnValue({ data: undefined });
+    render(
+      <FeaturePopup
+        longitude={0}
+        latitude={0}
+        features={[
+          makeFeature({
+            datasetId: 'ds-1',
+            columnInfo: [
+              { name: 'status', type: 'integer', value_labels: { '1': 'Active' } },
+            ],
+            properties: { status: 1 },
+            visibleFields: ['status'],
+          }),
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: /Status/ })).toHaveTextContent('StatusActive (1)');
+  });
+
+  it('prefers the live attribute labels over the ones in column_info', () => {
+    mockUseAttributes.mockReturnValue({
+      data: { attributes: [{ ...labelled, value_labels: { '1': 'Live' } }], total: 1 },
+    });
+    render(
+      <FeaturePopup
+        longitude={0}
+        latitude={0}
+        features={[
+          makeFeature({
+            datasetId: 'ds-1',
+            columnInfo: [
+              { name: 'status', type: 'integer', value_labels: { '1': 'Stale' } },
+            ],
+            properties: { status: 1 },
+            visibleFields: ['status'],
+          }),
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Live', { exact: false })).toBeInTheDocument();
+    expect(screen.queryByText('Stale', { exact: false })).not.toBeInTheDocument();
+  });
+
+  it('ignores labels on a column that is no longer current', () => {
+    renderStatus(1, [{ ...labelled, is_current: false }]);
+    expect(screen.queryByText('Active')).not.toBeInTheDocument();
+  });
+});
+
+describe('FeaturePopup — digit grouping', () => {
+  it('shows a year or an identifier without digit grouping', () => {
+    mockUseAttributes.mockReturnValue({
+      data: {
+        attributes: [
+          { ...attribute('year_built', null), semantic_role: 'temporal' },
+          { ...attribute('parcel_no', null), semantic_role: 'identifier' },
+          { ...attribute('floor_area', null), semantic_role: 'measure' },
+        ],
+        total: 3,
+      },
+    });
+    render(
+      <FeaturePopup
+        longitude={0}
+        latitude={0}
+        features={[
+          makeFeature({
+            datasetId: 'ds-1',
+            properties: { year_built: 1952, parcel_no: 30012, floor_area: 1952 },
+            visibleFields: ['year_built', 'parcel_no', 'floor_area'],
+          }),
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('1952')).toBeInTheDocument();
+    expect(screen.getByText('30012')).toBeInTheDocument();
+    expect(screen.getByText('1,952')).toBeInTheDocument();
+  });
+
+  it('takes the role from column_info when the attributes are not readable', () => {
+    mockUseAttributes.mockReturnValue({ data: undefined });
+    render(
+      <FeaturePopup
+        longitude={0}
+        latitude={0}
+        features={[
+          makeFeature({
+            properties: { year_built: 1952 },
+            columnInfo: [{ name: 'year_built', type: 'integer', semantic_role: 'temporal' }],
+          }),
+        ]}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('1952')).toBeInTheDocument();
+  });
+});
+
+describe('FeaturePopup — fields read from the rows endpoint', () => {
+  const lean = (overrides: Partial<FeatureInfo> = {}) => makeFeature({
+    properties: { city: 'NYC' },
+    datasetId: 'ds-1',
+    featureId: 7,
+    fetchRow: true,
+    ...overrides,
+  });
+  const show = (feature: FeatureInfo) =>
+    render(<FeaturePopup longitude={0} latitude={0} features={[feature]} onClose={vi.fn()} />);
+
+  beforeEach(() => {
+    mockUseAttributes.mockReturnValue({ data: undefined });
+    mockUseDatasetRows.mockReset();
+    mockUseDatasetRows.mockReturnValue({ data: undefined });
+  });
+
+  it('opens with the tile fields and a loading line, then adds the fetched fields', () => {
+    show(lean());
+    expect(screen.getByText('NYC')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Loading more fields');
+
+    mockUseDatasetRows.mockReturnValue({ data: { rows: [{ gid: 7, city: 'NYC', mayor: 'Adams' }] } });
+    cleanup();
+    show(lean());
+    expect(screen.getByText('Mayor')).toBeInTheDocument();
+    expect(screen.getByText('Adams')).toBeInTheDocument();
+    expect(screen.queryByText('Gid')).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('reads the row by gid, with the embed token', () => {
+    show(lean({ embedToken: 'et-1' }));
+    expect(mockUseDatasetRows).toHaveBeenCalledWith(
+      'ds-1', 1, 0, undefined, undefined, undefined, 7, { embedToken: 'et-1' },
+    );
+  });
+
+  it('keeps the tile fields and shows an error line when the fetch fails', () => {
+    mockUseDatasetRows.mockReturnValue({ data: undefined, isError: true });
+    show(lean());
+    expect(screen.getByText('NYC')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not load the other fields');
+  });
+
+  it.each([401, 403, 404])('shows only the tile fields, with no line, when the server refuses with %i', (status) => {
+    mockUseDatasetRows.mockReturnValue({ data: undefined, isError: true, error: new ApiError('no', status) });
+    show(lean());
+    expect(screen.getByText('NYC')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('keeps the error line for a server fault', () => {
+    mockUseDatasetRows.mockReturnValue({ data: undefined, isError: true, error: new ApiError('boom', 503) });
+    show(lean());
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+  });
+
+  it('says the feature is gone, not "zoom in", when the lookup finds no row', () => {
+    mockUseDatasetRows.mockReturnValue({ data: { rows: [] } });
+    show(lean({ properties: {}, columnInfo: [{ name: 'city', type: 'text' }], zoomAtClick: 4 }));
+    expect(screen.getByText('This feature is no longer in the dataset.')).toBeInTheDocument();
+    expect(screen.queryByText('No attributes at this zoom')).not.toBeInTheDocument();
+  });
+
+  it('does not show the previous feature row while the next one loads', () => {
+    mockUseDatasetRows.mockReturnValue({ data: { rows: [{ city: 'LA', mayor: 'Bass' }] }, isPlaceholderData: true });
+    show(lean());
+    expect(screen.queryByText('Bass')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toBeInTheDocument();
+  });
+
+  it('does not say "no attributes" or "zoom in" while the row loads', () => {
+    show(lean({ properties: {}, columnInfo: [{ name: 'city', type: 'text' }], zoomAtClick: 4 }));
+    expect(screen.queryByText('No attributes at this zoom')).not.toBeInTheDocument();
+    expect(screen.queryByText('No attributes')).not.toBeInTheDocument();
+  });
+
+  it('shows the tile fields and fetches nothing when no gid identifies the feature', () => {
+    show(lean({ featureId: undefined, fetchRow: false }));
+    expect(screen.getByText('NYC')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('fetches nothing for a popup whose fields the author chose', () => {
+    show(lean({ fetchRow: false, visibleFields: ['city'] }));
+    expect(mockUseDatasetRows).toHaveBeenCalledWith(
+      '', 1, 0, undefined, undefined, undefined, 7, { embedToken: undefined },
+    );
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+});
+
+describe('FeaturePopup focus restore', () => {
+  it("returns focus to the canvas of the map that holds the popup, not the first map on the page", () => {
+    const hiddenMap = document.createElement('div');
+    hiddenMap.className = 'maplibregl-map';
+    hiddenMap.innerHTML = '<canvas class="maplibregl-canvas" tabindex="0"></canvas>';
+    const ownMap = document.createElement('div');
+    ownMap.className = 'maplibregl-map';
+    ownMap.innerHTML = '<canvas class="maplibregl-canvas" tabindex="0"></canvas>';
+    document.body.append(hiddenMap, ownMap);
+
+    const { unmount } = render(<FeaturePopup longitude={0} latitude={0} features={[makeFeature()]} onClose={vi.fn()} />, {
+      container: ownMap.appendChild(document.createElement('div')),
+    });
+    unmount();
+    expect(document.activeElement).toBe(ownMap.querySelector('canvas'));
+    hiddenMap.remove();
+    ownMap.remove();
+  });
+
+  it('moves focus to the map on screen when its own map left the page, skipping inert ones', () => {
+    const standby = document.createElement('div');
+    standby.className = 'maplibregl-map';
+    standby.setAttribute('inert', '');
+    standby.innerHTML = '<canvas class="maplibregl-canvas" tabindex="0"></canvas>';
+    const shown = document.createElement('div');
+    shown.className = 'maplibregl-map';
+    shown.innerHTML = '<canvas class="maplibregl-canvas" tabindex="0"></canvas>';
+    const ownMap = document.createElement('div');
+    ownMap.className = 'maplibregl-map';
+    document.body.append(standby, shown, ownMap);
+
+    const { unmount } = render(<FeaturePopup longitude={0} latitude={0} features={[makeFeature()]} onClose={vi.fn()} />, {
+      container: ownMap.appendChild(document.createElement('div')),
+    });
+    ownMap.remove();
+    unmount();
+    expect(document.activeElement).toBe(shown.querySelector('canvas'));
+    standby.remove();
+    shown.remove();
+  });
+
+  it('leaves focus on a control the reader moved to before the popup closed', () => {
+    const ownMap = document.createElement('div');
+    ownMap.className = 'maplibregl-map';
+    ownMap.innerHTML = '<canvas class="maplibregl-canvas" tabindex="0"></canvas>';
+    const elsewhere = document.createElement('button');
+    document.body.append(ownMap, elsewhere);
+
+    const { unmount } = render(<FeaturePopup longitude={0} latitude={0} features={[makeFeature()]} onClose={vi.fn()} />, {
+      container: ownMap.appendChild(document.createElement('div')),
+    });
+    elsewhere.focus();
+    unmount();
+    expect(document.activeElement).toBe(elsewhere);
+    ownMap.remove();
+    elsewhere.remove();
   });
 });

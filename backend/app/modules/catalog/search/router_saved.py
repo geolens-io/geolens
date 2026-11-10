@@ -32,12 +32,14 @@ router = APIRouter(prefix="/saved")
     response_model=SavedSearchResponse,
     status_code=status.HTTP_201_CREATED,
     include_in_schema=False,
+    summary="Save a search",
 )
 @router.post(
     "/",
     response_model=SavedSearchResponse,
     status_code=status.HTTP_201_CREATED,
     responses={409: CONFLICT_RESPONSE},
+    summary="Save a search",
 )
 async def create_saved_search_endpoint(
     body: SavedSearchCreate,
@@ -54,8 +56,13 @@ async def create_saved_search_endpoint(
     return SavedSearchResponse.model_validate(saved)
 
 
-@router.get("", response_model=SavedSearchListResponse, include_in_schema=False)
-@router.get("/", response_model=SavedSearchListResponse)
+@router.get(
+    "",
+    response_model=SavedSearchListResponse,
+    include_in_schema=False,
+    summary="List saved searches",
+)
+@router.get("/", response_model=SavedSearchListResponse, summary="List saved searches")
 async def list_saved_searches_endpoint(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
@@ -74,6 +81,7 @@ async def list_saved_searches_endpoint(
     "/{search_id}",
     response_model=SavedSearchResponse,
     responses={404: NOT_FOUND_RESPONSE},
+    summary="Get a saved search",
 )
 async def get_saved_search_endpoint(
     search_id: uuid.UUID,
@@ -91,6 +99,7 @@ async def get_saved_search_endpoint(
     "/{search_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     responses={404: NOT_FOUND_RESPONSE},
+    summary="Delete a saved search",
 )
 async def delete_saved_search_endpoint(
     search_id: uuid.UUID,

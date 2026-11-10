@@ -111,7 +111,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: StacConnectRequest,
 ) -> Response[ProblemDetail | StacCollectionsResponse]:
-    """Stac Collections
+    """List collections in a STAC API
 
      List collections from a connected STAC API.
 
@@ -144,7 +144,7 @@ def sync(
     client: AuthenticatedClient,
     body: StacConnectRequest,
 ) -> ProblemDetail | StacCollectionsResponse | None:
-    """Stac Collections
+    """List collections in a STAC API
 
      List collections from a connected STAC API.
 
@@ -172,7 +172,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: StacConnectRequest,
 ) -> Response[ProblemDetail | StacCollectionsResponse]:
-    """Stac Collections
+    """List collections in a STAC API
 
      List collections from a connected STAC API.
 
@@ -203,7 +203,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: StacConnectRequest,
 ) -> ProblemDetail | StacCollectionsResponse | None:
-    """Stac Collections
+    """List collections in a STAC API
 
      List collections from a connected STAC API.
 

@@ -535,7 +535,7 @@ async def _async_return(value):
 async def test_streamed_chat_retries_before_the_first_chunk(monkeypatch):
     recorded: list[tuple[int, int]] = []
 
-    async def record_token_usage(_session, **kwargs):
+    async def record_token_usage(**kwargs):
         recorded.append((kwargs["input_tokens"], kwargs["output_tokens"]))
 
     async def release_connection(_session):

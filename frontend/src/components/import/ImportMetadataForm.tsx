@@ -20,6 +20,8 @@ interface ImportMetadataFormProps {
   detectedCrs: number | null;
   onCommit: (metadata: CommitImportRequest) => void;
   isCommitting: boolean;
+  /** Replaces the CRS help text when the source has no CRS to override. */
+  crsHelpText?: string;
   /** A previously attempted request to start from instead of the preview defaults. */
   initialRequest?: CommitImportRequest | null;
   isRaster?: boolean;
@@ -36,8 +38,8 @@ interface ImportMetadataFormProps {
   } | null;
 }
 
-// No `restricted` — see RegisterForm. Visibility is
-// private/public at import time, and the dataset Access tab owns changing it.
+// No `restricted`, as in RegisterForm. Import offers private, internal and
+// public; group sharing belongs to the dataset Access tab.
 // Radix Select cannot hold an empty-string value. Real columns are prefixed so
 // no source field name can equal the "no column" placeholder.
 const NO_COLUMN = 'none';
@@ -46,6 +48,7 @@ const decodeColumn = (value: string) => (value.startsWith('col:') ? value.slice(
 
 const VISIBILITY_OPTIONS = [
   { value: 'private', labelKey: 'metadata.visibilityPrivate' },
+  { value: 'internal', labelKey: 'metadata.visibilityInternal' },
   { value: 'public', labelKey: 'metadata.visibilityPublic' },
 ];
 
@@ -66,6 +69,7 @@ export function ImportMetadataForm({
   detectedCrs,
   onCommit,
   isCommitting,
+  crsHelpText,
   initialRequest,
   isRaster = false,
   isTileset = false,
@@ -260,7 +264,7 @@ export function ImportMetadataForm({
                 onChange={(e) => setSridOverride(e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
-                {t('metadata.crsHelpText')}
+                {crsHelpText ?? t('metadata.crsHelpText')}
               </p>
             </div>
           )}

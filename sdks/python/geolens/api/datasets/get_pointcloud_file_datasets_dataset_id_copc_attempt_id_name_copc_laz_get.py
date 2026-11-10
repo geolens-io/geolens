@@ -118,7 +118,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any | File | ProblemDetail]:
-    """Get Pointcloud File
+    """Get a COPC point cloud file
 
      Serve a published COPC point cloud's file, whole or by HTTP byte range.
 
@@ -174,7 +174,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> Any | File | ProblemDetail | None:
-    """Get Pointcloud File
+    """Get a COPC point cloud file
 
      Serve a published COPC point cloud's file, whole or by HTTP byte range.
 
@@ -225,7 +225,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any | File | ProblemDetail]:
-    """Get Pointcloud File
+    """Get a COPC point cloud file
 
      Serve a published COPC point cloud's file, whole or by HTTP byte range.
 
@@ -279,7 +279,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> Any | File | ProblemDetail | None:
-    """Get Pointcloud File
+    """Get a COPC point cloud file
 
      Serve a published COPC point cloud's file, whole or by HTTP byte range.
 

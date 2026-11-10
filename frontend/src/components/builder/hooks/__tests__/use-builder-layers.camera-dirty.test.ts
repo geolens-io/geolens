@@ -1,16 +1,15 @@
 /**
- * Every save rewrote center/zoom/bearing/pitch from the live map,
- * but nothing in the builder's clean check looked at the camera. A pan or zoom
- * therefore left `hasUnsavedChanges` false, so there was no navigation
- * blocker, no beforeunload, and the new view was lost on navigate-away, while
- * any unrelated save silently replaced the stored home view.
+ * Every save rewrites center/zoom/bearing/pitch from the live map, so a moved
+ * camera is a pending change: it enables Save (`hasUnsavedChanges`). A camera
+ * move alone doesn't ask before leaving (`hasUnsavedEdits` stays false); any
+ * other edit still does.
  *
  * These tests drive the real hooks (useBuilderLayers + useBuilderSave wired the
  * way MapBuilderPage wires them) through a map mock that emits `moveend`, so
  * they exercise the actual signal rather than the wiring.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, renderHook } from '@testing-library/react';
+import { act, render as renderComponent, renderHook } from '@testing-library/react';
 import { useEffect, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
@@ -68,10 +67,44 @@ vi.mock('@/api/maps', () => ({
 // useUnsavedGuard's useBlocker needs a Data Router; the shared renderHook
 // wrapper provides MemoryRouter, so stub it as the sibling suites do.
 const mockBlocker = { state: 'unblocked' as const, reset: vi.fn(), proceed: vi.fn() };
+type BlockerArgs = { currentLocation: { pathname: string }; nextLocation: { pathname: string } };
+let blockerPredicate: ((args: BlockerArgs) => boolean) | null = null;
 vi.mock('react-router', async () => {
   const actual = await vi.importActual('react-router');
-  return { ...actual, useBlocker: () => mockBlocker };
+  return {
+    ...actual,
+    useBlocker: (predicate: (args: BlockerArgs) => boolean) => {
+      blockerPredicate = predicate;
+      return mockBlocker;
+    },
+  };
 });
+
+/** Save state and both leave prompts: the in-app navigation blocker and beforeunload. */
+function expectLeaveGuard(
+  state: { hasUnsavedChanges: boolean; hasUnsavedEdits: boolean; saveStatus: string },
+  { saveEnabled, asksBeforeLeaving }: { saveEnabled: boolean; asksBeforeLeaving: boolean },
+) {
+  const unload = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(unload);
+  const blocked = !!blockerPredicate?.({
+    currentLocation: { pathname: '/maps/map-1' },
+    nextLocation: { pathname: '/maps' },
+  });
+  expect({
+    saveEnabled: state.hasUnsavedChanges,
+    saveStatus: state.saveStatus,
+    edits: state.hasUnsavedEdits,
+    blocked,
+    beforeUnload: unload.defaultPrevented,
+  }).toEqual({
+    saveEnabled,
+    saveStatus: saveEnabled ? 'unsaved' : 'saved',
+    edits: asksBeforeLeaving,
+    blocked: asksBeforeLeaving,
+    beforeUnload: asksBeforeLeaving,
+  });
+}
 
 /* ── A map mock whose camera moves and whose `moveend` actually fires ──── */
 
@@ -102,15 +135,18 @@ function makeMovableMap(initial: Camera) {
     },
   } as unknown as MaplibreMap;
 
-  /** Move the camera and settle, exactly as a drag-pan or wheel-zoom does. */
-  function moveTo(next: Partial<Camera>) {
+  /** A programmatic jump: maplibre fires moveend synchronously for duration 0. */
+  function jumpTo(next: Partial<Camera>) {
     Object.assign(camera, next);
-    act(() => {
-      handlers.get('moveend')?.forEach((handler) => handler());
-    });
+    handlers.get('moveend')?.forEach((handler) => handler());
   }
 
-  return { map, moveTo, camera };
+  /** Move the camera and settle, exactly as a drag-pan or wheel-zoom does. */
+  function moveTo(next: Partial<Camera>) {
+    act(() => { jumpTo(next); });
+  }
+
+  return { map, moveTo, jumpTo, camera };
 }
 
 /* ── Harness: the two hooks wired as MapBuilderPage wires them ─────────── */
@@ -132,9 +168,14 @@ function useCachedMap(client: QueryClient, mapId: string): MapResponse | undefin
   return data;
 }
 
-function useCombinedBuilder(client: QueryClient, mapId: string, map: MaplibreMap) {
+function useCombinedBuilder(
+  client: QueryClient,
+  mapId: string,
+  map: MaplibreMap | null,
+) {
   const mapData = useCachedMap(client, mapId) as MapResponse;
   const mapInstanceRef = useRef<MaplibreMap | null>(map);
+  mapInstanceRef.current = map;
   const saveBaselineSyncRef = useRef<SaveBaselineSync>({ add: () => {}, remove: () => {} });
 
   const layers = useBuilderLayers(
@@ -159,11 +200,17 @@ function useCombinedBuilder(client: QueryClient, mapId: string, map: MaplibreMap
     localDescription: layers.localDescription,
     legendTitle: layers.localLegendTitle,
     dockNotes: '',
+    dashboard: layers.dashboard,
+    savedDashboard: layers.savedDashboard,
+    dashboardEdited: layers.dashboardEdited,
     mapInstanceRef,
     setHasUnsavedChanges: layers.setHasUnsavedChanges,
     hasUnsavedChanges: layers.hasUnsavedChanges,
+    hasUnsavedEdits: layers.hasUnsavedEdits,
     hasThumbnail: true,
     saveBaselineSyncRef,
+    remapLayerIds: layers.remapLayerIds,
+    saveFence: layers.saveFence,
   });
 
   return { ...layers, ...save };
@@ -212,6 +259,7 @@ function render(initialMapData: MapResponse, startCamera: Camera = SAVED) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  blockerPredicate = null;
   __resetThumbnailDebounceForTests();
   mockUpdateMapMutateAsync.mockResolvedValue({});
   mockPatchMapLayersMutateAsync.mockResolvedValue({});
@@ -279,17 +327,150 @@ describe('an unsaved camera move is unsaved work', () => {
 
     expect(hook.result.current.hasUnsavedChanges).toBe(true);
   });
+});
 
-  it('arms beforeunload for an unsaved camera move', () => {
-    const addSpy = vi.spyOn(window, 'addEventListener');
+describe('leaving with an unsaved camera', () => {
+  it('enables Save but does not ask before leaving after a pan alone', () => {
     const { hook, moveTo } = render(savedMap());
-    expect(addSpy.mock.calls.filter(([event]) => event === 'beforeunload')).toHaveLength(0);
 
     moveTo({ lng: -71.1, lat: 42.4 });
 
-    expect(hook.result.current.hasUnsavedChanges).toBe(true);
-    expect(addSpy).toHaveBeenCalledWith('beforeunload', expect.any(Function));
-    addSpy.mockRestore();
+    expectLeaveGuard(hook.result.current, { saveEnabled: true, asksBeforeLeaving: false });
+  });
+
+  it('asks before leaving after a pan and a style change', () => {
+    const { hook, moveTo } = render(savedMap());
+
+    moveTo({ lng: -71.1, lat: 42.4 });
+    act(() => { hook.result.current.handleOpacityChange('layer-1', 0.25); });
+
+    expectLeaveGuard(hook.result.current, { saveEnabled: true, asksBeforeLeaving: true });
+  });
+
+  it('keeps asking when the camera returns to the saved view after an edit', () => {
+    const { hook, moveTo } = render(savedMap());
+
+    act(() => { hook.result.current.handleOpacityChange('layer-1', 0.25); });
+    moveTo({ lng: -71.1, lat: 42.4 });
+    moveTo({ lng: SAVED.lng, lat: SAVED.lat });
+
+    expectLeaveGuard(hook.result.current, { saveEnabled: true, asksBeforeLeaving: true });
+  });
+
+  it('stops asking but keeps Save once a reverted edit leaves only the pan', () => {
+    const { hook, moveTo } = render(savedMap());
+    const savedName = hook.result.current.localName;
+
+    act(() => {
+      hook.result.current.setLocalName('Renamed');
+      hook.result.current.markDirty();
+    });
+    moveTo({ lng: -71.1, lat: 42.4 });
+    expectLeaveGuard(hook.result.current, { saveEnabled: true, asksBeforeLeaving: true });
+
+    act(() => { hook.result.current.setLocalName(savedName); });
+    act(() => { hook.result.current.requestCleanRecheck(); });
+
+    expectLeaveGuard(hook.result.current, { saveEnabled: true, asksBeforeLeaving: false });
+  });
+});
+
+describe('a map that fits its layers as it loads', () => {
+  // MapBuilderPage keys BuilderMap by map id, so every map, the first one or
+  // one reached by in-page navigation, gets a fresh instance. Its load event
+  // makes BuilderMap ready and hands the page the instance in one render, and
+  // BuilderMap (a child) fits a map with no saved view in an effect. The page's
+  // entry-camera effect runs after the child's, so the fitted view is the entry
+  // view and opening the map leaves it clean.
+  const WORLD: Camera = { lng: 0, lat: 20, zoom: 2 };
+  const FITTED: Camera = { lng: -73.95, lat: 40.75, zoom: 11.5 };
+  const withoutView = (id: string) =>
+    savedMap({ id, center_lng: null, center_lat: null, zoom: null }, WORLD);
+
+  function renderBuilder(maps: MapResponse[]) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    for (const data of maps) client.setQueryData(queryKeys.maps.detail(data.id), data);
+    const page = {} as {
+      latest: ReturnType<typeof useCombinedBuilder>;
+      show: (mapId: string) => void;
+      load: () => void;
+      moveTo: (next: Partial<Camera>) => void;
+      camera: () => Camera;
+    };
+
+    /** Stands in for BuilderMap: a new map per mount, fitted on load when there is no saved view. */
+    function FakeBuilderMap({ data, onMapRef }: { data: MapResponse; onMapRef: (map: MaplibreMap | null) => void }) {
+      const hasView = data.center_lng != null && data.center_lat != null;
+      const [movable] = useState(() =>
+        makeMovableMap(hasView ? { lng: data.center_lng!, lat: data.center_lat!, zoom: data.zoom! } : WORLD),
+      );
+      const [ready, setReady] = useState(false);
+      useEffect(() => {
+        page.load = () => {
+          setReady(true);
+          onMapRef(movable.map);
+        };
+        page.moveTo = movable.moveTo;
+        page.camera = () => ({ ...movable.camera });
+      });
+      useEffect(() => {
+        if (ready && !hasView) movable.jumpTo(FITTED);
+      }, [ready, hasView, movable]);
+      useEffect(() => () => onMapRef(null), [onMapRef]);
+      return null;
+    }
+
+    function Page() {
+      const [mapId, setMapId] = useState(maps[0].id);
+      const [instance, setInstance] = useState<MaplibreMap | null>(null);
+      const state = useCombinedBuilder(client, mapId, instance);
+      useEffect(() => { page.latest = state; });
+      useEffect(() => {
+        page.show = (next) => setMapId(next);
+      }, []);
+      const data = maps.find((m) => m.id === mapId)!;
+      return createElement(FakeBuilderMap, { key: mapId, data, onMapRef: setInstance });
+    }
+
+    renderComponent(
+      createElement(QueryClientProvider, { client }, createElement(MemoryRouter, null, createElement(Page))),
+    );
+    return page;
+  }
+
+  const expectClean = (page: ReturnType<typeof renderBuilder>) =>
+    expectLeaveGuard(page.latest, { saveEnabled: false, asksBeforeLeaving: false });
+
+  it('stays clean after the first fit', () => {
+    const page = renderBuilder([withoutView('map-1')]);
+
+    act(() => { page.load(); });
+    // maplibre's resize() and tile settles fire moveend without moving.
+    page.moveTo({});
+
+    expect(page.camera()).toMatchObject(FITTED);
+    expectClean(page);
+
+    page.moveTo({ lng: -71.1, lat: 42.4 });
+    expect(page.latest.hasUnsavedChanges).toBe(true);
+  });
+
+  it('fits and stays clean after in-page navigation from a map with a saved view', () => {
+    const page = renderBuilder([savedMap(), withoutView('map-2')]);
+    act(() => { page.load(); });
+    page.moveTo({});
+    expectClean(page);
+
+    act(() => { page.show('map-2'); });
+    act(() => { page.load(); });
+    page.moveTo({});
+
+    expect(page.latest.layersMapId).toBe('map-2');
+    expect(page.camera()).toMatchObject(FITTED);
+    expectClean(page);
+
+    page.moveTo({ lng: -71.1, lat: 42.4 });
+    expectLeaveGuard(page.latest, { saveEnabled: true, asksBeforeLeaving: false });
   });
 });
 
@@ -375,9 +556,9 @@ describe('the dirty check mirrors the persisted precision', () => {
 });
 
 describe('a camera sample belongs to the map it was taken on', () => {
-  // A direct /maps/:id navigation keeps this hook and the MapGL instance
-  // mounted, and nothing repositions the instance, so the previous map's view
-  // is still on screen. It is nobody's edit on the map now being shown.
+  // A direct /maps/:id navigation keeps this hook mounted. When one map
+  // instance spans the switch, the previous map's view is still on screen, and
+  // it is nobody's edit on the map now being shown.
   const OTHER: Camera = { lng: 5.5, lat: 10.25, zoom: 6 };
   const otherMap = () => savedMap({ id: 'map-2' }, OTHER);
 

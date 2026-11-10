@@ -16,6 +16,7 @@ from pydantic import (
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from app.core.auth_settings import AuthSettings
 from app.core.config_ai import ClaudeSettings, OpenAISettings
+from app.core.config_database_sources import DatabaseSourcesSettings
 
 
 def reveal(secret: SecretStr | None) -> str | None:
@@ -278,7 +279,59 @@ MIN_SIGNABLE_JOB_LIFETIME_SECONDS = 60
 MAX_PRESIGNED_URL_LIFETIME_SECONDS = 604800
 
 
-class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
+def canonical_service_host(host: str) -> str | None:
+    """*host* in one spelling, or None when it isn't a usable host.
+
+    An IP literal (brackets optional for IPv6, no zone ID) in its compressed
+    form; otherwise a DNS name UTS46-mapped to lowercase punycode by the
+    validator ``_is_valid_privacy_url_host`` uses, with no trailing dot.
+    """
+    bare = host.lower().removeprefix("[").removesuffix("]")
+    if "%" not in bare:
+        try:
+            return ipaddress.ip_address(bare).compressed
+        except ValueError:
+            pass
+    if bare != host.lower() or bare.endswith("."):
+        return None
+    if not _is_valid_privacy_url_host(bare, bracketed=False):
+        return None
+    return idna.encode(bare, uts46=True, std3_rules=True).decode("ascii")
+
+
+def parse_http_credential_hosts(value: str) -> list[tuple[str, int | None]]:
+    """``SERVICE_CREDENTIALS_ALLOW_HTTP_HOSTS`` as (canonical host, port or None).
+
+    Raises ValueError for an entry that isn't a bare host or host:port.
+    """
+    hosts: list[tuple[str, int | None]] = []
+    for entry in filter(None, (raw.strip() for raw in value.split(","))):
+        host = None
+        try:
+            parts = urlsplit(f"//{entry}")
+            port = parts.port
+            if parts.netloc == entry and not entry.endswith(":") and "@" not in entry:
+                host = canonical_service_host(
+                    entry.rsplit(":", 1)[0] if port else entry
+                )
+        except ValueError:
+            pass
+        if host is None:
+            raise ValueError(
+                "SERVICE_CREDENTIALS_ALLOW_HTTP_HOSTS takes host or host:port "
+                "entries, comma-separated"
+            )
+        hosts.append((host, port))
+    return hosts
+
+
+class Settings(
+    AuthSettings,
+    ClaudeSettings,
+    OpenAISettings,
+    DatabaseSourcesSettings,
+    BaseSettings,
+):
     postgres_user: str = "geolens"
     postgres_password: SecretStr
     postgres_host: str = "localhost"
@@ -445,7 +498,7 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
     redis_url: str | None = None  # unset refuses token-protected service dispatch
     cdn_base_url: str | None = None
     tile_signing_secret: SecretStr | None = None
-    tile_cache_ttl: int = Field(default=300, ge=0)
+    tile_cache_ttl: int = Field(default=3600, ge=0)
 
     database_url_override: str | None = None
     # Opt-in single-tenant runtime login. Empty preserves the legacy connection;
@@ -496,10 +549,15 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
 
     tile_pool_min_size: int = Field(default=2, ge=1)
     tile_pool_max_size: int = Field(default=10, ge=1)
+    raster_timeout_slot_grace_seconds: int = Field(default=5, ge=0)
 
     # GDAL_HTTP_TIMEOUT for ogr2ogr service ingest. Large service layers exceed
     # GDAL's 120s default.
     ingest_http_timeout_seconds: int = Field(default=300, gt=0)
+
+    # Hosts (host or host:port, comma-separated) a service credential may reach
+    # over plain http, for intranet services without TLS. Empty refuses them all.
+    service_credentials_allow_http_hosts: str = ""
 
     # The materialize CTAS budget, applied as SET LOCAL statement_timeout before
     # the CREATE TABLE AS. 300 seconds covers roughly 150k-600k buffered polygon
@@ -702,6 +760,17 @@ class Settings(AuthSettings, ClaudeSettings, OpenAISettings, BaseSettings):
                     ) from None
             normalized.append(host)
         return ",".join(dict.fromkeys(normalized))
+
+    @field_validator("service_credentials_allow_http_hosts", mode="after")
+    @classmethod
+    def validate_service_credentials_allow_http_hosts(cls, v: str) -> str:
+        """Each entry is a host or host:port, with no scheme, path or wildcard."""
+        parse_http_credential_hosts(v)
+        return v
+
+    @property
+    def http_credential_hosts(self) -> list[tuple[str, int | None]]:
+        return parse_http_credential_hosts(self.service_credentials_allow_http_hosts)
 
     @field_validator("embedding_dims", mode="before")
     @classmethod

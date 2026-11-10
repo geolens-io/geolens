@@ -229,7 +229,7 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false, onOutc
                 {stagingFailures.map((entry) => (
                   <div key={entry.id} className="rounded-lg border border-destructive/30 p-3 text-sm">
                     <p className="font-medium">{entry.fileName}</p>
-                    {entry.error && <p className="mt-1 text-destructive">{entry.error}</p>}
+                    {entry.error && <p role="alert" className="mt-1 text-destructive">{entry.error}</p>}
                   </div>
                 ))}
               </div>

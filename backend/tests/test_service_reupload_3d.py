@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.modules.catalog.datasets.api import router_reupload
 from app.modules.catalog.datasets.domain.models import Dataset
@@ -26,6 +26,21 @@ pytestmark = pytest.mark.anyio
 _BASE = "https://services.example.com/arcgis/rest/services/Wells/FeatureServer"
 _WELLS = [(-73.9, 40.7, 100.0), (-74.0, 40.8, 200.0), (-73.8, 40.6, 300.0)]
 _FLAT_WELLS = [(x, y, None) for x, y, _ in _WELLS]
+
+
+def _fresh_base() -> str:
+    """A layer URL no earlier import used; a user may hold one copy of a layer."""
+    return _BASE.replace("/Wells/", f"/Wells{uuid.uuid4().hex[:8]}/")
+
+
+async def _base_of(dataset_id) -> str:
+    """The layer URL a dataset is bound to."""
+    from app.core.db import async_session
+
+    async with async_session() as session:
+        return await session.scalar(
+            select(Dataset.origin_ref["url"].astext).where(Dataset.id == dataset_id)
+        )
 
 
 def _fake_fetch(points, columns=("name",)):
@@ -84,9 +99,10 @@ def _source(monkeypatch, points, columns=("name",)):
 
 async def _ingest(session, monkeypatch, points, columns=("name",)) -> uuid.UUID:
     admin_id = await get_user_id(session, "admin")
+    base = _fresh_base()
     job = IngestJob(
         source_filename="Wells",
-        source_url=_BASE,
+        source_url=base,
         source_layer="0",
         created_by=admin_id,
         status="pending",
@@ -103,7 +119,7 @@ async def _ingest(session, monkeypatch, points, columns=("name",)) -> uuid.UUID:
         await tasks_vector.ingest_service.func(
             job_id=str(job.id),
             attempt_id=str(job.attempt_id),
-            source_url=_BASE,
+            source_url=base,
             source_layer="0",
             user_id=str(admin_id),
         )
@@ -124,10 +140,11 @@ async def _refresh(client, headers, monkeypatch, dataset_id, points) -> None:
 
 async def _reupload(session, monkeypatch, dataset_id, points) -> None:
     admin_id = await get_user_id(session, "admin")
+    base = await _base_of(dataset_id)
     job = IngestJob(
         dataset_id=dataset_id,
         source_filename="Wells",
-        source_url=_BASE,
+        source_url=base,
         source_layer="0",
         created_by=admin_id,
         status="pending",
@@ -146,7 +163,7 @@ async def _reupload(session, monkeypatch, dataset_id, points) -> None:
             job_id=str(job.id),
             attempt_id=str(job.attempt_id),
             dataset_id=str(dataset_id),
-            source_url=_BASE,
+            source_url=base,
             source_layer="0",
             user_id=str(admin_id),
         )
@@ -166,7 +183,9 @@ async def _preview(client, headers, dataset_id, points, columns=("name",)) -> di
     }
     with (
         patch.object(router_reupload, "validate_url_for_ssrf", AsyncMock()),
-        patch.object(router_reupload, "fetch_arcgis_layer_meta", AsyncMock()),
+        patch.object(
+            router_reupload, "fetch_arcgis_layer_meta", AsyncMock(return_value={})
+        ),
         patch.object(
             router_reupload, "run_service_preview", AsyncMock(return_value=reported)
         ),
@@ -175,7 +194,7 @@ async def _preview(client, headers, dataset_id, points, columns=("name",)) -> di
             f"/datasets/{dataset_id}/reupload/service/preview",
             headers=headers,
             json={
-                "url": _BASE,
+                "url": await _base_of(dataset_id),
                 "service_type": "ArcGIS FeatureServer",
                 "layer_name": "0",
                 "layer_id": "0",

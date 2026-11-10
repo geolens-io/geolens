@@ -359,7 +359,7 @@ async def _async_return(value):
 
 
 def _patch_stream_io(monkeypatch, recorded):
-    async def record_token_usage(_session, **kwargs):
+    async def record_token_usage(**kwargs):
         recorded.append((kwargs["input_tokens"], kwargs["output_tokens"]))
 
     async def release_connection(_session):
@@ -744,7 +744,7 @@ def _capture_error_usage(monkeypatch):
 
     recorded: list[tuple[int, int]] = []
 
-    async def record_token_usage(_session, **kwargs):
+    async def record_token_usage(**kwargs):
         recorded.append((kwargs["input_tokens"], kwargs["output_tokens"]))
 
     monkeypatch.setattr(token_usage, "record_token_usage", record_token_usage)

@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: RegisterRequest,
 ) -> Response[ProblemDetail | TableRegisterResponse]:
-    """Register Table
+    """Register a PostGIS table
 
      Register an existing PostGIS table as a dataset.
 
@@ -140,7 +140,7 @@ def sync(
     client: AuthenticatedClient,
     body: RegisterRequest,
 ) -> ProblemDetail | TableRegisterResponse | None:
-    """Register Table
+    """Register a PostGIS table
 
      Register an existing PostGIS table as a dataset.
 
@@ -169,7 +169,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: RegisterRequest,
 ) -> Response[ProblemDetail | TableRegisterResponse]:
-    """Register Table
+    """Register a PostGIS table
 
      Register an existing PostGIS table as a dataset.
 
@@ -201,7 +201,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: RegisterRequest,
 ) -> ProblemDetail | TableRegisterResponse | None:
-    """Register Table
+    """Register a PostGIS table
 
      Register an existing PostGIS table as a dataset.
 

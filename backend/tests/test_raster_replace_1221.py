@@ -63,7 +63,7 @@ from app.modules.catalog.datasets.domain.models import (
     Record,
 )
 from app.modules.catalog.maps.models import Map, MapLayer
-from app.platform.dataset_origin import set_dataset_origin
+from app.platform.dataset_origin import KEEP, SourceBinding, restamp
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import create_pending_run
@@ -1974,17 +1974,22 @@ async def _make_stac_origin_raster(session, *, created_by: uuid.UUID) -> _LiveRa
     dataset = Dataset(
         record_id=record.id,
         table_name=f"raster_{record.id.hex[:16]}",
-        source_format="geotiff",
         source_filename=None,
         srid=4326,
     )
-    set_dataset_origin(
+    restamp(
         dataset,
-        "stac",
-        uri="https://example.invalid/scenes/abc/data.tif",
-        asset_href="https://example.invalid/scenes/abc/data.tif",
-        item_href="https://example.invalid/items/abc",
-        collection_id="sentinel-2",
+        SourceBinding.stac(
+            asset_href="https://example.invalid/scenes/abc/data.tif",
+            item_href="https://example.invalid/items/abc",
+            item_id=None,
+            collection_id="sentinel-2",
+            asset_key=None,
+            url=None,
+            auth_required=False,
+        ),
+        contacted_at=None,
+        refreshed_at=KEEP,
     )
     session.add(dataset)
     await session.flush()

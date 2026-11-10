@@ -40,6 +40,7 @@ from app.modules.auth.dependencies import (
     require_permission,
 )
 from app.core.config import settings
+from app.core.db import release_connection
 from app.core.db.tenant_session import defer_async_with_tenant
 from app.core.dependencies import get_db
 from app.core.pointcloud import POINTCLOUD_FILE_TYPE
@@ -147,6 +148,11 @@ from app.platform.jobs.defer_guard import (
     make_ingest_job_failed_rollback,
 )
 from app.platform.jobs import ledger
+from app.platform.dataset_origin import PORTAL_LINK_KEYS
+from app.platform.portal_link import (
+    PortalLink,
+    resolve_portal_link,
+)
 from app.core.persistent_config import (
     UPLOAD_MAX_SIZE_MB,
     get_allowed_extensions_list,
@@ -157,6 +163,7 @@ from app.processing.raster.validation import validate_sources_async
 from app.platform.service_auth import (
     credential_or_422,
     service_credential_from_request,
+    credential_over_http_or_422,
 )
 from app.platform.storage import get_storage
 from app.platform.upload_filenames import (
@@ -261,6 +268,7 @@ async def _refuse_upload(db: AsyncSession, filename: str, kind: str | None) -> N
     "/upload/config",
     response_model=UploadConfigResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="Get the upload configuration",
 )
 async def get_upload_config(
     user: Identity = Depends(get_current_active_user),
@@ -278,6 +286,7 @@ async def get_upload_config(
         413: PAYLOAD_TOO_LARGE_RESPONSE,
         502: BAD_GATEWAY_RESPONSE,
     },
+    summary="Request a presigned upload",
 )
 async def request_presigned_upload(
     request: PresignedUploadRequest,
@@ -438,6 +447,7 @@ async def request_presigned_upload(
         413: PAYLOAD_TOO_LARGE_RESPONSE,
         502: BAD_GATEWAY_RESPONSE,
     },
+    summary="Complete a presigned upload",
 )
 async def complete_presigned_upload(
     job_id: uuid.UUID,
@@ -601,6 +611,7 @@ def _stamp_raster_metadata(job: "IngestJob", filename: str | None) -> None:
     response_model=UploadResponse,
     status_code=status.HTTP_201_CREATED,
     responses={413: PAYLOAD_TOO_LARGE_RESPONSE},
+    summary="Upload a file for staging",
 )
 async def upload_file(
     request: Request,
@@ -790,6 +801,7 @@ async def _preview_raster(
 @router.post(
     "/preview/{job_id}",
     response_model=StagedPreviewResponse,
+    summary="Preview a staged file",
 )
 async def preview_file(
     job_id: uuid.UUID,
@@ -827,6 +839,8 @@ async def preview_file(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Job has no associated file — upload must complete before preview",
         )
+    # Storage and GDAL can run for a long time; don't pin a pool slot meanwhile.
+    await release_connection(db)
     file_type = (job.user_metadata or {}).get("file_type")
     try:
         if file_type == TILESET_FILE_TYPE:
@@ -942,6 +956,7 @@ def _pick_commit_subclass(job: "IngestJob") -> type[BaseCommitRequest]:
     response_model=CommitResponse,
     status_code=status.HTTP_202_ACCEPTED,
     responses={413: PAYLOAD_TOO_LARGE_RESPONSE},
+    summary="Commit a staged file for import",
 )
 async def commit_import(
     job_id: uuid.UUID,
@@ -1030,6 +1045,7 @@ async def commit_import(
         service_credential_from_request(getattr(commit, "auth", None), token),
         service_format=job_service_format(job),
     )
+    credential_over_http_or_422(job.source_url, credential)
 
     # Judge the credential and the store before the write below:
     # `service_auth_required` is a one-way door (`_replay_capability` refuses
@@ -1040,12 +1056,22 @@ async def commit_import(
     # and more sharply: user_metadata is durable JSONB, so a nested
     # credential object would land there in full. mode="json" serializes
     # datetime fields (temporal_start/temporal_end) as ISO strings.
-    commit_metadata = commit.model_dump(exclude={"token", "auth"}, mode="json")
+    link = (
+        resolve_portal_link(commit.item_id, commit.portal_url)
+        if isinstance(commit, VectorCommitRequest)
+        else PortalLink.unsupported(request.item_id, request.portal_url)
+    )
+    commit_metadata = {
+        **commit.model_dump(
+            exclude={"token", "auth", "item_id", "portal_url"}, mode="json"
+        ),
+        **link.fields,
+    }
     if credential is not None:
         # Persist only the fact that retry needs fresh credentials. The
         # credential remains request-only and is never written to JSONB.
         commit_metadata["service_auth_required"] = True
-    await admit_import_commit(db, job, observed_attempt_id, commit_metadata)
+    await admit_import_commit(db, job, observed_attempt_id, commit_metadata, user.id)
     staged_path = job.file_path
 
     # queue_ingest_job owns the orphan guard: a defer failure flips the job to
@@ -1065,6 +1091,7 @@ async def commit_import(
         job_id=job.id,
         status="pending",
         message="Import queued",
+        origin_link_loss=link.losses,
     )
 
 
@@ -1072,6 +1099,7 @@ async def commit_import(
     "/commit-fan-out/{job_id}",
     response_model=FanOutCommitResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    summary="Commit a staged file as one import per layer",
 )
 async def commit_fan_out(
     job_id: uuid.UUID,
@@ -1116,6 +1144,17 @@ async def commit_fan_out(
     await check_public_visibility_allowed(
         db, user, (job.user_metadata or {}).get("visibility")
     )
+
+    # A retry after an all-failed dispatch replaces the link a first attempt
+    # left on the restored parent rather than adding to it.
+    link = resolve_portal_link(request.item_id, request.portal_url)
+    kept = {
+        key: value
+        for key, value in (job.user_metadata or {}).items()
+        if key not in PORTAL_LINK_KEYS
+    }
+    if {**kept, **link.fields} != (job.user_metadata or {}):
+        job.user_metadata = {**kept, **link.fields}
 
     known_layer_names = known_layer_names_for(job)
 
@@ -1179,13 +1218,16 @@ async def commit_fan_out(
                 ),
             )
 
-    return FanOutCommitResponse(fan_out_id=job.id, results=results)
+    return FanOutCommitResponse(
+        fan_out_id=job.id, results=results, origin_link_loss=link.losses
+    )
 
 
 @router.post(
     "/register/",
     response_model=TableRegisterResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Register a PostGIS table",
 )
 async def register_table(
     request: RegisterRequest,
@@ -1233,6 +1275,7 @@ async def register_table(
 @router.get(
     "/discover/",
     response_model=DiscoverResponse,
+    summary="Discover unregistered PostGIS tables",
 )
 async def discover_tables(
     limit: int = Query(
@@ -1260,6 +1303,7 @@ async def discover_tables(
     "/register/bulk/",
     response_model=BulkRegisterResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Register several PostGIS tables",
 )
 async def bulk_register_tables(
     request: BulkRegisterRequest,
@@ -1322,6 +1366,7 @@ async def bulk_register_tables(
     "/vrt/create",
     response_model=VrtCreateResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    summary="Create a VRT dataset",
 )
 async def create_vrt(
     request: VrtCreateRequest,
@@ -1350,6 +1395,7 @@ async def create_vrt(
     "/vrt/{dataset_id}/sources/",
     response_model=VrtMutationResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    summary="Add a source to a VRT dataset",
 )
 async def add_vrt_source(
     dataset_id: uuid.UUID,
@@ -1373,6 +1419,33 @@ async def add_vrt_source(
     _port = get_processing_port()
     Dataset = _port.get_dataset_orm_class()
     Record = _port.get_record_orm_class()
+
+    # Authorize both datasets before the type-filtered lookups, so an id the
+    # caller can't read answers 404 whatever its type.
+    from app.modules.catalog.authorization import (
+        check_dataset_access,
+        check_dataset_write_access,
+        check_vrt_members,
+        get_user_roles,
+        lock_dataset_rows_for_write,
+    )
+    from app.modules.catalog.datasets.domain.service import get_dataset
+
+    user_roles = await get_user_roles(db, user)
+    source_dataset = await get_dataset(db, request.source_dataset_id)
+    vrt_dataset = await get_dataset(db, dataset_id)
+    if source_dataset is None or vrt_dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+        )
+    # The source only needs to be readable by the caller (it is being linked, not
+    # modified); the VRT itself is being mutated, so it requires owner-or-admin.
+    await check_dataset_access(
+        db, source_dataset, request.source_dataset_id, user, user_roles=user_roles
+    )
+    await check_dataset_write_access(
+        db, vrt_dataset, dataset_id, user, user_roles=user_roles
+    )
 
     vrt_result = await db.execute(
         select(RasterAsset)
@@ -1403,28 +1476,6 @@ async def add_vrt_source(
             detail=f"Source dataset {request.source_dataset_id} not found or not a raster dataset",
         )
 
-    # Authorize the new source before the duplicate-link check, so a source the
-    # caller can't read gets a 404 rather than a 409 confirming it is linked.
-    from app.modules.catalog.authorization import (
-        check_dataset_access,
-        check_dataset_write_access,
-        check_vrt_members,
-        get_user_roles,
-        lock_dataset_rows_for_write,
-    )
-    from app.modules.catalog.datasets.domain.service import get_dataset
-
-    user_roles = await get_user_roles(db, user)
-    source_dataset = await get_dataset(db, request.source_dataset_id)
-    # The source only needs to be readable by the caller (it is being linked, not
-    # modified); the VRT itself is being mutated, so it requires owner-or-admin.
-    await check_dataset_access(
-        db, source_dataset, request.source_dataset_id, user, user_roles=user_roles
-    )
-    vrt_dataset = await get_dataset(db, dataset_id)
-    await check_dataset_write_access(
-        db, vrt_dataset, dataset_id, user, user_roles=user_roles
-    )
     await check_vrt_members(db, vrt_dataset, adding=request.source_dataset_id)
 
     # Admission, not a status read: the check and the flip are one sequence,
@@ -1534,6 +1585,7 @@ async def add_vrt_source(
     "/vrt/{dataset_id}/sources/{source_dataset_id}/",
     response_model=VrtMutationResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    summary="Remove a source from a VRT dataset",
 )
 async def remove_vrt_source(
     dataset_id: uuid.UUID,

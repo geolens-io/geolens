@@ -102,7 +102,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[MapResponse | ProblemDetail]:
-    """Get Map Endpoint
+    """Get a map
 
      Get a single map with its layers.
 
@@ -133,7 +133,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> MapResponse | ProblemDetail | None:
-    """Get Map Endpoint
+    """Get a map
 
      Get a single map with its layers.
 
@@ -159,7 +159,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[MapResponse | ProblemDetail]:
-    """Get Map Endpoint
+    """Get a map
 
      Get a single map with its layers.
 
@@ -188,7 +188,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> MapResponse | ProblemDetail | None:
-    """Get Map Endpoint
+    """Get a map
 
      Get a single map with its layers.
 

@@ -15,6 +15,7 @@ import userEvent from '@testing-library/user-event';
 import { ServiceUrlForm } from '../ServiceUrlForm';
 import type { ProbeResponse } from '@/types/api';
 import { ApiError } from '@/api/client';
+import { translateApiErrorDetail } from '@/lib/error-map';
 import { clearServiceImport } from '@/api/service-url-session';
 
 const mockProbeService = vi.fn();
@@ -844,5 +845,61 @@ describe('ServiceUrlForm portal URL guidance', () => {
     expect(screen.queryByRole('combobox', { name: 'Authentication' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Probe →' })).toBeDisabled();
     expect(mockProbeService).not.toHaveBeenCalled();
+  });
+  it('announces a probe failure and ties it to the URL field', async () => {
+    const user = userEvent.setup();
+    mockProbeService.mockRejectedValue(new ApiError('Plain HTTP is refused.', 400, null));
+    render(<ServiceUrlForm />);
+
+    const input = screen.getByLabelText(/Service URL/);
+    await user.type(input, 'http://example.test/wfs');
+    await user.click(screen.getByRole('button', { name: 'Probe →' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Plain HTTP is refused.');
+    const field = screen.getByLabelText(/Service URL/);
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+    expect(field).toHaveAccessibleDescription('Plain HTTP is refused.');
+  });
+  it.each([
+    ['a URL refusal', 400, false],
+    ['a credential refusal', 403, true],
+  ])('ties %s to the matching field only', async (_label, status, credential) => {
+    const user = userEvent.setup();
+    mockProbeService.mockRejectedValue(new ApiError('Probe refused.', status, null));
+    render(<ServiceUrlForm />);
+
+    await enterUrl(user, screen.getByPlaceholderText('serviceUrl.placeholder'), 'https://example.test/wfs');
+    await user.click(screen.getByRole('combobox', { name: 'Authentication' }));
+    await user.click(await screen.findByRole('option', { name: 'Bearer token' }));
+    await user.click(screen.getByRole('button', { name: 'Probe →' }));
+
+    await screen.findByRole('alert');
+    const urlField = screen.getByLabelText(/Service URL/);
+    const tokenField = screen.getByLabelText('Bearer token');
+    expect(urlField.hasAttribute('aria-invalid')).toBe(!credential);
+    expect(tokenField.hasAttribute('aria-invalid')).toBe(credential);
+    expect(tokenField.hasAttribute('aria-describedby')).toBe(credential);
+  });
+});
+
+describe('ServiceUrlForm duplicate source still being imported', () => {
+  it('shows that the layer is already being imported', async () => {
+    const body = {
+      code: 'duplicate_source',
+      message: 'This source is already being imported.',
+      existing_job_id: '6f1c2c55-0e64-4c0e-9b8b-2d4f5b0e1a11',
+    };
+    mockProbeService.mockResolvedValue(DUPLICATE_NAME_PROBE);
+    mockPreviewServiceLayer.mockRejectedValue(
+      new ApiError(translateApiErrorDetail(body, 409), 409, body),
+    );
+
+    const { user, layerButtons } = await connectToDuplicateNameService();
+    await user.click(layerButtons[0]);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'This source is already being imported. Wait for that import to finish',
+    );
   });
 });

@@ -107,7 +107,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: ApproveRequest,
 ) -> Response[ProblemDetail | UserResponse]:
-    """Approve User
+    """Approve a pending user
 
      Approve a pending user with the specified role (admin only).
 
@@ -141,7 +141,7 @@ def sync(
     client: AuthenticatedClient,
     body: ApproveRequest,
 ) -> ProblemDetail | UserResponse | None:
-    """Approve User
+    """Approve a pending user
 
      Approve a pending user with the specified role (admin only).
 
@@ -170,7 +170,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: ApproveRequest,
 ) -> Response[ProblemDetail | UserResponse]:
-    """Approve User
+    """Approve a pending user
 
      Approve a pending user with the specified role (admin only).
 
@@ -202,7 +202,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: ApproveRequest,
 ) -> ProblemDetail | UserResponse | None:
-    """Approve User
+    """Approve a pending user
 
      Approve a pending user with the specified role (admin only).
 

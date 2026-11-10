@@ -6,12 +6,13 @@
 # Dependabot bumps this concrete patch pin. Both backend stages inherit this
 # system layer so they use the same patched runtime libraries.
 # Security invariant: fail closed if the mirror cannot supply fixed Perl.
-FROM python:3.14.7-slim AS backend-system
+FROM python:3.14.7-slim@sha256:51dafde81dbdb6ebde285137a295cf18a47ca95234fe388a343719cb97305b3d AS backend-system
 
 RUN apt-get update && apt-get upgrade -y --no-install-recommends && \
     apt-get install -y --no-install-recommends \
     gdal-bin \
     libexpat1 \
+    tdsodbc \
     xmlsec1 libxmlsec1-openssl \
     && dpkg --compare-versions \
         "$(dpkg-query -W -f='${Version}' perl-base)" \
@@ -185,7 +186,7 @@ HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=3 \
 USER appuser
 
 ENTRYPOINT ["/app/scripts/api-entrypoint.sh"]
-CMD ["sh", "-c", "uv run --no-dev uvicorn app.api.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-1} --timeout-keep-alive ${UVICORN_TIMEOUT_KEEP_ALIVE:-5} --timeout-graceful-shutdown ${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30} ${UVICORN_MAX_REQUESTS:+--limit-max-requests ${UVICORN_MAX_REQUESTS}}"]
+CMD ["sh", "-c", "uv run --no-dev uvicorn app.api.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-1} --timeout-keep-alive ${UVICORN_TIMEOUT_KEEP_ALIVE:-5} --timeout-graceful-shutdown ${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30} $([ \"${UVICORN_WORKERS:-1}\" -gt 1 ] && [ -n \"${UVICORN_MAX_REQUESTS}\" ] && printf %s \"--limit-max-requests ${UVICORN_MAX_REQUESTS}\")"]
 
 FROM backend-base AS worker
 
@@ -256,7 +257,7 @@ RUN chmod +x /scripts/backup-entrypoint.sh /scripts/restore.sh
 
 ENTRYPOINT ["/scripts/backup-entrypoint.sh"]
 
-FROM node:26.12.0-alpine AS frontend-build
+FROM node:26.12.1-alpine@sha256:40cd011b55415bc894e45b02fdd5a5dfde056921b7d23a64c74f80497af48797 AS frontend-build
 
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
@@ -302,7 +303,7 @@ RUN set -e; \
 
 RUN GEOLENS_FRONTEND_EDITION=${GEOLENS_FRONTEND_EDITION} npm run build:app
 
-FROM nginxinc/nginx-unprivileged:1.31.7-alpine AS frontend
+FROM nginxinc/nginx-unprivileged:1.31.7-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e AS frontend
 
 LABEL org.opencontainers.image.title="geolens-frontend"
 LABEL org.opencontainers.image.description="PostGIS-native GIS data catalog frontend"

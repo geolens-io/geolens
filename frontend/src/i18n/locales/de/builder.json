@@ -184,6 +184,7 @@
     "layerOpacity": "Deckkraft des Layers",
     "pointOpacityHelp": "Deckkraft der Füllung jedes Punkts. Die Ebenendeckkraft unten wird darauf multipliziert.",
     "layerOpacityHelp": "Wird mit den Deckkraft-Einstellungen oben kombiniert.",
+    "tileCapHint": "Kartenkacheln fassen bis zu {{limit}} Objekte, und diese Ebene hat {{count}}. Beim Herauszoomen sehen Leser eine Stichprobe. Fassen Sie die Punkte zu Clustern zusammen oder legen Sie eine minimale Zoomstufe fest, um alle anzuzeigen.",
     "color": "Farbe",
     "hexValueFor": "Hexadezimalwert für {{label}}",
     "hexColorValue": "Hexadezimaler Farbwert",
@@ -492,9 +493,9 @@
     "graduated": "Abgestuft",
     "column": "Spalte",
     "selectColumn": "Spalte auswählen",
-    "noTextColumns": "Keine Textspalten",
+    "noTextColumns": "Keine Text- oder Ganzzahlspalten",
     "noNumericColumns": "Keine numerischen Spalten",
-    "noTextColumnsHelp": "Kategorische Stile benötigen eine Textspalte. Wechseln Sie zum abgestuften Modus oder fügen Sie ein Textattribut hinzu.",
+    "noTextColumnsHelp": "Kategorische Stile benötigen eine Text- oder Ganzzahlspalte. Wechseln Sie zum abgestuften Modus oder fügen Sie ein Textattribut hinzu.",
     "noNumericColumnsHelp": "Abgestufte Stile benötigen eine numerische Spalte. Wechseln Sie zum kategorischen Modus oder fügen Sie ein numerisches Attribut hinzu.",
     "numericColumnsAvailable": "{{count}} numerische Spalten im abgestuften Modus verfügbar.",
     "switchToGraduated": "Zu abgestuftem Modus wechseln",
@@ -578,7 +579,8 @@
     "retry": "Erneut versuchen",
     "browseCatalogCta": "Öffentlichen Katalog durchsuchen →",
     "basemap": "Basiskarte",
-    "anotherRendering": "eine weitere Darstellung",
+    "anotherRendering": "Weitere Darstellung hinzufügen",
+    "anotherRenderingNamed": "Weitere Darstellung hinzufügen: {{name}}",
     "swap": "tauschen",
     "importData": "Daten importieren...",
     "filters": "Filter",
@@ -611,6 +613,10 @@
     "internal": "Intern",
     "privateTitle": "Nur Sie",
     "privateDescription": "Nur Sie und Administratoren können diese Karte ansehen",
+    "restrictedTitle": "Bestimmte Gruppen",
+    "restrictedDescription": "Nur Sie, Administratoren und Mitglieder der von Ihnen gewählten Gruppen",
+    "restrictedNeedsGroups": "Fügen Sie unten zuerst eine Gruppe hinzu",
+    "privateDescriptionRestricted": "Nur Sie und Administratoren. Mitglieder ihrer Gruppen verlieren den Zugriff.",
     "internalTitle": "Alle Teammitglieder",
     "internalDescription": "Alle bei GeoLens angemeldeten Benutzer können diese Karte ansehen",
     "publicTitle": "Öffentlich",
@@ -632,6 +638,7 @@
     "embedTokenInfo": "Nicht-öffentliche Layer sind enthalten. Ein Einbettungs-Token regelt den Zugriff automatisch.",
     "unsavedWarning": "Ungespeicherte Änderungen sind nur in der Builder-Vorschau sichtbar. Speichere, bevor du Links oder Einbettungen kopierst.",
     "audienceHiddenWarning": "Für Betrachter ausgeblendet: {{layers}}. Die Datensätze dieser Layer sind für das Publikum dieser Karte nicht sichtbar und daher nur für dich sichtbar.",
+    "groupHiddenWarning": "Für einige Gruppen dieser Karte ausgeblendet: {{layers}}. Einige ihrer Mitglieder können die Datensätze dieser Layer nicht lesen und sehen diese Layer daher nicht.",
     "savingWarning": "Änderungen werden gespeichert. Links und Einbettungen werden nach Abschluss aktualisiert.",
     "saveFailedWarning": "Speichern fehlgeschlagen. Links und Einbettungen zeigen weiterhin die zuletzt gespeicherte Karte, bis ein erneuter Versuch erfolgreich ist.",
     "expirationLabel": "Ablaufdatum",
@@ -643,6 +650,7 @@
     "customizeZoom": "-- Zoomstufe anpassen",
     "customizeCenter": "-- Kartenmitte anpassen",
     "customizeLegend": "-- Legende ein-/ausblenden",
+    "dashboardCollapsed": "Mit eingeklapptem Dashboard starten",
     "revokeShareLink": "Freigabelink widerrufen",
     "restrictToDomains": "Auf Domains beschränken",
     "visibilityLabel": "Kartensichtbarkeit: {{status}}",
@@ -690,18 +698,52 @@
     "revokeConfirmDescription": "Der Link funktioniert sofort nicht mehr und alle Einbettungs-Tokens dieser Karte werden ungültig. Das kann nicht rückgängig gemacht werden.",
     "revokeConfirmCancel": "Abbrechen",
     "revokeConfirmAction": "Link widerrufen",
-    "visibilityConfirmCancel": "Abbrechen",
     "makePublicConfirmTitle": "Diese Karte öffentlich machen?",
     "makePublicBlockedTitle": "Diese Karte kann noch nicht öffentlich sein",
     "makePublicConfirmDescription": "Alle können diese Karte ansehen und im Kartenkatalog finden, auch ohne Freigabelink.",
-    "makePublicBlockedIntro": "Diese Karte verwendet Datensätze, die nicht öffentlich sind:",
-    "makePublicBlockedRemedy": "Entfernen Sie diese Layer und speichern Sie die Karte, oder machen Sie die Datensätze öffentlich, wenn sie für alle sichtbar sein sollen.",
+    "makePublicBlockedIntro": "Diese Karte verwendet Datensätze, die nicht öffentlich oder nicht veröffentlicht sind:",
+    "makePublicBlockedRemedy": "Entfernen Sie diese Layer und speichern Sie die Karte, oder machen Sie die Datensätze öffentlich und veröffentlichen Sie sie, wenn sie für alle sichtbar sein sollen.",
     "makePublicCheckFailed": "Es konnte nicht geprüft werden, ob diese Karte öffentlich sein kann.",
     "makePublicCheckRetry": "Erneut versuchen",
     "makePublicConfirmAction": "Öffentlich machen",
     "leavePublicConfirmTitle": "Öffentliche Freigabe beenden?",
     "leavePublicConfirmDescription": "Bestehende Freigabelinks und Einbettungscodes funktionieren sofort nicht mehr.",
-    "leavePublicConfirmAction": "Öffentliche Freigabe beenden"
+    "leavePublicConfirmAction": "Öffentliche Freigabe beenden",
+    "groups": {
+      "title": "Gruppen",
+      "selectedLabel": "Gruppen, mit denen diese Karte geteilt wird",
+      "help": "Wählen Sie die Gruppen, die diese Karte öffnen können. Ihre Ebenen folgen weiterhin dem eigenen Zugriff des jeweiligen Datensatzes.",
+      "openedHint": "Wählen Sie Gruppen und speichern Sie dann.",
+      "effectPrivateEmpty": "Wählen Sie eine Gruppe und speichern Sie, um diese Karte mit bestimmten Gruppen zu teilen.",
+      "effectToRestricted": "Durch Speichern wird diese Karte mit bestimmten Gruppen geteilt: Nur Sie, Administratoren und Mitglieder dieser Gruppen können sie öffnen.",
+      "effectRestricted": "Durch Speichern ändert sich, welche Gruppen diese Karte öffnen können.",
+      "effectToPrivate": "Durch Speichern wird die letzte Gruppe entfernt. Nur Sie und Administratoren können diese Karte öffnen.",
+      "effectKept": "Die Gruppen ändern nicht, wer diese Karte jetzt öffnen kann. Sie gelten, wenn Sie „Bestimmte Gruppen“ wählen.",
+      "linksRevoked": "Der Freigabelink und die Einbettungstoken dieser Karte funktionieren nicht mehr, sobald sie mit Gruppen geteilt wird.",
+      "save": "Gruppen speichern",
+      "saved": "Gruppen gespeichert.",
+      "savedRestricted": "Gruppen gespeichert. Diese Karte wird jetzt nur mit bestimmten Gruppen geteilt.",
+      "savedPrivate": "Gruppen entfernt. Nur Sie und Administratoren können diese Karte öffnen.",
+      "failed": "Gruppen konnten nicht gespeichert werden",
+      "confirm": {
+        "title": "Einige Ebenen sind für diese Gruppen nicht lesbar",
+        "description": "Personen in den gewählten Gruppen können die folgenden Ebenen nicht öffnen. Entscheiden Sie, was geschehen soll, bevor die Karte geteilt wird.",
+        "layer": "{{layer}} (Datensatz: {{dataset}})",
+        "lacking": "Nicht lesbar für: {{groups}}",
+        "canShare": "Sie können diesen Datensatz mit diesen Gruppen teilen.",
+        "cannotShare": "Sie können diesen Datensatz nicht teilen, daher bleibt die Ebene für sie verborgen.",
+        "someStayHidden": "Ebenen, deren Datensatz Sie nicht teilen können, bleiben in beiden Fällen für diese Gruppen verborgen.",
+        "mapOnly": "Nur Karte teilen",
+        "shareDatasets": "Karte und Datensätze teilen",
+        "mapShared": "Karte geteilt.",
+        "sharedDatasets_one": "Karte geteilt, zusammen mit {{count}} Datensatz.",
+        "sharedDatasets_many": "Karte geteilt, zusammen mit {{count}} Datensätzen.",
+        "sharedDatasets_other": "Karte geteilt, zusammen mit {{count}} Datensätzen.",
+        "hiddenLayers_one": "{{count}} Ebene bleibt für einige Gruppen verborgen.",
+        "hiddenLayers_many": "{{count}} Ebenen bleiben für einige Gruppen verborgen.",
+        "hiddenLayers_other": "{{count}} Ebenen bleiben für einige Gruppen verborgen."
+      }
+    }
   },
   "chat": {
     "toolProgress": {
@@ -809,6 +851,9 @@
     "smallDemWarning": "Dieses DEM deckt nur einen kleinen Teil der aktuellen Ansicht ab. Zoomen Sie in die DEM-Ausdehnung hinein oder verwenden Sie als Geländequelle ein DEM, das den gesamten Kartenbereich abdeckt."
   },
   "featurePopup": {
+    "rowGone": "Dieses Objekt ist nicht mehr im Datensatz.",
+    "loadingFields": "Weitere Felder werden geladen …",
+    "fieldsFailed": "Die übrigen Felder konnten nicht geladen werden.",
     "noAttributes": "Keine Attribute",
     "zoomForAttributes": "Keine Attribute auf dieser Zoomstufe",
     "booleanTrue": "Ja",
@@ -818,8 +863,7 @@
     "prev": "Vorheriges Objekt",
     "next": "Nächstes Objekt",
     "close": "Popup schließen",
-    "dialogLabel": "Objektdetails",
-    "youtubeTitle": "YouTube-Video"
+    "dialogLabel": "Objektdetails"
   },
   "descriptionPlaceholder": "Beschreibung hinzufügen...",
   "titleBar": {
@@ -887,7 +931,10 @@
     "exportSuccess": "Karte als PNG exportiert",
     "mapNowPublic": "Karte ist jetzt öffentlich",
     "mapNowPrivate": "Karte ist jetzt privat",
+    "mapStillRestricted": "Diese Karte ist weiterhin mit Gruppen geteilt, daher können nur Sie, Admins und diese Gruppen sie öffnen",
     "mapNowInternal": "Karte ist jetzt für Teammitglieder sichtbar",
+    "mapNowRestricted": "Karte wird jetzt mit bestimmten Gruppen geteilt",
+    "mapNowPrivateGroupsCleared": "Karte ist jetzt privat. Mitglieder ihrer Gruppen haben keinen Zugriff mehr.",
     "visibilityFailed": "Sichtbarkeit konnte nicht aktualisiert werden",
     "shareLinkCopied": "Freigabelink kopiert",
     "embedCodeCopied": "Einbettungscode kopiert",
@@ -914,7 +961,10 @@
     "bulkGroupSkippedGroupRow": "Gruppen können nicht gruppiert werden – entferne Gruppenzeilen aus deiner Auswahl und versuche es erneut",
     "bulkDeleteOnlyGroupRows": "Gruppenzeilen können nicht per Massenaktion gelöscht werden – lösche eine Gruppe über das Menü ihrer Zeile",
     "bulkGrouped": "{{count}} Ebenen in „{{name}}“ gruppiert",
-    "bulkUngrouped": "{{count}} Gruppen aufgelöst"
+    "bulkUngrouped": "{{count}} Gruppen aufgelöst",
+    "dashboardWidgetInvalid": "Speichern nicht möglich: Ein Dashboard-Widget liest „{{column}}“, eine Spalte, die seinem Layer fehlt oder nicht numerisch ist. Korrigieren Sie es im Bereich Dashboard.",
+    "dashboardViewWithoutGeometry": "Speichern nicht möglich: Ein Dashboard-Widget folgt dem Kartenausschnitt auf einem Layer ohne Geometrie. Lassen Sie es im Bereich Dashboard den ganzen Layer umfassen.",
+    "dashboardChangedElsewhere": "Das Dashboard dieser Karte wurde an anderer Stelle geändert. Ihre ungespeicherten Änderungen bleiben erhalten, und beim Speichern ersetzen sie diese Änderung."
   },
   "builderMap": {
     "loading": "Karte wird geladen...",
@@ -964,7 +1014,13 @@
   "mapDelete": {
     "title": "Karte löschen",
     "description": "Möchten Sie <1>{{mapName}}</1> wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
-    "deleting": "Wird gelöscht..."
+    "deleting": "Wird gelöscht...",
+    "storiesUsing_one": "Diese Karte wird in {{count}} Story verwendet. Ihre Kapitel behalten ihren Text, verlieren aber die Szenen auf dieser Karte.",
+    "storiesUsing_other": "Diese Karte wird in {{count}} Storys verwendet. Ihre Kapitel behalten ihren Text, verlieren aber die Szenen auf dieser Karte.",
+    "hiddenStories_one": "{{count}} Story, die Sie nicht sehen können",
+    "hiddenStories_other": "{{count}} Storys, die Sie nicht sehen können",
+    "checkingStories": "Es wird geprüft, welche Storys diese Karte verwenden…",
+    "storiesCheckFailed": "Es konnte nicht geprüft werden, welche Storys diese Karte verwenden. Falls welche sie verwenden, verlieren ihre Kapitel die Szenen auf dieser Karte."
   },
   "analysisTools": {
     "title": "Analyse",
@@ -1165,7 +1221,9 @@
     "askAi": "KI fragen",
     "history": "Verlauf",
     "notes": "Notizen",
-    "notesPlaceholder": "Notizen zu dieser Karte hinzufügen..."
+    "notesPlaceholder": "Notizen zu dieser Karte hinzufügen...",
+    "dashboard": "Dashboard",
+    "dashboardDescription": "Widgets, die Leser neben der Karte sehen"
   },
   "leaveWarning": {
     "title": "Nicht gespeicherte Änderungen",
@@ -1288,6 +1346,7 @@
     "emptyRegionLabel": "Keine Layer — loslegen",
     "emptySearchButton": "Suchen und Dialog „Daten hinzufügen“ öffnen",
     "emptySearchInput": "Datensätze zum Hinzufügen suchen",
+    "emptySearchHint": "Zum Suchen die Eingabetaste drücken",
     "suggestedListLabel": "Vorgeschlagene Datensätze",
     "browseAllLabel": "Alle Datensätze im Dialog „Daten hinzufügen“ durchsuchen",
     "basemapSublayers": "Basiskarten-Sublayer",
@@ -1310,7 +1369,9 @@
     "aiGoToSettings": "Zu den Einstellungen",
     "aiConfigureSettings": "In den Einstellungen konfigurieren",
     "closePanel": "Panel schließen",
-    "notesButtonWithNotes": "Notizen (Karte hat Notizen)"
+    "notesButtonWithNotes": "Notizen (Karte hat Notizen)",
+    "dashboardButtonWithWidgets_one": "Dashboard ({{count}} Widget)",
+    "dashboardButtonWithWidgets_other": "Dashboard ({{count}} Widgets)"
   },
   "stackRow": {
     "dragHandle": "Ziehen zum Neuanordnen von {{name}}",
@@ -1336,6 +1397,7 @@
     "kebabGroupTrigger": "Gruppenoptionen für {{name}}",
     "kebabZoomToLayer": "Auf Ebene zoomen",
     "kebabAnalyzeLayer": "Diese Ebene analysieren",
+    "kebabAttributeTable": "Attributtabelle öffnen",
     "kebabCopyStyle": "Stil kopieren",
     "kebabPasteStyle": "Stil einfügen",
     "kebabPasteStyleHint": "Kopiere zuerst einen Stil von einer passenden Ebene",
@@ -1413,9 +1475,21 @@
     "newGroupItem": "Neue Gruppe…",
     "toggleExpand": "Ordnergruppe umschalten"
   },
+  "attributeTableDrawer": {
+    "layerPicker": "Layer der Attributtabelle",
+    "filterUnsupported": "Der Filter der Ebene konnte nicht angewendet werden – alle Zeilen werden angezeigt.",
+    "resizeHandle": "Attributtabelle in der Größe ändern",
+    "close": "Attributtabelle schließen",
+    "selectionMissing": "Das ausgewählte Objekt befindet sich nicht auf dieser Seite.",
+    "selectionShow": "Auswahl anzeigen",
+    "selectionShowing": "Nur das ausgewählte Objekt wird angezeigt.",
+    "selectionShowAll": "Alle Zeilen anzeigen",
+    "selectionHiddenByFilters": "Die Filter der Tabelle blenden das ausgewählte Objekt aus."
+  },
   "layerEditor": {
     "close": "Layer-Editor schließen",
     "tabsLabel": "Layer-Editor-Tabs",
+    "openAttributeTable": "Attributtabelle öffnen",
     "section": {
       "renderAs": "Darstellung",
       "appearance": "Darstellung",
@@ -1496,7 +1570,11 @@
     "projectionAria": "Kartenprojektion",
     "globeDisclaimer": "Die Globusprojektion ist experimentell. Einige Layer werden möglicherweise nicht korrekt dargestellt.",
     "terrainSmallDemTip": "Tipp: Eine Karte hat nur eine Geländequelle. Bei einem kleinen hochauflösenden DEM zoomen Sie in dessen Ausdehnung hinein oder verwenden ein DEM, das den gesamten Kartenbereich abdeckt.",
-    "openTerrainLayer": "Terrain-Ebene öffnen"
+    "openTerrainLayer": "Terrain-Ebene öffnen",
+    "readersLabel": "LESER",
+    "attributeTable": "Leser können die Attributtabelle öffnen",
+    "attributeTableOn": "Tabelle an",
+    "attributeTableOff": "Tabelle aus"
   },
   "common": {
     "reload": "Neu laden"

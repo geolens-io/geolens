@@ -22,6 +22,19 @@ function layer(overrides: Partial<TestLayer> = {}): TestLayer {
 }
 
 describe('useViewerLayers', () => {
+  it('opens the legend when it is switched on after the first render', () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 800 });
+    const { result, rerender } = renderHook(
+      ({ showLegend }) => useViewerLayers([layer()], { showLegend }),
+      { initialProps: { showLegend: false } },
+    );
+    expect(result.current.isLegendOpen).toBe(false);
+
+    rerender({ showLegend: true });
+
+    expect(result.current.isLegendOpen).toBe(true);
+  });
+
   it('tracks visibility by stable layer key instead of sort order', () => {
     const layers = [
       layer({ id: 'layer-a', dataset_id: 'dataset-a', sort_order: 0 }),
@@ -36,6 +49,22 @@ describe('useViewerLayers', () => {
     });
 
     expect(result.current.visibleLayers).toEqual(new Set(['layer-a']));
+  });
+
+  it('lists by id only the layers the reader turned off, not those saved hidden', () => {
+    const layers = [
+      layer({ id: 'shown', dataset_id: 'dataset-a' }),
+      layer({ id: 'saved-hidden', dataset_id: 'dataset-b', visible: false }),
+    ];
+    const { result } = renderHook(() => useViewerLayers(layers));
+    expect(result.current.hiddenByReader).toEqual(new Set());
+
+    act(() => result.current.handleToggleVisibility('shown'));
+    expect(result.current.hiddenByReader).toEqual(new Set(['shown']));
+
+    // Turning on a layer saved hidden hides nothing.
+    act(() => result.current.handleToggleVisibility('saved-hidden'));
+    expect(result.current.hiddenByReader).toEqual(new Set(['shown']));
   });
 
   it('starts a different map from its saved visibility', () => {

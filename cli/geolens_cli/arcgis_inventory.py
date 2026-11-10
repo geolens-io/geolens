@@ -17,6 +17,7 @@ from collections.abc import Callable, Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -357,6 +358,10 @@ class Inventory:
     truncated: bool = False
     search_ceiling: bool = False
     abort: PortalError | None = None
+    # When the reading started, by the portal's clock; None when it gave none.
+    started_at: str | None = None
+    # Every group an item is shared with, with its members; None when not read.
+    groups: list[dict[str, Any]] | None = None
 
 
 def _pages(
@@ -753,6 +758,40 @@ def _app_references(data: Mapping[str, Any]) -> list[_AppRef] | None:
     return list(unique.values())
 
 
+def _map_widgets(data: Mapping[str, Any]) -> tuple[int, list[str]] | None:
+    """(map widget count, the web map ids they show) of a dashboard, or None
+    when it lists no widgets. One count per widget, even when several show the
+    same web map; a widget Esri copies into the mobile view keeps its id, so it
+    counts once, though a copy that shows another map still adds that map."""
+    desktop = data.get("desktopView")
+    widgets = data.get("widgets")
+    if not isinstance(widgets, list) and isinstance(desktop, dict):
+        widgets = desktop.get("widgets")
+    mobile = data.get("mobileView")
+    mobile_widgets = mobile.get("widgets") if isinstance(mobile, dict) else None
+    if not isinstance(widgets, list) and not isinstance(mobile_widgets, list):
+        return None
+    count = 0
+    seen: set[str] = set()
+    maps: dict[str, None] = {}
+    for widget in [
+        *(widgets if isinstance(widgets, list) else []),
+        *(mobile_widgets if isinstance(mobile_widgets, list) else []),
+    ]:
+        if not isinstance(widget, dict) or widget.get("type") != "mapWidget":
+            continue
+        item_id = widget.get("itemId")
+        if isinstance(item_id, str) and item_id:
+            maps.setdefault(item_id)
+        widget_id = widget.get("id")
+        if isinstance(widget_id, str) and widget_id:
+            if widget_id in seen:
+                continue
+            seen.add(widget_id)
+        count += 1
+    return count, list(maps)
+
+
 def _is_web_map(data: Mapping[str, Any]) -> bool:
     """Whether *data* has a web map's structure: ``baseMap`` is required by the spec."""
     layers = data.get("operationalLayers")
@@ -874,6 +913,7 @@ class _DepResult:
     errors: list[dict[str, Any]] = field(default_factory=list)
     auth: PortalError | None = None
     saved: bool = False
+    map_widgets: tuple[int, list[str]] | None = None
 
 
 # Reads that carry no usable JSON are an app's normal state, not a failure.
@@ -921,9 +961,11 @@ def _collect_dependencies(
         """The status of one item's data read; None when it stopped the run."""
         path = f"content/items/{quote(row['id'], safe='')}/data"
         is_map = row["type"] in _MAP_CONFIG_TYPES
+        non_json = row["type"] in _NON_JSON_TYPES
         lenient = row["id"] in best_effort
         try:
-            data = client.get_json(path, array_ok=lenient)
+            # The portal answers a notebook's data with a redirect on its own host.
+            data = client.get_json(path, array_ok=lenient, follow_same_host=non_json)
         except PortalError as exc:
             _detach(exc)
             if exc.kind == "auth":
@@ -942,7 +984,7 @@ def _collect_dependencies(
                 )
             # An app registered only by URL has no data; a web map always has
             # a configuration, so an empty one is a failed read.
-            not_json_ok = lenient or row["type"] in _NON_JSON_TYPES
+            not_json_ok = lenient or non_json
             tolerated = (
                 (
                     exc.kind in _UNREADABLE_KINDS
@@ -988,6 +1030,8 @@ def _collect_dependencies(
                 status, dependencies = _extract_dependencies(
                     row, data, index, inv.portal
                 )
+                if row["type"] == "Dashboard":
+                    out.map_widgets = _map_widgets(data)
         except (TypeError, ValueError, AttributeError, KeyError, IndexError) as exc:
             # One corrupt configuration must not sink the whole inventory.
             message = (
@@ -1056,6 +1100,8 @@ def _collect_dependencies(
         for row, out in zip(targets, pool.map(fetch, targets), strict=True):
             row["dependencies_status"] = out.status
             row["data_saved"] = out.saved
+            if out.map_widgets is not None:
+                row["map_widgets"], row["map_widget_maps"] = out.map_widgets
             inv.dependencies.extend(out.dependencies)
             inv.errors.extend(out.errors)
             if out.auth is not None:
@@ -1305,6 +1351,86 @@ def _collect_owners(client: PortalClient, inv: Inventory, concurrency: int) -> N
             inv.abort = inv.abort or out.auth
 
 
+@dataclass
+class _Members:
+    usernames: list[str] | None = None
+    unread: str | None = None
+    errors: list[dict[str, Any]] = field(default_factory=list)
+    auth: PortalError | None = None
+
+
+def _member_names(data: Mapping[str, Any], redact: Redactor) -> list[str]:
+    owner = data.get("owner")
+    names = [owner] if isinstance(owner, str) else []
+    for key in ("admins", "users"):
+        listed = data.get(key)
+        names += (
+            [n for n in listed if isinstance(n, str)]
+            if isinstance(listed, list)
+            else []
+        )
+    return sorted({redact(n) for n in names if n})
+
+
+def _collect_group_members(
+    client: PortalClient, inv: Inventory, concurrency: int
+) -> None:
+    """Read the members of every group an item is shared with into
+    ``inv.groups``.
+
+    A group that hides its members from everyone but its managers and org
+    admins still answers a member with its owner and managers alone, so for
+    any other reader those members are recorded as unknown, not as the list.
+    """
+    groups: dict[str, dict[str, Any]] = {}
+    for row in inv.items:
+        for group in row["groups"] or []:
+            groups.setdefault(group["id"], dict(group))
+    org_admin = inv.auth.get("role") == "org_admin"
+    stop = threading.Event()
+
+    def fetch(group_id: str) -> _Members:
+        out = _Members()
+        if stop.is_set():
+            return out
+        base = f"community/groups/{quote(group_id, safe='')}"
+        try:
+            info = client.get_json(base)
+            hidden = bool(info.get("hiddenMembers"))
+            if hidden and not org_admin:
+                out.unread = "the group hides its members from the inventory's account"
+                return out
+            out.usernames = _member_names(
+                client.get_json(f"{base}/users"), client._redact
+            )
+        except PortalError as exc:
+            _detach(exc)
+            if exc.kind == "auth":
+                stop.set()
+                out.auth = exc
+                return out
+            out.unread = "the portal didn't list the group's members"
+            if exc.http_status not in _HIDDEN_STATUSES:
+                out.errors.append(_error_row(group_id, "group_members", exc))
+        return out
+
+    ids = sorted(groups)
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        results = dict(zip(ids, pool.map(fetch, ids), strict=True))
+    inv.groups = [
+        {
+            **groups[group_id],
+            "members": results[group_id].usernames,
+            "members_unread": results[group_id].unread,
+        }
+        for group_id in ids
+    ]
+    for out in results.values():
+        inv.errors.extend(out.errors)
+        if out.auth is not None:
+            inv.abort = inv.abort or out.auth
+
+
 def external_by_url(url: str | None, portal: Mapping[str, Any]) -> bool | None:
     """Whether a service URL lies outside the organization's own services."""
     if not url:
@@ -1399,6 +1525,23 @@ def _signed_in_user(info: Mapping[str, Any]) -> str | None:
     return name if isinstance(name, str) and name else None
 
 
+def _signed_in_role(info: Mapping[str, Any]) -> str | None:
+    user = info.get("user")
+    role = user.get("role") if isinstance(user, dict) else None
+    return role if isinstance(role, str) and role else None
+
+
+def _portal_time(header: str | None) -> str | None:
+    """An HTTP Date header as an ISO time, or None."""
+    try:
+        when = parsedate_to_datetime(header) if header else None
+    except (TypeError, ValueError):
+        return None
+    if when is None or when.tzinfo is None:
+        return None
+    return when.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
 def _mark_not_fetched(inv: Inventory) -> None:
     for row in inv.items:
         if row["dependencies_status"] == "pending":
@@ -1424,6 +1567,7 @@ def run_inventory(
     kept for a partial report.
     """
     info = client.get_json("portals/self")
+    started_at = _portal_time(client.server_date)
     username = _signed_in_user(info)
     # A server or web tier that ignores the header answers anonymously
     # rather than with a 499, so a token without an identity gets one
@@ -1450,17 +1594,18 @@ def run_inventory(
         raise PortalError(
             "the portal did not report an organization id. Use the "
             "organization's own URL (https://<org>.maps.arcgis.com, or "
-            "https://<host>/portal for ArcGIS Enterprise).",
+            "https://<host>/portal for a self-hosted portal).",
             kind="usage",
         )
     inv = Inventory(
         portal=portal,
-        auth={"mode": auth_mode, "user": username},
+        auth={"mode": auth_mode, "user": username, "role": _signed_in_role(info)},
         scope={
             "mode": scope,
             "owner": username if scope == "user" else None,
             "org_id": org_id if scope == "org" else None,
         },
+        started_at=started_at,
     )
     try:
         for raw, folder_id in _list_items(client, inv, max_items):
@@ -1477,6 +1622,8 @@ def run_inventory(
     _collect_details(client, inv, concurrency, read_groups and auth_mode != "anonymous")
     if inv.abort is None:
         _collect_owners(client, inv, concurrency)
+    if inv.abort is None and read_groups and auth_mode != "anonymous":
+        _collect_group_members(client, inv, concurrency)
     if inv.abort is not None:
         _mark_not_fetched(inv)
         return inv
@@ -1587,6 +1734,10 @@ def _clock() -> float:
     return time.monotonic()
 
 
+def _iso_now() -> str:
+    return datetime.now(tz=UTC).isoformat().replace("+00:00", "Z")
+
+
 def run_cli(fmt: _output.Formatter, opts: InventoryOptions) -> int:
     """Run ``geolens arcgis inventory`` and return its exit code."""
     redact = Redactor()
@@ -1622,6 +1773,7 @@ def _run(fmt: _output.Formatter, opts: InventoryOptions, redact: Redactor) -> in
         clock=_clock,
         on_request=lambda method, path: fmt.debug(redact(f"{method} {path}")),
     )
+    started_at_local = _iso_now()
     try:
         if password is not None and opts.username:
             client.generate_token(opts.username, password)
@@ -1642,7 +1794,8 @@ def _run(fmt: _output.Formatter, opts: InventoryOptions, redact: Redactor) -> in
     report = _report.build_report(
         inv,
         tool_version=_tool_version(),
-        generated_at=datetime.now(tz=UTC).isoformat().replace("+00:00", "Z"),
+        generated_at=_iso_now(),
+        started_at_local=started_at_local,
         max_items=opts.max_items,
         retirements=RETIREMENTS,
         classes=CLASSES,

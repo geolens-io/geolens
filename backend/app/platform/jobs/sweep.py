@@ -45,7 +45,6 @@ from app.platform.jobs.heartbeat import ANALYSIS_MATERIALIZE_LEASE_SECONDS
 from app.platform.jobs.models import (
     ACTIVE_STATUSES,
     ANALYSIS_OUTPUT_TABLE_FIELD,
-    COMMIT_ATTEMPTED_METADATA_KEY,
     EMBEDDING_BACKFILL_METADATA_KEY,
     FAN_OUT_INTERRUPTED_METADATA_KEY,
     PUBLISH_FOLLOWUPS_FIELD,
@@ -56,6 +55,7 @@ from app.platform.jobs.models import (
     UNREAPED_ARTIFACT_FIELDS,
     IngestJob,
     carries_unreaped,
+    dispatch_attempted,
     holds_unarchived_original,
     needs_staged_input,
     owned_presigned_staging_key,
@@ -164,10 +164,7 @@ def abandoned_upload():
     way; a bound S3 direct upload still settles ``failed`` after the 24h
     backstop.
     """
-    return (
-        func.coalesce(IngestJob.user_metadata[COMMIT_ATTEMPTED_METADATA_KEY].astext, "")
-        == ""
-    )
+    return ~dispatch_attempted()
 
 
 def no_unclaimed_queue_entry():
@@ -599,6 +596,9 @@ def unadopted_analysis_tables_from_metadata(user_metadata: object) -> tuple[str,
     return recorded_analysis_output_tables(user_metadata)
 
 
+_OVERVIEW_KEY_RE = r"\.ovr[0-9]*\.tif$"
+
+
 async def _live_referenced_storage_keys(
     keys: tuple[str, ...], *, owed_cogs: bool = False
 ) -> set[str]:
@@ -622,6 +622,7 @@ async def _live_referenced_storage_keys(
     # asyncpg's 32767-arg ceiling at ~8192 keys, and a failed query skips
     # every delete.
     keys_param = bindparam("reap_keys", value=list(keys), type_=ARRAY(Text))
+    overview_key = func.unnest(keys_param).column_valued("overview_key")
     arms = [
         select(RasterAsset.asset_uri.label("key")).where(
             RasterAsset.asset_uri == any_(keys_param)
@@ -634,6 +635,13 @@ async def _live_referenced_storage_keys(
         ),
         select(DatasetAsset.href.label("key")).where(
             DatasetAsset.href == any_(keys_param)
+        ),
+        # A VRT's overview files have no column of their own: they sit beside
+        # the VRT and share its lifetime.
+        select(overview_key.label("key")).where(
+            overview_key.op("~")(_OVERVIEW_KEY_RE),
+            RasterAsset.asset_uri
+            == func.regexp_replace(overview_key, _OVERVIEW_KEY_RE, ".vrt"),
         ),
     ]
     if owed_cogs:
@@ -944,6 +952,9 @@ def _stale_generation_storage_keys(
     from app.core.tenancy import is_multi_tenant
     from app.platform.storage.titiler_url import resolve_storage_key
 
+    from app.processing.raster.vrt import overview_keys_for
+
+    overview_names = overview_keys_for("source.vrt")
     tenant_id = current_tenant_var.get()
     if is_multi_tenant() and tenant_id is None:
         return ()
@@ -954,7 +965,12 @@ def _stale_generation_storage_keys(
             tenant_id=tenant_id,
         )
         for generation_id, vrt_dataset_id in stale_generations
-        for suffix in ("source.vrt", "quicklook_256.png", "quicklook_512.png")
+        for suffix in (
+            "source.vrt",
+            *overview_names,
+            "quicklook_256.png",
+            "quicklook_512.png",
+        )
     )
 
 

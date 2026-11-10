@@ -28,7 +28,12 @@ from app.modules.embed_tokens.service import (
     resolve_embed_scope_for_map,
 )
 
-from tests.factories import create_dataset, get_user_id
+from tests.factories import (
+    create_dataset,
+    create_user,
+    get_user_id,
+    set_tile_columns,
+)
 
 
 async def _downgrade_to_private(session, dataset: Dataset) -> None:
@@ -206,6 +211,34 @@ class TestSharedMapEmbedScope:
             test_db_session, raw_token, uuid.UUID(map_a)
         )
         assert scope_a == {ds_a.id}
+
+
+class TestDatasetTileColumnsField:
+    async def test_the_shared_layer_carries_the_tile_column_allowlist(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        listed = await create_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        unlisted = await create_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        await test_db_session.execute(
+            update(Dataset)
+            .where(Dataset.id == listed.id)
+            .values(tile_columns=["kind", "height"])
+        )
+        await test_db_session.commit()
+        _map_id, share_token, layer_ids = await _make_public_shared_map(
+            client, admin_auth_header, [str(listed.id), str(unlisted.id)]
+        )
+
+        resp = await client.get(f"/maps/shared/{share_token}")
+        assert resp.status_code == 200
+        by_id = {layer["id"]: layer for layer in resp.json()["layers"]}
+        assert by_id[layer_ids[0]]["dataset_tile_columns"] == ["kind", "height"]
+        assert by_id[layer_ids[1]]["dataset_tile_columns"] is None
 
 
 class TestDatasetExtentBboxField:
@@ -469,3 +502,431 @@ class TestSharedMapColumnTitles:
             {"name": "pop", "type": "integer", "title": "Population"},
             {"name": "plain", "type": "text"},
         ]
+
+    async def test_shared_payload_carries_the_semantic_role_of_exposed_columns(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="public",
+            column_info=[
+                {"name": "year_built", "type": "integer"},
+                {"name": "floors", "type": "integer"},
+            ],
+        )
+        test_db_session.add_all(
+            [
+                AttributeMetadata(
+                    dataset_id=ds.id, field_name="year_built", semantic_role="temporal"
+                ),
+                AttributeMetadata(dataset_id=ds.id, field_name="floors"),
+                AttributeMetadata(
+                    dataset_id=ds.id,
+                    field_name="not_exposed",
+                    semantic_role="identifier",
+                ),
+            ]
+        )
+        await test_db_session.commit()
+        _map_id, share_token, _ = await _make_public_shared_map(
+            client, admin_auth_header, [str(ds.id)]
+        )
+
+        resp = await client.get(f"/maps/shared/{share_token}")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["layers"][0]["column_info"] == [
+            {"name": "year_built", "type": "integer", "semantic_role": "temporal"},
+            {"name": "floors", "type": "integer"},
+        ]
+
+
+class TestBuilderMapColumnTitles:
+    async def _titled_map(self, client, headers, session) -> str:
+        admin_id = await get_user_id(session, "admin")
+        ds = await create_dataset(
+            session,
+            created_by=admin_id,
+            visibility="public",
+            column_info=[
+                {"name": "land_use", "type": "text"},
+                {"name": "plain", "type": "text"},
+            ],
+        )
+        session.add_all(
+            [
+                AttributeMetadata(
+                    dataset_id=ds.id,
+                    field_name="land_use",
+                    title="Land use",
+                    value_labels={"R": "Residential"},
+                ),
+                AttributeMetadata(
+                    dataset_id=ds.id, field_name="not_exposed", title="Internal"
+                ),
+            ]
+        )
+        await session.commit()
+        create_resp = await client.post(
+            "/maps/", json={"name": "Builder titles"}, headers=headers
+        )
+        map_id = create_resp.json()["id"]
+        layer_resp = await client.post(
+            f"/maps/{map_id}/layers", json={"dataset_id": str(ds.id)}, headers=headers
+        )
+        assert layer_resp.status_code == 201, layer_resp.text
+        return map_id
+
+    @pytest.mark.parametrize("call", ["read", "update", "duplicate", "transfer"])
+    async def test_map_responses_carry_titles_and_labels_of_their_columns(
+        self, call, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        map_id = await self._titled_map(client, admin_auth_header, test_db_session)
+
+        if call == "read":
+            resp = await client.get(f"/maps/{map_id}", headers=admin_auth_header)
+        elif call == "update":
+            resp = await client.put(
+                f"/maps/{map_id}", json={"name": "Renamed"}, headers=admin_auth_header
+            )
+        elif call == "duplicate":
+            resp = await client.post(
+                f"/maps/{map_id}/duplicate/", json={}, headers=admin_auth_header
+            )
+        else:
+            _headers, new_owner_id = await create_user(
+                client, admin_auth_header, "editor"
+            )
+            resp = await client.patch(
+                f"/maps/{map_id}",
+                json={"owner_id": new_owner_id},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code in (200, 201), resp.text
+        assert resp.json()["layers"][0]["dataset_column_info"] == [
+            {
+                "name": "land_use",
+                "type": "text",
+                "title": "Land use",
+                "value_labels": {"R": "Residential"},
+            },
+            {"name": "plain", "type": "text"},
+        ]
+        assert "Internal" not in resp.text
+
+
+class TestSharedMapValueLabels:
+    async def _embed_map(
+        self,
+        client,
+        admin_auth_header,
+        session,
+        labels,
+        tile_columns=None,
+        private=True,
+    ):
+        admin_id = await get_user_id(session, "admin")
+        ds = await create_dataset(
+            session,
+            created_by=admin_id,
+            visibility="public",
+            column_info=[
+                {"name": "status", "type": "integer"},
+                {"name": "plain", "type": "text"},
+            ],
+        )
+        session.add_all(
+            [
+                AttributeMetadata(
+                    dataset_id=ds.id, field_name="status", value_labels=labels
+                ),
+                AttributeMetadata(
+                    dataset_id=ds.id,
+                    field_name="not_exposed",
+                    value_labels={"1": "Internal"},
+                ),
+                AttributeMetadata(
+                    dataset_id=ds.id,
+                    field_name="status_old",
+                    value_labels={"1": "Removed"},
+                    is_current=False,
+                ),
+            ]
+        )
+        await session.commit()
+        map_id, share_token, _ = await _make_public_shared_map(
+            client, admin_auth_header, [str(ds.id)]
+        )
+        _token_obj, raw_token = await create_embed_token(
+            session, uuid.UUID(map_id), admin_id
+        )
+        await session.commit()
+        if private:
+            await _downgrade_to_private(session, ds)
+        await set_tile_columns(session, ds.id, tile_columns)
+        return share_token, raw_token
+
+    async def test_an_embed_viewer_gets_labels_for_exposed_columns_only(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        share_token, raw_token = await self._embed_map(
+            client, admin_auth_header, test_db_session, {"1": "Active"}
+        )
+
+        resp = await client.get(
+            f"/maps/shared/{share_token}", headers={"X-Embed-Token": raw_token}
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["layers"][0]["column_info"] == [
+            {"name": "status", "type": "integer", "value_labels": {"1": "Active"}},
+            {"name": "plain", "type": "text"},
+        ]
+        assert "Internal" not in resp.text
+        assert "Removed" not in resp.text
+
+    @pytest.mark.parametrize(
+        ("allowlist", "expected"),
+        [
+            (["plain"], [{"name": "plain", "type": "text"}]),
+            (
+                ["status"],
+                [
+                    {
+                        "name": "status",
+                        "type": "integer",
+                        "value_labels": {"1": "Active"},
+                    }
+                ],
+            ),
+            ([], []),
+            (
+                None,
+                [
+                    {
+                        "name": "status",
+                        "type": "integer",
+                        "value_labels": {"1": "Active"},
+                    },
+                    {"name": "plain", "type": "text"},
+                ],
+            ),
+        ],
+        ids=["listed", "listed_labelled", "empty", "unset"],
+    )
+    async def test_an_embed_viewer_sees_only_the_allowlisted_columns(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        allowlist,
+        expected,
+    ):
+        share_token, raw_token = await self._embed_map(
+            client, admin_auth_header, test_db_session, {"1": "Active"}, allowlist
+        )
+
+        resp = await client.get(
+            f"/maps/shared/{share_token}", headers={"X-Embed-Token": raw_token}
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["layers"][0]["column_info"] == expected
+        if not any(col["name"] == "status" for col in expected):
+            assert "Active" not in resp.text
+
+    @pytest.mark.parametrize(
+        ("caller", "private"),
+        [("signed_in", True), ("embed", False)],
+        ids=["signed_in", "embed_on_a_public_dataset"],
+    )
+    async def test_these_viewers_still_see_every_column(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        caller,
+        private,
+    ):
+        share_token, raw_token = await self._embed_map(
+            client,
+            admin_auth_header,
+            test_db_session,
+            {"1": "Active"},
+            ["plain"],
+            private=private,
+        )
+        headers = (
+            admin_auth_header if caller == "signed_in" else {"X-Embed-Token": raw_token}
+        )
+
+        resp = await client.get(f"/maps/shared/{share_token}", headers=headers)
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["layers"][0]["column_info"] == [
+            {"name": "status", "type": "integer", "value_labels": {"1": "Active"}},
+            {"name": "plain", "type": "text"},
+        ]
+
+    async def test_a_viewer_without_access_to_the_dataset_gets_no_labels(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        share_token, _raw_token = await self._embed_map(
+            client, admin_auth_header, test_db_session, {"1": "Active"}
+        )
+
+        resp = await client.get(f"/maps/shared/{share_token}")
+
+        assert resp.status_code == 200
+        assert resp.json()["layers"] == []
+        assert "Active" not in resp.text
+
+    async def test_labels_over_the_layer_budget_are_left_out(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+    ):
+        from app.modules.catalog.maps import service_public
+
+        labels = {str(i): f"label {i}" for i in range(50)}
+        share_token, raw_token = await self._embed_map(
+            client, admin_auth_header, test_db_session, labels
+        )
+        monkeypatch.setattr(service_public, "SHARED_VALUE_LABELS_MAX_BYTES", 100)
+
+        resp = await client.get(
+            f"/maps/shared/{share_token}", headers={"X-Embed-Token": raw_token}
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["layers"][0]["column_info"][0] == {
+            "name": "status",
+            "type": "integer",
+        }
+
+    @staticmethod
+    def _attribute_statements(captured, fetched_labels: bool):
+        """Statements on attribute_metadata that read the labels themselves, or only their size."""
+        return [
+            (sql, params)
+            for sql, params in captured
+            if "attribute_metadata" in sql
+            and "value_labels" in sql
+            and ("octet_length" not in sql) == fetched_labels
+        ]
+
+    async def test_labels_of_unexposed_columns_are_never_selected(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        from sqlalchemy import event
+        from sqlalchemy.engine import Engine
+
+        share_token, raw_token = await self._embed_map(
+            client, admin_auth_header, test_db_session, {"1": "Active"}
+        )
+        captured: list = []
+
+        def record(conn, cursor, statement, parameters, context, executemany):
+            captured.append((statement, repr(parameters)))
+
+        event.listen(Engine, "before_cursor_execute", record)
+        try:
+            resp = await client.get(
+                f"/maps/shared/{share_token}", headers={"X-Embed-Token": raw_token}
+            )
+        finally:
+            event.remove(Engine, "before_cursor_execute", record)
+
+        assert resp.status_code == 200, resp.text
+        reads = self._attribute_statements(captured, fetched_labels=True)
+        sizes = self._attribute_statements(captured, fetched_labels=False)
+        assert len(reads) == 1 and len(sizes) == 1
+        for _sql, params in reads + sizes:
+            assert "status" in params
+            assert "not_exposed" not in params
+
+    async def test_an_over_budget_layer_never_reads_its_labels_but_keeps_its_titles(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+    ):
+        from sqlalchemy import event, update
+        from sqlalchemy.engine import Engine
+
+        from app.modules.catalog.maps import service_public
+
+        labels = {str(i): f"label {i}" for i in range(50)}
+        share_token, raw_token = await self._embed_map(
+            client, admin_auth_header, test_db_session, labels
+        )
+        await test_db_session.execute(
+            update(AttributeMetadata)
+            .where(AttributeMetadata.field_name == "status")
+            .values(title="Status")
+        )
+        await test_db_session.commit()
+        monkeypatch.setattr(service_public, "SHARED_VALUE_LABELS_MAX_BYTES", 100)
+        captured: list = []
+
+        def record(conn, cursor, statement, parameters, context, executemany):
+            captured.append((statement, repr(parameters)))
+
+        event.listen(Engine, "before_cursor_execute", record)
+        try:
+            resp = await client.get(
+                f"/maps/shared/{share_token}", headers={"X-Embed-Token": raw_token}
+            )
+        finally:
+            event.remove(Engine, "before_cursor_execute", record)
+
+        assert resp.status_code == 200, resp.text
+        assert self._attribute_statements(captured, fetched_labels=True) == []
+        assert resp.json()["layers"][0]["column_info"][0] == {
+            "name": "status",
+            "type": "integer",
+            "title": "Status",
+        }
+
+    async def test_the_exposed_pair_filter_uses_a_constant_number_of_parameters(
+        self, test_db_session
+    ):
+        from sqlalchemy import event
+        from sqlalchemy.engine import Engine
+
+        from app.modules.catalog.maps.service_public import (
+            _attribute_display_by_dataset,
+        )
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
+            test_db_session, created_by=admin_id, visibility="public"
+        )
+        test_db_session.add(
+            AttributeMetadata(
+                dataset_id=ds.id, field_name="status", value_labels={"1": "Active"}
+            )
+        )
+        await test_db_session.commit()
+        exposed = {ds.id: {"status"}} | {
+            uuid.uuid4(): {f"col_{i}" for i in range(10)} for _ in range(300)
+        }
+        counts: list[int] = []
+
+        def record(conn, cursor, statement, parameters, context, executemany):
+            if "attribute_metadata" in statement:
+                counts.append(len(parameters))
+
+        event.listen(Engine, "before_cursor_execute", record)
+        try:
+            display = await _attribute_display_by_dataset(test_db_session, exposed)
+        finally:
+            event.remove(Engine, "before_cursor_execute", record)
+
+        assert display == {ds.id: {"status": {"value_labels": {"1": "Active"}}}}
+        assert len(counts) == 2
+        assert max(counts) <= 4
+
+    def test_the_layer_budget_is_64_kb(self):
+        from app.modules.catalog.maps.service_public import (
+            SHARED_VALUE_LABELS_MAX_BYTES,
+        )
+
+        assert SHARED_VALUE_LABELS_MAX_BYTES == 64 * 1024

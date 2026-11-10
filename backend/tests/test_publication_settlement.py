@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from contextlib import ExitStack
+from functools import partial
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -15,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import app.core.db as db_module
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.platform.catalog_locks import CATALOG_LOCK_CONFLICT_CODE
-from app.platform.dataset_origin import set_dataset_origin
+from app.platform.dataset_origin import KEEP, SourceBinding, restamp
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import create_pending_run
@@ -37,6 +38,11 @@ _POINT = "POINT(5 5)"
 _created: list[tuple[uuid.UUID, uuid.UUID, str]] = []
 
 
+def _bind(dataset: Dataset, url: str) -> None:
+    binding = SourceBinding.from_ref("wfs", {**_BINDING, "url": url}, uri=url)
+    restamp(dataset, binding, contacted_at=None, refreshed_at=KEEP)
+
+
 async def _candidate(
     session, *, refresh: bool, run: bool = True, origin_url: str = _WFS
 ) -> tuple[Dataset, IngestJob, uuid.UUID]:
@@ -50,9 +56,7 @@ async def _candidate(
         source_format="wfs",
         geometry_type="Point",
     )
-    set_dataset_origin(
-        dataset, "service", uri=origin_url, **{**_BINDING, "url": origin_url}
-    )
+    _bind(dataset, origin_url)
     await session.execute(
         sa.text(
             f'CREATE TABLE data."{live}" '
@@ -233,6 +237,62 @@ async def test_manual_service_reupload_publishes_without_a_refresh_run(
     assert await _live(dataset) == "candidate"
     async with db_module.async_session() as session:
         assert (await session.get(Dataset, dataset.id)).current_version == 2
+
+
+async def _link_dataset(dataset, job, link: dict) -> None:
+    """Make the candidate an ArcGIS service dataset that holds a portal link."""
+    async with db_module.async_session() as session:
+        row = await session.get(Dataset, dataset.id)
+        row.source_format = "arcgis_featureserver"
+        row.origin_ref = {
+            **row.origin_ref,
+            **link,
+            "service_type": "arcgis_featureserver",
+            "layer_id": "0",
+        }
+        stored = await session.get(IngestJob, job.id)
+        stored.user_metadata = {
+            **stored.user_metadata,
+            "service_type": "ArcGIS FeatureServer",
+            "layer_id": "0",
+        }
+        stored.source_layer = "0"
+        await session.commit()
+
+
+async def test_a_refresh_keeps_the_portal_item_link(test_db_session):
+    """The swap restamps the origin, and the link to the portal item survives it."""
+    dataset, job, admin_id = await _candidate(test_db_session, refresh=True)
+    link = {"item_id": "0" * 32, "portal_url": "https://portal.example.test/portal"}
+    await _link_dataset(dataset, job, link)
+
+    await _reupload(dataset, job, admin_id, expected=1)
+
+    assert (await _run(job.id)).status == "succeeded"
+    async with db_module.async_session() as session:
+        ref = (await session.get(Dataset, dataset.id)).origin_ref
+    assert {key: ref.get(key) for key in link} == link
+
+
+async def test_a_replace_that_moves_the_host_drops_the_link_and_the_job_says_so(
+    test_db_session,
+):
+    """A portal link that no longer matches the new service host is not carried over."""
+    dataset, job, admin_id = await _candidate(test_db_session, refresh=False, run=False)
+    await _link_dataset(
+        dataset,
+        job,
+        {"item_id": "1" * 32, "portal_url": "https://org.maps.arcgis.com"},
+    )
+
+    await _reupload(dataset, job, admin_id)
+
+    async with db_module.async_session() as session:
+        ref = (await session.get(Dataset, dataset.id)).origin_ref
+    assert "item_id" not in ref and "portal_url" not in ref
+    assert (await _job(job.id)).user_metadata["origin_link_loss"] == [
+        "portal_url_domain_mismatch"
+    ]
 
 
 async def test_rejected_refresh_settles_without_swapping_live_data(
@@ -656,12 +716,7 @@ async def test_source_rebind_is_fenced_through_settlement_before_swap(
     run.source_binding_fingerprint = canonical_service_source_binding_fingerprint(
         _BINDING
     )
-    set_dataset_origin(
-        dataset,
-        "service",
-        uri="https://services.example.test/rebound",
-        **{**_BINDING, "url": "https://services.example.test/rebound"},
-    )
+    _bind(dataset, "https://services.example.test/rebound")
     await test_db_session.commit()
 
     with pytest.raises(Exception, match="source changed"):
@@ -809,3 +864,39 @@ async def test_a_failure_after_a_rebind_leaves_the_new_binding_undated(
 
     async with db_module.async_session() as session:
         assert (await session.get(Dataset, dataset.id)).last_checked_at is None
+
+
+async def _rebind_elsewhere(dataset: Dataset) -> None:
+    async with db_module.async_session() as session:
+        row = await session.get(Dataset, dataset.id)
+        elsewhere = "https://services.example.test/elsewhere"
+        _bind(row, elsewhere)
+        await session.commit()
+
+
+@pytest.mark.parametrize(
+    ("before", "during", "stamped"),
+    [(False, False, True), (True, False, False), (False, True, False)],
+    ids=["as_fetched", "rebound_before_the_attempt", "rebound_during_fetch"],
+)
+async def test_a_held_back_refresh_dates_only_the_binding_it_fetched(
+    test_db_session, before: bool, during: bool, stamped: bool
+):
+    """A blocked refresh dates contact and drift only while the dataset is bound to what it fetched."""
+    dataset, job, admin_id = await _candidate(test_db_session, refresh=True)
+    if before:
+        await _rebind_elsewhere(dataset)
+
+    await _reupload(
+        dataset,
+        job,
+        admin_id,
+        expected=None,
+        during=partial(_rebind_elsewhere, dataset) if during else None,
+    )
+
+    assert (await _run(job.id)).status == "blocked"
+    async with db_module.async_session() as session:
+        row = await session.get(Dataset, dataset.id)
+    assert (row.last_checked_at is not None) is stamped
+    assert (row.schema_drift_status is not None) is stamped

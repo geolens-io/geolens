@@ -15,6 +15,8 @@ import {
 } from './LayerStyleEditor/utils';
 import { LazyLoadErrorBoundary } from '@/components/error';
 import { getLayerType, resolveAdapterType } from '@/components/builder/map-sync';
+import { TILE_FEATURE_LIMIT, exceedsTileFeatureLimit } from './cluster-source';
+import { formatNumber } from '@/lib/format';
 import { isNumericColumn } from '@/lib/column-utils';
 import { stripLegacyBuilderPaint } from '@/lib/normalize-style-config';
 import { GeometrySwatch } from '@/components/map/LegendEntries';
@@ -636,6 +638,14 @@ export const LayerStyleEditor = memo(function LayerStyleEditor({
           format="zoom"
           onChange={(val) => onLayoutChange(layer.id, { ...layoutObj, '_maxzoom': val })}
         />
+        {renderMode !== 'cluster' && !layoutObj['_minzoom'] && exceedsTileFeatureLimit(layer) && (
+          <p className="text-xs text-muted-foreground">
+            {t('style.tileCapHint', {
+              limit: formatNumber(TILE_FEATURE_LIMIT),
+              count: formatNumber(layer.dataset_feature_count),
+            })}
+          </p>
+        )}
       </StyleControlSection>
 
       {/* Data-driven style editor — hidden when in heatmap/symbol/cluster mode */}

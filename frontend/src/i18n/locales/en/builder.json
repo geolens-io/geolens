@@ -184,6 +184,7 @@
     "layerOpacity": "Layer opacity",
     "pointOpacityHelp": "Opacity of each point's fill. Layer opacity below is multiplied on top.",
     "layerOpacityHelp": "Combined with the opacity settings above.",
+    "tileCapHint": "Map tiles hold up to {{limit}} features, and this layer has {{count}}. Zoomed out, readers see a sample. Cluster the points or set a minimum zoom to show them all.",
     "color": "Color",
     "hexValueFor": "{{label}} hex value",
     "hexColorValue": "Hex color value",
@@ -492,9 +493,9 @@
     "graduated": "Graduated",
     "column": "Column",
     "selectColumn": "Select column",
-    "noTextColumns": "No text columns",
+    "noTextColumns": "No text or integer columns",
     "noNumericColumns": "No numeric columns",
-    "noTextColumnsHelp": "Categorical styles need a text column. Switch to graduated mode or add a text attribute.",
+    "noTextColumnsHelp": "Categorical styles need a text or integer column. Switch to graduated mode or add a text attribute.",
     "noNumericColumnsHelp": "Graduated styles need a numeric column. Switch to categorical mode or add a numeric attribute.",
     "numericColumnsAvailable": "{{count}} numeric columns available in graduated mode.",
     "switchToGraduated": "Switch to graduated mode",
@@ -578,7 +579,8 @@
     "retry": "Try again",
     "browseCatalogCta": "Browse public catalog →",
     "basemap": "Basemap",
-    "anotherRendering": "another rendering",
+    "anotherRendering": "Add another rendering",
+    "anotherRenderingNamed": "Add another rendering: {{name}}",
     "swap": "swap",
     "importData": "Import data...",
     "filters": "Filters",
@@ -611,6 +613,10 @@
     "internal": "Internal",
     "privateTitle": "Only you",
     "privateDescription": "Only you and admins can view this map",
+    "restrictedTitle": "Specific groups",
+    "restrictedDescription": "Only you, admins and members of the groups you choose",
+    "restrictedNeedsGroups": "Add a group below first",
+    "privateDescriptionRestricted": "Only you and admins. Members of its groups lose access.",
     "internalTitle": "All team members",
     "internalDescription": "Anyone signed in to GeoLens can view this map",
     "publicTitle": "Public",
@@ -632,6 +638,7 @@
     "embedTokenInfo": "Non-public layers are included. An embed token handles access automatically.",
     "unsavedWarning": "Unsaved changes are only in the builder preview. Save before copying links or embeds.",
     "audienceHiddenWarning": "Hidden from viewers: {{layers}}. These layers' datasets are not visible to this map's audience, so they will not appear for anyone but you.",
+    "groupHiddenWarning": "Hidden from some of this map's groups: {{layers}}. Some of their members can't read these layers' datasets, so they won't see these layers.",
     "savingWarning": "Saving changes. Share links and embeds update after this save finishes.",
     "saveFailedWarning": "Save failed. Share links and embeds still show the last saved map until you retry successfully.",
     "expirationLabel": "Expiration",
@@ -643,6 +650,7 @@
     "customizeZoom": "-- override zoom level",
     "customizeCenter": "-- override map center",
     "customizeLegend": "-- show/hide legend",
+    "dashboardCollapsed": "Start with the dashboard collapsed",
     "revokeShareLink": "Revoke Share Link",
     "restrictToDomains": "Restrict to domains",
     "visibilityLabel": "Map visibility: {{status}}",
@@ -690,18 +698,52 @@
     "revokeConfirmDescription": "The link will stop working immediately and any embed tokens for this map will be invalidated. This cannot be undone.",
     "revokeConfirmCancel": "Cancel",
     "revokeConfirmAction": "Revoke link",
-    "visibilityConfirmCancel": "Cancel",
     "makePublicConfirmTitle": "Make this map public?",
     "makePublicBlockedTitle": "This map can't be public yet",
     "makePublicConfirmDescription": "Everyone will be able to view this map and find it in the Maps catalog, without a share link.",
-    "makePublicBlockedIntro": "This map uses datasets that aren't public:",
-    "makePublicBlockedRemedy": "Remove those layers and save the map, or make the datasets public if everyone should see them.",
+    "makePublicBlockedIntro": "This map uses datasets that aren't public or aren't published:",
+    "makePublicBlockedRemedy": "Remove those layers and save the map, or make the datasets public and published if everyone should see them.",
     "makePublicCheckFailed": "Couldn't check whether this map can be public.",
     "makePublicCheckRetry": "Retry",
     "makePublicConfirmAction": "Make public",
     "leavePublicConfirmTitle": "Stop sharing publicly?",
     "leavePublicConfirmDescription": "Existing share links and embed codes will stop working immediately.",
-    "leavePublicConfirmAction": "Stop public sharing"
+    "leavePublicConfirmAction": "Stop public sharing",
+    "groups": {
+      "title": "Groups",
+      "selectedLabel": "Groups this map is shared with",
+      "help": "Choose the groups that can open this map. Its layers still follow each dataset's own access.",
+      "openedHint": "Pick groups, then save.",
+      "effectPrivateEmpty": "Pick a group and save to share this map with specific groups.",
+      "effectToRestricted": "Saving shares this map with specific groups: only you, admins and members of these groups can open it.",
+      "effectRestricted": "Saving changes which groups can open this map.",
+      "effectToPrivate": "Saving removes the last group. Only you and admins can open this map.",
+      "effectKept": "The groups don't change who can open this map now. They apply if you choose Specific groups.",
+      "linksRevoked": "This map's share link and embed tokens stop working once it is shared with groups.",
+      "save": "Save groups",
+      "saved": "Groups saved.",
+      "savedRestricted": "Groups saved. This map is now shared with specific groups only.",
+      "savedPrivate": "Groups removed. Only you and admins can open this map.",
+      "failed": "Could not save groups",
+      "confirm": {
+        "title": "Some layers can't be read by these groups",
+        "description": "People in the groups you picked can't open the layers below. Choose what to do before the map is shared.",
+        "layer": "{{layer}} (dataset: {{dataset}})",
+        "lacking": "Not readable by: {{groups}}",
+        "canShare": "You can share this dataset with those groups.",
+        "cannotShare": "You can't share this dataset, so the layer stays hidden from them.",
+        "someStayHidden": "Layers whose dataset you can't share stay hidden from those groups either way.",
+        "mapOnly": "Share map only",
+        "shareDatasets": "Share map and datasets",
+        "mapShared": "Map shared.",
+        "sharedDatasets_one": "Map shared, along with {{count}} dataset.",
+        "sharedDatasets_many": "Map shared, along with {{count}} datasets.",
+        "sharedDatasets_other": "Map shared, along with {{count}} datasets.",
+        "hiddenLayers_one": "{{count}} layer stays hidden from some groups.",
+        "hiddenLayers_many": "{{count}} layers stay hidden from some groups.",
+        "hiddenLayers_other": "{{count}} layers stay hidden from some groups."
+      }
+    }
   },
   "chat": {
     "toolProgress": {
@@ -809,6 +851,9 @@
     "smallDemWarning": "This DEM only covers a small part of the current view. Zoom in to the DEM extent, or use a DEM that covers the whole map area as the terrain source."
   },
   "featurePopup": {
+    "rowGone": "This feature is no longer in the dataset.",
+    "loadingFields": "Loading more fields…",
+    "fieldsFailed": "Could not load the other fields.",
     "noAttributes": "No attributes",
     "zoomForAttributes": "No attributes at this zoom",
     "booleanTrue": "Yes",
@@ -818,8 +863,7 @@
     "prev": "Previous feature",
     "next": "Next feature",
     "close": "Close popup",
-    "dialogLabel": "Feature details",
-    "youtubeTitle": "YouTube video"
+    "dialogLabel": "Feature details"
   },
   "descriptionPlaceholder": "Add a description...",
   "titleBar": {
@@ -887,7 +931,10 @@
     "exportSuccess": "Map exported as PNG",
     "mapNowPublic": "Map is now public",
     "mapNowPrivate": "Map is now private",
+    "mapStillRestricted": "This map is still shared with groups, so only you, admins and those groups can open it",
     "mapNowInternal": "Map is now visible to team members",
+    "mapNowRestricted": "Map is now shared with specific groups",
+    "mapNowPrivateGroupsCleared": "Map is now private. Members of its groups no longer have access.",
     "visibilityFailed": "Failed to update visibility",
     "shareLinkCopied": "Share link copied",
     "embedCodeCopied": "Embed code copied",
@@ -914,7 +961,10 @@
     "bulkGroupSkippedGroupRow": "Groups can't be grouped — remove any group rows from your selection and try again",
     "bulkDeleteOnlyGroupRows": "Group rows can't be bulk-deleted — use a group's row menu to delete it",
     "bulkGrouped": "Grouped {{count}} layers into \"{{name}}\"",
-    "bulkUngrouped": "Ungrouped {{count}} groups"
+    "bulkUngrouped": "Ungrouped {{count}} groups",
+    "dashboardWidgetInvalid": "Can't save: a dashboard widget reads “{{column}}”, a column that its layer doesn't have or that isn't numeric. Fix it in the Dashboard panel.",
+    "dashboardViewWithoutGeometry": "Can't save: a dashboard widget follows the map view on a layer with no geometry. Set it to cover the whole layer in the Dashboard panel.",
+    "dashboardChangedElsewhere": "This map's dashboard was changed somewhere else. Your unsaved dashboard edits are kept, and saving replaces that change."
   },
   "builderMap": {
     "loading": "Loading map...",
@@ -964,7 +1014,13 @@
   "mapDelete": {
     "title": "Delete map",
     "description": "Are you sure you want to delete <1>{{mapName}}</1>? This action cannot be undone.",
-    "deleting": "Deleting..."
+    "deleting": "Deleting...",
+    "storiesUsing_one": "This map is used in {{count}} story. Its chapters keep their text but lose the scenes on this map.",
+    "storiesUsing_other": "This map is used in {{count}} stories. Their chapters keep their text but lose the scenes on this map.",
+    "hiddenStories_one": "{{count}} story you can't see",
+    "hiddenStories_other": "{{count}} stories you can't see",
+    "checkingStories": "Checking which stories use this map…",
+    "storiesCheckFailed": "Couldn't check which stories use this map. Their chapters lose this map's scenes if any use it."
   },
   "analysisTools": {
     "title": "Analysis",
@@ -1169,7 +1225,9 @@
     "askAi": "Ask AI",
     "history": "History",
     "notes": "Notes",
-    "notesPlaceholder": "Add notes about this map..."
+    "notesPlaceholder": "Add notes about this map...",
+    "dashboard": "Dashboard",
+    "dashboardDescription": "Widgets readers see beside the map"
   },
   "leaveWarning": {
     "title": "Unsaved changes",
@@ -1292,6 +1350,7 @@
     "emptyRegionLabel": "No layers — get started",
     "emptySearchButton": "Search and open Add Data modal",
     "emptySearchInput": "Search datasets to add",
+    "emptySearchHint": "Press Enter to search",
     "suggestedListLabel": "Suggested datasets",
     "browseAllLabel": "Browse all datasets in the Add Data modal",
     "basemapSublayers": "Basemap sublayers",
@@ -1314,7 +1373,9 @@
     "aiPermissionBody": "You don't have permission to use AI chat.",
     "aiGoToSettings": "Go to Settings",
     "aiConfigureSettings": "Configure in Settings",
-    "notesButtonWithNotes": "Notes (map has notes)"
+    "notesButtonWithNotes": "Notes (map has notes)",
+    "dashboardButtonWithWidgets_one": "Dashboard ({{count}} widget)",
+    "dashboardButtonWithWidgets_other": "Dashboard ({{count}} widgets)"
   },
   "stackRow": {
     "dragHandle": "Drag to reorder {{name}}",
@@ -1340,6 +1401,7 @@
     "categoricalSummary_other": "{{column}} · {{count}} categories",
     "kebabZoomToLayer": "Zoom to layer",
     "kebabAnalyzeLayer": "Analyze this layer",
+    "kebabAttributeTable": "Open attribute table",
     "kebabCopyStyle": "Copy style",
     "kebabPasteStyle": "Paste style",
     "kebabPasteStyleHint": "Copy a style from a matching layer first",
@@ -1417,6 +1479,17 @@
     "deleteConfirmCancel": "Keep group",
     "newGroupItem": "New group…"
   },
+  "attributeTableDrawer": {
+    "layerPicker": "Attribute table layer",
+    "filterUnsupported": "The layer's filter could not be applied — showing every row.",
+    "resizeHandle": "Resize attribute table",
+    "close": "Close attribute table",
+    "selectionMissing": "The selected feature isn't on this page.",
+    "selectionShow": "Show selected",
+    "selectionShowing": "Showing the selected feature only.",
+    "selectionShowAll": "Show all rows",
+    "selectionHiddenByFilters": "The selected feature is hidden by the table's filters."
+  },
   "layerEditor": {
     "close": "Close layer editor",
     "deleteLayer": "Delete layer",
@@ -1424,6 +1497,7 @@
     "deleteLayerConfirmAction": "Delete",
     "deleteLayerConfirmCancel": "Keep layer",
     "tabsLabel": "Layer editor tabs",
+    "openAttributeTable": "Open attribute table",
     "section": {
       "renderAs": "Render as",
       "appearance": "Appearance",
@@ -1506,7 +1580,11 @@
     "projectionAria": "Map projection",
     "globeDisclaimer": "Globe projection is experimental. Some layers may not render correctly.",
     "terrainSmallDemTip": "Tip: a map has one terrain source. For a small high-resolution DEM, zoom in to its extent, or use a DEM that covers the whole map area.",
-    "openTerrainLayer": "Open terrain layer"
+    "openTerrainLayer": "Open terrain layer",
+    "readersLabel": "READERS",
+    "attributeTable": "Readers can open the attribute table",
+    "attributeTableOn": "Table on",
+    "attributeTableOff": "Table off"
   },
   "cluster": {
     "popupTitle_one": "Cluster: {{countLabel}} feature",

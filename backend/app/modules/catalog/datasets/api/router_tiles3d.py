@@ -127,6 +127,7 @@ async def _chained(first: bytes, rest: AsyncIterator[bytes]) -> AsyncIterator[by
         412: PRECONDITION_FAILED_RESPONSE,
         502: BAD_GATEWAY_RESPONSE,
     },
+    summary="Get a 3D Tiles file",
 )
 # A client loads a tileset's files many at a time, and a per-IP budget shared
 # by every file would stall it, so the route is exempt like the tile routes.

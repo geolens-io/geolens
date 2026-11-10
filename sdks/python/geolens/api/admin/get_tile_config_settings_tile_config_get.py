@@ -65,7 +65,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | TileConfigResponse]:
-    """Get Tile Config
+    """Get tile configuration
 
      Return tile delivery configuration (public, no auth required).
 
@@ -90,7 +90,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> ProblemDetail | TileConfigResponse | None:
-    """Get Tile Config
+    """Get tile configuration
 
      Return tile delivery configuration (public, no auth required).
 
@@ -111,7 +111,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ProblemDetail | TileConfigResponse]:
-    """Get Tile Config
+    """Get tile configuration
 
      Return tile delivery configuration (public, no auth required).
 
@@ -134,7 +134,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> ProblemDetail | TileConfigResponse | None:
-    """Get Tile Config
+    """Get tile configuration
 
      Return tile delivery configuration (public, no auth required).
 

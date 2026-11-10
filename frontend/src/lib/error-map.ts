@@ -16,6 +16,11 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   'Dataset not found': 'errors.datasetNotFound',
   'Collection not found': 'errors.collectionNotFound',
   'Map not found': 'errors.mapNotFound',
+  'Story not found': 'errors.storyNotFound',
+  "Only the story's owner or an admin can change it": 'errors.notAuthorizedResource',
+  'Another change to this story is in progress. Retry shortly.': 'errors.storyLocked',
+  "This story was saved by a newer version of GeoLens and can't be changed here.":
+    'errors.storyNewerVersion',
   'Incorrect username or password': 'errors.incorrectCredentials',
   'Your account is awaiting approval': 'errors.awaitingApproval',
   'Account not active': 'errors.accountNotActive',
@@ -32,9 +37,22 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   'Feature not found': 'errors.featureNotFound',
   'Layer not found': 'errors.layerNotFound',
   'User not found': 'errors.userNotFound',
+  'Group not found': 'errors.groupNotFound',
+  "This dashboard was saved by a newer version of GeoLens and can't be changed here.":
+    'errors.dashboardTooNew',
+  'A dashboard holds at most 50 widgets': 'errors.dashboardTooManyWidgets',
+  'Another change to this map is in progress. Retry shortly.': 'errors.mapChangeInProgress',
+  'Share the map with a group before making it restricted.': 'errors.mapRestrictedNeedsGroups',
+  'You can share a dataset only with groups you belong to.': 'errors.groupNotJoined',
+  'You can share a map only with groups you belong to.': 'errors.groupNotJoined',
+  'User is not a member of this group': 'errors.groupMemberNotFound',
+  "This VRT would reach people who cannot see all of its source datasets. Narrow the VRT's visibility or use sources its audience can see.":
+    'errors.vrtAudienceExceedsSources',
   'API key not found': 'errors.apiKeyNotFound',
   'This dataset already has 100 active keys. Revoke one to create another.':
     'errors.datasetKeyLimit',
+  'Value labels for this dataset are over the 1 MB limit.':
+    'errors.valueLabelsTooLarge',
   'Access denied': 'errors.accessDenied',
   'Could not validate credentials': 'errors.couldNotValidateCredentials',
   'Inactive user': 'errors.inactiveUser',
@@ -64,8 +82,11 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   // token is the fix.
   'This service requires authentication. Provide a valid ArcGIS token and try again.':
     'errors.serviceRequiresAuth',
+  'Decoding the point cloud failed unexpectedly.': 'errors.uploadError',
   'Could not reach the service. Check the URL and try again.':
     'errors.couldNotReachService',
+  "Couldn't detect service type. Supported: WFS, ArcGIS Feature Service, and OGC API Features":
+    'errors.serviceNotRecognized',
   "Service didn't respond in time. Check the URL and try again.":
     'errors.serviceTimeout',
   'Remote service returned an error': 'errors.remoteServiceError',
@@ -293,9 +314,29 @@ function formatInteger(raw: string): string {
   }
 }
 
+// Story writes answer with a stable `code`; the message beside it is English
+// diagnostic text. The editor handles the stale-revision, blocking-map and
+// missing-map codes itself, so only these reach a message.
+const STORY_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
+  scenes_unreadable: 'errors.storyScenesUnreadable',
+  visibility_unsupported: 'errors.storyVisibilityUnsupported',
+  story_image_unreadable: 'errors.storyImageUnreadable',
+  story_image_too_large: 'errors.storyImageTooLarge',
+  story_image_unsupported: 'errors.storyImageUnsupported',
+  story_image_busy: 'errors.storyImageBusy',
+  story_image_missing: 'errors.storyImageMissing',
+  story_asset_limit: 'errors.storyAssetLimit',
+  story_asset_owner_limit: 'errors.storyAssetOwnerLimit',
+  story_assets_not_found: 'errors.storyAssetsNotFound',
+  story_frame_host_not_allowed: 'errors.storyFrameHostNotAllowed',
+};
+
 function descriptorForMessage(message: string, status: number): ApiErrorDescriptor {
   const exactKey = EXACT_ERROR_KEYS[message.trim()];
   if (exactKey) return { key: exactKey };
+
+  const groupName = message.match(/^A group named '(.*)' already exists$/s);
+  if (groupName) return { key: 'errors.groupNameTaken', values: { name: groupName[1] } };
 
   const storageQuota = message.match(
     /^Storage quota exceeded:\s*used\s+(\d+)\s+of\s+(\d+)\s+bytes\s+\(adding\s+(\d+)\s+bytes\)$/i,
@@ -413,16 +454,30 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
     };
   }
 
+  // The write door's unknown-column refusal adds this tail only for columns
+  // that exist in the live table but not in the stored column list.
+  const columnsNeedRefresh = message.match(
+    /^Unknown property columns: .*?\. (.+) exists in the table but not in GeoLens's column list; refresh the dataset/is,
+  );
+  if (columnsNeedRefresh) {
+    return {
+      key: 'errors.columnsNeedRefresh',
+      values: { columns: columnsNeedRefresh[1] },
+    };
+  }
+
   // The backend names the offending maps so a human can fix them. `s` (dotAll)
   // because a map name may contain a newline; `$` is dropped so a trailing
   // newline can't truncate the list.
   const strandedMaps = message.match(
-    /^Cannot restrict visibility: dataset is used in shared maps:\s*([\s\S]+)/i,
+    /^Cannot (?:restrict visibility|(unpublish)): dataset is used in shared maps:\s*([\s\S]+)/i,
   );
   if (strandedMaps) {
     return {
-      key: 'errors.datasetVisibilityBlockedByMaps',
-      values: { maps: strandedMaps[1] },
+      key: strandedMaps[1]
+        ? 'errors.datasetUnpublishBlockedByMaps'
+        : 'errors.datasetVisibilityBlockedByMaps',
+      values: { maps: strandedMaps[2] },
     };
   }
 
@@ -534,6 +589,14 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
           }
         : { key: 'errors.workflowTransitionDeniedNoneAllowed', values };
     }
+    // A map save refusing dashboard widgets names them by id, which a reader can't act on.
+    if (Array.isArray(value.widget_ids)) {
+      return { key: 'errors.dashboardWidgetsRefused' };
+    }
+    // An import still running has no dataset to name yet, only its job.
+    if (value.code === 'duplicate_source' && typeof value.existing_job_id === 'string') {
+      return { key: 'errors.duplicateSourceImporting' };
+    }
     if (value.code === 'duplicate_source') {
       return {
         key: 'errors.duplicateSource',
@@ -544,6 +607,9 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
               : i18n.t('common:notAvailable'),
         },
       };
+    }
+    if (value.code === 'database_connection_missing' && typeof value.connection === 'string') {
+      return { key: 'errors.databaseConnectionMissing', values: { connection: value.connection } };
     }
     // invalid_service_token's message is the token policy, whose allowed alphabet
     // varies by service type, so it can't be a static key; interpolating server
@@ -594,6 +660,9 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
     if (value.code === 'arcgis_portal_not_https') {
       return { key: 'errors.arcgisPortalNotHttps' };
     }
+    if (value.code === 'credential_over_http') {
+      return { key: 'errors.credentialOverHttp' };
+    }
     // arcgis_portal_host_invalid (sources/arcgis_signin.py HOST_INVALID): a 422 for
     // a portal hostname that can't be canonicalized; same shape as above.
     if (value.code === 'arcgis_portal_host_invalid') {
@@ -611,12 +680,21 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
       return { key: 'errors.reuploadGeometryLoss' };
     }
 
+    if (value.code === 'unsupported_layer_type') {
+      return { key: 'errors.serviceLayerNoFeatures' };
+    }
+    if (value.code === 'unsupported_geometry') {
+      return { key: 'errors.serviceGeometryUnsupported' };
+    }
+
     // service_token_required's body is an English diagnostic for API clients.
     // SourceRefreshAction.tsx intercepts the code first; this keeps the mapping
     // correct for any other caller of `classifyApiError`.
     if (value.code === 'service_token_required') {
       return { key: 'errors.refreshServiceTokenRequired' };
     }
+    const storyKey = typeof value.code === 'string' ? STORY_ERROR_KEYS[value.code] : undefined;
+    if (storyKey) return { key: storyKey };
 
     // Checked after the specific codes so it never shadows one; `geometry_loss`
     // wins first.

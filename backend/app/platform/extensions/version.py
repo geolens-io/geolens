@@ -147,7 +147,24 @@ logger = logging.getLogger(__name__)
 # method. The tile-token endpoints ask it for every mosaic they mint at once
 # and leave out a refused mosaic's bounds, so an overlay replacing the
 # ``processing_port`` slot without it fails every raster tile token.
-EXTENSION_API_VERSION: int = 18
+#
+# 18 -> 19: a ``restricted`` dataset is now also readable by members of the
+# sharing groups granted on it (``dataset_group_grants``). Same signatures, a
+# different policy: an overlay replacing the ``permission`` slot must add the
+# group branch to ``filter_visible``, ``can_access_dataset`` and
+# ``record_audience``, or it denies group members everything core says they
+# can read.
+#
+# 19 -> 20: CacheProvider gained required ``compare_and_set`` and
+# ``compare_and_delete`` methods for atomic, token-guarded health-alert claims.
+# Cache implementations supplied by overlays must implement both operations.
+# 20 -> 21: ProcessingPort.build_gdal_source gained the optional ``return_z``
+# keyword so an ArcGIS layer that stores Z is queried with ``returnZ=true``.
+# 21 -> 22: BrandingExtension gained the required ``get_reader_theme`` method;
+# an overlay's branding extension without it serves pages no reader theme.
+# 22 -> 23: CatalogPort gained the required ``queue_ingest_job`` and
+# ``refresh_database_task`` methods for database import and refresh.
+EXTENSION_API_VERSION: int = 23
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:

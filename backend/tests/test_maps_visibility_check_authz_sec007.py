@@ -1,7 +1,7 @@
 """Regression tests: /maps/{id}/visibility-check/ authorization.
 
-The endpoint loaded the map and checked existence but never called
-`_check_map_read_access`, so any editor (the `edit_metadata` permission) could
+The endpoint loaded the map and checked existence but never checked read
+access, so any editor (the `edit_metadata` permission) could
 enumerate the non-public dataset names of ANY map by UUID — including PRIVATE
 maps owned by other users they cannot read. The fix gates on read access to the
 map before disclosing its non-public datasets.

@@ -92,6 +92,7 @@ vi.mock('@/hooks/use-maps', () => ({
   useRemoveLayer: () => ({}),
   useExportMapStyleJson: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useImportMapStyleJson: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useLayersHiddenFromMapGroups: () => new Set(),
 }));
 
 vi.mock('@/hooks/use-ai-availability', () => ({
@@ -129,6 +130,7 @@ vi.mock('@/components/builder/hooks/use-builder-dialogs', () => ({
 // SettingsEditorScene without driving the sidebar cog.
 vi.mock('@/components/builder/hooks/use-builder-layers', () => ({
   useBuilderLayers: () => ({
+    dashboard: { panel: 'right', widgets: [] },
     localLayers: [],
     savedLayerBaseline: [],
     localName: 'Operations Map',

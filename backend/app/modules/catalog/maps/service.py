@@ -6,7 +6,6 @@ embed-token, ProcessingPort, and test callers.
 """
 
 from app.modules.catalog.maps.service_crud import (
-    MapAssetPublication,
     check_map_ownership,
     create_map,
     delete_map,
@@ -16,11 +15,22 @@ from app.modules.catalog.maps.service_crud import (
     get_map_with_layers,
     list_maps,
     lock_map_for_asset_write,
-    map_asset_publication,
     new_map_asset_key,
     update_map,
 )
 from app.modules.catalog.maps.service_diff import apply_layer_diff
+from app.modules.catalog.maps.service_group_gaps import (
+    DatasetGroupNotJoinedError,
+    LayersHiddenFromGroupsError,
+)
+from app.modules.catalog.maps.service_groups import (
+    map_groups,
+    map_group_layer_gaps,
+    RestrictedWithoutGroupsError,
+    record_map_groups_change,
+    set_map_groups,
+    unshare_group_maps,
+)
 from app.modules.catalog.maps.service_history import (
     list_map_history,
     record_map_history_event,
@@ -46,11 +56,11 @@ from app.modules.catalog.maps.service_public import (
     revoke_share_token_by_map,
     update_share_token,
     validate_public_visibility,
+    with_attribute_display,
 )
 from app.modules.catalog.maps.service_shared import (
     DatasetMeta,
     LayerRow,
-    _apply_map_visibility_filter,
     _fetch_layer_rows_ordered,
     _infer_layer_type,
     _resolve_save_response_metadata,
@@ -59,12 +69,22 @@ from app.modules.catalog.maps.service_shared import (
     get_dataset_meta,
     with_visible_vrt_extents,
 )
+from app.platform.storage.publication import AssetPublication as MapAssetPublication
+from app.platform.storage.publication import asset_publication as map_asset_publication
 
 __all__ = [
     "MapAssetPublication",
     "DatasetMeta",
     "LayerRow",
     "check_map_ownership",
+    "map_groups",
+    "map_group_layer_gaps",
+    "DatasetGroupNotJoinedError",
+    "LayersHiddenFromGroupsError",
+    "RestrictedWithoutGroupsError",
+    "record_map_groups_change",
+    "set_map_groups",
+    "unshare_group_maps",
     "get_dataset_meta",
     "generate_default_style",
     "create_map",
@@ -101,8 +121,8 @@ __all__ = [
     "_resolve_save_response_metadata",
     "filter_layer_rows_by_dataset_visibility",
     "terrain_dataset_ids_visible_to",
-    "_apply_map_visibility_filter",
     "_infer_layer_type",
     "_validate_share_token",
     "with_visible_vrt_extents",
+    "with_attribute_display",
 ]

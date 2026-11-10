@@ -6,7 +6,8 @@
     "url": "文件 URL",
     "register": "注册数据表",
     "service": "服务 URL",
-    "stac": "STAC 目录"
+    "stac": "STAC 目录",
+    "database": "数据库"
   },
   "vrt": {
     "pageTitle": "创建虚拟栅格",
@@ -169,7 +170,7 @@
     "tilesetSubtext": "GeoLens 会在存储前检查每个压缩包并读取其 tileset.json。"
   },
   "stac": {
-    "label": "STAC API URL；粘贴目录根端点",
+    "label": "STAC API URL · 粘贴目录根端点",
     "connect": "连接",
     "connecting": "正在连接 STAC 目录...",
     "searching": "正在搜索条目...",
@@ -190,9 +191,11 @@
     "failureGroupCount_one": "{{count}} 个条目",
     "failureGroupCount_other": "{{count}} 个条目",
     "failureUnknown": "未知错误",
+    "itemErrorImportFailed": "无法导入此条目。",
+    "itemErrorTooLong": "条目 ID 或资源链接过长，无法保存。",
     "importMore": "导入更多",
     "backToResults": "返回结果列表",
-    "catalogConnected": "STAC 目录；已连接",
+    "catalogConnected": "STAC 目录 · 已连接",
     "clear": "清空",
     "collectionsAvailable_one": "{{count}} 个可用集合",
     "collectionsAvailable_other": "{{count}} 个可用集合",
@@ -263,7 +266,7 @@
     "label": "服务 URL",
     "placeholder": "https://example.com/wfs、ArcGIS 要素服务或 OGC API 端点",
     "arcgisPortalUrlHint": "这看起来是 ArcGIS 组织或门户页面，而不是图层。请打开图层的项目页面，复制其 REST URL（以 /FeatureServer/0 或 /MapServer/0 结尾）并粘贴到此处。受保护的图层会在粘贴图层 URL 后要求登录。",
-    "detectedLabel": "服务 URL；已检测到",
+    "detectedLabel": "服务 URL · 已检测到",
     "clear": "清空",
     "layersAvailable_one": "{{count}} 个可用图层",
     "layersAvailable_other": "{{count}} 个可用图层",
@@ -317,7 +320,7 @@
     "arcgisTokenExpiredMidImport": "在打开此页面期间，您的 ArcGIS 登录已过期。请返回并重新登录以继续。"
   },
   "urlImport": {
-    "label": "文件 URL；由服务器端抓取",
+    "label": "文件 URL · 由服务器端抓取",
     "placeholder": "https://data.source.coop/…/buildings.parquet",
     "fetch": "抓取 →",
     "fetching": "正在下载文件...",
@@ -386,7 +389,10 @@
     "completePointCloudDesc": "在数据集的“访问”标签页获取 COPC 文件网址。",
     "completeDesc": "已完成的数据集可在目录中查看。",
     "pointcloudLabel": "COPC 点云",
-    "pointcloudDesc": "供外部 COPC 客户端使用；没有内置地图预览。"
+    "pointcloudDesc": "供外部 COPC 客户端使用；没有内置地图预览。",
+    "databaseHint": "从数据库导入",
+    "databaseDesc": "从管理员已连接的数据库中选择空间表或视图。GeoLens 会将其复制到目录中，用于切片和查询。",
+    "databaseNote": "只读访问 · 刷新会重新复制该表"
   },
   "register": {
     "discovering": "正在发现表...",
@@ -402,6 +408,7 @@
     },
     "visibilityLabel": "可见性",
     "visibilityPrivate": "私有",
+    "visibilityInternal": "内部",
     "visibilityPublic": "公开",
     "registering": "正在注册...",
     "registerButton_one": "注册 {{count}} 张表",
@@ -470,6 +477,7 @@
     "descriptionPlaceholder": "可选描述",
     "visibilityLabel": "可见性",
     "visibilityPrivate": "私有",
+    "visibilityInternal": "内部",
     "visibilityPublic": "公开",
     "crsLabel": "CRS 覆盖",
     "crsPlaceholderDetected": "留空以使用检测到的 CRS（{{crs}}）",
@@ -669,5 +677,31 @@
     "crs": "坐标参考系",
     "pointFormat": "点格式",
     "size": "大小"
-  }
+  },
+  "database": {
+    "loadingConnections": "正在加载数据库连接…",
+    "connection": "连接",
+    "loadingTables": "正在列出空间表…",
+    "listFailed": "无法列出此连接的表。",
+    "retry": "重试",
+    "noTables": "在 {{database}} 中未找到空间表或视图。",
+    "filterLabel": "筛选表",
+    "filterPlaceholder": "模式.表",
+    "tablesLegend": "{{database}} 中的空间表",
+    "view": "视图",
+    "table": "表",
+    "noSrid": "无 SRID",
+    "noMatches": "没有符合筛选条件的表。",
+    "truncated": "仅列出前 {{limit}} 个空间列，因此可能缺少某些表。",
+    "srsNeeded": "此表没有自己的 SRID。请在下一步输入其坐标所用的 EPSG 代码。",
+    "continue": "继续",
+    "back": "返回表列表",
+    "reviewing": "正在从 {{connection}} 导入 {{table}}",
+    "importFailed": "无法开始导入。",
+    "crsHint": "此表没有 SRID。请输入其坐标所用的 EPSG 代码。",
+    "alreadyImported": "已导入：“{{title}}”",
+    "notImportable": "此名称包含 GeoLens 无法导入的字符。"
+  },
+  "capabilitiesFailed": "无法检查可用的数据库连接，因此可能缺少“数据库”来源。",
+  "capabilitiesRetry": "重试"
 }

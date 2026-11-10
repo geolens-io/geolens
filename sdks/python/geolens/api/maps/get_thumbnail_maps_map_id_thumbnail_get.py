@@ -103,7 +103,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[File | ProblemDetail]:
-    """Get Thumbnail
+    """Get a map thumbnail
 
      Serve map thumbnail image from storage (visibility-checked).
 
@@ -134,7 +134,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> File | ProblemDetail | None:
-    """Get Thumbnail
+    """Get a map thumbnail
 
      Serve map thumbnail image from storage (visibility-checked).
 
@@ -160,7 +160,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[File | ProblemDetail]:
-    """Get Thumbnail
+    """Get a map thumbnail
 
      Serve map thumbnail image from storage (visibility-checked).
 
@@ -189,7 +189,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> File | ProblemDetail | None:
-    """Get Thumbnail
+    """Get a map thumbnail
 
      Serve map thumbnail image from storage (visibility-checked).
 

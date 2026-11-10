@@ -3,13 +3,15 @@ import re
 import uuid
 from datetime import datetime, timezone
 from enum import Enum, StrEnum
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any, Literal, TypedDict
 
 from pydantic import (
     AwareDatetime,
     BaseModel,
     ConfigDict,
     Field,
+    FiniteFloat,
+    PlainSerializer,
     StringConstraints,
     field_validator,
     model_serializer,
@@ -18,6 +20,8 @@ from pydantic import (
 
 from app.core.edition import is_enterprise
 from app.core.text import normalize_nfc as _nfc
+from app.modules.auth.schemas import GroupRef
+from app.modules.catalog.maps.dashboard import DashboardConfig, DashboardConfigInput
 from app.modules.catalog.maps.filter_grammar import validate_filter
 from app.modules.catalog.maps.publish_vocabulary import (
     LABEL_CONFIG_DESCRIPTION,
@@ -27,7 +31,11 @@ from app.modules.catalog.maps.sharing_policy import (
     SHARE_EXPIRATION_SELECTION_ERROR,
     ShareExpirationPresetDays,
 )
+from app.modules.catalog.maps.visibility_contract import (
+    restricted_map_visibility_opted_in,
+)
 from app.modules.embed_tokens.schemas import ADVANCED_SHARING_ERROR
+from app.platform.extensions.reader_theme import ReaderTheme
 
 LEGACY_BUILDER_PAINT_KEYS = {
     "_outline-width": "outline_width",
@@ -297,10 +305,28 @@ class PopupConfig(BaseModel):
 
 
 class MapVisibility(StrEnum):
-    # 'restricted' is omitted: only datasets support it.
+    """Who may read a map. A response names `restricted` only to a client
+    that sends `X-GeoLens-Map-Visibility: restricted`; any other client
+    reads a restricted map as `private`."""
+
     private = "private"
     internal = "internal"
     public = "public"
+    restricted = "restricted"
+
+
+def _project_map_visibility(value: MapVisibility) -> MapVisibility:
+    if value == MapVisibility.restricted and not restricted_map_visibility_opted_in():
+        return MapVisibility.private
+    return value
+
+
+ReadMapVisibility = Annotated[
+    MapVisibility,
+    PlainSerializer(
+        _project_map_visibility, return_type=MapVisibility, when_used="json"
+    ),
+]
 
 
 class TerrainConfig(BaseModel):
@@ -652,7 +678,12 @@ class MapLayerInput(BaseModel):
         default=None, description="MapLibre paint properties override"
     )
     layout: dict | None = Field(
-        default=None, description="MapLibre layout properties override"
+        default=None,
+        description=(
+            "MapLibre layout properties override. `_minzoom` and `_maxzoom` set "
+            "the zoom range where the layer is visible; the exported style "
+            "writes them as `minzoom` and `maxzoom`."
+        ),
     )
     display_name: str | None = Field(
         default=None, max_length=255, description="Label shown in the layer list"
@@ -714,7 +745,11 @@ class MapLayerPatch(BaseModel):
         default=None, description="MapLibre paint properties override"
     )
     layout: dict | None = Field(
-        default=None, description="MapLibre layout properties override"
+        default=None,
+        description=(
+            "MapLibre layout properties override. `_minzoom` and `_maxzoom` set "
+            "the zoom range where the layer is visible."
+        ),
     )
     display_name: str | None = Field(default=None, max_length=255)
     filter: list | None = Field(default=None, description="MapLibre filter expression")
@@ -850,8 +885,12 @@ class MapUpdate(BaseModel):
     def normalize_nfc(cls, v: str | None) -> str | None:
         return _nfc(v)
 
-    center_lng: float | None = Field(default=None, description="Map center longitude")
-    center_lat: float | None = Field(default=None, description="Map center latitude")
+    center_lng: FiniteFloat | None = Field(
+        default=None, description="Map center longitude"
+    )
+    center_lat: FiniteFloat | None = Field(
+        default=None, description="Map center latitude"
+    )
     zoom: float | None = Field(default=None, ge=0, le=24, description="Map zoom level")
     bearing: float | None = Field(
         default=None, ge=-180, le=180, description="Map rotation in degrees"
@@ -863,6 +902,15 @@ class MapUpdate(BaseModel):
         default=None, max_length=2000, description="Basemap style ID or URL"
     )
     show_basemap_labels: bool | None = None
+    show_attribute_table: bool | None = Field(
+        default=None,
+        description=(
+            "Whether viewers offer each layer's attribute table. Embed tokens "
+            "for the map may read a layer's rows only while it is on; the "
+            "columns they may read come from each dataset's tile column "
+            "allowlist."
+        ),
+    )
     basemap_config: BasemapConfig | None = Field(
         default=None,
         description="Curated map-level basemap appearance preferences",
@@ -871,8 +919,17 @@ class MapUpdate(BaseModel):
         default=None,
         description="Map-level terrain source and exaggeration preferences",
     )
+    dashboard_config: DashboardConfigInput | None = Field(
+        default=None,
+        description="The dashboard. Omit to keep it; null removes the widgets you see.",
+    )
     visibility: MapVisibility | None = Field(
-        default=None, description="private, internal, or public"
+        default=None,
+        description=(
+            "private, internal, public or restricted. A map shared with groups "
+            "is restricted when it would otherwise be private, so private keeps "
+            "it restricted; restricted needs at least one group."
+        ),
     )
     layers: list[MapLayerInput] | None = Field(
         default=None,
@@ -890,6 +947,16 @@ class MapUpdate(BaseModel):
         description=(
             "Custom map-level legend title. Null or empty leaves the legend "
             "without a heading override. At most 120 characters."
+        ),
+    )
+    # Excluded from model_dump: a precondition, not a field the save writes.
+    expected_updated_at: datetime | None = Field(
+        default=None,
+        exclude=True,
+        description=(
+            "The map's `updated_at` the caller read. When set and the map has "
+            "changed since, nothing is written and the answer is 409 with "
+            "`detail.code` `stale_write`. Omit it to write unconditionally."
         ),
     )
 
@@ -918,6 +985,7 @@ class DatasetMetaKwargs(TypedDict, total=False):
     table_name: str
     extent: object
     column_info: list | None
+    tile_columns: list[str] | None
     feature_count: int | None
     sample_values: dict | None
     record_type: str | None
@@ -939,7 +1007,21 @@ class MapLayerResponse(BaseModel):
     dataset_geometry_type: str | None
     dataset_table_name: str
     dataset_extent_bbox: list[float] | None
-    dataset_column_info: list[dict] | None = None
+    dataset_column_info: list[dict] | None = Field(
+        default=None,
+        description=(
+            "The dataset's columns, each with its name and type. In a map "
+            "response each also carries its current attribute title, semantic "
+            "role and value labels when set."
+        ),
+    )
+    dataset_tile_columns: list[str] | None = Field(
+        default=None,
+        description=(
+            "Dataset tile attribute allowlist, used to check cluster filters; "
+            "null allows all queryable columns, [] exposes none."
+        ),
+    )
     dataset_feature_count: int | None = None
     dataset_sample_values: dict | None = None
     display_name: str | None = None
@@ -990,9 +1072,19 @@ class MapResponse(BaseModel):
     pitch: float
     basemap_style: str
     show_basemap_labels: bool
+    show_attribute_table: bool = Field(
+        default=True,
+        description=(
+            "Whether viewers offer each layer's attribute table. Embed tokens "
+            "for the map may read a layer's rows only while it is on; the "
+            "columns they may read come from each dataset's tile column "
+            "allowlist."
+        ),
+    )
     basemap_config: BasemapConfig | None = None
     terrain_config: TerrainConfig | None = None
-    visibility: MapVisibility
+    dashboard_config: DashboardConfig | None = None
+    visibility: ReadMapVisibility
     thumbnail_url: str | None = None
     og_image_url: str | None = None
     forked_from_id: uuid.UUID | None = Field(
@@ -1007,8 +1099,99 @@ class MapResponse(BaseModel):
     layer_count: int
     plugins: list[str] | None = None
     legend_title: str | None = None
+    groups: list[GroupRef] | None = Field(
+        default=None,
+        description=(
+            "The sharing groups the map is shared with, by name. Set on the "
+            "detail endpoint for the owner and admins only; null elsewhere."
+        ),
+    )
+    reader_theme: ReaderTheme | None = Field(
+        default=None,
+        description=(
+            "The theme a branding extension sets for the map's viewer and "
+            "dashboard; null without one. The Builder ignores it."
+        ),
+    )
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class MapGroupsUpdate(BaseModel):
+    group_ids: list[uuid.UUID] = Field(
+        max_length=100,
+        description=(
+            "Every group the map is shared with afterwards; an empty list "
+            "unshares it. An owner may add only groups they belong to, and an "
+            "admin any group."
+        ),
+    )
+    confirm: Literal["share_datasets", "map_only"] | None = Field(
+        default=None,
+        description=(
+            "Required when the map would become restricted with layers some "
+            "of its new groups can't read; without it the request answers 409 "
+            "and lists them. `share_datasets` also shares each such dataset "
+            "the caller may share with the groups that lack it; `map_only` "
+            "leaves those layers hidden from them."
+        ),
+    )
+    expected_updated_at: datetime | None = Field(
+        default=None,
+        description=(
+            "The map's `updated_at` the caller read. When set and the map has "
+            "changed since, its groups included, nothing is written and the "
+            "answer is 409 with `detail.code` `stale_write`. Omit it to write "
+            "unconditionally."
+        ),
+    )
+
+
+class MapLayerAccessGap(BaseModel):
+    layer_id: uuid.UUID
+    layer_title: str
+    dataset_id: uuid.UUID
+    dataset_title: str
+    group_ids: list[uuid.UUID] = Field(
+        description="The map's groups that have a member who can't read it."
+    )
+    can_share: bool = Field(
+        description=(
+            "Whether `confirm: share_datasets` would share the dataset with "
+            "those groups."
+        )
+    )
+
+
+class MapGroupsResponse(BaseModel):
+    visibility: ReadMapVisibility = Field(
+        description=(
+            "The map's visibility after the change: a private map shared with "
+            "a group becomes restricted, and a restricted one left with no "
+            "group becomes private."
+        )
+    )
+    groups: list[GroupRef] = Field(
+        description="The sharing groups the map is shared with, by name."
+    )
+    shared_dataset_ids: list[uuid.UUID] = Field(
+        default_factory=list,
+        description="Datasets this request shared with the map's new groups.",
+    )
+    hidden_layers: list[MapLayerAccessGap] = Field(
+        default_factory=list,
+        description=(
+            "Layers that some of the map's new groups still can't read; the "
+            "same shape a 409 lists under `detail.layers`."
+        ),
+    )
+    updated_at: datetime | None = Field(
+        default=None,
+        description=(
+            "The map's `updated_at` after the change, which any change to its "
+            "groups moves."
+        ),
+    )
 
 
 class MapStyleImportWarning(BaseModel):
@@ -1061,10 +1244,6 @@ class MapStyleImportRequest(BaseModel):
     forward-compatibility with future MapLibre fields (e.g. ``projection``,
     ``light``, ``transition``) so adding a new key on the client side
     doesn't require a server release.
-
-    Replacing the previous bare-``dict`` body parameter removes
-    ``additionalProperties: true`` from the OpenAPI schema and lets
-    openapi-python-client generate a navigable named model class.
     """
 
     version: int | None = Field(
@@ -1080,7 +1259,7 @@ class MapStyleImportRequest(BaseModel):
         default=None,
         description="Free-form metadata bag (used by GeoLens for center/zoom/basemap hints)",
     )
-    center: list[float] | None = Field(
+    center: list[FiniteFloat] | None = Field(
         default=None,
         description="[longitude, latitude] map center",
     )
@@ -1145,12 +1324,16 @@ class MapSummaryResponse(BaseModel):
     id: uuid.UUID
     name: str
     description: str | None
-    visibility: MapVisibility
+    visibility: ReadMapVisibility
     thumbnail_url: str | None = None
     # The thumbnail's cache version, apart from the map's edit timestamp.
     # Null for older thumbnails; the card falls back to `updated_at`.
     thumbnail_updated_at: datetime | None = None
     layer_count: int
+    has_dashboard: bool = Field(
+        default=False,
+        description="True when the map shows you at least one dashboard widget.",
+    )
     created_by_username: str | None = None
     created_at: datetime
     updated_at: datetime
@@ -1222,6 +1405,13 @@ class SharedLayerResponse(BaseModel):
     # As on MapLayerResponse.dataset_extent_bbox: an RFC 7946 bbox, with
     # west > east on an antimeridian crossing.
     dataset_extent_bbox: list[float] | None = None
+    dataset_tile_columns: list[str] | None = Field(
+        default=None,
+        description=(
+            "Dataset tile attribute allowlist, as on MapLayerResponse: null "
+            "allows all queryable columns, [] exposes none."
+        ),
+    )
 
 
 class SharedMapResponse(BaseModel):
@@ -1230,15 +1420,36 @@ class SharedMapResponse(BaseModel):
     center_lng: float
     center_lat: float
     zoom: float
+    has_saved_view: bool = Field(
+        description=(
+            "True when the map stores a center and zoom. When false, center and "
+            "zoom are defaults and a viewer should fit the layers instead."
+        ),
+    )
     bearing: float
     pitch: float
     basemap_style: str
     show_basemap_labels: bool = True
+    show_attribute_table: bool = Field(
+        default=True,
+        description=(
+            "Whether the viewer offers each layer's attribute table. The columns "
+            "an embed may read come from each dataset's tile column allowlist."
+        ),
+    )
     basemap_config: BasemapConfig | None = None
     terrain_config: TerrainConfig | None = None
+    dashboard_config: DashboardConfig | None = None
     has_non_public_layers: bool = False
     legend_title: str | None = None
     layers: list[SharedLayerResponse]
+    reader_theme: ReaderTheme | None = Field(
+        default=None,
+        description=(
+            "The theme a branding extension sets for the viewer and its "
+            "dashboard; null without one."
+        ),
+    )
 
 
 class ShareTokenRequest(BaseModel):
@@ -1349,6 +1560,14 @@ class VisibilityCheckResponse(BaseModel):
     )
     has_non_public: bool = Field(
         description="True if any layer references a non-public dataset"
+    )
+    hidden_from_groups: list[MapLayerAccessGap] = Field(
+        default_factory=list,
+        description=(
+            "On a restricted map, the layers some of its groups can't read, "
+            "among those the caller reads. Empty on other maps, and when the "
+            "permission authority can't say who reads a dataset."
+        ),
     )
 
 

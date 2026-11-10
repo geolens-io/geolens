@@ -17,7 +17,10 @@ import datetime
 
 if TYPE_CHECKING:
     from ..models.basemap_config import BasemapConfig
+    from ..models.dashboard_config import DashboardConfig
+    from ..models.group_ref import GroupRef
     from ..models.map_layer_response import MapLayerResponse
+    from ..models.reader_theme import ReaderTheme
     from ..models.terrain_config import TerrainConfig
 
 
@@ -38,15 +41,21 @@ class DuplicateMapResponse:
         pitch (float):
         basemap_style (str):
         show_basemap_labels (bool):
-        visibility (MapVisibility):
+        visibility (MapVisibility): Who may read a map. A response names `restricted` only to a client
+            that sends `X-GeoLens-Map-Visibility: restricted`; any other client
+            reads a restricted map as `private`.
         created_by (None | UUID):
         created_at (datetime.datetime):
         updated_at (datetime.datetime):
         layers (list[MapLayerResponse]):
         layer_count (int):
         notes (None | str | Unset):
+        show_attribute_table (bool | Unset): Whether viewers offer each layer's attribute table. Embed tokens for the
+            map may read a layer's rows only while it is on; the columns they may read come from each dataset's tile column
+            allowlist. Default: True.
         basemap_config (BasemapConfig | None | Unset):
         terrain_config (None | TerrainConfig | Unset):
+        dashboard_config (DashboardConfig | None | Unset):
         thumbnail_url (None | str | Unset):
         og_image_url (None | str | Unset):
         forked_from_id (None | Unset | UUID): Source map UUID if this is a fork
@@ -54,6 +63,10 @@ class DuplicateMapResponse:
         created_by_username (None | str | Unset):
         plugins (list[str] | None | Unset):
         legend_title (None | str | Unset):
+        groups (list[GroupRef] | None | Unset): The sharing groups the map is shared with, by name. Set on the detail
+            endpoint for the owner and admins only; null elsewhere.
+        reader_theme (None | ReaderTheme | Unset): The theme a branding extension sets for the map's viewer and
+            dashboard; null without one. The Builder ignores it.
         excluded_layer_count (int | Unset): Layers skipped due to access restrictions Default: 0.
     """
 
@@ -74,8 +87,10 @@ class DuplicateMapResponse:
     layers: list[MapLayerResponse]
     layer_count: int
     notes: None | str | Unset = UNSET
+    show_attribute_table: bool | Unset = True
     basemap_config: BasemapConfig | None | Unset = UNSET
     terrain_config: None | TerrainConfig | Unset = UNSET
+    dashboard_config: DashboardConfig | None | Unset = UNSET
     thumbnail_url: None | str | Unset = UNSET
     og_image_url: None | str | Unset = UNSET
     forked_from_id: None | Unset | UUID = UNSET
@@ -83,11 +98,15 @@ class DuplicateMapResponse:
     created_by_username: None | str | Unset = UNSET
     plugins: list[str] | None | Unset = UNSET
     legend_title: None | str | Unset = UNSET
+    groups: list[GroupRef] | None | Unset = UNSET
+    reader_theme: None | ReaderTheme | Unset = UNSET
     excluded_layer_count: int | Unset = 0
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.basemap_config import BasemapConfig
+        from ..models.dashboard_config import DashboardConfig
+        from ..models.reader_theme import ReaderTheme
         from ..models.terrain_config import TerrainConfig
 
         id = str(self.id)
@@ -139,6 +158,8 @@ class DuplicateMapResponse:
         else:
             notes = self.notes
 
+        show_attribute_table = self.show_attribute_table
+
         basemap_config: dict[str, Any] | None | Unset
         if isinstance(self.basemap_config, Unset):
             basemap_config = UNSET
@@ -154,6 +175,14 @@ class DuplicateMapResponse:
             terrain_config = self.terrain_config.to_dict()
         else:
             terrain_config = self.terrain_config
+
+        dashboard_config: dict[str, Any] | None | Unset
+        if isinstance(self.dashboard_config, Unset):
+            dashboard_config = UNSET
+        elif isinstance(self.dashboard_config, DashboardConfig):
+            dashboard_config = self.dashboard_config.to_dict()
+        else:
+            dashboard_config = self.dashboard_config
 
         thumbnail_url: None | str | Unset
         if isinstance(self.thumbnail_url, Unset):
@@ -202,6 +231,26 @@ class DuplicateMapResponse:
         else:
             legend_title = self.legend_title
 
+        groups: list[dict[str, Any]] | None | Unset
+        if isinstance(self.groups, Unset):
+            groups = UNSET
+        elif isinstance(self.groups, list):
+            groups = []
+            for groups_type_0_item_data in self.groups:
+                groups_type_0_item = groups_type_0_item_data.to_dict()
+                groups.append(groups_type_0_item)
+
+        else:
+            groups = self.groups
+
+        reader_theme: dict[str, Any] | None | Unset
+        if isinstance(self.reader_theme, Unset):
+            reader_theme = UNSET
+        elif isinstance(self.reader_theme, ReaderTheme):
+            reader_theme = self.reader_theme.to_dict()
+        else:
+            reader_theme = self.reader_theme
+
         excluded_layer_count = self.excluded_layer_count
 
         field_dict: dict[str, Any] = {}
@@ -228,10 +277,14 @@ class DuplicateMapResponse:
         )
         if notes is not UNSET:
             field_dict["notes"] = notes
+        if show_attribute_table is not UNSET:
+            field_dict["show_attribute_table"] = show_attribute_table
         if basemap_config is not UNSET:
             field_dict["basemap_config"] = basemap_config
         if terrain_config is not UNSET:
             field_dict["terrain_config"] = terrain_config
+        if dashboard_config is not UNSET:
+            field_dict["dashboard_config"] = dashboard_config
         if thumbnail_url is not UNSET:
             field_dict["thumbnail_url"] = thumbnail_url
         if og_image_url is not UNSET:
@@ -246,6 +299,10 @@ class DuplicateMapResponse:
             field_dict["plugins"] = plugins
         if legend_title is not UNSET:
             field_dict["legend_title"] = legend_title
+        if groups is not UNSET:
+            field_dict["groups"] = groups
+        if reader_theme is not UNSET:
+            field_dict["reader_theme"] = reader_theme
         if excluded_layer_count is not UNSET:
             field_dict["excluded_layer_count"] = excluded_layer_count
 
@@ -254,7 +311,10 @@ class DuplicateMapResponse:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.basemap_config import BasemapConfig
+        from ..models.dashboard_config import DashboardConfig
+        from ..models.group_ref import GroupRef
         from ..models.map_layer_response import MapLayerResponse
+        from ..models.reader_theme import ReaderTheme
         from ..models.terrain_config import TerrainConfig
 
         d = dict(src_dict)
@@ -337,6 +397,8 @@ class DuplicateMapResponse:
 
         notes = _parse_notes(d.pop("notes", UNSET))
 
+        show_attribute_table = d.pop("show_attribute_table", UNSET)
+
         def _parse_basemap_config(data: object) -> BasemapConfig | None | Unset:
             if data is None:
                 return data
@@ -370,6 +432,23 @@ class DuplicateMapResponse:
             return cast(None | TerrainConfig | Unset, data)
 
         terrain_config = _parse_terrain_config(d.pop("terrain_config", UNSET))
+
+        def _parse_dashboard_config(data: object) -> DashboardConfig | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                dashboard_config_type_0 = DashboardConfig.from_dict(data)
+
+                return dashboard_config_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(DashboardConfig | None | Unset, data)
+
+        dashboard_config = _parse_dashboard_config(d.pop("dashboard_config", UNSET))
 
         def _parse_thumbnail_url(data: object) -> None | str | Unset:
             if data is None:
@@ -452,6 +531,45 @@ class DuplicateMapResponse:
 
         legend_title = _parse_legend_title(d.pop("legend_title", UNSET))
 
+        def _parse_groups(data: object) -> list[GroupRef] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                groups_type_0 = []
+                _groups_type_0 = data
+                for groups_type_0_item_data in _groups_type_0:
+                    groups_type_0_item = GroupRef.from_dict(groups_type_0_item_data)
+
+                    groups_type_0.append(groups_type_0_item)
+
+                return groups_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[GroupRef] | None | Unset, data)
+
+        groups = _parse_groups(d.pop("groups", UNSET))
+
+        def _parse_reader_theme(data: object) -> None | ReaderTheme | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                reader_theme_type_0 = ReaderTheme.from_dict(data)
+
+                return reader_theme_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | ReaderTheme | Unset, data)
+
+        reader_theme = _parse_reader_theme(d.pop("reader_theme", UNSET))
+
         excluded_layer_count = d.pop("excluded_layer_count", UNSET)
 
         duplicate_map_response = cls(
@@ -472,8 +590,10 @@ class DuplicateMapResponse:
             layers=layers,
             layer_count=layer_count,
             notes=notes,
+            show_attribute_table=show_attribute_table,
             basemap_config=basemap_config,
             terrain_config=terrain_config,
+            dashboard_config=dashboard_config,
             thumbnail_url=thumbnail_url,
             og_image_url=og_image_url,
             forked_from_id=forked_from_id,
@@ -481,6 +601,8 @@ class DuplicateMapResponse:
             created_by_username=created_by_username,
             plugins=plugins,
             legend_title=legend_title,
+            groups=groups,
+            reader_theme=reader_theme,
             excluded_layer_count=excluded_layer_count,
         )
 

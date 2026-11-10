@@ -75,6 +75,7 @@ class TestClassification:
             ("points.fgb", "flatgeobuf"),
             ("tour.kml", "kml"),
             ("tour.kmz", "kmz"),
+            ("parcels.parquet", "geoparquet"),
         ],
     )
     def test_single_file_vector_primaries(

@@ -21,7 +21,7 @@ from app.core.runtime.staging import (
 )
 from app.processing.ingest.shapefile_source import (
     declares_dbf_encoding,
-    zip_single_folder,
+    zip_dataset_root,
 )
 from app.platform.service_items import materialise_oapif_items
 from app.platform.service_endpoints import (
@@ -46,7 +46,12 @@ from app.core.service_tokens import (
 )
 from app.core.upload_errors import IngestCeilingError
 from app.core.url_redaction import redact_url_credentials, scrub_secret_value
-from app.platform.egress_proxy import service_egress_proxy
+from app.platform.egress_proxy import (
+    gdal_source_url,
+    pinned_origin,
+    service_egress_proxy,
+)
+from app.platform.service_auth import refuse_credential_over_http
 from app.platform.gdal_argv import is_option_like_layer_name
 from app.processing.ingest.arcgis_errors import (
     ARCGIS_ERROR_RESPONSE_RE,
@@ -198,6 +203,10 @@ def _gdal_failure_reason(
 SERVICE_ADDRESS_REFUSED = (
     "the source service pointed to an address this server does not connect to"
 )
+SERVICE_LEFT_ORIGIN = (
+    "the source service redirected to another address, and GeoLens does not "
+    "send a credential anywhere but the service's own address"
+)
 
 # A service can refuse a credential inside an HTTP 200 exception report. The
 # sentence names authentication so the caller can still suggest a credential.
@@ -229,12 +238,14 @@ def _raise_service_gdal_failure(
     stderr_text: str,
     *,
     refused: bool,
+    left_origin: bool = False,
     service_error: str | None = None,
 ) -> NoReturn:
     """Raise a service import's reason, having logged the redacted GDAL text.
 
     ``refused`` is whether the egress proxy turned a destination away, which
-    GDAL itself reports only as an HTTP 403. ``service_error`` is the
+    GDAL itself reports only as an HTTP 403, and ``left_origin`` whether that
+    was a hop off a credentialed run's origin. ``service_error`` is the
     service's own redacted error, added to the reason.
     """
     structlog.get_logger().error(
@@ -244,9 +255,8 @@ def _raise_service_gdal_failure(
         service_error=service_error,
     )
     if refused:
-        raise IngestionError(
-            f"{tool} failed (exit {returncode}): {SERVICE_ADDRESS_REFUSED}"
-        )
+        why = SERVICE_LEFT_ORIGIN if left_origin else SERVICE_ADDRESS_REFUSED
+        raise IngestionError(f"{tool} failed (exit {returncode}): {why}")
     reason = _gdal_failure_reason(
         tool, returncode, stderr_text, _SERVICE_FAILURE_CLASSES
     )
@@ -441,6 +451,7 @@ class OgrinfoResult(TypedDict, total=False):
     columns: list[dict[str, str]]
     sample_rows: list[dict]
     all_layers: list[dict] | None
+    attachments_omitted: bool
 
 
 class IngestionError(Exception):
@@ -641,7 +652,7 @@ def _tenant_reader_subprocess_env(
 def _resolve_source_path(file_path: str) -> str:
     """Wrap file path with /vsizip/ if it is a zip file."""
     if file_path.endswith(".zip"):
-        folder = zip_single_folder(file_path)
+        folder = zip_dataset_root(file_path)
         return f"/vsizip/{file_path}" + (f"/{folder}" if folder else "")
     return file_path
 
@@ -659,6 +670,9 @@ def _is_csv_source(file_path: str, layer_name: str | None = None) -> bool:
     if lower.endswith(".csv"):
         return True
     if not lower.endswith(".zip"):
+        return False
+    # GDAL opens the geodatabase in such a zip, never a CSV beside it.
+    if (zip_dataset_root(file_path) or "").lower().endswith(".gdb"):
         return False
     try:
         with zipfile.ZipFile(file_path) as archive:
@@ -717,6 +731,15 @@ def extract_srid_from_json(coord_system: dict) -> int | None:
     return None
 
 
+# A file geodatabase keeps a feature class's attachments in `<name>__ATTACH`
+# and the link back to it in `<name>__ATTACHREL`; neither is a dataset.
+_GDB_ATTACHMENT_SUFFIXES = ("__ATTACH", "__ATTACHREL")
+
+
+def _is_gdb_attachment_table(layer: dict) -> bool:
+    return layer.get("name", "").upper().endswith(_GDB_ATTACHMENT_SUFFIXES)
+
+
 def _extract_common_layer_metadata(
     data: dict, layer_name: str | None
 ) -> tuple[dict, dict]:
@@ -724,7 +747,8 @@ def _extract_common_layer_metadata(
 
     Returns ``(target_layer, metadata_dict)`` where metadata_dict carries
     the fields common to both ``run_ogrinfo`` and ``run_ogrinfo_preview``:
-    srid, geometry_type, layer_name, feature_count, columns, all_layers.
+    srid, geometry_type, layer_name, feature_count, columns, all_layers,
+    attachments_omitted.
 
     ``columns`` is a list of ``{"name": str, "type": str}`` mirroring the
     field definitions from the target layer, plus ``"subtype"`` when GDAL
@@ -740,13 +764,21 @@ def _extract_common_layer_metadata(
     Raises KeyError if the JSON has no ``layers`` entry so callers can
     fall through to their fallback path.
     """
-    layers = data.get("layers", [])
-    if not layers:
+    all_found = data.get("layers", [])
+    if not all_found:
         raise KeyError("no layers in ogrinfo JSON output")
+    # The suffixes mean attachment only in a geodatabase. They are never
+    # offered there; a source that holds nothing else keeps them so it still
+    # previews.
+    layers = all_found
+    if data.get("driverShortName") == "OpenFileGDB":
+        layers = [
+            lyr for lyr in all_found if not _is_gdb_attachment_table(lyr)
+        ] or all_found
 
     target_layer = layers[0]
     if layer_name:
-        for lyr in layers:
+        for lyr in all_found:
             if lyr.get("name") == layer_name:
                 target_layer = lyr
                 break
@@ -770,8 +802,8 @@ def _extract_common_layer_metadata(
         for f in target_layer.get("fields", [])
     ]
 
-    # all_layers is exposed whenever the source has more than one layer, even
-    # for a targeted preview: the layer select (ReuploadDialog) needs it.
+    # all_layers lists every layer in the report when it holds more than one;
+    # run_ogrinfo_preview asks for them all even when a layer is named.
     all_layers = None
     if len(layers) > 1:
         all_layers = [
@@ -790,6 +822,7 @@ def _extract_common_layer_metadata(
         "feature_count": target_layer.get("featureCount"),
         "columns": columns,
         "all_layers": all_layers,
+        "attachments_omitted": len(layers) < len(all_found),
     }
 
 
@@ -838,7 +871,8 @@ async def run_ogrinfo(
 ) -> OgrinfoResult:
     """Run ogrinfo to detect CRS and layer metadata.
 
-    Returns dict with keys: srid, geometry_type, layer_name, feature_count, all_layers.
+    Returns dict with keys: srid, geometry_type, layer_name, feature_count, all_layers,
+    attachments_omitted.
     When multiple layers exist and no layer_name is specified, all_layers lists them.
     Tries JSON output first (GDAL 3.7+), falls back to text parsing.
 
@@ -939,10 +973,12 @@ async def run_ogrinfo_preview(
     """Run ogrinfo to get metadata AND sample rows for preview.
 
     Uses -json -features -limit N to get structured output with sample features.
-    Falls back to summary-only run_ogrinfo() if feature extraction fails.
+    Falls back to summary-only run_ogrinfo() if feature extraction fails; that
+    fallback lists no other layers when one is named.
 
     Returns dict with keys: srid, geometry_type, layer_name, feature_count,
-    columns, sample_rows, all_layers.
+    columns, sample_rows, all_layers. With ``layer_name`` the keys describe that
+    layer, and all_layers still lists every layer of a multi-layer source.
     """
     if layer_name:
         validate_layer_name_argv(layer_name)
@@ -963,9 +999,9 @@ async def run_ogrinfo_preview(
     # numeric columns appear as Real/Integer in the preview schema.
     if _is_csv_source(file_path, layer_name):
         cmd += ["-oo", "AUTODETECT_TYPE=YES", "-oo", "AUTODETECT_SIZE_LIMIT=0"]
+    # No layer argument: ogrinfo would then report only that layer, and
+    # all_layers needs the rest.
     cmd.append(source)
-    if layer_name:
-        cmd.append(layer_name)
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -980,21 +1016,26 @@ async def run_ogrinfo_preview(
         try:
             data = json.loads(stdout.decode(errors="replace"))
             target_layer, metadata = _extract_common_layer_metadata(data, layer_name)
-            metadata["sample_rows"] = [
-                feat.get("properties", {}) for feat in target_layer.get("features", [])
-            ]
-            return metadata
+            # A named layer the report lacks goes to the targeted fallback,
+            # which fails as ogrinfo does for a missing layer.
+            if not layer_name or target_layer.get("name") == layer_name:
+                metadata["sample_rows"] = [
+                    feat.get("properties", {})
+                    for feat in target_layer.get("features", [])
+                ]
+                return metadata
         except KeyError:
-            # No layers in JSON output but command succeeded — return empty shell.
-            return {
-                "srid": None,
-                "geometry_type": None,
-                "layer_name": "",
-                "feature_count": None,
-                "columns": [],
-                "sample_rows": [],
-                "all_layers": None,
-            }
+            if not layer_name:
+                # No layers in JSON output but command succeeded — return empty shell.
+                return {
+                    "srid": None,
+                    "geometry_type": None,
+                    "layer_name": "",
+                    "feature_count": None,
+                    "columns": [],
+                    "sample_rows": [],
+                    "all_layers": None,
+                }
         except json.JSONDecodeError:
             pass  # Fall through to fallback
 
@@ -1092,6 +1133,12 @@ async def _csv_geometry_is_3d(
             proc.kill()
         await proc.wait()
     return seen
+
+
+def declares_linear_geometry(geometry_type: str) -> bool:
+    """Whether an ogrinfo geometry type names no curved type, in either spelling."""
+    lowered = geometry_type.lower()
+    return not any(word in lowered for word in ("circular", "curve", "surface"))
 
 
 async def run_ogr2ogr(
@@ -1195,6 +1242,11 @@ async def run_ogr2ogr(
         cmd.extend(["--config", "SHAPE_ENCODING", "UTF-8"])
 
     if not is_non_spatial:
+        if declares_linear_geometry(geometry_type):
+            # A geodatabase polygon or polyline layer reports a linear type yet
+            # returns curved rows wherever a segment is an arc, and PostGIS
+            # refuses those in the linear column the declared type creates.
+            cmd.extend(["-nlt", "CONVERT_TO_LINEAR"])
         cmd.extend(
             [
                 "-nlt",
@@ -1287,6 +1339,7 @@ async def run_ogr2ogr_service(
     *,
     schema: str,
     on_spawn: "Callable[[], None] | None" = None,
+    keep_z: bool = False,
 ) -> None:
     """Run ogr2ogr to load a remote service layer into PostGIS.
 
@@ -1309,11 +1362,15 @@ async def run_ogr2ogr_service(
             subprocess exists. Callers date origin contacts off it rather
             than guessing from exception types, since every local check
             happens before it fires.
+        keep_z: When True, stage a 3D geometry column. ``-nlt GEOMETRY``
+            drops Z; ``GEOMETRYZ`` keeps it and gives a feature without Z a
+            zero.
     """
     from app.processing.ingest.metadata import _validate_table_name
 
     _validate_table_name(table_name)
     _validate_table_name(schema)
+    refuse_credential_over_http(gdal_source_url(gdal_source), token)
 
     # A protected OGC API collection is read here, not by GDAL, so the
     # credential never becomes a header file: GDAL applies a header file to
@@ -1396,7 +1453,7 @@ async def run_ogr2ogr_service(
         # `rename_reserved_columns` moves any source attribute to `src_<name>`.
         cmd += [
             "-nlt",
-            "GEOMETRY",
+            "GEOMETRYZ" if keep_z else "GEOMETRY",
             "-lco",
             "GEOMETRY_NAME=_geolens_geom",
             "-lco",
@@ -1426,7 +1483,8 @@ async def run_ogr2ogr_service(
     header_line: str | None = None
     try:
         async with service_egress_proxy(
-            idle_seconds=settings.ingest_http_timeout_seconds
+            idle_seconds=settings.ingest_http_timeout_seconds,
+            origin=pinned_origin(gdal_source, credential=bool(token)),
         ) as egress:
             env = _tenant_writer_subprocess_env(
                 schema,
@@ -1495,13 +1553,9 @@ async def run_ogr2ogr_service(
                 os.chmod(header_file_path, 0o600)
                 env["GDAL_HTTP_HEADER_FILE"] = header_file_path
                 env.update(gdal_transport_env(service_type))
-                # GDAL forwards `Authorization` only to the host it was
-                # given to, but forwards every other header name verbatim
-                # across hosts, so a service-chosen API key is redirect-exposed
-                # here and can't be protected from inside (bounded
-                # operationally, AGENTS.md Rule 2). IF_SAME_HOST, not NO: a
-                # same-host canonical redirect (e.g. a trailing slash) must
-                # keep the credential or a protected service answers 401.
+                # Other header names would follow a redirect to any host; the
+                # proxy's origin pin refuses those. IF_SAME_HOST, not NO: a
+                # same-host redirect (a trailing slash) must keep the credential.
                 env.update(GDAL_HEADER_FILE_REDIRECT_ENV)
 
             # Computed here, not at each spender, so it accounts for all of
@@ -1568,5 +1622,6 @@ async def run_ogr2ogr_service(
             proc.returncode,
             stderr_text,
             refused=egress.refused,
+            left_origin=egress.left_origin,
             service_error=service_error,
         )

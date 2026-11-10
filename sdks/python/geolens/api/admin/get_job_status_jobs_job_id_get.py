@@ -97,7 +97,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[JobStatusResponse | ProblemDetail]:
-    """Get Job Status
+    """Get an ingest job's status
 
      Get the status of an ingestion job.
 
@@ -130,7 +130,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> JobStatusResponse | ProblemDetail | None:
-    """Get Job Status
+    """Get an ingest job's status
 
      Get the status of an ingestion job.
 
@@ -158,7 +158,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[JobStatusResponse | ProblemDetail]:
-    """Get Job Status
+    """Get an ingest job's status
 
      Get the status of an ingestion job.
 
@@ -189,7 +189,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> JobStatusResponse | ProblemDetail | None:
-    """Get Job Status
+    """Get an ingest job's status
 
      Get the status of an ingestion job.
 

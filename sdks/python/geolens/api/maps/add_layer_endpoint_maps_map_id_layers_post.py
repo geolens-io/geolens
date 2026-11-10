@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: MapLayerInput,
 ) -> Response[MapLayerResponse | ProblemDetail]:
-    """Add Layer Endpoint
+    """Add a layer to a map
 
      Add a layer to a map.
 
@@ -155,7 +155,7 @@ def sync(
     client: AuthenticatedClient,
     body: MapLayerInput,
 ) -> MapLayerResponse | ProblemDetail | None:
-    """Add Layer Endpoint
+    """Add a layer to a map
 
      Add a layer to a map.
 
@@ -193,7 +193,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: MapLayerInput,
 ) -> Response[MapLayerResponse | ProblemDetail]:
-    """Add Layer Endpoint
+    """Add a layer to a map
 
      Add a layer to a map.
 
@@ -234,7 +234,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: MapLayerInput,
 ) -> MapLayerResponse | ProblemDetail | None:
-    """Add Layer Endpoint
+    """Add a layer to a map
 
      Add a layer to a map.
 

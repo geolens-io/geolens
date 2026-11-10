@@ -1,0 +1,179 @@
+import { forwardRef, useEffect, useId, useMemo, useState } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { LiveAnnouncement } from '@/components/ui/live-announcement';
+import { cn } from '@/lib/utils';
+
+export interface PickerUser {
+  id: string;
+  username: string;
+}
+
+interface UserPickerProps {
+  label: string;
+  users: PickerUser[];
+  onSelect: (user: PickerUser) => void;
+  disabled?: boolean;
+  /** Ignores picks but, unlike `disabled`, keeps focus, the query and the list, so a pick made meanwhile doesn't look accepted. */
+  busy?: boolean;
+  /** Reports whether the list is open, so an enclosing dialog can leave Escape to it. */
+  onOpenChange?: (open: boolean) => void;
+  /** Wording for other kinds of pick (groups); defaults to the people wording. */
+  text?: { placeholder: string; noMatches: string; results: (count: number) => string };
+  /**
+   * Server-side search: receives each query, and `users` is already the
+   * matches for it, so the list is neither filtered nor capped here.
+   */
+  onQueryChange?: (query: string) => void;
+  /** Called on ArrowDown from the last option, to load more matches. */
+  onReachEnd?: () => void;
+  /** An option's content; defaults to its username. */
+  renderOption?: (user: PickerUser) => ReactNode;
+  /** Shown under the open list, such as a control that loads more. */
+  footer?: ReactNode;
+}
+
+const MAX_OPTIONS = 50;
+
+/**
+ * Searchable user list following the ARIA combobox pattern: focus stays in the
+ * input, arrow keys move the active option, Enter picks it and Escape closes
+ * the list before it can close an enclosing dialog.
+ */
+export const UserPicker = forwardRef<HTMLInputElement, UserPickerProps>(function UserPicker(
+  { label, users, onSelect, disabled, busy, onOpenChange, text, onQueryChange, onReachEnd, renderOption, footer },
+  ref,
+) {
+  const { t } = useTranslation('admin');
+  const baseId = useId();
+  const inputId = `${baseId}-input`;
+  const listId = `${baseId}-list`;
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+
+  const matches = useMemo(() => {
+    if (onQueryChange) return users;
+    const needle = query.trim().toLowerCase();
+    const found = needle ? users.filter((u) => u.username.toLowerCase().includes(needle)) : users;
+    return found.slice(0, MAX_OPTIONS);
+  }, [users, query, onQueryChange]);
+
+  useEffect(() => onOpenChange?.(open), [open, onOpenChange]);
+
+  const expanded = open && matches.length > 0;
+  const activeIndex = Math.min(active, Math.max(matches.length - 1, 0));
+  const optionId = (index: number) => `${baseId}-option-${index}`;
+
+  function select(user: PickerUser) {
+    if (busy) return;
+    onSelect(user);
+    setQuery('');
+    onQueryChange?.('');
+    setActive(0);
+    setOpen(false);
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    switch (event.key) {
+      case 'ArrowDown':
+      case 'ArrowUp':
+        event.preventDefault();
+        if (!open) setOpen(true);
+        else if (event.key === 'ArrowDown' && onReachEnd && activeIndex === matches.length - 1) {
+          onReachEnd();
+        } else if (matches.length > 0) {
+          const step = event.key === 'ArrowDown' ? 1 : -1;
+          setActive((activeIndex + step + matches.length) % matches.length);
+        }
+        break;
+      case 'Enter':
+        if (expanded) {
+          event.preventDefault();
+          select(matches[activeIndex]);
+        }
+        break;
+      case 'Escape':
+        if (open) {
+          event.preventDefault();
+          event.stopPropagation();
+          setOpen(false);
+        }
+        break;
+    }
+  }
+
+  const wording = text ?? {
+    placeholder: t('groups.picker.placeholder'),
+    noMatches: t('groups.picker.noMatches'),
+    results: (count: number) => t('groups.picker.results', { count }),
+  };
+  const status = !open
+    ? ''
+    : matches.length === 0
+      ? wording.noMatches
+      : wording.results(matches.length);
+
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={inputId}>{label}</Label>
+      <div className="relative">
+        <Input
+          ref={ref}
+          id={inputId}
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={expanded}
+          aria-busy={busy || undefined}
+          aria-controls={listId}
+          aria-activedescendant={expanded ? optionId(activeIndex) : undefined}
+          autoComplete="off"
+          value={query}
+          disabled={disabled}
+          placeholder={wording.placeholder}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            onQueryChange?.(e.target.value);
+            setActive(0);
+            setOpen(true);
+          }}
+          onKeyDown={handleKeyDown}
+          onBlur={() => setOpen(false)}
+        />
+        <div
+          hidden={!expanded}
+          className="absolute inset-x-0 top-full z-10 mt-1 rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+        >
+          <ul id={listId} role="listbox" aria-label={label} className="max-h-48 overflow-auto">
+            {matches.map((user, index) => (
+              // eslint-disable-next-line jsx-a11y/click-events-have-key-events -- the combobox input owns keyboard selection; options are never focused
+              <li
+                key={user.id}
+                id={optionId(index)}
+                role="option"
+                aria-selected={index === activeIndex}
+                aria-disabled={busy || undefined}
+                // Keeps focus in the input so the click isn't preceded by a blur that closes the list.
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => select(user)}
+                className={cn(
+                  'cursor-pointer rounded-sm px-2 py-1.5 text-sm aria-disabled:cursor-progress aria-disabled:opacity-60',
+                  index === activeIndex && 'bg-accent text-accent-foreground',
+                )}
+              >
+                {renderOption ? renderOption(user) : user.username}
+              </li>
+            ))}
+          </ul>
+          {footer}
+        </div>
+      </div>
+      {open && matches.length === 0 && (
+        <p className="text-sm text-muted-foreground">{wording.noMatches}</p>
+      )}
+      <LiveAnnouncement text={status} delayMs={300} />
+    </div>
+  );
+});

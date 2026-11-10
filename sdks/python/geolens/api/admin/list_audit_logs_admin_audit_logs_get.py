@@ -201,7 +201,7 @@ def sync_detailed(
     sort: ListAuditLogsAdminAuditLogsGetSort | Unset = "created_at",
     order: ListAuditLogsAdminAuditLogsGetOrder | Unset = "desc",
 ) -> Response[AuditLogListResponse | ProblemDetail]:
-    """List Audit Logs
+    """List audit log entries
 
      Query audit logs with optional filters and sort (admin only).
 
@@ -267,7 +267,7 @@ def sync(
     sort: ListAuditLogsAdminAuditLogsGetSort | Unset = "created_at",
     order: ListAuditLogsAdminAuditLogsGetOrder | Unset = "desc",
 ) -> AuditLogListResponse | ProblemDetail | None:
-    """List Audit Logs
+    """List audit log entries
 
      Query audit logs with optional filters and sort (admin only).
 
@@ -328,7 +328,7 @@ async def asyncio_detailed(
     sort: ListAuditLogsAdminAuditLogsGetSort | Unset = "created_at",
     order: ListAuditLogsAdminAuditLogsGetOrder | Unset = "desc",
 ) -> Response[AuditLogListResponse | ProblemDetail]:
-    """List Audit Logs
+    """List audit log entries
 
      Query audit logs with optional filters and sort (admin only).
 
@@ -392,7 +392,7 @@ async def asyncio(
     sort: ListAuditLogsAdminAuditLogsGetSort | Unset = "created_at",
     order: ListAuditLogsAdminAuditLogsGetOrder | Unset = "desc",
 ) -> AuditLogListResponse | ProblemDetail | None:
-    """List Audit Logs
+    """List audit log entries
 
      Query audit logs with optional filters and sort (admin only).
 

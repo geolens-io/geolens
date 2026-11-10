@@ -1,6 +1,8 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { DashboardConfig } from '@/types/api';
 
 type Theme = 'dark' | 'light' | 'system';
+type ResolvedTheme = Exclude<Theme, 'system'>;
 
 type ThemeProviderProps = {
   children: React.ReactNode;
@@ -11,19 +13,25 @@ type ThemeProviderProps = {
 type ThemeProviderState = {
   theme: Theme;
   setTheme: (theme: Theme) => void;
-  resolvedTheme: 'dark' | 'light';
+  resolvedTheme: ResolvedTheme;
+  /** The theme a reader-facing page imposes, or null when the reader's own applies. */
+  forcedTheme: ResolvedTheme | null;
 };
+
+type ForcedThemeSetter = (owner: object, theme: ResolvedTheme | null) => void;
 
 const ThemeProviderContext = createContext<ThemeProviderState>({
   theme: 'system',
   setTheme: () => null,
   resolvedTheme: 'light',
+  forcedTheme: null,
 });
 
-function getSystemTheme(): 'dark' | 'light' {
-  return window.matchMedia('(prefers-color-scheme: dark)').matches
-    ? 'dark'
-    : 'light';
+// Its own context so a page that forces a theme doesn't re-render when the theme changes.
+const ForcedThemeContext = createContext<ForcedThemeSetter>(() => null);
+
+function getSystemTheme(): ResolvedTheme {
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
 // localStorage access throws in storage-blocked contexts (Safari
@@ -54,35 +62,40 @@ export function ThemeProvider({
   const [theme, setThemeState] = useState<Theme>(
     () => readStoredTheme(storageKey) || defaultTheme,
   );
+  const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(getSystemTheme);
 
-  const [resolvedTheme, setResolvedTheme] = useState<'dark' | 'light'>(() =>
-    theme === 'system' ? getSystemTheme() : theme,
+  // One slot, cleared only by the page that filled it, so a page that
+  // unmounts after its successor mounted can't undo the successor's theme.
+  const [forced, setForced] = useState<{ owner: object; theme: ResolvedTheme } | null>(null);
+  const forcedTheme = forced?.theme ?? null;
+  const resolvedTheme: ResolvedTheme =
+    forcedTheme ?? (theme === 'system' ? systemTheme : theme);
+
+  const setForcedTheme = useCallback<ForcedThemeSetter>(
+    (owner, next) =>
+      setForced((current) => {
+        if (next) return { owner, theme: next };
+        return current?.owner === owner ? null : current;
+      }),
+    [],
   );
 
   useEffect(() => {
-    const root = window.document.documentElement;
-    root.classList.remove('light', 'dark');
-
-    const resolved = theme === 'system' ? getSystemTheme() : theme;
-    root.classList.add(resolved);
-    setResolvedTheme(resolved);
-  }, [theme]);
-
-  useEffect(() => {
-    if (theme !== 'system') return;
-
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const handler = () => {
-      const root = window.document.documentElement;
-      root.classList.remove('light', 'dark');
-      const resolved = mq.matches ? 'dark' : 'light';
-      root.classList.add(resolved);
-      setResolvedTheme(resolved);
-    };
-
+    const mq = window.matchMedia?.('(prefers-color-scheme: dark)');
+    if (!mq) return;
+    const handler = () => setSystemTheme(mq.matches ? 'dark' : 'light');
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
-  }, [theme]);
+  }, []);
+
+  // A forced theme paints before the first frame only when the page renders
+  // with a warm query cache; on a cold load the stored theme shows through the
+  // loading state and flips when the document arrives.
+  useLayoutEffect(() => {
+    const root = window.document.documentElement;
+    root.classList.remove('light', 'dark');
+    root.classList.add(resolvedTheme);
+  }, [resolvedTheme]);
 
   const setTheme = (t: Theme) => {
     writeStoredTheme(storageKey, t);
@@ -90,9 +103,11 @@ export function ThemeProvider({
   };
 
   return (
-    <ThemeProviderContext.Provider value={{ theme, setTheme, resolvedTheme }}>
-      {children}
-    </ThemeProviderContext.Provider>
+    <ForcedThemeContext.Provider value={setForcedTheme}>
+      <ThemeProviderContext.Provider value={{ theme, setTheme, resolvedTheme, forcedTheme }}>
+        {children}
+      </ThemeProviderContext.Provider>
+    </ForcedThemeContext.Provider>
   );
 }
 
@@ -102,3 +117,17 @@ export const useTheme = () => {
     throw new Error('useTheme must be used within a ThemeProvider');
   return context;
 };
+
+/**
+ * Shows the calling page in `theme` while it is mounted, leaving the stored
+ * preference alone. `follow` and null both leave the reader's own theme.
+ */
+export function useForcedTheme(theme: DashboardConfig['theme'] | null | undefined) {
+  const setForcedTheme = useContext(ForcedThemeContext);
+  const owner = useRef({}).current;
+  const forced = theme === 'light' || theme === 'dark' ? theme : null;
+  useLayoutEffect(() => {
+    setForcedTheme(owner, forced);
+    return () => setForcedTheme(owner, null);
+  }, [setForcedTheme, owner, forced]);
+}

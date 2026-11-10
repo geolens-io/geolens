@@ -13,6 +13,7 @@ from pydantic import (
     model_validator,
 )
 
+from app.core.text import normalize_nfc
 from app.modules.auth.schemas import VALID_ROLES, UserResponse, validate_future_expiry
 from app.processing.ai.schemas import AIProbeReport
 
@@ -222,6 +223,56 @@ class UserListResponse(BaseModel):
     total: int = Field(
         description="Total number of users matching the query (across all pages)."
     )
+
+
+class GroupWrite(BaseModel):
+    name: str = Field(
+        min_length=1,
+        max_length=255,
+        description=(
+            "Group name, unique across the instance. Leading and trailing "
+            "whitespace is removed."
+        ),
+        json_schema_extra={"example": "Planning"},
+    )
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _normalize_name(cls, value: object) -> object:
+        if isinstance(value, str):
+            return normalize_nfc(value.strip())
+        return value
+
+
+class GroupResponse(BaseModel):
+    id: uuid.UUID = Field(description="Unique group identifier.")
+    name: str = Field(description="Group name.")
+    member_count: int = Field(description="Number of users in the group.")
+    created_at: datetime = Field(description="When the group was created.")
+    updated_at: datetime = Field(description="When the group was last renamed.")
+
+
+class GroupListResponse(BaseModel):
+    groups: list[GroupResponse] = Field(description="Page of groups, by name.")
+    total: int = Field(description="Total number of groups (across all pages).")
+
+
+class GroupMembersAdd(BaseModel):
+    user_ids: list[uuid.UUID] = Field(
+        min_length=1,
+        max_length=500,
+        description=(
+            "Users to add. Users already in the group are left as they are; "
+            "if any id matches no user, none are added."
+        ),
+    )
+
+
+class GroupMemberListResponse(BaseModel):
+    members: list[UserNameItem] = Field(
+        description="Page of group members, by username."
+    )
+    total: int = Field(description="Total number of members (across all pages).")
 
 
 class AdminJobResponse(BaseModel):

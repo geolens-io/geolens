@@ -103,7 +103,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Contact Endpoint
+    """Delete a record contact
 
      Delete a contact.
 
@@ -137,7 +137,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Delete Contact Endpoint
+    """Delete a record contact
 
      Delete a contact.
 
@@ -166,7 +166,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Contact Endpoint
+    """Delete a record contact
 
      Delete a contact.
 
@@ -198,7 +198,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Delete Contact Endpoint
+    """Delete a record contact
 
      Delete a contact.
 

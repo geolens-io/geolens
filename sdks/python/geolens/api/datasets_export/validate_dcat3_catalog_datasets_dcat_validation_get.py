@@ -78,7 +78,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
-    """Validate Dcat3 Catalog
+    """Validate the DCAT 3 catalog
 
      Validate the visible W3C DCAT 3 catalog feed.
 
@@ -103,7 +103,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
-    """Validate Dcat3 Catalog
+    """Validate the DCAT 3 catalog
 
      Validate the visible W3C DCAT 3 catalog feed.
 
@@ -124,7 +124,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
-    """Validate Dcat3 Catalog
+    """Validate the DCAT 3 catalog
 
      Validate the visible W3C DCAT 3 catalog feed.
 
@@ -147,7 +147,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
-    """Validate Dcat3 Catalog
+    """Validate the DCAT 3 catalog
 
      Validate the visible W3C DCAT 3 catalog feed.
 

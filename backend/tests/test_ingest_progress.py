@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from sqlalchemy import select, text
 
+from app.platform.extensions.defaults_processing_port import DefaultProcessingPort
 from app.platform.jobs.models import IngestJob
 
 from tests.factories import get_user_id
@@ -309,7 +310,7 @@ async def test_service_worker_advances_ogr2ogr_progress_while_remote_import_is_r
     worker_error: Exception | None = None
     last_progress: float | None = None
 
-    class _FakeProcessingPort:
+    class _FakeProcessingPort(DefaultProcessingPort):
         def build_gdal_source(self, *args, **kwargs):
             return "FAKE_GDAL_SOURCE", "0"
 
@@ -460,7 +461,7 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
 
     calls: list[dict[str, object]] = []
 
-    class _FakeProcessingPort:
+    class _FakeProcessingPort(DefaultProcessingPort):
         def build_gdal_source(self, *args, **kwargs):
             return build_gdal_source(*args, **kwargs)
 
@@ -656,7 +657,7 @@ async def test_service_worker_skips_arcgis_chunking_without_pagination_support(
 
     calls: list[dict[str, object]] = []
 
-    class _FakeProcessingPort:
+    class _FakeProcessingPort(DefaultProcessingPort):
         def build_gdal_source(self, *args, **kwargs):
             return build_gdal_source(*args, **kwargs)
 
@@ -806,7 +807,7 @@ async def test_service_worker_single_fetch_orders_by_the_layers_own_oid_field(
 
     order_fields: list[list[str] | None] = []
 
-    class _FakeProcessingPort:
+    class _FakeProcessingPort(DefaultProcessingPort):
         def build_gdal_source(self, *args, **kwargs):
             return build_gdal_source(*args, **kwargs)
 
@@ -932,7 +933,7 @@ async def test_service_worker_skips_arcgis_chunking_without_order_field(
 
     calls: list[dict[str, object]] = []
 
-    class _FakeProcessingPort:
+    class _FakeProcessingPort(DefaultProcessingPort):
         def build_gdal_source(self, *args, **kwargs):
             return build_gdal_source(*args, **kwargs)
 

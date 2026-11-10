@@ -576,6 +576,28 @@ describe('BuilderMap layer auto-fit behavior', () => {
     globalThis.fetch = originalFetch;
   });
 
+  it('fits a map with layers and no saved view', async () => {
+    render(<BuilderMap layers={[makeLayer()]} basemapStyle="openfreemap-positron" />);
+    await waitFor(() => {
+      expect(mapState.fakeMap.fitBounds).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('opens a map with a saved view at that view', async () => {
+    render(
+      <BuilderMap
+        layers={[makeLayer()]}
+        basemapStyle="openfreemap-positron"
+        initialViewState={{ center_lng: -74.6, center_lat: 40.9, zoom: 9 }}
+      />,
+    );
+    await waitFor(() => {
+      expect(mapState.fakeMap.on).toHaveBeenCalledWith('error', expect.any(Function));
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mapState.fakeMap.fitBounds).not.toHaveBeenCalled();
+  });
+
   it('does not refit the map when a duplicate layer keeps the visible bounds unchanged', async () => {
     const originalLayer = makeLayer();
     const { rerender } = render(

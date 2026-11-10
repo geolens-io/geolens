@@ -17,6 +17,7 @@ import {
 import {
   LayoutDashboard,
   Users,
+  UsersRound,
   Briefcase,
   ScrollText,
   Link2,
@@ -42,6 +43,7 @@ import { useEdition } from '@/hooks/use-edition';
 import { useEnterpriseOnlyTabs } from '@/hooks/use-settings';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useSettingsAdmin } from '@/hooks/use-settings-admin';
+import { useGroupAdmin } from '@/hooks/use-admin-groups';
 import { semanticBadgeColors } from '@/lib/status-colors';
 import type { Capability } from '@/lib/capabilities';
 
@@ -82,13 +84,15 @@ type OperationItem = {
   enterpriseOnly?: boolean;
   capability: Capability;
   // SAML calls the mode-aware /settings/oauth-providers/ API
-  // (manage_tenants in multi-tenant mode), not raw manage_settings, so its
-  // visibility must follow useSettingsAdmin() like the Settings group does.
-  settingsGated?: boolean;
+  // (manage_tenants in multi-tenant mode), not raw manage_settings, and groups
+  // switch to manage_tenants the same way, so visibility must follow the
+  // mode-aware hooks rather than `capability`.
+  gate?: 'settings' | 'groups';
 };
 
 const operationsItems: readonly OperationItem[] = [
   { labelKey: 'adminNav.users', to: '/admin/users', icon: Users, badgeKey: 'users', capability: 'manage_users' },
+  { labelKey: 'adminNav.groups', to: '/admin/groups', icon: UsersRound, capability: 'manage_users', gate: 'groups' },
   {
     labelKey: 'adminNav.jobs',
     to: '/admin/jobs',
@@ -99,7 +103,7 @@ const operationsItems: readonly OperationItem[] = [
   },
   { labelKey: 'adminNav.auditLog', to: '/admin/audit', icon: ScrollText, badgeKey: 'audit', capability: 'manage_settings' },
   { labelKey: 'adminNav.sharedMaps', to: '/admin/shared-maps', icon: Link2, badgeKey: 'sharedMaps', capability: 'manage_users' },
-  { labelKey: 'adminNav.saml', to: '/admin/saml', icon: Lock, enterpriseOnly: true, capability: 'manage_settings', settingsGated: true },
+  { labelKey: 'adminNav.saml', to: '/admin/saml', icon: Lock, enterpriseOnly: true, capability: 'manage_settings', gate: 'settings' },
 ];
 
 // Fallback for when /settings/enterprise-tabs/ is unreachable (boot, network
@@ -160,6 +164,7 @@ export function AdminSidebar() {
   // flips to manage_tenants in multi-tenant mode — gate the Settings nav
   // group and its query on the mode-aware hook, not raw manage_settings.
   const canAdminSettings = useSettingsAdmin();
+  const canAdminGroups = useGroupAdmin();
   const { data: enterpriseTabsData } = useEnterpriseOnlyTabs({
     enabled: canAdminSettings,
   });
@@ -176,13 +181,14 @@ export function AdminSidebar() {
         : item.enterpriseOnly ?? false,
   }));
 
+  const gates = { settings: canAdminSettings, groups: canAdminGroups };
   const visibleOverviewItems = overviewItems.filter(item => can(item.capability));
   const visibleSettingsItems = canAdminSettings
     ? settingsItems.filter(item => !item.enterpriseOnly || isEnterprise)
     : [];
   const visibleOperationsItems = operationsItems.filter(
     item =>
-      (item.settingsGated ? canAdminSettings : can(item.capability)) &&
+      (item.gate ? gates[item.gate] : can(item.capability)) &&
       (!item.enterpriseOnly || isEnterprise),
   );
 

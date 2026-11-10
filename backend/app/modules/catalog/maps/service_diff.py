@@ -23,6 +23,7 @@ from app.modules.catalog.maps.schemas import (
 from app.modules.catalog.maps.service_layers import (
     bulk_check_dataset_access,
     lock_map_layers,
+    touch_map,
 )
 from app.modules.catalog.maps.service_shared import (
     LayerRow,
@@ -110,10 +111,12 @@ def _prepare_layer_storage(
         defaults = generate_default_style(geometry_type)
         if paint is None:
             paint = defaults["paint"]
+            # The default outline belongs to the default paint; with a sent
+            # paint it would outrank the paint's own fill-outline-color.
+            if style_config is None:
+                style_config = defaults.get("style_config")
         if layout is None:
             layout = defaults["layout"]
-        if style_config is None:
-            style_config = defaults.get("style_config")
 
     paint, style_config = split_legacy_builder_paint(paint, style_config)
     style_config = normalize_dem_style_config(style_config, is_dem=is_dem)
@@ -277,6 +280,8 @@ async def apply_layer_diff(
             [layer for layer in listed + unlisted if layer.id not in hidden_ids],
         )
 
+    if removed_ids or updated or added or order is not None:
+        await touch_map(session, map_id)
     await session.flush()
     layer_rows = await _fetch_layer_rows_ordered(session, map_obj.id)
     forked_name, owner_username, db_updated_at = await _resolve_save_response_metadata(
@@ -292,7 +297,7 @@ async def _replace_layers(
     map_id: uuid.UUID,
     layers: list[dict],
     user: Identity | None,
-) -> None:
+) -> dict[uuid.UUID, uuid.UUID]:
     """Reconcile a map's layers against ``layers`` by id.
 
     Existing rows are updated in place by id, so layer UUIDs that embed
@@ -300,6 +305,9 @@ async def _replace_layers(
     A stored layer ``layers`` leaves out is kept, in its place in the stack,
     when map reads hide its dataset from ``user``.
     Applies default styles if paint/layout is None. Flushes but does NOT commit.
+
+    Returns ``{sent id: new id}`` for the rows this call created from a sent
+    id. An id sent for two new layers is left out, since it names neither.
     """
     existing_result = await session.execute(
         select(MapLayer)
@@ -338,6 +346,7 @@ async def _replace_layers(
 
     kept_ids = set(hidden_ids)
     placed: list[tuple[int, MapLayer]] = []
+    created: list[tuple[uuid.UUID, MapLayer]] = []
     for layer_data in layers:
         prepared = _prepare_layer_storage(layer_data, ds_meta)
         raw_id = _coerce_uuid(layer_data.get("id"))
@@ -376,6 +385,8 @@ async def _replace_layers(
                 show_in_legend=prepared.get("show_in_legend", True),
             )
             session.add(existing)
+            if raw_id is not None:
+                created.append((raw_id, existing))
         placed.append((existing.sort_order, existing))
 
     if hidden_ids:
@@ -394,3 +405,10 @@ async def _replace_layers(
         )
 
     await session.flush()
+    created_ids: dict[uuid.UUID, uuid.UUID] = {}
+    repeated: set[uuid.UUID] = set()
+    for sent_id, row in created:
+        if sent_id in created_ids:
+            repeated.add(sent_id)
+        created_ids[sent_id] = row.id
+    return {k: v for k, v in created_ids.items() if k not in repeated}

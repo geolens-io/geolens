@@ -70,8 +70,8 @@ from dataclasses import dataclass
 import pytest
 
 from app.platform.extensions import get_ai_provider
+from app.processing.ai.chat_constants import _EDIT_TOOLS
 from app.processing.ai.chat_service import (
-    _EDIT_TOOLS,
     build_chat_system_prompt,
     build_dataset_chat_system_prompt,
 )

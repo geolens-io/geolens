@@ -7,50 +7,917 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Added
+- Database connections: an operator lists SQL Server databases in `DATABASE_SOURCES`, `GET /services/databases/{connection}/tables/` lists a connection's spatial tables and views with their geometry column, type and SRID for users who can create datasets, and `/capabilities/` names each connection and its database for those users. The API image now includes the FreeTDS ODBC driver (`tdsodbc`). The setting is refused in `multi_tenant` mode.
+- Database import and refresh: `POST /services/databases/{connection}/imports/` copies one listed table or view into a new dataset as an ingest job, and the dataset's Refresh reads it again by connection name. The dataset's origin is `database`, with `source_format` `database`, no `source_url` and an `origin_uri` of `database://<connection>/<schema>.<table>`; the table's SRID is read from SQL Server, and a table with SRID 0 or no rows asks for `srid_override`. A second import of the same table by the same user answers 409 `duplicate_source`. A refresh is verified under the `database_single_read_v1` policy: a removed or retyped column and an empty read over a copy that has rows wait for review, and a refresh through a connection that is no longer configured fails naming it. The `OriginKind` request enum and refresh runs' `origin_kind` gain `database`.
+- Add Data has a Database source when a connection is configured: pick a connection and a table, give a table without an SRID its CRS, and import. Each listed table now carries `importable`, and a name GeoLens can't import is shown but disabled. A database dataset's Source tab shows its connection and table, refreshes it, and can accept a refresh held for review. `geolens replace` refuses a database dataset, and the MCP client reports the `database` origin.
+
+### Changed
+- Overlay authors: `EXTENSION_API_VERSION` is now 23. `CatalogPort` gains the
+  required `queue_ingest_job()` and `refresh_database_task()`.
+- The viewer legend describes a clustered layer as "Grouped into clusters as you zoom out" or "Shown as individual points" instead of "Server cluster", "Bounded cluster" and "Point fallback".
+
+### Fixed
+- Map viewer: with an AI provider configured, the "Ask AI" button no longer covers the expanded attribution; the attribution sits above it.
+- A DEM dataset whose extent the reader cannot see now frames its preview to the bounds in its tile token instead of opening at world zoom and timing out; with no bounds either it shows "Preview unavailable" at once.
+- Visiting `/stories` opens the Stories tab of the Maps page instead of a 404.
+- A user can no longer end up with two copies of one service layer or database table. A second import while the first is still queued or running answers 409 `duplicate_source` with `existing_job_id` in place of `existing_dataset_id` and `existing_title`. Retrying a failed import answers the same 409 while the job's owner holds a copy of its source, and works again once that copy is deleted. An import that reaches publication after a copy was published, or a service re-upload that would bind a second dataset to a layer the owner already holds, fails with error code `duplicate_source`. An import an admin committed for another user now retries for the admin, as the commit did, and only that admin or a user who may manage others' jobs can retry it. A service URL counts as the same source whatever its trailing slash, letter case of scheme and host, or protocol parameters such as `SERVICE` and `REQUEST`.
+- Collection records in search report their members' license, the shared one or `various`, instead of always `proprietary`.
+
+## [1.30.1] - 2026-11-08
+
+An instance on 1.30.0 moves to 1.30.1 with no migration. A raster mosaic of
+two or more files gets its own overview the next time it is rebuilt, if the
+owner's storage cap and the server's scratch space allow it.
+
+### Changed
+- The demo seed (`scripts/seed-showcase.py`) adds a section built from the City of Cambridge, MA open data (PDDL) with a nine-chapter story, binds the USGS earthquake layer once, shows the 1.30 dashboard and story features, gives the showcase maps and stories one title style, fills the Matterhorn terrain south of the Swiss border with the Copernicus GLO-30 elevation model, and corrects written content, legends, credits and cameras across the showcase; `--refresh-services` re-pulls every service-bound dataset the seed account owns.
+
+### Fixed
+- A raster mosaic of two or more files now builds an overview of its own, as a mosaic with a file that lacks overviews already did. GDAL uses the files' own overviews only when the mosaic has one file, so low-zoom tiles read the full-resolution grid, which made them slow and could restart the tile server on a large mosaic. The overview is built when the mosaic is created or rebuilt, if the owner's storage cap and the server's scratch space allow it; otherwise the mosaic publishes without one, as before. Existing mosaics get it at their next rebuild.
+- Collection thumbnails and the collection page's spatial extent map now zoom to a city-sized extent instead of showing a dot on a world map, the viewer legend shows a chevron while rows are cut off below the visible part of the panel, and a map card's title wraps to two lines instead of cutting a long name short beside its visibility badge.
+- Dashboard widgets: pie slices, bars, table groups, category selector options and feature list titles show a column's value labels, such as a coded-value domain's descriptions, instead of the stored codes. The text alternatives show "Label (code)", and picks and filters still match the stored value (#3679).
+- Stories and dashboard text: a wide code block scrolls inside its own shaded box instead of widening the whole chapter panel or widget.
+- Stories: in the floating layout each scene centres in the part of the map the chapter panel leaves free, instead of partly under the panel.
+- The story reader on a phone shows the cover, title and summary on the first chapter only, so later chapters keep the sheet for their text; the actions sit beside the chapter count on every chapter, and later chapters show a one-line title when the navigation bar doesn't. "Back to this chapter's view" no longer shows on arrival at a scene that asks for more pitch or zoom than the map allows, and the chapter navigation bar fades only the side that has more tabs hidden past it.
+- A dataset bound to a service now reports source health "healthy" after a successful refresh, whether or not the data changed, instead of "unknown" until a probe runs. A STAC item refresh keeps the asset probe's verdict.
+- A legend's size section takes the layer's size label when the layer is coloured by one column and sized by another, instead of showing the size column's name.
+- Dashboards: a category stored as empty or space-only text reads "(no value)" in pie, bar, table, selector and feature list widgets instead of a blank label.
+- Dashboard widgets: an indicator titled with its layer name no longer repeats it as a subtitle, pie slices the layer styles alike get distinct colours, a dashboard that hides its map is headed by the map name and description, sums and means of 1,000 or more print without decimals, and bar value labels no longer clip at the card edge.
+
+## [1.30.0] - 2026-11-07
+
+### Added
+- Stories: the story list takes `search` and `published_only`, and each item reports its published `chapter_count`.
+- MCP: list_stories, get_story and aggregate tools read published stories and run dataset aggregates.
+- Stories: the Reader settings dialog sets the reader theme.
+- Dashboards: bar charts by feature, by field or by date, layer colours on category bar charts, and histogram axis ticks.
+- Dashboards: pie charts, with the layer's colours when grouped by its style column.
+- Stories: an optional navigation bar listing the chapters, and a floating panel layout that puts the chapter text over a full-bleed map, placed left, right or centre.
+- Stories: chapters can move the map with Fly, Glide or Cut, timed by the distance of the move, layers fade in and out, and a button returns a reader to the chapter's view.
+- Dashboards can hide their map so the widgets fill the page, in the viewer, share links and embeds; the ArcGIS migration report points a dashboard without a map to this layout and names one with several maps.
+- Stories and dashboards can be shown to readers in light or dark, or follow the reader's setting.
+- Dashboards: an indicator can show the difference from a reference value the author enters.
+- Stories: gallery and carousel blocks hold several images in one block.
+- Tiles: `cols_only=true` makes a vector tile carry only the columns `cols=` names; the viewer and Builder use it and popups fetch the remaining fields on open.
+- Stories: embed and video blocks from hosts an admin approves.
+- Stories: scene transitions and reader settings (navigation bar, layout, theme) in the story document; the reader applies them in 1.30.
+- Stories: a public story can be embedded in another site with an iframe snippet.
+- Stories: a default transition in Reader settings; chapters can keep their own.
+- The dashboard API accepts feature list, table and pie chart widgets, bar
+  charts by feature, by fields or by date, and per-dashboard settings to hide
+  the map and set a light or dark theme.
+- A branding extension can set an accent colour, a logo and a font on story
+  and dashboard pages, served as `reader_theme` on story and map responses.
+  Without one the pages look as before.
+- `POST /datasets/{id}/aggregate/` lists features a page at a time with the new
+  `rows` operation, groups a date column by UTC day, week, month or year, and
+  returns up to five statistics per group.
+- `geolens arcgis migrate` runs as a GeoLens editor when the plan maps every
+  item to that editor, so one ArcGIS user can move their own content without
+  an admin. Nothing is transferred. A public item under
+  `restrict_public_visibility` lands internal, collections are skipped without
+  `manage_collections`, and an item shared only with ArcGIS groups goes to the
+  matching groups the editor belongs to, or lands private. The report lists
+  each. A plan that names another owner still needs an admin.
+- `PUT /maps/{map_id}/groups/` takes an optional `expected_updated_at`; a map
+  changed since that value answers `409` `stale_write` and nothing is written.
+  The answer also carries the map's `updated_at` after the change.
+- `PUT /maps/{map_id}` takes an optional `expected_updated_at`. When the map
+  changed since that value, nothing is written and the answer is `409` with
+  `detail.code` `stale_write`, as on `PATCH /maps/{map_id}`. Without it the
+  save is unconditional, as before.
+- `POST /maps/import/arcgis-webmap/` also returns `layer_sources` (the
+  operational layer each translated layer came from), `view` (initial view and
+  basemap) and `notes` (the loss report as the import writes it), on a dry run
+  too. `geolens arcgis migrate` uses them to translate a web map the portal
+  changed again into the same GeoLens map on a rerun, keeping its layer ids,
+  unless the map was changed in GeoLens since the last run.
+- Dashboards: a table widget shows statistics grouped by a category.
+- Dashboards: a feature list widget lists a layer's features and zooms to one.
+
 ### Changed
 
-- New API keys start with `glk_` and are 47 characters long, so a pasted key is
-  recognisable to secret scanners, and the server redacts a `glk_` value
-  wherever it appears in its logs. Keys created earlier keep working. A new
-  key's fingerprint shows `glk_` and the next eight characters plus the last
-  four.
-- Map label fonts are bundled with the frontend, so labels on blank and raster
-  basemaps no longer fetch glyphs from `tiles.openfreemap.org`. The style JSON
-  exported by `GET /maps/{map_id}/style.json` now points `glyphs` at your
-  instance's `/fonts/` path, using the public app URL, or the host the request
-  reached while that URL is still a loopback default such as
-  `http://localhost:8080`. An install that serves the API from its own origin
-  needs `PUBLIC_APP_URL` set for exported styles to find the fonts.
-- `GET /maps/{map_id}/style.json` now writes absolute URLs: vector tile and sprite URLs on
-  the public API URL, raster tile URLs on the public app URL. They were root-relative paths
-  (`/tiles/...`, `/maps/sprites/...`) that clients outside the app, such as QGIS, could not load.
-  Re-importing an exported style is unaffected.
+- API reference: every operation has an action title ("Get the signed-in user") instead of one derived from its function name; generated SDK docstrings follow.
+- Stories: a chapter on a different map loads that map ahead of time and crossfades to it.
+- Stories: a gallery image opens full size in a dialog with its caption and Previous/Next, a carousel shows dots for its images, and the floating panel keeps a visible scrollbar.
+- Dashboards: indicator comparisons read "above <label>" with the judgement carried by colour; charts and tables take two columns when the map is hidden.
+- CI cancels merge-queue runs left behind when a queue entry is rebuilt, so superseded runs no longer hold runners.
+- Jobs: the storage sweeps share one orphan-object scan.
+- Overlay authors: `EXTENSION_API_VERSION` is now 22. `BrandingExtension`
+  gains the required `get_reader_theme()`; return `None` for no theme.
+- A map's `updated_at` now moves when only its layers or its groups change
+  (a layer added, edited, reordered or removed, or a group shared or
+  unshared), so the gallery's "last updated" order and an
+  `expected_updated_at` see those edits. Thumbnail and preview captures
+  still leave it alone.
+- An ArcGIS layer that stores Z values keeps them on import and refresh: the
+  query asks for `returnZ=true` and the staged table is 3D, while the map
+  display copy stays 2D. A feature without Z in such a layer gets Z 0. Layers
+  of geometry type multipatch are refused at preview with the 422 code
+  `unsupported_geometry` instead of importing with guessed shapes.
+- Vector and cluster tiles are cached for an hour by default
+  (`TILE_CACHE_TTL=3600`, was 300 seconds), so crowded tiles are redrawn from
+  the database a twelfth as often. Browsers get the same `max-age`. A
+  replacement or feature edit still rolls the tile URLs and cache keys, and
+  shared caches stay capped at 60 seconds. A value saved in Admin → Settings
+  keeps applying; set `TILE_CACHE_TTL=300` for the old default.
+- Dashboard aggregates, analysis previews and the SQL query endpoint answer
+  `503` with `Retry-After` and the code `query_unavailable` when the database
+  can't serve the query, for example when it runs out of memory or shared
+  memory or loses a connection. They answered `500` before. Dashboard widgets
+  retry after the `Retry-After`.
+- A rerun of `geolens arcgis migrate` follows an ArcGIS owner change: the
+  item's datasets and map go to the newly mapped GeoLens owner. When the plan
+  sets the item's `target.owner`, that owner stays and the change is listed
+  under `owner_conflicts`. An object transferred or changed in GeoLens since
+  the last run keeps its owner and is reported, and `--cutover` refuses until
+  `--accept-unresolved-users`. `--dry-run` lists the handovers a run would
+  make. The migration state file is now version 6, which older CLIs refuse
+  to read rather than rewrite without the owner it follows or a web map's
+  unconfirmed save.
+
+### Deprecated
+
+- The `offset` query parameter on `GET /audit/datasets/{id}/column-ddl` and
+  `GET /datasets/{id}/vrt/generations/`, an alias of `skip`, stays until at
+  least 2027-02-05. Use `skip` instead.
+- The `externalId` query parameter on `GET /collections/datasets/items` stays
+  until at least 2027-02-05. Use `externalIds` instead.
+- Sending an API key as the `?api_key=` query parameter stays supported until
+  at least 2027-02-05. Send it in the `X-Api-Key` header, or as the password
+  of an HTTP Basic login, instead.
+- The `PUBLIC_BASE_URL` setting stays until at least 2027-02-05. Use
+  `PUBLIC_API_URL` instead.
+
+### Fixed
+
+- Dashboards: the orange, teal and amber chart colours are darker in the light theme so bars, slices and legend swatches keep a 3:1 contrast against cards.
+- Stories and maps: the coordinate readout moves clear of a floating chapter panel, the return-to-view button sits in the map area the panel leaves free, and a long map title truncates instead of running over the toolbar.
+- Rasters: TiTiler refuses renders past its concurrency cap, and the tile proxy answers busy instead of queueing them.
+- Rasters: a VRT mosaic over members without overviews gets an overview image, so low-zoom tiles stop reading every member at full size.
+- DCAT-US validation now rejects malformed `date-time` and `iri` values instead of accepting them.
+- DCAT-US raster tile distributions now point `accessURL` and the data service `endpointURL` at the dataset and carry the tile URL template in the description, because the template is not a valid IRI.
+- The staged-file preview no longer holds a database connection while it
+  downloads the file and runs GDAL, so slow previews no longer tie up the
+  connection pool. The audit log and user CSV exports read in bounded batches
+  and the audit export caps its query, so a large export no longer loads
+  every row into memory before the first one is written.
+- A map update or style import with a NaN or infinite center is now rejected with 422, and style export no longer fails on a map that already stores one.
+- A STAC import no longer fails an item whose id or asset link is too long to store with raw database text: the item is refused with a message and the rest of the batch imports; any other failed item reports a localized error.
+- The bundled database gets a 512 MB `/dev/shm` (`DB_SHM_SIZE`). Docker's
+  64 MB default made parallel queries fail under concurrent dashboard load,
+  and widgets answered 500. The space counts toward `DB_MEM_LIMIT`.
+- Auth: a download token can no longer be issued for a session a password reset just revoked.
+- A rerun of `geolens arcgis migrate` adopts a web map save whose answer was
+  lost, or whose state write failed, when the map still holds exactly what the
+  save sent, and reports it as a GeoLens edit otherwise.
+- A rerun translates a web map again while a layer the portal dropped is still
+  held by a map layer the run couldn't read, or while a layer's service isn't
+  imported yet, and clears each once the save applies it.
+
+### Security
+
+- An API key, dataset key or admin-issued key created while the creator's
+  password was being reset no longer stays usable after the reset.
+- Deactivating or suspending a user now ends their sessions and retires their
+  API keys, so reactivating the account no longer brings either back.
+
+## [1.29.2] - 2026-11-01
+
+An instance on 1.29.1 moves to 1.29.2 with no migration. The vector and
+cluster tile caches start empty after the upgrade because their key format
+changed.
+
+### Security
+
+- The bundled nginx refuses a path that repeats the `/api` prefix, so every
+  edge rule for `/api/...` (the `/metrics` and internal-route blocks, the
+  anonymous tile rate limits) also covers that spelling. `/metrics` answers 404
+  to a request that came through a proxy (`Forwarded`, `X-Forwarded-For` or
+  `X-Real-IP`); scrape the API directly, as the bundled Prometheus does.
+- A verification link activates a pending sign-up only while self-registration
+  is on and requires email verification. In admin-approval mode the link
+  confirms the address and the account waits for an administrator; the
+  verify-email page says so. Resend sends nothing in that mode.
+- Creating an embed token follows the map's audience. With public visibility
+  restricted to admins, a non-admin can't create one for a map that isn't
+  public. A map shared with groups refuses new embed tokens (`409`), and a
+  token on a map that becomes shared with groups stops working. Tokens a
+  non-admin created before the restriction was turned on keep working; if you
+  use that setting, review the embed tokens on maps that aren't public.
+- `geolens apply` acts on a manifest key's existing dataset only for that
+  dataset's owner, admins included. To re-apply over another user's dataset,
+  transfer it first. A refused entry reads the same whether or not you can see
+  the dataset.
+- With a daily AI token cap set, a user can have two AI requests in flight; a
+  third gets `429`. Concurrent requests could otherwise each spend past the cap.
+
+### Changed
+
+- A vector tile over its 50,000-feature limit keeps a sample spread across
+  the tile, in a stable order, instead of the lowest feature ids, and carries
+  `X-GeoLens-Tile-Sampled: true`. The viewer's Layers panel says "Showing a
+  sample at this zoom" while such a tile is in view. Tiles under the limit are
+  unchanged. Choosing the sample reads every row the tile covers, so drawing
+  a crowded tile is slower than before. That happens whenever the tile isn't
+  in the tile cache: on first view, after its cache entry expires
+  (`TILE_CACHE_TTL`), after the dataset changes, and for each column set a map
+  asks for. (#3576)
+- The Builder's style editor notes when a point layer has more features than a
+  tile holds and isn't clustered or zoom-limited, so readers see a sample
+  zoomed out. (#3577)
+- Each signed-in caller (JWT or API key) gets their own 10-a-second budget on
+  the aggregate route that dashboard widgets call, instead of sharing one per
+  client address. Anonymous and embed callers are still counted per address.
+  (#3574)
+- `scripts/seed-showcase.py` adds a Manhattan skyline story and dashboard map.
+  (#3570, #3575)
+- A breaking change to the REST API, the map and dashboard JSON that clients
+  write, or a CLI command or flag now keeps the old form working for the later
+  of the next minor release and 90 days. (#3573)
+
+### Deprecated
+
+- `POST /datasets/{id}/previous-version/restore`, `DELETE
+  /datasets/{id}/previous-version` and the dataset detail's `previous_version`
+  field, deprecated in 1.27.0, now stay until at least 2027-01-22. Use the
+  `previous-versions` routes and field instead.
+
+### Fixed
+
+- Okta and other OIDC providers that return `email_verified` or the group
+  claim only from UserInfo: sign-in reads the missing claims from UserInfo when
+  its `sub` matches the ID token, so allowed-domain checks, linking by email
+  and group-role mapping work. ID token values still win. (#3579)
+- A dashboard widget whose view is too wide shows only "zoom in", without a
+  Retry button or an empty value, and screen readers hear the same instead of
+  a failure. (#3571)
+- The committed OpenAPI document and the STAC `service-desc` carry the
+  `servers: [{"url": "/api"}]` entry the live `/api/openapi.json` has, so
+  request samples generated from them include the `/api` prefix. The
+  TypeScript SDK's generated client defaults to that base URL;
+  `createGeolensClient()` still sets its own. (#3588)
+- The Publish API key scope says a replacement keeps the dataset's previous
+  versions, not one previous version. (#3587)
+
+## [1.29.1] - 2026-10-31
+
+An instance on 1.29.0 moves to 1.29.1 with no migration.
+
+### Changed
+
+- A map's dashboard shows a placeholder in each widget card while the
+  widget's chart code loads, instead of a line of text, and the panel starts
+  loading that code as soon as it opens. (#3559)
+- In the Builder, the Dashboard rail button of a map with widgets carries a
+  dot, as Notes does, and its name reads "Dashboard (6 widgets)". The panel
+  opens when such a map loads unless the author closed it on that map before,
+  which the browser remembers per map. On a narrow screen, where rail panels
+  open as a sheet, it stays closed. (#3559)
+- Bar chart and histogram widgets draw the bars outside a Pick at 75%
+  opacity instead of 35%, so they keep 3:1 contrast against the panel in
+  light and dark themes. (#3559)
+
+### Fixed
+
+- The Table view of a map's Map data panel shows numbers as its List view
+  does, rounded and with digit grouping, instead of the stored value such as
+  `30.7199993133545`. (#3558)
+- The group picker on a map's or story's Share panel named its list of chosen
+  groups after a dataset, so screen readers announced the wrong thing. (#3557)
+- A dataset with no summary no longer shows its title twice on search
+  results, in a collection's Add Datasets picker or in the Builder's dataset
+  picker; a dataset search card shows its generated description instead. The
+  Builder's layer editor no longer repeats a vector layer's geometry type
+  under its type badge. (#3561)
+- Someone who can manage groups, opening a group picker before any group
+  exists, is pointed at Admin > Groups instead of being told an administrator
+  can add them to one. The group admin dialogs say groups share datasets,
+  maps and stories, not only datasets, and the map share confirmation names a
+  layer once when its dataset has the same title. (#3562)
+- After a reader cleared a dashboard Pick with its chip, the bar they had
+  clicked kept its outline, bold label and readout, so the chart looked
+  filtered. Bar chart and histogram widgets now show the active bar only
+  while the chart has focus, and the readout under them keeps its line, so
+  the widgets below no longer shift when it clears. (#3565)
+
+## [1.29.0] - 2026-10-31
 
 ### Added
 
-- A vector dataset's OGC collection document (`GET /collections/{id}`) now has a
-  `rel: "tiles"` link to its vector tile template, with `type`
-  `application/vnd.mapbox-vector-tile` and `templated: true`. The tile token
-  response (`GET /tiles/token/{id}/`) for a vector dataset also returns
-  `tile_url_template`, a signed template relative to the API root.
-- `POST /jobs/status/` reports the status of up to 100 import jobs in one
-  request, with the held refresh run for a replacement under review. Ids that
-  don't exist and jobs you may not read both come back as `not_found`. API
-  keys limited to read-only can call it.
-- A request that sends an API key in the `X-Api-Key` header can be read from
-  any origin, so a browser app, a desktop app's web view or a notebook can call
-  your instance with a pasted key and no `CORS_ALLOWED_ORIGINS` entry. Such a
-  response carries `Access-Control-Allow-Origin: *` without
-  `Access-Control-Allow-Credentials`, and only on routes that check the key; an
-  invalid key's `401` is readable too. Cookies sent with the request are
-  ignored. The sign-in, registration and session routes under `/api/auth/`,
-  which read no key, refuse a keyed preflight. A
-  request that also carries `Authorization`, an embed token, or `?api_key=` or
-  `?embed_token=` in the URL keeps the old rule. A keyed answer lists
-  `Authorization`, `X-Api-Key` and `X-Embed-Token` in `Vary` alongside
-  `Origin`, and a keyed request refused by the rate or body-size limit gets a
-  readable `429` or `413`. This changes the CORS contract: a keyed request
-  from an origin outside the allowlist used to get no CORS headers at all.
+- Story maps in the web app, on the stories API from 1.28.0. A story reads at
+  `/stories/:id`: on a wide screen the chapters scroll beside a fixed map and
+  the chapter in view sets the scene, and on a phone they become a stepper
+  with arrow-key controls. Each chapter change is announced to screen
+  readers, and camera moves jump instead of flying under reduced motion.
+  Anyone who can read a story can open it, signed in or not; a chapter whose
+  map the reader can't open shows its text with a notice. A story with no
+  scenes reads as text only, without a map pane. (#3483, #3494)
+- The Maps page has a Stories tab that lists the stories you can read, with
+  New story, Edit, Duplicate and Delete where you're allowed to use them.
+  (#3483)
+- The story editor at `/stories/:id/edit` works on a draft that readers don't
+  see until you publish it. Chapters hold Markdown text, written with a
+  formatting toolbar and a preview, and an optional scene: a saved map, a
+  camera taken from the map with "Use current view", and which of its layers
+  show. "Edit map in Builder" opens a scene's map in a new tab, and layers
+  added there appear when you come back. Publish names any map that keeps
+  the story from reaching its audience, and Discard draft goes back to the
+  published version. If the draft was saved somewhere else since you opened
+  it, you can load that version or keep yours with "Overwrite with my
+  version". Blocks are numbered per kind, such as "Text block 2" and "Image
+  1". (#3483, #3494)
+- `geolens apply` manifests accept GeoParquet (`.parquet`) vector sources, as
+  upload and `geolens publish` already do, and `geolens scan` lists them.
+  (#3501)
+- Stories take images. Authors upload a PNG, JPEG or WebP into a chapter as an
+  image block with alt text and an optional caption, or as the story's cover,
+  which shows on its card, above its title and in its link preview. Save and
+  Publish wait until every chapter image has alt text. The server re-encodes
+  each upload as WebP at most 2400 px a side without its metadata, and readers
+  get only the images the published story uses. Duplicating a story copies its
+  images. The API adds `POST /stories/{id}/assets`, `GET
+  /stories/{id}/assets/{asset_id}` and `cover_asset_id` on story summaries and
+  updates, and chapters now accept `image` blocks. Additive, but a 1.28.0 API
+  process refuses image blocks and `cover_asset_id`, so during a rolling
+  upgrade they work once every process runs this release. (#3489)
+- An image in a chapter can be marked decorative. Uploads keep a card size and
+  a link-preview JPEG, which story cards and link previews use. Admins can cap
+  story image storage per owner (`max_story_image_mb_per_user`, off by
+  default), and a worker job removes image objects no story names.
+  (Closes #3487, #3488)
+- Stories take button and separator blocks. A button is a link styled as a
+  button, with a label, an `http` or `https` address and an option to open a
+  new tab, which carries `rel="noopener noreferrer"`. The server refuses any
+  other scheme, `javascript:` and `data:` included, with a 422, and a stored
+  address that isn't http or https shows its label as plain text. A separator
+  is a thin line or a larger gap, announced to assistive technology as a
+  separator. Chapters now accept `button` and `separator` blocks. Additive, but
+  a 1.28.0 API process refuses both, so during a rolling upgrade they work once
+  every process runs this release. (#3519)
+- Map dashboards in the viewer. A map with a dashboard shows its widgets in a
+  panel to the right of the map or below it, as the author chose, and always
+  below on narrow screens. The panel appears on the map page, share links and
+  embeds; readers can collapse it, and an embed can open it collapsed with
+  `dashboard=collapsed`. Each widget applies its layer's saved filter, or says
+  when it can't, and a widget set to follow the map view updates once the map
+  stops moving. Widgets on a layer the reader turns off in the legend leave
+  the panel. A widget without a title is named from what it shows, such as
+  "Count by kind", with its layer name below. (#3484, #3493)
+- The Builder can preview a map's Dashboard panel before saving, and the
+  share panel can start an embed with the dashboard collapsed. (#3503)
+- Dashboard authoring in the Builder. The Dashboard panel adds indicator, bar
+  chart, histogram and category selector widgets, picks each one's layer,
+  columns and scope, orders them, places the panel and previews each widget
+  against the map. A save is held while a widget reads a column its layer
+  lacks or isn't numeric, or follows the map view on a layer without geometry.
+  A new bar chart or selector starts on a text column with few sampled values
+  where the layer has one, rather than a nearly unique one such as a place name.
+  (#3484, #3486)
+- Readers can open a Map data panel under the map, with a Table of a layer's
+  rows next to the List view. Rows follow the layer's filter and the
+  dashboard's Picks, can be limited to the map view, and select their feature
+  on the map and back. On a phone the panel docks under the map and expands to
+  full screen. The Builder's attribute table follows map clicks the same way.
+  (#3509, #3527)
+- Linked dashboard widgets. Clicking a bar or a histogram bin, or choosing
+  values in a category selector, filters that layer on the map and its other
+  widgets until the reader clears it. Each filter shows as a chip that clears
+  it, and the chips stay while the panel is collapsed. A filter applies on
+  top of the layer's saved filter and is never saved. The widget a filter
+  came from keeps showing every value, with the pick marked. Bars and bins
+  take Enter or Space from the keyboard, widgets on a column the server can't
+  filter by don't offer picks, and linking works on share links and in embeds.
+  (#3486)
+- Maps have a "Readers can open the attribute table" setting, on by default.
+  While it's on, an embed token for the map can page its layers' rows through
+  `GET /datasets/{id}/rows/`, inside the dataset's tile column allowlist when
+  it has one. The rows route also accepts `gid` (one row) and `with_bbox`
+  (each row's bounding box), and maps gain `show_attribute_table`. (#3505)
+- The Maps page marks a map with a dashboard you can see with a Dashboard
+  badge, in the list and grid views. (#3484)
+- Stories can be shared with groups, as maps can. In a story's Details, the
+  owner picks groups they belong to (an admin can pick any group). A private
+  story shared with groups becomes restricted: once published, members of
+  those groups can read it, its images included. Only the owner and admins see
+  which groups a story is shared with, and a story with groups stays
+  restricted when set to private. Publishing, or sharing a published story, is
+  refused while a member of those groups can't open one of its maps. The
+  refusal names the maps, and when they're all yours it offers "Share my maps",
+  which shares them with the same groups first. Deleting a story's last group
+  makes it private. The API adds `PUT /stories/{id}/groups/`, `confirm` on
+  publish and `groups` on story drafts. (#3499)
+- Deleting a map names the stories that use it, so the owner knows which
+  chapters will lose their scene before confirming. Stories the owner can't
+  read are counted without titles. The API adds `GET /maps/{id}/stories/`.
+  (#3477)
+- A Text widget for map dashboards: Markdown written in the Builder, shown
+  beside the numbers for titles, notes on how to read the charts and source
+  credits. It has no layer, so picks, the map view and hiding layers don't
+  touch it, and it makes no data request. It renders with the story text
+  block's sanitising: raw HTML and images never render, and only `http`,
+  `https` and `mailto` links are kept, opened with
+  `rel="noopener noreferrer nofollow"`. Its headings start one level below the
+  widget's title. The source is capped at 20,000 characters. (#3513)
+
+### Changed
+
+- The SQL sandbox (`POST /api/query/`, the MCP `query` tool, AI chat) allows
+  `ST_IsValid`, `ST_GeometryType`, `ST_NPoints`, `ST_AsText`, `ST_MakeEnvelope`,
+  `ST_GeomFromText`, `ST_GeomFromGeoJSON`, `geography()`, `geometry()` and the
+  `&&` operator, and a refusal names the function. The MCP `query` tool lists
+  the allowed spatial functions. (#3502)
+- `DashboardConfig` and `DashboardConfigInput` accept `markdown` widgets, which
+  take no `layer_id` or `scope` and whose config is `{"text": "..."}` of at
+  most 20,000 characters. A 1.28.0 server refuses them on save and keeps
+  stored ones out of its responses. Additive. (#3513)
+- Story text blocks now keep only `http`, `https` and `mailto` link targets;
+  any other link, `irc`, `ircs` and `xmpp` included, reads as its text. (#3513)
+- `DashboardConfig` and `DashboardConfigInput` accept `histogram` and
+  `category_selector` widgets, whose schemas already existed. A 1.28.0 server
+  refuses them on save and keeps stored ones out of its responses. Additive.
+- The MCP server returns compact JSON. `search_datasets` returns a fixed set of
+  fields per dataset, and `get_map` returns a summary of the map and its layers
+  without styling, column info or sample values. (#3500)
+- `DashboardConfig` gains `panel`, `right` or `bottom` (default `right`). A
+  save may send it; leaving it out keeps the stored panel. GeoLens sends it
+  only for a bottom panel, since a 1.28.0 server refuses the key. A 1.28.0
+  server reads a stored bottom panel as right and drops it on its next save.
+  (#3503)
+- Builder map responses carry each column's title, semantic role and value
+  labels, as shared map responses already did. `features.geojson` writes
+  `timestamptz` values as UTC text, the same text the tiles carry. (#3507)
+- `MapSummaryResponse` gains `has_dashboard`, true when the map shows you at
+  least one dashboard widget. Additive. (#3484)
+- A histogram widget on a whole-number column bins in whole numbers;
+  `POST /datasets/{id}/aggregate` returns integer bin edges for integer columns
+  whose values are within JavaScript's safe range, marks them with
+  `whole_numbers: true`, may return fewer bins than asked for a short range,
+  and its last bin can be narrower. (#3503, #3491)
+- `SharedLayerResponse` gains `dataset_tile_columns`, the dataset's tile
+  attribute allowlist as `MapLayerResponse` already reports it, so share links
+  and embeds can tell which columns their tiles carry. Additive. (#3497)
+- The story editor saves the draft on its own, two seconds after the last
+  edit and when the tab is hidden, and the Save draft button is gone. Blocks
+  can move up and down within a chapter, and an image upload keeps going when
+  the author switches chapters. (#3498)
+- Every feature read writes `timestamptz` values as UTC text, such as
+  `2024-03-01T17:00:00+00:00`, whatever the database's `TimeZone`: OGC API
+  Features items, `/datasets/{id}/features/` and `/datasets/{id}/features/{gid}`,
+  the features that feature writes return, and related-record rows. These
+  used the database session's time zone before, so they could disagree with
+  tiles and aggregates. On a database set to UTC only two kinds of value
+  read differently: a BC value now takes ISO 8601's signed year
+  (`-0043-03-15T00:00:00+00:00` instead of `0044-03-15T00:00:00+00:00 BC`),
+  and a value past year 9999 reads `infinity`. (#3531)
+
+### Fixed
+
+- `geolens arcgis migrate` now tells apart same-named layers of a service
+  that report no layer id, tagging each with its position (`#2`) instead of
+  giving two datasets one title. (#3495)
+- The Builder and the legend no longer treat interval and point columns as
+  numeric, so data-driven styles and heatmap weights no longer offer them.
+  (#3490)
+- A dashboard widget whose column isn't available to the reader says so
+  instead of offering Retry, and a bar chart shows a clipped label in full on
+  hover. (#3503)
+- Raster tile renders take a slot from their own budget, as vector tiles do,
+  so a burst above capacity gets a prompt 429 with `Retry-After` instead of
+  queueing behind TiTiler, and the proxy retries only a failure that never
+  reached TiTiler. An nginx rate limit on raster tiles answers 429 instead of
+  503. (#3481, #3482)
+- Dashboard widget legends, data tables, summaries and indicator labels now
+  name a column by its attribute title, as the widget headings already do.
+  (#3537)
+- A dashboard Pick now filters a layer whose saved filter uses MapLibre's
+  legacy syntax, Picks on a layer the reader hides step aside until it is shown
+  again, and Pick chips use the column's attribute title. (#3507)
+- Turning a Builder layer, group or several layers off and back on no longer
+  leaves the map marked "Unsaved changes" when it matches the saved map, so
+  leaving the page no longer asks for confirmation. (#3465)
+- A `PUT /maps/{id}` that adds layers and saves a dashboard naming them in the
+  same request now saves instead of refusing the widgets, and a refusal says
+  why for each widget in a new `widgets` list (`{id, layer_id, reason}`),
+  alongside `widget_ids`. A layer saved with
+  its own paint no longer gets the default builder outline, and a fill outline
+  follows a string `fill-outline-color` when no builder outline is set, in the
+  app and in the exported style alike. The layer `layout` and `style_config`
+  descriptions document the `_minzoom`/`_maxzoom` zoom range and the
+  `legendLabel`, `colorLabel` and `sizeLabel` keys. (#3504)
+- Saving a Builder map again after a save that stored its layers but failed
+  on the map's other settings no longer warns that layers changed in another
+  session when you had deleted a layer group. (#3474)
+- A `bbox` query past the exact-count cap now reports the planner's estimate in
+  `numberMatched` instead of the cap. A vector tile whose query times out answers
+  503 without `Retry-After` instead of a retryable 429. A view-scope aggregate
+  whose limited count probe runs out of time answers `too_wide` (the aggregate
+  query itself timing out still answers `query_timeout`), and the verdict is
+  cached. (#3510)
+- Writing to a column added to a registered table after registration says to
+  refresh the dataset. (#3510)
+- A layer added or duplicated in the Builder while a save was still running
+  is no longer added a second time by the next save, and a layer deleted
+  during a save no longer makes the next save warn about changes from another
+  session. (#3474)
+- When the Builder has to save a map by replacing all of its layers (for
+  example behind a proxy that blocks PATCH), a layer added while that save
+  ran is now sent again by the next save instead of being lost, and a layer
+  deleted while it ran no longer comes back. The Builder also picks up the
+  layer ids the server stored, so later saves name the right layers. (#3475)
+
+### Security
+
+- Reads authorized by an embed token now stay inside the dataset's tile column allowlist, as its tiles already do. Datasets without an allowlist are unchanged.
+- Python dependencies: joserfc 1.7.7, which authlib uses for OAuth sign-in, for
+  CVE-2026-119283 and CVE-2026-119284, and pyasn1 0.6.5, used only through
+  google-auth for the Vertex AI provider, for CVE-2026-119194 to
+  CVE-2026-119197. (#3506, #3536)
+
+### Upgrade notes
+
+- Migration 0101 drops the four `catalog.datasets.previous_version_*` columns
+  that 0088 emptied in 1.27. Neither 1.27 nor 1.28 reads them, so a rolling
+  upgrade from 1.28 keeps working. Coming from 1.26, stop at 1.27.1 first, or
+  use `scripts/upgrade.sh`, which stops `api` and `worker` before it migrates.
+  (#3381, #3445)
+
+## [1.28.0] - 2026-10-29
+
+### Added
+
+- The map builder opens a read-only attribute table for a layer, with the
+  layer's filter applied. Clicking a row finds the feature on the map. (#3388)
+- ArcGIS Pro can open private datasets through its Server Authentication
+  login. Point an OGC API connection at `/api/desktop`, enter any username and
+  an API key as the password, and save the login. The route answers `401`
+  with a Basic challenge until a working key arrives, then redirects to the
+  OGC API landing page at `/api/`. An API key now authenticates as the password
+  of an HTTP Basic login on every route, for `GET`, `HEAD` and `OPTIONS` only;
+  a Basic login on any other method, a malformed one or one whose password
+  isn't a live key is answered `401` with a Basic challenge, so the client
+  asks for a new login. Account passwords are never accepted
+  this way. Before this release any Basic login was answered `401`, which
+  broke every other connection Pro had open to the same server once it had
+  sent one. (#3426)
+- Stories backend. A story is a draft document of chapters; each chapter can
+  hold a scene on a saved map (camera and layer visibility) and Markdown
+  blocks. There is no web UI yet, so this release adds only the API.
+  Editors save the whole draft against a revision (`PUT /stories/{id}/draft`);
+  publishing and discarding each take that revision and answer 409
+  `stale_revision` when it is out of date. Publishing checks that every map a
+  scene uses reaches the story's audience and otherwise answers 409, naming the
+  blocking maps the publisher can read and counting the rest. Every read
+  resolves scene maps with the reader's own access, so a map the reader can't
+  open drops out of the story, including after a map is narrowed. A story's
+  visibility can always be narrowed; widening runs the same reach check.
+  A document is capped at 2 MB. `restricted` visibility is refused on input
+  until stories can be shared with groups. Migration 0095 adds the
+  `catalog.stories` and `catalog.story_maps` tables. New audit actions are
+  `story.create`, `story.update`, `story.publish`, `story.delete` and
+  `story.duplicate`. The REST changes are listed under Changed. (#3451)
+- `geolens arcgis migrate` is listed in `geolens arcgis --help`. With
+  `inventory` and `plan` it moves an ArcGIS Online organization or a
+  self-hosted ArcGIS portal into GeoLens: hosted layers and tables, CSV,
+  GeoJSON, Shapefile and File Geodatabase items, and web maps, with their
+  owners, folders and sharing. Items GeoLens can't host are saved as an
+  export bundle. Reruns bring migrated items up to date, and `--cutover`
+  lists what wouldn't carry over. Attachments aren't imported yet.
+- `geolens arcgis migrate` carries ArcGIS sharing over. Private, organization
+  and public items become private, internal and public; with
+  `restrict_public_visibility` on, a public item whose owner isn't an admin
+  becomes internal, and a run that can't read that setting stops. Items shared
+  only with groups become `restricted` and are shared with GeoLens groups that
+  migrate creates and fills from the members the inventory read, or with an
+  existing group named exactly in `group_map.geolens_group`. Members resolve
+  through `owner_map`, or to a same-named account whose email matches the
+  inventory's; members who don't resolve, or whom GeoLens refused to add, stay
+  pending for a rerun. The dry run and the report list the mapping. A rerun
+  never overwrites a GeoLens edit when it shares a dataset with a new group.
+  `--cutover` now reports under-sharing and pending members, and
+  `--accept-under-sharing` accepts them. Plan files gain `restricted` and
+  `group_map.geolens_group`, inventory files gain a top-level `groups` list
+  with members. (#3450)
+- A rerun of `geolens arcgis migrate` follows the plan's sharing. A migrated
+  item gains the GeoLens groups its plan entry adds and loses the groups
+  `migrate` itself added that the entry drops, while groups shared in GeoLens
+  stay. A member `migrate` added to a group it created is removed once they
+  leave the ArcGIS group. The state file is now version 4, which older CLIs
+  refuse. (#3450, #3457)
+- `geolens arcgis migrate` gives each web map it creates the ArcGIS item's
+  thumbnail, so migrated maps no longer show a placeholder on the maps page
+  until someone opens them in the Builder. A rerun adds one to a migrated map
+  that has none and never replaces an existing thumbnail. A thumbnail that
+  can't be read or uploaded is noted on the item and never fails it. (#3469)
+- `geolens admin users import` creates users from a CSV or an ArcGIS
+  inventory. Generated 72-character passwords are shown once, only with
+  `--print-passwords`, including after a failure partway through. Rows that
+  clash with existing accounts are reported. On an instance with an identity
+  provider (OIDC, SAML or an extension) it creates nobody unless
+  `--link-by-email` is given, which trusts the CSV's emails as verified.
+  `--seed-csv` writes the rows for review. (#3450)
+- A dataset's Data table sizes each column to its header and values instead
+  of a fixed filter-box width, so more columns fit on screen, and its filter
+  row is shorter and set in the body font. (#3429)
+- A map can store a dashboard. `dashboard_config` on a map holds up to 50
+  widgets of two types, `indicator` and `bar_chart`, each tied to one of the
+  map's layers, and readers get only the widgets on layers they can read,
+  share links and embed tokens included. There is no dashboard panel in the
+  viewer or the Builder yet, and a Builder save leaves a stored dashboard as
+  it is. Migration 0096 adds the nullable `catalog.maps.dashboard_config`
+  column. (#3461)
+
+### Changed
+
+- `GET /maps/shared/{token}` returns `has_saved_view`, true when the map stores
+  a center and zoom. This is an additive REST change. (#3411)
+- `GET /datasets/{id}/rows/` takes an optional CQL2-JSON `filter` parameter,
+  compiled with the same helpers the OGC items route uses and combined with the
+  column filters, sort and keyset paging. A malformed filter or one naming an
+  unknown column returns 400. The map builder uses it to open a read-only
+  attribute table for a layer, with the layer's filter applied and a clicked
+  row found on the map. (#3388)
+- `GET /datasets/{id}/rows/` returns `total_kind`: `estimate` for an unfiltered
+  request (the table's row estimate, as before), `exact` when a `filter[...]`
+  matches 10,000 rows or fewer, and `at_least` when it matches more, in which
+  case `approximate_total` is 10,000. The attribute table footer reads "of
+  ~4,200 rows", "of 100 rows" or "of 10,000+ rows" to match. The new string is
+  in all five locales. (#3396)
+- `GET /maps/shared/{token}` includes `semantic_role` on each exposed column
+  in `layers[].column_info` that has one. Additive. (#3397)
+- The service probe's `LayerInfo` gains a `relationships` list (default
+  empty): the service's relationship classes, each with its id, name, related
+  layer, cardinality and role. Additive. (#3439)
+- The new `/stories` routes are all additive: `GET` and `POST /stories/`,
+  `GET` and `PATCH /stories/{id}`, `GET` and `PUT /stories/{id}/draft`,
+  `POST /stories/{id}/publish`, `/discard` and `/duplicate`, and `DELETE
+  /stories/{id}`. Publish-scoped API keys are refused on every story write.
+  Making a story public follows `restrict_public_visibility`. (#3451)
+- Importing an ArcGIS feature service layer now stores BigInteger fields as
+  `bigint`, DateOnly fields as `date` and TimestampOffset fields as
+  `timestamptz`, as a file geodatabase import does. Before, all three were
+  stored as `text`. Values above 2^53 stay exact, and a column whose values
+  don't convert stays text. The conversion runs on first import, on refresh and
+  on re-upload, and the import preview now reports `Date` and `DateTime` for
+  DateOnly and TimestampOffset fields. TimeOnly fields stay text, because the
+  feature APIs and CQL2 don't support a time type yet. See Upgrade notes for
+  datasets imported earlier. (#3444)
+- Map popups and the accessible map data panel show years and identifiers
+  without digit grouping: a "Year Built" of 1952 no longer reads "1,952", and a
+  parcel number reads 30012. Other numbers keep their grouping. A field is
+  ungrouped when its attribute metadata marks it `identifier` or `temporal`;
+  ingest infers those roles, and an owner can change them. (#3397)
+- The admin audit log uses one term per language in the sidebar, the page
+  heading and the tab title ("Audit Log" in English, "Audit-Protokoll" in
+  German, "Registro de auditoría" in Spanish). (#3409)
+- `MapUpdate`, `MapResponse`, `SharedMapResponse` and `DuplicateMapResponse`
+  gain `dashboard_config`. Additive; leaving it out of an update keeps the
+  stored dashboard. (#3461)
+- Map responses (`GET /maps/`, `GET /maps/{id}`, `GET /datasets/{id}/maps/`)
+  leave `thumbnail_url`, and `og_image_url` on a map read, null for a reader
+  the image routes would answer 404: one who can open the map but not every
+  dataset it draws. Lists used to advertise a URL that then failed. (#3468)
+- `geolens arcgis migrate` exit codes: a `--cutover` whose every failing check
+  was accepted with its `--accept-*` flag exits 0 (it exited 1), and so does
+  its `--dry-run`. `--dry-run --username` can now exit 3, when the portal
+  refuses the password. (#3467)
+
+### Fixed
+
+- A map with layers and no saved view opened at the world view in the Builder
+  and in the shared and embedded viewers. Both now open fitted to the visible
+  layers, and opening such a map in the Builder leaves it with no unsaved
+  changes. A `center` or `zoom` in a share link still sets the view. Going
+  from one map to another inside the Builder now opens the next map the same
+  way, at its saved view or fitted to its layers, instead of keeping the
+  previous map's view. (#3411)
+- Panning or zooming the Builder map with nothing else changed no longer asks
+  before you leave the page. Save stays enabled and still stores the new view.
+  Any other unsaved edit, with or without a pan, still asks. (#3411)
+- A shared map saved at zoom 0 now opens at zoom 0 instead of zoom 2. (#3411)
+- A zipped file geodatabase now imports whatever the zip is called. Only zips
+  named `*.gdb.zip` or `*_gdb.zip` opened before; any other name, such as an
+  ArcGIS Online export or `geolens arcgis migrate` naming the upload after the
+  item title, failed with "Unable to preview file". The `.gdb` folder may also
+  sit inside another folder or beside other files in the zip. (#3455)
+- On a globe map, fitting the view to a single point often left the map where
+  it was, and MapLibre logged "Map cannot fit within canvas". Zoom to layer on
+  a one-point layer, a shared map's first view of one, the analysis preview
+  and a row click in the attribute table now move the map. (#3454)
+- The map's coordinate and zoom readout keeps updating during animated camera
+  moves such as Zoom to layer. The Ask AI launcher no longer covers the
+  dataset page's footer, and a search card whose details wrap no longer starts
+  a line with a separator dot. (#3460)
+- The dataset Data tab's Previous and Next buttons no longer sit under the
+  Ask AI launcher. (#3470)
+- A service refresh or file re-upload whose data matches the published
+  version publishes nothing: no new version and no kept table copy. The run
+  still succeeds, the dataset's refresh time moves, and the Source tab and
+  re-upload dialog say the data was unchanged. Repeated `geolens arcgis
+  migrate` reruns no longer pile up identical versions. (#3462)
+- Choosing a layer in a multi-layer file's re-upload preview keeps the full
+  layer list, and `geolens arcgis migrate` reruns of multi-layer files (such
+  as zipped file geodatabases) check every layer again instead of reporting
+  the item out of date. (#3473)
+- A file geodatabase feature class whose rows hold circular arcs now imports.
+  Polygon and polyline classes drawn or edited in ArcGIS Pro often have arc
+  segments, and every such class failed with `ogr2ogr failed (exit 1)`. Arcs
+  are densified to line segments on import. Layers that declare a curved
+  geometry type, such as a GeoPackage `CurvePolygon` layer, are stored as
+  before. (#3428)
+- A file geodatabase upload no longer offers its `__ATTACH` and `__ATTACHREL`
+  tables as layers, and no longer imports one of them when it is the first
+  table listed. A geodatabase that holds only attachment tables still
+  previews one of them. (#3438)
+- Changing a dataset's visibility to Public on its Access tab now asks for
+  confirmation first, from any current level. The dialog says anonymous users
+  will reach the dataset's features through the OGC API, its map tiles, its
+  downloads and its catalog record, and that groups it is shared with keep
+  their access. Cancelling leaves the visibility as it was. Narrowing a
+  dataset, or moving it to Internal or Private, applies without a prompt.
+  (#3410)
+- A numeric layer filter such as `n == 0` or `n < 3` no longer draws features
+  whose value is null. MapLibre read a null as 0, so those rows matched. The
+  filter now excludes null and missing values, and so do the table, analysis
+  and OGC queries built from it, so they agree with the map. A `!=` filter on
+  a numeric column also excludes nulls, as SQL does. Saved filters are
+  rewritten when the map opens. (#3440)
+- A filtered Data table reported the whole table's row estimate as its total:
+  a filter matching 100 of 600 rows read "of ~600", and one matching nothing
+  still said "~600". It now counts the matches; see `total_kind` under
+  Changed. (#3396)
+- A service dataset whose stored source URL ended in `/` was refused as
+  `source_changed` on every scheduled refresh, after fetching the whole layer.
+  The Source tab also hid "Review and retry" on those blocked runs. A trailing
+  slash is now ignored when comparing a service's source. (#3392)
+- The ArcGIS service import skipped row-bearing layers whose type was neither
+  Feature Layer nor Table, such as an Oriented Imagery Layer, with a "not
+  imported" note. Every layer the probe marks importable is imported now.
+  (#3399)
+- `geolens arcgis migrate` sends the ArcGIS item id and portal address when it
+  imports an item, so a migrated dataset links back to its item and shows
+  "Open in ArcGIS" on the Source tab. The server has accepted these fields
+  since 1.27.0; the CLI never sent them. (#3395)
+- A rerun of `geolens arcgis migrate` no longer probes an item's service before
+  it retries a step the item still needs. When the state file records that an
+  item's import stage finished, the rerun applies the plan's current title and
+  visibility to the recorded datasets and goes straight to the item metadata,
+  keywords and ownership transfer, so you can retry a failed metadata or
+  transfer step while the service is unavailable or refuses the ArcGIS
+  credential. A rerun of a non-public item whose import stage finished no
+  longer needs an ArcGIS credential either; an item already brought up to
+  date still refreshes from the source, and that refresh keeps demanding one.
+  A plan whose service URL changed still falls back to the full
+  probe and import, and the rerun imports no layer the recorded import didn't.
+  (#3389)
+- `geolens arcgis migrate` no longer draws web map layers in the default
+  blue when their style lives on the service or uses Map Viewer symbols. A
+  layer the web map leaves to its source takes the style saved on its layer
+  item, or else the service layer's own renderer. The command reads the
+  item's style from the portal, and reads a service layer only from the
+  hosts it already trusts with the run's token: the organization's own
+  service hosts and any named with `--trust-service-host`. CIM symbols, which
+  Map Viewer and ArcGIS Pro save, are translated when they use a solid fill,
+  a solid outline, a solid line or a single circle marker, so a classed
+  layer keeps its class colours. Any other part of such a symbol is listed
+  in the loss report. The field names a renderer, label, popup or layer
+  filter uses now match the dataset's stored columns, so a field ArcGIS
+  spells `REC_Score` reads the `rec_score` column instead of drawing every
+  feature transparent; a field the dataset doesn't have is listed in the loss
+  report. A renderer that can't be used is now reported as missing its field
+  or as having no symbol that could be drawn, instead of "without a field or
+  symbols". (#3456)
+- `geolens arcgis migrate` run without its state file (lost, or a wrong
+  `--state`) no longer imports everything a second time. When GeoLens already
+  holds datasets migrated from the plan's items, the dry run and the run exit
+  2 and name them; `--start-fresh` runs anyway. A collection whose name and
+  prefixed name are both taken stops the run before any import, instead of
+  failing each item with HTTP 409 after its layers were imported. A dry run
+  that finds both of a group's names taken exits 2, as the run does. (#3458)
+- A finished `export_only` item whose plan action changes to an import
+  imports on the next rerun, instead of stopping with "nothing to replace".
+  `migrate --dry-run --cutover` lists pending group members under
+  `unresolved-users`, as the cutover does. (#3459)
+- `geolens arcgis migrate` exports keep their file type (`data.csv`,
+  `data.pdf`) instead of `data.bin`, and its StoryMap and Dashboard notes
+  describe the stories and map dashboards GeoLens now has through its API. A
+  dropped connection exits 4 with "Network error" in every command, `geolens
+  login` included, instead of a traceback. `plan` and the inventory name
+  groups whose members couldn't be read and say how many ids a cut list
+  leaves out. (#3466)
+- A `geolens arcgis migrate` run whose state recorded export bundles ended
+  with `unexpected error: FileNotFoundError` when the `export/` folder next to
+  the state file had been removed, after its items had already run. The
+  folder is now created again before `export/INDEX.md` is written. (#3472)
+- `geolens arcgis migrate --dry-run --username` signs in once, as the run
+  does. A dry run shows an item set to `skip` as skipped instead of failed.
+  "Brought N up to date" counts only the items it brought up to date, a state
+  file from a newer CLI says to upgrade, and a refused empty `owner_map` entry
+  names the matching GeoLens account. Members without an account print as one
+  counted line, a rerun prints and reports the groups it shared an item with
+  or took off it, and the loss report agrees with its counts ("1 field"). Map
+  links in an exported `story.md` use the instance's `PUBLIC_APP_URL`. (#3467)
+- The migration report lists each ArcGIS relationship class once, with its
+  two layers and cardinality, as something GeoLens doesn't import. (#3439)
+- The migration report no longer lists a CSV or GeoJSON item that a hosted
+  layer supersedes under "Items GeoLens can't host". It appears under "Source
+  files published as hosted layers", migrated with its layer. (#3437)
+- `geolens arcgis inventory` follows one redirect on the portal's own host
+  when it reads a Notebook item's data, so the notebook's dependencies are
+  parsed. A redirect to another host is still refused. (#3441)
+- A health-alert claim could be lost or overwritten when the cache failed
+  during delivery, and a stalled SMTP server could hold the send open past its
+  lease. The claim now changes state atomically under a short lease, and the
+  SMTP send has a hard total deadline. (#3351)
+- On a prebuilt-image install, a token-protected ArcGIS import (an
+  organization-shared or private hosted layer) answered 503
+  `credential_store_unavailable`, because the install ran without a shared
+  cache. `install.sh` now turns on the bundled Valkey service (capped at 256
+  MB) and sets `COMPOSE_PROFILES`, `VALKEY_PASSWORD` and `REDIS_URL` in `.env`.
+  Values you already set are kept, and a re-run changes nothing. See Upgrade
+  notes for installs made earlier. (#3443)
+
+### Security
+
+- Python dependencies: dnspython 2.9.0, for CVE-2026-114605 (a runtime
+  dependency), and starlette 1.9.0, which percent-encodes `?`, `#`, `\` and a
+  leading `//` in the request path and matches host names case-insensitively.
+  (#3447, #3415)
+
+### Upgrade notes
+
+- Migration 0095 adds the stories tables. It only adds tables. (#3451)
+- Migration 0096 adds the nullable `catalog.maps.dashboard_config` column. It
+  only adds a column. (#3461)
+- Datasets imported from an ArcGIS service before this release hold BigInteger,
+  DateOnly and TimestampOffset fields as text. Their next refresh is held for
+  review once, with the type changes listed; accepting it switches the columns
+  to `bigint`, `date` and `timestamptz`. TimeOnly fields stay text. (#3444)
+- Installs made before this release don't run the bundled cache. If you
+  import or refresh token-protected services, add `cache` to the end of any
+  existing `COMPOSE_PROFILES`, plus `VALKEY_PASSWORD=<openssl rand -hex 32>`
+  and `REDIS_URL=redis://:<that password>@valkey:6379/0`, to `.env`, then run
+  `docker compose up -d`; or re-run `install.sh`. Source builds and installs
+  with their own cache set `REDIS_URL` to that cache. `UPGRADING.md` has the
+  steps. (#3443)
+- Overlay authors: `EXTENSION_API_VERSION` is now 20. `CacheProvider` gains
+  required `compare_and_set` and `compare_and_delete` methods, which take a
+  token and act only when it matches. A cache extension needs a release that
+  implements both. (#3351)
+- ArcGIS migration state files written by this release are version 4; an older
+  CLI refuses them. Upgrade the CLI before resuming a migration on another
+  machine. (#3450, #3457)
+
+## [1.27.1] - 2026-10-24
+
+Upgrade from 1.26 straight to 1.27.1 rather than 1.27.0. An instance already
+on 1.27.0 moves to 1.27.1 with no migration.
+
+### Fixed
+
+- During a rolling upgrade from 1.26 to 1.27.0, api and worker processes still
+  running 1.26 failed every dataset request and every job they picked up until
+  they were replaced, because migration `0088_dataset_kept_versions` dropped
+  four `catalog.datasets` columns they read. The migration now empties those
+  columns and leaves them in place, so 1.26 processes keep working while the
+  upgrade rolls out. A later release drops them. Databases already upgraded to
+  1.27.0 have no such columns and need nothing. (#3380)
+
+## [1.27.0] - 2026-10-24
+
+### Added
+
+- Sharing groups. Administrators create groups and manage their members under
+  Admin > Groups, or through `/admin/groups/` (list, create, rename, delete,
+  and add or remove members; names are unique). Owners and admins can share a
+  dataset with groups from its Access tab or with `PUT /datasets/{id}/groups/`,
+  and share a map from the builder's Share dialog ("Specific groups") or with
+  `PUT /maps/{id}/groups/`. Both routes take `{"group_ids": [...]}`, up to 100,
+  and set the full list. An owner can add only groups they belong to (403
+  otherwise); an admin can add any group. `GET /groups/mine/` lists the
+  caller's groups, and dataset and map detail return `groups` to the owner and
+  admins only.
+  A private dataset or map shared with a group becomes `restricted`: its owner,
+  admins and the groups' members can read it, and a non-member still gets 404.
+  A restricted item left with no group becomes private again. Internal and
+  public items keep their audience and keep their groups stored. Every surface
+  that checks dataset access admits group members, including OGC API, STAC,
+  DCAT, search and tiles.
+  Changes that would take access away from someone are refused with 422: adding
+  a member, reactivating an account or sharing a dataset when a VRT would then
+  reach someone who can't read one of its sources, and narrowing, unsharing or
+  unpublishing a dataset when an internal, public or restricted map of the
+  owner would lose a layer for its audience. The unpublish refusal reads
+  `Cannot unpublish: dataset is used in shared maps: <names>` on the metadata
+  PATCH and on `PATCH /datasets/{id}/status/` and `/target-status/`.
+  Sharing a map with groups that can't read some of its layers answers 409 with
+  `detail.code` `layers_hidden_from_groups`; repeat the request with `confirm:
+  "share_datasets"` to share those datasets too, or `"map_only"` to share the
+  map alone, and the web app asks which. Becoming restricted retires signed
+  tile URLs and revokes a map's share link and embed tokens. The map contract
+  changes are listed under Changed. (#3306, #3315, #3332, #3337, #3344,
+  #3353, #3354, #3355, #3377, #3378)
 - API keys can be created with a Publish scope, in Settings > API keys or with
   `scope: "publish"` on `POST /auth/api-keys` and `POST /admin/api-keys`. A
   publish key can read, upload and import, apply manifests, edit dataset
@@ -67,66 +934,394 @@ and releases use semantic versioning.
   unpublished public dataset can't be published. Making data public takes a
   signed-in user or a full key. Its refusals are `403` with
   `detail.code == "api_key_scope"`. Downgrading past this release's migration
-  needs every publish key revoked first (see `UPGRADING.md`).
-- Sharing a map (`POST /maps/{id}/share/`) now also returns `share_url_absolute`, a link on
-  the public app URL that opens from another machine, and `viewer_url`, the map's page in
-  the app. `GET /maps/{id}/share/` returns `viewer_url` too. `share_url` is unchanged.
-- `GET /capabilities/` describes the server for desktop and script clients:
-  version, sign-in methods, basemaps, workflow statuses and rate limits, plus
-  upload limits and the caller's permissions and API key scope when the request
-  carries credentials.
-- Each column in a dataset's `column_info` now carries `source_name`, the field
-  name in the file it was imported from (for example `POP 2020` for the stored
-  `pop 2020`). It is `null` for datasets imported before this release and for
-  columns that could not be matched. Re-uploading a file fills it in.
-- The web app serves the license notices for the code it bundles at
-  `/third-party-licenses.txt`, linked from the footer as **Third-party licenses**.
+  needs every publish key revoked first (see `UPGRADING.md`). (#3230)
 - A dataset now keeps its last three previous versions instead of one. An
   administrator sets the number under Settings, Storage
   (`previous_versions_kept`, 1 to 50). Lowering it drops the oldest versions at
   each dataset's next replacement or restore. The dataset detail lists them in
-  `previous_versions`, newest first. `POST
-  /datasets/{id}/previous-versions/{version_number}/restore` restores any of
-  them, and `DELETE /datasets/{id}/previous-versions/{version_number}` deletes
-  one. The admin stats report their size in `previous_versions_bytes`, and
-  `total_storage_bytes` now counts them. Three kept versions take up to three
-  times a replaced dataset's size; set the limit to 1 to keep the earlier
-  behaviour.
+  `previous_versions`, newest first, and the version history offers Restore on
+  each one. `POST /datasets/{id}/previous-versions/{version_number}/restore`
+  restores any of them, and `DELETE
+  /datasets/{id}/previous-versions/{version_number}` deletes one. The admin
+  stats report their size in `previous_versions_bytes`, and
+  `total_storage_bytes` now counts them. Three kept versions can add up to three
+  copies of a dataset's size on top of its current one; set the limit to 1 to
+  keep the earlier behaviour. (#3281, #3282)
+- `POST /datasets/{id}/aggregate/` returns exact summaries of a layer's rows
+  for widgets: `count`, `stats` (count, sum, avg, min, max of a numeric
+  column), `value_counts`, `histogram` and `group_by`, over the whole layer or
+  the current map view (`bbox`), with an optional CQL2-JSON `filter` checked as
+  the OGC items `filter` is. Read-only and publish API keys can call it.
+  (#3316)
+- ArcGIS fields with a coded-value domain keep their labels. A status stored as
+  1, 2, 3 reads "Active" and "Retired" in the feature popup and the Data tab.
+  Labels sit in `attribute_metadata.value_labels` (the attribute PATCH accepts
+  them); a refresh or re-upload follows the source's domains unless the owner
+  edited the labels. The Data tab's column filter matches a label as well as
+  the stored code, so `filter[column]` on `GET /datasets/{id}/rows/` finds
+  rows by the text people see. (#3314, #3357)
+- A dataset imported from ArcGIS keeps a link to its portal item. Service
+  previews and vector file commits take optional `item_id` and `portal_url`,
+  and the Source tab shows an "Open in ArcGIS" link to owners and admins. A
+  bad value is dropped and reported in `origin_link_loss`; the import doesn't
+  fail on it. (#3305)
+- The ArcGIS service probe reports `has_attachments` per layer and table
+  (`LayerInfo.has_attachments`, null when unknown). It costs one extra request
+  to the service per probe. (#3299)
+- `POST /maps/import/arcgis-webmap/` translates an ArcGIS web map into a new
+  GeoLens map and returns the map, a loss report with stable codes and the
+  layers it could not match. Simple, unique-value, class-breaks and heatmap
+  renderers, scale ranges, definition expressions, labels, popups, groups, the
+  basemap and the initial view are translated; the rest is listed as losses.
+  It needs edit rights on the datasets it names and refuses publish keys and
+  `restricted` visibility. (#3303)
+- `geolens arcgis migrate <plan>` carries out a migration plan written by
+  `geolens arcgis plan`. It runs the plan's items in dependency order, keeps
+  progress in `arcgis-migration-state.json` beside the plan (mode 0600) so a
+  rerun resumes, and maps ArcGIS owners to GeoLens users. It imports the
+  layers and tables of service items (credential options `--token`,
+  `--token-stdin`, `--username`, `--password-stdin`, `--allow-insecure-http`
+  and `--trust-service-host`), data file items (CSV, GeoJSON, Shapefile and
+  File Geodatabase, within the instance's upload limit) and web maps. It
+  writes each item's summary, credits, license and organization onto its
+  datasets as plain text, files datasets into collections named after the
+  ArcGIS folder (`defaults.collection_from`), and saves an export bundle under
+  `export/` for items GeoLens can't host, such as dashboards and StoryMaps
+  (`--export-cap-mb`, default 200). After each run it writes
+  `arcgis-migration-report.md` and `.json`, and failures show under `--quiet`.
+  A retry keeps item metadata that someone edited in GeoLens. (#3244, #3253,
+  #3258, #3275, #3279, #3280, #3284, #3285, #3320)
+- `geolens arcgis migrate --cutover` marks the final run of a migration. It
+  refuses while plan items aren't done or up to date, while the plan wasn't
+  last merged from a complete `--scope org` inventory read by an organization
+  administrator, while a migrated layer has (or may have) attachments, and
+  while an item's owner doesn't resolve, unless each loss is accepted with
+  `--accept-unfinished-items`, `--accept-incomplete-inventory`,
+  `--accept-attachment-loss` or `--accept-unresolved-users`. (#3319)
+- A vector dataset's OGC collection document (`GET /collections/{id}`) now has a
+  `rel: "tiles"` link to its vector tile template, with `type`
+  `application/vnd.mapbox-vector-tile` and `templated: true`. The tile token
+  response (`GET /tiles/token/{id}/`) for a vector dataset also returns
+  `tile_url_template`, a signed template relative to the API root. (#3241)
+- `GET /tiles/clusters/{table_path}/{z}/{x}/{y}.pbf` takes an optional
+  `filter` (CQL2-JSON over the dataset's attribute columns). The builder and
+  viewer send the layer filter, so cluster bubbles on layers over 5,000 points
+  count only the points the filter keeps. A geometry predicate or an unknown
+  column answers 400. (#3243)
+- A 3D Tiles dataset's page draws the tileset, and a COPC dataset's page draws
+  its points. Both load their code on demand from the app's own origin and send
+  the access token only to the dataset's own `/api/datasets/{id}/tiles3d/` and
+  `/copc/` paths. Tilesets with content types the viewer can't draw keep the
+  footprint-only page. (#3239, #3250)
+- Ask AI can change how a layer is drawn, such as a heatmap, clusters or arrows,
+  with a new `set_render_as` action. `ChatAction` gains `set_render_as` and the
+  optional fields `render_as` and `height_column`. Modes the layer's geometry
+  doesn't offer are refused. (#3190)
+- `POST /jobs/status/` reports the status of up to 100 import jobs in one
+  request, with the held refresh run for a replacement under review. Ids that
+  don't exist and jobs you may not read both come back as `not_found`. API
+  keys limited to read-only can call it. (#3225)
+- A request that sends an API key in the `X-Api-Key` header can be read from
+  any origin, so a browser app, a desktop app's web view or a notebook can call
+  your instance with a pasted key and no `CORS_ALLOWED_ORIGINS` entry. Such a
+  response carries `Access-Control-Allow-Origin: *` without
+  `Access-Control-Allow-Credentials`, and only on routes that check the key; an
+  invalid key's `401` is readable too. Cookies sent with the request are
+  ignored. The sign-in, registration and session routes under `/api/auth/`,
+  which read no key, refuse a keyed preflight. A
+  request that also carries `Authorization`, an embed token, or `?api_key=` or
+  `?embed_token=` in the URL keeps the old rule. A keyed answer lists
+  `Authorization`, `X-Api-Key` and `X-Embed-Token` in `Vary` alongside
+  `Origin`, and a keyed request refused by the rate or body-size limit gets a
+  readable `429` or `413`. This changes the CORS contract: a keyed request
+  from an origin outside the allowlist used to get no CORS headers at all.
+  (#3248)
+- Sharing a map (`POST /maps/{id}/share/`) now also returns `share_url_absolute`, a link on
+  the public app URL that opens from another machine, and `viewer_url`, the map's page in
+  the app. `GET /maps/{id}/share/` returns `viewer_url` too. `share_url` is unchanged.
+  (#3246)
+- `GET /capabilities/` describes the server for desktop and script clients:
+  version, sign-in methods, basemaps, workflow statuses and rate limits, plus
+  upload limits and the caller's permissions and API key scope when the request
+  carries credentials. (#3219)
+- Each column in a dataset's `column_info` now carries `source_name`, the field
+  name in the file it was imported from (for example `POP 2020` for the stored
+  `pop 2020`). It is `null` for datasets imported before this release and for
+  columns that could not be matched. Re-uploading a file fills it in. (#3223)
+- The web app serves the license notices for the code it bundles at
+  `/third-party-licenses.txt`, linked from the footer as **Third-party licenses**.
+  (#3273)
+- The site banner accepts `[label](https://example.org/path)`, which renders the
+  label as a link. Only `https://` targets become links. (#3231)
+
+### Changed
+
+- Maps have a fourth visibility, `restricted`: a private map shared with one or
+  more sharing groups. Older clients reject a visibility value they don't know,
+  so for one minor release a map response names `restricted` only to clients
+  that send the request header `X-GeoLens-Map-Visibility: restricted`, and
+  every map-returning endpoint answers with `Vary: X-GeoLens-Map-Visibility`.
+  Other clients read a restricted map as `private`, and their
+  `visibility=private` list filter also finds restricted maps. Writing `private`
+  to a map that has groups keeps it restricted, so a client that reads it as
+  private can't remove its groups by accident; remove them with `PUT
+  /maps/{id}/groups/`. The web app, CLI, MCP server and both SDKs send the
+  header. In the release after next, every client will see `restricted`. The
+  CORS allow-lists carry the header. `PUT /maps/{id}` with `visibility:
+  restricted` and no group answers 422. (#3354)
+- Map write and management routes (`PUT`, `DELETE` and `PATCH /maps/{id}`,
+  layer writes, history, share link, embed tokens, thumbnails and the rest)
+  answer 404 instead of 403 for a map the caller can't read, so they no longer
+  reveal that it exists. A caller who can read the map but doesn't own it still
+  gets 403. A map's `forked_from_name` is sent only to callers who can read the
+  source map; others get null and keep `forked_from_id`. Share links stay
+  public-only, so the shared view, card and link preview answer 404 for a
+  restricted map. (#3354)
+- `GET /jobs/{id}`, `POST /jobs/{id}/retry` and `POST /jobs/{id}/cancel`
+  answer 404 `Job not found` instead of 403 for another user's job the caller
+  may not read or act on, so a job id no longer reveals that the job exists.
+  `POST /jobs/status/` already reported such jobs as `not_found`. (#3349)
+- Narrowing a dataset, removing one of its groups or unpublishing it is refused
+  with 422 when an internal, public or restricted map of the owner would lose
+  the layer for its audience. Restricted maps are counted now; internal and
+  public maps were before. (#3355, #3378)
+- Making a map public, adding a layer to a public map and importing an ArcGIS
+  web map as public answer 400 for an unpublished dataset the caller can read,
+  as they already did for a private one. `GET /maps/{id}/visibility-check/`
+  lists it, and the share dialog asks for the dataset to be made public and
+  published. (#3378)
+- GeoLens no longer sends a service credential (token, username and password,
+  or API key) to a plain `http://` service address. Probe, preview, import,
+  re-upload and refresh requests that would do so, STAC requests included,
+  answer 422 `credential_over_http`. A scheduled refresh of such a source fails
+  with that code where an extension supplies its credential resolver. List intranet hosts without TLS in the new
+  `SERVICE_CREDENTIALS_ALLOW_HTTP_HOSTS` setting to keep using them; see
+  `UPGRADING.md`. (#3330)
+- New API keys start with `glk_` and are 47 characters long, so a pasted key is
+  recognisable to secret scanners, and the server redacts a `glk_` value
+  wherever it appears in its logs. Keys created earlier keep working. A new
+  key's fingerprint shows `glk_` and the next eight characters plus the last
+  four. (#3251)
+- Map label fonts are bundled with the frontend, so labels on blank and raster
+  basemaps no longer fetch glyphs from `tiles.openfreemap.org`. The style JSON
+  exported by `GET /maps/{map_id}/style.json` now points `glyphs` at your
+  instance's `/fonts/` path, using the public app URL, or the host the request
+  reached while that URL is still a loopback default such as
+  `http://localhost:8080`. An install that serves the API from its own origin
+  needs `PUBLIC_APP_URL` set for exported styles to find the fonts. The
+  frontend image grows by 4.1 MB. (#3212)
+- `GET /maps/{map_id}/style.json` now writes absolute URLs: vector tile and sprite URLs on
+  the public API URL, raster tile URLs on the public app URL. They were root-relative paths
+  (`/tiles/...`, `/maps/sprites/...`) that clients outside the app, such as QGIS, could not load.
+  Re-importing an exported style is unaffected. (#3247)
+- `geolens arcgis plan` run against a directory that already holds a plan now
+  merges the new inventory into it instead of refusing. Values you edited
+  stay, values you left alone take the new defaults, new portal items are
+  added, and items gone from the portal are kept and marked `removed`, which
+  `migrate` doesn't run again. Only a complete `--scope org` inventory read by
+  an organization administrator marks items removed; any other inventory marks
+  missing items `unlisted`, which stay pending and make `migrate` exit 1 until
+  a merge lists them again or you set them to `skip`. The inventory now
+  records the signed-in account's portal role as `auth.role`. `--force` still
+  replaces the plan. Plans now use schema v2, which records each item's
+  defaults; `migrate` reads v1 and v2 plans, but a reader that validates
+  against the v1 schema rejects a v2 plan. (#3304)
+- A rerun of `geolens arcgis migrate` now brings the items it migrated before
+  up to date: it refreshes each service item's datasets with the run's ArcGIS
+  credential, downloads each data file again and replaces its datasets,
+  exports an archive-only item again when the portal changed it, and writes
+  the item metadata again. A refresh that stops for review is reported
+  with the command that accepts it and is never accepted for you. A dataset
+  changed in GeoLens since the last run is reported and left alone, and each
+  request carries the data revision the CLI recorded. Private items need an
+  ArcGIS credential on every rerun, and the run exits 1 while any migrated
+  item isn't up to date. Its state file is now version 2, which an earlier CLI
+  refuses to read. (#3319)
+- `GET /datasets/{id}` returns `data_revision` to the dataset's owner and
+  admins (null for other readers). It counts writes to the dataset's features
+  and columns. `POST /datasets/{id}/refresh` (service datasets) and
+  `POST /datasets/{id}/reupload/{job_id}/commit` take an optional
+  `expected_data_revision`; when it isn't the revision the run compares with,
+  the run stops for review with `live_data_changed` instead of publishing. A
+  refresh of anything but a service dataset answers 422 when it is set, and it
+  can't be combined with `accept_blocked_run_id`. `PATCH /datasets/{id}` and
+  `PATCH /maps/{id}` take an optional `expected_updated_at`; when the object's
+  `updated_at` differs, nothing is written and the answer is 409 with
+  `detail.code` `stale_write`. (#3319)
+- With `--unmapped-owner`, an item whose plan owner isn't a GeoLens user yet,
+  is inactive or has a role that can't receive it goes to that owner for now
+  instead of stopping the run, and a later run hands it over. A name that
+  matches no user was refused before. (#3319)
+- Import and Register offer Internal between Private and Public, so a dataset
+  can be shared with the whole team when it is imported. Private stays the
+  default. (#3358)
+- The embed legend opens by default when a layer draws colour classes, so
+  category colours have a text key. `legend=true|false` still overrides, and the
+  legend stays closed in embeds narrower than 500px. (#3300)
+- Ask AI builds ramp colours with the style editor's ramps and no longer offers
+  Cividis or PuOr, which the editor doesn't have. It no longer applies edits the
+  builder ignores, such as `fill-extrusion-*` paint, and refuses a data-driven
+  fill on an outline-only polygon, where it used to report them as done. (#3235)
+- Feature `PUT`, `PATCH` and `DELETE` answer 404 only for a missing feature. A
+  validation error whose text contains "not found", such as an unknown property
+  named `not found`, now answers 400 instead of 404. (#3365)
 
 ### Deprecated
 
 - `POST /datasets/{id}/previous-version/restore`, `DELETE
   /datasets/{id}/previous-version` and the dataset detail's `previous_version`
   field act on the newest kept version only. They keep working through the next
-  minor release; use the `previous-versions` routes and field instead.
+  minor release; use the `previous-versions` routes and field instead. (#3281)
 
 ### Fixed
 
-- Collection records in search report their members' license, the shared one or `various`,
-  instead of always `proprietary`.
+- Restoring a retained dataset version preserves its columns' source field
+  names, including columns dropped or spelled differently in a later upload.
+  In-place column edits refresh the live version's snapshot, so renames keep
+  their source names and re-added columns do not inherit a removed column's.
+  Versions retained before this change still report unknown source names.
+  (#3350)
+- The api image no longer passes `UVICORN_MAX_REQUESTS` to a single uvicorn
+  process, which exited at the limit and took its container down. As in
+  `docker-compose.prod.yml`, the limit now applies only with `UVICORN_WORKERS`
+  of 2 or more. (#3309)
+- The api and worker start behind PgBouncer in transaction mode with
+  `DB_USE_EXTERNAL_POOLER=true`. The job queue no longer sends its search path in
+  the `options` startup parameter, which PgBouncer rejects; it sets it inside each
+  transaction instead. (#3276)
+- `PENDING_JOB_TIMEOUT_SECONDS`, `STAGING_ORPHAN_MIN_AGE_SECONDS` and the three
+  `ANALYSIS_*` timeout and memory settings set in `.env` now reach the
+  containers under both Compose files. They were ignored before. Defaults are
+  unchanged. (#3209)
+- `/health/ready` on the api and worker uses its own database connection, so an
+  exhausted request pool no longer makes every replica unready at once. A log
+  level changed in the admin UI reaches every replica within about 30 seconds,
+  and a degraded-health alert goes out once per window across replicas. An alert
+  that a channel failed to deliver is sent again after 60 seconds. (#3215, #3302)
 - Plain-text files such as `llms.txt` are served as UTF-8, so browsers no longer show their
-  em dashes and accented names as garbled characters.
+  em dashes and accented names as garbled characters. (#3273)
 - OGC API Features `crs` and `bbox-crs` on `/collections/{id}/items`, and `crs` on a
   single feature, now answer 400 for anything but CRS84 (its `http://` and `https://`
   URIs or `[OGC:CRS84]`). They were ignored before, so `crs=EPSG:3857` returned
   CRS84 coordinates without saying so. `filter-crs` accepts the same spellings.
-
-### Fixed
-
+  (#3245)
+- Importing world data no longer warns that the source's coordinates are wrong
+  when only the poles were trimmed to the Web Mercator limit.
+  `MercatorClipDetail` gains `polar_only`. (#3232)
+- The backup service keeps the last dump that holds catalog records out of
+  retention, so a restart after the database volume was lost no longer prunes
+  the day's real dump in favour of an empty one. The marker is
+  `/backups/.last-good-dump`. (#3224)
+- A PostGIS refresh repair bounds its whole transaction on PostgreSQL 17 and
+  later, so a registered table owned by another role isn't kept locked for
+  several statement timeouts. (#3240)
+- A held-back refresh no longer dates or marks drift on a dataset that was
+  rebound to another source while the refresh waited. (#3342)
+- A histogram over a range of adjacent doubles returns ordered bin edges.
+  (#3327)
+- `POST /maps/import` answers with only the layers the caller can read. (#3336)
 - Editing a category colour in the map builder no longer resets the layer's catch-all colour to
-  grey. A fallback colour set elsewhere, such as in imported style JSON, is kept.
-
-### Fixed
-
+  grey. A fallback colour set elsewhere, such as in imported style JSON, is kept. (#3249)
+- Imported ArcGIS class colours and labels survive the style editor: numeric
+  unique-value categories are kept as numbers, the graduated null colour is
+  kept as `style_config.nullColor` (including across a colour, radius or width
+  switch), and an imported style on an integer coded-value field opens with its
+  column and labelled classes. A Single category beyond the double range stays
+  text. (#3318, #3345, #3356)
+- A new categorical style can start from an integer column. Categorical mode
+  lists smallint, integer and bigint columns, matches their numeric codes, and
+  shows each class as "Label (code)" when the column has value labels. (#3366)
+- Cluster bubbles on layers of up to 5,000 points count only the points the layer
+  filter keeps, and arrows on a line layer follow a data-driven line colour.
+  (#3222, #3221)
+- A server-clustered layer keeps its bubbles when its saved filter can't run on
+  the cluster tile route: a literal that doesn't fit a known column's type or
+  range, or a property outside the dataset's tile attribute allowlist. The
+  bubbles then count all the layer's points, and individual points keep the
+  filter. Map layers return the allowlist as `dataset_tile_columns`. (#3352)
+- The map data panel says what to do when it stops at 100 features, and links
+  each layer to its dataset's Data tab when every dataset in the map is public.
+  (#3301)
+- Feature popups show YouTube values as ordinary links, because the embed
+  was blocked by the content security policy. (#3348)
+- Import forms announce their errors to screen readers, and the service URL,
+  file URL and token fields are tied to them. A probe of an unrecognised address
+  shows a localized message. The Source tab's drift badge reads "Columns changed
+  at last refresh", the public map viewer sets the page title to the map name,
+  the admin Groups table fits a phone, and the builder's empty-state search says
+  "Press Enter to search". (#3358)
+- The "Create map with AI" progress label follows the interface language.
+  (#3229)
+- Three settings fields keep their help text announced while they show an
+  error. (#3291)
 - The message shown when an account is temporarily locked out of signing in now
-  also names API keys as the way back in for scripts and desktop apps.
+  also names API keys as the way back in for scripts and desktop apps. (#3238)
+- `geolens arcgis migrate` resumes a multi-layer file without duplicating
+  datasets, resumes data file items without a new download, resets an item's
+  layer pins when its service changes, reads more shapes of item HTML, adds
+  the layer id to titles when layers share a name, and keeps rerun state honest
+  for maps, web map layers and a lost refresh answer. (#3274, #3278, #3287,
+  #3289, #3292, #3295, #3360)
+- Pressing Enter on an image link, or on a link inside a rich-text value, in a
+  feature popup opens the link instead of copying the property value. (#3367)
+- The builder's layer stack and layer editor show a layer's full name on hover,
+  and a category summary next to the name gives up its width first. (#3369)
+- `EGRESS.md` lists the call that ArcGIS sign-in makes to the portal a user
+  names, and GitHub sign-in's calls to `github.com` and `api.github.com`.
+  (#3208, #3364)
+- The restore steps in `RUNBOOK.md` stop the backup service before you pick a
+  dump. It takes a dump each time it starts and keeps only the newest per day,
+  so a restart mid-restore replaced that day's good dump with the broken state.
+  (#3208)
+- Both Compose files now pass `INGEST_JOBS_RETENTION_DAYS` and `ENV_ONLY_CONFIG`
+  from `.env` to the worker, which reads both but never received them. (#3211)
+- The small-DEM warning and the terrain tip in map settings no longer suggest
+  draping a small DEM over a global one, which a map with one terrain source
+  can't do. A showcase "The Matterhorn in 3D" map seeded before its camera was
+  framed now opens on the Matterhorn instead of the whole world. (#3210)
+- The AI chat logs a warning when it can't read the daily token cap partway
+  through a stream. It still fails open there; the cap at the start of each
+  request fails closed. (#3233)
 
-### Fixed
+### Security
 
-- The api and worker start behind PgBouncer in transaction mode with
-  `DB_USE_EXTERNAL_POOLER=true`. The job queue no longer sends its search path in
-  the `options` startup parameter, which PgBouncer rejects; it sets it inside each
-  transaction instead.
+- A GDAL service run that carries a credential is held to its source's scheme,
+  host and port, so a redirect can't repeat an ArcGIS query token or a
+  service-chosen credential header on another origin. A hop refused for leaving
+  the origin gets its own job error. (#3330)
+- ArcGIS reads that put the token in the query string (servers below 10.5.1 and
+  the 499 and web-tier fallbacks) refuse any cross-origin redirect, even one
+  that doesn't repeat the token. A service import whose count read is redirected
+  to another origin now fails. A user-supplied URL that already holds
+  `?token=` is refused on a cross-origin hop that repeats the token. (#3298)
+- Pillow is raised to 13.0.0, which fixes eight CVEs, and certifi to 2026.10.19.
+  (#3216)
+- The `fflate` copy that loaders.gl pins in the frontend is raised to 0.7.5,
+  which fixes an endless loop on a malformed ZIP64 archive. (#3324)
+
+### Upgrade notes
+
+- Migrations 0087 to 0094 run on upgrade. 0087 widens the API key scope check
+  for Publish keys. 0088 moves each dataset's one kept previous version onto its
+  version row and drops the four `datasets.previous_version_*` columns; its
+  downgrade refuses while any dataset keeps more than one version. 0089, 0091,
+  0092 and 0093 add the group tables, with tenant columns and policies that
+  stay dormant on a single-organization install; 0091 and 0092 refuse to upgrade
+  when a group member or grant pairs rows from different tenants. 0090 adds
+  `attribute_metadata.value_labels`. 0093 allows `restricted` map visibility; its
+  downgrade turns restricted maps private. 0094 adds a nullable
+  `dataset_versions.column_info`. (#3230, #3281, #3306, #3314, #3315, #3337,
+  #3350, #3354)
+- Overlay authors: `EXTENSION_API_VERSION` is now 19. The permission methods
+  keep their signatures, but `restricted` now also admits members of a group
+  granted on the dataset. An extension that implements the `permission` slot
+  needs a release that adds the group branch to `filter_visible`,
+  `can_access_dataset` and `record_audience`. An overlay that declares no
+  version still loads with a warning and denies group members. (#3315)
+- Credentialed requests to `http://` service addresses stop working until the
+  host is listed in `SERVICE_CREDENTIALS_ALLOW_HTTP_HOSTS`; deployments outside
+  the bundled Compose files must pass the variable to both the api and worker
+  containers. (#3330)
 
 ## [1.26.0] - 2026-10-18
 
@@ -6190,7 +7385,15 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.26.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.30.1...HEAD
+[1.30.1]: https://github.com/geolens-io/geolens/compare/v1.30.0...v1.30.1
+[1.30.0]: https://github.com/geolens-io/geolens/compare/v1.29.2...v1.30.0
+[1.29.2]: https://github.com/geolens-io/geolens/compare/v1.29.1...v1.29.2
+[1.29.1]: https://github.com/geolens-io/geolens/compare/v1.29.0...v1.29.1
+[1.29.0]: https://github.com/geolens-io/geolens/compare/v1.28.0...v1.29.0
+[1.28.0]: https://github.com/geolens-io/geolens/compare/v1.27.1...v1.28.0
+[1.27.1]: https://github.com/geolens-io/geolens/compare/v1.27.0...v1.27.1
+[1.27.0]: https://github.com/geolens-io/geolens/compare/v1.26.0...v1.27.0
 [1.26.0]: https://github.com/geolens-io/geolens/compare/v1.25.1...v1.26.0
 [1.25.1]: https://github.com/geolens-io/geolens/compare/v1.25.0...v1.25.1
 [1.25.0]: https://github.com/geolens-io/geolens/compare/v1.24.0...v1.25.0

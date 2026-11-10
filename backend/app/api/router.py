@@ -8,9 +8,13 @@ from app.processing.ai.router import router as ai_router
 from app.modules.audit.router import audit_datasets_router, router as audit_router
 from app.modules.auth.oauth.router import router as oauth_router
 from app.modules.auth.router import router as auth_router
+from app.modules.auth.router_groups import router as groups_router
 from app.modules.catalog.collections.router import router as collections_crud_router
 from app.platform.config_ops.router import router as config_ops_router
 from app.modules.catalog.datasets.api.router import router as datasets_router
+from app.modules.catalog.datasets.api.router_aggregate import (
+    router as datasets_aggregate_router,
+)
 from app.modules.catalog.datasets.api.router_analysis import (
     router as datasets_analysis_router,
 )
@@ -59,13 +63,25 @@ from app.platform.jobs.router import router as jobs_router
 from app.modules.catalog.layers.router import layers_router
 from app.modules.catalog.maps.router import router as maps_router
 from app.modules.catalog.maps.router_assets import sprites_router as maps_sprites_router
+from app.modules.catalog.maps.router_import_arcgis import (
+    router as maps_import_arcgis_router,
+)
 from app.modules.catalog.maps.router_link_preview import (
     router as maps_link_preview_router,
 )
 from app.modules.catalog.maps.router_ownership import router as maps_ownership_router
 from app.standards.ogc.router import ogc_features_router, ogc_router
 from app.modules.catalog.records.router import router as records_router
+from app.modules.catalog.stories.router import router as stories_router
+from app.modules.catalog.stories.router_map_stories import (
+    router as map_stories_router,
+)
+from app.modules.catalog.stories.router_assets import router as story_assets_router
+from app.modules.catalog.stories.router_groups import router as story_groups_router
 from app.modules.catalog.search.router import collections_router, search_router
+from app.modules.catalog.sources.database_router import (
+    router as database_tables_router,
+)
 from app.modules.catalog.sources.router import router as services_router
 from app.modules.catalog.sources.stac_asset_size_router import (
     router as stac_asset_size_router,
@@ -88,6 +104,7 @@ api_router = APIRouter()
 # OGC discovery must stay first because it owns the root landing paths.
 api_router.include_router(ogc_router)
 api_router.include_router(auth_router)
+api_router.include_router(groups_router)
 api_router.include_router(admin_router)
 api_router.include_router(audit_router)
 api_router.include_router(audit_datasets_router)
@@ -99,6 +116,7 @@ api_router.include_router(manifest_router)
 api_router.include_router(datasets_export_router)
 api_router.include_router(datasets_router)
 api_router.include_router(datasets_analysis_router)
+api_router.include_router(datasets_aggregate_router)
 api_router.include_router(datasets_vrt_router)
 api_router.include_router(datasets_tiles3d_router)
 api_router.include_router(datasets_pointcloud_router)
@@ -123,6 +141,7 @@ api_router.include_router(collections_crud_router)
 api_router.include_router(ogc_features_router)
 
 api_router.include_router(maps_router)
+api_router.include_router(maps_import_arcgis_router)
 api_router.include_router(maps_ownership_router)
 api_router.include_router(maps_link_preview_router)
 # Sprites are unauthenticated reads; mounted as a sibling of
@@ -130,11 +149,16 @@ api_router.include_router(maps_link_preview_router)
 # ERROR_RESPONSES_WRITE defaults — see the comment on sprites_router in
 # maps/router_assets.py.
 api_router.include_router(maps_sprites_router)
+api_router.include_router(stories_router)
+api_router.include_router(story_groups_router)
+api_router.include_router(map_stories_router)
+api_router.include_router(story_assets_router)
 api_router.include_router(ai_router)
 # Raw sandbox SQL endpoint (POST /query/), consumed by the MCP
 # `query` tool. Auth-only; see processing/ai/query_router.py.
 api_router.include_router(query_router)
 api_router.include_router(services_router)
+api_router.include_router(database_tables_router)
 api_router.include_router(stac_import_router)
 api_router.include_router(stac_asset_size_router)
 api_router.include_router(layers_router)

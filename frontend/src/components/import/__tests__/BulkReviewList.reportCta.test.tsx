@@ -166,6 +166,37 @@ describe('BulkReviewList — "Report this problem" CTA', () => {
     expect(screen.getByRole('button', { name: /Report this problem/ })).toBeInTheDocument();
   });
 
+  it('(c2) announces a collapsed commit-failed entry\'s error outside the hidden details', () => {
+    const previewData = {
+      job_id: 'job-1',
+      source_filename: 'parcels.csv',
+      columns: [],
+      geometry_type: 'Point',
+      crs: 4326,
+      layer_name: 'only',
+      layers: [{ name: 'only', feature_count: 5, field_count: 2 }],
+      sample_rows: [],
+      feature_count: 5,
+      detected_geometry_columns: null,
+    };
+    const entries = [
+      makeEntry({ id: 'entry-open', status: 'preview', previewData }),
+      makeEntry({ id: 'entry-bad', status: 'commit-failed', error: 'Failed to start import', previewData }),
+    ];
+
+    render(
+      <BulkReviewList
+        entries={entries}
+        onCommitSingle={noopCommitSingle}
+        onCommitAll={noopCommitAll}
+        onRemove={noopRemove}
+        isCommitting={false}
+      />,
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Failed to start import');
+  });
+
   it('(d) does NOT render for a healthy preview entry', () => {
     const entry = makeEntry({
       id: 'entry-1',

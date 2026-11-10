@@ -1,4 +1,4 @@
-"""Migration 0088 moves the one kept version onto its version row and back, and refuses to drop any."""
+"""Migration 0088 moves the one kept version onto its version row and back, and refuses to drop any; 0101 drops the emptied dataset columns."""
 
 from __future__ import annotations
 
@@ -27,6 +27,7 @@ pytestmark = [
 ]
 
 _BEFORE = "0087_publish_api_keys"
+_KEPT = "0088_dataset_kept_versions"
 
 
 async def _seed(session, *, versions: list[int]):
@@ -76,14 +77,39 @@ async def _drop(session, dataset_id, tables) -> None:
     await session.commit()
 
 
+_LEGACY_COLUMNS = (
+    "previous_version_number",
+    "previous_version_retained_at",
+    "previous_version_bytes",
+    "previous_version_refreshed_at",
+)
+
+
+async def _legacy_columns() -> set[str]:
+    rows = await fresh_query(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_schema = 'catalog' AND table_name = 'datasets' "
+        "AND column_name LIKE 'previous_version_%'"
+    )
+    return {row[0] for row in rows}
+
+
+@pytest.mark.parametrize("legacy_columns", ["kept", "dropped"])
 async def test_one_kept_version_survives_a_downgrade_and_an_upgrade(
-    test_db_session,
+    test_db_session, legacy_columns
 ) -> None:
-    """Down: the kept table takes the single name and the dataset columns; up: it is kept again, rows intact."""
+    """Down: the kept table takes the single name and the dataset columns, whether or not 0088 left them; up: it is kept again, rows intact."""
     session = test_db_session
     dataset_id, base, tables = await _seed(session, versions=[2])
     single = _single_name(base, dataset_id)
     try:
+        if legacy_columns == "dropped":
+            down = run_alembic("downgrade", _KEPT)
+            assert down.returncode == 0, down.stderr
+            await fresh_query(
+                "ALTER TABLE catalog.datasets "
+                + ", ".join(f"DROP COLUMN {c}" for c in _LEGACY_COLUMNS)
+            )
         down = run_alembic("downgrade", _BEFORE)
         assert down.returncode == 0, down.stderr
         row = await fresh_query(
@@ -107,6 +133,41 @@ async def test_one_kept_version_survives_a_downgrade_and_an_upgrade(
         assert [(r[0], r[1], r[2]) for r in kept] == [(2, single, 8192)]
         assert kept[0][3] == row[0][2] and kept[0][4] == row[0][3]
         assert await _gids(single) == [2]
+    finally:
+        run_alembic("upgrade", "heads")
+        await _drop(session, dataset_id, [*tables.values(), single])
+
+
+async def test_0088_empties_the_dataset_columns_and_head_drops_them(
+    test_db_session,
+) -> None:
+    """0088 moves the kept version to its version row and leaves the columns a 1.26 process maps, all NULL; head has none of them."""
+    session = test_db_session
+    dataset_id, base, tables = await _seed(session, versions=[2])
+    single = _single_name(base, dataset_id)
+    try:
+        down = run_alembic("downgrade", _BEFORE)
+        assert down.returncode == 0, down.stderr
+        up = run_alembic("upgrade", _KEPT)
+        assert up.returncode == 0, up.stderr
+
+        assert await _legacy_columns() == set(_LEGACY_COLUMNS)
+        row = await fresh_query(
+            f"SELECT {', '.join(_LEGACY_COLUMNS)} FROM catalog.datasets WHERE id = :id",
+            {"id": dataset_id},
+        )
+        assert row == [(None, None, None, None)]
+
+        up = run_alembic("upgrade", "heads")
+        assert up.returncode == 0, up.stderr
+        assert await _legacy_columns() == set()
+        kept = await fresh_query(
+            "SELECT version_number, kept_table, kept_bytes FROM "
+            "catalog.dataset_versions WHERE dataset_id = :id "
+            "AND kept_table IS NOT NULL",
+            {"id": dataset_id},
+        )
+        assert kept == [(2, single, 8192)]
     finally:
         run_alembic("upgrade", "heads")
         await _drop(session, dataset_id, [*tables.values(), single])

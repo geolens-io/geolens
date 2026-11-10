@@ -34,6 +34,10 @@ from app.platform.service_endpoints import (
     EndpointCheckFailedError,
 )
 
+# StacImportItem.title caps at 500; an untitled item falls back to its id,
+# which may be longer.
+_MAX_TITLE_CHARS = 500
+
 logger = structlog.stdlib.get_logger(__name__)
 
 # Maximum items to return per search request
@@ -593,7 +597,9 @@ async def search_stac_items(
                 "datetime": dt,
                 "datetime_start": dt_start,
                 "datetime_end": dt_end,
-                "title": props.get("title", f.get("id")),
+                "title": str(props.get("title") or f.get("id") or "")[
+                    :_MAX_TITLE_CHARS
+                ],
                 "epsg": projection_epsg(props),
                 "gsd": props.get("gsd"),
                 "cloud_cover": props.get("eo:cloud_cover"),

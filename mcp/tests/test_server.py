@@ -9,8 +9,11 @@ test_live_contract.py invokes them as normal functions).
 
 from __future__ import annotations
 
+import ast
 import asyncio
+import re
 import threading
+from pathlib import Path
 
 import pytest
 from mcp import Client
@@ -26,6 +29,9 @@ EXPECTED_TOOLS = {
     "get_features": ({"dataset_id"}, {"dataset_id", "limit", "offset", "bbox"}),
     "list_maps": (set(), {"search", "limit", "offset"}),
     "get_map": ({"map_id"}, {"map_id"}),
+    "list_stories": (set(), {"search", "limit", "offset"}),
+    "get_story": ({"story_id"}, {"story_id"}),
+    "aggregate": ({"dataset_id", "request"}, {"dataset_id", "request"}),
     # Sandboxed read-only SQL. restrict_tables is REQUIRED — the
     # backend refuses an unscoped query, so the schema must say so too.
     "query": ({"sql", "restrict_tables"}, {"sql", "restrict_tables", "row_limit"}),
@@ -91,7 +97,7 @@ def _call(name, arguments):
 
 def test_limit_schemas_advertise_and_enforce_the_documented_maximum():
     schemas = {t.name: t.input_schema["properties"] for t in _tools()}
-    for name in ("search_datasets", "get_features", "list_maps"):
+    for name in ("search_datasets", "get_features", "list_maps", "list_stories"):
         assert schemas[name]["limit"]["maximum"] == 200, name
         assert schemas[name]["limit"]["minimum"] == 1, name
     assert schemas["query"]["row_limit"]["maximum"] == 1000
@@ -184,3 +190,60 @@ def test_client_error_reaches_the_agent(monkeypatch):
     result = asyncio.run(scenario())
     assert result.is_error
     assert "GeoLens API 404 for /maps/m: Map not found" in result.content[0].text
+
+
+class _Pretty:
+    def get_map(self, map_id):
+        return {"id": map_id, "layers": [{"name": "é"}], "when": object}
+
+
+def test_tool_results_are_compact_json_text(monkeypatch):
+    monkeypatch.setattr(server, "_api", _Pretty())
+
+    async def scenario():
+        async with Client(server.mcp) as client:
+            return await client.call_tool("get_map", {"map_id": "m"})
+
+    text = asyncio.run(scenario()).content[0].text
+
+    assert "\n" not in text
+    assert ": " not in text.replace("<class 'object'>", "")
+    assert '"name":"é"' in text
+
+
+_VALIDATOR = (
+    Path(__file__).resolve().parents[2] / "backend/app/platform/sandbox/validator.py"
+)
+# Spellings the description gives for one sandbox name.
+_SPATIAL_ALIASES = {"st_makepoint": "st_point"}
+
+
+def _sandbox_postgis_allowlist() -> set[str]:
+    # The MCP package depends only on the SDK, so the backend is read as source.
+    tree = ast.parse(_VALIDATOR.read_text())
+    for node in tree.body:
+        if (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "_ALLOWED_POSTGIS_FUNCTIONS"
+        ):
+            return set(ast.literal_eval(node.value.args[0]))
+    raise AssertionError(f"_ALLOWED_POSTGIS_FUNCTIONS not found in {_VALIDATOR}")
+
+
+def test_query_description_lists_the_sandbox_postgis_allowlist():
+    description = {tool.name: tool.description for tool in _tools()}["query"]
+    advertised = {
+        _SPATIAL_ALIASES.get(name.lower(), name.lower())
+        for name in re.findall(r"\bST_\w+", description)
+    }
+    assert advertised == _sandbox_postgis_allowlist()
+
+
+def test_aggregate_description_names_refusal_codes_and_query_points_to_it():
+    descriptions = {tool.name: tool.description for tool in _tools()}
+    for code in ("too_wide", "query_busy", "query_at_capacity", "query_unavailable"):
+        assert code in descriptions["aggregate"]
+    for op in ("count", "stats", "value_counts", "histogram", "group_by", "rows"):
+        assert f'"op": "{op}"' in descriptions["aggregate"]
+    assert "`aggregate`" in descriptions["query"]

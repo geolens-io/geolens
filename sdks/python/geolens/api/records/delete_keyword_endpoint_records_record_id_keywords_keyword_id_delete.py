@@ -103,7 +103,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Keyword Endpoint
+    """Delete a record keyword
 
      Delete a keyword.
 
@@ -137,7 +137,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Delete Keyword Endpoint
+    """Delete a record keyword
 
      Delete a keyword.
 
@@ -166,7 +166,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Keyword Endpoint
+    """Delete a record keyword
 
      Delete a keyword.
 
@@ -198,7 +198,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Delete Keyword Endpoint
+    """Delete a record keyword
 
      Delete a keyword.
 

@@ -57,6 +57,10 @@ from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
 )
+from app.platform.arcgis_native_types import (
+    ARCGIS_NATIVE_PG_TYPES,
+    column_casts_from_meta,
+)
 from app.platform.catalog_locks import CatalogLockConflict
 from app.platform.jobs import ledger
 from app.platform.jobs.ledger import hold
@@ -86,10 +90,17 @@ from app.modules.catalog.sources.preview import build_gdal_source, run_service_p
 from app.modules.catalog.sources.schemas import service_credential_from_request
 from app.platform.service_auth import (
     credential_or_422,
+    credential_over_http_or_422,
     url_query_token,
     wire_credential,
 )
 from app.platform.security import SSRFError, make_safe_client, validate_url_for_ssrf
+from app.platform.source_copies import (
+    duplicate_source_conflict,
+    rebound_copy,
+    service_identity,
+    visible_copy,
+)
 from app.platform.storage import get_storage
 from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.platform.upload_filenames import (
@@ -404,6 +415,7 @@ def _assert_compatible_record_type(
     response_model=ReuploadResponse,
     status_code=status.HTTP_201_CREATED,
     responses={413: PAYLOAD_TOO_LARGE_RESPONSE},
+    summary="Stage a file to replace a dataset's data",
 )
 async def reupload_dataset(
     dataset_id: uuid.UUID,
@@ -519,22 +531,22 @@ async def reupload_dataset(
 
 async def _refuse_featureless_arcgis_layer(
     request: ReuploadServicePreviewRequest, token: str | None
-) -> None:
-    """Raise the coded 422 for a layer that holds no rows.
+) -> dict | None:
+    """Raise the coded 422 for a layer that holds no rows; else its metadata.
 
     Any other failure to read the metadata is left to the preview below,
-    which reports it.
+    which reports it, and gives None.
     """
     try:
         base, url_layer_id = normalize_arcgis_url(request.url)
     except Exception:  # broad: malformed ArcGIS URL, the preview reports it
-        return
+        return None
     layer_id = request.layer_id if request.layer_id is not None else url_layer_id
     if layer_id is None:
-        return
+        return None
     try:
         async with make_safe_client(timeout=15.0) as client:
-            await fetch_arcgis_layer_meta(
+            return await fetch_arcgis_layer_meta(
                 base.rstrip("/"), str(layer_id).strip("/"), client, token
             )
     except HTTPException:
@@ -545,13 +557,14 @@ async def _refuse_featureless_arcgis_layer(
             detail="redirect target refused by SSRF policy",
         )
     except Exception:  # broad: unreadable metadata, the preview reports it
-        return
+        return None
 
 
 @router.post(
     "/{dataset_id}/reupload/service/preview",
     response_model=ReuploadPreviewResponse,
     responses={502: BAD_GATEWAY_RESPONSE},
+    summary="Preview a service layer for re-upload",
 )
 async def reupload_service_preview(
     dataset_id: uuid.UUID,
@@ -567,6 +580,7 @@ async def reupload_service_preview(
         service_credential_from_request(request.auth, request.token),
         service_format=_service_format(request.service_type),
     )
+    credential_over_http_or_422(request.url, credential)
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
@@ -578,6 +592,24 @@ async def reupload_service_preview(
     # Surface cross-record-type swaps as a useful 400 before the
     # pipeline executes (vector→raster or any→VRT explodes deep otherwise).
     _assert_compatible_record_type(dataset, None, service_type=request.service_type)
+    existing = await rebound_copy(
+        db,
+        service_identity(
+            request.service_type,
+            request.url,
+            layer_id=request.layer_id,
+            layer_name=request.layer_name,
+        ),
+        dataset,
+    )
+    if existing is not None:
+        existing = await visible_copy(db, existing, user)
+        raise duplicate_source_conflict(
+            existing,
+            f"This dataset's owner already holds this layer in another dataset "
+            f"(existing: '{existing.title}'). Refresh that dataset instead of "
+            "re-uploading the layer here.",
+        )
 
     # Hand the pooled connection back before DNS, the page fetches and
     # ogrinfo. The rollback expires every ORM instance, so the dataset facts
@@ -598,8 +630,11 @@ async def reupload_service_preview(
             detail=str(exc),
         )
 
+    layer_meta = None
     if request.service_type.startswith("ArcGIS"):
-        await _refuse_featureless_arcgis_layer(request, url_query_token(credential))
+        layer_meta = await _refuse_featureless_arcgis_layer(
+            request, url_query_token(credential)
+        )
 
     try:
         gdal_source, layer_arg = build_gdal_source(
@@ -613,6 +648,12 @@ async def reupload_service_preview(
             token=url_query_token(credential),
             order_field=None,
             result_limit=5,
+            # The worker stages Z for a layer that stores it, and for a 3D
+            # dataset whose layer JSON it cannot read; previewing flat would
+            # report a dimension change the import never makes.
+            return_z=bool(prior_geometry[1])
+            if layer_meta is None
+            else layer_meta.get("hasZ") is True,
         )
     except ValueError as exc:
         raise HTTPException(
@@ -635,9 +676,12 @@ async def reupload_service_preview(
             },
         )
 
+    typed_columns = _with_declared_native_types(
+        _diffable_columns(preview_data["columns"]), layer_meta
+    )
     diff = compute_schema_diff(
         prior_columns,
-        _diffable_columns(preview_data["columns"]),
+        typed_columns,
         prior_feature_count,
         preview_data["feature_count"],
     )
@@ -676,7 +720,12 @@ async def reupload_service_preview(
     return ReuploadPreviewResponse(
         job_id=job.id,
         source_filename=job.source_filename,
-        columns=preview_data["columns"],
+        columns=[
+            {**column, "type": typed["type"]}
+            for column, typed in zip(
+                preview_data["columns"], typed_columns, strict=True
+            )
+        ],
         crs=preview_data["srid"],
         geometry_type=preview_data["geometry_type"],
         feature_count=preview_data["feature_count"],
@@ -699,9 +748,27 @@ def _diffable_columns(columns: list[dict]) -> list[dict]:
     return [{**c, "name": name} for c, name in zip(columns, stored, strict=True)]
 
 
+def _with_declared_native_types(columns: list[dict], meta: dict | None) -> list[dict]:
+    """``columns`` with the types the import stores for the fields Esri types natively.
+
+    GDAL reports those fields as strings, but publication casts them, so the
+    preview names the same type changes the publication will.
+    """
+    if not meta:
+        return columns
+    casts = column_casts_from_meta(meta)
+    return [
+        {**c, "type": ARCGIS_NATIVE_PG_TYPES[casts[c["name"]]]}
+        if c["name"] in casts
+        else c
+        for c in columns
+    ]
+
+
 @router.post(
     "/{dataset_id}/reupload/{job_id}/preview",
     response_model=ReuploadPreviewResponse,
+    summary="Preview a re-upload",
 )
 async def reupload_preview(
     dataset_id: uuid.UUID,
@@ -781,9 +848,6 @@ async def reupload_preview(
     # Thread layer_name from the request body to the ogrinfo helper.
     layer_name = request.layer_name if request else None
 
-    # Validate layer_name against the file's actual layers.
-    # We run ogrinfo without layer_name first to get the full layer list,
-    # then validate — or use the targeted call if no validation needed.
     try:
         info = await get_catalog_port().run_ogrinfo_preview(
             file_path, layer_name=layer_name
@@ -1109,6 +1173,7 @@ async def _dispatch_reupload_task(
     "/{dataset_id}/reupload/{job_id}/commit",
     response_model=ReuploadCommitResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    summary="Commit a re-upload",
 )
 async def reupload_commit(
     dataset_id: uuid.UUID,
@@ -1159,6 +1224,7 @@ async def reupload_commit(
     # check. Placed ahead of every write so a bad credential never takes
     # the one-active-run slot from a refresh that can.
     service_token = wire_credential(credential, service_format=_job_service_format(job))
+    credential_over_http_or_422(job.source_url, credential)
 
     # Merge commit request params into user_metadata, preserving existing
     # keys. token + layer_name stay request-only (layer_name goes into the
@@ -1204,6 +1270,7 @@ async def reupload_commit(
             ingest_job_id=job.id,
             feature_count_before=dataset.feature_count,
             data_revision_baseline=start_revision,
+            expected_data_revision=request.expected_data_revision,
         )
     except DatasetBusyError as exc:
         # Nothing this request wrote is committed, so the job row it merged
@@ -1318,6 +1385,7 @@ async def reupload_commit(
         413: PAYLOAD_TOO_LARGE_RESPONSE,
         502: BAD_GATEWAY_RESPONSE,
     },
+    summary="Request a presigned re-upload",
 )
 async def request_presigned_reupload(
     dataset_id: uuid.UUID,
@@ -1524,6 +1592,7 @@ async def request_presigned_reupload(
         413: PAYLOAD_TOO_LARGE_RESPONSE,
         502: BAD_GATEWAY_RESPONSE,
     },
+    summary="Complete a presigned re-upload",
 )
 async def complete_presigned_reupload(
     dataset_id: uuid.UUID,

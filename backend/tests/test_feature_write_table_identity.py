@@ -20,6 +20,7 @@ from app.core.db.sqlstate import is_lock_conflict
 from app.modules.catalog.features import router as features_router
 
 from tests.factories import create_dataset, get_user_id
+from tests.lock_wait import await_lock_wait_query
 
 PARIS = {"type": "Point", "coordinates": [2.35, 48.85]}
 LONDON = {"type": "Point", "coordinates": [-0.13, 51.51]}
@@ -292,25 +293,6 @@ async def test_a_repeat_whose_feature_was_deleted_keeps_the_tile_version(
     assert await _tile_cache_version(test_db_session, dataset) == tile_version
 
 
-async def _await_lock_wait_query() -> str:
-    """Block until some backend is parked on a lock, and return what it is running."""
-    import app.core.db as db_module
-
-    for _ in range(600):
-        async with db_module.async_session() as probe:
-            query = await probe.scalar(
-                text(
-                    "SELECT query FROM pg_stat_activity "
-                    "WHERE datname = current_database() "
-                    "AND wait_event_type = 'Lock' LIMIT 1"
-                )
-            )
-        if query:
-            return query
-        await asyncio.sleep(0.01)
-    raise AssertionError("no backend ever parked on a lock")
-
-
 async def test_a_replacement_committing_while_the_write_waits_is_seen(
     client: AsyncClient, admin_auth_header, dataset, test_db_session
 ):
@@ -325,12 +307,13 @@ async def test_a_replacement_committing_while_the_write_waits_is_seen(
     table_id = (await _read(client, dataset, admin_auth_header, gid))["table_id"]
     tile_version = await _tile_cache_version(test_db_session, dataset)
     async with db_module.async_session() as swap:
+        swap_pid = await swap.scalar(text("SELECT pg_backend_pid()"))
         await _stage_replacement(swap, dataset, gid, "reupload")
         write = asyncio.create_task(
             _write("patch", client, dataset, admin_auth_header, gid, table_id)
         )
         try:
-            waiting_on = await _await_lock_wait_query()
+            waiting_on = await await_lock_wait_query(blocked_by=swap_pid)
         finally:
             await swap.commit()
     response = await write

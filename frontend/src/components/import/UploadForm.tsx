@@ -438,7 +438,7 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
   };
 
   const quotaBanner = quotaNotice ? (
-    <div className="flex items-start gap-2.5 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+    <div role="alert" className="flex items-start gap-2.5 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
       <AlertCircle className="mt-0.5 size-4 shrink-0" />
       <div>
         <p className="font-medium">{t('upload.quotaBannerTitle')}</p>
@@ -503,7 +503,7 @@ export function UploadForm({ onPhaseChange, onOutcomeChange }: UploadFormProps) 
                       <AlertCircle className="size-4 text-destructive shrink-0" />
                     )}
                     <span className="font-mono text-xs">{r.layerName}</span>
-                    {r.error && <span className="text-xs text-destructive">{r.error}</span>}
+                    {r.error && <span role="alert" className="text-xs text-destructive">{r.error}</span>}
                   </li>
                 ))}
               </ul>

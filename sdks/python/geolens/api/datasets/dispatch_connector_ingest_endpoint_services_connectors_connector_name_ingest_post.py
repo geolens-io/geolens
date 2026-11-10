@@ -121,7 +121,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: ConnectorIngestRequest,
 ) -> Response[ConnectorIngestResponse | ProblemDetail]:
-    """Dispatch Connector Ingest Endpoint
+    """Start a connector ingest
 
      Dispatch an overlay-owned ingest and return its opaque job id.
 
@@ -155,7 +155,7 @@ def sync(
     client: AuthenticatedClient,
     body: ConnectorIngestRequest,
 ) -> ConnectorIngestResponse | ProblemDetail | None:
-    """Dispatch Connector Ingest Endpoint
+    """Start a connector ingest
 
      Dispatch an overlay-owned ingest and return its opaque job id.
 
@@ -184,7 +184,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: ConnectorIngestRequest,
 ) -> Response[ConnectorIngestResponse | ProblemDetail]:
-    """Dispatch Connector Ingest Endpoint
+    """Start a connector ingest
 
      Dispatch an overlay-owned ingest and return its opaque job id.
 
@@ -216,7 +216,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: ConnectorIngestRequest,
 ) -> ConnectorIngestResponse | ProblemDetail | None:
-    """Dispatch Connector Ingest Endpoint
+    """Start a connector ingest
 
      Dispatch an overlay-owned ingest and return its opaque job id.
 

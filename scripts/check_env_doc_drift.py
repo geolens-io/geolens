@@ -29,11 +29,15 @@ SETTINGS_PY = REPO_ROOT / "backend" / "app" / "core" / "config.py"
 # Settings inherits these fields; they need documenting all the same.
 AI_SETTINGS_PY = REPO_ROOT / "backend" / "app" / "core" / "config_ai.py"
 AUTH_SETTINGS_PY = REPO_ROOT / "backend" / "app" / "core" / "auth_settings.py"
+DATABASE_SOURCES_SETTINGS_PY = (
+    REPO_ROOT / "backend" / "app" / "core" / "config_database_sources.py"
+)
 SETTINGS_CLASSES = (
     (SETTINGS_PY, "Settings"),
     (AUTH_SETTINGS_PY, "AuthSettings"),
     (AI_SETTINGS_PY, "ClaudeSettings"),
     (AI_SETTINGS_PY, "OpenAISettings"),
+    (DATABASE_SOURCES_SETTINGS_PY, "DatabaseSourcesSettings"),
 )
 COMPOSE_FILES = (
     REPO_ROOT / "docker-compose.yml",
@@ -421,6 +425,7 @@ SERVICE_SETTINGS_EXCLUSIONS: dict[str, dict[str, str]] = {
         "SANDBOX_QUERY_SLOTS": _API_ONLY,
         "TILE_POOL_MIN_SIZE": _API_ONLY,
         "TILE_POOL_MAX_SIZE": _API_ONLY,
+        "RASTER_TIMEOUT_SLOT_GRACE_SECONDS": _API_ONLY,
         "TILE_CACHE_TTL": _API_ONLY,
         "TILE_SIGNING_SECRET": _API_ONLY,
         "CDN_BASE_URL": _API_ONLY,

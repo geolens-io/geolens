@@ -346,7 +346,8 @@ def test_only_the_commit_handler_creates_a_run() -> None:
     # the two that happened to be written first.
     #
     # `dispatch_upload_acceptance` is the upload strategy behind the same
-    # door, for accepting a blocked file replacement, on the same terms.
+    # door, for accepting a blocked file replacement, and
+    # `dispatch_database_refresh` the database strategy, on the same terms.
     assert callers == {
         "router_reupload.py": {"reupload_commit"},
         "router_refresh.py": {
@@ -355,6 +356,7 @@ def test_only_the_commit_handler_creates_a_run() -> None:
             "_dispatch_stac_refresh",
         },
         "refresh_acceptance.py": {"dispatch_upload_acceptance"},
+        "router_refresh_database.py": {"dispatch_database_refresh"},
     }, f"A refresh run row may only be created by a dispatch handler. Found: {callers}"
 
 
@@ -1421,6 +1423,7 @@ async def _seed_history(session, *, visibility: str = "public"):
             "review_reasons": [],
             "review_fingerprint": None,
             "accepted_blocked_run_id": None,
+            "data_revision": 3,
         },
     )
     await session.commit()
@@ -1462,6 +1465,8 @@ class TestRefreshRunListEndpoint:
         assert row["error_code"] == "service_refresh_failed"
         assert "parcels" in row["error_message"]
         assert row["verification"]["source_binding"]["url"].startswith("https://")
+        # The migration CLI reconciles an accepted run against this revision.
+        assert row["verification"]["data_revision"] == 3
 
     async def test_scheduled_history_exposes_only_safe_timing_metadata(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session

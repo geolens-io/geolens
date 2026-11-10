@@ -242,9 +242,12 @@ const rows: Row[] = [
     ]),
   ],
   [
-    'a stored native outline colour without an authored stroke, which the stroke rule replaces',
+    'a stored native outline colour without an authored stroke, which the stroke takes',
     { ...polygon, paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.4, 'fill-outline-color': '#abcdef' } },
-    drawing([fill(polygon, { ...PARCELS, 'fill-opacity': 0.4 }), outline(polygon)]),
+    drawing([
+      fill(polygon, { ...PARCELS, 'fill-opacity': 0.4, 'fill-outline-color': '#abcdef' }),
+      outline(polygon, { ...OUTLINE, 'line-color': '#abcdef' }),
+    ]),
   ],
   [
     'a disabled stroke, which hides the outline',

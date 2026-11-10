@@ -14,7 +14,7 @@ from app.processing.tiles import pool as pool_module
 from app.processing.tiles import router as tile_router
 from app.processing.tiles import service as tile_service
 from app.processing.tiles.cache_key import tile_cache_key
-from app.processing.tiles.service import get_tile
+from app.processing.tiles.service import RenderedTile, get_tile
 from scripts import seed_tiles
 from tests.factories import create_dataset, get_user_id
 
@@ -95,8 +95,39 @@ async def test_a_seeded_tile_is_served_without_rendering(
             served = await client.get(f"/tiles/data.{table}/0/0/0.pbf")
 
         assert served.status_code == 200, served.text
-        assert served.content == rendered
+        assert served.content == rendered.mvt
         renderer.assert_not_awaited()
+    finally:
+        tile_router._evict_dataset_meta(table)
+        await _drop_table(test_db_session, table)
+
+
+async def test_a_seeded_sampled_tile_is_served_as_sampled(
+    client: AsyncClient, test_db_session, monkeypatch
+):
+    dataset = await _public_point_dataset(test_db_session)
+    table = dataset.table_name
+    await test_db_session.execute(
+        text(
+            f'INSERT INTO "data"."{table}" (geom_4326) '
+            "SELECT ST_SetSRID(ST_MakePoint(-74.0 + g / 10.0, 40.7), 4326) "
+            "FROM generate_series(1, 3) AS g"
+        )
+    )
+    await test_db_session.commit()
+    monkeypatch.setattr(tile_service, "_TILE_FEATURE_LIMIT", 1)
+    cache = InMemoryTileCacheProvider()
+    renderer = AsyncMock(side_effect=AssertionError("the tile route rendered"))
+    try:
+        await _run_seeder(monkeypatch, cache, table)
+        with (
+            patch.object(tile_router, "get_tile_cache", return_value=cache),
+            patch.object(tile_router, "get_tile", renderer),
+        ):
+            served = await client.get(f"/tiles/data.{table}/0/0/0.pbf")
+
+        assert served.status_code == 200, served.text
+        assert served.headers.get("X-GeoLens-Tile-Sampled") == "true"
     finally:
         tile_router._evict_dataset_meta(table)
         await _drop_table(test_db_session, table)
@@ -108,7 +139,9 @@ async def test_a_seeded_tile_is_not_served_after_the_publication_changes(
     dataset = await _public_point_dataset(test_db_session)
     table = dataset.table_name
     cache = InMemoryTileCacheProvider()
-    renderer = AsyncMock(return_value=b"rendered after the transition")
+    renderer = AsyncMock(
+        return_value=RenderedTile(b"rendered after the transition", sampled=False)
+    )
     try:
         await _run_seeder(monkeypatch, cache, table)
         await test_db_session.execute(

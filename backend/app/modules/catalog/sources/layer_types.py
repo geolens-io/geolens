@@ -5,7 +5,8 @@ whose rows live in their sublayers, plus raster and annotation layers that are
 not feature data for the catalog. The probe flags them and the preview refuses
 them rather than creating an empty dataset. A layer is composite when it names
 sublayers, whatever its type string, so composite types a server adds later are
-caught too. A server that omits the type stays importable.
+caught too. A server that omits the type stays importable. ``has_attachments`` is None
+when the server does not say, so a guard can tell unknown from none.
 """
 
 from collections.abc import Callable
@@ -36,8 +37,12 @@ def is_importable_arcgis_layer(layer: dict) -> bool:
 
 
 def reject_unsupported_arcgis_type(meta: dict) -> None:
-    """Raise a coded 422 when the layer JSON describes a layer without rows."""
+    """Raise a coded 422 when the layer JSON describes a layer that cannot import.
+
+    Covers layers without rows and multipatch geometry.
+    """
     if is_importable_arcgis_layer(meta):
+        reject_unsupported_arcgis_geometry(meta)
         return
     layer_type = meta.get("type")
     raise HTTPException(
@@ -49,6 +54,27 @@ def reject_unsupported_arcgis_type(meta: dict) -> None:
                 "Import one of its feature layers or tables instead."
             ),
             "layer_type": layer_type,
+        },
+    )
+
+
+def reject_unsupported_arcgis_geometry(meta: dict) -> None:
+    """Raise a coded 422 for a multipatch layer.
+
+    GDAL has no multipatch reader for the REST JSON, so it would guess a
+    geometry type and store wrong shapes.
+    """
+    if meta.get("geometryType") != "esriGeometryMultiPatch":
+        return
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        detail={
+            "code": "unsupported_geometry",
+            "message": (
+                "This layer holds multipatch geometry, which cannot be imported. "
+                "Publish it as a feature layer with another geometry type."
+            ),
+            "geometry_type": "esriGeometryMultiPatch",
         },
     )
 
@@ -79,6 +105,7 @@ def arcgis_probe_layers(
                 "type": "layer",
                 "arcgis_type": _str_or_none(layer.get("type")),
                 "importable": is_importable_arcgis_layer(layer),
+                "has_attachments": _bool_or_none(layer.get("hasAttachments")),
                 "parent_layer_id": parent
                 if isinstance(parent, int) and parent >= 0
                 else None,
@@ -96,6 +123,7 @@ def arcgis_probe_layers(
                 "type": "table",
                 "arcgis_type": "Table",
                 "importable": True,
+                "has_attachments": _bool_or_none(table.get("hasAttachments")),
                 "parent_layer_id": None,
             }
         )
@@ -118,3 +146,7 @@ def _well_formed_entries(entries: object) -> list[dict]:
 
 def _str_or_none(value: object) -> str | None:
     return value if isinstance(value, str) else None
+
+
+def _bool_or_none(value: object) -> bool | None:
+    return value if isinstance(value, bool) else None

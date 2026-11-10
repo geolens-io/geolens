@@ -290,7 +290,7 @@ async def test_service_refresh_repopulates_wrong_stored_column_info(
         feature_count=1,
         source_format="arcgis_featureserver",
         source_filename="quakes",
-        source_url="https://services.example.com/svc/FeatureServer/0",
+        source_url="https://services.example.com/refreshed/FeatureServer/0",
         column_info=[
             {
                 "name": _DISPLAY_FIELD,
@@ -308,7 +308,7 @@ async def test_service_refresh_repopulates_wrong_stored_column_info(
     job = IngestJob(
         dataset_id=dataset_id,
         source_filename="quakes",
-        source_url="https://services.example.com/svc/FeatureServer",
+        source_url="https://services.example.com/refreshed/FeatureServer",
         source_layer="0",
         created_by=admin_id,
         status="pending",

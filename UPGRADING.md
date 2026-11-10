@@ -50,6 +50,54 @@ dataset's size per dataset. Set **Previous versions kept per dataset** to 1
 under Settings > Storage, or send `{"settings": {"previous_versions_kept": 1}}`
 to `PUT /settings/` as an admin, to keep the earlier behaviour.
 
+GeoLens no longer sends a service credential (an ArcGIS token, a username and
+password, or an API key) to a plain `http://` service address. Probing,
+previewing, importing and refreshing such a service with a credential now
+fails with `credential_over_http`, and that includes refreshes of datasets you
+imported earlier. Move the service to `https://` where you can. For intranet
+services without TLS, list their hosts in `SERVICE_CREDENTIALS_ALLOW_HTTP_HOSTS`
+in `.env` (comma-separated, `host` or `host:port`) and restart `api` and
+`worker`. Deployments that don't use the bundled Compose files, such as Helm
+charts and the cloud templates, must pass the variable to both the api and
+worker containers.
+
+Importing, re-uploading or refreshing a service that needs a token (an
+org-shared or private ArcGIS layer, for example) needs a shared cache, and
+without it those requests fail with `credential_store_unavailable` (503).
+`install.sh` now enables the bundled Valkey on prebuilt-image installs
+(`COMPOSE_FILE=docker-compose.prod.yml`). An install made earlier doesn't have
+it: add `cache` to the end of any existing `COMPOSE_PROFILES` list (don't
+replace it), plus `VALKEY_PASSWORD=<openssl rand -hex 32>` and
+`REDIS_URL=redis://:<that password>@valkey:6379/0`, to `.env`, then run
+`docker compose up -d`. Re-running `install.sh` sets the same values when they
+are missing. Source builds and installs with their own cache set `REDIS_URL` to
+that cache instead, and need no bundled service.
+
+ArcGIS service datasets with BigInteger, DateOnly or TimestampOffset fields
+imported earlier hold those fields as text. Their next refresh is held for
+review once, with the type changes listed. Accept it to switch to bigint,
+date and timestamptz columns. TimeOnly fields stay text.
+
+Every existing map starts with "Readers can open the attribute table" on. While
+it is on, the map's embed tokens can page its layers' rows through
+`GET /datasets/{id}/rows/`, within each dataset's `tile_columns` allowlist
+when it has one. To
+turn it off, clear the setting under Settings > Readers in the map builder, or
+send `show_attribute_table: false` in `PUT /maps/{id}`. To limit the columns,
+set `tile_columns` with `PATCH /datasets/{id}`.
+
+Migration 0101 drops the four `catalog.datasets.previous_version_*` columns,
+which have been empty since 1.27. Neither 1.27 nor 1.28 reads them, so a
+rolling upgrade from 1.28 keeps working. Coming from 1.26, use
+`scripts/upgrade.sh`, which stops `api` and `worker` before it migrates, or
+upgrade to 1.27.1 first.
+
+During a rolling upgrade to 1.30, an instance still on 1.29 hides a scene saved
+with a `transition` until it is upgraded; the stored scene is kept. A draft
+saved through a 1.29 instance drops the story's reader settings (navigation,
+layout, theme), so set them again once every instance is on 1.30. Chapters,
+blocks and scenes without a transition are kept.
+
 ## Rollback
 
 Rollback is re-pinning the previous version and restoring the pre-upgrade dump.
@@ -76,6 +124,13 @@ keys in Settings > API keys (or as an admin), then run the downgrade again.
 Revoke them too before you start an older image against the newer schema with
 `GEOLENS_API_RUN_MIGRATIONS=false`: an older image doesn't know the Publish
 scope and treats those keys as full-access keys.
+
+The downgrade of `0088_dataset_kept_versions` stops while any dataset keeps more
+than one previous version. The downgrade of the `restricted` map visibility
+migration turns restricted maps private, and the downgrade of
+`0089_sharing_groups` drops every sharing group and membership. The downgrade
+of `story_group_grants` turns restricted stories private, and the downgrade of
+`map_show_attribute_table` drops the `show_attribute_table` column from maps.
 
 ## Backups and disaster recovery
 

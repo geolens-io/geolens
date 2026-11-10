@@ -1,0 +1,388 @@
+{
+  "version": "2.31",
+  "authoringApp": "hand-written for the GeoLens demo",
+  "baseMap": {
+    "title": "Streets",
+    "baseMapLayers": [
+      {
+        "id": "worldStreetMap",
+        "layerType": "ArcGISTiledMapServiceLayer",
+        "title": "World Street Map",
+        "url": "https://services.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer",
+        "opacity": 1,
+        "visibility": true
+      }
+    ]
+  },
+  "spatialReference": {
+    "wkid": 102100,
+    "latestWkid": 3857
+  },
+  "initialState": {
+    "viewpoint": {
+      "targetGeometry": {
+        "xmin": -7921500,
+        "ymin": 5213800,
+        "xmax": -7911300,
+        "ymax": 5221800,
+        "spatialReference": {
+          "wkid": 102100,
+          "latestWkid": 3857
+        }
+      }
+    }
+  },
+  "operationalLayers": [
+    {
+      "id": "cambridge_street_trees",
+      "layerType": "ArcGISFeatureLayer",
+      "title": "Street trees by site type",
+      "url": "https://services1.arcgis.com/WnzC35krSYGuYov4/arcgis/rest/services/Trees/FeatureServer/0",
+      "visibility": true,
+      "opacity": 1,
+      "showLegend": true,
+      "minScale": 100000,
+      "layerDefinition": {
+        "geometryType": "esriGeometryPoint",
+        "drawingInfo": {
+          "renderer": {
+            "type": "uniqueValue",
+            "field1": "SiteType",
+            "defaultSymbol": {
+              "type": "esriSMS",
+              "style": "esriSMSCircle",
+              "color": [
+                190,
+                190,
+                190,
+                200
+              ],
+              "size": 5,
+              "outline": {
+                "type": "esriSLS",
+                "style": "esriSLSSolid",
+                "color": [
+                  255,
+                  255,
+                  255,
+                  200
+                ],
+                "width": 0.5
+              }
+            },
+            "uniqueValueInfos": [
+              {
+                "value": "Tree",
+                "label": "Tree",
+                "symbol": {
+                  "type": "esriSMS",
+                  "style": "esriSMSCircle",
+                  "color": [
+                    34,
+                    139,
+                    34,
+                    230
+                  ],
+                  "size": 5,
+                  "outline": {
+                    "type": "esriSLS",
+                    "style": "esriSLSSolid",
+                    "color": [
+                      255,
+                      255,
+                      255,
+                      200
+                    ],
+                    "width": 0.5
+                  }
+                }
+              },
+              {
+                "value": "Proposed Tree",
+                "label": "Proposed tree",
+                "symbol": {
+                  "type": "esriSMS",
+                  "style": "esriSMSCircle",
+                  "color": [
+                    30,
+                    120,
+                    200,
+                    230
+                  ],
+                  "size": 5,
+                  "outline": {
+                    "type": "esriSLS",
+                    "style": "esriSLSSolid",
+                    "color": [
+                      255,
+                      255,
+                      255,
+                      200
+                    ],
+                    "width": 0.5
+                  }
+                }
+              },
+              {
+                "value": "Planting Site",
+                "label": "Planting site",
+                "symbol": {
+                  "type": "esriSMS",
+                  "style": "esriSMSCircle",
+                  "color": [
+                    240,
+                    180,
+                    30,
+                    230
+                  ],
+                  "size": 5,
+                  "outline": {
+                    "type": "esriSLS",
+                    "style": "esriSLSSolid",
+                    "color": [
+                      255,
+                      255,
+                      255,
+                      200
+                    ],
+                    "width": 0.5
+                  }
+                }
+              },
+              {
+                "value": "Retired",
+                "label": "Retired",
+                "symbol": {
+                  "type": "esriSMS",
+                  "style": "esriSMSCircle",
+                  "color": [
+                    140,
+                    140,
+                    140,
+                    200
+                  ],
+                  "size": 5,
+                  "outline": {
+                    "type": "esriSLS",
+                    "style": "esriSLSSolid",
+                    "color": [
+                      255,
+                      255,
+                      255,
+                      200
+                    ],
+                    "width": 0.5
+                  }
+                }
+              },
+              {
+                "value": "Stump",
+                "label": "Stump",
+                "symbol": {
+                  "type": "esriSMS",
+                  "style": "esriSMSCircle",
+                  "color": [
+                    150,
+                    90,
+                    50,
+                    230
+                  ],
+                  "size": 5,
+                  "outline": {
+                    "type": "esriSLS",
+                    "style": "esriSLSSolid",
+                    "color": [
+                      255,
+                      255,
+                      255,
+                      200
+                    ],
+                    "width": 0.5
+                  }
+                }
+              },
+              {
+                "value": "Damaged Tree Well",
+                "label": "Damaged tree well",
+                "symbol": {
+                  "type": "esriSMS",
+                  "style": "esriSMSCircle",
+                  "color": [
+                    200,
+                    60,
+                    60,
+                    230
+                  ],
+                  "size": 5,
+                  "outline": {
+                    "type": "esriSLS",
+                    "style": "esriSLSSolid",
+                    "color": [
+                      255,
+                      255,
+                      255,
+                      200
+                    ],
+                    "width": 0.5
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "popupInfo": {
+        "title": "{SiteType}",
+        "expressionInfos": [
+          {
+            "name": "tree_age",
+            "title": "Tree age in years",
+            "expression": "DateDiff(Now(), $feature.PlantDate, 'years')",
+            "returnType": "number"
+          }
+        ],
+        "fieldInfos": [
+          {
+            "fieldName": "CommonName",
+            "label": "Common name",
+            "visible": true
+          },
+          {
+            "fieldName": "ScientificName",
+            "label": "Scientific name",
+            "visible": true
+          },
+          {
+            "fieldName": "diameter",
+            "label": "Trunk diameter",
+            "visible": true,
+            "format": {
+              "places": 1,
+              "digitSeparator": false
+            }
+          },
+          {
+            "fieldName": "PlantDate",
+            "label": "Planted",
+            "visible": true,
+            "format": {
+              "dateFormat": "shortDate"
+            }
+          },
+          {
+            "fieldName": "Neighborhood",
+            "label": "Neighborhood",
+            "visible": true
+          },
+          {
+            "fieldName": "Ownership",
+            "label": "Ownership",
+            "visible": true
+          },
+          {
+            "fieldName": "OverheadWires",
+            "label": "Overhead wires",
+            "visible": true
+          },
+          {
+            "fieldName": "expression/tree_age",
+            "label": "Tree age in years",
+            "visible": true
+          }
+        ],
+        "mediaInfos": [
+          {
+            "type": "piechart",
+            "title": "Trunk diameter and tree well size",
+            "value": {
+              "fields": [
+                "diameter",
+                "TreeWellLength"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "cambridge_neighborhoods",
+      "layerType": "ArcGISFeatureLayer",
+      "title": "Cambridge neighborhoods",
+      "url": "https://services1.arcgis.com/WnzC35krSYGuYov4/arcgis/rest/services/CDD_Neighborhoods/FeatureServer/0",
+      "visibility": true,
+      "opacity": 1,
+      "showLegend": true,
+      "layerDefinition": {
+        "geometryType": "esriGeometryPolygon",
+        "drawingInfo": {
+          "renderer": {
+            "type": "simple",
+            "symbol": {
+              "type": "esriSFS",
+              "style": "esriSFSNull",
+              "color": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "outline": {
+                "type": "esriSLS",
+                "style": "esriSLSSolid",
+                "color": [
+                  70,
+                  80,
+                  95,
+                  255
+                ],
+                "width": 1.5
+              }
+            }
+          },
+          "labelingInfo": [
+            {
+              "labelExpressionInfo": {
+                "expression": "$feature.NAME"
+              },
+              "labelPlacement": "esriServerPolygonPlacementAlwaysHorizontal",
+              "minScale": 200000,
+              "maxScale": 0,
+              "symbol": {
+                "type": "esriTS",
+                "color": [
+                  55,
+                  65,
+                  80,
+                  255
+                ],
+                "haloColor": [
+                  255,
+                  255,
+                  255,
+                  255
+                ],
+                "haloSize": 1.5,
+                "font": {
+                  "family": "Arial",
+                  "size": 10,
+                  "weight": "bold"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "popupInfo": {
+        "title": "{NAME}",
+        "fieldInfos": [
+          {
+            "fieldName": "NAME",
+            "label": "NAME",
+            "visible": true
+          }
+        ]
+      },
+      "showLabels": true
+    }
+  ]
+}

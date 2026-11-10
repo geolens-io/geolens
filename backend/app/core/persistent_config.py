@@ -1026,6 +1026,15 @@ MAX_DATASETS_PER_USER = PersistentConfig[int](
     label="Max Datasets per User (0=unlimited)",
 )
 
+# Checked at each story image upload; images already stored stay.
+MAX_STORY_IMAGE_MB_PER_USER = PersistentConfig[int](
+    key="max_story_image_mb_per_user",
+    type_=int,
+    env_default=0,
+    tab="storage",
+    label="Max Story Image Storage per User (MB, 0=unlimited)",
+)
+
 # Lowering it frees no storage until each dataset's next replacement or restore.
 PREVIOUS_VERSIONS_KEPT = PersistentConfig[int](
     key="previous_versions_kept",
@@ -1130,6 +1139,15 @@ ENABLED_PLUGINS = PersistentConfig[list[str] | None](
     env_default=None,
     tab="map",
     label="Enabled Plugins",
+)
+
+# Empty by default, which keeps story embed and video blocks off.
+STORY_FRAME_HOSTS = PersistentConfig[list[dict[str, Any]]](
+    key="story_frame_hosts",
+    type_=list[dict[str, Any]],
+    env_default_factory=list,
+    tab="network",
+    label="Story Embed and Video Hosts",
 )
 
 

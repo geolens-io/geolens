@@ -5,26 +5,44 @@ Hand-maintained. GeoLens can't host these items, so nothing is lost when the
 ArcGIS subscription ends: for each one the CLI writes
 ``export/<type>/<item id>/`` next to the state file with ``item.json``, the
 item's data (``data.json`` or the raw file), its ``resources/`` and, for a
-story, a readable ``story.md``. ``export/INDEX.md`` lists every item with the
-replacement note for its type. Files are written at mode 0600 and every JSON
+story, a readable ``story.md``. ``export/INDEX.md`` lists every item with its
+replacement note. Files are written at mode 0600 and every JSON
 passes through the redactor. The only host contacted is the plan's portal.
 """
 
 from __future__ import annotations
 
+import functools
+import hashlib
 import json
 import os
 import re
 import shutil
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import quote
 
+import typer
+
 from . import arcgis_report as _report
-from .arcgis_migrate_session import ItemFailed, ItemResult, MigrationContext, StopRun
-from .arcgis_migrate_state import FAILED, ItemState, MigrationState
+from ._sdk_helpers import EXIT_NETWORK
+from .arcgis_migrate_session import (
+    GeoLensError,
+    ItemFailed,
+    ItemResult,
+    MigrationContext,
+    StopRun,
+)
+from .arcgis_migrate_state import (
+    DONE,
+    EXISTS,
+    FAILED,
+    ItemState,
+    MigrationState,
+    whole_number,
+)
 from .arcgis_portal import PortalClient, PortalError, redact_json
 from .arcgis_story_markdown import render_classic, render_storymap
 
@@ -38,6 +56,17 @@ _NOT_JSON = object()
 # A portal answers these for an item that has no data of its own.
 _NO_DATA = (400, 404)
 FILENAMES = {"Form": "form.zip", "Notebook": "notebook.ipynb"}
+# The extension of an uploaded file whose portal item names none; types that
+# can hold several formats (Image, the Office types) are left to .bin.
+_TYPE_EXTENSIONS = {
+    "CSV": ".csv",
+    "PDF": ".pdf",
+    "KML": ".kml",
+    "Shapefile": ".zip",
+    "File Geodatabase": ".zip",
+    "Code Sample": ".zip",
+}
+_EXTENSION = re.compile(r"\.[A-Za-z0-9]{1,8}")
 _STORY = "Web Mapping Application"
 _NO_EQUIVALENT = "No equivalent in GeoLens."
 _APP_REBUILD = (
@@ -46,15 +75,20 @@ _APP_REBUILD = (
 )
 NOTES: dict[str, str] = {
     "StoryMap": (
-        "GeoLens has no narrative format yet. Maps carry over; the story text "
-        "and images are in story.md for use in a site or docs."
+        "Maps carry over. GeoLens stories are API-only for now (chapters with "
+        "map scenes and Markdown blocks, draft and publish, no web editor yet); "
+        "the story text and images are in story.md to recreate through the API "
+        "or reuse in a site or docs."
     ),
     _STORY: _APP_REBUILD,
     "Web Experience": _APP_REBUILD,
     "Dashboard": (
-        "Maps carry over. Indicators, charts, lists and filters have no GeoLens "
-        "equivalent; the data they summarize is in the imported datasets and "
-        "queryable through the API, OGC Features and the MCP server."
+        "Maps carry over. A GeoLens map can hold a dashboard of indicator, "
+        "bar chart, histogram, category selector and Markdown widgets, shown "
+        "beside the map in the viewer, share links and embeds, or across the "
+        "full page with the map hidden; lists, filters and other widgets have "
+        "no equivalent. The data they summarize is in the imported datasets "
+        "and queryable through the API, OGC Features and the MCP server."
     ),
     "Form": (
         "Results import as a dataset. The form has no equivalent; it is saved "
@@ -94,11 +128,77 @@ def replacement_note(item_type: str) -> str:
     return NOTES.get(item_type, NOTES_DEFAULT)
 
 
+def dashboard_layout_follow_up(
+    item: Mapping[str, Any], plan: Mapping[str, Any]
+) -> str | None:
+    """What a Dashboard's map widgets mean for its GeoLens layout, or None when
+    it has one map widget or is not a dashboard. None of them means rebuilding
+    with the map hidden; several are not chosen between; an unread widget list
+    leaves the count unknown, which is said rather than guessed."""
+    if item["type"] != "Dashboard":
+        return None
+    count = item.get("map_widgets")
+    if count is None:
+        return (
+            "its map widgets could not be counted: with none, rebuild it with "
+            "the map hidden; with several, convert it to a single-map "
+            "dashboard or split it"
+        )
+    if count == 0:
+        return "it has no map widget: rebuild it with the map hidden"
+    titles = {i["id"]: i["title"] for i in plan["items"] if i["type"] == "Web Map"}
+    ids = item.get("map_widget_maps", [])
+    maps = [titles[m] for m in ids if m in titles]
+    keep = "convert it to a single-map dashboard or split it. The migration does not guess which map to keep"
+    if count == 1:
+        if len(ids) < 2:
+            return None
+        shown = f" ({', '.join(maps)})" if maps else ""
+        return f"its map widget shows {len(ids)} maps{shown}: {keep}"
+    on = f" on {', '.join(maps)}" if maps else ""
+    return f"it has {count} map widgets{on}: {keep}"
+
+
+def _dashboard_note(item: Mapping[str, Any], plan: Mapping[str, Any]) -> str:
+    note = replacement_note("Dashboard")
+    layout = dashboard_layout_follow_up(item, plan)
+    return f"{note} {layout[0].upper()}{layout[1:]}." if layout else note
+
+
+def item_replacement(
+    item: Mapping[str, Any], plan: Mapping[str, Any], state: MigrationState
+) -> str:
+    """The note for *item*; a source file superseded by a hosted layer says so,
+    and says when that layer hasn't migrated, as the follow-ups do. An item
+    whose action was changed from its recorded default is no longer the
+    layer's source file, so it gets its type's note; a plan with no recorded
+    defaults counts as unchanged."""
+    layer = item.get("superseded_by")
+    default_action = (item.get("defaults") or {}).get("action", item["action"])
+    if not layer or item["action"] != default_action:
+        if item["type"] == "Dashboard":
+            return _dashboard_note(item, plan)
+        return replacement_note(item["type"])
+    title = next((i["title"] for i in plan["items"] if i["id"] == layer), layer)
+    entry = state.items.get(layer)
+    if entry and entry.dataset_ids and entry.status in (DONE, EXISTS):
+        return f"Published as {title}; migrated with it."
+    return f"Source file of {title}, which has not migrated."
+
+
 def _private_dirs(path: Path) -> None:
     """Create *path* and any missing parent at mode 0700."""
     for directory in reversed([path, *path.parents]):
         if not directory.exists():
             directory.mkdir(mode=0o700)
+
+
+def _stop_if_token_refused(exc: PortalError) -> None:
+    if exc.http_status in _TOKEN_STATUSES:
+        raise StopRun(
+            f"the portal refused the ArcGIS token ({exc}); it may have "
+            "expired. Rerun with a fresh token to resume."
+        ) from None
 
 
 def _slug(item_type: str) -> str:
@@ -128,11 +228,7 @@ class _Export:
         self._staged = 0
 
     def note_error(self, what: str, exc: PortalError) -> None:
-        if exc.http_status in _TOKEN_STATUSES:
-            raise StopRun(
-                f"the portal refused the ArcGIS token ({exc}); it may have "
-                "expired. Rerun with a fresh token to resume."
-            ) from None
+        _stop_if_token_refused(exc)
         # The status or kind, not the error text, which repeats the request
         # path and with it a resource name.
         message = (
@@ -245,7 +341,28 @@ def _looks_like_json(path: Path) -> bool:
     return not head.strip(b"\x00 \t\r\n\xef\xbb\xbf\xff\xfe") and bool(head)
 
 
-def _save_data(ctx: MigrationContext, export: _Export, item: Mapping[str, Any]) -> Any:
+def _raw_name(item: Mapping[str, Any], full: Mapping[str, Any]) -> str:
+    """``data`` plus the extension of the portal's file name, else of the item
+    type, else ``.bin``. Only the extension is taken from the portal's name, so
+    it can't steer the path; ``.json`` is left out since that name is for
+    parsed data."""
+    name = full.get("name")
+    candidates = (
+        [PurePosixPath(name.replace("\\", "/")).suffix] if isinstance(name, str) else []
+    )
+    candidates.append(_TYPE_EXTENSIONS.get(item["type"], ""))
+    for suffix in candidates:
+        if _EXTENSION.fullmatch(suffix) and suffix.lower() != ".json":
+            return f"data{suffix.lower()}"
+    return "data.bin"
+
+
+def _save_data(
+    ctx: MigrationContext,
+    export: _Export,
+    item: Mapping[str, Any],
+    full: Mapping[str, Any],
+) -> Any:
     staged = export.download(f"content/items/{item['id']}/data", "data")
     if staged is None:
         return None
@@ -256,7 +373,7 @@ def _save_data(ctx: MigrationContext, export: _Export, item: Mapping[str, Any]) 
         staged,
         "data",
         json_dest=folder / (name or "data.json"),
-        raw_dest=folder / (name or "data.bin"),
+        raw_dest=folder / (name or _raw_name(item, full)),
         required=bool(name and name.endswith(".ipynb")),
     )
 
@@ -343,11 +460,44 @@ def _save_resources(ctx: MigrationContext, export: _Export, item_id: str) -> set
     return saved
 
 
-def _map_link(ctx: MigrationContext, item_id: str) -> str:
+def _web_app(ctx: MigrationContext) -> str:
+    """The configured PUBLIC_APP_URL, which a split-origin install serves the
+    web app from, else the instance URL without /api."""
+    if ctx.web_app is None:
+        from geolens.api.admin import get_tile_config_settings_tile_config_get as tiles
+
+        try:
+            configured = ctx.geolens.call(tiles.sync_detailed).public_app_url
+        except GeoLensError:
+            configured = None
+        except typer.Exit as exc:
+            # How the SDK call reports a timeout or network failure; not
+            # cached, so the next story asks again.
+            if exc.exit_code != EXIT_NETWORK:
+                raise
+            return ctx.web_origin
+        if isinstance(configured, str) and configured.startswith(
+            ("https://", "http://")
+        ):
+            ctx.web_app = configured.rstrip("/")
+        else:
+            ctx.web_app = ctx.web_origin
+    return ctx.web_app
+
+
+def _map_link(
+    ctx: MigrationContext, item_id: str, web_app: Callable[[], str] | None = None
+) -> str:
     migrated = ctx.items.get(item_id)
     if migrated is not None and migrated.map_id:
-        return f"{ctx.web_origin}/maps/{migrated.map_id}"
+        return f"{(web_app or (lambda: _web_app(ctx)))()}/maps/{migrated.map_id}"
     return f"{ctx.portal_root}/home/item.html?id={item_id}"
+
+
+def _story_links(ctx: MigrationContext) -> Callable[[str], str]:
+    """Map links for one story, which asks for the app URL at most once."""
+    web_app = functools.cache(lambda: _web_app(ctx))
+    return lambda item_id: _map_link(ctx, item_id, web_app)
 
 
 def _story(
@@ -360,8 +510,7 @@ def _story(
     if not isinstance(data, dict):
         return False
 
-    def link(item_id: str) -> str:
-        return _map_link(ctx, item_id)
+    link = _story_links(ctx)
 
     text = None
     if item["type"] == "StoryMap" and "nodes" in data:
@@ -411,6 +560,94 @@ def export_item(
     finally:
         if build is not None:
             shutil.rmtree(build, ignore_errors=True)
+
+
+def _modified(item: Any) -> int | None:
+    return whole_number(item.get("modified") if isinstance(item, dict) else None)
+
+
+def refresh_export(
+    ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
+) -> list[str]:
+    """Export a finished item again when the portal changed it since its bundle
+    was written; why the bundle may be out of date.
+
+    A bundle without a recorded change time, from before it was recorded,
+    counts as changed, and so does one missing from its path. A failed export
+    keeps the earlier bundle.
+    """
+    client = ctx.portal.client if ctx.portal is not None else None
+    if client is None:
+        return ["the run can't read this item from the portal to check it for changes"]
+    try:
+        modified = _modified(client.get_json(f"content/items/{item['id']}"))
+    except PortalError as exc:
+        _stop_if_token_refused(exc)
+        return [f"reading the item to check it for changes failed, {exc}"]
+    if modified is None:
+        return [
+            "the portal doesn't say when the item last changed, so its bundle "
+            "may be out of date"
+        ]
+    present = _bundle_in_place(ctx, item, entry)
+    recorded = whole_number((entry.export or {}).get("modified"))
+    if present and recorded is not None and modified <= recorded:
+        return []
+    why = (
+        "changed in the portal since it was exported"
+        if present
+        else "its bundle is missing"
+    )
+    try:
+        result = export_item(ctx, item, entry)
+    except ItemFailed as exc:
+        return [f"{why}, and exporting it again failed: {exc}"]
+    entry.notes = list(result.notes)
+    return []
+
+
+def _bundle_in_place(
+    ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
+) -> bool:
+    """Whether the item's bundle is at its path with every file the export
+    recorded, at its recorded size and SHA-256, once what a run killed mid-swap
+    left beside it is put back. A record without its file list or digests,
+    from before they were kept, counts as not in place."""
+    files = (entry.export or {}).get("files")
+    if (
+        ctx.export_dir is None
+        or not _ITEM_ID.fullmatch(item["id"])
+        or not isinstance(files, dict)
+        or not files
+    ):
+        return False
+    folder = ctx.export_dir / _slug(item["type"]) / item["id"]
+    try:
+        _recover_leftovers(folder)
+        return _bundle_files(folder) == files
+    except OSError:
+        return False
+
+
+def _bundle_files(folder: Path) -> dict[str, dict[str, Any]]:
+    """Every file in *folder*, by its path inside it, with its size and
+    SHA-256."""
+    return {
+        path.relative_to(folder).as_posix(): {
+            "size": path.stat().st_size,
+            "sha256": _sha256(path),
+        }
+        for path in folder.rglob("*")
+        if path.is_file()
+    }
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _recover_leftovers(folder: Path) -> None:
@@ -485,7 +722,7 @@ def _export_into(
         else:
             export.partial = True
             export.errors.append("item.json: over the export size cap, not saved")
-        data = _save_data(ctx, export, item)
+        data = _save_data(ctx, export, item, full)
         saved = _save_resources(ctx, export, item["id"])
         story = _story(ctx, export, item, data, saved)
     swapped = not (export.failures and folder.exists())
@@ -498,6 +735,10 @@ def _export_into(
         "partial": export.partial,
         "errors": [redact_json(e, ctx.redact) for e in export.errors],
         "story": story,
+        # The portal's last change to the item, which a rerun compares.
+        "modified": _modified(full),
+        # What the bundle holds, which a rerun checks before trusting it.
+        "files": _bundle_files(folder) if swapped else {},
     }
     if swapped:
         # Otherwise the earlier bundle stays as it was, and so does its record.
@@ -524,8 +765,8 @@ def write_index(
     lines = [
         "# Export index",
         "",
-        "Items GeoLens can't host, saved so nothing is lost when the ArcGIS "
-        "subscription ends.",
+        "Items saved so nothing is lost when the ArcGIS subscription ends: items "
+        "GeoLens can't host, and source files of hosted layers.",
         "",
         "| Item | Type | Owner | Size | Status | Folder | Replacement |",
         "| --- | --- | --- | --- | --- | --- | --- |",
@@ -550,11 +791,13 @@ def write_index(
             f"{export['bytes'] / (1024 * 1024):.1f} MB",
             status,
             f"`{export['path']}`",
-            replacement_note(item["type"]),
+            item_replacement(item, plan, state),
         ]
         lines.append("| " + " | ".join(c.replace("|", "\\|") for c in cells) + " |")
         rows += 1
     if rows:
+        # The folder may be gone while the state still records its bundles.
+        _private_dirs(ctx.export_dir)
         _report.write_private(
             ctx.export_dir / "INDEX.md",
             redact_json("\n".join(lines) + "\n", ctx.redact),

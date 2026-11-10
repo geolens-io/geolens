@@ -177,7 +177,7 @@ async def _seed_dataset(
     Returns:
         (seeded_count, error_count)
     """
-    from app.processing.tiles.cache_key import tile_cache_key
+    from app.processing.tiles.cache_key import tile_cache_entry, tile_cache_key
 
     cache_key = tile_cache_key(
         table_name, dataset_id, publication_version, tile_cache_version, None
@@ -222,7 +222,7 @@ async def _seed_dataset(
                 additional_columns, cols_key = parse_cols_param(
                     None, columns, z, tile_columns=tile_columns
                 )
-                tile_data = await get_tile(
+                tile = await get_tile(
                     pool,
                     table_name,
                     z,
@@ -236,18 +236,18 @@ async def _seed_dataset(
                 # dataset id is never reissued, so a second look proves it still
                 # existed while its table was read.
                 await ensure_current()
-                if tile_data is None:
+                if tile is None:
                     await cache.set(
                         cache_key, z, x, y, b"", ttl=cache_ttl, cols_key=cols_key
                     )
                 else:
-                    compressed = gzip.compress(tile_data, compresslevel=6, mtime=0)
+                    compressed = gzip.compress(tile.mvt, compresslevel=6, mtime=0)
                     await cache.set(
                         cache_key,
                         z,
                         x,
                         y,
-                        compressed,
+                        tile_cache_entry(compressed, sampled=tile.sampled),
                         ttl=cache_ttl,
                         cols_key=cols_key,
                     )

@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   splitTextWithUrls,
   classifyUrl,
-  normalizeYouTubeEmbed,
   trimTrailingPunctuation,
 } from '../popup-rich-text';
 
@@ -129,22 +128,16 @@ describe('classifyUrl', () => {
     expect(classifyUrl('https://x.com/clip.mov').kind).toBe('video');
   });
 
-  it('EASY-11 — classifies youtube.com/watch?v=... as youtube with canonical embed srcUrl', () => {
-    const result = classifyUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
-    expect(result.kind).toBe('youtube');
-    expect(result.srcUrl).toBe('https://www.youtube.com/embed/dQw4w9WgXcQ');
-  });
-
-  it('EASY-11 — classifies youtu.be/<id> as youtube with canonical embed srcUrl', () => {
-    const result = classifyUrl('https://youtu.be/dQw4w9WgXcQ');
-    expect(result.kind).toBe('youtube');
-    expect(result.srcUrl).toBe('https://www.youtube.com/embed/dQw4w9WgXcQ');
-  });
-
-  it('EASY-11 — classifies youtube.com/shorts/<id> as youtube', () => {
-    const result = classifyUrl('https://www.youtube.com/shorts/dQw4w9WgXcQ');
-    expect(result.kind).toBe('youtube');
-    expect(result.srcUrl).toBe('https://www.youtube.com/embed/dQw4w9WgXcQ');
+  it('classifies YouTube URLs as other, so popups render them as ordinary links', () => {
+    for (const url of [
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      'https://youtu.be/dQw4w9WgXcQ',
+      'https://www.youtube.com/shorts/dQw4w9WgXcQ',
+      'https://www.youtube.com/embed/dQw4w9WgXcQ',
+      'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ',
+    ]) {
+      expect(classifyUrl(url)).toEqual({ kind: 'other', srcUrl: url });
+    }
   });
 
   it('EASY-11 — classifies plain URL with no recognized extension as other', () => {
@@ -167,61 +160,4 @@ describe('classifyUrl', () => {
     expect(classifyUrl(cleaned).kind).toBe('image');
   });
 
-  it('IN-01 — classifies youtube-nocookie.com embed URL as youtube', () => {
-    const result = classifyUrl('https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ');
-    expect(result.kind).toBe('youtube');
-    expect(result.srcUrl).toBe('https://www.youtube.com/embed/dQw4w9WgXcQ');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// normalizeYouTubeEmbed
-// ---------------------------------------------------------------------------
-
-describe('normalizeYouTubeEmbed', () => {
-  it('EASY-11 — returns embed URL for watch?v= form', () => {
-    expect(normalizeYouTubeEmbed('https://www.youtube.com/watch?v=dQw4w9WgXcQ')).toBe(
-      'https://www.youtube.com/embed/dQw4w9WgXcQ',
-    );
-  });
-
-  it('EASY-11 — returns embed URL for youtu.be short form', () => {
-    expect(normalizeYouTubeEmbed('https://youtu.be/dQw4w9WgXcQ')).toBe(
-      'https://www.youtube.com/embed/dQw4w9WgXcQ',
-    );
-  });
-
-  it('EASY-11 — returns embed URL for shorts/ form', () => {
-    expect(normalizeYouTubeEmbed('https://www.youtube.com/shorts/dQw4w9WgXcQ')).toBe(
-      'https://www.youtube.com/embed/dQw4w9WgXcQ',
-    );
-  });
-
-  it('EASY-11 — returns embed URL for already-canonical embed/ form (idempotent)', () => {
-    expect(normalizeYouTubeEmbed('https://www.youtube.com/embed/dQw4w9WgXcQ')).toBe(
-      'https://www.youtube.com/embed/dQw4w9WgXcQ',
-    );
-  });
-
-  it('IN-01 — returns embed URL for youtube-nocookie.com privacy-enhanced form', () => {
-    expect(normalizeYouTubeEmbed('https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ')).toBe(
-      'https://www.youtube.com/embed/dQw4w9WgXcQ',
-    );
-  });
-
-  it('EASY-11 — returns null for non-YouTube URL', () => {
-    expect(normalizeYouTubeEmbed('https://vimeo.com/123456')).toBeNull();
-  });
-
-  it('EASY-11 — returns null for malformed YouTube URL without 11-char ID', () => {
-    // ID must be exactly [A-Za-z0-9_-]{11}
-    expect(normalizeYouTubeEmbed('https://www.youtube.com/watch?v=SHORT')).toBeNull();
-    expect(normalizeYouTubeEmbed('https://www.youtube.com/watch?v=TOOLONG_12345')).toBeNull();
-  });
-
-  it('EASY-11 — extracts ID from URL with additional query params (list=PL...)', () => {
-    expect(
-      normalizeYouTubeEmbed('https://www.youtube.com/watch?v=ABCDEFGHIJK&list=PLxxx'),
-    ).toBe('https://www.youtube.com/embed/ABCDEFGHIJK');
-  });
 });

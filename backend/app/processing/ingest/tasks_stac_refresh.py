@@ -35,7 +35,15 @@ from app.core.service_tokens import (
 )
 
 from app.core.db.tenant_session import tenant_task
-from app.platform.dataset_origin import set_dataset_origin
+from app.platform.dataset_origin import (
+    KEEP,
+    BoundPointer,
+    SourceBinding,
+    StacSource,
+    bound_pointer,
+    read_source,
+    restamp,
+)
 from app.platform.refresh.credentials import (
     CredentialExpiredError,
     CredentialStoreUnavailable,
@@ -188,21 +196,8 @@ _CRS_UNIDENTIFIED_MESSAGE = (
 )
 
 
-def _binding(dataset: Any) -> tuple:
-    """The ``(origin_uri, origin_ref, source_format)`` triple, as read.
-
-    One spelling of the triple, used for three things that must agree: the
-    guard the write transaction checks before it changes anything, the guard
-    the failed-health stamp writes under, and the value the two are compared
-    as.
-    """
-    return (dataset.origin_uri, dataset.origin_ref, dataset.source_format)
-
-
-def _stac_pointers(
-    origin_ref: dict | None,
-) -> tuple[str, str | None, str | None, str | None, str | None, str | None]:
-    """``(item_href, item_id, collection_id, asset_href, asset_key, url)``.
+def _stac_source(origin_ref: Any) -> StacSource:
+    """The stored STAC binding this refresh re-resolves.
 
     Raises when there is no ``item_href``: only the item document can answer
     where an asset moved to (the asset href answers a different question). A
@@ -211,23 +206,15 @@ def _stac_pointers(
     the worker's own copy of that refusal, since the binding could have
     changed since.
     """
-    ref = origin_ref or {}
-    item_href = ref.get("item_href")
-    if not item_href:
+    source = read_source("stac", origin_ref)
+    if not isinstance(source, StacSource):
         raise StacRefreshError(
             "This dataset's source binding does not record the STAC item its "
             "asset was published in, so there is nothing to re-resolve "
             "against. Re-import it from the catalog to record one.",
             error_code=_ERROR_CODE_GENERIC,
         )
-    return (
-        item_href,
-        ref.get("item_id"),
-        ref.get("collection_id"),
-        ref.get("asset_href"),
-        ref.get("asset_key"),
-        ref.get("url"),
-    )
+    return source
 
 
 def _failure_for(resolution: Any) -> StacRefreshError:
@@ -290,10 +277,10 @@ def _rebind(
 ) -> None:
     """Point the dataset at where the publisher now says its asset is.
 
-    Through ``set_dataset_origin``, the only door into ``origin_ref``, which
+    Through ``restamp``, the only door into ``origin_ref``, whose binding
     applies the per-kind key allowlist: a resolution carrying an extra
     field raises here rather than widening a STAC binding (ADR-002
-    invariant 4).
+    invariant 4). The caller writes the verdict and freshness after it.
 
     ``collection_id`` is the stored value or, for a binding that never had
     one, the value the resolution verified against, read from the stored
@@ -310,13 +297,7 @@ def _rebind(
     when it did not, so a token-less success clears the marker the same way
     the service path's does. Never the credential.
     """
-    set_dataset_origin(
-        dataset,
-        "stac",
-        uri=resolution.asset_href,
-        # Carried forward unchanged: a refresh re-resolves a binding, it does
-        # not re-point it at a catalog the caller never submitted.
-        url=catalog_url,
+    binding = SourceBinding.stac(
         asset_href=resolution.asset_href,
         item_href=resolution.item_href,
         # Written back on every rebind, so a dataset imported before the id
@@ -324,8 +305,13 @@ def _rebind(
         item_id=resolution.item_id,
         collection_id=collection_id,
         asset_key=resolution.asset_key,
-        auth_required=auth_required,
+        # Carried forward unchanged: a refresh re-resolves a binding, it does
+        # not re-point it at a catalog the caller never submitted.
+        url=catalog_url,
+        auth_required=bool(auth_required),
     )
+    # project_refresh_success dates the contact once the run commits.
+    restamp(dataset, binding, contacted_at=None, refreshed_at=KEEP)
 
 
 def _pixel_geometry(described: dict) -> dict:
@@ -533,24 +519,23 @@ class _StacRefresh:
         self.credential: ServiceCredential | None = None
         # The binding this attempt resolves against, for the write's fence and
         # the failure's stamp. None until the claim reads it.
-        self.bound: tuple | None = None
+        self.bound: BoundPointer | None = None
 
     def prepare(self, job, dataset, staging_table: str) -> None:
-        self.bound = _binding(dataset)
-        self.origin_ref = dataset.origin_ref
+        self.bound = bound_pointer(dataset)
         self.dataset_id = dataset.id
 
     async def fetch(self) -> None:
         from app.platform.extensions import get_processing_port
 
-        (
-            self.item_href,
-            self.item_id,
-            self.collection_id,
-            self.asset_href,
-            self.asset_key,
-            self.catalog_url,
-        ) = _stac_pointers(self.origin_ref)
+        source = _stac_source(self.bound.origin_ref)
+        self.item_href = source.item_href
+        self.item_id = source.item_id
+        self.collection_id = source.collection_id
+        self.asset_href = source.asset_href
+        self.asset_key = source.asset_key
+        self.catalog_url = source.catalog_url
+        self.marked_before = source.auth_required
         # Redeemed after the claim, so a delivery that loses it spends nothing.
         self.credential = _claimed_credential(
             await resolve_worker_credential(None, self.credential_ref)
@@ -596,7 +581,7 @@ class _StacRefresh:
                 .execution_options(populate_existing=True)
             )
         ).scalar_one()
-        if _binding(dataset) != self.bound:
+        if bound_pointer(dataset) != self.bound:
             raise StacRefreshError(
                 "This dataset's source changed while its STAC item was "
                 "being re-resolved, so the older answer was discarded "
@@ -616,14 +601,13 @@ class _StacRefresh:
         # True or None, never False: the origin_ref allowlist drops a None
         # key, which is how "no credential was used" is spelled.
         auth_required = True if self.credential is not None else None
-        marked_before = (dataset.origin_ref or {}).get("auth_required") is True
         if (
             moved
             or resolution.item_href != self.item_href
             or resolution.item_id != self.item_id
             or resolution.asset_key != self.asset_key
             or learned_collection != self.collection_id
-            or marked_before != (auth_required is True)
+            or self.marked_before != (auth_required is True)
         ):
             _rebind(
                 dataset,

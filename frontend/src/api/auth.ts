@@ -2,7 +2,7 @@ import { API_BASE } from '@/lib/constants';
 import { signalWithTimeout } from '@/lib/abort';
 import { AUTH_MODE_HEADER, cookieAuthAvailable, cookieAuthHeaders, takeSignInOrder, withCookieWrite } from '@/lib/auth-transport';
 import { useAuthStore } from '@/stores/auth-store';
-import { abortInflightRefresh, apiFetch, isCredentialRejected, safeFetch, ApiError } from './client';
+import { abortInflightRefresh, apiFetch, isCredentialRejected, retryAfterMs, safeFetch, ApiError } from './client';
 import { translateApiErrorDetail } from '@/lib/error-map';
 import type { TokenResponse, UserResponse, AuthConfigResponse, MessageResponse, SignupResponse, MyApiKeyResponse, ApiKeyCreateResponse, ApiKeyScope, OAuthProviderPublic, UserQuotaUsage } from '@/types/api';
 
@@ -391,10 +391,7 @@ export async function refreshAccessToken(
     // tryRefresh's 429 back-off branch checks `err instanceof ApiError`; a plain
     // Error would skip the pause before the next attempt.
     const error = new ApiError(translateApiErrorDetail(undefined, response.status), response.status);
-    const retryAfterSeconds = Number(response.headers.get('Retry-After'));
-    if (response.status === 429 && retryAfterSeconds > 0) {
-      error.retryAfterMs = retryAfterSeconds * 1000;
-    }
+    if (response.status === 429) error.retryAfterMs = retryAfterMs(response);
     throw error;
   }
 

@@ -15,6 +15,7 @@
  *   during deployment.
  */
 
+import type { AggregateRequest } from '@/api/aggregate';
 import type { DatasetRowsSort } from '@/api/datasets';
 import type { MapBrowseParams } from '@/types/api';
 
@@ -28,6 +29,9 @@ export const queryKeys = {
     usage: (userId: string | undefined) => ['auth', 'me', 'usage', userId] as const,
   },
 
+  groups: {
+    mine: ['groups', 'mine'] as const,
+  },
   datasets: {
     all: ['datasets'] as const,
     detail: (id: string) => ['dataset', id] as const,
@@ -37,7 +41,17 @@ export const queryKeys = {
       cursor: number,
       filters?: Record<string, string>,
       sort?: DatasetRowsSort,
-    ) => ['dataset-rows', id, limit, cursor, filters, sort] as const,
+      cql2Filter?: string,
+      gid?: number,
+      // An embed token reads a narrower column set than the reader's own identity.
+      request?: { withBbox?: boolean; embedToken?: string },
+    ) => [
+      'dataset-rows', id, limit, cursor, filters, sort, cql2Filter,
+      ...(gid === undefined ? [] : [gid]),
+      ...(request?.withBbox || request?.embedToken
+        ? [{ withBbox: !!request.withBbox, embed: request.embedToken ?? null }]
+        : []),
+    ] as const,
     rowsPrefix: (id: string) => ['dataset-rows', id] as const,
     history: (id: string, skip: number, limit: number) =>
       ['dataset-history', id, skip, limit] as const,
@@ -56,11 +70,28 @@ export const queryKeys = {
     maps: (id: string) => ['datasets', id, 'maps'] as const,
   },
 
+  stories: {
+    all: ['stories'] as const,
+    list: (params: { skip: number; limit: number }) => ['stories', params] as const,
+    frameHosts: ['stories', 'frame-hosts'] as const,
+    detail: (id: string | undefined) => ['story', id] as const,
+    draft: (id: string | undefined) => ['story', id, 'draft'] as const,
+    /** Under its own root, which blob-url-cache revokes. */
+    image: (path: string) => ['asset-image', path] as const,
+  },
+
   maps: {
     all: ['maps'] as const,
     list: (params: MapBrowseParams) => ['maps', params] as const,
+    // Under the maps root, so whatever refreshes map lists refreshes the story map picker.
+    picker: (search: string) => ['maps', 'picker', search] as const,
     detail: (id: string | undefined) => ['map', id] as const,
+    // Prefix of every map's detail key and the keys under it.
+    detailRoot: ['map'] as const,
+    // Under the detail key, so whatever refetches the map refetches its gaps.
+    groupGaps: (id: string | undefined) => ['map', id, 'group-gaps'] as const,
     access: (id: string | undefined) => ['map-access', id] as const,
+    stories: (id: string | undefined) => ['map', id, 'stories'] as const,
     history: (mapId: string | undefined, skip: number, limit: number) =>
       ['map-history', mapId, skip, limit] as const,
     historyPrefix: (mapId: string | undefined) => ['map-history', mapId] as const,
@@ -126,6 +157,9 @@ export const queryKeys = {
       role?: string,
     ) => ['admin', 'users', skip, limit, status, search, sort, order, role] as const,
     userNames: ['admin', 'users', 'names'] as const,
+    groups: (skip: number, limit: number) => ['admin', 'groups', skip, limit] as const,
+    allGroups: ['admin', 'groups'] as const,
+    groupMembers: (groupId: string) => ['admin', 'groups', 'members', groupId] as const,
     allUsers: ['admin', 'users'] as const,
     auditLogs: (params: Record<string, unknown>) => ['admin', 'audit-logs', params] as const,
     jobs: (params: Record<string, unknown>) => ['admin', 'jobs', params] as const,
@@ -182,6 +216,8 @@ export const queryKeys = {
       ['job-status-by-dataset', datasetId] as const,
     discoverTables: ['discover-tables'] as const,
     uploadConfig: ['upload-config'] as const,
+    capabilities: ['capabilities'] as const,
+    databaseTables: (connection: string | null) => ['database-tables', connection] as const,
   },
 
   savedSearches: {
@@ -191,6 +227,15 @@ export const queryKeys = {
   apiKeys: {
     mine: ['my-api-keys'] as const,
     dataset: (datasetId: string) => ['dataset-api-keys', datasetId] as const,
+  },
+
+  dashboard: {
+    // `auth` is the embed token, as in tileTokens.viewerBatch, so an aggregate
+    // one token authorized is never served to a viewer without it. `version`
+    // is the dataset's tile version, so a refreshed dataset asks again.
+    aggregate: (datasetId: string, version: string | number | null, body: AggregateRequest | null, auth: string) =>
+      ['dashboard-aggregate', datasetId, version, body, auth] as const,
+    aggregatePrefix: (datasetId: string) => ['dashboard-aggregate', datasetId] as const,
   },
 
   tileTokens: {

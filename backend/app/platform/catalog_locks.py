@@ -9,7 +9,7 @@ them, and both the catalog and the ingest router reach the VRT admission here.
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from typing import Any
@@ -366,6 +366,45 @@ async def bump_publication_versions_for_owner(
         ),
         {"owner_id": owner_id},
     )
+
+
+async def bump_publication_versions(
+    session: AsyncSession, dataset_ids: Sequence[uuid.UUID]
+) -> None:
+    """Roll ``publication_version`` on ``dataset_ids`` and on every VRT linking
+    one, for a change that moves who may read them without writing their rows.
+    """
+    await session.execute(
+        text(
+            "UPDATE catalog.datasets "
+            "SET publication_version = coalesce(publication_version, 0) + 1 "
+            "WHERE id IN (SELECT unnest(CAST(:ids AS uuid[])) "
+            "UNION SELECT vrt_dataset_id FROM catalog.vrt_source_links "
+            "WHERE source_dataset_id = ANY(CAST(:ids AS uuid[])))"
+        ),
+        {"ids": list(dataset_ids)},
+    )
+
+
+async def bump_publication_versions_for_member(
+    session: AsyncSession, user_id: uuid.UUID
+) -> None:
+    """:func:`bump_publication_versions` on every dataset granted to a group
+    ``user_id`` is in, before the account is deleted or deactivated, so tile
+    URLs it signed stop validating."""
+    granted = await session.scalars(
+        text(
+            "SELECT DISTINCT grant_row.dataset_id "
+            "FROM catalog.dataset_group_grants grant_row "
+            "JOIN catalog.group_members member "
+            "ON member.group_id = grant_row.group_id "
+            "WHERE member.user_id = :user_id"
+        ),
+        {"user_id": user_id},
+    )
+    dataset_ids = list(granted)
+    if dataset_ids:
+        await bump_publication_versions(session, dataset_ids)
 
 
 async def bump_tile_cache_version_on(session: AsyncSession, dataset: Any) -> int | None:

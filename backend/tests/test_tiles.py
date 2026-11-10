@@ -12,6 +12,7 @@ import gzip
 import math
 import time
 import uuid
+from contextlib import ExitStack
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -360,15 +361,15 @@ class TestTileEndpoint:
         assert resp.status_code == 200
         # The cluster endpoint now supports the cols= opt-in, so
         # its cache lookups carry a cols_key segment (empty without cols=).
-        # The key carries the cluster SQL semantic version, bumped to
-        # v3 (per-cluster expansion_zoom) so deploys drop stale tiles.
+        # The key carries the cluster SQL and cache entry version, bumped to
+        # v4 (hash-sampled candidates, sampled mark) so deploys drop stale tiles.
         # The dataset id sits between the table and the cluster
         # segments, so a reused table name cannot read the previous dataset's
         # cluster tiles, and `label` carries the bare table name for the metric.
         # The publication version follows the dataset id.
         mock_cache.get.assert_awaited_once_with(
             f"{table_name}:ds{dataset.id.hex}:p{dataset.publication_version}"
-            f":v{dataset.tile_cache_version}:cluster:v3:r64:z12",
+            f":v{dataset.tile_cache_version}:cluster:v4:r64:z12",
             0,
             0,
             0,
@@ -720,29 +721,22 @@ class TestClusterBucketSemantics:
         candidates, bucketed, grouped, features) so the assertions exercise
         the exact SQL the endpoint executes; only the final MVT encode is
         replaced because the suite carries no MVT decoder dependency.
-        ``input_cap`` / ``feature_cap`` swap the candidate / feature LIMITs
+        ``input_cap`` / ``feature_cap`` swap the candidate / feature caps
         for tiny values so tests can saturate the caps without huge
         fixtures. ``mvt_x``/``mvt_y`` expose the emitted geometry in tile
         coordinates ([0, 4096] means inside the tile).
         """
-        from app.processing.tiles.service import (
-            _CLUSTER_INPUT_LIMIT,
-            _TILE_FEATURE_LIMIT,
-            _build_cluster_tile_query,
-        )
+        from app.processing.tiles import service
 
-        query = _build_cluster_tile_query(
-            table_name, attr_columns=[{"name": "name", "type": "text"}]
-        )
-        for cap, current in (
-            (input_cap, _CLUSTER_INPUT_LIMIT),
-            (feature_cap, _TILE_FEATURE_LIMIT),
-        ):
-            if cap is not None:
-                capped = query.replace(f"LIMIT {current}", f"LIMIT {cap}")
-                assert capped != query, "LIMIT not found; update this test"
-                query = capped
-        head, sep, _tail = query.rpartition("SELECT ST_AsMVT")
+        caps = {"_CLUSTER_INPUT_LIMIT": input_cap, "_TILE_FEATURE_LIMIT": feature_cap}
+        with ExitStack() as stack:
+            for name, cap in caps.items():
+                if cap is not None:
+                    stack.enter_context(patch.object(service, name, cap))
+            query = service._build_cluster_tile_query(
+                table_name, attr_columns=[{"name": "name", "type": "text"}]
+            )
+        head, sep, _tail = query.rpartition("SELECT\n    ST_AsMVT")
         assert sep, "cluster query tail changed; update this test's split point"
         # $4 (layer name) only appeared inside ST_AsMVT; keep it referenced so
         # the prepared statement still binds all six parameters.
@@ -977,6 +971,99 @@ class TestClusterBucketSemantics:
         # the cap on neighbor rows that ownership would discard.
         assert [r["name"] for r in rows] == ["interior"]
         assert rows[0]["cluster"] is None
+
+    async def test_input_cap_keeps_candidates_across_the_tile(self, test_db_session):
+        """Points loaded west to east still reach the tile from both halves
+        when the input cap saturates, and the tile says it was sampled."""
+        from app.processing.tiles import service
+        from app.processing.tiles.pool import get_tile_pool
+
+        table_name = f"cluster_sample_{uuid.uuid4().hex[:8]}"
+        # z1 tile (0, 0) spans x [-20037508, 0]; the west half loads first.
+        points = [
+            (f"{half}_{i}", start + i * 100_000.0, 5_000_000.0)
+            for half, start in (("west", -19_000_000.0), ("east", -9_000_000.0))
+            for i in range(20)
+        ]
+        await _create_cluster_semantics_table(
+            test_db_session, table_name, points=points
+        )
+
+        try:
+            pool = get_tile_pool()
+            # z=1 > cluster_max_zoom=0: each kept candidate is its own feature.
+            sql = self._rows_sql(table_name, input_cap=10)
+            rows = await pool.fetch(sql, 1, 0, 0, f"data.{table_name}", 0, 48)
+            with patch.object(service, "_CLUSTER_INPUT_LIMIT", 10):
+                tile = await service.get_cluster_tile(
+                    pool, table_name, 1, 0, 0, cluster_max_zoom=0
+                )
+        finally:
+            await _cleanup_data_table(test_db_session, table_name)
+
+        assert len(rows) == 10
+        assert {r["name"].split("_")[0] for r in rows} == {"west", "east"}
+        assert tile is not None and tile.sampled
+
+    async def test_feature_cap_keeps_cells_across_the_tile(
+        self, client, test_db_session
+    ):
+        """Past cluster max zoom every point is its own cell, so the feature
+        cap samples cells across the tile rather than keeping the westmost,
+        and the tile, served from the route, says it was sampled."""
+        from app.platform.cache.tile_cache import InMemoryTileCacheProvider
+        from app.processing.tiles import service
+        from app.processing.tiles.pool import get_tile_pool
+        from tests.factories import create_dataset
+
+        table_name = f"cluster_fcap_sample_{uuid.uuid4().hex[:8]}"
+        points = [
+            (f"{half}_{i}", start + i * 100_000.0, 5_000_000.0)
+            for half, start in (("west", -19_000_000.0), ("east", -9_000_000.0))
+            for i in range(20)
+        ]
+        await _create_cluster_semantics_table(
+            test_db_session, table_name, points=points
+        )
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
+        await create_dataset(
+            test_db_session,
+            created_by=user_id,
+            table_name=table_name,
+            record_type="vector_dataset",
+            geometry_type="Point",
+            feature_count=len(points),
+            column_info=[{"name": "name", "type": "text"}],
+        )
+
+        try:
+            sql = self._rows_sql(table_name, feature_cap=10)
+            rows = await get_tile_pool().fetch(
+                sql, 1, 0, 0, f"data.{table_name}", 0, 48
+            )
+            with (
+                patch.object(service, "_TILE_FEATURE_LIMIT", 10),
+                patch(
+                    "app.processing.tiles.router.get_tile_cache",
+                    return_value=InMemoryTileCacheProvider(),
+                ),
+            ):
+                url = f"/tiles/clusters/data.{table_name}/1/0/0.pbf"
+                params = {"cluster_max_zoom": 0}
+                rendered = await client.get(url, params=params)
+                cached = await client.get(url, params=params)
+        finally:
+            from app.processing.tiles import router as tile_router
+
+            tile_router._evict_dataset_meta(table_name)
+            await _cleanup_data_table(test_db_session, table_name)
+
+        # A bucket-ordered cap would keep only the 10 westmost points.
+        assert len(rows) == 10
+        assert {r["name"].split("_")[0] for r in rows} == {"west", "east"}
+        assert rendered.status_code == 200, rendered.text
+        assert rendered.headers.get("X-GeoLens-Tile-Sampled") == "true"
+        assert cached.headers.get("X-GeoLens-Tile-Sampled") == "true"
 
     async def test_west_edge_cell_is_owned(self, test_db_session):
         """The grid anchors at the world minimum,

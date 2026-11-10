@@ -224,7 +224,7 @@
     }
   },
   "audit": {
-    "title": "Audit Logs",
+    "title": "Audit Log",
     "loading": "Loading audit logs...",
     "errorLoading": "Failed to load audit logs: {{message}}",
     "searchPlaceholder": "User / Action",
@@ -406,7 +406,7 @@
     "scopeFull": "Full access",
     "scopeReadOnly": "Read only",
     "scopePublish": "Publish",
-    "scopePublishDescription": "Adds your own data and maps, edits your datasets' details and replaces uploaded datasets, keeping one previous version. It can't make anything public or widen a dataset's visibility, update an existing map, replace raster datasets or ones bound to a service, STAC item or table, write features, or delete anything.",
+    "scopePublishDescription": "Adds your own data and maps, edits your datasets' details and replaces uploaded datasets, keeping their previous versions. It can't make anything public or widen a dataset's visibility, update an existing map, replace raster datasets or ones bound to a service, STAC item or table, write features, or delete anything.",
     "scopeDatasetWrite": "One dataset",
     "scopeDatasetAppend": "One dataset, add only",
     "expiry": "Expires",
@@ -729,6 +729,8 @@
       "invalidStorageQuantity": "Enter a quantity that equals a whole number of bytes.",
       "maxDatasetsPerUser": "Max Datasets per User",
       "maxDatasetsPerUserDescription": "Maximum number of datasets each user can create (0 = unlimited).",
+      "maxStoryImageMbPerUser": "Max story image storage per user (MB)",
+      "maxStoryImageMbPerUserDescription": "The total size of images one user's stories can hold, in megabytes (0 = unlimited). Images already stored stay; only new uploads and copies are refused.",
       "saved": "Upload settings saved"
     },
     "oauth": {
@@ -823,6 +825,20 @@
       "registrationAdminConfirmDescription": "Every password sign-up that verifies its email will become an administrator. Make sure that is what you want.",
       "signupAdminActivationDescription": "After this change, people who sign up can become administrators without an administrator approving them. Make sure that is what you want.",
       "verificationNeedsRegistration": "Applies when Self-Registration is on."
+    },
+    "storyFrames": {
+      "title": "Story embeds and videos",
+      "description": "Sites whose pages and video players stories may show in a frame. Readers' browsers load them straight from these sites. With no sites, embed and video blocks are off.",
+      "empty": "No sites yet, so embed and video blocks are off.",
+      "hostLabel": "Site host name",
+      "add": "Add site",
+      "invalid": "Enter a host name such as media.example.org, without https:// or a path. Wildcards aren't accepted.",
+      "duplicate": "That site is already on the list.",
+      "full": "The list holds at most {{max}} sites.",
+      "sameOrigin": "Keep the site's origin",
+      "sameOriginHint": "Some video players need their own origin to play. The frame keeps that origin wherever the site sends it, so any other approved site it opens gets it too. Turn it on only for a site you trust with every approved site.",
+      "remove": "Remove {{host}}",
+      "reloadHint": "Pages already open pick up the list after a reload."
     }
   },
   "saml": {
@@ -892,5 +908,66 @@
   "sortable": {
     "sortAscending": "sort ascending",
     "sortDescending": "sort descending"
+  },
+  "groups": {
+    "title": "Groups",
+    "listHeading": "Sharing groups",
+    "errorLoading": "Failed to load groups: {{message}}",
+    "nameLabel": "Group name",
+    "actionsFor": "Actions for group {{name}}",
+    "table": {
+      "name": "Name",
+      "members": "Members",
+      "created": "Created",
+      "actions": "Actions",
+      "manageMembers": "Members",
+      "memberCount_one": "{{count}} member",
+      "memberCount_other": "{{count}} members"
+    },
+    "empty": {
+      "title": "No groups yet",
+      "hint": "Create a group, add people to it, then share datasets, maps and stories with it."
+    },
+    "create": {
+      "button": "Create group",
+      "title": "Create group",
+      "description": "Groups let you share restricted datasets, maps and stories with a set of people."
+    },
+    "rename": {
+      "button": "Rename",
+      "title": "Rename group",
+      "description": "Choose a new name for {{name}}."
+    },
+    "delete": {
+      "title": "Delete {{name}}?",
+      "description_one": "This group has {{count}} member. They lose access to datasets, maps and stories shared with the group right away. This can't be undone.",
+      "description_other": "This group has {{count}} members. They lose access to datasets, maps and stories shared with the group right away. This can't be undone.",
+      "deleting": "Deleting..."
+    },
+    "members": {
+      "title": "Members of {{name}}",
+      "description": "People in this group can open the datasets, maps and stories shared with it.",
+      "addLabel": "Add a person",
+      "listHeading_one": "{{count}} member",
+      "listHeading_other": "{{count}} members",
+      "listLabel": "Members of {{name}}",
+      "removeLabel": "Remove {{name}} from {{group}}",
+      "empty": "This group has no members yet.",
+      "added": "{{name}} added",
+      "removed": "{{name}} removed",
+      "errorLoading": "Failed to load members: {{message}}",
+      "needsUserManagement": "Adding people needs user management permission. You can still see and remove members."
+    },
+    "picker": {
+      "placeholder": "Search by username",
+      "noMatches": "No matching people",
+      "results_one": "{{count}} person available",
+      "results_other": "{{count}} people available"
+    },
+    "toasts": {
+      "created": "Group created",
+      "renamed": "Group renamed",
+      "deleted": "Group deleted"
+    }
   }
 }

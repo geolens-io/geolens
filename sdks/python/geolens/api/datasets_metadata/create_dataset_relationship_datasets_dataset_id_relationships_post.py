@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: DatasetRelationshipCreate,
 ) -> Response[DatasetRelationshipResponse | ProblemDetail]:
-    """Create Dataset Relationship
+    """Create a dataset relationship
 
      Create a new FK relationship. Editor+ required.
 
@@ -146,7 +146,7 @@ def sync(
     client: AuthenticatedClient,
     body: DatasetRelationshipCreate,
 ) -> DatasetRelationshipResponse | ProblemDetail | None:
-    """Create Dataset Relationship
+    """Create a dataset relationship
 
      Create a new FK relationship. Editor+ required.
 
@@ -175,7 +175,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: DatasetRelationshipCreate,
 ) -> Response[DatasetRelationshipResponse | ProblemDetail]:
-    """Create Dataset Relationship
+    """Create a dataset relationship
 
      Create a new FK relationship. Editor+ required.
 
@@ -207,7 +207,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: DatasetRelationshipCreate,
 ) -> DatasetRelationshipResponse | ProblemDetail | None:
-    """Create Dataset Relationship
+    """Create a dataset relationship
 
      Create a new FK relationship. Editor+ required.
 

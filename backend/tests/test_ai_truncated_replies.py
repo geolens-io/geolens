@@ -129,7 +129,7 @@ async def _stream(monkeypatch, style, events):
     monkeypatch.setattr(settings, "openai_api_style", style)
     executed: list = []
 
-    async def record_token_usage(_session, **_kwargs):
+    async def record_token_usage(**_kwargs):
         return None
 
     async def release_connection(_session):

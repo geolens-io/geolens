@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 import structlog
 from sqlalchemy import func
 
-from app.platform.dataset_origin import set_dataset_origin
+from app.platform.dataset_origin import SourceBinding, restamp
 from app.platform.storage.titiler_url import resolve_current_storage_key
 
 logger = structlog.get_logger(__name__)
@@ -81,17 +81,16 @@ def _write_swapped_fields(
     # replace, since it is the only record of what arrived.
     dataset.original_srid = source_meta.get("epsg")
     dataset.source_filename = source_filename
-    dataset.source_format = "geotiff"
     # The dataset is the COG and the upload a transient input, so the origin
     # restamps to the new file with no remote URI to point at.
-    set_dataset_origin(
+    restamp(
         dataset,
-        "upload",
-        filename=source_filename,
-        file_hash=source_sha256,
+        SourceBinding.upload(
+            "geotiff", filename=source_filename, file_hash=source_sha256
+        ),
+        contacted_at=None,
+        refreshed_at=datetime.now(timezone.utc),
     )
-    swap_time = datetime.now(timezone.utc)
-    dataset.last_refreshed_at = swap_time
     dataset.record.updated_by = uuid.UUID(user_id)
     if cog_meta.get("bbox_wkt"):
         dataset.record.spatial_extent = func.ST_GeomFromText(cog_meta["bbox_wkt"], 4326)

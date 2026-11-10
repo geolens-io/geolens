@@ -115,3 +115,104 @@ async def test_the_command_timeout_is_a_separate_bound(monkeypatch):
     await pool_module.init_tile_pool()
 
     assert captured["command_timeout"] == TILE_POOL_COMMAND_TIMEOUT_SECONDS
+
+
+class _ConnTimingOut:
+    """A pooled connection whose tile query outruns the command timeout."""
+
+    def transaction(self):
+        return self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_exc_info) -> bool:
+        return False
+
+
+class _PoolHandingOutOneConnection:
+    def acquire(self, *, timeout: float | None = None):
+        return _ConnTimingOut()
+
+
+async def test_a_query_that_exceeds_the_command_timeout_is_not_a_retryable_429(
+    monkeypatch,
+):
+    """Retrying a tile that always times out repeats the work and never succeeds."""
+
+    async def _times_out(pool, conn) -> bytes | None:
+        raise asyncio.TimeoutError
+
+    monkeypatch.setattr(
+        tiles_router, "get_tile_pool", lambda: _PoolHandingOutOneConnection()
+    )
+    monkeypatch.setattr(
+        tiles_router, "set_tenant_role_for_tile_request", lambda *_a: _noop()
+    )
+
+    with pytest.raises(HTTPException) as raised:
+        await tiles_router._acquire_and_serve_tile(
+            request=_bare_request(),
+            table_name="backpressure_probe",
+            z=0,
+            x=0,
+            y=0,
+            tid=None,
+            schema="data",
+            query_callable=_times_out,
+            tile_cache=None,
+            cache_key="backpressure_probe",
+            cache_ttl=60,
+            base_headers={},
+        )
+
+    assert raised.value.status_code == 503
+    assert raised.value.detail == "Tile service unavailable"
+    assert "Retry-After" not in raised.value.headers
+    assert raised.value.headers["Cache-Control"] == "no-store"
+    assert raised.value.headers["Access-Control-Allow-Origin"] == "*"
+
+
+class _ConnWhoseReleaseTimesOut(_ConnTimingOut):
+    async def __aexit__(self, *_exc_info) -> bool:
+        raise TimeoutError
+
+
+class _PoolWhoseReleaseTimesOut:
+    def acquire(self, *, timeout: float | None = None):
+        return _ConnWhoseReleaseTimesOut()
+
+
+async def test_a_release_timeout_after_a_query_timeout_stays_a_503(monkeypatch):
+    async def _times_out(pool, conn) -> bytes | None:
+        raise asyncio.TimeoutError
+
+    monkeypatch.setattr(
+        tiles_router, "get_tile_pool", lambda: _PoolWhoseReleaseTimesOut()
+    )
+    monkeypatch.setattr(
+        tiles_router, "set_tenant_role_for_tile_request", lambda *_a: _noop()
+    )
+
+    with pytest.raises(HTTPException) as raised:
+        await tiles_router._acquire_and_serve_tile(
+            request=_bare_request(),
+            table_name="backpressure_probe",
+            z=0,
+            x=0,
+            y=0,
+            tid=None,
+            schema="data",
+            query_callable=_times_out,
+            tile_cache=None,
+            cache_key="backpressure_probe",
+            cache_ttl=60,
+            base_headers={},
+        )
+
+    assert raised.value.status_code == 503
+    assert "Retry-After" not in raised.value.headers
+
+
+async def _noop() -> None:
+    return None

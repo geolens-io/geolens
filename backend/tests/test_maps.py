@@ -16,7 +16,7 @@ from unittest.mock import patch
 import pytest
 from httpx import AsyncClient
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.modules.audit.models import AuditLog
 from app.modules.auth.models import User
@@ -1014,7 +1014,7 @@ class TestUpdateMap:
         admin_auth_header: dict,
         editor_auth_header: dict,
     ):
-        """PUT /maps/{id} as editor who doesn't own the map returns 403."""
+        """PUT /maps/{id} as an editor who can't read the private map returns 404."""
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
 
@@ -1023,7 +1023,7 @@ class TestUpdateMap:
             json={"name": "Hijack"},
             headers=editor_auth_header,
         )
-        assert resp.status_code == 403
+        assert resp.status_code == 404
 
     async def test_update_map_rejects_public_with_non_public_datasets(
         self,
@@ -1437,7 +1437,7 @@ class TestMapHistory:
             f"/maps/{map_id}/history",
             headers=editor_auth_header,
         )
-        assert editor_resp.status_code == 403
+        assert editor_resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -1480,12 +1480,12 @@ class TestDeleteMap:
         admin_auth_header: dict,
         editor_auth_header: dict,
     ):
-        """DELETE /maps/{id} as editor who doesn't own the map returns 403."""
+        """DELETE /maps/{id} as an editor who can't read the private map returns 404."""
         created = await _create_map(client, admin_auth_header)
         map_id = created["id"]
 
         resp = await client.delete(f"/maps/{map_id}", headers=editor_auth_header)
-        assert resp.status_code == 403
+        assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -1726,17 +1726,17 @@ class TestDuplicateMap:
 
         created = await _create_map(client, admin_auth_header, "Draft Layer Map")
         map_id = created["id"]
-        await client.put(
-            f"/maps/{map_id}",
-            json={"visibility": "public"},
-            headers=admin_auth_header,
-        )
         add_resp = await client.post(
             f"/maps/{map_id}/layers",
             json={"dataset_id": str(draft_ds.id)},
             headers=admin_auth_header,
         )
         assert add_resp.status_code == 201, add_resp.text
+        # Publishing refuses a draft layer; this state predates that check.
+        await test_db_session.execute(
+            update(Map).where(Map.id == uuid.UUID(map_id)).values(visibility="public")
+        )
+        await test_db_session.commit()
 
         resp = await client.post(
             f"/maps/{map_id}/duplicate/", headers=viewer_auth_header
@@ -2332,6 +2332,56 @@ class TestSharedMap:
         assert resp.status_code == 200
         assert resp.json()["basemap_config"] == BASEMAP_CONFIG_PAYLOAD
 
+    @pytest.mark.parametrize("with_layer", [False, True])
+    @pytest.mark.parametrize(
+        "view",
+        [
+            None,
+            {"center_lng": 0.0, "center_lat": 0.0, "zoom": 0.0},
+            {"center_lng": -73.9, "center_lat": 40.7, "zoom": 10.0},
+        ],
+        ids=["no-view", "stored-zero", "stored-view"],
+    )
+    async def test_get_shared_map_reports_saved_view(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        with_layer: bool,
+        view: dict | None,
+    ):
+        """has_saved_view tells a stored camera from defaults; a stored 0 is kept."""
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+        if with_layer:
+            admin_id = await get_user_id(test_db_session, "admin")
+            ds = await create_dataset(test_db_session, created_by=admin_id)
+            layer_resp = await client.post(
+                f"/maps/{map_id}/layers",
+                json={"dataset_id": str(ds.id)},
+                headers=admin_auth_header,
+            )
+            assert layer_resp.status_code == 201
+        put_resp = await client.put(
+            f"/maps/{map_id}",
+            json={"visibility": "public", **(view or {})},
+            headers=admin_auth_header,
+        )
+        assert put_resp.status_code == 200
+        share_resp = await client.post(
+            f"/maps/{map_id}/share/", headers=admin_auth_header
+        )
+        token = share_resp.json()["token"]
+
+        resp = await client.get(f"/maps/shared/{token}")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["layers"]) == (1 if with_layer else 0)
+        camera = view or {"center_lng": 0.0, "center_lat": 0.0, "zoom": 2.0}
+        assert {key: data[key] for key in camera} == camera
+        assert data["has_saved_view"] is (view is not None)
+
     async def test_get_shared_map_invalid_token(self, client: AsyncClient):
         """GET /maps/shared/{bogus_token} returns 404."""
         resp = await client.get("/maps/shared/bogus_token_12345")
@@ -2431,6 +2481,33 @@ class TestMapLayers:
         assert data["visible"] is True
         assert data["opacity"] == 1.0
         assert "id" in data
+
+    @pytest.mark.parametrize("tile_columns", [None, [], ["name"]])
+    async def test_layer_response_carries_dataset_tile_columns(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        tile_columns,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
+        ds.tile_columns = tile_columns
+        await test_db_session.commit()
+        created = await _create_map(client, admin_auth_header)
+        map_id = created["id"]
+
+        added = await client.post(
+            f"/maps/{map_id}/layers",
+            json={"dataset_id": str(ds.id)},
+            headers=admin_auth_header,
+        )
+        assert added.status_code == 201, added.text
+        assert added.json()["dataset_tile_columns"] == tile_columns
+
+        loaded = await client.get(f"/maps/{map_id}", headers=admin_auth_header)
+        assert loaded.status_code == 200, loaded.text
+        assert loaded.json()["layers"][0]["dataset_tile_columns"] == tile_columns
 
     @pytest.mark.parametrize("paint", MALFORMED_STOPS_PAINTS)
     async def test_add_layer_rejects_malformed_stops(
@@ -3040,6 +3117,37 @@ class TestMapLayers:
         assert data["style_config"] == {
             "builder": {"outline_color": "#1d4ed8", "outline_width": 1}
         }
+
+    async def test_a_sent_paint_gets_no_default_builder_outline(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(test_db_session, created_by=admin_id)
+        created = await _create_map(client, admin_auth_header)
+
+        resp = await client.put(
+            f"/maps/{created['id']}",
+            json={
+                "layers": [
+                    {
+                        "dataset_id": str(ds.id),
+                        "paint": {
+                            "fill-color": "#22c55e",
+                            "fill-outline-color": "#14532d",
+                        },
+                    }
+                ]
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        (layer,) = resp.json()["layers"]
+        builder = (layer["style_config"] or {}).get("builder") or {}
+        assert "outline_color" not in builder
+        assert layer["paint"]["fill-outline-color"] == "#14532d"
 
     async def test_update_map_layers_moves_legacy_builder_paint_to_style_config(
         self,

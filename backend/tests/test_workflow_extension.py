@@ -114,7 +114,7 @@ class _FakeDB:
     async def flush(self):
         self.flushed = True
 
-    async def refresh(self, dataset):
+    async def refresh(self, dataset, attribute_names=None):
         self.refreshed = dataset
 
 

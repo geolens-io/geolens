@@ -16,6 +16,7 @@ import { act } from 'react';
 vi.mock('@/hooks/use-maps', () => ({
   useMaps: vi.fn(),
   useDeleteMap: vi.fn(),
+  useMapStories: () => ({ data: undefined }),
 }));
 
 vi.mock('@/hooks/use-document-title', () => ({

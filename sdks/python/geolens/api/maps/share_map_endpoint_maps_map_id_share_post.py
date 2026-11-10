@@ -116,7 +116,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: None | ShareTokenRequest | Unset = UNSET,
 ) -> Response[ProblemDetail | ShareTokenResponse]:
-    """Share Map Endpoint
+    """Create a map share token
 
      Create or retrieve a share token for a public map.
 
@@ -150,7 +150,7 @@ def sync(
     client: AuthenticatedClient,
     body: None | ShareTokenRequest | Unset = UNSET,
 ) -> ProblemDetail | ShareTokenResponse | None:
-    """Share Map Endpoint
+    """Create a map share token
 
      Create or retrieve a share token for a public map.
 
@@ -179,7 +179,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: None | ShareTokenRequest | Unset = UNSET,
 ) -> Response[ProblemDetail | ShareTokenResponse]:
-    """Share Map Endpoint
+    """Create a map share token
 
      Create or retrieve a share token for a public map.
 
@@ -211,7 +211,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: None | ShareTokenRequest | Unset = UNSET,
 ) -> ProblemDetail | ShareTokenResponse | None:
-    """Share Map Endpoint
+    """Create a map share token
 
      Create or retrieve a share token for a public map.
 

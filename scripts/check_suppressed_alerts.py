@@ -1,15 +1,7 @@
 #!/usr/bin/env python3
-"""Fail when a CodeQL result suppressed in source still has an open alert.
-
-advanced-security/dismiss-alerts indexes alerts by rule, path and start
-position. When a dismissed alert and an open one share that key, the dismissed
-one wins the index and the open alert is never touched, yet the step still
-exits 0. This check matches every suppressed SARIF result against the open
-alerts itself and reports any that remain.
+"""Dismiss open CodeQL alerts suppressed in source; fail if a dismissal fails.
 
 Usage: check_suppressed_alerts.py <sarif file or directory> <owner/repo>
-Needs the GitHub CLI authenticated with a token that can read code scanning
-alerts.
 """
 from __future__ import annotations
 
@@ -84,13 +76,31 @@ def main(argv: list[str]) -> int:
         print(__doc__, file=sys.stderr)
         return 2
     stuck = stuck_alerts(_load_sarif(Path(argv[1])), _open_alerts(argv[2]))
+    failed = False
     for alert in stuck:
         loc = alert["most_recent_instance"]["location"]
-        print(
-            f"::error::alert {alert['number']} ({alert['rule']['id']} at "
-            f"{loc['path']}:{loc['start_line']}) is suppressed in source but still open"
+        label = (
+            f"alert {alert['number']} ({alert['rule']['id']} at "
+            f"{loc['path']}:{loc['start_line']})"
         )
-    return 1 if stuck else 0
+        comment = f"Suppressed in source by # codeql[{alert['rule']['id']}]."[:280]
+        try:
+            subprocess.run(
+                [
+                    "gh", "api", "--method", "PATCH",
+                    f"repos/{argv[2]}/code-scanning/alerts/{alert['number']}",
+                    "-f", "state=dismissed",
+                    "-f", "dismissed_reason=won't fix",
+                    "-f", f"dismissed_comment={comment}",
+                ],
+                check=True, capture_output=True, text=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            print(f"::error::Failed to dismiss {label}: {' '.join(exc.stderr.split())}")
+            failed = True
+        else:
+            print(f"Dismissed {label}")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

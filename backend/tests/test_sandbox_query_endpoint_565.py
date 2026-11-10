@@ -725,14 +725,14 @@ async def test_distinct_values_cross_join_explosion_is_rejected(
 
 
 @pytest.mark.parametrize(
-    "expr",
+    ("expr", "name"),
     [
-        "replace(gid::text, '1', 'bbbbbbbb')",
-        "regexp_replace(gid::text, '1', 'bbbbbbbb')",
+        ("replace(gid::text, '1', 'bbbbbbbb')", "replace"),
+        ("regexp_replace(gid::text, '1', 'bbbbbbbb')", "regexp_replace"),
     ],
 )
 async def test_output_amplifying_string_functions_are_rejected(
-    client: AsyncClient, admin_auth_header, test_db_session, expr
+    client: AsyncClient, admin_auth_header, test_db_session, expr, name
 ):
     """The replace / regexp_replace functions expand a small input to
     a huge cell (~100 MB) under the 20 KB request limit — also dropped."""
@@ -749,7 +749,7 @@ async def test_output_amplifying_string_functions_are_rejected(
         headers=headers,
     )
     assert resp.status_code == 422
-    assert resp.json()["detail"] == "Query uses a disallowed function"
+    assert resp.json()["detail"] == f"Query uses a disallowed function: {name}"
 
 
 async def test_chained_pipe_concatenation_is_rejected(
@@ -796,7 +796,7 @@ async def test_concat_function_is_rejected(
         headers=headers,
     )
     assert resp.status_code == 422
-    assert resp.json()["detail"] == "Query uses a disallowed function"
+    assert resp.json()["detail"] == "Query uses a disallowed function: concat"
 
 
 async def test_oversized_values_is_rejected(
@@ -838,7 +838,7 @@ async def test_output_amplifying_format_is_rejected(
         headers=headers,
     )
     assert resp.status_code == 422
-    assert resp.json()["detail"] == "Query uses a disallowed function"
+    assert resp.json()["detail"] == "Query uses a disallowed function: format"
 
 
 async def test_lateral_values_nested_subquery_is_rejected(
@@ -1338,7 +1338,7 @@ async def test_budget_kwargs_are_threaded(
     assert captured["restrict_tables"] == frozenset({"t"})  # stripped + set
     # The connection-pool protections are wired through.
     assert captured["release_session"] is True
-    assert captured["capacity_semaphore"] is query_router._query_slots
+    assert captured["capacity_semaphore"] is query_router.query_slots
 
 
 async def test_at_capacity_returns_429(
@@ -1356,7 +1356,7 @@ async def test_at_capacity_returns_429(
     # A semaphore with zero free slots: already at capacity.
     exhausted = asyncio.Semaphore(1)
     await exhausted.acquire()
-    monkeypatch.setattr(query_router, "_query_slots", exhausted)
+    monkeypatch.setattr(query_router, "query_slots", exhausted)
 
     resp = await client.post(
         "/query/",
@@ -1369,9 +1369,9 @@ async def test_at_capacity_returns_429(
 
 def test_capacity_bound_is_pool_derived_and_at_least_one():
     """The bound tracks the configured pool and never drops below 1."""
-    from app.processing.ai.query_router import _capacity_bound
+    from app.processing.ai.sandbox_bounds import capacity_bound
 
-    assert _capacity_bound() >= 1
+    assert capacity_bound() >= 1
 
 
 @pytest.mark.parametrize(("workers", "expected"), [(1, 4), (2, 2), (8, 1)])

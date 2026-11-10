@@ -351,9 +351,9 @@ class TestSourceFormatConstraint:
             Path(__file__).parents[1]
             / "alembic"
             / "versions"
-            / "0070_pointcloud_record_type.py"
+            / "0103_database_origin.py"
         )
-        spec = importlib.util.spec_from_file_location("migration_0070", path)
+        spec = importlib.util.spec_from_file_location("migration_0103", path)
         migration = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(migration)
         constraint = next(
@@ -362,9 +362,7 @@ class TestSourceFormatConstraint:
             if getattr(c, "name", None) == "chk_datasets_source_format"
         )
         model_values = set(_quoted_values(str(constraint.sqltext)))
-        migration_values = set(
-            _quoted_values(f"{migration._BASE_FORMATS}, {migration._NEW_FORMATS}")
-        )
+        migration_values = set(_quoted_values(migration._NEW_FORMATS))
         assert model_values == migration_values
 
 
@@ -474,6 +472,84 @@ class TestTier1Ingest:
             # KML flattens attributes into <SimpleData> and LIBKML also adds
             # `name`/`description`; every driver keeps the numeric columns.
             assert {"population", "area_km2"} <= names
+        finally:
+            await test_db_session.execute(
+                text(f"DROP TABLE IF EXISTS data.{table} CASCADE")
+            )
+            await test_db_session.commit()
+
+
+@pytest.mark.parametrize(
+    ("geometry_type", "linear"),
+    [
+        ("MultiPolygon", True),
+        ("3D Multi Line String", True),
+        ("Point", True),
+        ("CircularString", False),
+        ("Circular String Z", False),
+        ("CompoundCurve", False),
+        ("Curve Polygon", False),
+        ("MultiCurve", False),
+        ("3D Multi Surface", False),
+    ],
+)
+def test_only_linear_declared_types_are_densified(geometry_type: str, linear: bool):
+    from app.processing.ingest.ogr import declares_linear_geometry
+
+    assert declares_linear_geometry(geometry_type) is linear
+
+
+@pytest.mark.skipif(
+    shutil.which("ogr2ogr") is None,
+    reason="ogr2ogr binary not available on host (runs in backend Docker image / CI)",
+)
+@pytest.mark.requires_ogr2ogr
+class TestProGeodatabaseCurves:
+    """Feature classes whose rows hold circular arcs load as linear geometry.
+
+    ``pro_curves_gdb.zip`` was written by ArcGIS Pro 3.7: ``zones`` is a polygon
+    with an arc segment and a hole, ``network/trails`` holds one polyline with an
+    arc and one without. GDAL reports both classes as linear types and returns
+    curved geometries for the arc rows.
+    """
+
+    @pytest.mark.parametrize(
+        ("layer", "rows", "kind"),
+        [("zones", 1, "ST_MultiPolygon"), ("trails", 2, "ST_MultiLineString")],
+    )
+    async def test_loads_arcs_as_linear(
+        self, test_db_session, layer: str, rows: int, kind: str
+    ):
+        from app.processing.ingest.ogr import (
+            build_pg_conn_str,
+            run_ogr2ogr,
+            run_ogrinfo,
+        )
+
+        table = f"tst_curves_{uuid.uuid4().hex[:8]}"
+        source = str(FIXTURES / "pro_curves_gdb.zip")
+        try:
+            info = await run_ogrinfo(source, layer_name=layer)
+            await run_ogr2ogr(
+                source,
+                table,
+                build_pg_conn_str(),
+                source_srid=info.get("srid"),
+                geometry_type=info.get("geometry_type"),
+                layer_name=layer,
+                schema="data",
+            )
+            result = await test_db_session.execute(
+                text(
+                    "SELECT count(*), bool_or(ST_HasArc(_geolens_geom)), "
+                    "array_agg(DISTINCT ST_GeometryType(_geolens_geom)) "
+                    f"FROM data.{table}"  # noqa: S608 - test table
+                )
+            )
+            count, has_arc, types = result.one()
+            assert count == rows
+            assert has_arc is False
+            assert types == [kind]
         finally:
             await test_db_session.execute(
                 text(f"DROP TABLE IF EXISTS data.{table} CASCADE")

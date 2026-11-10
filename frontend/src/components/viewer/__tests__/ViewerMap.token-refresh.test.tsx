@@ -55,6 +55,7 @@ const mapState = vi.hoisted(() => {
     setTransformRequest: vi.fn(),
     getCanvas: vi.fn(() => canvas),
     getZoom: vi.fn(() => 5),
+    coveringTiles: vi.fn(() => []),
     easeTo: vi.fn(),
     getStyle: vi.fn(() => ({ version: 8, sources: {}, layers: Array.from(layerIds).map((id) => ({ id })) })),
     queryRenderedFeatures: vi.fn(() => []),

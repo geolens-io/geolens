@@ -1,9 +1,9 @@
-import { useMemo, useRef, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import type { MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { useTranslation } from 'react-i18next';
 import { demChipGlyph, LayerTypeIcon, RasterGlyphChip } from '@/components/map/layer-icons';
 import { HeatmapLegend, LegendClassesList } from '@/components/map/LegendEntries';
-import { Eye, EyeOff, Layers, X } from 'lucide-react';
+import { ChevronDown, Eye, EyeOff, Layers, X } from 'lucide-react';
 import { createViewerLayerEntries, isTerrainBackingLiveVisible } from '@/components/viewer/layer-identity';
 import {
   deriveTerrainLegendEntry,
@@ -26,6 +26,8 @@ interface LayerLegendProps {
   legendTitle?: string | null;
   /** What the map drew each layer as, by layer key. A layer missing from it follows its saved style. */
   drawn?: ReadonlyMap<string, DrawnLayer>;
+  /** The map edge the toggle and panel sit on; the end side clears the zoom controls. */
+  side?: 'start' | 'end';
 }
 
 export function LayerLegend({
@@ -37,7 +39,9 @@ export function LayerLegend({
   terrainConfig = null,
   legendTitle = null,
   drawn,
+  side,
 }: LayerLegendProps) {
+  const edge = side === 'end' ? 'end-14' : 'start-3';
   const { t } = useTranslation('common');
   const panelRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -76,6 +80,26 @@ export function LayerLegend({
     return terrainSourceIsShownAsLayer(terrainConfig, visibleSourceLayers) ? null : entry;
   }, [terrainConfig, layers, sorted, visibleLayers]);
 
+  const panelId = useId();
+
+  // Rows below the fold get a fading chevron so a cut-off list reads as
+  // scrollable rather than complete.
+  const [moreBelow, setMoreBelow] = useState(false);
+  const updateMoreBelow = useCallback(() => {
+    const el = panelRef.current;
+    if (!el) return;
+    setMoreBelow(el.scrollHeight - el.scrollTop - el.clientHeight > 4);
+  }, []);
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!isOpen || !el) return;
+    updateMoreBelow();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(updateMoreBelow);
+    observer.observe(el);
+    if (el.firstElementChild) observer.observe(el.firstElementChild);
+    return () => observer.disconnect();
+  }, [isOpen, sorted, terrainEntry, visibleLayers, updateMoreBelow]);
   // Escape closes the panel only while focus is in the legend, and marks the
   // event handled so FeaturePopup and BasemapToggle's document listeners skip it.
   function handleEscape(e: KeyboardEvent<HTMLElement>) {
@@ -94,9 +118,9 @@ export function LayerLegend({
         onClick={onToggle}
         onKeyDown={handleEscape}
         aria-expanded={isOpen}
-        aria-controls="layer-legend-panel"
+        aria-controls={panelId}
         aria-label={isOpen ? t('viewer.legend.hide') : t('viewer.legend.show')}
-        className="absolute start-3 top-3 z-20 flex items-center justify-center w-8 h-8 rounded-md bg-background/80 backdrop-blur-sm border border-border/50 shadow-sm text-foreground hover:bg-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className={`absolute ${edge} top-3 z-20 flex items-center justify-center w-8 h-8 rounded-md bg-background/80 backdrop-blur-sm border border-border/50 shadow-sm text-foreground hover:bg-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
       >
         {isOpen ? <X className="w-4 h-4" aria-hidden="true" /> : <Layers className="w-4 h-4" aria-hidden="true" />}
       </button>
@@ -109,7 +133,8 @@ export function LayerLegend({
       <div
         ref={panelRef}
         onKeyDown={handleEscape}
-        id="layer-legend-panel"
+        onScroll={updateMoreBelow}
+        id={panelId}
         role="region"
         aria-label={t('viewer.legend.title')}
         // Cap the height against the CONTAINER, not the viewport: the panel is
@@ -117,7 +142,7 @@ export function LayerLegend({
         // tall legend run behind the Map data button (bottom-20 + ~2rem) and the
         // basemap toggle (bottom-8) in the same corner. 11rem = the 3.5rem top
         // offset plus clearance above that bottom-left stack.
-        className="absolute start-3 top-14 z-10 w-64 max-h-[calc(100%-11rem)] overflow-y-auto bg-background/90 backdrop-blur-md rounded-lg shadow-lg border border-border/50"
+        className={`absolute ${edge} top-14 z-10 w-64 max-h-[calc(100%-11rem)] overflow-y-auto bg-background/90 backdrop-blur-md rounded-lg shadow-lg border border-border/50`}
       >
         <div className="p-3 border-b border-border/50">
           <h2 className="text-sm font-semibold text-foreground">
@@ -196,6 +221,11 @@ export function LayerLegend({
                         : t('viewer.legend.cluster.fallback')}
                   </div>
                 )}
+                {isVisible && drawn?.get(key)?.sampled && (
+                  <p className="mt-1 ms-6 text-mini text-muted-foreground">
+                    {t('viewer.legend.sampled')}
+                  </p>
+                )}
 
                 {/* Data-driven legend entries */}
                 {isVisible && (
@@ -229,6 +259,15 @@ export function LayerLegend({
             );
           })}
         </ul>
+        {moreBelow && (
+          <div
+            data-testid="legend-more-below"
+            aria-hidden="true"
+            className="pointer-events-none sticky bottom-0 -mt-8 flex h-8 items-end justify-center bg-gradient-to-t from-background to-transparent pb-0.5 text-muted-foreground"
+          >
+            <ChevronDown className="h-4 w-4" />
+          </div>
+        )}
       </div>
       )}
     </>

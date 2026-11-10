@@ -1277,14 +1277,17 @@ async def test_a_lost_claim_drops_the_table_its_attempt_left_behind(seed) -> Non
 
 async def test_a_contact_stamp_matches_an_origin_ref_in_another_key_order(seed) -> None:
     """The stamp's binding guard compares origin_ref as JSON, so key order is no rebind."""
-    from app.platform.dataset_origin import set_dataset_origin
+    from app.platform.dataset_origin import KEEP, SourceBinding, restamp
     from app.processing.ingest.publication import _stamp_contact
 
     url = "https://services.example.test/wfs"
     async with db_module.async_session() as session:
         dataset = await session.get(Dataset, seed.dataset_id)
-        set_dataset_origin(
-            dataset, "service", uri=url, service_type="wfs", url=url, layer_id="roads"
+        restamp(
+            dataset,
+            SourceBinding.service("wfs", url=url, layer_id="roads", enriched_uri=url),
+            contacted_at=None,
+            refreshed_at=KEEP,
         )
         reordered = dict(reversed(list(dataset.origin_ref.items())))
         binding = (dataset.origin_uri, reordered, dataset.source_format)

@@ -93,6 +93,7 @@ vi.mock('react-i18next', () => ({
         'adminNav.overview': 'Overview',
         'adminNav.operations': 'Operations',
         'adminNav.users': 'Users',
+        'adminNav.groups': 'Groups',
         'adminNav.jobs': 'Jobs',
         'adminNav.auditLog': 'Audit Log',
         'adminNav.sharedMaps': 'Shared Maps',
@@ -200,6 +201,31 @@ describe('AdminSidebar', () => {
     renderSidebar();
     const link = screen.getByText('Users').closest('a');
     expect(link).toHaveAttribute('href', '/admin/users');
+  });
+
+  it('routes Groups to /admin/groups', () => {
+    renderSidebar();
+    expect(screen.getByText('Groups').closest('a')).toHaveAttribute('href', '/admin/groups');
+  });
+
+  // The groups API needs manage_tenants in multi-tenant mode, so a per-tenant
+  // admin would be linked to a page whose every request is refused.
+  it('multi-tenant: hides Groups from an admin without manage_tenants', () => {
+    const multiTenant = {
+      isEnterprise: true,
+      edition: 'enterprise',
+      isMultiTenant: true,
+      isLoading: false,
+      isResolved: true,
+    };
+    useEditionMock
+      .mockReturnValueOnce(multiTenant as never)
+      .mockReturnValueOnce(multiTenant as never)
+      .mockReturnValueOnce(multiTenant as never);
+    renderSidebar();
+
+    expect(screen.queryByText('Groups')).toBeNull();
+    expect(screen.getByText('Users')).toBeInTheDocument();
   });
 
   it('renders Back to App footer link', () => {

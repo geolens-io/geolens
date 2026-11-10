@@ -90,7 +90,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[InfrastructureResponse | ProblemDetail]:
-    """Get Infrastructure
+    """Get infrastructure status
 
      Return infrastructure configuration, live health status, and OIDC provider connectivity.
 
@@ -115,7 +115,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> InfrastructureResponse | ProblemDetail | None:
-    """Get Infrastructure
+    """Get infrastructure status
 
      Return infrastructure configuration, live health status, and OIDC provider connectivity.
 
@@ -136,7 +136,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[InfrastructureResponse | ProblemDetail]:
-    """Get Infrastructure
+    """Get infrastructure status
 
      Return infrastructure configuration, live health status, and OIDC provider connectivity.
 
@@ -159,7 +159,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> InfrastructureResponse | ProblemDetail | None:
-    """Get Infrastructure
+    """Get infrastructure status
 
      Return infrastructure configuration, live health status, and OIDC provider connectivity.
 

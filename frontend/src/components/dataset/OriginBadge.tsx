@@ -29,6 +29,7 @@ export function datasetOrigin(input: {
   if (!format) return 'postgis';
   if (format === 'created') return 'created';
   if (format === 'stac') return 'stac';
+  if (format === 'database') return 'database';
   if (SERVICE_FORMATS.has(format)) return 'service';
   return 'upload';
 }
@@ -39,6 +40,7 @@ const ORIGIN_ICONS: Record<DatasetOrigin, LucideIcon> = {
   service: Globe,
   stac: Satellite,
   created: SquarePen,
+  database: Database,
 };
 
 interface OriginBadgeProps {

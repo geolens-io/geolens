@@ -110,7 +110,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     expected_version_number: int,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Previous Version
+    """Delete the previous version
 
      Delete the dataset's newest kept version, so it can no longer be restored.
 
@@ -149,7 +149,7 @@ def sync(
     client: AuthenticatedClient,
     expected_version_number: int,
 ) -> Any | ProblemDetail | None:
-    """Delete Previous Version
+    """Delete the previous version
 
      Delete the dataset's newest kept version, so it can no longer be restored.
 
@@ -183,7 +183,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     expected_version_number: int,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Previous Version
+    """Delete the previous version
 
      Delete the dataset's newest kept version, so it can no longer be restored.
 
@@ -220,7 +220,7 @@ async def asyncio(
     client: AuthenticatedClient,
     expected_version_number: int,
 ) -> Any | ProblemDetail | None:
-    """Delete Previous Version
+    """Delete the previous version
 
      Delete the dataset's newest kept version, so it can no longer be restored.
 

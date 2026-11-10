@@ -27,6 +27,7 @@
 [![CI 状态](https://img.shields.io/github/actions/workflow/status/geolens-io/geolens/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/geolens-io/geolens/actions/workflows/ci.yml)
 [![许可证：Apache-2.0](https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF%E8%AF%81-Apache--2.0-2563eb?style=flat-square)](LICENSE)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/geolens-io/geolens/badge)](https://securityscorecards.dev/viewer/?uri=github.com/geolens-io/geolens)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15857/badge)](https://www.bestpractices.dev/projects/15857)
 
 </div>
 
@@ -142,7 +143,7 @@ flowchart LR
     end
     subgraph GL ["GeoLens"]
       CAT["目录<br/>搜索 · 元数据 · 来源"]
-      MB["地图构建器<br/>样式 · 3D · 分析 · 共享"]
+      MB["地图构建器<br/>样式 · 3D · 分析 · 故事 · 仪表板 · 共享"]
       STD["开放 API<br/>OGC API · STAC · DCAT · 瓦片"]
     end
     subgraph OUT ["随处使用"]
@@ -180,7 +181,8 @@ flowchart LR
 
 - 点、符号、热力图、聚类、线、箭头、面、3D 挤出、栅格和山体阴影图层，支持数据驱动样式、标注、图标、图案、筛选器和弹出窗口。地形来自您自己的高程模型。
 - 缓冲区、质心、裁剪、融合、空间连接、按位置选择、测量和相交。大多数操作可在地图上预览，每个结果都保存为新数据集，可在构建器或 CLI 中完成。
-- 公开链接粘贴到 Slack、Teams 或社交媒体帖子中时，会显示地图的标题和图片；地图可通过私有令牌嵌入其他网站。
+- 故事地图带读者逐个场景浏览地图，支持 Markdown 文本、图片、按钮和分隔线。仪表板把指标、图表、筛选器和 Markdown 注释放在地图旁边。地图数据面板以表格或列表显示每个图层的行。
+- 公开地图和已发布的故事链接粘贴到 Slack、Teams 或社交媒体帖子中时，会显示标题和图片；地图可通过私有令牌嵌入其他网站。
 - 界面支持英语、西班牙语、法语、德语和简体中文。
 
 ## 在任何地方使用数据
@@ -276,7 +278,7 @@ geolens publish examples/manifests/first-catalog/city-parks.geojson --name "City
 
 ## 参与贡献
 
-欢迎提交缺陷报告、修复、翻译和文档。[CONTRIBUTING](.github/CONTRIBUTING.md) 涵盖环境搭建、测试和 DCO 签名，[ARCHITECTURE](.github/ARCHITECTURE.md) 描绘了代码结构。[QGIS 插件](https://github.com/geolens-io/qgis-geolens-plugin)、[示例](https://github.com/geolens-io/geolens-examples)和[部署](https://github.com/geolens-io/geolens-deployments)仓库同样接受 issue 和 pull request。问题请发到 [GitHub Discussions](https://github.com/geolens-io/geolens/discussions)，缺陷请提交到 [Issues](https://github.com/geolens-io/geolens/issues)，安全问题请按 [SECURITY.md](.github/SECURITY.md) 中的说明私下报告。[路线图](https://docs.getgeolens.com/roadmap/)展示了计划中的工作。
+欢迎提交缺陷报告、修复、翻译和文档。[CONTRIBUTING](.github/CONTRIBUTING.md) 涵盖环境搭建和测试，[ARCHITECTURE](.github/ARCHITECTURE.md) 描绘了代码结构。[QGIS 插件](https://github.com/geolens-io/qgis-geolens-plugin)、[示例](https://github.com/geolens-io/geolens-examples)和[部署](https://github.com/geolens-io/geolens-deployments)仓库同样接受 issue 和 pull request。问题请发到 [GitHub Discussions](https://github.com/geolens-io/geolens/discussions)，缺陷请提交到 [Issues](https://github.com/geolens-io/geolens/issues)，安全问题请按 [SECURITY.md](.github/SECURITY.md) 中的说明私下报告。[路线图](https://docs.getgeolens.com/roadmap/)展示了计划中的工作。
 
 ## 基于开源项目构建
 

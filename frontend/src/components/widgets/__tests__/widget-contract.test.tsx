@@ -1,0 +1,236 @@
+import { render, screen } from '@testing-library/react';
+import { render as renderWithProviders } from '@/test/test-utils';
+import { supportedLngs } from '@/i18n/config';
+import { loadAllResources } from '@/i18n/resources';
+import { WidgetView } from '../WidgetView';
+import type { WidgetSurface } from '../contract';
+import {
+  checkWidgetWrite,
+  getWidgetDefinition,
+  parseStoredWidget,
+  widgetDefinitions,
+} from '../registry';
+
+// Frame renderers read the approved hosts; none are approved here, so they show their link.
+vi.mock('@/api/stories', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/stories')>()),
+  getStoryFrameHosts: vi.fn(async () => []),
+}));
+
+// A typical config for each registered type, with visible text in the
+// fallback. A new widget type adds its entry here.
+const id = '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11';
+
+// A type with no text (`fallbackText: null`) is a separator for assistive technology instead.
+const examples: Record<string, { config: unknown; fallbackText: string | RegExp | null }> = {
+  markdown: { config: { text: '## Heading\n\nSome **bold** text.' }, fallbackText: /Some \*\*bold\*\* text\./ },
+  indicator: { config: { stat: 'sum', column: 'area' }, fallbackText: /Sum of area/ },
+  bar_chart: {
+    config: { column: 'land_use', stat: 'mean', stat_column: 'area', limit: 5 },
+    fallbackText: /No data yet/,
+  },
+  histogram: { config: { column: 'height', bins: 12 }, fallbackText: /No data yet/ },
+  pie_chart: {
+    config: { column: 'land_use', stat: 'count', stat_column: null, limit: 6, use_layer_colors: true },
+    fallbackText: /No data yet/,
+  },
+  category_selector: { config: { column: 'land_use', multiple: false }, fallbackText: /No data yet/ },
+  table: {
+    config: { group_column: 'land_use', stats: [{ stat: 'count', column: null }, { stat: 'sum', column: 'area' }], sort_by: 1, sort: 'desc', limit: 5 },
+    fallbackText: /No data yet/,
+  },
+  image: { config: { alt: 'A river at dusk', caption: 'Looking north' }, fallbackText: /A river at dusk/ },
+  gallery: { config: { images: [{ asset_id: '9a3e5c71-2b4d-4f86-8e1a-7c5d3b2f4e60', alt: 'A river at dusk' }] }, fallbackText: /A river at dusk/ },
+  carousel: { config: { images: [{ asset_id: '9a3e5c71-2b4d-4f86-8e1a-7c5d3b2f4e60', alt: 'A river at dusk' }] }, fallbackText: /A river at dusk/ },
+  button: {
+    config: { label: 'Read the report', url: 'https://example.com/report', new_tab: true },
+    fallbackText: 'Read the report',
+  },
+  separator: { config: { style: 'gap' }, fallbackText: null },
+  feature_list: {
+    config: { title_column: 'name', subtitle_column: 'kind', sort_column: 'name', sort: 'desc', page_size: 40 },
+    fallbackText: /No data yet/,
+  },
+  embed: { config: { url: 'https://media.example.org/chart', title: 'Rainfall chart' }, fallbackText: /Rainfall chart/ },
+  video: { config: { url: 'https://media.example.org/v/1', title: 'Field visit' }, fallbackText: /Field visit/ },
+};
+
+// Defaults the author has to finish before the instance is valid: an image's
+// alt text, a gallery's images, a button's or a frame's address and text, is theirs to write.
+const INCOMPLETE_DEFAULTS = new Set(['image', 'gallery', 'carousel', 'button', 'embed', 'video']);
+
+// An image block names the image it shows.
+const assetId = '9a3e5c71-2b4d-4f86-8e1a-7c5d3b2f4e60';
+
+// A dashboard widget names the layer it summarizes, unless its type is layerless.
+const layerId = '0b7d2f4e-3c1a-4e8b-9f6d-5a2c7e1b9d34';
+
+function instanceFor(surface: WidgetSurface, instance: Record<string, unknown>) {
+  const named = getWidgetDefinition(String(instance.type), surface)?.asset
+    ? { asset_id: assetId, ...instance }
+    : instance;
+  return surface === 'dashboard' && !getWidgetDefinition(String(instance.type), surface)?.layerless
+    ? { layer_id: layerId, ...named }
+    : named;
+}
+
+function lookupKey(bundle: unknown, key: string): unknown {
+  return key
+    .split('.')
+    .reduce<unknown>((node, part) => (node as Record<string, unknown> | undefined)?.[part], bundle);
+}
+
+describe.each(widgetDefinitions.map((definition) => [definition.type, definition] as const))(
+  'widget type %s',
+  (type, definition) => {
+    const surface = definition.surfaces[0];
+    const example = examples[type];
+
+    it('has an example config in this test', () => {
+      expect(example).toBeDefined();
+    });
+
+    it('is registered for at least one surface and found by type', () => {
+      expect(definition.surfaces.length).toBeGreaterThan(0);
+      expect(getWidgetDefinition(type, surface)).toBe(definition);
+      expect(Number.isInteger(definition.v) && definition.v >= 1).toBe(true);
+    });
+
+    it('validates its default and example configs', () => {
+      const configs = INCOMPLETE_DEFAULTS.has(type) ? [example.config] : [definition.defaultConfig, example.config];
+      for (const config of configs) {
+        const instance = instanceFor(surface, { id, type, v: definition.v, config });
+        expect(parseStoredWidget(instance, surface)).toMatchObject({ ok: true, instance });
+        expect(checkWidgetWrite(instance, surface)).toEqual({ ok: true });
+      }
+    });
+
+    it('rejects configs of the wrong shape', () => {
+      for (const config of [undefined, null, 'text', 42, []]) {
+        expect(parseStoredWidget(instanceFor(surface, { id, type, v: definition.v, config }), surface)).toMatchObject({
+          ok: false,
+          reason: 'invalid_config',
+        });
+      }
+    });
+
+    it('rejects an unknown type on write', () => {
+      const unknown = instanceFor(surface, { id, type: `${type}-from-the-future`, v: 1, config: example.config });
+      expect(checkWidgetWrite(unknown, surface)).toEqual({ ok: false, reason: 'unknown_type' });
+      expect(checkWidgetWrite({ ...unknown, v: definition.v + 1, type }, surface)).toEqual({
+        ok: false,
+        reason: 'unsupported_version',
+      });
+    });
+
+    it('shows a notice for, and refuses on write, an instance it cannot parse', () => {
+      const unreadable = [
+        { id, type: `${type}-from-the-future`, v: 1, config: { anything: [1, 2] } },
+        { id, type, v: definition.v + 1, config: example.config },
+        { id, type, v: definition.v, config: { broken: true } },
+      ].map((raw) => instanceFor(surface, raw));
+      for (const raw of unreadable) {
+        expect(parseStoredWidget(raw, surface).ok).toBe(false);
+        expect(checkWidgetWrite(raw, surface).ok).toBe(false);
+      }
+    });
+
+    it('renders its fallback as text', () => {
+      render(<definition.Fallback config={example.config} />);
+      if (example.fallbackText === null) expect(screen.getByRole('separator')).toBeInTheDocument();
+      else expect(screen.getByText(example.fallbackText)).toBeInTheDocument();
+    });
+
+    it('loads a renderer that renders its example config', async () => {
+      const { default: Renderer } = await definition.loadRenderer();
+      const { container } = renderWithProviders(<Renderer config={example.config} />);
+      if (example.fallbackText === null) expect(container.firstChild).not.toBeNull();
+      else expect(container.textContent).not.toBe('');
+    });
+
+    it('lists every plural form a locale defines for its plural keys', async () => {
+      const resources = await loadAllResources();
+      const listed = new Set(definition.i18nKeys);
+      const plural = /_(zero|one|two|few|many|other)$/;
+      for (const lng of supportedLngs) {
+        for (const key of definition.i18nKeys.filter((candidate) => plural.test(candidate))) {
+          const base = key.replace(plural, '');
+          const parentPath = base.split('.').slice(0, -1).join('.');
+          const parent = (parentPath ? lookupKey(resources[lng].widgets, parentPath) : resources[lng].widgets) as Record<
+            string,
+            unknown
+          >;
+          const name = base.split('.').at(-1)!;
+          for (const sibling of Object.keys(parent).filter((k) => k.startsWith(`${name}_`) && plural.test(k))) {
+            const full = parentPath ? `${parentPath}.${sibling}` : sibling;
+            expect(listed.has(full), `${lng}: widgets:${full} is not in i18nKeys`).toBe(true);
+          }
+        }
+      }
+    });
+
+    it('has its i18n keys in all five locales', async () => {
+      const resources = await loadAllResources();
+      for (const lng of supportedLngs) {
+        for (const key of [definition.labelKey, ...definition.i18nKeys]) {
+          expect(typeof lookupKey(resources[lng].widgets, key), `${lng}: widgets:${key}`).toBe(
+            'string',
+          );
+        }
+      }
+    });
+  },
+);
+
+describe('widget registry', () => {
+  it('has unique type ids', () => {
+    const types = widgetDefinitions.map((definition) => definition.type);
+    expect(new Set(types).size).toBe(types.length);
+  });
+
+  it('treats a type not allowed on a surface as unknown there', () => {
+    const storyOnly = widgetDefinitions.find((d) => !d.surfaces.includes('dashboard'));
+    expect(storyOnly).toBeDefined();
+    const instance = { id, type: storyOnly!.type, v: storyOnly!.v, config: storyOnly!.defaultConfig };
+    expect(checkWidgetWrite(instance, 'dashboard')).toEqual({ ok: false, reason: 'unknown_type' });
+  });
+
+  it('marks an instance without a UUID id, string type or integer v as malformed', () => {
+    const config = { text: 'x' };
+    for (const raw of [
+      null,
+      'markdown',
+      [],
+      { type: 'markdown', v: 1, config },
+      { id: 'not-a-uuid', type: 'markdown', v: 1, config },
+      { id, v: 1, config },
+      { id, type: 'markdown', v: '1', config },
+    ]) {
+      expect(parseStoredWidget(raw, 'story')).toEqual({ ok: false, reason: 'malformed' });
+    }
+  });
+
+  it('refuses keys beyond id, type, v, title and config, as the server does', () => {
+    const instance = { id, type: 'markdown', v: 1, config: { text: 'x' } };
+    expect(checkWidgetWrite({ ...instance, layer_id: id }, 'story')).toEqual({
+      ok: false,
+      reason: 'malformed',
+    });
+  });
+
+  it('keeps the id and a title of at most 120 characters', () => {
+    const instance = { id, type: 'markdown', v: 1, title: 'x'.repeat(120), config: { text: 'x' } };
+    expect(parseStoredWidget(instance, 'story')).toMatchObject({ ok: true, instance });
+    expect(checkWidgetWrite({ ...instance, title: null }, 'story')).toEqual({ ok: true });
+    expect(checkWidgetWrite({ ...instance, title: '🗺'.repeat(120) }, 'story')).toEqual({ ok: true });
+    expect(checkWidgetWrite({ ...instance, title: 'x'.repeat(121) }, 'story')).toEqual({
+      ok: false,
+      reason: 'malformed',
+    });
+  });
+
+  it('shows a notice for an instance it cannot parse', () => {
+    render(<WidgetView parsed={parseStoredWidget({ id, type: 'future', v: 1, config: {} }, 'story')} />);
+    expect(screen.getByText(/can't be shown/)).toBeInTheDocument();
+  });
+});

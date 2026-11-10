@@ -179,7 +179,7 @@ def sync_detailed(
     | TilesetPreviewResponse
     | ProblemDetail
 ]:
-    """Preview File
+    """Preview a staged file
 
      Run preview on a staged file and return preview data.
 
@@ -229,7 +229,7 @@ def sync(
     | ProblemDetail
     | None
 ):
-    """Preview File
+    """Preview a staged file
 
      Run preview on a staged file and return preview data.
 
@@ -273,7 +273,7 @@ async def asyncio_detailed(
     | TilesetPreviewResponse
     | ProblemDetail
 ]:
-    """Preview File
+    """Preview a staged file
 
      Run preview on a staged file and return preview data.
 
@@ -321,7 +321,7 @@ async def asyncio(
     | ProblemDetail
     | None
 ):
-    """Preview File
+    """Preview a staged file
 
      Run preview on a staged file and return preview data.
 

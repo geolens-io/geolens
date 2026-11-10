@@ -1,0 +1,760 @@
+import { screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import type { Map as MaplibreMap } from 'maplibre-gl';
+import { render } from '@/test/test-utils';
+import { fetchAggregate, type AggregateRequest } from '@/api/aggregate';
+import { storageKeys } from '@/lib/storage';
+import type { DashboardConfig, SharedLayerResponse } from '@/types/api';
+import { getWidgetDefinition } from '@/components/widgets/registry';
+import { DashboardPanel } from '../DashboardPanel';
+import { VIEW_REFETCH_DEBOUNCE_MS } from '../hooks/use-dashboard-data';
+
+vi.mock('@/api/aggregate', () => ({ fetchAggregate: vi.fn() }));
+
+const fetchMock = vi.mocked(fetchAggregate);
+
+const layerId = '0b7d2f4e-3c1a-4e8b-9f6d-5a2c7e1b9d34';
+const datasetId = 'a7d1c2e3-0000-4000-8000-000000000001';
+const countId = '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11';
+const chartId = '9a2b4c6d-1e3f-4a5b-8c7d-0e1f2a3b4c5d';
+
+function layer(overrides: Partial<SharedLayerResponse> = {}): SharedLayerResponse {
+  return {
+    id: layerId,
+    dataset_id: datasetId,
+    dataset_name: 'Parcels',
+    display_name: 'City parcels',
+    table_name: 'parcels',
+    geometry_type: 'POLYGON',
+    sort_order: 0,
+    visible: true,
+    opacity: 1,
+    paint: {},
+    layout: {},
+    show_in_legend: true,
+    tile_url: '',
+    column_info: [{ name: 'land_use', type: 'text' }],
+    ...overrides,
+  } as SharedLayerResponse;
+}
+
+function dashboard(widgets: unknown[]): DashboardConfig {
+  return { version: 1, widgets } as DashboardConfig;
+}
+
+const countWidget = {
+  id: countId,
+  type: 'indicator',
+  v: 1,
+  title: 'Parcels counted',
+  layer_id: layerId,
+  scope: 'layer',
+  config: { stat: 'count', column: null },
+};
+const chartWidget = {
+  id: chartId,
+  type: 'bar_chart',
+  v: 1,
+  layer_id: layerId,
+  scope: 'layer',
+  config: { column: 'land_use', stat: 'count', stat_column: null, limit: 5 },
+};
+
+function respond(body: AggregateRequest) {
+  if (body.op === 'count') {
+    return { op: 'count', approximate: false, cached: false, result: { count: 1234 } };
+  }
+  return {
+    op: 'value_counts',
+    approximate: false,
+    cached: false,
+    result: { values: [{ value: 'Residential', count: 40 }], other_count: 0 },
+  };
+}
+
+type Bounds = [number, number, number, number];
+
+/** A map whose view the test moves; `moveend` fires once per move. */
+function movableMap(initial: Bounds) {
+  let current = initial;
+  const listeners = new Set<() => void>();
+  const map = {
+    getBounds: () => ({
+      getWest: () => current[0],
+      getSouth: () => current[1],
+      getEast: () => current[2],
+      getNorth: () => current[3],
+    }),
+    on: (_event: string, listener: () => void) => listeners.add(listener),
+    off: (_event: string, listener: () => void) => listeners.delete(listener),
+  } as unknown as MaplibreMap;
+  return {
+    map,
+    move(next: Bounds) {
+      current = next;
+      listeners.forEach((listener) => listener());
+    },
+  };
+}
+
+/**
+ * Lets `ms` pass with React free to render and run timers, as it is inside
+ * `waitFor`; an `act` around a sleep would hold the updates until it ends.
+ */
+function rest(ms: number) {
+  const until = Date.now() + ms;
+  return waitFor(() => expect(Date.now()).toBeGreaterThanOrEqual(until), { timeout: ms + 1000 });
+}
+
+function requestedBodies(): AggregateRequest[] {
+  return fetchMock.mock.calls.map(([, body]) => body);
+}
+
+beforeEach(() => {
+  fetchMock.mockReset();
+  fetchMock.mockImplementation(async (_dataset, body) => respond(body) as never);
+  localStorage.clear();
+});
+
+describe('DashboardPanel', () => {
+  it('starts each widget type\'s renderer download when the config arrives', () => {
+    const indicator = getWidgetDefinition('indicator', 'dashboard')!;
+    const chart = getWidgetDefinition('bar_chart', 'dashboard')!;
+    const loadIndicator = vi.spyOn(indicator, 'loadRenderer');
+    const loadChart = vi.spyOn(chart, 'loadRenderer');
+    const second = { ...countWidget, id: '1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5e' };
+    render(
+      <DashboardPanel
+        config={dashboard([countWidget, second, chartWidget])}
+        layers={[layer()]}
+        map={null}
+        mapId="map-1"
+      />,
+    );
+    expect(loadIndicator).toHaveBeenCalled();
+    expect(loadChart).toHaveBeenCalled();
+  });
+
+  it('renders the widgets in order and asks for each with the layer filter', async () => {
+    render(
+      <DashboardPanel
+        config={dashboard([countWidget, chartWidget])}
+        layers={[layer({ filter: ['==', ['get', 'land_use'], 'Residential'] })]}
+        map={null}
+        embedToken="embed-abc"
+        mapId="map-1"
+      />,
+    );
+
+    const panel = screen.getByRole('region', { name: 'Dashboard' });
+    const headings = within(panel).getAllByRole('heading', { level: 3 });
+    expect(headings.map((h) => h.textContent)).toEqual(['Parcels counted', 'Count by land_use']);
+    expect(await within(panel).findByText('1,234')).toBeInTheDocument();
+
+    const filter = { op: '=', args: [{ property: 'land_use' }, 'Residential'] };
+    expect(fetchMock).toHaveBeenCalledWith(
+      datasetId,
+      { op: 'count', filter },
+      expect.objectContaining({ embedToken: 'embed-abc' }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      datasetId,
+      { op: 'value_counts', column: 'land_use', limit: 5, filter },
+      expect.objectContaining({ embedToken: 'embed-abc' }),
+    );
+    expect(screen.queryByText(/layer's filter can't be applied/)).not.toBeInTheDocument();
+  });
+
+  it('names an untitled widget from its config, with the layer as the subline', () => {
+    const widget = (id: string, type: string, config: unknown) => ({
+      id,
+      type,
+      v: 1,
+      layer_id: layerId,
+      scope: 'layer',
+      config,
+    });
+    const ids = [
+      '1a1a1a1a-1111-4111-8111-111111111111',
+      '2b2b2b2b-2222-4222-8222-222222222222',
+      '3c3c3c3c-3333-4333-8333-333333333333',
+      '4d4d4d4d-4444-4444-8444-444444444444',
+    ];
+    render(
+      <DashboardPanel
+        config={dashboard([
+          widget(ids[0], 'indicator', { stat: 'sum', column: 'score' }),
+          widget(ids[1], 'histogram', { column: 'score', bins: 10 }),
+          widget(ids[2], 'category_selector', { column: 'land_use', multiple: true }),
+          { ...chartWidget, id: ids[3], config: { ...chartWidget.config, column: 'land_use' } },
+        ])}
+        layers={[
+          layer({
+            column_info: [
+              { name: 'land_use', type: 'text', title: 'Land use' },
+              { name: 'score', type: 'integer' },
+            ],
+          }),
+        ]}
+        map={null}
+      />,
+    );
+
+    const panel = screen.getByRole('region', { name: 'Dashboard' });
+    const headings = within(panel).getAllByRole('heading', { level: 3 });
+    expect(headings.map((h) => h.textContent)).toEqual([
+      'Sum of score',
+      'Distribution of score',
+      'Filter by Land use',
+      'Count by Land use',
+    ]);
+    expect(within(panel).getAllByText('City parcels')).toHaveLength(4);
+    expect(within(panel).getByRole('article', { name: 'Sum of score City parcels' })).toBeInTheDocument();
+  });
+
+  it('names a column by its title in the legend, tables and indicator label as in the heading', async () => {
+    const widget = (id: string, type: string, config: unknown) => ({
+      id,
+      type,
+      v: 1,
+      layer_id: layerId,
+      scope: 'layer',
+      config,
+    });
+    const ids = [
+      '1a1a1a1a-1111-4111-8111-111111111111',
+      '2b2b2b2b-2222-4222-8222-222222222222',
+      '3c3c3c3c-3333-4333-8333-333333333333',
+      '4d4d4d4d-4444-4444-8444-444444444444',
+    ];
+    fetchMock.mockImplementation(async (_dataset, body) => {
+      if (body.op === 'stats') return { op: 'stats', approximate: false, cached: false, result: { sum: 7 } } as never;
+      if (body.op === 'histogram') {
+        const bins = [{ lower: 0, upper: 1, count: 3 }];
+        return { op: 'histogram', approximate: false, cached: false, result: { bins } } as never;
+      }
+      return respond(body) as never;
+    });
+    render(
+      <DashboardPanel
+        config={dashboard([
+          widget(ids[0], 'indicator', { stat: 'sum', column: 'score' }),
+          widget(ids[1], 'histogram', { column: 'score', bins: 1 }),
+          widget(ids[2], 'category_selector', { column: 'land_use', multiple: true }),
+          { ...chartWidget, id: ids[3] },
+        ])}
+        layers={[
+          layer({
+            column_info: [
+              { name: 'land_use', type: 'text', title: 'Land use' },
+              { name: 'score', type: 'integer', title: 'Score' },
+            ],
+          }),
+        ]}
+        map={null}
+        mapId="map-1"
+      />,
+    );
+
+    const panel = screen.getByRole('region', { name: 'Dashboard' });
+    expect(await within(panel).findByRole('group', { name: 'Filter by Land use' })).toBeInTheDocument();
+    // The heading and the indicator's own label.
+    await waitFor(() => expect(within(panel).getAllByText('Sum of Score')).toHaveLength(2));
+    await waitFor(() => expect(within(panel).getAllByRole('columnheader', { name: 'Land use' })).toHaveLength(1));
+    expect(within(panel).getByRole('table', { name: 'Count by Land use', hidden: true })).toBeInTheDocument();
+    expect(panel.textContent).not.toMatch(/land_use|\bscore\b/);
+  });
+
+  it('keeps an integer column\'s histogram bins half-open when the server doesn\'t say they are whole numbers', async () => {
+    const histogram = { ...chartWidget, type: 'histogram', config: { column: 'score', bins: 2 } };
+    const bins = [
+      { lower: 10, upper: 45, count: 4 },
+      { lower: 45, upper: 80, count: 4 },
+    ];
+    // A server from before the flag bins integers as floats, the last bin holding the maximum.
+    fetchMock.mockImplementation(async () => ({ op: 'histogram', approximate: false, cached: false, result: { bins } }) as never);
+    render(
+      <DashboardPanel
+        config={dashboard([histogram])}
+        layers={[layer({ column_info: [{ name: 'score', type: 'integer' }] })]}
+        map={null}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('rowheader').map((header) => header.textContent)).toEqual(['10 – 45', '45 – 80']);
+    });
+  });
+
+  it('collapses and reopens, remembering the choice for the map', async () => {
+    const user = userEvent.setup();
+    const props = {
+      config: dashboard([countWidget]),
+      layers: [layer()],
+      map: null,
+      mapId: 'map-1',
+    };
+    const { unmount } = render(<DashboardPanel {...props} />);
+    expect(await screen.findByText('1,234')).toBeInTheDocument();
+
+    const hide = screen.getByRole('button', { name: 'Hide dashboard' });
+    expect(hide).toHaveAttribute('aria-expanded', 'true');
+    await user.click(hide);
+
+    expect(screen.queryByText('Parcels counted')).not.toBeInTheDocument();
+    const open = screen.getByRole('button', { name: 'Open dashboard' });
+    expect(open).toHaveAttribute('aria-expanded', 'false');
+    expect(open).toHaveFocus();
+    expect(localStorage.getItem(storageKeys.dashboardCollapsed('map-1'))).toBe('1');
+
+    unmount();
+    fetchMock.mockClear();
+    render(<DashboardPanel {...props} />);
+    expect(screen.getByRole('button', { name: 'Open dashboard' })).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Open dashboard' }));
+    expect(await screen.findByText('1,234')).toBeInTheDocument();
+    expect(localStorage.getItem(storageKeys.dashboardCollapsed('map-1'))).toBeNull();
+  });
+
+  it('keeps a share link reader’s choice out of storage', async () => {
+    const user = userEvent.setup();
+    render(<DashboardPanel config={dashboard([countWidget])} layers={[layer()]} map={null} />);
+    await user.click(screen.getByRole('button', { name: 'Hide dashboard' }));
+    expect(screen.getByRole('button', { name: 'Open dashboard' })).toBeInTheDocument();
+    expect(localStorage.length).toBe(0);
+  });
+
+  it('refetches view-scoped widgets with the map view once the map rests', async () => {
+    const { map, move } = movableMap([-10, -5, 10, 5]);
+    render(
+      <DashboardPanel
+        config={dashboard([{ ...countWidget, scope: 'view' }, chartWidget])}
+        layers={[layer()]}
+        map={map}
+        mapId="map-1"
+      />,
+    );
+    // Until the view has rested there is nothing to show yet.
+    const viewWidget = screen.getByRole('article', { name: 'Parcels counted' });
+    expect(within(viewWidget).getByText('Loading...')).toBeInTheDocument();
+    expect(within(viewWidget).queryByText('No data yet')).not.toBeInTheDocument();
+
+    // The map leaves its first view at once, as a fit on load does.
+    move([-20, -10, 20, 10]);
+    await waitFor(() =>
+      expect(requestedBodies()).toContainEqual({ op: 'count', bbox: [-20, -10, 20, 10] }),
+    );
+    const viewCounts = () => requestedBodies().filter((body) => body.op === 'count');
+    expect(viewCounts()).toHaveLength(1);
+
+    move([0, 0, 20, 10]);
+    // Nothing is asked until the map has rested.
+    await rest(VIEW_REFETCH_DEBOUNCE_MS / 2);
+    expect(viewCounts()).toHaveLength(1);
+    move([170, 0, 190, 10]);
+
+    // The last view crosses the antimeridian and is sent wrapped.
+    await waitFor(() =>
+      expect(requestedBodies()).toContainEqual({ op: 'count', bbox: [170, 0, -170, 10] }),
+    );
+    expect(viewCounts()).toHaveLength(2);
+    expect(viewCounts()).not.toContainEqual({ op: 'count', bbox: [0, 0, 20, 10] });
+
+    // A sub-pixel move rounds to the same view and asks for nothing new.
+    move([170.000001, 0, 190.000001, 10]);
+    await rest(VIEW_REFETCH_DEBOUNCE_MS * 2);
+    expect(viewCounts()).toHaveLength(2);
+
+    // A widget that covers the whole layer doesn't follow the view.
+    expect(requestedBodies().filter((body) => body.op === 'value_counts')).toEqual([
+      { op: 'value_counts', column: 'land_use', limit: 5 },
+    ]);
+  });
+
+  it('says when a widget ignores a layer filter the endpoint cannot take', async () => {
+    render(
+      <DashboardPanel
+        config={dashboard([countWidget])}
+        layers={[layer({ filter: ['==', ['get', 'a'], ['get', 'b']] as never })]}
+        map={null}
+        mapId="map-1"
+      />,
+    );
+
+    expect(
+      await screen.findByText(
+        "Shows all features: the layer's filter can't be applied to these numbers.",
+      ),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(requestedBodies()).toEqual([{ op: 'count' }]);
+  });
+
+  it('asks the reader to zoom in when the view holds too many rows, with no retry or empty value', async () => {
+    const { ApiError } = await import('@/api/client');
+    fetchMock.mockRejectedValue(
+      new ApiError('too wide', 422, { code: 'too_wide', message: 'too wide' }),
+    );
+    render(
+      <DashboardPanel
+        config={dashboard([countWidget])}
+        layers={[layer()]}
+        map={null}
+        mapId="map-1"
+      />,
+    );
+    expect(
+      await screen.findByText('Too many features in view. Zoom in to see these numbers.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    expect(screen.queryByText('No data yet')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent("Zoom in to see some widgets' numbers."));
+    expect(screen.getByRole('status')).not.toHaveTextContent("couldn't load");
+  });
+
+  it('announces a too-wide view and a failed widget in separate sentences', async () => {
+    const { ApiError } = await import('@/api/client');
+    fetchMock.mockImplementation(async (_dataset, body) => {
+      if (body.op === 'count') throw new ApiError('too wide', 422, { code: 'too_wide', message: 'too wide' });
+      throw new ApiError('down', 503);
+    });
+    render(
+      <DashboardPanel config={dashboard([countWidget, chartWidget])} layers={[layer()]} map={null} mapId="map-1" />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent(
+        "Some widgets couldn't load their numbers. Zoom in to see some widgets' numbers.",
+      ),
+    );
+  });
+
+  it('says a refused column is unavailable, with no retry, and keeps retry for other failures', async () => {
+    const { ApiError } = await import('@/api/client');
+    fetchMock.mockRejectedValue(
+      new ApiError('refused', 422, { code: 'invalid_column', message: 'Unknown column' }),
+    );
+    const { unmount } = render(
+      <DashboardPanel config={dashboard([countWidget])} layers={[layer()]} map={null} mapId="map-1" />,
+    );
+    expect(await screen.findByText("This widget's column isn't available here.")).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    unmount();
+
+    fetchMock.mockReset();
+    fetchMock.mockRejectedValue(new Error('network down'));
+    render(<DashboardPanel config={dashboard([countWidget])} layers={[layer()]} map={null} mapId="map-1" />);
+    expect(await screen.findByText("These numbers couldn't be loaded.")).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
+  it('says a refused filter cannot be applied, with no retry', async () => {
+    const { ApiError } = await import('@/api/client');
+    fetchMock.mockRejectedValue(new ApiError('refused', 422, { code: 'invalid_filter', message: 'Filter too deep' }));
+    render(<DashboardPanel config={dashboard([countWidget])} layers={[layer()]} map={null} mapId="map-1" />);
+    expect(await screen.findByText("This widget's filter can't be applied here.")).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+  });
+
+  it('leaves out widgets whose layer the reader turns off, and keeps those on layers saved hidden', async () => {
+    // A reference layer saved hidden can still drive the numbers.
+    const otherLayer = layer({ id: '2d9f4a6b-5e3c-4a0d-9b8f-7c4e9a3d1f56', display_name: 'Roads', visible: false });
+    const roadsWidget = { ...countWidget, id: chartId, title: 'Roads counted', layer_id: otherLayer.id };
+    const props = {
+      config: dashboard([countWidget, roadsWidget]),
+      layers: [layer(), otherLayer],
+      map: null,
+      mapId: 'map-1',
+    };
+    const { rerender } = render(<DashboardPanel {...props} hiddenLayers={new Set()} />);
+    expect(screen.getByRole('heading', { name: 'Roads counted' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Parcels counted' })).toBeInTheDocument();
+
+    rerender(<DashboardPanel {...props} hiddenLayers={new Set([layerId])} />);
+    expect(screen.getByRole('heading', { name: 'Roads counted' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Parcels counted' })).not.toBeInTheDocument();
+
+    rerender(<DashboardPanel {...props} hiddenLayers={new Set([layerId, otherLayer.id])} />);
+    expect(screen.queryByRole('heading', { level: 3 })).not.toBeInTheDocument();
+    expect(screen.getByText(/Show one in the legend to see its widgets/)).toBeInTheDocument();
+  });
+
+  it('says once that a hidden-map dashboard reads whole layers', async () => {
+    render(
+      <DashboardPanel
+        config={{ ...dashboard([{ ...countWidget, scope: 'view' }, { ...chartWidget, scope: 'view' }]), map_hidden: true } as DashboardConfig}
+        layers={[layer()]}
+        map={null}
+      />,
+    );
+    await screen.findByText('1,234');
+    expect(screen.getAllByText(/this dashboard hides its map/)).toHaveLength(1);
+  });
+
+  it('stays quiet about the hidden map when every widget reads its layer', async () => {
+    render(
+      <DashboardPanel
+        config={{ ...dashboard([countWidget, chartWidget]), map_hidden: true } as DashboardConfig}
+        layers={[layer()]}
+        map={null}
+      />,
+    );
+    await screen.findByText('1,234');
+    expect(screen.queryByText(/this dashboard hides its map/)).not.toBeInTheDocument();
+  });
+
+  it('heads a hidden-map dashboard with the map name and description', async () => {
+    const config = { ...dashboard([countWidget]), map_hidden: true } as DashboardConfig;
+    const { rerender } = render(
+      <DashboardPanel config={config} layers={[layer()]} map={null} mapName="Land and zoning" mapDescription="Parcels by district" />,
+    );
+    await screen.findByText('1,234');
+    expect(screen.getByRole('heading', { level: 1, name: 'Land and zoning' })).toBeInTheDocument();
+    // A long description scrolls with the widgets instead of squeezing them out.
+    const scroller = screen.getByText('Parcels by district').parentElement!;
+    expect(scroller).toHaveClass('overflow-y-auto');
+    expect(scroller).toContainElement(screen.getByText('1,234'));
+    expect(screen.queryByRole('heading', { level: 2, name: 'Dashboard' })).not.toBeInTheDocument();
+
+    rerender(<DashboardPanel config={dashboard([countWidget])} layers={[layer()]} map={null} mapName="Land and zoning" />);
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Dashboard' })).toBeInTheDocument();
+  });
+
+  it('scrolls a hidden-map description with the message that every widget layer is hidden', () => {
+    const config = { ...dashboard([countWidget]), map_hidden: true } as DashboardConfig;
+    render(
+      <DashboardPanel
+        config={config}
+        layers={[layer()]}
+        hiddenLayers={new Set([layerId])}
+        map={null}
+        mapName="Land and zoning"
+        mapDescription="Parcels by district"
+      />,
+    );
+    const scroller = screen.getByText('Parcels by district').parentElement!;
+    expect(scroller).toHaveClass('overflow-y-auto');
+    expect(scroller).toContainElement(screen.getByText(/The layers these widgets summarize are hidden/));
+  });
+
+  it('gives a widget titled with its layer name no second line saying so', async () => {
+    render(
+      <DashboardPanel
+        config={dashboard([{ ...countWidget, title: 'City parcels' }, { ...countWidget, id: chartId, title: 'Parcel count' }])}
+        layers={[layer({ display_name: 'City parcels ' })]}
+        map={null}
+      />,
+    );
+    await screen.findAllByText('1,234');
+    expect(screen.getAllByText('City parcels')).toHaveLength(2);
+  });
+
+  it('dims the last numbers while a pan\'s new ones load', async () => {
+    const { map, move } = movableMap([-10, -5, 10, 5]);
+    render(
+      <DashboardPanel
+        config={dashboard([{ ...countWidget, scope: 'view' }])}
+        layers={[layer()]}
+        map={map}
+        mapId="map-1"
+      />,
+    );
+    const value = await screen.findByText('1,234');
+    expect(value.closest('.transition-opacity')).not.toHaveClass('opacity-50');
+
+    fetchMock.mockImplementation(() => new Promise(() => {}));
+    move([0, 0, 20, 10]);
+    await waitFor(() => expect(screen.getByText('1,234').closest('.transition-opacity')).toHaveClass('opacity-50'));
+  });
+
+  it('asks again once the dataset\'s contents change', async () => {
+    const props = { config: dashboard([countWidget]), map: null, mapId: 'map-1' };
+    const { rerender } = render(<DashboardPanel {...props} layers={[layer({ tile_version: 1 })]} />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    rerender(<DashboardPanel {...props} layers={[layer({ tile_version: 1 })]} />);
+    rerender(<DashboardPanel {...props} layers={[layer({ tile_version: 2 })]} />);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  });
+
+  it('can start collapsed, as an embed asks, and still opens', async () => {
+    const user = userEvent.setup();
+    render(
+      <DashboardPanel config={dashboard([countWidget])} layers={[layer()]} map={null} startCollapsed />,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Open dashboard' }));
+    expect(await screen.findByText('1,234')).toBeInTheDocument();
+  });
+
+  it('announces failures once for the panel and offers a retry on each widget', async () => {
+    const user = userEvent.setup();
+    const { ApiError } = await import('@/api/client');
+    fetchMock.mockRejectedValue(new ApiError('down', 503));
+    render(
+      <DashboardPanel config={dashboard([countWidget, chartWidget])} layers={[layer()]} map={null} mapId="map-1" />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText("Some widgets couldn't load their numbers.")).toBeInTheDocument(),
+    );
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+    const retries = screen.getAllByRole('button', { name: 'Retry' });
+    expect(retries).toHaveLength(2);
+
+    fetchMock.mockImplementation(async (_dataset, body) => respond(body) as never);
+    await user.click(retries[0]);
+    expect(await screen.findByText('1,234')).toBeInTheDocument();
+  });
+
+  it('lets a table layer\'s widget cover the whole layer instead of a view it has no geometry for', async () => {
+    const table = layer({ geometry_type: null });
+    render(
+      <DashboardPanel
+        config={dashboard([{ ...countWidget, scope: 'view' }])}
+        layers={[table]}
+        map={null}
+        mapId="map-1"
+      />,
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(datasetId, { op: 'count' }, expect.anything()));
+    expect(screen.queryByText('Follows the map view')).not.toBeInTheDocument();
+  });
+
+  it('keeps the open button labelled when a bottom panel is collapsed', async () => {
+    const user = userEvent.setup();
+    render(
+      <DashboardPanel
+        config={{ ...dashboard([countWidget]), panel: 'bottom' }}
+        layers={[layer()]}
+        map={null}
+        mapId="map-1"
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Hide dashboard' }));
+    // A right panel collapses to an icon rail on wide screens; a bottom one stays a labelled bar.
+    expect(screen.getByText('Open dashboard')).not.toHaveClass('md:sr-only');
+  });
+
+  it('spans a chart two columns in the grid layouts and an indicator one, and neither beside the map', () => {
+    const items = (extra: object) => {
+      const { container, unmount } = render(
+        <DashboardPanel
+          config={{ ...dashboard([countWidget, chartWidget]), ...extra }}
+          layers={[layer()]}
+          map={null}
+          mapId="map-1"
+        />,
+      );
+      const [indicatorItem, chartItem] = Array.from(container.querySelectorAll('ul > li'));
+      unmount();
+      return { indicatorItem, chartItem };
+    };
+    for (const extra of [{ map_hidden: true }, { panel: 'bottom' }]) {
+      const { indicatorItem, chartItem } = items(extra);
+      expect(chartItem).toHaveClass('@[32.75rem]:col-span-2');
+      expect(indicatorItem).not.toHaveClass('@[32.75rem]:col-span-2');
+    }
+    const right = items({ panel: 'right' });
+    expect(right.chartItem).not.toHaveClass('@[32.75rem]:col-span-2');
+    expect(right.indicatorItem).not.toHaveClass('@[32.75rem]:col-span-2');
+  });
+
+  it('renders nothing for a map without widgets', () => {
+    const { container } = render(
+      <DashboardPanel config={dashboard([])} layers={[layer()]} map={null} mapId="map-1" />,
+    );
+    expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe('DashboardPanel text widget', () => {
+  const textId = '3e0a5b7c-6f4d-4b1e-8c9a-8d5f0b4e2a67';
+  const textWidget = (text: string, title?: string) => ({
+    id: textId,
+    type: 'markdown',
+    v: 1,
+    ...(title ? { title } : {}),
+    config: { text },
+  });
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(async (_dataset, body) => respond(body) as never);
+  });
+
+  it('renders Markdown with no data request, below the panel and widget headings', async () => {
+    render(
+      <DashboardPanel
+        config={dashboard([textWidget('# Context\n\nParcels are **taxable**.', 'About')])}
+        layers={[]}
+        map={null}
+      />,
+    );
+    expect(screen.getByRole('heading', { level: 2, name: 'Dashboard' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: 'About' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 4, name: 'Context' })).toBeInTheDocument();
+    expect(screen.getByText('taxable').tagName).toBe('STRONG');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('puts the first heading directly under the panel heading when untitled', async () => {
+    render(<DashboardPanel config={dashboard([textWidget('# Context')])} layers={[]} map={null} />);
+    expect(await screen.findByRole('heading', { level: 3, name: 'Context' })).toBeInTheDocument();
+  });
+
+  it('stays when layers are turned off and does not ask for data beside layer widgets', async () => {
+    render(
+      <DashboardPanel
+        config={dashboard([textWidget('Read me'), countWidget])}
+        layers={[layer()]}
+        hiddenLayers={new Set([layerId])}
+        map={null}
+      />,
+    );
+    expect(screen.getByText('Read me')).toBeInTheDocument();
+    expect(screen.queryByText('Parcels counted')).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('shows scripts and event-handler images in the source as inert text', async () => {
+    const { container } = render(
+      <DashboardPanel
+        config={dashboard([
+          textWidget('<script>window.pwned = 1</script>\n\n<img src=x onerror="window.pwned = 2"> after'),
+        ])}
+        layers={[]}
+        map={null}
+      />,
+    );
+    await screen.findByText(/after/);
+    expect(container.querySelector('script, img, [onerror]')).toBeNull();
+    expect(container.textContent).toContain('<script>');
+  });
+
+  it('gives widgets the value labels of the layer\'s columns', async () => {
+    fetchMock.mockImplementation(
+      async () =>
+        ({
+          op: 'value_counts',
+          approximate: false,
+          cached: false,
+          result: { values: [{ value: 1, count: 40 }], other_count: 0 },
+        }) as never,
+    );
+    render(
+      <DashboardPanel
+        config={dashboard([chartWidget])}
+        layers={[
+          layer({ column_info: [{ name: 'land_use', type: 'integer', value_labels: { '1': 'City' } }] }),
+        ]}
+        map={null}
+        mapId="map-1"
+      />,
+    );
+    expect((await screen.findAllByText(/^City( \(1\))?$/, undefined, { timeout: 3000 })).length).toBeGreaterThan(0);
+    expect(screen.queryByText('1', { selector: 'th' })).toBeNull();
+  });
+});

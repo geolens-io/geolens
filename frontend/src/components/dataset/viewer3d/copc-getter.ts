@@ -5,6 +5,7 @@ import {
   MAX_RANGE_BYTES,
   MAX_RETRIES,
 } from './copc-limits';
+import { createSlotPool } from '@/lib/slot-pool';
 
 type DatasetFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -35,17 +36,7 @@ export function makeRangeGetter(
 ): (begin: number, end: number) => Promise<Uint8Array> {
   let reads = 0;
   let bytes = 0;
-  let active = 0;
-  const waiting: (() => void)[] = [];
-
-  async function acquire() {
-    if (active >= MAX_CONCURRENT_READS) await new Promise<void>((resolve) => waiting.push(resolve));
-    active += 1;
-  }
-  function release() {
-    active -= 1;
-    waiting.shift()?.();
-  }
+  const slots = createSlotPool(MAX_CONCURRENT_READS);
 
   return async (begin, end) => {
     if (!Number.isSafeInteger(begin) || !Number.isSafeInteger(end) || begin < 0 || end <= begin) {
@@ -61,7 +52,7 @@ export function makeRangeGetter(
     bytes += length;
     if (reads > MAX_LOAD_READS || bytes > MAX_LOAD_BYTES) throw new Error('COPC read refused: load budget exceeded');
 
-    await acquire();
+    const release = await slots.acquire();
     try {
       for (let attempt = 0; ; attempt++) {
         if (signal?.aborted) throw new Error('COPC read aborted');

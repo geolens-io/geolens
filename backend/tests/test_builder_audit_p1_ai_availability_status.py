@@ -175,10 +175,7 @@ async def test_availability_endpoint_editor_sees_available_when_configured(
 ):
     """Editor sees available=true when AI is enabled + the selected provider has
     a key; a viewer is still forbidden in the same configured state."""
-    monkeypatch.setattr(
-        ai_router.settings, "anthropic_api_key", "sk-ant", raising=False
-    )
-    monkeypatch.setattr(ai_router.settings, "openai_api_key", None, raising=False)
+    _set_keys(monkeypatch, anthropic="sk-ant", openai=None)
     _patch_runtime(monkeypatch, provider="anthropic")
 
     resp = await client.get("/ai/availability/", headers=editor_auth_header)
@@ -195,8 +192,7 @@ async def test_availability_endpoint_editor_disabled_state_no_503(
 ):
     """Missing selected-provider key yields available=false with HTTP 200 (a
     safe disabled state), NOT a 503 that would spam the console."""
-    monkeypatch.setattr(ai_router.settings, "anthropic_api_key", None, raising=False)
-    monkeypatch.setattr(ai_router.settings, "openai_api_key", None, raising=False)
+    _set_keys(monkeypatch, anthropic=None, openai=None)
     _patch_runtime(monkeypatch, provider="anthropic")
 
     resp = await client.get("/ai/availability/", headers=editor_auth_header)

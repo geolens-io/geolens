@@ -30,6 +30,7 @@ from app.platform.dataset_origin import classify_origin
 from app.platform.jobs import ledger
 from app.platform.jobs.ledger import Outcome, hold
 from app.platform.refresh.models import DatasetRefreshRun
+from app.platform.refresh.verification import UNKNOWN_DATA_REVISION
 from app.platform.request_credential import api_key_scope_refusal, is_publish_key
 
 logger = structlog.get_logger(__name__)
@@ -60,6 +61,7 @@ RUN_ORIGIN_KINDS: tuple[str, ...] = (
     "stac",
     "raster",
     "restore",
+    "database",
 )
 
 # How long a run may sit in pending/running before the sweep is allowed to
@@ -369,11 +371,15 @@ async def create_pending_run(
     credential_reference: str | None = None,
     credential_version: str | None = None,
     data_revision_baseline: int | None = None,
+    expected_data_revision: int | None = None,
 ) -> DatasetRefreshRun:
     """Insert the ``pending`` row in the caller's transaction, before ``defer``.
 
     ``data_revision_baseline`` is the dataset revision the run's publication is
-    compared with, the current one when None.
+    compared with, the current one when None. An ``expected_data_revision``
+    the client saw that differs from it makes every write count as later, so
+    the publication stops for review rather than replacing an edit the client
+    never saw.
 
     The caller must NOT commit inside this function: the run row and
     whatever else the request writes must land together, and the task is
@@ -422,6 +428,11 @@ async def create_pending_run(
         )
     ).one_or_none()
     tenant_id, data_revision = parent if parent is not None else (None, None)
+    baseline = (
+        data_revision if data_revision_baseline is None else data_revision_baseline
+    )
+    if expected_data_revision is not None and expected_data_revision != baseline:
+        baseline = UNKNOWN_DATA_REVISION
 
     # A reupload queued by an API pod older than run admission (pre-migration,
     # or a manifest apply from before it created runs) has a live task but no
@@ -493,9 +504,7 @@ async def create_pending_run(
         execution_key=execution_key,
         source_binding_fingerprint=source_binding_fingerprint,
         local_edit_baseline=local_edit_baseline,
-        data_revision_baseline=(
-            data_revision if data_revision_baseline is None else data_revision_baseline
-        ),
+        data_revision_baseline=baseline,
         verification_policy=verification_policy,
         credential_reference=credential_reference,
         credential_version=credential_version,

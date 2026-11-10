@@ -424,7 +424,6 @@ async def _retry_parse_map_spec(
         )
     # Retry rounds spend real tokens; unrecorded they bypass the daily budget.
     await record_token_usage(
-        session,
         user_id=user_id,
         subsystem="map_generation",
         model=model,
@@ -483,7 +482,6 @@ async def _repair_map_spec(
         )
     # Repair-round tokens count toward the daily cap.
     await record_token_usage(
-        session,
         user_id=user_id,
         subsystem="map_generation",
         model=model,
@@ -784,7 +782,6 @@ async def generate_map_from_prompt(
     )
 
     await record_token_usage(
-        session,
         user_id=user.id,
         subsystem="map_generation",
         model=model,
@@ -913,7 +910,6 @@ async def stream_generate_map(
         # tool-event replay can't skip accounting: the tokens are already spent
         # once provider_ext.complete returns.
         await record_token_usage(
-            session,
             user_id=user.id,
             subsystem="map_generation",
             model=model,

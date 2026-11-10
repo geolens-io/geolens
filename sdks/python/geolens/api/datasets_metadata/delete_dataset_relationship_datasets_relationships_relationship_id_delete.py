@@ -100,7 +100,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Dataset Relationship
+    """Delete a dataset relationship
 
      Delete a FK relationship. Editor+ required.
 
@@ -131,7 +131,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Delete Dataset Relationship
+    """Delete a dataset relationship
 
      Delete a FK relationship. Editor+ required.
 
@@ -157,7 +157,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Dataset Relationship
+    """Delete a dataset relationship
 
      Delete a FK relationship. Editor+ required.
 
@@ -186,7 +186,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Delete Dataset Relationship
+    """Delete a dataset relationship
 
      Delete a FK relationship. Editor+ required.
 

@@ -24,6 +24,7 @@ def _get_kwargs(
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
     cols: None | str | Unset = UNSET,
+    cols_only: bool | Unset = False,
     cluster_radius: int | Unset = 48,
     cluster_max_zoom: int | Unset = 14,
     filter_: None | str | Unset = UNSET,
@@ -58,6 +59,8 @@ def _get_kwargs(
     else:
         json_cols = cols
     params["cols"] = json_cols
+
+    params["cols_only"] = cols_only
 
     params["cluster_radius"] = cluster_radius
 
@@ -157,11 +160,12 @@ def sync_detailed(
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
     cols: None | str | Unset = UNSET,
+    cols_only: bool | Unset = False,
     cluster_radius: int | Unset = 48,
     cluster_max_zoom: int | Unset = 14,
     filter_: None | str | Unset = UNSET,
 ) -> Response[File | ProblemDetail]:
-    """Cluster Tile Endpoint
+    """Get a clustered vector tile
 
      Serve a server-side clustered vector tile for a point dataset.
 
@@ -197,13 +201,16 @@ def sync_detailed(
     a malformed table path or an out-of-range tile coordinate.
 
     A tile holding no features answers 204, and a repeat request whose
-    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    ``If-None-Match`` matches answers 304. When more than 100,000 points fall
+    in or next to the tile, or it would hold more than 50,000 features, it
+    holds a fixed sample and carries ``X-GeoLens-Tile-Sampled: true``. Where a deployment runs cold
+    storage,
     a dataset still being restored answers 202 with a job id to poll. Requests
     answer 429 with ``Retry-After`` when the per-process capacity for uncached
-    renders stays full for a short wait, tile-pool acquisition times out, a
-    tile query exceeds the pool's per-command timeout, or the configured
-    per-tenant concurrency limit is exceeded. Any other failure serving the
-    tile answers 503.
+    renders stays full for a short wait, tile-pool acquisition times out, or the
+    configured per-tenant concurrency limit is exceeded. A tile query that
+    exceeds the pool's per-command timeout answers 503 without ``Retry-After``
+    and is not cached, as does any other failure serving the tile.
 
     Args:
         table_path (str):
@@ -214,6 +221,8 @@ def sync_detailed(
         exp (int | None | Unset):
         scope (None | str | Unset):
         cols (None | str | Unset):
+        cols_only (bool | Unset): Carry only the columns named by `cols`, at every zoom. Default:
+            False.
         cluster_radius (int | Unset):  Default: 48.
         cluster_max_zoom (int | Unset):  Default: 14.
         filter_ (None | str | Unset):
@@ -235,6 +244,7 @@ def sync_detailed(
         exp=exp,
         scope=scope,
         cols=cols,
+        cols_only=cols_only,
         cluster_radius=cluster_radius,
         cluster_max_zoom=cluster_max_zoom,
         filter_=filter_,
@@ -258,11 +268,12 @@ def sync(
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
     cols: None | str | Unset = UNSET,
+    cols_only: bool | Unset = False,
     cluster_radius: int | Unset = 48,
     cluster_max_zoom: int | Unset = 14,
     filter_: None | str | Unset = UNSET,
 ) -> File | ProblemDetail | None:
-    """Cluster Tile Endpoint
+    """Get a clustered vector tile
 
      Serve a server-side clustered vector tile for a point dataset.
 
@@ -298,13 +309,16 @@ def sync(
     a malformed table path or an out-of-range tile coordinate.
 
     A tile holding no features answers 204, and a repeat request whose
-    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    ``If-None-Match`` matches answers 304. When more than 100,000 points fall
+    in or next to the tile, or it would hold more than 50,000 features, it
+    holds a fixed sample and carries ``X-GeoLens-Tile-Sampled: true``. Where a deployment runs cold
+    storage,
     a dataset still being restored answers 202 with a job id to poll. Requests
     answer 429 with ``Retry-After`` when the per-process capacity for uncached
-    renders stays full for a short wait, tile-pool acquisition times out, a
-    tile query exceeds the pool's per-command timeout, or the configured
-    per-tenant concurrency limit is exceeded. Any other failure serving the
-    tile answers 503.
+    renders stays full for a short wait, tile-pool acquisition times out, or the
+    configured per-tenant concurrency limit is exceeded. A tile query that
+    exceeds the pool's per-command timeout answers 503 without ``Retry-After``
+    and is not cached, as does any other failure serving the tile.
 
     Args:
         table_path (str):
@@ -315,6 +329,8 @@ def sync(
         exp (int | None | Unset):
         scope (None | str | Unset):
         cols (None | str | Unset):
+        cols_only (bool | Unset): Carry only the columns named by `cols`, at every zoom. Default:
+            False.
         cluster_radius (int | Unset):  Default: 48.
         cluster_max_zoom (int | Unset):  Default: 14.
         filter_ (None | str | Unset):
@@ -337,6 +353,7 @@ def sync(
         exp=exp,
         scope=scope,
         cols=cols,
+        cols_only=cols_only,
         cluster_radius=cluster_radius,
         cluster_max_zoom=cluster_max_zoom,
         filter_=filter_,
@@ -354,11 +371,12 @@ async def asyncio_detailed(
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
     cols: None | str | Unset = UNSET,
+    cols_only: bool | Unset = False,
     cluster_radius: int | Unset = 48,
     cluster_max_zoom: int | Unset = 14,
     filter_: None | str | Unset = UNSET,
 ) -> Response[File | ProblemDetail]:
-    """Cluster Tile Endpoint
+    """Get a clustered vector tile
 
      Serve a server-side clustered vector tile for a point dataset.
 
@@ -394,13 +412,16 @@ async def asyncio_detailed(
     a malformed table path or an out-of-range tile coordinate.
 
     A tile holding no features answers 204, and a repeat request whose
-    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    ``If-None-Match`` matches answers 304. When more than 100,000 points fall
+    in or next to the tile, or it would hold more than 50,000 features, it
+    holds a fixed sample and carries ``X-GeoLens-Tile-Sampled: true``. Where a deployment runs cold
+    storage,
     a dataset still being restored answers 202 with a job id to poll. Requests
     answer 429 with ``Retry-After`` when the per-process capacity for uncached
-    renders stays full for a short wait, tile-pool acquisition times out, a
-    tile query exceeds the pool's per-command timeout, or the configured
-    per-tenant concurrency limit is exceeded. Any other failure serving the
-    tile answers 503.
+    renders stays full for a short wait, tile-pool acquisition times out, or the
+    configured per-tenant concurrency limit is exceeded. A tile query that
+    exceeds the pool's per-command timeout answers 503 without ``Retry-After``
+    and is not cached, as does any other failure serving the tile.
 
     Args:
         table_path (str):
@@ -411,6 +432,8 @@ async def asyncio_detailed(
         exp (int | None | Unset):
         scope (None | str | Unset):
         cols (None | str | Unset):
+        cols_only (bool | Unset): Carry only the columns named by `cols`, at every zoom. Default:
+            False.
         cluster_radius (int | Unset):  Default: 48.
         cluster_max_zoom (int | Unset):  Default: 14.
         filter_ (None | str | Unset):
@@ -432,6 +455,7 @@ async def asyncio_detailed(
         exp=exp,
         scope=scope,
         cols=cols,
+        cols_only=cols_only,
         cluster_radius=cluster_radius,
         cluster_max_zoom=cluster_max_zoom,
         filter_=filter_,
@@ -453,11 +477,12 @@ async def asyncio(
     exp: int | None | Unset = UNSET,
     scope: None | str | Unset = UNSET,
     cols: None | str | Unset = UNSET,
+    cols_only: bool | Unset = False,
     cluster_radius: int | Unset = 48,
     cluster_max_zoom: int | Unset = 14,
     filter_: None | str | Unset = UNSET,
 ) -> File | ProblemDetail | None:
-    """Cluster Tile Endpoint
+    """Get a clustered vector tile
 
      Serve a server-side clustered vector tile for a point dataset.
 
@@ -493,13 +518,16 @@ async def asyncio(
     a malformed table path or an out-of-range tile coordinate.
 
     A tile holding no features answers 204, and a repeat request whose
-    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    ``If-None-Match`` matches answers 304. When more than 100,000 points fall
+    in or next to the tile, or it would hold more than 50,000 features, it
+    holds a fixed sample and carries ``X-GeoLens-Tile-Sampled: true``. Where a deployment runs cold
+    storage,
     a dataset still being restored answers 202 with a job id to poll. Requests
     answer 429 with ``Retry-After`` when the per-process capacity for uncached
-    renders stays full for a short wait, tile-pool acquisition times out, a
-    tile query exceeds the pool's per-command timeout, or the configured
-    per-tenant concurrency limit is exceeded. Any other failure serving the
-    tile answers 503.
+    renders stays full for a short wait, tile-pool acquisition times out, or the
+    configured per-tenant concurrency limit is exceeded. A tile query that
+    exceeds the pool's per-command timeout answers 503 without ``Retry-After``
+    and is not cached, as does any other failure serving the tile.
 
     Args:
         table_path (str):
@@ -510,6 +538,8 @@ async def asyncio(
         exp (int | None | Unset):
         scope (None | str | Unset):
         cols (None | str | Unset):
+        cols_only (bool | Unset): Carry only the columns named by `cols`, at every zoom. Default:
+            False.
         cluster_radius (int | Unset):  Default: 48.
         cluster_max_zoom (int | Unset):  Default: 14.
         filter_ (None | str | Unset):
@@ -533,6 +563,7 @@ async def asyncio(
             exp=exp,
             scope=scope,
             cols=cols,
+            cols_only=cols_only,
             cluster_radius=cluster_radius,
             cluster_max_zoom=cluster_max_zoom,
             filter_=filter_,

@@ -18,7 +18,7 @@ from sqlalchemy import select
 from app.core.db.tenant_session import tenant_task
 from app.core.record_types import capabilities
 from app.platform.catalog_locks import CATALOG_LOCK_CONFLICT_CODE, CatalogLockConflict
-from app.platform.dataset_origin import classify_origin, set_dataset_origin
+from app.platform.dataset_origin import KEEP, SourceBinding, classify_origin, restamp
 from app.platform.jobs.models import EXPECTED_PREVIOUS_VERSION_KEY
 from app.processing.ingest import catalog_projection
 from app.processing.ingest.publication import (
@@ -62,16 +62,17 @@ def _reinstate_source(dataset, source) -> None:
     if kind not in ("upload", "created"):
         return
     dataset.source_filename = source.source_filename
-    dataset.source_format = source.source_format
-    if kind == "upload":
-        set_dataset_origin(
-            dataset,
-            "upload",
+    binding = (
+        SourceBinding.upload(
+            source.source_format,
             filename=source.source_filename,
             file_hash=source.file_hash,
         )
-    else:
-        set_dataset_origin(dataset, "created")
+        if kind == "upload"
+        else SourceBinding.created()
+    )
+    # The caller already dated freshness from the restored version.
+    restamp(dataset, binding, contacted_at=None, refreshed_at=KEEP)
 
 
 class RestoreRefused(Exception):
@@ -151,6 +152,7 @@ class _RestorePreviousVersion:
         )
 
     async def write(self, session, dataset) -> Published:
+        """Restored columns keep their version's source names and measured metadata."""
         from app.platform.audit import AuditEvent, audit_emit
         from app.platform.extensions import get_processing_port
 
@@ -169,8 +171,15 @@ class _RestorePreviousVersion:
         restored_refreshed_at = None if source is None else source.kept_refreshed_at
 
         await record_live_version(session, dataset)
+        source_columns = None if source is None else source.column_info
+        source_names = {
+            col["name"]: col.get("source_name") for col in source_columns or []
+        }
+        for col in self.measurement.metadata.get("column_info") or []:
+            col["source_name"] = source_names.get(col["name"])
+        # Restore keeps the current attribute metadata, titles and code labels alike.
         schema_diff = await catalog_projection.project(
-            session, dataset, self.measurement
+            session, dataset, self.measurement, field_labels=None
         )
         await stamp_kept_versions(session, dataset, replaced)
         dataset.current_version = replaced + 1
@@ -191,6 +200,7 @@ class _RestorePreviousVersion:
             srid=self.measurement.metadata.get("srid"),
             geometry_type=self.measurement.geometry_type,
             original_srid=None if source is None else source.original_srid,
+            column_info=dataset.column_info,
             is_3d=self.measurement.three_d.get("is_3d"),
             n_dims=self.measurement.three_d.get("n_dims"),
             restored_from_version=restored,

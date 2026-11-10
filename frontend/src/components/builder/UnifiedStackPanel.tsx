@@ -30,7 +30,7 @@ import { getParentGroupId } from '@/components/builder/folder-groups';
 import { computeSelectableRowIds } from '@/components/builder/selection-utils';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { cn } from '@/lib/utils';
-import type { MapLayerResponse } from '@/types/api';
+import type { MapLayerResponse, MapVisibility } from '@/types/api';
 import type { BasemapGroupInfo, BasemapSublayerInfo } from '@/components/builder/stack-types';
 import { computeDisambiguationLabels, isLayerHiddenFromMapAudience } from './map-stack';
 import { geometryClassOf, type GeometryStyleClass } from '@/lib/builder/layer-style-clipboard';
@@ -51,13 +51,18 @@ interface UnifiedStackPanelProps {
    * other audiences). Defaults to private, meaning no audience beyond the owner
    * and so no warning.
    */
-  mapVisibility?: 'private' | 'internal' | 'public';
+  mapVisibility?: MapVisibility;
   /**
    * Ids of DEM layers whose 2D overlay is off and that aren't the active 3D
    * terrain source: they paint nothing despite the eye being on. Computed by
    * MapBuilderPage (needs terrain_config).
    */
   drawsNothingLayerIds?: ReadonlySet<string>;
+  /**
+   * Ids of layers some of a restricted map's groups can't read, as the server
+   * answers it. They get the audience-hidden badge too.
+   */
+  groupHiddenLayerIds?: ReadonlySet<string>;
   selectedLayerId: string | null;
   onSelectLayer: (id: string | null) => void;
   onToggleVisibility: (id: string) => void;
@@ -78,6 +83,8 @@ interface UnifiedStackPanelProps {
   onZoomToLayer?: (id: string) => void;
   /** Opens the Analysis panel prefilled with this layer. */
   onAnalyzeLayer?: (id: string) => void;
+  /** Opens the read-only attribute-table drawer for this layer. */
+  onOpenAttributeTable?: (id: string) => void;
   onCopyStyle?: (id: string) => void;
   onPasteStyle?: (id: string) => void;
   onBulkApplyStyle?: (ids: Set<string>) => void;
@@ -287,6 +294,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   layers,
   mapVisibility = 'private',
   drawsNothingLayerIds,
+  groupHiddenLayerIds,
   selectedLayerId,
   onSelectLayer,
   onToggleVisibility,
@@ -299,6 +307,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   onDuplicate,
   onZoomToLayer,
   onAnalyzeLayer,
+  onOpenAttributeTable,
   onCopyStyle,
   onPasteStyle,
   onBulkApplyStyle,
@@ -465,10 +474,12 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
   const audienceHiddenLayerIds = useMemo(() => {
     const ids = new Set<string>();
     for (const layer of layers) {
-      if (isLayerHiddenFromMapAudience(layer, mapVisibility)) ids.add(layer.id);
+      if (isLayerHiddenFromMapAudience(layer, mapVisibility) || groupHiddenLayerIds?.has(layer.id)) {
+        ids.add(layer.id);
+      }
     }
     return ids;
-  }, [layers, mapVisibility]);
+  }, [layers, mapVisibility, groupHiddenLayerIds]);
 
   // SortableContext items: all layer ids plus the basemap-group id, so the user
   // can drag the basemap between 'top' and 'bottom'. Insert order matches the
@@ -800,6 +811,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                                 onDuplicate={onDuplicate}
                                 onZoomToLayer={onZoomToLayer}
                                 onAnalyzeLayer={onAnalyzeLayer}
+                                onOpenAttributeTable={onOpenAttributeTable}
                                 onCopyStyle={onCopyStyle}
                                 onPasteStyle={onPasteStyle}
                                 canPasteStyle={
@@ -858,6 +870,7 @@ export const UnifiedStackPanel = memo(function UnifiedStackPanel({
                     onDuplicate={onDuplicate}
                     onZoomToLayer={onZoomToLayer}
                     onAnalyzeLayer={onAnalyzeLayer}
+                    onOpenAttributeTable={onOpenAttributeTable}
                     onCopyStyle={onCopyStyle}
                     onPasteStyle={onPasteStyle}
                     canPasteStyle={

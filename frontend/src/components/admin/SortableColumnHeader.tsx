@@ -61,7 +61,7 @@ export function SortableColumnHeader({
       <button
         type="button"
         onClick={() => onSort(field)}
-        className="inline-flex items-center gap-1 rounded-sm hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="inline-flex items-center gap-1 rounded-sm uppercase hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {label}
         <span className="sr-only">, {hint}</span>

@@ -59,6 +59,8 @@ class SharedLayerResponse:
         tile_version (int | None | Unset):
         dataset_attribution (None | str | Unset):
         dataset_extent_bbox (list[float] | None | Unset):
+        dataset_tile_columns (list[str] | None | Unset): Dataset tile attribute allowlist, as on MapLayerResponse: null
+            allows all queryable columns, [] exposes none.
     """
 
     id: str
@@ -88,6 +90,7 @@ class SharedLayerResponse:
     tile_version: int | None | Unset = UNSET
     dataset_attribution: None | str | Unset = UNSET
     dataset_extent_bbox: list[float] | None | Unset = UNSET
+    dataset_tile_columns: list[str] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -228,6 +231,15 @@ class SharedLayerResponse:
         else:
             dataset_extent_bbox = self.dataset_extent_bbox
 
+        dataset_tile_columns: list[str] | None | Unset
+        if isinstance(self.dataset_tile_columns, Unset):
+            dataset_tile_columns = UNSET
+        elif isinstance(self.dataset_tile_columns, list):
+            dataset_tile_columns = self.dataset_tile_columns
+
+        else:
+            dataset_tile_columns = self.dataset_tile_columns
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -277,6 +289,8 @@ class SharedLayerResponse:
             field_dict["dataset_attribution"] = dataset_attribution
         if dataset_extent_bbox is not UNSET:
             field_dict["dataset_extent_bbox"] = dataset_extent_bbox
+        if dataset_tile_columns is not UNSET:
+            field_dict["dataset_tile_columns"] = dataset_tile_columns
 
         return field_dict
 
@@ -530,6 +544,25 @@ class SharedLayerResponse:
             d.pop("dataset_extent_bbox", UNSET)
         )
 
+        def _parse_dataset_tile_columns(data: object) -> list[str] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                dataset_tile_columns_type_0 = cast(list[str], data)
+
+                return dataset_tile_columns_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[str] | None | Unset, data)
+
+        dataset_tile_columns = _parse_dataset_tile_columns(
+            d.pop("dataset_tile_columns", UNSET)
+        )
+
         shared_layer_response = cls(
             id=id,
             dataset_id=dataset_id,
@@ -558,6 +591,7 @@ class SharedLayerResponse:
             tile_version=tile_version,
             dataset_attribution=dataset_attribution,
             dataset_extent_bbox=dataset_extent_bbox,
+            dataset_tile_columns=dataset_tile_columns,
         )
 
         shared_layer_response.additional_properties = d

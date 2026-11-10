@@ -509,6 +509,34 @@ class TestUpdateFeature:
             original_coords, abs=0.0001
         )
 
+    @pytest.mark.parametrize("method", ["patch", "put"])
+    async def test_unknown_property_naming_not_found_is_a_400(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_layer: Dataset,
+        method: str,
+    ):
+        """A validation message that happens to say "not found" is not a 404."""
+        create_resp = await client.post(
+            f"/datasets/{test_layer.id}/features/",
+            json={"geometry": POINT_GEOJSON, "properties": {"name": "A"}},
+            headers=admin_auth_header,
+        )
+        gid = create_resp.json()["id"]
+
+        resp = await getattr(client, method)(
+            f"/datasets/{test_layer.id}/features/{gid}",
+            json={
+                "geometry": POINT_GEOJSON,
+                "properties": {"not found": "x"},
+            },
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 400, resp.text
+        assert "Unknown property columns" in resp.json()["detail"]
+
     async def test_update_feature_viewer_forbidden(
         self,
         client: AsyncClient,
@@ -2075,3 +2103,118 @@ class TestEditingEnforcementAndContracts:
             headers=admin_auth_header,
         )
         assert resp.status_code == 400, resp.text
+
+
+class TestColumnAddedAfterRegistration:
+    """A column added in SQL is readable at once but writable only after a refresh."""
+
+    @pytest.fixture
+    async def table_with_new_column(self, test_layer: Dataset, test_db_session):
+        await test_db_session.execute(
+            text(f"ALTER TABLE data.{test_layer.table_name} ADD COLUMN owner_note TEXT")
+        )
+        await test_db_session.commit()
+
+    async def _post(self, client, headers, dataset, prop):
+        return await client.post(
+            f"/datasets/{dataset.id}/features/",
+            json={"geometry": POINT_GEOJSON, "properties": {prop: "x"}},
+            headers=headers,
+        )
+
+    async def test_a_registered_table_is_told_to_refresh(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_layer: Dataset,
+        test_db_session,
+        table_with_new_column,
+    ):
+        test_layer.source_format = None
+        await test_db_session.commit()
+
+        resp = await self._post(client, admin_auth_header, test_layer, "owner_note")
+
+        assert resp.status_code == 400, resp.text
+        detail = resp.json()["detail"]
+        assert "Unknown property columns: owner_note" in detail
+        assert "refresh" in detail
+
+    async def test_a_column_the_table_lacks_gets_no_hint(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_layer: Dataset,
+        test_db_session,
+        table_with_new_column,
+    ):
+        test_layer.source_format = None
+        await test_db_session.commit()
+
+        resp = await self._post(client, admin_auth_header, test_layer, "no_such_col")
+
+        assert resp.status_code == 400, resp.text
+        assert "refresh" not in resp.json()["detail"]
+
+    async def test_a_column_a_refresh_cannot_make_writable_gets_no_hint(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_layer: Dataset,
+        test_db_session,
+    ):
+        await test_db_session.execute(
+            text(
+                f'ALTER TABLE data.{test_layer.table_name} ADD COLUMN "OwnerNote" TEXT'
+            )
+        )
+        test_layer.source_format = None
+        await test_db_session.commit()
+
+        resp = await self._post(client, admin_auth_header, test_layer, "OwnerNote")
+
+        assert resp.status_code == 400, resp.text
+        assert "refresh" not in resp.json()["detail"]
+
+    async def test_a_created_dataset_gets_no_hint(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_layer: Dataset,
+        table_with_new_column,
+    ):
+        resp = await self._post(client, admin_auth_header, test_layer, "owner_note")
+
+        assert resp.status_code == 400, resp.text
+        assert "refresh" not in resp.json()["detail"]
+
+    async def test_a_batch_names_the_refresh_too(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_layer: Dataset,
+        test_db_session,
+        table_with_new_column,
+    ):
+        test_layer.source_format = None
+        await test_db_session.commit()
+
+        resp = await client.post(
+            f"/datasets/{test_layer.id}/features/",
+            json={
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "geometry": POINT_GEOJSON,
+                        "properties": {"owner_note": "x"},
+                    }
+                ],
+            },
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 400, resp.text
+        detail = resp.json()["detail"]
+        assert detail["index"] == 0
+        assert "refresh" in detail["message"]

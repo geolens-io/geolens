@@ -109,6 +109,10 @@ _STAC_RECORD_TYPES = RASTER_FAMILY_RECORD_TYPES
 # enforces it. One constant so a future ceiling change cannot miss a handler.
 _STAC_MAX_LIMIT = 200
 
+# Each id becomes a bind parameter, and asyncpg refuses a query with more
+# than 32,767 of them.
+_STAC_MAX_LIST_ITEMS = 1000
+
 # STAC Items must be collection-scoped to remain browsable by machine clients.
 # This virtual collection does not create or mutate a catalog Collection; it is
 # a deterministic protocol view over published raster/VRT datasets with no
@@ -598,7 +602,12 @@ async def _anon_cache_put(key: str | None, result: BaseModel) -> None:
 # response_model_exclude_none (here and on the collection routes): optional
 # StacLink fields must be omitted rather than serialized as null — the STAC
 # link schema types `method` as a ^[A-Z]+$ string.
-@stac_router.get("/", response_model=StacCatalog, response_model_exclude_none=True)
+@stac_router.get(
+    "/",
+    response_model=StacCatalog,
+    response_model_exclude_none=True,
+    summary="Get the STAC landing page",
+)
 async def landing_page(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -694,7 +703,11 @@ async def service_desc(request: Request) -> Response:
     )
 
 
-@stac_router.get("/conformance", response_model=StacConformance)
+@stac_router.get(
+    "/conformance",
+    response_model=StacConformance,
+    summary="Get the STAC conformance classes",
+)
 async def conformance() -> StacConformance:
     """STAC API conformance classes."""
     return StacConformance(conformsTo=STAC_CONFORMANCE)
@@ -704,6 +717,7 @@ async def conformance() -> StacConformance:
     "/collections",
     response_model=StacCollectionListResponse,
     response_model_exclude_none=True,
+    summary="List STAC collections",
 )
 async def get_collections(
     request: Request,
@@ -895,6 +909,7 @@ async def _build_collection_list(
     response_model=StacCollection,
     response_model_exclude_none=True,
     responses={404: NOT_FOUND_RESPONSE},
+    summary="Get a STAC collection",
 )
 async def get_collection(
     collection_id: str,
@@ -1040,6 +1055,7 @@ async def get_collection(
     response_model=StacItemCollectionResponse,
     response_class=GeoJSONResponse,
     responses=ERROR_RESPONSES_PUBLIC,
+    summary="List STAC items in a collection",
 )
 async def get_collection_items(
     collection_id: str,
@@ -1262,6 +1278,7 @@ async def _build_item_response(
     response_model=StacItemResponse,
     response_class=GeoJSONResponse,
     responses={404: NOT_FOUND_RESPONSE},
+    summary="Get a STAC item in a collection",
 )
 async def get_collection_item(
     collection_id: str,
@@ -1308,6 +1325,7 @@ async def get_collection_item(
     response_model=StacItemResponse,
     response_class=GeoJSONResponse,
     responses={404: NOT_FOUND_RESPONSE},
+    summary="Get a STAC item",
 )
 async def get_item(
     item_id: uuid.UUID,
@@ -1697,6 +1715,7 @@ async def _execute_search(
     response_model=StacItemCollectionResponse,
     response_class=GeoJSONResponse,
     responses=ERROR_RESPONSES_PUBLIC,
+    summary="Search STAC items with GET",
 )
 async def search_get(
     request: Request,
@@ -1706,8 +1725,20 @@ async def search_get(
     datetime_param: str | None = Query(
         None, alias="datetime", description="OGC datetime interval"
     ),
-    collections: str | None = Query(None, description="Comma-separated collection IDs"),
-    ids: str | None = Query(None, description="Comma-separated item IDs"),
+    collections: str | None = Query(
+        None,
+        description=(
+            f"Comma-separated collection IDs, at most {_STAC_MAX_LIST_ITEMS}; "
+            "more answer 400."
+        ),
+    ),
+    ids: str | None = Query(
+        None,
+        description=(
+            f"Comma-separated item IDs, at most {_STAC_MAX_LIST_ITEMS}; "
+            "more answer 400."
+        ),
+    ),
     intersects: str | None = Query(
         None,
         max_length=10000,
@@ -1736,6 +1767,13 @@ async def search_get(
     ),
 ) -> JSONResponse:
     """STAC Item Search (GET)."""
+    for name, value in (("ids", ids), ("collections", collections)):
+        count = sum(1 for part in (value or "").split(",") if part.strip())
+        if count > _STAC_MAX_LIST_ITEMS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{name} accepts at most {_STAC_MAX_LIST_ITEMS} values",
+            )
     stac_api_url, public_api_url = await _resolve_urls(db, request)
     public_app_url = await get_public_app_url(db, request=request)
     user_roles = await _resolve_roles(db, user)
@@ -1775,8 +1813,8 @@ class StacSearchBody(BaseModel):
 
     bbox: list[float] | None = None
     datetime: str | None = None
-    collections: list[str] | None = None
-    ids: list[str] | None = None
+    collections: list[str] | None = Field(default=None, max_length=_STAC_MAX_LIST_ITEMS)
+    ids: list[str] | None = Field(default=None, max_length=_STAC_MAX_LIST_ITEMS)
     intersects: dict | None = None
     limit: int = Field(
         default=10,
@@ -1812,6 +1850,7 @@ class StacSearchBody(BaseModel):
     response_model=StacItemCollectionResponse,
     response_class=GeoJSONResponse,
     responses=ERROR_RESPONSES_PUBLIC,
+    summary="Search STAC items with POST",
 )
 async def search_post(
     body: StacSearchBody,

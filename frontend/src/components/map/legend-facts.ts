@@ -11,6 +11,7 @@ import {
   resolveAdapterType,
 } from '@/components/builder/layer-adapters/shared';
 import type { LayerAdapter } from '@/components/builder/layer-adapters/types';
+import { nullGuardField } from '@/lib/maplibre-filter-utils';
 import { isDemTerrainVisualSuppressed } from '@/components/builder/map-sync';
 import { getColorProperty } from '@/lib/color-ramps';
 import { isNumericColumn } from '@/lib/column-utils';
@@ -125,6 +126,8 @@ export interface LegendFacts {
 /** What the map drew a layer as, when the caller knows. */
 export interface DrawnLayer {
   drawsAs: LayerAdapter['type'];
+  /** A tile in view held more features than the server's cap, so it sent a sample. */
+  sampled?: boolean;
 }
 
 function nonBlank(value: unknown): string | null {
@@ -357,6 +360,8 @@ interface MatchClasses {
   input: unknown;
   arms: { values: (string | number)[]; color: string }[];
   fallback: string;
+  /** Whether a null guard sends null features to the fallback before the match reads them. */
+  guarded: boolean;
 }
 
 /** The values one `match` arm lists, one label or an array of them; null for anything else. */
@@ -383,7 +388,7 @@ function matchClasses(value: unknown): MatchClasses | null {
     if (values === null || typeof color !== 'string') return null;
     arms.push({ values, color });
   }
-  return { column, input: match[1], arms, fallback };
+  return { column, input: match[1], arms, fallback, guarded: match !== value };
 }
 
 /**
@@ -426,21 +431,28 @@ function isNumberAccessor(value: unknown, column: string): boolean {
 
 /**
  * The values a layer filter lets through on `column`, from an `==` or a literal
- * `in` on it, alone or inside `all`; null when the filter names none. On a numeric
- * column the number accessor reads a null as 0, so an equality with 0 lets nulls through.
+ * `in` on it, alone or inside `all`; null when the filter names none.
  */
-function filteredValues(filter: unknown, column: string, numeric: boolean): unknown[] | null {
+function filteredValues(
+  filter: unknown,
+  column: string,
+  numeric: boolean,
+  excludesNull = false,
+): unknown[] | null {
   if (!Array.isArray(filter)) return null;
   const [op, input, operand] = filter;
   if (op === 'all') {
+    // A `typeof` null check on the column keeps null out of every limit inside.
+    const guarded = excludesNull || filter.slice(1).some((entry) => nullGuardField(entry) === column);
     const limits = filter.slice(1)
-      .map((entry) => filteredValues(entry, column, numeric))
+      .map((entry) => filteredValues(entry, column, numeric, guarded))
       .filter((limit): limit is unknown[] => limit !== null);
     return limits.length > 0 ? limits.reduce((kept, limit) => kept.filter((value) => limit.includes(value))) : null;
   }
   if (filter.length !== 3) return null;
   if (numeric && op === '==' && typeof operand === 'number' && isNumberAccessor(input, column)) {
-    return operand === 0 ? [0, null] : [operand];
+    // MapLibre turns a null into 0 before any fallback, so a zero comparison admits null.
+    return operand === 0 && !excludesNull ? [0, null] : [operand];
   }
   if (getColumn(input) !== column) return null;
   if (op === '==' && isLiteral(operand)) return [operand];
@@ -596,10 +608,12 @@ function classesFor(
     && (sized.painted || sizeStepsMatch(sized.expression, sized.column, sized.breaks));
   // A ramp's first colour stands in for the sizes; one category's colour would claim them all.
   const sizeColor = listed?.colors[0] ?? swatch?.fill ?? MAP_COLORS.fallback;
+  // A colour classification's size label names its sizes whichever column they read.
+  const sizeLabelled = sized.column === config.column || (config.target !== 'radius' && config.target !== 'width');
   const sizes: LegendClasses = {
     mode: 'graduated',
     target: sized.target,
-    title: (sized.column === config.column ? config.sizeLabel : undefined) ?? displayColumn(sized.column),
+    title: (sizeLabelled ? config.sizeLabel : undefined) ?? displayColumn(sized.column),
     items: sized.sizes.map((size, i) => ({ color: (colorsEachSize ? listed.colors[i] : undefined) ?? sizeColor, size })),
     breaks: sized.breaks,
   };
@@ -733,6 +747,31 @@ function clusterFor(layer: LegendLayer, kind: LayerAdapter['type']): LegendFacts
     },
   };
   return { kind: getClusterSourceStrategy(layer).kind, steps };
+}
+
+/**
+ * The colour the map's categorical paint gives each value of its column, read
+ * from the paint itself; null when the layer isn't coloured by a `match` on a
+ * column. A value no arm lists takes the fallback colour, as the map draws it.
+ */
+export function categoryColors(layer: LegendLayer): { column: string; colorOf: (value: unknown) => string | undefined } | null {
+  if (!legendFacts(layer)) return null;
+  const kind = drawsAs(layer);
+  if (!CLASSED_KINDS.has(kind)) return null;
+  const paint = layer.paint ?? {};
+  const match = matchClasses(drawnColor(paint, kind, inferGeometryType(paint, layer.dataset_geometry_type ?? layer.geometry_type)));
+  if (!match) return null;
+  return {
+    column: match.column,
+    colorOf: (value) => {
+      // A guarded null is drawn with the fallback, though the input may read it as 0.
+      const read = value === null && match.guarded ? null : readAsMatchInput(match.input, value);
+      if (read === undefined) return undefined;
+      const arm = read === null ? undefined : match.arms.find((entry) => entry.values.includes(read as string | number));
+      const color = arm?.color ?? match.fallback;
+      return isTransparentColor(color) ? undefined : color;
+    },
+  };
 }
 
 /**

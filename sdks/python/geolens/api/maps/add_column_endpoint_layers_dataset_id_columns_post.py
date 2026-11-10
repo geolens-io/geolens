@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: AddColumnRequest,
 ) -> Response[ColumnListResponse | ProblemDetail]:
-    """Add Column Endpoint
+    """Add a column
 
      Add a column to an existing layer.
 
@@ -146,7 +146,7 @@ def sync(
     client: AuthenticatedClient,
     body: AddColumnRequest,
 ) -> ColumnListResponse | ProblemDetail | None:
-    """Add Column Endpoint
+    """Add a column
 
      Add a column to an existing layer.
 
@@ -175,7 +175,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: AddColumnRequest,
 ) -> Response[ColumnListResponse | ProblemDetail]:
-    """Add Column Endpoint
+    """Add a column
 
      Add a column to an existing layer.
 
@@ -207,7 +207,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: AddColumnRequest,
 ) -> ColumnListResponse | ProblemDetail | None:
-    """Add Column Endpoint
+    """Add a column
 
      Add a column to an existing layer.
 

@@ -60,6 +60,11 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         "feature.insert",
         "feature.replace",
         "feature.update",
+        "group.add_members",
+        "group.create",
+        "group.delete",
+        "group.remove_member",
+        "group.rename",
         # User-requested cancel of a pending/running ingest job (imports,
         # refreshes, analysis, embedding backfill). Emitted by the cancel
         # endpoint in platform/jobs/router.py.
@@ -76,6 +81,7 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         "map.create",
         "map.delete",
         "map.duplicate",
+        "map.import_arcgis_webmap",
         "map.import_style",
         "map.patch_layers",
         "map.remove_layer",
@@ -124,6 +130,11 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         "reupload.commit",
         "stac_connect",
         "stac_import",
+        "story.create",
+        "story.delete",
+        "story.duplicate",
+        "story.publish",
+        "story.update",
         # PersistentConfig.set() — generic/unprefixed, same rationale as "reset".
         "update",
         "user.approve",

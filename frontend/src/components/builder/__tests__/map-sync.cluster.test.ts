@@ -1,8 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { syncLayersToMap } from '../map-sync';
 import type { SyncLayerInput } from '../map-sync';
 import type { TileToken } from '@/api/tiles';
 import { buildClusterTileUrl, buildSignedTileUrl } from '@/lib/tile-utils';
+import { linkMapLayers } from '@/components/viewer/linked-filters';
+import type { SharedLayerResponse } from '@/types/api';
 
 vi.mock('@/lib/tile-utils', () => ({
   getMvtSourceLayerName: (table: string) => `data.${table}`,
@@ -52,6 +54,12 @@ function makeMockMap(initial?: {
   } as unknown as import('maplibre-gl').Map;
 }
 
+/**
+ * The cluster tile URLs a source was built with. The filter decision also
+ * builds one with a stand-in token to measure it, which this leaves out.
+ */
+const sourceBuilds = () => vi.mocked(buildClusterTileUrl).mock.calls.filter(([, token]) => token === VECTOR_TOKEN);
+
 function makeLayer(overrides: Partial<SyncLayerInput> = {}): SyncLayerInput {
   return {
     id: 'cluster-1',
@@ -96,6 +104,10 @@ function tokenMap(layer: SyncLayerInput) {
 }
 
 describe('syncLayersToMap cluster rendering', () => {
+  beforeEach(() => {
+    vi.mocked(buildClusterTileUrl).mockClear();
+  });
+
   it('creates a clustered GeoJSON source and stable cluster companion layers when bounded data exists', () => {
     const map = makeMockMap();
     const layer = makeLayer({
@@ -167,7 +179,7 @@ describe('syncLayersToMap cluster rendering', () => {
     expect(buildClusterTileUrl).toHaveBeenCalledWith('points', VECTOR_TOKEN, `${window.location.origin}/api`, undefined, {
       clusterRadius: 64,
       clusterMaxZoom: 12,
-    }, []);
+    }, [], true);
     expect(map.addSource).toHaveBeenCalledWith('source-cluster-1', expect.objectContaining({
       type: 'vector',
       tiles: ['/tiles/clusters/mock/{z}/{x}/{y}.pbf?cluster_radius=64&cluster_max_zoom=12'],
@@ -200,7 +212,283 @@ describe('syncLayersToMap cluster rendering', () => {
       undefined,
       expect.objectContaining({ filter: JSON.stringify({ op: '=', args: [{ property: 'kind' }, 'a'] }) }),
       ['kind'],
+      true,
     );
+  });
+
+  it('keeps the saved filter and a dashboard pick of a value and no value in the server-cluster filter', () => {
+    const map = makeMockMap();
+    const saved = ['any', ['==', ['get', 'zone'], 'A'], ['==', ['get', 'zone'], 'B']];
+    const [linked] = linkMapLayers(
+      [{ id: 'cluster-1', filter: saved, column_info: [{ name: 'zone', type: 'text' }, { name: 'kind', type: 'text' }] } as SharedLayerResponse],
+      [{
+        widgetId: 'w1',
+        layerId: 'cluster-1',
+        selection: { column: 'kind', label: 'park, (no value)', values: ['park', null] },
+        cql2: { op: 'in', args: [] },
+      }],
+    );
+    const layer = makeLayer({ feature_count: 20_000, filter: linked.filter as SyncLayerInput['filter'] });
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+    const property = (name: string) => ({ property: name });
+    expect(JSON.parse(sourceBuilds()[0][4]!.filter!)).toEqual({
+      op: 'and',
+      args: [
+        { op: 'or', args: [{ op: '=', args: [property('zone'), 'A'] }, { op: '=', args: [property('zone'), 'B'] }] },
+        { op: 'or', args: [{ op: 'in', args: [property('kind'), ['park']] }, { op: 'isNull', args: [property('kind')] }] },
+      ],
+    });
+  });
+
+  it('leaves a nested filter off the server-cluster URL when a nested property is outside the tile allowlist', () => {
+    const map = makeMockMap();
+    const layer = makeLayer({
+      feature_count: 20_000,
+      filter: ['all', ['==', ['get', 'pop'], 5], ['any', ['has', 'other'], ['has', 'pop']]] as unknown as SyncLayerInput['filter'],
+      dataset_tile_columns: ['pop'],
+    });
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+    expect(sourceBuilds()[0][4]?.filter).toBeUndefined();
+  });
+
+  describe.each([
+    ['absent allowlist', undefined, true],
+    ['null allowlist', null, true],
+    ['included property', ['pop'], true],
+    ['excluded property', ['other'], false],
+    ['empty allowlist', [], false],
+  ] as const)('server filter with %s', (_label, tileColumns, exposed) => {
+    it.each([
+      ['known integer mismatch', [{ name: 'pop', type: 'integer' }], '5', false],
+      ['unlisted column mismatch', [{ name: 'other', type: 'integer' }], '5', true],
+      ['valid integer', [{ name: 'pop', type: 'integer' }], 5, true],
+    ] as const)('%s', (_case, columns, value, compatible) => {
+      const map = makeMockMap();
+      const metadata = { dataset_tile_columns: tileColumns == null ? tileColumns : [...tileColumns] };
+      const layer = makeLayer({
+        feature_count: 20_000,
+        filter: ['==', ['get', 'pop'], value] as SyncLayerInput['filter'],
+        dataset_column_info: [...columns],
+        ...metadata,
+      });
+
+      syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+      expect(sourceBuilds()).toHaveLength(1);
+      expect(sourceBuilds()[0][4]?.filter).toBe(
+        exposed && compatible ? JSON.stringify({ op: '=', args: [{ property: 'pop' }, value] }) : undefined,
+      );
+      expect(map.addSource).toHaveBeenCalledWith('source-cluster-1', expect.objectContaining({
+        type: 'vector',
+        tiles: ['/tiles/clusters/mock/{z}/{x}/{y}.pbf?cluster_radius=64&cluster_max_zoom=12'],
+      }));
+    });
+  });
+
+  describe.each(['get', 'to-number'] as const)('numeric cluster filter through %s', (accessor) => {
+    it.each([
+      ['smallint minimum', 'smallint', -32768, true],
+      ['smallint maximum', 'smallint', 32767, true],
+      ['below smallint minimum', 'smallint', -32769, false],
+      ['above smallint maximum', 'smallint', 32768, false],
+      ['integer minimum', 'integer', -2147483648, true],
+      ['integer maximum', 'integer', 2147483647, true],
+      ['below integer minimum', 'integer', -2147483649, false],
+      ['above integer maximum', 'integer', 2147483648, false],
+      ['bigint safe minimum', 'bigint', -9007199254740991, true],
+      ['bigint safe maximum', 'bigint', 9007199254740991, true],
+      ['below bigint safe minimum', 'bigint', -9007199254740992, false],
+      ['above bigint safe maximum', 'bigint', 9007199254740992, false],
+      ['bigint PostgreSQL minimum', 'bigint', Number(-9223372036854775808n), false],
+      ['bigint PostgreSQL maximum', 'bigint', Number(9223372036854775807n), false],
+      ['below bigint PostgreSQL minimum', 'bigint', Number(-9223372036854775809n), false],
+      ['above bigint PostgreSQL maximum', 'bigint', Number(9223372036854775808n), false],
+      ['real minimum', 'real', -3.4028234663852886e38, true],
+      ['real maximum', 'real', 3.4028234663852886e38, true],
+      ['negative real overflow', 'real', -1e100, false],
+      ['positive real overflow', 'real', 1e100, false],
+      ['unbounded numeric', 'numeric', 1e100, true],
+      ['unbounded double precision', 'double precision', 1e100, true],
+      ['unlisted numeric type', undefined, 1e100, true],
+    ] as const)('%s', (_label, type, value, compatible) => {
+      const map = makeMockMap();
+      const layer = makeLayer({
+        feature_count: 20_000,
+        filter: ['==', accessor === 'get' ? ['get', 'pop'] : ['to-number', ['get', 'pop'], 0], value] as SyncLayerInput['filter'],
+        dataset_column_info: type ? [{ name: 'pop', type }] : [],
+        dataset_tile_columns: ['pop'],
+      });
+
+      syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+      expect(sourceBuilds()).toHaveLength(1);
+      expect(sourceBuilds()[0][4]?.filter).toBe(
+        compatible ? JSON.stringify({ op: '=', args: [{ property: 'pop' }, value] }) : undefined,
+      );
+      expect(map.addSource).toHaveBeenCalledWith('source-cluster-1', expect.objectContaining({
+        type: 'vector',
+        tiles: ['/tiles/clusters/mock/{z}/{x}/{y}.pbf?cluster_radius=64&cluster_max_zoom=12'],
+      }));
+    });
+  });
+
+  describe.each(['in', 'not-in'] as const)('numeric cluster %s list', (operator) => {
+    it.each([
+      ['all members in range', [5, 32767], true],
+      ['one member out of range', [5, 32768], false],
+    ] as const)('%s', (_label, values, compatible) => {
+      const map = makeMockMap();
+      const membership = ['in', ['get', 'pop'], ['literal', [...values]]];
+      const layer = makeLayer({
+        feature_count: 20_000,
+        filter: (operator === 'in' ? membership : ['!', membership]) as unknown as SyncLayerInput['filter'],
+        dataset_column_info: [{ name: 'pop', type: 'smallint' }],
+        dataset_tile_columns: ['pop'],
+      });
+
+      syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+      expect(sourceBuilds()).toHaveLength(1);
+      const filter = sourceBuilds()[0][4]?.filter;
+      if (compatible) expect(filter).toBeDefined();
+      else expect(filter).toBeUndefined();
+      expect(map.addSource).toHaveBeenCalledWith('source-cluster-1', expect.objectContaining({
+        type: 'vector',
+        tiles: ['/tiles/clusters/mock/{z}/{x}/{y}.pbf?cluster_radius=64&cluster_max_zoom=12'],
+      }));
+    });
+  });
+
+  it.each([
+    ['text', 5, false],
+    ['integer', '5', false],
+    ['integer', 5.5, false],
+    ['numeric', '5', false],
+    ['boolean', 'true', false],
+    ['text', '5', true],
+    ['integer', 5, true],
+    ['numeric', 5.5, true],
+    ['boolean', true, true],
+    ['uuid', '6f1c3a52-2b8e-4f0e-9a51-3d6a8f9c0b11', true],
+    ['timestamp without time zone', '2024-01-01 12:00:00', true],
+    ['timestamp with time zone', '2024-01-01T12:00:00+00:00', true],
+  ] as const)('checks a %s literal %j before sending the server filter', (type, value, compatible) => {
+    const map = makeMockMap();
+    const layer = makeLayer({
+      feature_count: 20_000,
+      filter: ['==', ['get', 'value'], value] as SyncLayerInput['filter'],
+      dataset_column_info: [{ name: 'value', type }],
+    });
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+    expect(sourceBuilds()).toHaveLength(1);
+    const filter = sourceBuilds()[0][4]?.filter;
+    if (compatible) expect(filter).toBeDefined();
+    else expect(filter).toBeUndefined();
+  });
+
+  describe.each([
+    ['absent allowlist', undefined, true],
+    ['null allowlist', null, true],
+    ['included property', ['score'], true],
+    ['excluded property', ['other'], false],
+    ['empty allowlist', [], false],
+  ] as const)('to-number server filter with %s', (_label, tileColumns, exposed) => {
+    it.each([
+      ['text', false],
+      ['integer', true],
+      [undefined, true],
+    ] as const)('checks to-number against column type %s', (type, compatible) => {
+      const map = makeMockMap();
+      const metadata = { dataset_tile_columns: tileColumns == null ? tileColumns : [...tileColumns] };
+      const layer = makeLayer({
+        feature_count: 20_000,
+        filter: ['>=', ['to-number', ['get', 'score'], 0], 5] as SyncLayerInput['filter'],
+        dataset_column_info: type ? [{ name: 'score', type }] : [],
+        ...metadata,
+      });
+
+      syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+      expect(sourceBuilds()).toHaveLength(1);
+      expect(sourceBuilds()[0][4]?.filter).toBe(
+        exposed && compatible ? JSON.stringify({ op: '>=', args: [{ property: 'score' }, 5] }) : undefined,
+      );
+    });
+  });
+
+  it('keeps the layer filter on loose points when the server filter is omitted', () => {
+    const map = makeMockMap();
+    const layer = makeLayer({
+      feature_count: 20_000,
+      filter: ['==', ['get', 'pop'], '5'] as SyncLayerInput['filter'],
+      dataset_column_info: [{ name: 'pop', type: 'integer' }],
+    });
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+    expect(sourceBuilds()).toHaveLength(1);
+    expect(sourceBuilds()[0][4]?.filter).toBeUndefined();
+    expect(map.setFilter).toHaveBeenCalledWith(
+      'layer-cluster-1',
+      ['all', ['!', ['has', 'point_count']], layer.filter],
+    );
+  });
+
+  it.each([
+    ['existence', ['has', 'pop']],
+    ['null comparison', ['==', ['get', 'pop'], null]],
+    ['membership', ['in', ['get', 'pop'], ['literal', [5, 6]]]],
+    ['negative membership', ['!', ['in', ['get', 'pop'], ['literal', [5, 6]]]]],
+    ['any combination', ['any', ['==', ['get', 'pop'], 5], ['has', 'pop']]],
+  ])('sends a valid %s filter on an exposed known column', (_label, filter) => {
+    const map = makeMockMap();
+    const layer = makeLayer({
+      feature_count: 20_000,
+      filter: filter as unknown as SyncLayerInput['filter'],
+      dataset_column_info: [{ name: 'pop', type: 'INTEGER' }],
+      dataset_tile_columns: ['pop'],
+    });
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+    expect(sourceBuilds()).toHaveLength(1);
+    expect(sourceBuilds()[0][4]?.filter).toBeDefined();
+  });
+
+  it.each(['in', 'not-in'] as const)('omits the whole server filter for a mismatched %s list entry', (operator) => {
+    const map = makeMockMap();
+    const membership = ['in', ['get', 'pop'], ['literal', [5, '6']]];
+    const layer = makeLayer({
+      feature_count: 20_000,
+      filter: ['all', ['has', 'kind'], operator === 'in' ? membership : ['!', membership]] as unknown as SyncLayerInput['filter'],
+      dataset_column_info: [{ name: 'pop', type: 'integer' }],
+    });
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+    expect(sourceBuilds()).toHaveLength(1);
+    expect(sourceBuilds()[0][4]?.filter).toBeUndefined();
+  });
+
+  it.each([
+    ['has', 'pop'],
+    ['==', ['get', 'pop'], null],
+    ['all', ['has', 'kind'], ['==', ['get', 'pop'], 5]],
+  ])('omits server filters reading an excluded property: %j', (...filter) => {
+    const map = makeMockMap();
+    const metadata = { dataset_tile_columns: ['kind'] };
+    const layer = makeLayer({ feature_count: 20_000, filter: filter as SyncLayerInput['filter'], ...metadata });
+
+    syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
+
+    expect(sourceBuilds()).toHaveLength(1);
+    expect(sourceBuilds()[0][4]?.filter).toBeUndefined();
   });
 
   it('types temporal literals in the server-cluster filter from the layer column types', () => {
@@ -213,7 +501,8 @@ describe('syncLayersToMap cluster rendering', () => {
 
     syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
-    const options = vi.mocked(buildClusterTileUrl).mock.lastCall?.[4];
+    expect(sourceBuilds()).toHaveLength(1);
+    const options = sourceBuilds()[0][4];
     expect(JSON.parse(options?.filter ?? 'null')).toEqual({
       op: '>=',
       args: [{ property: 'seen' }, { date: '2004-01-01' }],
@@ -230,7 +519,8 @@ describe('syncLayersToMap cluster rendering', () => {
 
     syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
-    expect(vi.mocked(buildClusterTileUrl).mock.lastCall?.[4]?.filter).toBeUndefined();
+    expect(sourceBuilds()).toHaveLength(1);
+    expect(sourceBuilds()[0][4]?.filter).toBeUndefined();
   });
 
   it('drops points with a missing value for a less-than comparison, as the layer filter does', () => {
@@ -243,7 +533,8 @@ describe('syncLayersToMap cluster rendering', () => {
     syncLayersToMap(map, [layer], tokenMap(layer), undefined, { current: new Set() }, { current: '' });
 
     // The layer's sanitized filter gives a missing value a high fallback, so it fails `<`.
-    expect(JSON.parse(vi.mocked(buildClusterTileUrl).mock.lastCall?.[4]?.filter ?? 'null')).toEqual({
+    expect(sourceBuilds()).toHaveLength(1);
+    expect(JSON.parse(sourceBuilds()[0][4]?.filter ?? 'null')).toEqual({
       op: '<',
       args: [{ property: 'score' }, 5],
     });
@@ -273,6 +564,7 @@ describe('syncLayersToMap cluster rendering', () => {
       undefined,
       expect.any(Object),
       expect.arrayContaining(['fall', 'mass_kg']),
+      true,
     );
   });
 
@@ -376,6 +668,31 @@ describe('syncLayersToMap cluster rendering', () => {
       'source-cluster-1',
       expect.not.objectContaining({ filter: expect.anything() }),
     );
+  });
+
+  it('removes another layer drawing from the clustered source before rebuilding it', () => {
+    const map = makeMockMap();
+    const layer = makeLayer({ filter: ['==', ['get', 'status'], 'open'] as SyncLayerInput['filter'] });
+    const geojsonData = new Map<string, GeoJSON.FeatureCollection>([[layer.id, featureCollection]]);
+    const sync = (next: SyncLayerInput, known: string[]) => syncLayersToMap(
+      map, [next], tokenMap(next), undefined, { current: new Set(known) }, { current: '' }, geojsonData,
+    );
+    sync(layer, []);
+    // A feature highlight paints from the layer's own source.
+    map.addLayer({ id: 'feature-highlight-line', type: 'line', source: 'source-cluster-1' });
+    // MapLibre refuses to remove a source a layer still uses.
+    const removeSource = vi.mocked(map.removeSource).getMockImplementation()!;
+    vi.mocked(map.removeSource).mockImplementation((id: string) => {
+      const inUse = map.getStyle().layers.some((l) => 'source' in l && l.source === id);
+      if (inUse) throw new Error(`Source "${id}" cannot be removed while a layer uses it`);
+      return removeSource(id);
+    });
+
+    const closed = ['==', ['get', 'status'], 'closed'];
+    sync(makeLayer({ filter: closed as SyncLayerInput['filter'] }), ['source-cluster-1']);
+
+    expect(map.getLayer('feature-highlight-line')).toBeNull();
+    expect(map.addSource).toHaveBeenLastCalledWith('source-cluster-1', expect.objectContaining({ filter: closed }));
   });
 
   it('hands the clustered source an expression filter when the layer filter is a legacy one', () => {

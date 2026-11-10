@@ -21,10 +21,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.modules.auth.models import Role, User, UserRole
 from app.modules.auth.providers.local import hash_password
+from app.modules.catalog.maps.models import Map, MapLayer
+from app.modules.embed_tokens.service import create_embed_token
 from app.platform.cache import init_cache
 from app.core.config import Settings, settings
 
-from tests.factories import create_user
+from tests.factories import create_user, get_user_id
 
 # Register the multi_tenant_rls fixture so multi-tenant tests can request it
 # from any test file without an explicit import. The fixture lives in
@@ -40,15 +42,10 @@ _WORKER_ID = os.environ.get("PYTEST_XDIST_WORKER", "master")
 def _derive_test_pool_sizing() -> tuple[int, int]:
     """Return (pool_size, max_overflow) sized to live within Postgres max_connections.
 
-    Sequential mode (worker_id == "master") keeps the historical (5, 2) pool that
-    the suite was built against. Under pytest-xdist, returns (1, 0) as a signal
-    value; see _is_xdist_worker() below. The actual engine uses NullPool in xdist
-    mode (no persistent idle connections).
-
-    The (5, 2) sequential default is preserved because request handlers in some
-    tests (e.g., reupload, IDOR) need >1 concurrent conn within a single test.
-    The v1018 sequential baseline (3025/0/38 in 539s) is the regression floor.
-
+    Sequential runs get a (5, 2) pool because some request handlers need more
+    than one concurrent connection within a single test. Under pytest-xdist the
+    return value is a sentinel; the engine uses NullPool so workers hold no idle
+    connections.
     """
     worker_id = os.environ.get("PYTEST_XDIST_WORKER", "master")
     if worker_id == "master":
@@ -226,6 +223,12 @@ _DISPOSE_SHARED_ENGINE_MODULES = {
     # longer traceable to one deterministic source module.
     "test_embed_tokens",
     "test_embed_token_expiry_cache",
+    # Its real-GDAL test reads the staged table through the shared engine, so
+    # a connection pooled by an earlier module's loop would fail it.
+    "test_arcgis_service_z_values",
+    # The scan's advisory lock opens its own shared-engine session, without a
+    # test session fixture to repoint the pool first.
+    "test_orphan_scan_guard",
 }
 
 
@@ -258,6 +261,27 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(pytest.mark.xdist_group("tenancy_global_state"))
         elif module_name in _CONFIG_SHARED_ENGINE_MODULES:
             item.add_marker(pytest.mark.xdist_group("config_shared_engine"))
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_teardown(item, nextitem):
+    """Leave ``app.core.db`` on the production engine and factory, and the app
+    without dependency overrides, after every test.
+
+    Autouse fixtures create ``monkeypatch`` before ``client``, so a test that
+    patches the façade or an override under ``client`` has monkeypatch's undo
+    reinstate it after ``client`` restored the original.
+    """
+    try:
+        return (yield)
+    finally:
+        import app.core.db as db_module
+        from app.api.main import app
+        from app.core.db import session
+
+        db_module.engine = session.engine
+        db_module.async_session = session.async_session
+        app.dependency_overrides.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -2035,6 +2059,31 @@ async def admin_auth_header(client: AsyncClient) -> dict[str, str]:
         settings.geolens_admin_username,
         settings.geolens_admin_password.get_secret_value(),
     )
+
+
+@pytest.fixture
+def embed_headers(test_db_session):
+    """Build X-Embed-Token headers for an admin's public map of the datasets."""
+
+    async def _headers(*dataset_ids: uuid.UUID) -> dict[str, str]:
+        admin_id = await get_user_id(test_db_session, "admin")
+        map_obj = Map(
+            name=f"Embed {uuid.uuid4().hex[:6]}",
+            visibility="public",
+            created_by=admin_id,
+        )
+        test_db_session.add(map_obj)
+        await test_db_session.flush()
+        test_db_session.add_all(
+            MapLayer(map_id=map_obj.id, dataset_id=dataset_id, sort_order=order)
+            for order, dataset_id in enumerate(dataset_ids)
+        )
+        await test_db_session.commit()
+        _token, raw = await create_embed_token(test_db_session, map_obj.id, admin_id)
+        await test_db_session.commit()
+        return {"X-Embed-Token": raw}
+
+    return _headers
 
 
 @pytest.fixture

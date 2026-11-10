@@ -271,6 +271,8 @@ class TestFieldDistribution:
             "x_column",
             "y_column",
             "geom_column",
+            "item_id",
+            "portal_url",
         }
 
     def test_raster_fields(self) -> None:
@@ -384,4 +386,6 @@ class TestTheFlatUnionPublishesWhatTheSubclassesEnforce:
             "geom_column",
             "auth",
             "strict_cog",
+            "item_id",
+            "portal_url",
         ]

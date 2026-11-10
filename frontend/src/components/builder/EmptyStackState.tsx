@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Check, Loader2, MapPin, Plus, Search } from 'lucide-react';
@@ -148,6 +148,7 @@ function SuggestCard({ suggestion, onOpenAddData, addingId, addedIds, onDirectAd
 
 export function EmptyStackState({ onOpenAddData, onAddDataset }: EmptyStackStateProps) {
   const { t } = useTranslation('builder');
+  const searchHintId = useId();
   const [inlineQuery, setInlineQuery] = useState('');
   const [addingId, setAddingId] = useState<string | null>(null);
   const [addedIds, setAddedIds] = useState<Set<string>>(() => new Set());
@@ -233,9 +234,13 @@ export function EmptyStackState({ onOpenAddData, onAddDataset }: EmptyStackState
           value={inlineQuery}
           onChange={(e) => setInlineQuery(e.target.value)}
           onKeyDown={handleSearchKeyDown}
+          aria-describedby={searchHintId}
           className="flex-1 bg-transparent border-0 outline-none text-sm"
         />
       </div>
+      <p id={searchHintId} className="px-1 text-xs text-muted-foreground">
+        {t('unifiedStack.emptySearchHint', { defaultValue: 'Press Enter to search' })}
+      </p>
 
       {/* Suggested section — or starter-help fallback when SUGGESTED_DATASETS is empty */}
       {SUGGESTED_DATASETS.length > 0 ? (

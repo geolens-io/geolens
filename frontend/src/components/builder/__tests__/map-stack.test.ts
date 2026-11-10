@@ -528,13 +528,30 @@ describe('isLayerHiddenFromMapAudience', () => {
     ).toBe(true);
   });
 
-  it('flags a restricted dataset layer on both shared audiences — a grant is not audience-wide', () => {
+  it('flags a restricted dataset layer on internal and public maps — a grant is not audience-wide', () => {
+    for (const mapVisibility of ['internal', 'public'] as const) {
+      expect(
+        isLayerHiddenFromMapAudience({ dataset_visibility: 'restricted', dataset_status: 'published' }, mapVisibility),
+      ).toBe(true);
+    }
+  });
+
+  it('does not guess about a restricted dataset layer on a restricted map — its grants are not visible here', () => {
     expect(
-      isLayerHiddenFromMapAudience({ dataset_visibility: 'restricted', dataset_status: 'published' }, 'internal'),
+      isLayerHiddenFromMapAudience({ dataset_visibility: 'restricted', dataset_status: 'published' }, 'restricted'),
+    ).toBe(false);
+    expect(
+      isLayerHiddenFromMapAudience({ dataset_visibility: 'restricted', dataset_status: 'draft' }, 'restricted'),
+    ).toBe(true);
+  });
+
+  it('flags a private dataset layer on a restricted map but not an internal one', () => {
+    expect(
+      isLayerHiddenFromMapAudience({ dataset_visibility: 'private', dataset_status: 'published' }, 'restricted'),
     ).toBe(true);
     expect(
-      isLayerHiddenFromMapAudience({ dataset_visibility: 'restricted', dataset_status: 'published' }, 'public'),
-    ).toBe(true);
+      isLayerHiddenFromMapAudience({ dataset_visibility: 'internal', dataset_status: 'published' }, 'restricted'),
+    ).toBe(false);
   });
 });
 

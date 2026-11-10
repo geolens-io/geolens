@@ -9,11 +9,12 @@ import type {
 import type { TileToken, UnsignedRasterTileTemplate } from '@/api/tiles';
 import { effectiveDemRenderMode } from '@/lib/dem-render-mode';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
-import { maplibreFilterToCql2, sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
+import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 import { extractPlaceholders } from '@/lib/popup-template';
+import { CLUSTER_OUTPUT_PROPERTIES, columnsReadBy } from './spec-columns';
 import { buildClusterTileUrl, buildSignedTileUrl, getMvtSourceLayerName } from '@/lib/tile-utils';
 import type { LabelConfig, PopupConfig, StyleConfig } from '@/types/api';
-import { getClusterSourceStrategy } from './cluster-source';
+import { fitsTileRequestLine, getClusterSourceStrategy, serverClusterFilter } from './cluster-source';
 import { getCompanionLayerIds } from './companion-ids';
 import { getClusterSourceOptions } from './layer-adapters/cluster-adapter';
 import { resolveHeightColumn } from './layer-adapters/fill-adapter';
@@ -40,6 +41,8 @@ export interface RenderContext {
   tokens: ReadonlyMap<string, TileToken>;
   /** Bounded GeoJSON by layer id. A cluster layer that needs it and lacks it draws as circles. */
   boundedGeoJson: ReadonlyMap<string, GeoJSON.FeatureCollection>;
+  /** Ask for vector tiles that carry only the columns the layers read; popups fetch the rest. */
+  colsOnly?: boolean;
 }
 
 /** A layer's zoom range, as `setLayerZoomRange` takes it. */
@@ -74,7 +77,13 @@ export interface Description {
   sources: ReadonlyMap<string, SourceSpecification>;
   /** In stack order, leaving out the layers the map draws nothing for. */
   layers: readonly DescribedLayer[];
+  /** The columns each vector source's tile URL names, by source id. */
+  tileColumns: ReadonlyMap<string, readonly string[]>;
 }
+
+// The rows endpoint returns only lowercase names and no enum columns, so a popup cannot fetch the others.
+const ROWS_READABLE_NAME = /^[a-z0-9_]+$/;
+const TILE_COLUMN_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /** A DEM in terrain mode shapes the terrain mesh and draws no layer of its own. */
 export function isDemTerrainVisualSuppressed(layer: {
@@ -124,6 +133,8 @@ export function getSourceIdForLayer(layer: SourceIdLayer, prefix?: string) {
   return getCompanionLayerIds(layer.id, prefix).source;
 }
 
+const LEGACY_FILTER_OPERATORS = new Set(['==', '!=', '<', '>', '<=', '>=', 'in', '!in', 'has', '!has']);
+
 /** The feature columns a layer's style, label, filter and popup read. Below z10 the tile
  *  server keeps only the columns a tile URL's `cols=` names, so each one must be listed. */
 export function getDataDrivenColumnsForLayer(
@@ -157,8 +168,28 @@ export function getDataDrivenColumnsForLayer(
     }
     for (const child of node) walk(child);
   }
-  for (const val of Object.values(paint)) walk(val);
-  if (layer.filter) walk(layer.filter);
+  // A legacy property function names its column in `property`.
+  function walkValue(value: unknown): void {
+    const property = (value as { property?: unknown } | null)?.property;
+    if (typeof property === 'string' && property && !Array.isArray(value)) cols.add(property);
+    else walk(value);
+  }
+  // A legacy filter names its field as the second item, and all/any/none nest more filters.
+  function walkLegacyFilter(node: unknown): void {
+    if (!Array.isArray(node)) return;
+    const [op, field] = node;
+    if (op === 'all' || op === 'any' || op === 'none') {
+      for (const child of node.slice(1)) walkLegacyFilter(child);
+    } else if (typeof field === 'string' && field !== '$type' && field !== '$id'
+      && LEGACY_FILTER_OPERATORS.has(op as string)) {
+      cols.add(field);
+    }
+  }
+  for (const val of Object.values(paint)) walkValue(val);
+  if (layer.filter) {
+    walk(layer.filter);
+    walkLegacyFilter(layer.filter);
+  }
   const popup = layer.popup_config;
   if (popup && popup.enabled !== false) {
     if (popup.expression) {
@@ -244,34 +275,54 @@ const VECTOR_SOURCE_MAXZOOM = 14;
 /** The server clusters only up to a layer's cluster max zoom, so single points need tiles past z14. */
 const CLUSTER_SOURCE_MAXZOOM = 22;
 
-function clusterOptions(layer: SyncLayerInput) {
-  return getClusterSourceOptions({ style_config: layer.style_config } as AdapterLayerInput);
-}
-
-// The route's limits on a filter: its length and its bind parameters.
-const MAX_CLUSTER_FILTER_CHARS = 4096;
-const MAX_CLUSTER_FILTER_VALUES = 1000;
-
-function countValues(node: unknown): number {
-  if (Array.isArray(node)) return node.reduce((sum: number, child) => sum + countValues(child), 0);
-  if (node && typeof node === 'object') {
-    return Object.entries(node).reduce((sum, [key, child]) => sum + (key === 'property' || key === 'op' ? 0 : countValues(child)), 0);
-  }
-  return 1;
-}
+type ClusterTileLayer = Pick<
+  SyncLayerInput,
+  'dataset_table_name' | 'tile_version' | 'style_config' | 'filter' | 'dataset_column_info' | 'dataset_tile_columns'
+>;
 
 /**
- * The layer filter as the cluster tile route's CQL2-JSON `filter`, or undefined when there is
- * none, it has no CQL2 form, or it exceeds the route's limits. Bubble counts then include the
- * points the filter hides, as before.
+ * The `filter` a server-cluster tile URL carries for `layer`, or why it goes
+ * without one (see `serverClusterFilter`); `too-large` also when the whole URL
+ * would not fit a request line. The URL is measured with a stand-in for the
+ * tile token, as long as any the server signs, so the map and a dashboard pick,
+ * which has no token, decide the same way.
  */
-function serverClusterFilter(layer: SyncLayerInput): string | undefined {
-  const cql2 = maplibreFilterToCql2(layer.filter, layer.dataset_column_info);
-  if (!cql2 || cql2 === 'unsupported') return undefined;
-  const json = JSON.stringify(cql2);
-  return json.length <= MAX_CLUSTER_FILTER_CHARS && countValues(cql2) <= MAX_CLUSTER_FILTER_VALUES
-    ? json
-    : undefined;
+/** The signed scope is the table name and its publication version, with a hosted tenant's binding in front. */
+const standInToken = (tableName: string) => ({
+  sig: 'f'.repeat(64),
+  exp: 9_999_999_999,
+  scope: `${'t'.repeat(64)}${tableName}:p9999999999`,
+});
+
+export function clusterTileFilter(
+  layer: ClusterTileLayer,
+  tileBaseUrl: string,
+  cols: string[],
+  colsOnly = false,
+): ReturnType<typeof serverClusterFilter> {
+  const routed = serverClusterFilter(layer.filter, layer.dataset_column_info, layer.dataset_tile_columns);
+  if (!('json' in routed)) return routed;
+  const url = buildClusterTileUrl(
+    layer.dataset_table_name,
+    standInToken(layer.dataset_table_name),
+    tileBaseUrl,
+    layer.tile_version ?? undefined,
+    { ...clusterOptions(layer), filter: routed.json },
+    cols,
+    colsOnly,
+  );
+  return fitsTileRequestLine(url) ? routed : { omitted: 'too-large' };
+}
+
+const routedJson = (routed: ReturnType<typeof serverClusterFilter>) => ('json' in routed ? routed.json : undefined);
+
+/** The base tile URLs resolve against: the configured tile host, else this origin's API. */
+export function tileBaseUrlFor(configured: string | undefined, origin: string): string {
+  return configured || `${origin}/api`;
+}
+
+function clusterOptions(layer: Pick<SyncLayerInput, 'style_config'>) {
+  return getClusterSourceOptions({ style_config: layer.style_config } as AdapterLayerInput);
 }
 
 // A source filter runs once, at load, on the raw GeoJSON feature: no camera state and no tile geometry.
@@ -360,15 +411,22 @@ function rasterSource(
     : { type: 'raster', ...spec };
 }
 
+function drawsBoundedGeoJson(layer: SyncLayerInput, described: DescribedLayer): boolean {
+  return described.drawsAs === 'cluster' && getClusterSourceStrategy(layer).kind === 'bounded-geojson';
+}
+
 function vectorSource(
   layer: SyncLayerInput,
   described: DescribedLayer,
   drawn: readonly SyncLayerInput[],
+  cols: string[],
+  required: string[],
+  narrowable: boolean,
   ctx: RenderContext,
 ): VectorSourceSpecification | GeoJSONSourceSpecification {
   const attribution = nonBlank(layer.attribution);
   const data = ctx.boundedGeoJson.get(layer.id);
-  if (described.drawsAs === 'cluster' && getClusterSourceStrategy(layer).kind === 'bounded-geojson' && data) {
+  if (data && drawsBoundedGeoJson(layer, described)) {
     // The source filter drops points before they are grouped, so bubble counts match what the layer shows.
     return {
       type: 'geojson',
@@ -382,15 +440,28 @@ function vectorSource(
   const serverCluster = described.drawsAs === 'cluster';
   const token = ctx.tokens.get(layer.dataset_id);
   const vectorToken = token?.kind === 'vector' ? token : null;
-  const tileBaseUrl = ctx.tileBaseUrl || `${ctx.origin}/api`;
+  const tileBaseUrl = tileBaseUrlFor(ctx.tileBaseUrl, ctx.origin);
   const tileVersion = layer.tile_version ?? undefined;
-  const cols = getDataDrivenColumnsForSource(described.sourceId, drawn, ctx.idPrefix);
+  const tileUrl = (token: { sig: string; exp: number; scope: string } | null, tileCols: string[], only: boolean) => serverCluster
+    ? buildClusterTileUrl(layer.dataset_table_name, token, tileBaseUrl, tileVersion, { ...clusterOptions(layer), filter: routedJson(clusterTileFilter(layer, tileBaseUrl, tileCols, only)) }, tileCols, only)
+    : buildSignedTileUrl(layer.dataset_table_name, token, tileBaseUrl, tileVersion, tileCols, only);
+  // A layer that reads a column by a computed name needs the tile's default projection.
+  const leanAllowed = ctx.colsOnly === true && narrowable;
+  const probe = standInToken(layer.dataset_table_name);
+  // A cluster filter that no longer fits is left off the URL, which the shorter URL would hide.
+  const fits = (tileCols: string[], only: boolean) => {
+    const routed = serverCluster ? clusterTileFilter(layer, tileBaseUrl, tileCols, only) : null;
+    return fitsTileRequestLine(tileUrl(probe, tileCols, only))
+      && !(routed && 'omitted' in routed && routed.omitted === 'too-large');
+  };
+  // Past the request line the tile falls back to the default projection, with only the columns the map reads.
+  const fallback = !fits(cols, leanAllowed);
+  const colsOnly = leanAllowed && !fallback;
+  const tileCols = fallback ? required : cols;
   const bounds = normalizeRasterBounds(layer.bounds);
   return {
     type: 'vector',
-    tiles: [serverCluster
-      ? buildClusterTileUrl(layer.dataset_table_name, vectorToken, tileBaseUrl, tileVersion, { ...clusterOptions(layer), filter: serverClusterFilter(layer) }, cols)
-      : buildSignedTileUrl(layer.dataset_table_name, vectorToken, tileBaseUrl, tileVersion, cols)],
+    tiles: [tileUrl(vectorToken, tileCols, colsOnly)],
     minzoom: VECTOR_SOURCE_MINZOOM,
     maxzoom: serverCluster ? CLUSTER_SOURCE_MAXZOOM : VECTOR_SOURCE_MAXZOOM,
     ...(lineGradientNeededFor(described.sourceId, drawn, ctx.idPrefix) ? { lineMetrics: true } : {}),
@@ -408,6 +479,9 @@ export function describeLayers(layers: readonly SyncLayerInput[], ctx: RenderCon
   const drawn = layers.filter((layer) => !isFolderGroupLayer(layer) && !isDemTerrainVisualSuppressed(layer));
   const sources = new Map<string, SourceSpecification>();
   const described: DescribedLayer[] = [];
+  const specColumns = new Map<string, Set<string>>();
+  const heldColumns = new Map<string, Set<string>>();
+  const dynamicSources = new Set<string>();
   for (const layer of drawn) {
     const layout = layer.layout ?? {};
     const entry: DescribedLayer = {
@@ -422,13 +496,14 @@ export function describeLayers(layers: readonly SyncLayerInput[], ctx: RenderCon
       images: [],
     };
     described.push(entry);
-    if (!sources.has(entry.sourceId)) {
-      const source = entry.drawsAs === 'raster' || entry.drawsAs === 'hillshade'
-        ? rasterSource(layer, entry.drawsAs === 'hillshade', ctx)
-        : vectorSource(layer, entry, drawn, ctx);
-      if (source) sources.set(entry.sourceId, source);
+    // Columns a popup cannot fetch stay in the tile.
+    const unfetchable = heldColumns.get(entry.sourceId) ?? new Set<string>();
+    for (const column of layer.dataset_column_info ?? []) {
+      const fetchable = ROWS_READABLE_NAME.test(column.name) && column.type !== 'USER-DEFINED';
+      if (TILE_COLUMN_NAME.test(column.name) && !fetchable) unfetchable.add(column.name);
     }
-    const sourceType = sources.get(entry.sourceId)?.type === 'geojson' ? 'geojson' : 'vector';
+    heldColumns.set(entry.sourceId, unfetchable);
+    const sourceType = ctx.boundedGeoJson.has(layer.id) && drawsBoundedGeoJson(layer, entry) ? 'geojson' : 'vector';
     // An adapter can throw on a saved style it cannot read. That layer draws
     // nothing, and every other layer is still described.
     try {
@@ -436,12 +511,37 @@ export function describeLayers(layers: readonly SyncLayerInput[], ctx: RenderCon
       if (drawing) {
         entry.specs = drawing.specs;
         entry.images = drawing.images;
+        const read = specColumns.get(entry.sourceId) ?? new Set<string>();
+        for (const spec of drawing.specs) {
+          const { cols, dynamic } = columnsReadBy(spec.layer);
+          for (const col of cols) {
+            if (entry.drawsAs !== 'cluster' || !CLUSTER_OUTPUT_PROPERTIES.has(col)) read.add(col);
+          }
+          if (dynamic) dynamicSources.add(entry.sourceId);
+        }
+        specColumns.set(entry.sourceId, read);
       }
     } catch (e) {
       if (import.meta.env.DEV) console.warn(`[map-sync] describing ${entry.id} failed:`, e);
     }
   }
-  return { sources, layers: described };
+  const tileColumns = new Map<string, readonly string[]>();
+  drawn.forEach((layer, index) => {
+    const entry = described[index];
+    if (sources.has(entry.sourceId)) return;
+    // What the map layers read is the contract with the tile, so the specs the adapters emit decide it.
+    const required = [...new Set([
+      ...getDataDrivenColumnsForSource(entry.sourceId, drawn, ctx.idPrefix),
+      ...(specColumns.get(entry.sourceId) ?? []),
+    ])];
+    const cols = [...new Set([...required, ...(heldColumns.get(entry.sourceId) ?? [])])];
+    tileColumns.set(entry.sourceId, cols);
+    const source = entry.drawsAs === 'raster' || entry.drawsAs === 'hillshade'
+      ? rasterSource(layer, entry.drawsAs === 'hillshade', ctx)
+      : vectorSource(layer, entry, drawn, cols, required, !dynamicSources.has(entry.sourceId), ctx);
+    if (source) sources.set(entry.sourceId, source);
+  });
+  return { sources, layers: described, tileColumns };
 }
 
 /**

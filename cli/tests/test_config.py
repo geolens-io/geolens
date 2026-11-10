@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import os
 import stat
+from pathlib import Path
 
 import pytest
 import tomllib
 
 from geolens_cli.config import (
-    AppConfig,
     atomic_write_text,
     config_path,
     credentials_path,

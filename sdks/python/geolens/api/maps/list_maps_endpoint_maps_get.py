@@ -153,13 +153,13 @@ def sync_detailed(
     visibility: None | str | Unset = UNSET,
     owned_only: bool | Unset = False,
 ) -> Response[MapListResponse | ProblemDetail]:
-    """List Maps Endpoint
+    """List maps
 
-     List maps. Admins see all; authenticated users see own + internal + public; anonymous see public
-    only.
+     List maps. Admins see all; authenticated users see own + internal + public + restricted maps shared
+    with their groups; anonymous see public only.
 
     Supports search (ILIKE on name+description), sort_by (name/created_at/updated_at),
-    sort_dir (asc/desc), and visibility filter (private/internal/public).
+    sort_dir (asc/desc), and visibility filter (private/internal/public/restricted).
     owned_only restricts results to the caller's maps; anonymous callers get no maps.
 
     Args:
@@ -207,13 +207,13 @@ def sync(
     visibility: None | str | Unset = UNSET,
     owned_only: bool | Unset = False,
 ) -> MapListResponse | ProblemDetail | None:
-    """List Maps Endpoint
+    """List maps
 
-     List maps. Admins see all; authenticated users see own + internal + public; anonymous see public
-    only.
+     List maps. Admins see all; authenticated users see own + internal + public + restricted maps shared
+    with their groups; anonymous see public only.
 
     Supports search (ILIKE on name+description), sort_by (name/created_at/updated_at),
-    sort_dir (asc/desc), and visibility filter (private/internal/public).
+    sort_dir (asc/desc), and visibility filter (private/internal/public/restricted).
     owned_only restricts results to the caller's maps; anonymous callers get no maps.
 
     Args:
@@ -256,13 +256,13 @@ async def asyncio_detailed(
     visibility: None | str | Unset = UNSET,
     owned_only: bool | Unset = False,
 ) -> Response[MapListResponse | ProblemDetail]:
-    """List Maps Endpoint
+    """List maps
 
-     List maps. Admins see all; authenticated users see own + internal + public; anonymous see public
-    only.
+     List maps. Admins see all; authenticated users see own + internal + public + restricted maps shared
+    with their groups; anonymous see public only.
 
     Supports search (ILIKE on name+description), sort_by (name/created_at/updated_at),
-    sort_dir (asc/desc), and visibility filter (private/internal/public).
+    sort_dir (asc/desc), and visibility filter (private/internal/public/restricted).
     owned_only restricts results to the caller's maps; anonymous callers get no maps.
 
     Args:
@@ -308,13 +308,13 @@ async def asyncio(
     visibility: None | str | Unset = UNSET,
     owned_only: bool | Unset = False,
 ) -> MapListResponse | ProblemDetail | None:
-    """List Maps Endpoint
+    """List maps
 
-     List maps. Admins see all; authenticated users see own + internal + public; anonymous see public
-    only.
+     List maps. Admins see all; authenticated users see own + internal + public + restricted maps shared
+    with their groups; anonymous see public only.
 
     Supports search (ILIKE on name+description), sort_by (name/created_at/updated_at),
-    sort_dir (asc/desc), and visibility filter (private/internal/public).
+    sort_dir (asc/desc), and visibility filter (private/internal/public/restricted).
     owned_only restricts results to the caller's maps; anonymous callers get no maps.
 
     Args:

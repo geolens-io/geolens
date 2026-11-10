@@ -83,6 +83,25 @@ def _json_number(value):
     return value
 
 
+def value_expr(col_q: str, data_type: str) -> str:
+    """Render a column so its driver value serializes as JSON.
+
+    ``data_type`` is the column's ``information_schema`` type; a type outside
+    the native and numeric sets is returned as text, and a ``timestamptz`` in
+    the UTC form vector tiles carry.
+    """
+    data_type = data_type.lower()
+    if data_type == "timestamp with time zone":
+        return utc_timestamptz_text(col_q)
+    if (
+        data_type
+        and data_type not in _NATIVE_VALUE_TYPES
+        and data_type not in _NUMERIC_TYPES - {"money"}
+    ):
+        return f"{col_q}::text"
+    return col_q
+
+
 async def get_distinct_values(
     session: AsyncSession,
     table_name: str,
@@ -116,16 +135,7 @@ async def get_distinct_values(
             "AND column_name = :c"
         ).bindparams(schema=_current_data_schema(), t=table_name, c=column_name)
     )
-    data_type = (type_result.scalar_one_or_none() or "").lower()
-    expr = col_q
-    if data_type == "timestamp with time zone":
-        expr = utc_timestamptz_text(col_q)
-    elif (
-        data_type
-        and data_type not in _NATIVE_VALUE_TYPES
-        and data_type not in _NUMERIC_TYPES - {"money"}
-    ):
-        expr = f"{col_q}::text"
+    expr = value_expr(col_q, type_result.scalar_one_or_none() or "")
 
     sql = text(
         # codeql[py/sql-injection]

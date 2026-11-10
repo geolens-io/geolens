@@ -73,6 +73,34 @@ _REFUSED_ROUTES: dict[tuple[str, str], str] = {
         ],
         "not needed to publish; PATCH /datasets/{id} and the manifest set status",
     ),
+    **dict.fromkeys(
+        [
+            ("POST", "/maps/import/arcgis-webmap"),
+            ("POST", "/maps/import/arcgis-webmap/"),
+        ],
+        "migration import, not a desktop publish",
+    ),
+    **dict.fromkeys(
+        [
+            ("PUT", "/datasets/{dataset_id}/groups"),
+            ("PUT", "/datasets/{dataset_id}/groups/"),
+        ],
+        "widens who reads a dataset, which a publish key may not",
+    ),
+    **dict.fromkeys(
+        [
+            ("PUT", "/maps/{map_id}/groups"),
+            ("PUT", "/maps/{map_id}/groups/"),
+        ],
+        "widens who reads a map, which a publish key may not",
+    ),
+    **dict.fromkeys(
+        [
+            ("PUT", "/stories/{story_id}/groups"),
+            ("PUT", "/stories/{story_id}/groups/"),
+        ],
+        "widens who reads a story, which a publish key may not",
+    ),
     ("PATCH", "/maps/{map_id}"): "transfers map ownership",
     ("PUT", "/maps/{map_id}"): (
         "replaces a map's layers and settings in place, with no earlier "
@@ -175,6 +203,19 @@ _REFUSED_ROUTES: dict[tuple[str, str], str] = {
             ("POST", "/ingest/register/bulk/"),
         ],
         "registers database tables",
+    ),
+    **dict.fromkeys(
+        [
+            ("POST", "/stories"),
+            ("POST", "/stories/"),
+            ("PATCH", "/stories/{story_id}"),
+            ("PUT", "/stories/{story_id}/draft"),
+            ("POST", "/stories/{story_id}/publish"),
+            ("POST", "/stories/{story_id}/discard"),
+            ("POST", "/stories/{story_id}/duplicate"),
+            ("POST", "/stories/{story_id}/assets"),
+        ],
+        "story authoring, not publishing",
     ),
     ("POST", "/jobs/cleanup/stale"): "admin maintenance",
     ("POST", "/jobs/cleanup/stale/"): "admin maintenance",
@@ -694,12 +735,12 @@ async def test_lowering_visibility_revokes_links_by_the_locked_read(
     """A map published while the update waited for the lock still loses its links."""
     from sqlalchemy import update
 
-    from app.modules.catalog.maps import router as maps_router
+    from app.modules.catalog.maps import service_groups
     from app.modules.catalog.maps.models import Map
 
     headers, _ = owner
     map_id = (await create_map_via_api(client, headers))["id"]
-    lock = maps_router.lock_map_layers
+    lock = service_groups.lock_map_layers
     revoked: list[uuid.UUID] = []
 
     async def published_while_waiting(session, locked_map_id):
@@ -714,8 +755,8 @@ async def test_lowering_visibility_revokes_links_by_the_locked_read(
     async def record_revoke(session, revoked_map_id):
         revoked.append(revoked_map_id)
 
-    monkeypatch.setattr(maps_router, "lock_map_layers", published_while_waiting)
-    monkeypatch.setattr(maps_router, "revoke_share_token_by_map", record_revoke)
+    monkeypatch.setattr(service_groups, "lock_map_layers", published_while_waiting)
+    monkeypatch.setattr(service_groups, "revoke_share_token_by_map", record_revoke)
     try:
         resp = await client.put(
             f"/maps/{map_id}", json={"visibility": "private"}, headers=headers
@@ -748,13 +789,11 @@ async def test_a_publish_key_cancels_and_retries_only_its_owners_jobs(
     await test_db_session.commit()
     try:
         resp = await client.post(f"/jobs/{job.id}/cancel", headers=publish)
-        assert _refused_with(resp, "A publish key can cancel only its owner's jobs"), (
-            resp.text
-        )
+        assert resp.status_code == 404, resp.text
+        assert resp.json()["detail"] == "Job not found"
         read = await client.get(f"/jobs/{job.id}", headers=publish)
-        assert _refused_with(read, "A publish key can read only its owner's jobs"), (
-            read.text
-        )
+        assert read.status_code == 404, read.text
+        assert read.json()["detail"] == "Job not found"
         # The admin's publish key doesn't see the editor's private dataset at all.
         by_dataset = await client.get(f"/jobs/by-dataset/{dataset.id}", headers=publish)
         assert by_dataset.status_code == 404, by_dataset.text
@@ -769,9 +808,8 @@ async def test_a_publish_key_cancels_and_retries_only_its_owners_jobs(
         )
         assert seen.json()["jobs"][0]["status"] == "pending", seen.text
         retry = await client.post(f"/jobs/{job.id}/retry", headers=publish)
-        assert _refused_with(retry, "A publish key can retry only its owner's jobs"), (
-            retry.text
-        )
+        assert retry.status_code == 404, retry.text
+        assert retry.json()["detail"] == "Job not found"
         for url, body in (
             (f"/ingest/preview/{job.id}", None),
             (f"/ingest/commit/{job.id}", {"title": "Not mine"}),
@@ -1708,5 +1746,26 @@ async def test_the_locked_recheck_judges_an_admins_publish_key_without_admin(
         monkeypatch.undo()
         await test_db_session.execute(
             text("DELETE FROM catalog.records WHERE id = :id"), {"id": record_id}
+        )
+        await test_db_session.commit()
+
+
+@pytest.mark.anyio
+async def test_a_publish_key_cannot_import_an_arcgis_web_map(
+    client: AsyncClient, owner, test_db_session
+):
+    headers, owner_id = owner
+    publish = await _mint(client, headers, "publish")
+    try:
+        resp = await client.post(
+            "/maps/import/arcgis-webmap/", json={"webmap": {}}, headers=publish
+        )
+        assert _scope_refused(resp), resp.text
+    finally:
+        await test_db_session.execute(
+            text(
+                "DELETE FROM catalog.api_keys WHERE user_id = :u AND scope = 'publish'"
+            ),
+            {"u": owner_id},
         )
         await test_db_session.commit()

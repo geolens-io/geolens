@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatFeaturePropertyValue } from '../feature-property-value';
+import { formatFeaturePropertyValue, groupsDigits } from '../feature-property-value';
 
 describe('formatFeaturePropertyValue', () => {
   it('returns null for null/undefined so callers can render their own empty text', () => {
@@ -23,6 +23,18 @@ describe('formatFeaturePropertyValue', () => {
     // same shared function.
     expect(formatFeaturePropertyValue(1.234567, 'en', 'True', 'False', 5)).toBe('1.23457');
     expect(formatFeaturePropertyValue(1.234567, 'en', 'True', 'False')).toBe('1.2346');
+  });
+
+  it('drops digit grouping when the caller asks', () => {
+    expect(formatFeaturePropertyValue(1952, 'en', 'True', 'False', 4, false)).toBe('1952');
+    expect(formatFeaturePropertyValue(12345.5, 'de', 'True', 'False', 4, false)).toBe('12345,5');
+  });
+
+  it('groups digits for every role but identifiers and temporal fields', () => {
+    expect(groupsDigits('temporal')).toBe(false);
+    expect(groupsDigits('identifier')).toBe(false);
+    expect(groupsDigits('measure')).toBe(true);
+    expect(groupsDigits(undefined)).toBe(true);
   });
 
   it('renders a plain object as its JSON text, not [object Object]', () => {

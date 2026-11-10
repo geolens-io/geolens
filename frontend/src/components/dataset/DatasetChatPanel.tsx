@@ -18,10 +18,16 @@ import { randomId } from '@/lib/random-id';
 
 /** Set on the document root while the Ask AI launcher is showing. */
 const FLOATING_DOCK_INSET_VAR = '--floating-dock-inset';
+/** Width the launcher covers from the inline end edge, for rows it floats over. */
+const FLOATING_DOCK_REACH_VAR = '--floating-dock-reach';
 
 // Launcher offset (bottom-10, or bottom-44 when lifted above the pending-edits bar) plus its height and a margin.
 const DOCK_INSET = '5.5rem';
 const LIFTED_DOCK_INSET = '14rem';
+// The launcher's end-16 offset plus a margin, added to its measured width.
+const DOCK_END_GAP = '4.5rem';
+// Used when the launcher can't be measured.
+const DOCK_REACH = '12rem';
 
 const prefersReducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
 
@@ -143,14 +149,19 @@ export function DatasetChatPanel({
 
   // The launcher floats over the page bottom; the page reads this to keep its last content clear of it.
   const launcherVisible = isAIAvailable && !open;
+  const dockRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!launcherVisible) return undefined;
     const root = document.documentElement;
     root.style.setProperty(FLOATING_DOCK_INSET_VAR, abovePendingBar ? LIFTED_DOCK_INSET : DOCK_INSET);
+    // The label's width differs by language.
+    const width = dockRef.current?.getBoundingClientRect().width ?? 0;
+    root.style.setProperty(FLOATING_DOCK_REACH_VAR, width > 0 ? `calc(${width}px + ${DOCK_END_GAP})` : DOCK_REACH);
     return () => {
       root.style.removeProperty(FLOATING_DOCK_INSET_VAR);
+      root.style.removeProperty(FLOATING_DOCK_REACH_VAR);
     };
-  }, [launcherVisible, abovePendingBar]);
+  }, [launcherVisible, abovePendingBar, i18n.resolvedLanguage]);
 
   const handleSend = useCallback(async () => {
     const userMsg = input.trim();
@@ -264,6 +275,7 @@ export function DatasetChatPanel({
   // Only the dialog and launcher take clicks; the empty corners must not block the bar.
   return (
     <div
+      ref={dockRef}
       data-testid="dataset-chat-dock"
       className={cn(
         'pointer-events-none fixed end-16 z-40 flex flex-col items-end gap-2',

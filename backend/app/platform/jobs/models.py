@@ -54,6 +54,11 @@ URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY = "url_download_in_flight"
 # file is gone.
 URL_IMPORT_METADATA_KEY = "url_import"
 
+# Stamped by the database import door: ``{connection, schema, table}``. The
+# worker reads the connection from settings by name, so retry re-runs the
+# import from this alone and no host or login is ever stored on the job.
+DATABASE_SOURCE_METADATA_KEY = "database_source"
+
 # Stamped by ``defer_with_orphan_guard`` at dispatch time. ABSENCE is
 # load-bearing: a stamp-less pending row was never queued, so the stale
 # sweep settles it `cancelled` not `failed`. Read by sweep, status poll, worker startup.
@@ -67,6 +72,26 @@ def commit_attempted_marker() -> dict[str, str]:
     they can't disagree on the timestamp format the predicate reads.
     """
     return {COMMIT_ATTEMPTED_METADATA_KEY: datetime.now(timezone.utc).isoformat()}
+
+
+# The account a committed import publishes for; an admin may commit another
+# user's preview. A job committed without it publishes for ``created_by``.
+PUBLISHED_FOR_METADATA_KEY = "published_for"
+
+
+def publication_owner(job: "IngestJob") -> uuid.UUID | None:
+    """Who the dataset ``job`` publishes will belong to."""
+    metadata = job.user_metadata if isinstance(job.user_metadata, dict) else {}
+    stored = metadata.get(PUBLISHED_FOR_METADATA_KEY)
+    return uuid.UUID(stored) if isinstance(stored, str) else job.created_by
+
+
+def dispatch_attempted():
+    """Predicate: the row carries the dispatch stamp ``commit_attempted_marker`` writes."""
+    return (
+        func.coalesce(IngestJob.user_metadata[COMMIT_ATTEMPTED_METADATA_KEY].astext, "")
+        != ""
+    )
 
 
 # Marks an admin embedding backfill run; the row exists so the
@@ -176,6 +201,8 @@ PUBLIC_METADATA_KEYS = frozenset(
         "nodata_override",
         "resampling",
         "strict_cog",
+        "item_id",
+        "portal_url",
         # The request that created the job.
         "analysis",
         "dataset_id",
@@ -190,6 +217,7 @@ PUBLIC_METADATA_KEYS = frozenset(
         "source_type",
         "fan_out_parent_id",
         "all_layers",
+        DATABASE_SOURCE_METADATA_KEY,
         EMBEDDING_BACKFILL_METADATA_KEY,
         # What a manifest's author wrote.
         "record_status",
@@ -204,6 +232,7 @@ PUBLIC_METADATA_KEYS = frozenset(
         "manifest_bbox",
         # The outcome.
         "warnings",
+        "origin_link_loss",
         "rows_failed",
         "temporal_parse_errors",
         "collision_warning",

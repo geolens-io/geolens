@@ -19,13 +19,27 @@ export function isCredentialRejected(err: unknown): boolean {
 // callers manage their own longer-lived signals.
 const REQUEST_TIMEOUT_MS = 30_000;
 
+const MAP_VISIBILITY_HEADER = 'X-GeoLens-Map-Visibility';
+
+/**
+ * How long a response's Retry-After asks the caller to wait, given in seconds
+ * or as an HTTP date; undefined when it names no usable wait.
+ */
+export function retryAfterMs(response: Response): number | undefined {
+  const value = response.headers.get('Retry-After')?.trim();
+  if (!value) return undefined;
+  if (/^\d+$/.test(value)) return Number(value) > 0 ? Number(value) * 1000 : undefined;
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : undefined;
+}
+
 export class ApiError extends Error {
   status: number;
   body?: unknown;
   /** A 401 the client could NOT confirm — the refresh behind it
    * failed transiently, so nothing here says the credential was rejected. */
   unconfirmed?: boolean;
-  /** How long the server asked the caller to wait, from a 429's Retry-After. */
+  /** How long the server asked the caller to wait, from a 429's or 503's Retry-After. */
   retryAfterMs?: number;
 
   constructor(message: string, status: number, body?: unknown) {
@@ -401,6 +415,8 @@ async function apiFetchResponse(
     if (!headers.has('Content-Type') && !(fetchOptions.body instanceof URLSearchParams) && !(fetchOptions.body instanceof FormData)) {
       headers.set('Content-Type', 'application/json');
     }
+    // Without it, the API reads a restricted map back as private.
+    headers.set(MAP_VISIBILITY_HEADER, 'restricted');
   });
 
   if (response.status === 404 && expected404) {
@@ -421,11 +437,13 @@ async function apiFetchResponse(
       detailRaw = body.detail;
     }
 
-    throw new ApiError(
+    const error = new ApiError(
       translateApiErrorDetail(detailRaw, response.status),
       response.status,
       detailRaw,
     );
+    if (response.status === 429 || response.status === 503) error.retryAfterMs = retryAfterMs(response);
+    throw error;
   }
 
   return response;

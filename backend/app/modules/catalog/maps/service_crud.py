@@ -2,8 +2,8 @@
 
 import re
 import uuid
-from collections.abc import AsyncIterator, Iterable
-from contextlib import asynccontextmanager
+from collections.abc import Iterable, Sequence
+from datetime import datetime
 from typing import cast
 
 import structlog
@@ -16,23 +16,39 @@ from sqlalchemy.orm import aliased
 from app.core.db.sqlstate import is_lock_conflict
 from app.core.identity import Identity
 from app.modules.auth.models import User
-from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
+from app.modules.catalog.authorization import (
+    apply_map_visibility_filter,
+    apply_visibility_filter,
+    check_map_access,
+)
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.maps.models import Map, MapLayer
-from app.modules.catalog.maps.service_diff import _replace_layers
+from app.modules.catalog.maps.dashboard import (
+    DashboardConfigInput,
+    drop_repointed,
+    fork_dashboard,
+    merge_dashboard,
+    shows_widgets,
+)
+from app.modules.catalog.maps.service_diff import (
+    _coerce_uuid,
+    _replace_layers,
+    _unreadable_layer_ids,
+)
+from app.modules.catalog.maps.sharing import readable_thumbnail_urls
 from app.modules.catalog.maps.service_layers import (
     MAP_WRITE_DENIED,
     bulk_check_dataset_access,
     lock_map_layers,
     recheck_map_ownership,
     terrain_dataset_ids_visible_to,
+    touch_map,
 )
-from app.modules.catalog.write_recheck import admit_writer
+from app.modules.catalog.write_recheck import admit_writer, refuse_stale_write
 from app.core.text import escape_ilike
 from app.modules.catalog.maps.style_json import project_terrain_config
 from app.modules.catalog.maps.service_shared import (
     LayerRow,
-    _apply_map_visibility_filter,
     _fetch_layer_rows_ordered,
     _resolve_save_response_metadata,
 )
@@ -138,7 +154,7 @@ async def discard_map_asset_objects(
     delete are not atomic. A failed liveness read skips cleanup to protect live
     objects; storage failures must not fail an already-committed request.
     """
-    from app.platform.storage.provider import get_storage
+    from app.platform.storage.reap import delete_objects_best_effort
     from app.platform.storage.titiler_url import resolve_current_storage_key
 
     candidates = {key for key in storage_keys if key}
@@ -155,125 +171,30 @@ async def discard_map_asset_objects(
         )
         return
 
-    for key in sorted(candidates - live):
-        try:
-            await get_storage().delete(resolve_current_storage_key(key))
-        except Exception:  # broad: storage backends raise varied SDK/I/O errors
-            logger.warning(
-                "map_asset_object_delete_failed", storage_key=key, exc_info=True
-            )
+    await delete_objects_best_effort(
+        [resolve_current_storage_key(key) for key in sorted(candidates - live)],
+        "map_asset_object_delete_failed",
+    )
     for key in sorted(candidates & live):
         logger.info("map_asset_object_delete_skipped_still_referenced", storage_key=key)
 
 
-class MapAssetPublication:
-    """The objects written for a row that has not committed yet.
+async def check_map_ownership(
+    map_obj: Map, user: Identity, db: AsyncSession
+) -> set[str]:
+    """Verify user owns the map or is admin and return the user's roles.
 
-    Settling ends tracking at commit. Later failures must not delete an object
-    already referenced by the committed row.
+    Raises 404 when the user can't read the map, like a missing one, and 403
+    when they read it but neither own it nor are admin. The map row locks
+    check the caller again; see ``recheck_map_ownership``.
     """
-
-    def __init__(self) -> None:
-        self._pending: list[str] = []
-        self._outcome_known = True
-
-    def record(self, physical_key: str) -> None:
-        """Note an object that exists but is not named by a committed row yet.
-
-        Physical, not logical: writers resolve keys differently (tenant prefix
-        vs deliberately-global sprite icons), and rollback deletes what it's
-        given rather than resolving anything.
-
-        Call before awaiting the write: a PUT can land and still fail the
-        client, which would orphan an object per retry. Recording first is
-        free, since rollback either deletes what this request wrote or no-ops
-        on an unwritten key.
-        ``test_every_object_write_records_before_putting_1778`` enforces this.
-        """
-        self._pending.append(physical_key)
-
-    def committing(self) -> None:
-        """A commit is about to be awaited, so its outcome stops being knowable.
-
-        A lost connection between Postgres committing and the ack arriving
-        raises out of the await for a transaction that did commit. From this
-        mark until ``settled``, an exception says nothing about whether the
-        row landed, so nothing is deleted.
-
-        This leaves one object behind on the rare true failure; verifying from
-        an independent session, on a connection that just proved unreliable,
-        costs more. Same trade as the liveness read in
-        ``discard_map_asset_objects``.
-
-        Call immediately before the commit:
-        ``test_every_publication_marks_before_committing_1778`` enforces this.
-        """
-        self._outcome_known = False
-
-    def settled(self) -> None:
-        """The row naming every recorded object is committed. Stop tracking.
-
-        Call this as the next statement after the commit, and as the last
-        statement of the block: ``test_every_publication_settles_at_the_commit``
-        fails the build otherwise.
-        """
-        self._pending.clear()
-        self._outcome_known = True
-
-    @property
-    def pending(self) -> tuple[str, ...]:
-        return tuple(self._pending)
-
-    @property
-    def outcome_unknown(self) -> bool:
-        """True between ``committing`` and ``settled``: nothing may be deleted."""
-        return not self._outcome_known
-
-
-@asynccontextmanager
-async def map_asset_publication() -> AsyncIterator[MapAssetPublication]:
-    """Track object writes and clean up those whose catalog rows never commit.
-
-    Cleanup preserves the original exception and logs its own failures. Settled
-    publications need no rollback; an indeterminate commit outcome also skips
-    cleanup because the object may already be referenced by a committed row.
-    """
-    from app.platform.storage.provider import get_storage
-
-    publication = MapAssetPublication()
-    try:
-        yield publication
-    except BaseException:
-        if publication.outcome_unknown:
-            # The exception arrived while a commit was in flight, so it does
-            # not say whether the row landed, and deleting is irreversible.
-            logger.warning(
-                "map_asset_publication_rollback_skipped_indeterminate_commit",
-                storage_keys=list(publication.pending),
-            )
-            raise
-        for physical_key in publication.pending:
-            try:
-                await get_storage().delete(physical_key)
-            except Exception:  # broad: storage backends raise varied errors
-                logger.warning(
-                    "map_asset_publication_rollback_failed",
-                    storage_key=physical_key,
-                    exc_info=True,
-                )
-        raise
-
-
-async def check_map_ownership(map_obj: Map, user: Identity, db: AsyncSession) -> None:
-    """Verify user owns the map or is admin. Raises 403 if neither.
-
-    The map row locks check the caller again; see ``recheck_map_ownership``.
-    """
-    if map_obj.created_by != user.id and "admin" not in await get_user_roles(db, user):
+    roles = await check_map_access(db, map_obj, user)
+    if map_obj.created_by != user.id and "admin" not in roles:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail=MAP_WRITE_DENIED
         )
     admit_writer(db, ("map", map_obj.id), user)
+    return roles
 
 
 async def create_map(
@@ -338,29 +259,54 @@ async def get_map_with_layers(
     return map_obj, layer_rows, forked_from_name, owner_username
 
 
-async def _layer_counts_for_maps(
+async def _visible_layer_ids(
     session: AsyncSession,
-    map_ids: list[uuid.UUID],
+    map_ids: Sequence[uuid.UUID],
     user: Identity | None,
     user_roles: set[str],
-) -> dict[uuid.UUID, int]:
-    """Return how many layers map reads show ``user`` on one gallery page's maps.
+) -> dict[uuid.UUID, list[uuid.UUID]]:
+    """The ids of the layers map reads show ``user``, by map, for one page of maps.
 
     A query keyed by page IDs bounds work at every offset and uses the
-    map_layers.map_id index without aggregating unrelated maps.
+    map_layers.map_id index without reading unrelated maps.
     """
     if not map_ids:
         return {}
     stmt = (
-        select(MapLayer.map_id, func.count(MapLayer.id))
+        select(MapLayer.map_id, MapLayer.id)
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
         .join(Record, Dataset.record_id == Record.id)
         .where(MapLayer.map_id.in_(map_ids))
-        .group_by(MapLayer.map_id)
     )
     stmt = apply_visibility_filter(stmt, user, user_roles, Record, DatasetGrant)
-    result = await session.execute(stmt)
-    return {map_id: count for map_id, count in result.all()}
+    shown: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for map_id, layer_id in (await session.execute(stmt)).all():
+        shown.setdefault(map_id, []).append(layer_id)
+    return shown
+
+
+async def maps_with_dashboards(
+    session: AsyncSession,
+    maps: Sequence[Map],
+    user: Identity | None,
+    user_roles: set[str] | None,
+    shown: dict[uuid.UUID, list[uuid.UUID]] | None = None,
+) -> set[uuid.UUID]:
+    """The ids of the maps that show ``user`` at least one dashboard widget.
+
+    ``shown`` is the layers the caller sees by map, when the caller has read
+    them already; otherwise they are read here for the maps with a dashboard.
+    """
+    with_config = [m for m in maps if m.dashboard_config is not None]
+    if shown is None:
+        shown = await _visible_layer_ids(
+            session, [m.id for m in with_config], user, user_roles or set()
+        )
+    return {
+        m.id
+        for m in with_config
+        if shows_widgets(m.dashboard_config, shown.get(m.id, []))
+    }
 
 
 async def list_maps(
@@ -372,20 +318,22 @@ async def list_maps(
     search: str | None = None,
     sort_by: str = "updated_at",
     sort_dir: str = "desc",
-    visibility: str | None = None,
+    visibilities: Sequence[str] | None = None,
     owned_only: bool = False,
 ) -> tuple[list[dict], int]:
     """List maps with layer counts, filtered by visibility rules.
 
     - Admins can see every map; explicit filters still apply.
-    - Authenticated non-admin users see: their own private maps + all internal + all public.
-    - If user_roles is omitted, treats user as non-admin (still sees own + internal + public).
+    - Authenticated non-admin users see: their own maps + all internal + all public,
+      and restricted maps shared with one of their groups.
+    - If user_roles is omitted, treats user as non-admin.
     - search: ILIKE filter on name and description.
     - sort_by: name, created_at, updated_at (default). Unknown values fall back to updated_at.
     - sort_dir: asc or desc.
-    - visibility: additional filter on Map.visibility (additive on top of RBAC).
+    - visibilities: additional filter on Map.visibility (additive on top of RBAC).
     - owned_only: restrict to the caller's maps; anonymous callers get no maps.
-    - layer_count counts only the layers whose dataset map reads show the caller.
+    - layer_count counts only the layers whose dataset map reads show the caller,
+      and has_dashboard is true when such a read shows a dashboard widget.
 
     Returns (list of dicts with map fields + layer_count + created_by_username, total).
     """
@@ -398,7 +346,7 @@ async def list_maps(
     is_admin = "admin" in user_roles
 
     def _apply_vis_filter(stmt: Select) -> Select:
-        return _apply_map_visibility_filter(stmt, user_id, is_admin)
+        return apply_map_visibility_filter(stmt, user_id, is_admin)
 
     def _apply_extra_filters(stmt: Select) -> Select:
         if owned_only:
@@ -418,8 +366,8 @@ async def list_maps(
                     ),
                 )
             )
-        if visibility:
-            stmt = stmt.where(Map.visibility == visibility)
+        if visibilities:
+            stmt = stmt.where(Map.visibility.in_(visibilities))
         return stmt
 
     sort_column_map = {
@@ -436,8 +384,8 @@ async def list_maps(
     total_result = await session.execute(count_base)
     total = total_result.scalar_one()
 
-    # Paginated maps with author username. The layer counts are fetched
-    # separately, scoped to this page — see _layer_counts_for_maps.
+    # Paginated maps with author username. The layers the caller sees are
+    # fetched separately, scoped to this page — see _visible_layer_ids.
     stmt = (
         select(
             Map,
@@ -455,9 +403,10 @@ async def list_maps(
 
     result = await session.execute(stmt)
     rows = result.all()
-    layer_counts = await _layer_counts_for_maps(
-        session, [row[0].id for row in rows], user, user_roles
-    )
+    page = [row[0] for row in rows]
+    shown = await _visible_layer_ids(session, [m.id for m in page], user, user_roles)
+    dashboards = await maps_with_dashboards(session, page, user, user_roles, shown)
+    thumbnail_urls = await readable_thumbnail_urls(session, page, user)
 
     maps = []
     for row in rows:
@@ -468,11 +417,10 @@ async def list_maps(
                 "name": map_obj.name,
                 "description": map_obj.description,
                 "visibility": map_obj.visibility,
-                "thumbnail_url": f"/maps/{map_obj.id}/thumbnail/"
-                if map_obj.thumbnail_uri
-                else None,
+                "thumbnail_url": thumbnail_urls.get(map_obj.id),
                 "thumbnail_updated_at": map_obj.thumbnail_updated_at,
-                "layer_count": layer_counts.get(map_obj.id, 0),
+                "layer_count": len(shown.get(map_obj.id, [])),
+                "has_dashboard": map_obj.id in dashboards,
                 "created_by": map_obj.created_by,
                 "created_by_username": row[1],
                 "created_at": map_obj.created_at,
@@ -509,19 +457,30 @@ async def update_map(
     pitch: float | None = None,
     basemap_style: str | None = None,
     show_basemap_labels: bool | None = None,
+    show_attribute_table: bool | None = None,
     basemap_config: dict | None | object = _UNSET,
     terrain_config: dict | None | object = _UNSET,
+    dashboard_config: dict | None | object = _UNSET,
     visibility: str | None = None,
     plugins: list[str] | None | object = _UNSET,
     legend_title: str | None | object = _UNSET,
     layers: list[dict] | None = None,
     user: Identity | None = None,
+    expected_updated_at: datetime | None = None,
 ) -> tuple[Map, list[LayerRow], str | None, str | None]:
     """Update map fields. If 'layers' key present, replace all layers.
 
     ``user`` is the caller the save acts for (None reads as anonymous). Layers
     whose dataset map reads hide from it survive a replacement, and a stored
     terrain binding to a DEM hidden from it survives a request naming no DEM.
+    A ``dashboard_config`` is checked against the layers the map has after the
+    save (``merge_dashboard``).
+
+    A ``visibility`` goes through ``prepare_map_visibility``, which may make it
+    restricted, revoke the map's links, or raise ``RestrictedWithoutGroupsError``.
+
+    With ``expected_updated_at``, the map is locked first and a map changed
+    since that value raises 409 ``stale_write`` before anything is written.
 
     Raises ValueError if not found. Flushes but does NOT commit --
     callers must own the commit lifecycle.
@@ -530,12 +489,25 @@ async def update_map(
     ``(Map, layer_rows, forked_from_name, owner_username)``. Built from
     in-session ORM state so callers don't need a post-save re-fetch.
     """
-    if layers is not None:
+    if (
+        layers is not None
+        or dashboard_config is not _UNSET
+        or expected_updated_at is not None
+    ):
         await lock_map_layers(session, map_id)
-    result = await session.execute(select(Map).where(Map.id == map_id))
+    # The caller loaded this map before any lock; the merges below need the
+    # stored values as they are now, not the identity map's copy.
+    result = await session.execute(
+        select(Map).where(Map.id == map_id).execution_options(populate_existing=True)
+    )
     map_obj = result.scalar_one_or_none()
     if map_obj is None:
         raise ValueError(f"Map {map_id} not found")
+    refuse_stale_write(map_obj.updated_at, expected_updated_at)
+    if visibility is not None:
+        from app.modules.catalog.maps.service_groups import prepare_map_visibility
+
+        visibility = await prepare_map_visibility(session, map_id, visibility)
 
     # Update scalar fields (skip None values, except explicit notes=null which
     # clears private builder notes, and explicit plugins=null which restores
@@ -550,6 +522,7 @@ async def update_map(
         "pitch": pitch,
         "basemap_style": basemap_style,
         "show_basemap_labels": show_basemap_labels,
+        "show_attribute_table": show_attribute_table,
         "visibility": visibility,
     }
     for key, value in scalar_fields.items():
@@ -572,8 +545,17 @@ async def update_map(
         map_obj.legend_title = title.strip() if title and title.strip() else None
 
     # Replace layers if provided
+    datasets_before: dict[uuid.UUID, uuid.UUID] = {}
     if layers is not None:
-        await _replace_layers(session, map_id, layers, user)
+        if map_obj.dashboard_config is not None:
+            datasets_before = await _layer_datasets(session, map_id)
+        created_ids = await _replace_layers(session, map_id, layers, user)
+        await touch_map(session, map_id)
+        dashboard_config = _with_created_layer_ids(dashboard_config, created_ids)
+    if dashboard_config is not _UNSET or datasets_before:
+        map_obj.dashboard_config = await _saved_dashboard(
+            session, map_obj, dashboard_config, user, datasets_before
+        )
 
     await session.flush()
     # The flush's UPDATE holds the map row when there was one to write.
@@ -587,6 +569,66 @@ async def update_map(
     if db_updated_at is not None:
         map_obj.updated_at = db_updated_at
     return map_obj, layer_rows, forked_name, owner_username
+
+
+def _with_created_layer_ids(
+    dashboard: object, created_ids: dict[uuid.UUID, uuid.UUID]
+) -> object:
+    """``dashboard`` with each widget's layer id swapped for the id the server
+    gave the layer this request created under it."""
+    if not created_ids or not isinstance(dashboard, dict):
+        return dashboard
+    widgets = dashboard.get("widgets")
+    if not isinstance(widgets, list):
+        return dashboard
+    remapped = []
+    for widget in widgets:
+        sent_id = (
+            _coerce_uuid(widget.get("layer_id")) if isinstance(widget, dict) else None
+        )
+        if sent_id in created_ids:
+            widget = {**widget, "layer_id": str(created_ids[sent_id])}
+        remapped.append(widget)
+    return {**dashboard, "widgets": remapped}
+
+
+async def _layer_datasets(
+    session: AsyncSession, map_id: uuid.UUID
+) -> dict[uuid.UUID, uuid.UUID]:
+    rows = await session.execute(
+        select(MapLayer.id, MapLayer.dataset_id).where(MapLayer.map_id == map_id)
+    )
+    return {layer_id: dataset_id for layer_id, dataset_id in rows.all()}
+
+
+async def _saved_dashboard(
+    session: AsyncSession,
+    map_obj: Map,
+    sent: object,
+    user: Identity | None,
+    datasets_before: dict[uuid.UUID, uuid.UUID],
+) -> dict | None:
+    """The dashboard after a save that sent one (``sent`` is a dict or None),
+    or that replaced the layers (``sent`` is ``_UNSET``)."""
+    layers = list(
+        (
+            await session.scalars(select(MapLayer).where(MapLayer.map_id == map_obj.id))
+        ).all()
+    )
+    repointed = {
+        layer.id
+        for layer in layers
+        if datasets_before.get(layer.id, layer.dataset_id) != layer.dataset_id
+    }
+    stored = drop_repointed(map_obj.dashboard_config, repointed)
+    if sent is _UNSET:
+        return stored
+    return merge_dashboard(
+        None if sent is None else DashboardConfigInput.model_validate(sent),
+        stored,
+        layer_ids={layer.id for layer in layers},
+        hidden_layer_ids=await _unreadable_layer_ids(session, layers, user),
+    )
 
 
 async def delete_map(
@@ -657,18 +699,7 @@ async def duplicate_map(
     if source is None:
         raise ValueError(f"Map {map_id} not found")
 
-    user_roles = await get_user_roles(session, user)
-    is_admin = "admin" in user_roles
-    if not (
-        source.visibility == "public"
-        or source.visibility == "internal"
-        or source.created_by == user.id
-        or is_admin
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Map not found",
-        )
+    user_roles = await check_map_access(session, source, user)
 
     fork_name = await _generate_fork_name(session, source.name, user.id)
 
@@ -686,6 +717,9 @@ async def duplicate_map(
         session, layer_dataset_ids, user, user_roles
     )
 
+    copied_layers = {
+        layer.id: uuid.uuid4() for layer in layers if layer.dataset_id in accessible_ids
+    }
     new_map = Map(
         name=fork_name,
         description=source.description,
@@ -698,6 +732,7 @@ async def duplicate_map(
         pitch=source.pitch,
         basemap_style=source.basemap_style,
         show_basemap_labels=source.show_basemap_labels,
+        show_attribute_table=source.show_attribute_table,
         basemap_config=source.basemap_config,
         # The fork's owner may not see the source's DEM, and every later read of
         # the fork would return the id stored here.
@@ -707,6 +742,8 @@ async def duplicate_map(
                 session, source.terrain_config, accessible_ids, user
             ),
         ),
+        # Widgets follow their layers, so one on a layer the fork skips goes too.
+        dashboard_config=fork_dashboard(source.dashboard_config, copied_layers),
         plugins=source.plugins,
         legend_title=source.legend_title,
         thumbnail_uri=None,
@@ -719,10 +756,11 @@ async def duplicate_map(
 
     excluded_count = 0
     for layer in layers:
-        if layer.dataset_id not in accessible_ids:
+        if layer.id not in copied_layers:
             excluded_count += 1
             continue
         new_layer = MapLayer(
+            id=copied_layers[layer.id],
             map_id=new_map.id,
             dataset_id=layer.dataset_id,
             sort_order=layer.sort_order,

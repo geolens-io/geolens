@@ -142,6 +142,7 @@ class _AuditExportStream:
                     date_from=self.date_from,
                     date_to=self.date_to,
                     search=self.search,
+                    max_rows=self.max_rows,
                 ):
                     yield log
 
@@ -277,8 +278,13 @@ class _AuditExportStream:
     "/audit-logs",
     response_model=AuditLogListResponse,
     include_in_schema=False,
+    summary="List audit log entries",
 )
-@router.get("/audit-logs/", response_model=AuditLogListResponse)
+@router.get(
+    "/audit-logs/",
+    response_model=AuditLogListResponse,
+    summary="List audit log entries",
+)
 async def list_audit_logs(
     user_id: uuid.UUID | None = Query(None),
     action: str | None = Query(None, max_length=200),
@@ -447,6 +453,7 @@ async def export_audit_logs(
 @audit_datasets_router.get(
     "/datasets/{dataset_id}/column-ddl",
     response_model=ColumnDdlFeedResponse,
+    summary="List a dataset's column change history",
 )
 async def get_column_ddl_feed(
     dataset_id: uuid.UUID,

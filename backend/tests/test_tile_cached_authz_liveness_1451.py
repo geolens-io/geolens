@@ -40,6 +40,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.processing.tiles import router as tile_router
+from app.processing.tiles.service import RenderedTile
 from tests.factories import get_user_id
 
 
@@ -435,7 +436,7 @@ async def test_the_catalog_is_asked_before_anything_acts_on_the_cached_meta(
 
     async def _query(*_args, **_kwargs):
         events.append("tile_query")
-        return b"mvt"
+        return RenderedTile(b"mvt", sampled=False)
 
     async def _record_cold_seam(*_args, **_kwargs):
         events.append("cold_seam")

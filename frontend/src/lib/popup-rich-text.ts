@@ -1,6 +1,6 @@
 /**
  * Popup rich-text helpers — detect URLs in popup property values and classify
- * them as image / video / YouTube / plain link.
+ * them as image / video / plain link.
  *
  * Defense-in-depth XSS gate: the URL regex only matches `http://` and
  * `https://` schemes. javascript: / data: / vbscript: URLs are NEVER returned
@@ -10,11 +10,11 @@
  * This module is pure (no React, no DOM) and deterministic.
  */
 
-type UrlKind = 'image' | 'video' | 'youtube' | 'other';
+type UrlKind = 'image' | 'video' | 'other';
 
 interface UrlClassification {
   kind: UrlKind;
-  /** Canonical URL to use as the media src (embed URL for YouTube; original for others). */
+  /** Original URL to use as the media src or link destination. */
   srcUrl: string;
 }
 
@@ -43,9 +43,6 @@ export function trimTrailingPunctuation(url: string): string {
 
 const IMAGE_EXTS = /\.(jpe?g|png|gif|webp|svg)(\?[^#]*)?(#.*)?$/i;
 const VIDEO_EXTS = /\.(mp4|webm|mov)(\?[^#]*)?(#.*)?$/i;
-const YT_HOSTS = /^https?:\/\/(www\.)?(youtube\.com|youtube-nocookie\.com|youtu\.be)/i;
-// ID must be exactly 11 chars from [A-Za-z0-9_-]
-const YT_ID_RE = /(?:v=|youtu\.be\/|embed\/|shorts\/)([A-Za-z0-9_-]{11})(?:[&?#]|$)/;
 
 /**
  * Split `text` into an ordered array of text and URL segments. URLs are
@@ -94,32 +91,10 @@ export function splitTextWithUrls(text: string): RichSegment[] {
 }
 
 /**
- * Extract the canonical YouTube embed URL (`https://www.youtube.com/embed/<ID>`)
- * from watch?v=, youtu.be/, shorts/, or embed/ forms. Returns null when the
- * URL is not a recognised YouTube URL or lacks a valid 11-character video ID.
- */
-export function normalizeYouTubeEmbed(url: string): string | null {
-  if (!YT_HOSTS.test(url)) return null;
-  const match = YT_ID_RE.exec(url);
-  if (!match) return null;
-  const id = match[1];
-  // Verify exactly 11 chars; the regex group already enforces it, this makes
-  // the contract explicit.
-  if (id.length !== 11) return null;
-  return `https://www.youtube.com/embed/${id}`;
-}
-
-/**
- * Classify a URL as image, video, YouTube embed, or plain link. The returned
- * `srcUrl` is the canonical URL to use for rendering: the embed URL for
- * YouTube, the original URL for all other kinds.
+ * Classify a URL as image, video, or plain link, retaining the
+ * original URL for rendering.
  */
 export function classifyUrl(url: string): UrlClassification {
-  // YouTube: check before extension-based checks (YouTube URLs don't have media extensions).
-  const embedUrl = normalizeYouTubeEmbed(url);
-  if (embedUrl !== null) {
-    return { kind: 'youtube', srcUrl: embedUrl };
-  }
   if (IMAGE_EXTS.test(url)) {
     return { kind: 'image', srcUrl: url };
   }

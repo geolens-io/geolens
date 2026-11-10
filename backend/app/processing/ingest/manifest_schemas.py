@@ -107,6 +107,7 @@ MANIFEST_SOURCE_EXTENSIONS: dict[str, frozenset[str]] = {
             ".fgb",
             ".kml",
             ".kmz",
+            ".parquet",
         }
     ),
     "raster_cog": frozenset({".tif", ".tiff"}),
@@ -136,7 +137,7 @@ class ManifestSource(_ManifestBaseModel):
     type: Literal["vector", "raster_cog"] = Field(
         description=(
             "Source modality. Vector sources require zip, gpkg, geojson, json, "
-            "csv, xlsx, xls, fgb, kml, or kmz; raster_cog sources require tif "
+            "csv, xlsx, xls, fgb, kml, kmz, or parquet; raster_cog sources require tif "
             "or tiff."
         )
     )

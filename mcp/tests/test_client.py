@@ -130,6 +130,7 @@ def test_search_datasets_total_excludes_collections_on_later_pages():
         ("wfs", "vector_dataset", "service"),
         ("stac", "raster_dataset", "stac"),
         ("created", "vector_dataset", "created"),
+        ("database", "vector_dataset", "database"),
         ("geotiff", "vrt_dataset", None),
     ],
 )
@@ -424,3 +425,300 @@ def test_remembered_page_zero_counts_stay_bounded():
         api.search_datasets(f"r{i}", offset=0)
 
     assert len(api._collections_by_query) <= 64
+
+
+# --- compact results ---
+
+_MAP_ID = "11111111-1111-1111-1111-111111111111"
+_DATASET_ID = "22222222-2222-2222-2222-222222222222"
+
+
+def test_search_results_keep_only_the_listed_fields():
+    payload = {
+        "type": "FeatureCollection",
+        "numberMatched": 1,
+        "numberReturned": 1,
+        "links": [{"rel": "next", "href": "http://test/next"}],
+        "features": [
+            {
+                "type": "Feature",
+                "id": "d1",
+                "bbox": [1, 2, 3, 4],
+                "geometry": {"type": "Polygon", "coordinates": [[[0, 0]] * 4]},
+                "conformsTo": ["http://example.test/conf"],
+                "properties": {
+                    "title": "Roads",
+                    "description": "x" * 1000,
+                    "keywords": ["roads"],
+                    "updated": "2026-01-01T00:00:00Z",
+                    "crs": "EPSG:4326",
+                    "record_type": "vector_dataset",
+                    "geometry_type": "LineString",
+                    "feature_count": 7,
+                    "source_freshness": "fresh",
+                    "contacts": [{"name": "someone"}],
+                    "themes": [{"scheme": "x"}],
+                    "quality_detail": {"score": 1},
+                    "source_url": "https://provider.example/?token=secret",
+                    "origin_uri": "https://provider.example/layer",
+                    "origin_ref": {"url": "https://provider.example/wfs"},
+                    "some_new_backend_field": "leaks unless listed",
+                },
+            }
+        ],
+    }
+    api, _ = _api(_ok(payload))
+
+    out = api.search_datasets("roads")
+
+    assert set(out) == {"type", "numberMatched", "numberReturned", "features"}
+    feature = out["features"][0]
+    assert set(feature) == {"id", "bbox", "properties"}
+    props = feature["properties"]
+    assert set(props) == {
+        "title",
+        "description",
+        "keywords",
+        "updated",
+        "crs",
+        "record_type",
+        "geometry_type",
+        "feature_count",
+        "source_origin",
+        "source_freshness",
+        "source_health",
+        "source_health_detail",
+        "last_checked_at",
+        "last_refreshed_at",
+    }
+    assert len(props["description"]) <= 301
+    assert props["description"].endswith("…")
+
+
+def _map_payload():
+    layer = {
+        "id": "l1",
+        "dataset_id": _DATASET_ID,
+        "dataset_name": "Roads",
+        "dataset_table_name": "roads_1",
+        "dataset_geometry_type": "LineString",
+        "display_name": "Main roads",
+        "visible": True,
+        "layer_type": "vector_geolens",
+        "filter": ["==", "kind", "main"],
+        "sort_order": 0,
+        "opacity": 1.0,
+        "paint": {"line-color": "#ff0000"},
+        "layout": {"line-cap": "round"},
+        "style_config": {"mode": "single"},
+        "popup_config": {"fields": ["name"]},
+        "label_config": {"field": "name"},
+        "dataset_column_info": [{"name": "name", "type": "text"}],
+        "dataset_sample_values": {"name": ["Elm Street", "Oak Avenue"]},
+    }
+    return {
+        "id": _MAP_ID,
+        "name": "Atlas",
+        "description": "d",
+        "visibility": "private",
+        "center_lng": 1.0,
+        "center_lat": 2.0,
+        "zoom": 3.0,
+        "bearing": 0.0,
+        "pitch": 0.0,
+        "basemap_style": "light",
+        "show_basemap_labels": True,
+        "terrain_config": None,
+        "layer_count": 1,
+        "updated_at": "2026-01-01T00:00:00Z",
+        "created_by_username": "someone",
+        "layers": [layer],
+        "dashboard_config": {"version": 1, "panel": "right", "widgets": [{}, {}]},
+    }
+
+
+def test_get_map_is_a_summary_without_styling_or_sample_values():
+    api, _ = _api(_ok(_map_payload()))
+
+    out = api.get_map(_MAP_ID)
+
+    assert out["name"] == "Atlas"
+    assert out["dashboard_widget_count"] == 2
+    assert "dashboard_config" not in out
+    assert "created_by_username" not in out
+    assert set(out["layers"][0]) == {
+        "id",
+        "dataset_id",
+        "dataset_name",
+        "dataset_table_name",
+        "dataset_geometry_type",
+        "display_name",
+        "visible",
+        "layer_type",
+        "filter",
+    }
+    text = str(out)
+    assert "Elm Street" not in text
+    assert "line-color" not in text
+
+
+def test_get_map_without_dashboard_reports_none():
+    payload = _map_payload()
+    payload["dashboard_config"] = None
+    api, _ = _api(_ok(payload))
+
+    out = api.get_map(_MAP_ID)
+
+    assert out["dashboard_widget_count"] == 0
+
+
+# --- stories and aggregate ---
+
+_STORY_ID = "11111111-2222-3333-4444-555555555555"
+
+
+def _story(story_id, title, published=True, summary=None):
+    return {
+        "id": story_id,
+        "title": title,
+        "summary": summary,
+        "visibility": "public",
+        "created_by": "u",
+        "published_at": "2026-01-01T00:00:00Z" if published else None,
+        "cover_asset_id": None,
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-02T00:00:00Z",
+        "can_edit": True,
+    }
+
+
+def _story_handler(request):
+    if request.url.path == "/api/stories/":
+        return httpx.Response(
+            200,
+            json={
+                "stories": [{**_story(_STORY_ID, "Skyline"), "chapter_count": 2}],
+                "total": 1,
+            },
+        )
+    return httpx.Response(
+        200,
+        json={
+            **_story(request.url.path.rsplit("/", 1)[1], "x"),
+            "document": {"version": 1, "chapters": [{"id": "c1"}, {"id": "c2"}]},
+        },
+    )
+
+
+def test_list_stories_passes_search_and_paging_to_the_route():
+    api, seen = _api(_story_handler)
+    out = api.list_stories(search="sky", limit=5, offset=10)
+    assert len(seen) == 1
+    assert seen[0].url.path == "/api/stories/"
+    assert dict(seen[0].url.params) == {
+        "search": "sky",
+        "limit": "5",
+        "skip": "10",
+        "published_only": "true",
+    }
+    assert out["total"] == 1
+    assert out["stories"][0]["chapter_count"] == 2
+    assert "can_edit" not in out["stories"][0]
+
+
+def test_get_story_reads_the_published_route_without_trailing_slash():
+    api, seen = _api(_story_handler)
+    out = api.get_story(_STORY_ID)
+    assert seen[-1].url.path == f"/api/stories/{_STORY_ID}"
+    assert len(out["document"]["chapters"]) == 2
+    assert "can_edit" not in out
+
+
+def test_story_and_aggregate_not_found_surface_the_status():
+    def handler(request):
+        return httpx.Response(404, json={"detail": "Story not found"})
+
+    api, _ = _api(handler)
+    with pytest.raises(RuntimeError, match="404.*Story not found"):
+        api.get_story(_STORY_ID)
+    with pytest.raises(RuntimeError, match="404"):
+        api.aggregate(DS, {"op": "count"})
+
+
+def test_aggregate_posts_the_body_unchanged_and_keeps_refusal_codes():
+    import json as _json
+
+    body = {
+        "op": "group_by",
+        "group_column": "k",
+        "stat": "count",
+        "bbox": [0, 0, 1, 1],
+    }
+    api, seen = _api(_ok({"op": "group_by", "result": {}}))
+    api.aggregate(DS, body)
+    assert seen[-1].method == "POST"
+    assert seen[-1].url.path == f"/api/datasets/{DS}/aggregate/"
+    assert _json.loads(seen[-1].content.decode()) == body
+
+    def refuse(request):
+        return httpx.Response(
+            422,
+            json={"detail": {"code": "too_wide", "message": "Zoom in " + "x" * 300}},
+        )
+
+    api, _ = _api(refuse)
+    with pytest.raises(RuntimeError) as exc:
+        api.aggregate(DS, body)
+    assert "422" in str(exc.value)
+    assert "too_wide" in str(exc.value)
+
+
+def test_list_stories_drops_drafts_and_misses_an_older_server_returned():
+    def older_server(request):
+        return httpx.Response(
+            200,
+            json={
+                "stories": [
+                    _story(_STORY_ID, "Skyline", summary="Tall"),
+                    _story(DS, "Skyline draft", published=False),
+                    _story("99999999-2222-3333-4444-555555555555", "Rivers"),
+                ],
+                "total": 3,
+            },
+        )
+
+    api, _ = _api(older_server)
+    out = api.list_stories(search="SKYLINE")
+    assert [s["title"] for s in out["stories"]] == ["Skyline"]
+
+
+def test_list_stories_older_server_matches_fields_separately_and_nulls_the_count():
+    def older_server(request):
+        return httpx.Response(
+            200,
+            json={
+                "stories": [
+                    _story(_STORY_ID, "Alpha", summary="Beta"),
+                    _story("99999999-2222-3333-4444-555555555555", "Alpha Beta"),
+                ],
+                "total": 2,
+            },
+        )
+
+    api, _ = _api(older_server)
+    out = api.list_stories(search="alpha beta")
+    assert [s["id"] for s in out["stories"]] == ["99999999-2222-3333-4444-555555555555"]
+    assert out["stories"][0]["chapter_count"] is None
+
+
+def test_error_carries_the_retry_after_header():
+    def busy(request):
+        return httpx.Response(
+            503,
+            headers={"Retry-After": "7"},
+            json={"detail": {"code": "query_unavailable", "message": "later"}},
+        )
+
+    api, _ = _api(busy)
+    with pytest.raises(RuntimeError, match=r"query_unavailable.*Retry-After: 7"):
+        api.aggregate(DS, {"op": "count"})

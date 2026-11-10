@@ -1123,7 +1123,17 @@ async def test_dcat_public_raster_without_asset_omits_the_cog_url(
         urls = _access_urls(resp.json(), key)
         assert urls, f"{path} published no access URLs at all"
         assert not [u for u in urls if u.endswith(cog_path)], path
-        assert any("/raster-tiles/" in u for u in urls), path
+        if "dcat-us" in path:
+            # DCAT-US carries the tile URI template in the description, since
+            # a template is not a valid accessURL.
+            descriptions = [
+                d["description"]
+                for d in resp.json()["distribution"]
+                if "description" in d
+            ]
+            assert any("/raster-tiles/" in d for d in descriptions), path
+        else:
+            assert any("/raster-tiles/" in u for u in urls), path
 
 
 @pytest.mark.anyio

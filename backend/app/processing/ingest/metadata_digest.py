@@ -14,8 +14,13 @@ async def compute_table_content_digest(
     *,
     schema: str,
     has_geometry: bool,
+    lock: bool = True,
 ) -> str:
-    """Hash staged feature contents without depending on row order or generated IDs."""
+    """Hash feature contents without depending on row order or generated IDs.
+
+    ``lock`` holds the table until the caller's transaction ends. Without it
+    the caller needs its own proof that nothing wrote the table since.
+    """
     table = _qtable(table_name, schema=schema)
 
     await session.execute(
@@ -31,9 +36,10 @@ async def compute_table_content_digest(
         )
     )
 
-    # Keep the staged rows unchanged between the digest and publication.
-    # codeql[py/sql-injection]
-    await session.execute(text(f"LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE"))
+    if lock:
+        # Keep the staged rows unchanged between the digest and publication.
+        # codeql[py/sql-injection]
+        await session.execute(text(f"LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE"))
 
     geometry_values = (
         ", encode(ST_AsEWKB(geom, 'XDR'), 'hex'), "

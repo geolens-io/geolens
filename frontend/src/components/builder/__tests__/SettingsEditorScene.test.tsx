@@ -59,15 +59,18 @@ vi.mock('@/components/ui/slider', () => ({
 
 vi.mock('@/components/ui/switch', () => ({
   Switch: ({
+    id,
     checked,
     onCheckedChange,
     'aria-label': ariaLabel,
   }: {
+    id?: string;
     checked: boolean;
     onCheckedChange: (checked: boolean) => void;
-    'aria-label': string;
+    'aria-label'?: string;
   }) => (
     <input
+      id={id}
       type="checkbox"
       role="switch"
       aria-label={ariaLabel}
@@ -120,6 +123,8 @@ function defaultProps(overrides: Partial<SettingsEditorSceneProps> = {}): Settin
     onBackgroundColorReset: vi.fn(),
     projection: 'mercator',
     onSetProjection: vi.fn(),
+    showAttributeTable: true,
+    onShowAttributeTableChange: vi.fn(),
     ...overrides,
   };
 }
@@ -268,6 +273,21 @@ describe('SettingsEditorScene', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset background color' }));
     expect(onBackgroundColorReset).toHaveBeenCalledOnce();
+  });
+
+  it('lets the author turn the readers\' attribute table off and on', () => {
+    const onShowAttributeTableChange = vi.fn();
+    const { rerender } = render(
+      <SettingsEditorScene {...defaultProps({ showAttributeTable: true, onShowAttributeTableChange })} />,
+    );
+
+    const toggle = screen.getByRole('switch', { name: 'Readers can open the attribute table' });
+    expect(toggle).toBeChecked();
+    fireEvent.click(toggle);
+    expect(onShowAttributeTableChange).toHaveBeenCalledWith(false);
+
+    rerender(<SettingsEditorScene {...defaultProps({ showAttributeTable: false, onShowAttributeTableChange })} />);
+    expect(screen.getByRole('switch', { name: 'Readers can open the attribute table' })).not.toBeChecked();
   });
 
   // Test 11: No footer Delete button

@@ -122,7 +122,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: PresignedCompleteRequest,
 ) -> Response[ProblemDetail | UploadResponse]:
-    """Complete Presigned Upload
+    """Complete a presigned upload
 
      Notify that direct-to-S3 upload is complete.
 
@@ -156,7 +156,7 @@ def sync(
     client: AuthenticatedClient,
     body: PresignedCompleteRequest,
 ) -> ProblemDetail | UploadResponse | None:
-    """Complete Presigned Upload
+    """Complete a presigned upload
 
      Notify that direct-to-S3 upload is complete.
 
@@ -185,7 +185,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: PresignedCompleteRequest,
 ) -> Response[ProblemDetail | UploadResponse]:
-    """Complete Presigned Upload
+    """Complete a presigned upload
 
      Notify that direct-to-S3 upload is complete.
 
@@ -217,7 +217,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: PresignedCompleteRequest,
 ) -> ProblemDetail | UploadResponse | None:
-    """Complete Presigned Upload
+    """Complete a presigned upload
 
      Notify that direct-to-S3 upload is complete.
 

@@ -64,7 +64,7 @@ export function BulkUploadProgress({ entries }: BulkUploadProgressProps) {
                 </div>
               )}
               {entry.status === 'upload-failed' && entry.error && (
-                <p className="mt-0.5 text-xs text-destructive">{entry.error}</p>
+                <p role="alert" className="mt-0.5 text-xs text-destructive">{entry.error}</p>
               )}
             </div>
             <div className="flex items-center gap-2">

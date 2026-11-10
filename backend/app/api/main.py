@@ -571,16 +571,26 @@ ogr2ogr -f GPKG output.gpkg OAPIF:{your-server}/api/ {collection-id}
 
 ## Authentication
 
-GeoLens supports three authentication methods. Public datasets are accessible
+GeoLens supports four authentication methods. Public datasets are accessible
 without credentials; private/restricted datasets require one of:
 
 | Method | Usage |
 |--------|-------|
 | **API Key header** | `X-Api-Key: <key>` |
 | **JWT Bearer token** | `Authorization: Bearer <token>` |
+| **API Key as a Basic password** | `Authorization: Basic base64(<any username>:<key>)` |
 | **API Key query param** (deprecated) | `?api_key=<key>` |
 
-Priority: header API key > query param API key > JWT > anonymous.
+Priority: header API key > Basic API key > query param API key > JWT > anonymous.
+
+**HTTP Basic carries an API key, never an account password**, and like the
+query parameter it authenticates `GET`, `HEAD` and `OPTIONS` only, since a
+browser that saved the login replays it on cross-site requests. On any other
+method, or when the header is malformed, the login is a credential that cannot
+be resolved (see below). It is meant for desktop GIS clients that send a saved
+login only after a Basic challenge: point them at `{your-server}/api/desktop`,
+which answers `401` with `WWW-Authenticate: Basic` until the key is sent and
+then redirects to the OGC API landing page at `/api/`.
 
 **The `?api_key=` query parameter is deprecated, and it authenticates reads
 only.** A key sent in the URL is recorded by server access logs and by any
@@ -743,7 +753,7 @@ _is_production = settings.is_production
 # `make version-check` can enforce that all version sites agree. The fallback
 # below covers a source checkout with no `uv pip install -e .`; `make bump`
 # rewrites it.
-_FALLBACK_APP_VERSION = "1.26.0"
+_FALLBACK_APP_VERSION = "1.30.1"
 
 
 def _resolve_app_version() -> str:
@@ -761,6 +771,9 @@ app = FastAPI(
     summary="PostGIS-native geospatial data catalog with OGC API Features and Records support",
     description=_DESCRIPTION,
     root_path="/api",
+    # FastAPI adds the root path to ``servers`` only when serving
+    # /openapi.json, so app.openapi() (the committed snapshot) would omit it.
+    servers=[{"url": "/api"}],
     docs_url=None if _is_production else "/docs",
     redoc_url=None if _is_production else "/redoc",
     openapi_tags=_OPENAPI_TAGS,
@@ -1289,6 +1302,8 @@ def _document_unresolvable_credential_401(schema: dict) -> None:
         get_optional_user_fail_open,
         get_optional_user_no_security_schema,
     )
+    from app.modules.catalog.datasets.api.router_aggregate import aggregate_endpoint
+    from app.modules.catalog.datasets.api.router_data import get_dataset_rows_endpoint
     from app.modules.catalog.features.router import get_features_geojson_z_endpoint
     from app.modules.catalog.maps.router_sharing import get_shared_map_endpoint
     from app.processing.tiles.router import (
@@ -1305,9 +1320,11 @@ def _document_unresolvable_credential_401(schema: dict) -> None:
         get_optional_user_no_security_schema,
     }
     # Vector/raster tile serving verifies both X-Embed-Token and a signed
-    # template (sig, exp, scope); the batch token mint and the other two
+    # template (sig, exp, scope); the batch token mint and the other
     # capability handlers check X-Embed-Token only.
     capability_responses = {
+        aggregate_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
+        get_dataset_rows_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
         get_features_geojson_z_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
         get_shared_map_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
         get_tile_tokens_batch: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
@@ -1555,21 +1572,6 @@ app.openapi = _standards_aware_openapi  # type: ignore[method-assign]
 init_metrics(app)
 
 
-# Health-alert cooldown state, module-level so it
-# persists across requests in one API process.
-# _last_health_alert_at: monotonic() of the last degraded alert, or None if
-#   none sent since boot/recovery. None (not 0.0) means "alert immediately"
-#   — monotonic() is seconds-since-boot, so a 0.0 sentinel would suppress
-#   the first alert during the process's first 5 minutes.
-# _last_health_status: last observed status; a transition back to
-#   "healthy" resets _last_health_alert_at so recovery gets a fresh alert.
-_last_health_alert_at: float | None = None
-_last_health_status: str = "healthy"
-# Probes can finish out of order; an older one never moves the alert state.
-_health_probe_seq = 0
-_health_applied_seq = 0
-
-
 # Liveness, split out from readiness. `/health` 503s if the
 # DB, object store, or cache is down — but the cache path survives a
 # Valkey outage (in-memory fallback behind a circuit breaker), so a
@@ -1605,23 +1607,19 @@ async def health_live(request: Request):
             "model": HealthResponse,
         }
     },
+    summary="Check service health",
 )
 @limiter.limit("60/minute")
 async def health(request: Request):
     """Health check endpoint for ALB, Docker, and Nginx."""
-    import time
-
     from app.observability.health.service import (
-        HEALTH_ALERT_COOLDOWN_SECS,
+        begin_health_probe,
         check_health,
-        claim_health_alert,
-        release_health_alert,
+        health_alert_after,
     )
     from fastapi.responses import JSONResponse
 
-    global _health_probe_seq, _health_applied_seq  # noqa: PLW0603
-    _health_probe_seq += 1
-    seq = _health_probe_seq
+    seq = begin_health_probe()
     result = await check_health()
     # Report version + build commit so a deployment can be
     # verified over HTTP (prod disables /docs). GEOLENS_BUILD_SHA is
@@ -1631,70 +1629,10 @@ async def health(request: Request):
     result["version"] = app.version
     result["build"] = os.environ.get("GEOLENS_BUILD_SHA") or None
     status_code = 200 if result["status"] == "healthy" else 503
-    if seq < _health_applied_seq:
-        return JSONResponse(content=result, status_code=status_code)
-    _health_applied_seq = seq
-
-    # Emit a health-alert when degraded and the toggle is on, cooldown-deduped
-    # so repeated unhealthy polls don't spam admin channels. Runs as a
-    # BackgroundTask so the response returns FIRST and is never delayed by a
-    # slow notification channel — the emit is also fail-safe (never raises).
-    from starlette.background import BackgroundTask
-
-    global _last_health_alert_at, _last_health_status  # noqa: PLW0603
-    current_status = result.get("status", "healthy")
-    now = time.monotonic()
-    health_alert_task: BackgroundTask | None = None
-    if current_status != "healthy":
-        providers: dict = result.get("providers", {})
-        failing = [
-            name
-            for name, info in providers.items()
-            if isinstance(info, dict) and info.get("status") != "ok"
-        ]
-        component = failing[0] if failing else "unknown"
-        # Reset cooldown when the system recovers between degraded windows.
-        if _last_health_status == "healthy":
-            _last_health_alert_at = None
-        _last_health_status = current_status
-        # Emit only if outside the cooldown window (de-dup).
-        # None => no alert sent since boot/recovery → fire immediately.
-        if (
-            _last_health_alert_at is None
-            or now - _last_health_alert_at >= HEALTH_ALERT_COOLDOWN_SECS
-        ):
-            _last_health_alert_at = now
-            from app.platform.notifications.events import (  # LAZY
-                build_event_notification,
-                emit_event_safe,
-            )
-
-            # One replica wins the shared key per window, so the fleet sends a
-            # single alert.
-            if await claim_health_alert(failing):
-                _component = component
-                health_alert_task = BackgroundTask(
-                    emit_event_safe,
-                    event_key="health_alert",
-                    build=lambda: build_event_notification(
-                        "health_alert",
-                        subject=f"GeoLens health degraded: {_component}",
-                        body=(
-                            f"The GeoLens health check reported a degraded status.\n\n"
-                            f"Failing component: {_component}"
-                        ),
-                        extra={"component": _component, "status": current_status},
-                    ),
-                )
-    else:
-        # System is healthy: reset status so a future recurrence re-alerts.
-        if _last_health_status != "healthy":
-            await release_health_alert()
-        _last_health_status = "healthy"
-        _last_health_alert_at = None
-
     return JSONResponse(
-        content=result, status_code=status_code, background=health_alert_task
+        content=result,
+        status_code=status_code,
+        background=await health_alert_after(seq, result),
     )
 
 

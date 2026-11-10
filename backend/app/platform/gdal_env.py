@@ -3,8 +3,8 @@
 In ``platform/`` because ``modules/catalog/sources/preview.py`` calls these
 and ``modules/catalog/`` may not import ``app.processing.*``
 (``test_layering.py``). The raster VSI clamps stay in
-``processing/raster/vrt.py``, which re-exports both of these; the Rule 2 gate
-credits either import path.
+``processing/raster/vrt.py``, which re-exports the vector and service
+helpers; the Rule 2 gate credits either import path.
 """
 
 import os
@@ -44,6 +44,10 @@ _NETWORK_AND_POINTER_DRIVERS: tuple[str, ...] = (
     "AmigoCloud",
     # Spawns a helper program of its own.
     "GPSBabel",
+    # Sign in to a database server named in the connection string.
+    "MSSQLSpatial",
+    "ODBC",
+    "PGeo",
 )
 
 # WFS/OAPIF are the point of the service importers, so they stay; every
@@ -102,5 +106,38 @@ def gdal_service_safe_env(egress: ServiceEgress) -> dict[str, str]:
         **env,
         "GDAL_HTTP_PROXY": egress.address,
         "GDAL_HTTPS_PROXY": egress.address,
+        "GDAL_CONFIG_FILE": os.devnull,
+    }
+
+
+def gdal_database_safe_env(
+    freetds_conf: str, username: str, password: str
+) -> dict[str, str]:
+    """Subprocess env for a vector GDAL CLI reading an operator-configured
+    SQL Server through ``-if MSSQLSpatial``.
+
+    The clamp minus MSSQLSpatial, with the login in the variables the driver
+    reads so it is never in argv or the connection string, and FreeTDS held to
+    the one generated ``freetds_conf``. GDAL's ODBC debug output prints the
+    connection string with the password, so debug is pinned off. No GDAL
+    config file is read, since one can tell GDAL to ignore the environment and
+    the clamp with it. FreeTDS's own ``TDS*`` overrides and any inherited
+    ``MSSQLSPATIAL_*`` options are dropped.
+    """
+    env = _gdal_skip_env(
+        tuple(d for d in _NETWORK_AND_POINTER_DRIVERS if d != "MSSQLSpatial")
+    )
+    env = {
+        key: value
+        for key, value in env.items()
+        if not key.upper().startswith(("TDS", "MSSQLSPATIAL_"))
+    }
+    return {
+        **env,
+        "MSSQLSPATIAL_UID": username,
+        "MSSQLSPATIAL_PWD": password,
+        "MSSQLSPATIAL_USE_GEOMETRY_COLUMNS": "NO",
+        "FREETDSCONF": freetds_conf,
+        "CPL_DEBUG": "OFF",
         "GDAL_CONFIG_FILE": os.devnull,
     }

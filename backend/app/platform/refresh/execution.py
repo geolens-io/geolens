@@ -21,6 +21,10 @@ from app.core.failure_reason import FixedReason, coded_failure_reason
 from app.platform.jobs import ledger
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
+from app.platform.service_auth import (
+    CredentialOverHttpError,
+    refuse_credential_over_http,
+)
 from app.platform.refresh.service import (
     claim_admitted_run_for_job,
     create_pending_run,
@@ -278,6 +282,8 @@ async def execute_admitted_refresh(
 
     This is intentionally the only cross-domain execution entry: it invokes
     the public CatalogPort task, never a router or a private ingest helper.
+    A run whose ``origin_kind`` is not ``service`` is rejected with
+    ``refresh_origin_unsupported``.
     """
     from app.core.db import async_session
     from app.platform.extensions import get_catalog_port
@@ -338,6 +344,27 @@ async def execute_admitted_refresh(
         credential_version = run.credential_version
         scheduled = run.trigger == "scheduled"
         dataset_id = run.dataset_id
+        origin_kind = run.origin_kind
+
+    # The verified service task is the only executor here. A run of any other
+    # kind is refused before a credential is resolved or a task is invoked.
+    if origin_kind != "service":
+        async with async_session() as session:
+            await fail_claimed_admitted_refresh(
+                session,
+                ingest_job_id=job_id,
+                execution_key=claim_key,
+                error_code="refresh_origin_unsupported",
+                error_message=FixedReason(
+                    "This refresh was not started: only service datasets "
+                    "refresh this way.",
+                    code="refresh_origin_unsupported",
+                ),
+            )
+            await session.commit()
+        return RefreshExecutionResult(
+            job_id=job_id, run_id=claimed_run_id, status="rejected"
+        )
 
     if scheduled:
         # Admission refuses a held dataset; this covers a claim of a run
@@ -394,6 +421,27 @@ async def execute_admitted_refresh(
             return RefreshExecutionResult(
                 job_id=job_id, run_id=claimed_run_id, status="rejected"
             )
+
+    try:
+        refuse_credential_over_http(task_args["source_url"], token)
+    except CredentialOverHttpError:
+        async with async_session() as session:
+            await fail_claimed_admitted_refresh(
+                session,
+                ingest_job_id=job_id,
+                execution_key=claim_key,
+                error_code="credential_over_http",
+                error_message=FixedReason(
+                    "This dataset's service uses plain HTTP, so its credential "
+                    "was not sent. Re-import it from the service's https:// "
+                    "address, or ask an administrator to allow its host.",
+                    code="credential_over_http",
+                ),
+            )
+            await session.commit()
+        return RefreshExecutionResult(
+            job_id=job_id, run_id=claimed_run_id, status="rejected"
+        )
 
     task = get_catalog_port().verified_refresh_service_task()
     try:

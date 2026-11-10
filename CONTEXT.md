@@ -19,8 +19,44 @@ _Avoid_: 3D Tiles dataset, mesh.
 
 **Companion drawing**: A label, arrow or extrusion associated with a saved layer. It belongs to that layer's presentation rather than representing another saved layer.
 
+**Dashboard**: A panel of widgets saved with a map, shown beside or below it, or on its own with the map hidden. It follows the map's sharing and has no access of its own; a reader sees the widgets on the layers they can read, and every text widget.
+
+**Widget**: One item in a dashboard: a summary of a single saved layer, such as an indicator, a bar chart, a histogram or a category selector, or a block of Markdown text that reads no layer. A layer's widget applies the layer's saved filter, or says when it can't.
+_Avoid_: Chart, when the widget is a number.
+
+**Pick**: A reader's choice of a bar, a histogram bin or selector values in a dashboard. It filters that layer on the map and its other widgets for the session, never the widget it came from, and is never saved.
+_Avoid_: Selection.
+
+**View scope**: A widget's choice to cover only the features in the current map view rather than the whole layer. A layer with no geometry is always covered whole.
+
+**Reference**: A value an author gives an indicator to compare with, named by its label. The difference shows as an amount, a percentage or both, and is judged by whether a higher value is better.
+
+**Map data**: A reader's panel of a map's data, docked under the map; on a phone it expands to full screen. It shows a layer's attribute table or a list of the features in view.
+_Avoid_: Data tab, data drawer.
+
+**Attribute table**: A saved layer's rows as a table. It starts with the fields the layer's popup shows, and the reader can add or hide columns.
+
+**Value label**: The name a dataset gives a stored value in a column, such as a coded-value domain's description of a code. Readers see the label; filters and picks match the stored value.
+
+**Column allowlist**: The columns of a dataset that anyone reaching it only through an embed may see. Map tiles carry no others; row lists keep the row id.
+_Avoid_: Tile columns.
+
+**Source binding**: The system-managed record of where a dataset's current data came from and how to reach it again: the origin, the pointer and the details a refresh needs. It changes only when an import, replacement, refresh or restore publishes new data, and it never holds a credential.
+_Avoid_: Origin (the derived kind alone), source URL (owner-editable text), `origin_ref`.
+
+**Origin**: How a dataset's data entered the catalog: an upload, a registered table, a service, a database import, a STAC item, or drawing in the app. Derived from the source binding, never stored.
+
+**Managed copy**: A dataset whose data GeoLens copied from a source outside it and can read again, so a refresh brings it up to date. A service import or a database import makes one. An owner keeps at most one managed copy of a source: importing that source again, or while an import of it is still running, is refused, and the owner refreshes the copy instead.
+_Avoid_: Snapshot, mirror, duplicate dataset.
+
 **Service import**: Bringing one remote service layer into GeoLens as a dataset that is a managed copy of it.
 _Avoid_: ArcGIS import, when referring to a single layer.
+
+**Database connection**: A database outside GeoLens, with the login to read it, that an operator has named so users can import its tables. The name is its identity: pointing a name at another server makes every dataset imported through it read from that server at its next refresh. Until then each keeps the copy it has.
+_Avoid_: Data source, external database, SQL Server connection.
+
+**Database import**: Bringing one spatial table or view from a database connection into GeoLens as a dataset that is a managed copy of it.
+_Avoid_: SQL Server import; registered table, which stays in place in GeoLens's own database.
 
 **ArcGIS migration**: Moving an ArcGIS organization's or one user's content into GeoLens item by item, as a migration plan directs.
 _Avoid_: Migration on its own (that is a database schema migration), AGOL import, ArcGIS exit.
@@ -36,7 +72,32 @@ _Avoid_: Migration on its own (that is a database schema migration), AGOL import
 **Role**: A user's permission tier (admin, editor or viewer). It decides what a user may do; it is not an audience that content is shared with.
 _Avoid_: Group, when meaning an audience.
 
-**Group**: A named set of users that datasets and maps can be shared with. Admins manage groups and their members.
+**Group**: A named set of users that datasets, maps and stories can be shared with. Admins manage groups and their members.
 _Avoid_: Team, role, layer group (layers grouped inside a map).
 
-**Restricted**: The visibility of a dataset or map that only its owner, admins and members of the groups it is shared with can see. An item can be restricted with no group left, which leaves only its owner and admins.
+**Restricted**: The visibility of a dataset, map or story that only its owner, admins and members of the groups it is shared with can see. A dataset can be restricted with no group left, which leaves only its owner and admins; a map or story left with no group becomes private.
+
+**Story**: An ordered list of chapters told over saved maps. It has its own owner and visibility, and it can't be published more widely than any map it uses can be read.
+
+**Chapter**: One step of a story: a title, its blocks and an optional scene.
+
+**Block**: One piece of a chapter's content: text, an image, a gallery, a carousel, a video, a framed page, a button or a separator.
+_Avoid_: Widget, which is a dashboard's summary.
+
+**Scene**: What the map shows for a chapter: a saved map, its camera and which of its saved layers are visible. A scene never changes how a layer looks; a chapter that needs a different look shows another layer of the same map. A chapter without a scene keeps the one before it; chapters before the first scene show that first scene. A story with no scene shows its chapters without a map.
+_Avoid_: Slide, view (a map's own saved camera).
+
+**Reader settings**: A story's choices for how readers see it: whether the chapter list shows above the story, the layout, the panel position, the theme and the default transition.
+
+**Layout**: Where a story's chapter text sits: a side panel next to the map, or a floating panel over a full-screen map. Phones put the map above the text.
+
+**Panel position**: Which part of the map a floating panel covers: left, right or centre.
+
+**Transition**: How the map moves into a chapter's scene: Fly, Glide or Cut. A chapter without its own transition uses the story's default. Layers the scene turns on or off fade, and a scene on another saved map fades in over the one before it. A reader who prefers reduced motion always gets a cut.
+_Avoid_: Animation, camera move.
+
+**Draft**: The version of a story its owner edits. A save replaces the whole draft; readers don't see it until it's published.
+
+**Publish**: Copying a story's draft to its published version, once every map its scenes use reaches the story's audience.
+
+**Published version**: The copy of a story that readers see. It changes only when a draft is published.

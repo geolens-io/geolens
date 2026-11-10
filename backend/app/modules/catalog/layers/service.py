@@ -7,11 +7,12 @@ ingestion post-processing pipeline, and registers the layer as a catalog dataset
 import uuid
 
 import structlog
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.tenant_schema import tenant_data_schema, tenant_reader_role
 from app.core.db.tenant_session import current_tenant_var
+from app.modules.catalog.collections.models import DatasetVersion
 from app.modules.catalog.datasets.domain.models import AttributeMetadata, Dataset
 from app.modules.catalog.datasets.domain.service import create_dataset
 from app.modules.catalog.layers.schemas import (
@@ -49,13 +50,25 @@ async def _keep_source_names(
     name to its new one so a renamed column keeps the name it was imported as.
     Called with the catalog rows held, after reloading ``dataset.column_info``,
     so a concurrent column edit's names are not overwritten from a stale copy.
+    Refreshes the live version's snapshot if its row has already been recorded.
     """
-    await session.refresh(dataset, ["column_info"])
+    await session.refresh(dataset, ["column_info", "current_version"])
     source_names = {
         (renamed or {}).get(c["name"], c["name"]): c.get("source_name")
         for c in dataset.column_info or []
     }
-    return [{**c, "source_name": source_names.get(c["name"])} for c in column_info]
+    column_info = [
+        {**c, "source_name": source_names.get(c["name"])} for c in column_info
+    ]
+    await session.execute(
+        update(DatasetVersion)
+        .where(
+            DatasetVersion.dataset_id == dataset.id,
+            DatasetVersion.version_number == dataset.current_version,
+        )
+        .values(column_info=column_info)
+    )
+    return column_info
 
 
 async def _compute_quality_detail(

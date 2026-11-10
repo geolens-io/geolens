@@ -1,6 +1,7 @@
 """ArcGIS sub-layer types: the probe reports them and the preview refuses
 the ones that hold no rows (Group, Raster, Annotation)."""
 
+import asyncio
 import json as _json
 
 from unittest.mock import AsyncMock, patch
@@ -51,6 +52,13 @@ def _stream(data: dict) -> httpx.Response:
     return httpx.Response(200, content=_chunks())
 
 
+def _stream_raw(raw: bytes) -> httpx.Response:
+    async def _chunks():
+        yield raw
+
+    return httpx.Response(200, content=_chunks())
+
+
 def _client(by_path: dict[str, dict]) -> httpx.AsyncClient:
     def handle(request: httpx.Request) -> httpx.Response:
         return _stream(by_path.get(request.url.path.rsplit("/", 1)[-1], {}))
@@ -84,6 +92,161 @@ class TestProbeReportsSubLayerTypes:
         hydrants = next(layer for layer in response.layers if layer.layer_id == 1)
         assert hydrants.source_layer_type == "Feature Layer"
         assert hydrants.parent_layer_id == 0
+
+
+def _service(layers_handler) -> httpx.AsyncClient:
+    """A mock service: the root document and count queries answer normally and
+    ``/layers`` is answered by *layers_handler*."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        tail = request.url.path.rsplit("/", 1)[-1]
+        if tail == "layers":
+            return layers_handler(request)
+        return _stream({"count": 3} if tail == "query" else _ATTACH_ROOT)
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(handle))
+
+
+_ATTACH_ROOT = {
+    "layers": [
+        {"id": 0, "name": "A"},
+        {"id": 1, "name": "B", "hasAttachments": True},
+        {"id": 2, "name": "C"},
+    ],
+    "tables": [{"id": 4, "name": "T"}],
+}
+
+
+async def _probed_layers(layers_handler) -> list:
+    from app.modules.catalog.sources.probe import _enrich_arcgis_layers
+
+    async with _service(layers_handler) as client:
+        result = await probe_arcgis_service(_BASE, client)
+        assert result is not None
+        enriched = await _enrich_arcgis_layers(_BASE, result, client, None)
+    return _build_arcgis_response(result, enriched, _BASE).layers
+
+
+async def _attachment_flags(layers_handler) -> dict:
+    layers = await _probed_layers(layers_handler)
+    return {layer.layer_id: layer.has_attachments for layer in layers}
+
+
+class TestProbeReportsAttachments:
+    async def test_reads_the_flag_from_all_layers_and_tables(self) -> None:
+        body = {
+            "layers": [
+                {"id": 0, "hasAttachments": True},
+                {"id": 2, "hasAttachments": False},
+                {"id": 99, "hasAttachments": True},
+                {"id": 1, "hasAttachments": "yes"},
+            ],
+            "tables": [{"id": 4, "hasAttachments": True}],
+        }
+        flags = await _attachment_flags(lambda request: _stream(body))
+        # 1 keeps its root value; 99 matches no probed layer.
+        assert flags == {0: True, 1: True, 2: False, 4: True}
+
+    async def test_a_root_entry_that_states_it_survives_a_silent_layers_doc(
+        self,
+    ) -> None:
+        flags = await _attachment_flags(lambda request: _stream({"layers": []}))
+        assert flags == {0: None, 1: True, 2: None, 4: None}
+
+    @pytest.mark.parametrize(
+        "handler",
+        [
+            lambda request: httpx.Response(500),
+            lambda request: (_ for _ in ()).throw(httpx.ReadTimeout("slow")),
+            lambda request: _stream_raw(b"<html>nope</html>"),
+            lambda request: _stream({"error": {"code": 400, "message": "bad"}}),
+            lambda request: _stream([{"id": 0, "hasAttachments": True}]),
+            lambda request: _stream({"layers": [{"hasAttachments": True}, "x", None]}),
+        ],
+        ids=[
+            "http_error",
+            "timeout",
+            "non_json",
+            "error_envelope",
+            "non_dict",
+            "malformed",
+        ],
+    )
+    async def test_a_failed_read_keeps_the_root_values(self, handler) -> None:
+        flags = await _attachment_flags(handler)
+        assert flags == {0: None, 1: True, 2: None, 4: None}
+
+    async def test_a_read_past_the_deadline_is_abandoned(self) -> None:
+        from app.modules.catalog.sources.adapters import arcgis_attachments
+
+        class _Slow(httpx.AsyncBaseTransport):
+            async def handle_async_request(self, request):
+                await asyncio.sleep(5)
+
+        async with httpx.AsyncClient(transport=_Slow()) as client:
+            with patch.object(arcgis_attachments, "DEFAULT_CHECK_TIMEOUT", 0.05):
+                details = await arcgis_attachments.fetch_arcgis_layer_details(
+                    _BASE, client
+                )
+        assert details == {}
+
+
+class TestProbeReportsRelationships:
+    async def _relationships(self, body: dict) -> dict:
+        layers = await _probed_layers(lambda request: _stream(body))
+        return {
+            layer.layer_id: [r.model_dump() for r in layer.relationships]
+            for layer in layers
+        }
+
+    async def test_reads_relationship_classes_from_all_layers_and_tables(self) -> None:
+        body = {
+            "layers": [
+                {
+                    "id": 0,
+                    "relationships": [
+                        {
+                            "id": 0,
+                            "name": "Sites_Visits",
+                            "relatedTableId": 4,
+                            "cardinality": "esriRelCardinalityOneToMany",
+                            "role": "esriRelRoleOrigin",
+                        },
+                        {"id": 1, "relatedTableId": True},
+                        "junk",
+                    ],
+                },
+                {"id": 1, "relationships": "none"},
+            ],
+            "tables": [
+                {
+                    "id": 4,
+                    "relationships": [
+                        {
+                            "id": 0,
+                            "name": "Sites_Visits",
+                            "relatedTableId": 0,
+                            "cardinality": "esriRelCardinalityOneToMany",
+                            "role": "esriRelRoleDestination",
+                        }
+                    ],
+                }
+            ],
+        }
+
+        found = await self._relationships(body)
+
+        assert found[0] == [
+            {
+                "id": 0,
+                "name": "Sites_Visits",
+                "related_layer_id": 4,
+                "cardinality": "OneToMany",
+                "role": "Origin",
+            }
+        ]
+        assert found[4][0]["role"] == "Destination"
+        assert found[1] == found[2] == []
 
 
 class TestPreviewRefusesLayersWithoutRows:

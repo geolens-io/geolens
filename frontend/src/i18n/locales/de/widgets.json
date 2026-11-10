@@ -1,0 +1,277 @@
+{
+  "unavailable": "Dieser Block kann nicht angezeigt werden. Er stammt möglicherweise aus einer neueren Version von GeoLens.",
+  "noData": "Noch keine Daten",
+  "noRows": "Keine Daten",
+  "showTable": "Datentabelle anzeigen",
+  "picked": "ausgewählt",
+  "noValue": "(kein Wert)",
+  "other": "Sonstige",
+  "stats": {
+    "count": "Anzahl",
+    "sum": "Summe von {{column}}",
+    "mean": "Mittelwert von {{column}}",
+    "min": "Minimum von {{column}}",
+    "max": "Maximum von {{column}}"
+  },
+  "types": {
+    "markdown": {
+      "label": "Text",
+      "imageNotShown": "Bild wird nicht angezeigt",
+      "imageNotShownAlt": "Bild wird nicht angezeigt: {{alt}}",
+      "sourceHint": "Markdown: Überschriften, Listen und Links funktionieren. HTML und Bilder werden nicht angezeigt."
+    },
+    "indicator": {
+      "label": "Kennzahl",
+      "summary": "{{label}}: {{value}}",
+      "reference": "{{label}}: {{value}}",
+      "referenceDefault": "Referenz",
+      "referenceDefaultPhrase": "dem Referenzwert",
+      "above": "{{amount}} über {{label}}",
+      "below": "{{amount}} unter {{label}}",
+      "same": "Entspricht {{label}}",
+      "outcome": "{{difference}}, {{outcome}}",
+      "difference": "Abweichung",
+      "measure": "Messgröße",
+      "value": "Wert",
+      "good": "günstig",
+      "bad": "ungünstig"
+    },
+    "bar_chart": {
+      "label": "Balkendiagramm",
+      "summary": "{{stat}} nach {{column}}",
+      "keyboardHint": "Mit den Pfeiltasten zwischen den Balken wechseln.",
+      "keyboardHintPick": "Mit den Pfeiltasten wechseln Sie zwischen den Balken. Drücken Sie die Eingabetaste, um die Karte nach einem Balken zu filtern, und erneut, um den Filter zu entfernen.",
+      "keyboardHintPickPage": "Mit den Pfeiltasten wechseln Sie zwischen den Balken. Drücken Sie die Eingabetaste, um das Dashboard nach einem Balken zu filtern, und erneut, um den Filter zu entfernen.",
+      "bar": "{{label}}: {{value}}",
+      "roleDescription": "Balkendiagramm",
+      "summaryDate": "{{stat}} nach {{bucket}} (UTC)",
+      "summaryFeature": "{{value}} nach {{label}}",
+      "summaryFields": "{{stat}} nach Feld",
+      "fieldHeader": "Feld",
+      "buckets": {
+        "day": "Tag",
+        "week": "Woche",
+        "month": "Monat",
+        "year": "Jahr"
+      },
+      "moreBuckets": "Die ersten {{shown}} Zeiträume werden angezeigt. Die Ebene hat mehr.",
+      "moreFeatures": "{{shown}} Objekte werden angezeigt. Die Ebene hat mehr."
+    },
+    "histogram": {
+      "label": "Histogramm",
+      "summary": "Verteilung von {{column}}",
+      "keyboardHint": "Mit den Pfeiltasten wechseln Sie zwischen den Klassen.",
+      "keyboardHintPick": "Mit den Pfeiltasten wechseln Sie zwischen den Klassen. Drücken Sie die Eingabetaste, um die Karte nach einer Klasse zu filtern, und erneut, um den Filter zu entfernen.",
+      "keyboardHintPickPage": "Mit den Pfeiltasten wechseln Sie zwischen den Klassen. Drücken Sie die Eingabetaste, um das Dashboard nach einer Klasse zu filtern, und erneut, um den Filter zu entfernen.",
+      "bin": "{{range}}: {{value}}",
+      "range": "{{lower}} – {{upper}}",
+      "rangeHeader": "Bereich",
+      "roleDescription": "Histogramm"
+    },
+    "category_selector": {
+      "label": "Kategorieauswahl",
+      "summary": "Nach {{column}} filtern",
+      "all": "Alle",
+      "other": "Andere Werte: {{value}}"
+    },
+    "image": {
+      "label": "Bild",
+      "description": "Bild: {{alt}}",
+      "loading": "Bild wird geladen: {{alt}}"
+    },
+    "button": {
+      "label": "Schaltfläche",
+      "opensInNewTab": "(öffnet in neuem Tab)"
+    },
+    "separator": {
+      "label": "Trenner"
+    },
+    "gallery": {
+      "label": "Galerie",
+      "open": "Bild {{current}} von {{total}} öffnen"
+    },
+    "carousel": {
+      "label": "Karussell",
+      "previous": "Vorheriges Bild",
+      "next": "Nächstes Bild",
+      "position": "Bild {{current}} von {{total}}",
+      "roleDescription": "Karussell",
+      "slideRoleDescription": "Folie"
+    },
+    "table": {
+      "label": "Tabelle",
+      "summary": "Statistiken nach {{column}}",
+      "truncated_one": "Nur der erste Wert wird angezeigt. Weitere Werte sind nicht aufgeführt.",
+      "truncated_many": "Die ersten {{count}} Werte werden angezeigt. Weitere Werte sind nicht aufgeführt.",
+      "truncated_other": "Die ersten {{count}} Werte werden angezeigt. Weitere Werte sind nicht aufgeführt."
+    },
+    "feature_list": {
+      "label": "Objektliste",
+      "summary": "Objekte nach {{column}}",
+      "listLabel": "Objekte",
+      "shown": "{{shown}} Objekte angezeigt",
+      "shownMore": "{{shown}} Objekte angezeigt, weitere verfügbar",
+      "loadMore": "Mehr laden",
+      "loadingMore": "Weitere werden geladen",
+      "zoomTo": "Auf der Karte zum Objekt zoomen",
+      "noMap": "Dieses Dashboard hat keine Karte, daher kann nicht zu Objekten gezoomt werden.",
+      "loadFailed": "Weitere Objekte konnten nicht geladen werden.",
+      "retryLoadMore": "Erneut versuchen"
+    },
+    "embed": {
+      "label": "Einbettung",
+      "unavailable": "Diese eingebettete Seite kann hier nicht angezeigt werden, weil ihre Website nicht mehr freigegeben ist.",
+      "originalLink": "Bleibt der Rahmen leer, öffnen Sie das Original:"
+    },
+    "video": {
+      "label": "Video",
+      "unavailable": "Dieses Video kann hier nicht angezeigt werden, weil seine Website nicht mehr freigegeben ist."
+    },
+    "pie_chart": {
+      "label": "Kreisdiagramm",
+      "summary": "{{stat}} nach {{column}}",
+      "keyboardHint": "Mit den Pfeiltasten zwischen den Segmenten wechseln.",
+      "keyboardHintPick": "Mit den Pfeiltasten wechseln Sie zwischen den Segmenten. Drücken Sie die Eingabetaste, um die Karte nach einem Segment zu filtern, und erneut, um den Filter zu entfernen.",
+      "keyboardHintPickPage": "Mit den Pfeiltasten wechseln Sie zwischen den Segmenten. Drücken Sie die Eingabetaste, um das Dashboard nach einem Segment zu filtern, und erneut, um den Filter zu entfernen.",
+      "slice": "{{label}}: {{value}} ({{share}})",
+      "roleDescription": "Kreisdiagramm",
+      "sliceValue": "{{label}}: {{value}}",
+      "truncated": "Die obersten {{shown}} Werte werden angezeigt. Die Ebene hat mehr, die Segmente ergeben daher nicht das Ganze.",
+      "signed": "Segmente können keine negativen oder nicht numerischen Werte darstellen, daher wird dieses Diagramm als Tabelle angezeigt."
+    }
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "open": "Dashboard öffnen",
+    "openWithFilters_one": "Dashboard öffnen, {{count}} Filter angewendet",
+    "openWithFilters_many": "Dashboard öffnen, {{count}} Filter angewendet",
+    "openWithFilters_other": "Dashboard öffnen, {{count}} Filter angewendet",
+    "hide": "Dashboard ausblenden",
+    "followsView": "Folgt dem Kartenausschnitt",
+    "viewScopeUnavailable": "Zeigt die ganze Ebene: Dieses Dashboard blendet seine Karte aus.",
+    "filterIgnored": "Zeigt alle Objekte: Der Filter der Ebene lässt sich auf diese Zahlen nicht anwenden.",
+    "filterIgnoredWithPicks": "Wendet Ihre Filter an, aber nicht den eigenen Filter der Ebene, der sich auf diese Zahlen nicht anwenden lässt.",
+    "tooWide": "Zu viele Objekte im Ausschnitt. Zoomen Sie hinein, um diese Zahlen zu sehen.",
+    "loadFailed": "Diese Zahlen konnten nicht geladen werden.",
+    "columnUnavailable": "Die Spalte dieses Widgets ist hier nicht verfügbar.",
+    "filterRefused": "Der Filter dieses Widgets kann hier nicht angewendet werden.",
+    "allHidden": "Die Layer dieser Widgets sind ausgeblendet. Blenden Sie einen in der Legende ein, um seine Widgets zu sehen.",
+    "retry": "Erneut versuchen",
+    "someFailed": "Einige Widgets konnten ihre Zahlen nicht laden.",
+    "someTooWide": "Zoomen Sie hinein, um die Zahlen einiger Widgets zu sehen.",
+    "filters": "Filter",
+    "filterChip": "{{column}}: {{value}}",
+    "removeFilter": "Filter {{filter}} auf {{layer}} entfernen",
+    "filterApplied": "{{layer}} nach {{filter}} gefiltert.",
+    "filterCleared": "Filter {{filter}} auf {{layer}} entfernt.",
+    "cantFilter": "„{{value}}“ kann nicht als Filter verwendet werden.",
+    "tooManyForClusters": "Zu viele Werte, um die Cluster dieser Ebene zu filtern. Wählen Sie weniger aus.",
+    "clustersCantFilter": "Dieser Filter lässt sich auf die Cluster dieser Ebene in der Karte nicht anwenden.",
+    "tooManyValues": "Zu viele Werte zum Filtern. Wählen Sie weniger aus."
+  },
+  "editor": {
+    "panelPosition": "Position des Bereichs",
+    "panelRight": "Rechts neben der Karte",
+    "panelBottom": "Unter der Karte",
+    "hideMap": "Karte ausblenden",
+    "hideMapHelp": "Leserinnen und Leser sehen die Widgets auf der ganzen Seite, und es wird keine Karte geladen.",
+    "theme": "Design für Leser",
+    "themeFollow": "Wie beim Leser",
+    "empty": "Noch keine Widgets.",
+    "noLayers": "Fügen Sie der Karte einen Vektor- oder Tabellen-Layer hinzu, um Widgets anzulegen.",
+    "add": "{{type}} hinzufügen",
+    "title": "Titel",
+    "layer": "Layer",
+    "pickLayer": "Layer wählen",
+    "scope": "Umfasst",
+    "scopeLayer": "Den ganzen Layer",
+    "scopeView": "Den Kartenausschnitt",
+    "moveUp": "{{name}} nach oben",
+    "moveDown": "{{name}} nach unten",
+    "remove": "{{name}} entfernen",
+    "preview": "Vorschau",
+    "previewPanel": "Panel-Vorschau",
+    "embedColumnHint": "Eingebettete Kopien dieser Karte können diese Spalte nicht anzeigen.",
+    "previewPanelDescription": "Das Panel, wie Leserinnen und Leser es sehen, mit einem Platzhalter für die Karte.",
+    "previewMap": "Karte",
+    "stat": "Kennzahl",
+    "statNames": {
+      "count": "Anzahl",
+      "sum": "Summe",
+      "mean": "Mittelwert",
+      "min": "Minimum",
+      "max": "Maximum"
+    },
+    "noNumericColumns": "Dieser Layer hat keine numerischen Spalten, daher ist nur eine Anzahl möglich.",
+    "column": "Spalte",
+    "groupBy": "Gruppieren nach",
+    "limit": "Balken",
+    "bins": "Klassen",
+    "multiple": "Leser können mehr als einen Wert wählen",
+    "histogramNeedsNumbers": "Diese Ebene hat keine numerischen Spalten, die sich in Klassen einteilen lassen.",
+    "pickColumn": "Spalte wählen",
+    "problem": {
+      "layerRemoved": "Sein Layer ist nicht mehr auf der Karte; beim Speichern wird dieses Widget entfernt.",
+      "missingColumn": "Der Layer hat keine Spalte „{{column}}“. Wählen Sie vor dem Speichern eine andere.",
+      "notNumeric": "„{{column}}“ ist keine numerische Spalte. Wählen Sie vor dem Speichern eine andere.",
+      "viewWithoutGeometry": "Dieser Layer hat keine Geometrie, daher kann das Widget dem Kartenausschnitt nicht folgen. Lassen Sie es den ganzen Layer umfassen.",
+      "notSortable": "Nach „{{column}}“ kann nicht sortiert werden. Wählen Sie vor dem Speichern eine andere Spalte.",
+      "notListable": "„{{column}}“ kann nicht aufgelistet werden. Wählen Sie vor dem Speichern eine andere Spalte.",
+      "notDate": "„{{column}}“ ist keine Datumsspalte. Wählen Sie vor dem Speichern eine andere Spalte."
+    },
+    "maxWidgets": "Ein Dashboard enthält höchstens {{max}} Widgets.",
+    "reference": "Referenzwert",
+    "referenceLabel": "Bezeichnung der Referenz",
+    "comparison": "Abweichung anzeigen als",
+    "comparisons": {
+      "both": "Wert und prozentuale Änderung",
+      "value": "Wert",
+      "percent": "Prozentuale Änderung"
+    },
+    "higherIsBetter": "Ein höherer Wert ist besser",
+    "statN": "Statistik {{n}}",
+    "removeStat": "Statistik {{n}} entfernen",
+    "addStat": "Statistik hinzufügen",
+    "sortBy": "Sortieren nach",
+    "sortGroup": "Gruppenwert",
+    "sortDirection": "Reihenfolge",
+    "sortDesc": "Größte zuerst",
+    "sortAsc": "Kleinste zuerst",
+    "rows": "Zeilen",
+    "featureList": {
+      "title": "Titelspalte",
+      "subtitle": "Untertitelspalte",
+      "none": "Keine",
+      "sortBy": "Sortieren nach",
+      "direction": "Reihenfolge",
+      "ascending": "Aufsteigend",
+      "descending": "Absteigend",
+      "pageSize": "Objekte pro Seite"
+    },
+    "barMode": "Balken zeigen",
+    "barModes": {
+      "category": "Werte einer Spalte",
+      "date": "Datumswerte",
+      "by_feature": "Ein Balken pro Objekt",
+      "by_fields": "Ein Balken pro Feld"
+    },
+    "barNeedsNumbers": "Diese Ebene hat keine numerischen Spalten für dieses Diagramm.",
+    "barNeedsDates": "Diese Ebene hat keine Datumsspalten.",
+    "dateColumn": "Datumsspalte",
+    "dateBucket": "Gruppieren nach",
+    "dateBuckets": {
+      "day": "Tag",
+      "week": "Woche",
+      "month": "Monat",
+      "year": "Jahr"
+    },
+    "labelField": "Beschriftungsfeld",
+    "valueField": "Wertfeld",
+    "sortOrder": "Reihenfolge",
+    "fields": "Felder",
+    "layerColors": "Farben der Ebene verwenden",
+    "layerColorsHelp": "Gilt, wenn die Spalte diejenige ist, nach der der Kartenstil der Ebene einfärbt.",
+    "fieldUnavailable": "{{column}} (keine numerische Spalte dieser Ebene)",
+    "slices": "Segmente"
+  }
+}

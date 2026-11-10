@@ -140,17 +140,17 @@ def test_script_src_has_no_third_party_host_by_default():
     assert result.returncode == 0
     assert "cloudflareinsights" not in rendered
     csps = _CSP_RE.findall(rendered)
-    assert len(csps) == 2
+    assert len(csps) == 3
     for csp in csps:
         assert "script-src 'self' 'wasm-unsafe-eval'; style-src" in csp
 
 
 @needs_envsubst
-def test_script_src_extra_lands_in_both_policies():
+def test_script_src_extra_lands_in_every_policy():
     result, rendered = _render_script_src(_BEACON)
     assert result.returncode == 0
     csps = _CSP_RE.findall(rendered)
-    assert len(csps) == 2
+    assert len(csps) == 3
     for csp in csps:
         assert f"script-src 'self' 'wasm-unsafe-eval' {_BEACON}; style-src" in csp
 

@@ -107,7 +107,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: UserUpdate,
 ) -> Response[ProblemDetail | UserResponse]:
-    """Update User
+    """Update a user
 
      Update a user's fields and/or role (admin only).
 
@@ -141,7 +141,7 @@ def sync(
     client: AuthenticatedClient,
     body: UserUpdate,
 ) -> ProblemDetail | UserResponse | None:
-    """Update User
+    """Update a user
 
      Update a user's fields and/or role (admin only).
 
@@ -170,7 +170,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: UserUpdate,
 ) -> Response[ProblemDetail | UserResponse]:
-    """Update User
+    """Update a user
 
      Update a user's fields and/or role (admin only).
 
@@ -202,7 +202,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: UserUpdate,
 ) -> ProblemDetail | UserResponse | None:
-    """Update User
+    """Update a user
 
      Update a user's fields and/or role (admin only).
 

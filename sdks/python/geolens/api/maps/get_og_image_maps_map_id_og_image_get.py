@@ -103,7 +103,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[File | ProblemDetail]:
-    """Get Og Image
+    """Get a map social card image
 
      Serve the OG social-card image from storage (visibility-checked).
 
@@ -137,7 +137,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> File | ProblemDetail | None:
-    """Get Og Image
+    """Get a map social card image
 
      Serve the OG social-card image from storage (visibility-checked).
 
@@ -166,7 +166,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[File | ProblemDetail]:
-    """Get Og Image
+    """Get a map social card image
 
      Serve the OG social-card image from storage (visibility-checked).
 
@@ -198,7 +198,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> File | ProblemDetail | None:
-    """Get Og Image
+    """Get a map social card image
 
      Serve the OG social-card image from storage (visibility-checked).
 

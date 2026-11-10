@@ -1,0 +1,246 @@
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any, TypeVar, TYPE_CHECKING
+
+from attrs import define as _attrs_define
+from attrs import field as _attrs_field
+
+from ..types import UNSET, Unset
+
+from ..models.stored_story_visibility import check_stored_story_visibility
+from ..models.stored_story_visibility import StoredStoryVisibility
+from dateutil.parser import isoparse
+from typing import cast
+from uuid import UUID
+import datetime
+
+if TYPE_CHECKING:
+    from ..models.group_ref import GroupRef
+    from ..models.story_document import StoryDocument
+
+
+T = TypeVar("T", bound="StoryDraftResponse")
+
+
+@_attrs_define
+class StoryDraftResponse:
+    """
+    Attributes:
+        id (UUID):
+        title (str):
+        summary (None | str):
+        visibility (StoredStoryVisibility): A story's visibility as stored. A private story shared with groups is
+            ``restricted``: its groups' members read it too.
+        created_by (None | UUID):
+        published_at (datetime.datetime | None): When the story was last published; null if never.
+        cover_asset_id (None | UUID): The cover image, served at `/stories/{id}/assets/{cover_asset_id}`; null without
+            one.
+        created_at (datetime.datetime):
+        updated_at (datetime.datetime):
+        can_edit (bool):
+        revision (int):
+        document (StoryDocument):
+        groups (list[GroupRef] | Unset): The sharing groups the story is shared with, by name.
+    """
+
+    id: UUID
+    title: str
+    summary: None | str
+    visibility: StoredStoryVisibility
+    created_by: None | UUID
+    published_at: datetime.datetime | None
+    cover_asset_id: None | UUID
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+    can_edit: bool
+    revision: int
+    document: StoryDocument
+    groups: list[GroupRef] | Unset = UNSET
+    additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        id = str(self.id)
+
+        title = self.title
+
+        summary: None | str
+        summary = self.summary
+
+        visibility: str = self.visibility
+
+        created_by: None | str
+        if isinstance(self.created_by, UUID):
+            created_by = str(self.created_by)
+        else:
+            created_by = self.created_by
+
+        published_at: None | str
+        if isinstance(self.published_at, datetime.datetime):
+            published_at = self.published_at.isoformat()
+        else:
+            published_at = self.published_at
+
+        cover_asset_id: None | str
+        if isinstance(self.cover_asset_id, UUID):
+            cover_asset_id = str(self.cover_asset_id)
+        else:
+            cover_asset_id = self.cover_asset_id
+
+        created_at = self.created_at.isoformat()
+
+        updated_at = self.updated_at.isoformat()
+
+        can_edit = self.can_edit
+
+        revision = self.revision
+
+        document = self.document.to_dict()
+
+        groups: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.groups, Unset):
+            groups = []
+            for groups_item_data in self.groups:
+                groups_item = groups_item_data.to_dict()
+                groups.append(groups_item)
+
+        field_dict: dict[str, Any] = {}
+        field_dict.update(self.additional_properties)
+        field_dict.update(
+            {
+                "id": id,
+                "title": title,
+                "summary": summary,
+                "visibility": visibility,
+                "created_by": created_by,
+                "published_at": published_at,
+                "cover_asset_id": cover_asset_id,
+                "created_at": created_at,
+                "updated_at": updated_at,
+                "can_edit": can_edit,
+                "revision": revision,
+                "document": document,
+            }
+        )
+        if groups is not UNSET:
+            field_dict["groups"] = groups
+
+        return field_dict
+
+    @classmethod
+    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.group_ref import GroupRef
+        from ..models.story_document import StoryDocument
+
+        d = dict(src_dict)
+        id = UUID(d.pop("id"))
+
+        title = d.pop("title")
+
+        def _parse_summary(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        summary = _parse_summary(d.pop("summary"))
+
+        visibility = check_stored_story_visibility(d.pop("visibility"))
+
+        def _parse_created_by(data: object) -> None | UUID:
+            if data is None:
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                created_by_type_0 = UUID(data)
+
+                return created_by_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | UUID, data)
+
+        created_by = _parse_created_by(d.pop("created_by"))
+
+        def _parse_published_at(data: object) -> datetime.datetime | None:
+            if data is None:
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                published_at_type_0 = isoparse(data)
+
+                return published_at_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.datetime | None, data)
+
+        published_at = _parse_published_at(d.pop("published_at"))
+
+        def _parse_cover_asset_id(data: object) -> None | UUID:
+            if data is None:
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                cover_asset_id_type_0 = UUID(data)
+
+                return cover_asset_id_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | UUID, data)
+
+        cover_asset_id = _parse_cover_asset_id(d.pop("cover_asset_id"))
+
+        created_at = isoparse(d.pop("created_at"))
+
+        updated_at = isoparse(d.pop("updated_at"))
+
+        can_edit = d.pop("can_edit")
+
+        revision = d.pop("revision")
+
+        document = StoryDocument.from_dict(d.pop("document"))
+
+        _groups = d.pop("groups", UNSET)
+        groups: list[GroupRef] | Unset = UNSET
+        if _groups is not UNSET:
+            groups = []
+            for groups_item_data in _groups:
+                groups_item = GroupRef.from_dict(groups_item_data)
+
+                groups.append(groups_item)
+
+        story_draft_response = cls(
+            id=id,
+            title=title,
+            summary=summary,
+            visibility=visibility,
+            created_by=created_by,
+            published_at=published_at,
+            cover_asset_id=cover_asset_id,
+            created_at=created_at,
+            updated_at=updated_at,
+            can_edit=can_edit,
+            revision=revision,
+            document=document,
+            groups=groups,
+        )
+
+        story_draft_response.additional_properties = d
+        return story_draft_response
+
+    @property
+    def additional_keys(self) -> list[str]:
+        return list(self.additional_properties.keys())
+
+    def __getitem__(self, key: str) -> Any:
+        return self.additional_properties[key]
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        self.additional_properties[key] = value
+
+    def __delitem__(self, key: str) -> None:
+        del self.additional_properties[key]
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.additional_properties

@@ -22,7 +22,12 @@ import structlog
 
 from procrastinate import App
 
-from app.platform.dataset_origin import classify_origin, set_dataset_origin
+from app.platform.dataset_origin import (
+    CONTACTED_ORIGIN_KINDS,
+    KEEP,
+    SourceBinding,
+    restamp,
+)
 from app.core.service_tokens import reset_registered_credential_secrets
 from app.core.url_redaction import redact_exception_text
 from app.platform.jobs.queue_connector import make_queue_connector
@@ -199,6 +204,9 @@ class IngestContext:
     # of all, reaches the column. Callers pass their own payload rather than
     # one being inferred here.
     origin_ref: dict[str, Any] | None = None
+    # The origin pointer when it isn't ``source_url``: a database import has a
+    # pointer but no URL.
+    origin_uri: str | None = None
     # The local copy of the upload the task archives after the commit that
     # completes the job; that commit owes the archive in a follow-up record.
     archive_from: str | None = None
@@ -217,11 +225,12 @@ task_app = App(
         "app.processing.ingest.tasks_reupload",
         "app.processing.embeddings.tasks",
         "app.processing.analysis.tasks",
-        # The embedding backfill and dataset retention. They live under
-        # modules/admin/ because they emit audit events, which processing/
-        # may not import; this list is how the worker finds them.
+        # The embedding backfill, dataset retention and story image sweep.
+        # They live under modules/admin/: processing/ may not import the
+        # audit or catalog code they run. This list is how the worker finds them.
         "app.modules.admin.backfill_jobs",
         "app.modules.admin.retention_jobs",
+        "app.modules.admin.story_asset_jobs",
     ],
 )
 
@@ -749,6 +758,7 @@ async def run_paged_arcgis_service_fetch(
     on_spawn: Any = None,
     on_page: Any = None,
     planned_ids: tuple[int, ...] | None = None,
+    return_z: bool = False,
 ) -> None:
     """Guarded ArcGIS paging shared by initial import and refresh/reupload.
 
@@ -788,6 +798,7 @@ async def run_paged_arcgis_service_fetch(
                 result_offset=None,
                 object_ids=object_ids,
                 force_arcgis_geojson=force_arcgis_geojson,
+                return_z=return_z,
             )
             return len(page_source.encode("utf-8")) <= _ARCGIS_GDAL_GET_URL_MAX_BYTES
 
@@ -833,6 +844,7 @@ async def run_paged_arcgis_service_fetch(
             result_offset=offset,
             object_ids=object_ids,
             force_arcgis_geojson=force_arcgis_geojson,
+            return_z=return_z,
         )
         await ogr.run_ogr2ogr_service(
             page_source,
@@ -845,6 +857,7 @@ async def run_paged_arcgis_service_fetch(
             append=append,
             schema=schema,
             on_spawn=on_spawn,
+            keep_z=return_z,
         )
         async with async_session() as session:
             result = await session.execute(
@@ -1363,19 +1376,21 @@ async def _finalize_ingest(ctx: IngestContext):
     # dataset. Service ingest supplies the enriched URL through ctx.source_url;
     # an uploaded file has no remote origin to point at, so its origin_uri
     # stays NULL and only the ref carries the filename.
-    ingest_origin_kind = classify_origin(ctx.source_format)
-    set_dataset_origin(
-        dataset,
-        ingest_origin_kind,
-        uri=ctx.source_url,
-        **(ctx.origin_ref or {}),
+    binding = SourceBinding.from_ref(
+        ctx.source_format, ctx.origin_ref, uri=ctx.origin_uri or ctx.source_url
     )
-    # A first service or STAC ingest fetched its bytes from the origin moments
-    # ago, so the import is a contact, as in the reupload swap. Otherwise a
+    # A first service, STAC or database ingest read its data from the origin
+    # moments ago, so the import is a contact, as in the reupload swap. Otherwise a
     # freshly imported service dataset would report last_checked_at NULL until
-    # someone probed it.
-    if ingest_origin_kind in ("service", "stac"):
-        dataset.last_checked_at = datetime.now(timezone.utc)
+    # someone probed it. create_dataset dated freshness.
+    restamp(
+        dataset,
+        binding,
+        contacted_at=datetime.now(timezone.utc)
+        if binding.kind in CONTACTED_ORIGIN_KINDS
+        else None,
+        refreshed_at=KEEP,
+    )
 
     # Compute quality score (requires Dataset to exist for metadata checks)
     quality_score = await compute_quality_score(
@@ -1754,6 +1769,9 @@ async def _write_reupload_catalog(
     source_url: str | None = None,
     file_hash: str | None = None,
     origin_ref: dict[str, Any] | None = None,
+    origin_uri: str | None = None,
+    field_labels: dict | None,
+    job_id: uuid.UUID | None = None,
 ) -> tuple[Any, dict]:
     """Write what the installed table holds onto the catalog rows the caller holds.
 
@@ -1762,9 +1780,13 @@ async def _write_reupload_catalog(
 
     ``origin_ref`` carries the typed per-origin payload for the bytes this
     swap installs, minus the ``kind`` discriminator (derived from
-    ``source_format``). Same contract as ``IngestContext.origin_ref``: keys go
+    ``source_format``), and ``origin_uri`` the pointer when it isn't
+    ``source_url``. Same contract as ``IngestContext.origin_ref``: keys go
     through the per-kind allowlist, and callers supply their own rather than
     one being inferred here.
+
+    ``job_id`` names the job that records ``origin_link_loss`` when the swap
+    moves a service dataset to a host its portal link no longer matches.
 
     Returns the ``DatasetVersion`` this swap produced, flushed so the run row
     can link to its id, and the schema diff the projection computed under the
@@ -1787,10 +1809,11 @@ async def _write_reupload_catalog(
     new_version = dataset.current_version + 1
 
     await record_live_version(session, dataset)
-    schema_diff = await project(session, dataset, measurement)
+    schema_diff = await project(
+        session, dataset, measurement, field_labels=field_labels
+    )
     await stamp_kept_versions(session, dataset, dataset.current_version)
 
-    dataset.source_format = source_format
     dataset.source_filename = source_filename
     dataset.original_srid = original_srid
     dataset.current_version = new_version
@@ -1805,12 +1828,8 @@ async def _write_reupload_catalog(
     # stale pointer. Kind is derived from the new source_format, as on first
     # ingest, so a service reupload stays a service origin and a file
     # reupload clears `origin_uri`.
-    origin_kind = classify_origin(source_format)
-    set_dataset_origin(
-        dataset,
-        origin_kind,
-        uri=source_url,
-        **(origin_ref or {}),
+    binding = SourceBinding.from_ref(
+        source_format, origin_ref, uri=origin_uri or source_url
     )
     # The swap commit time, which is what migration 0036's backfill reads off
     # max(dataset_versions.uploaded_at) for a pre-existing dataset. A Python
@@ -1818,15 +1837,28 @@ async def _write_reupload_catalog(
     # expired after flush, and the next read of dataset.last_refreshed_at then
     # lazy-loads against a session that may already be closed.
     swap_time = datetime.now(timezone.utc)
-    # set_dataset_origin just cleared the probe state, and for a service or
-    # STAC origin this swap is a contact: the bytes were fetched from that
-    # origin moments ago. Leaving last_checked_at NULL would make the API claim
-    # the origin was never contacted. source_health stays NULL: the health
-    # vocabulary belongs to the probe's classifier. A file upload or
-    # registered table contacts nothing and stamps nothing.
-    if origin_kind in ("service", "stac"):
-        dataset.last_checked_at = swap_time
-    dataset.last_refreshed_at = swap_time
+    # For a service, STAC or database origin this swap is a contact: the bytes
+    # were read from that origin moments ago. Leaving last_checked_at NULL
+    # would make the API claim the origin was never contacted, and a NULL
+    # source_health would read as "unknown". A file upload or registered
+    # table stamps nothing.
+    contacted = binding.kind in CONTACTED_ORIGIN_KINDS
+    link_losses = restamp(
+        dataset,
+        binding,
+        contacted_at=swap_time if contacted else None,
+        refreshed_at=swap_time,
+        health=("healthy", None) if contacted else None,
+    )
+    if link_losses and job_id is not None:
+        from app.platform.jobs.models import IngestJob
+
+        job = await session.get(IngestJob, job_id)
+        if job is not None:
+            job.user_metadata = {
+                **(job.user_metadata or {}),
+                "origin_link_loss": link_losses,
+            }
 
     version = DatasetVersion(
         dataset_id=dataset.id,
@@ -1840,6 +1872,7 @@ async def _write_reupload_catalog(
         geometry_type=measurement.geometry_type,
         file_hash=file_hash,
         original_srid=original_srid,
+        column_info=dataset.column_info,
         is_3d=measurement.three_d.get("is_3d"),
         n_dims=measurement.three_d.get("n_dims"),
         uploaded_by=actor_id,
@@ -1855,7 +1888,9 @@ async def _write_reupload_catalog(
             resource_id=dataset.id,
             details={
                 "version_number": new_version,
-                "source_type": "service_url" if source_url else "file",
+                "source_type": "service_url"
+                if source_url
+                else ("database" if binding.kind == "database" else "file"),
                 "source_format": source_format,
                 "source_filename": source_filename,
             },

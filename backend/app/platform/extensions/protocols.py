@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     # app.core.identity.
     from app.core.identity import Identity
     from app.platform.audit import AuditEvent
+    from app.platform.extensions.reader_theme import ReaderTheme
     from app.processing.ai.llm_loop import (
         ActionCollector,
         ToolExecutor,
@@ -32,6 +33,10 @@ class BrandingExtension(Protocol):
     """Extension point for branding customization."""
 
     def get_branding_defaults(self) -> dict[str, object]: ...
+
+    def get_reader_theme(self) -> ReaderTheme | None:
+        """The theme for reader-facing story and dashboard pages, or None."""
+        ...
 
 
 @runtime_checkable

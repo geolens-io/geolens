@@ -1,0 +1,1770 @@
+"""Only ``platform/dataset_origin.py`` writes a dataset's origin pointer.
+
+``origin_uri`` and ``origin_ref`` change only through ``restamp``, whose
+``SourceBinding`` holds only what ``build_origin_ref``'s allowlist builds
+(ADR-002 invariant 4), and which clears the stored probe verdict. This walks
+every module under ``backend/app/`` and fails on any other write it can see:
+
+- ORM attributes: assignment, ``del``, item writes, ``|=`` and mutating methods
+  on the stored dict (reached as ``x.origin_ref``, ``getattr(x, "origin_ref")``
+  or an alias of either, bound by assignment, annotation, walrus, unpacking,
+  ``for``, ``with``, a parameter default or another alias, wherever Python's
+  own scope rules (``symtable``) say the name refers to that binding, including
+  a class attribute read as ``Class.attr``, ``self.attr`` or ``cls.attr``; and
+  through ``dict.update`` or ``operator.setitem``), ``setattr``/``set_attribute``/``set_committed_value``/
+  ``__setattr__`` by name, and ``__dict__``/``vars()`` items.
+- The model's constructor (under any alias), with the columns as keywords or as
+  keys of a ``**`` mapping.
+- SQLAlchemy statements: ``update``/``insert`` reached through any name the
+  module binds to SQLAlchemy (``import sqlalchemy as X``, a submodule, a
+  ``from sqlalchemy... import`` alias, a local name or ``partial`` bound to a
+  builder) or a table's own ``update()``/``insert()``, and the methods that name
+  written columns (``values``, ``ordered_values``, ``on_conflict_do_update``,
+  ``on_duplicate_key_update``, ``from_select``), the legacy ``Query.update()``,
+  ``bulk_*_mappings`` and ``execute()`` parameters. Columns count as keywords,
+  ``dict(...)`` keywords, string keys, model or ``table.c`` attribute and item
+  keys, ``column()``/``literal_column()`` keys and ``(column, value)`` pairs; a
+  mapping passed by local name is followed to the keys it gets in the same
+  function.
+- Raw SQL, including f-strings and ``+`` concatenations of literals: a ``SET``
+  of the columns in any statement (``UPDATE``, ``ON CONFLICT DO UPDATE``,
+  ``MERGE``), a column list naming them (``INSERT INTO``, ``MERGE``'s
+  ``INSERT``, ``COPY ... FROM``), and a positional ``INSERT``, ``MERGE`` insert
+  or ``COPY`` into ``datasets``, whatever its quoting, schema, alias or ``ONLY``.
+- Bulk loaders (``copy_records_to_table``, ``copy_to_table``, ``to_sql``) into
+  ``datasets``, or with a column list naming the columns.
+
+Inside the owner module, each write is counted by the function it sits in, so
+a second write site, or a write outside the setter, fails too.
+
+Behind those rules sits a backstop over every module, the owner included: any
+name for a column fails unless ``NAME_ALLOWLIST`` records its site (file and
+dotted path of enclosing classes and functions) and how many mentions the site
+has. A name is a string naming one (f-strings and ``+`` concatenations read as
+one text, docstrings aside), a keyword argument named after one, or a column
+attribute used other than as a value: as a dict key, in a pair handed to
+``values``/``ordered_values``, or as the receiver of any method but the stored
+dict's reads and SQLAlchemy's comparisons. A write needs one of those or an
+attribute store, so the specific rules give the clearer message and the
+backstop catches what they miss. A site with more mentions than recorded fails,
+and so does one with fewer, so the list only shrinks.
+
+Out of reach: a column name built at runtime from pieces that never spell it
+(``getattr``/``setattr`` with a computed name, a mapping built by ``zip`` or a
+comprehension), and the stored dict passed on as a value (an argument, an
+attribute, a container) and changed in place where the column is not named.
+Not in scope: SQL in database functions and triggers, migrations (outside
+``backend/app/``), and ``source_format``, which several publication paths write
+beside the setter.
+"""
+
+import ast
+import re
+import symtable
+import textwrap
+from collections import Counter, defaultdict, deque
+from pathlib import Path
+
+import pytest
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+APP_ROOT = BACKEND_ROOT / "app"
+OWNER = "app/platform/dataset_origin.py"
+# Every write the owner module makes, by enclosing function.
+OWNER_WRITES = Counter(
+    {
+        ("restamp", "writes .origin_ref"): 1,
+        ("restamp", "writes .origin_uri"): 1,
+    }
+)
+
+COLUMNS = frozenset({"origin_ref", "origin_uri"})
+_DICT_MUTATORS = frozenset(
+    {"update", "pop", "popitem", "setdefault", "clear", "__setitem__", "__delitem__"}
+)
+# SQLAlchemy's statement builders.
+_STATEMENTS = frozenset({"update", "insert"})
+# Conventional names, read as SQLAlchemy even without an import in view.
+_DEFAULT_SQLALCHEMY_NAMES = frozenset(
+    {"sa", "sqlalchemy", "postgresql", "mysql", "sqlite"}
+)
+# Methods whose arguments name the columns a statement writes. None of them is
+# a dict method, except ``values`` called with arguments, which a dict never is.
+_WRITE_METHODS = frozenset(
+    {
+        "values",
+        "ordered_values",
+        "on_conflict_do_update",
+        "on_duplicate_key_update",
+        "from_select",
+        "bulk_insert_mappings",
+        "bulk_update_mappings",
+    }
+)
+# Keyword spellings of the setters' attribute name: set_attribute(key=...).
+_KEY_KEYWORDS = frozenset({"key", "name"})
+# Bulk loaders that take a table name and, optionally, the columns they fill.
+_TABLE_LOADERS = frozenset({"copy_records_to_table", "copy_to_table", "to_sql"})
+# Calls that set an attribute named by a string argument.
+_SETTERS = frozenset(
+    {"setattr", "set_attribute", "set_committed_value", "__setattr__", "delattr"}
+)
+
+# Raw SQL is matched after comments and double quotes are dropped, case is
+# lowered and whitespace is collapsed, so any identifier quoting matches.
+_SQL_COMMENT = re.compile(r"/\*.*?\*/|--[^\n]*", re.DOTALL)
+_COLUMN = r"\borigin_(?:ref|uri)\b"
+_DATASETS = (
+    r"(?:only\s+)?(?:\w+\.)?datasets\b"
+    r"(?:\s+(?:as\s+)?(?!(?:values|select|default|overriding|from|using|with)\b)\w+)?"
+)
+_SQL_WRITES = tuple(
+    re.compile(pattern)
+    for pattern in (
+        # SET in UPDATE, ON CONFLICT DO UPDATE and MERGE, through a JSON path too.
+        r"\bset\b(?:(?!\b(?:where|from|returning)\b)[^;])*?"
+        + _COLUMN
+        + r"(?:\s*\[[^\]]*\]|\s*->>?\s*'[^']*')*\s*=(?!=)",
+        r"\bset\s*\([^)]*" + _COLUMN + r"[^)]*\)\s*=",
+        # Column lists.
+        r"\binsert\s+into\s+(?:(?!\b(?:select|values|default)\b)[^(;])*\([^)]*"
+        + _COLUMN,
+        r"\binsert\s*\([^)]*" + _COLUMN,
+        r"\bcopy\s+[\w.]+\s*\([^)]*" + _COLUMN + r"[^)]*\)\s*from\b",
+        # Every column, by position.
+        r"\binsert\s+into\s+"
+        + _DATASETS
+        + r"\s*(?:values\b|select\b|default\s+values\b|overriding\b|with\b|\(\s*select\b)",
+        r"\bmerge\s+into\s+"
+        + _DATASETS
+        + r".*\binsert\s+(?:values\b|default\s+values\b)",
+        r"\bcopy\s+" + _DATASETS + r"\s+from\b",
+    )
+)
+# Files that never name a column can still insert into datasets by position.
+_POSITIONAL_HINT = re.compile(r"\b(?:into|copy)\b[^;]{0,120}?datasets\b")
+
+
+def _terminal_name(node: ast.expr) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return None
+
+
+def _root_name(node: ast.expr) -> str | None:
+    while isinstance(node, ast.Attribute):
+        node = node.value
+    return node.id if isinstance(node, ast.Name) else None
+
+
+def _is_column(node: ast.expr) -> bool:
+    return isinstance(node, ast.Attribute) and node.attr in COLUMNS
+
+
+def _names_a_column(node: ast.AST) -> bool:
+    return isinstance(node, ast.Constant) and node.value in COLUMNS
+
+
+def _reads_stored(node: ast.AST) -> str | None:
+    """The column whose stored value the expression is: ``x.origin_ref`` or ``getattr(x, "origin_ref")``."""
+    if _is_column(node):
+        return node.attr
+    if (
+        isinstance(node, ast.Call)
+        and _terminal_name(node.func) == "getattr"
+        and len(node.args) >= 2
+        and _names_a_column(node.args[1])
+    ):
+        return node.args[1].value
+    return None
+
+
+def _may_write(source: str) -> bool:
+    """Whether the text could hold a write, in any case, so it is worth parsing."""
+    lowered = source.lower()
+    return any(column in lowered for column in COLUMNS) or bool(
+        _POSITIONAL_HINT.search(lowered)
+    )
+
+
+def _is_sql_write(text: object) -> bool:
+    if not isinstance(text, str):
+        return False
+    lowered = text.lower()
+    if "origin_" not in lowered and "datasets" not in lowered:
+        return False
+    flat = " ".join(_SQL_COMMENT.sub(" ", lowered).replace('"', "").split())
+    return any(pattern.search(flat) for pattern in _SQL_WRITES)
+
+
+def _string_text(node: ast.AST) -> str | None:
+    """The literal text of an f-string or a ``+`` of strings, with gaps for values."""
+    if isinstance(node, ast.Constant):
+        return node.value if isinstance(node.value, str) else None
+    if isinstance(node, ast.JoinedStr):
+        return "".join(
+            part.value if isinstance(part, ast.Constant) else " _ "
+            for part in node.values
+        )
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left, right = _string_text(node.left), _string_text(node.right)
+        if left is None and right is None:
+            return None
+        return (left or " _ ") + (right or " _ ")
+    return None
+
+
+def _receivers(call: ast.Call):
+    """The calls a method chain is built on, nearest first."""
+    node = call.func
+    while isinstance(node, (ast.Attribute, ast.Call)):
+        if isinstance(node, ast.Call):
+            yield node
+            node = node.func
+        else:
+            node = node.value
+
+
+class _Module:
+    """One module's names for the model, SQLAlchemy and its statement builders."""
+
+    def __init__(self, tree: ast.AST) -> None:
+        dataset_names = {"Dataset"}
+        modules = set(_DEFAULT_SQLALCHEMY_NAMES)
+        builders = set(_STATEMENTS)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name.split(".")[0] == "sqlalchemy":
+                        modules.add(alias.asname or "sqlalchemy")
+            elif isinstance(node, ast.ImportFrom):
+                from_sqlalchemy = (node.module or "").split(".")[0] == "sqlalchemy"
+                for alias in node.names:
+                    bound = alias.asname or alias.name
+                    if alias.name == "Dataset":
+                        dataset_names.add(bound)
+                    elif from_sqlalchemy and alias.name in _STATEMENTS:
+                        builders.add(bound)
+                    elif from_sqlalchemy:
+                        modules.add(bound)
+        self.modules = frozenset(modules)
+        self.builders = builders
+        self.dataset_names = dataset_names
+        # Local names bound to a builder or to the model, until none is new.
+        assigns = [node for node in ast.walk(tree) if isinstance(node, ast.Assign)]
+        grew = True
+        while grew:
+            grew = False
+            for node in assigns:
+                targets = {t.id for t in node.targets if isinstance(t, ast.Name)}
+                if self.builder_ref(node.value) and not targets <= builders:
+                    builders |= targets
+                    grew = True
+                elif self._model_ref(node.value) and not targets <= dataset_names:
+                    dataset_names |= targets
+                    grew = True
+
+    def _model_ref(self, node: ast.expr) -> bool:
+        if isinstance(node, ast.Name):
+            return node.id in self.dataset_names
+        return (
+            isinstance(node, ast.Call)
+            and _terminal_name(node.func) == "get_dataset_orm_class"
+        )
+
+    def builder_ref(self, node: ast.expr) -> bool:
+        """Whether the expression is ``update``/``insert`` itself, under any name."""
+        if isinstance(node, ast.Name):
+            return node.id in self.builders
+        if isinstance(node, ast.Attribute):
+            return node.attr in _STATEMENTS and _root_name(node) in self.modules
+        return (
+            isinstance(node, ast.Call)
+            and _terminal_name(node.func) == "partial"
+            and bool(node.args)
+            and self.builder_ref(node.args[0])
+        )
+
+    def is_builder(self, call: ast.Call) -> bool:
+        """A statement builder call, or a table's own ``update()``/``insert()``."""
+        if self.builder_ref(call.func):
+            return True
+        # Table.update()/insert() take no arguments; dict.update() with none
+        # writes nothing, so reading it as a table is harmless.
+        return (
+            isinstance(call.func, ast.Attribute)
+            and call.func.attr in _STATEMENTS
+            and not call.args
+            and not call.keywords
+        )
+
+    def column_ref(self, node: ast.AST) -> str | None:
+        """The column a model or table reference names.
+
+        ``Dataset.origin_ref``, ``t.c.origin_uri``, ``t.columns.origin_ref``, ``t.c["origin_ref"]``,
+        ``t.columns["origin_ref"]`` or ``column("origin_ref")``.
+        """
+        if _is_column(node):
+            base = _terminal_name(node.value)
+            if base in self.dataset_names or base in {"c", "columns"}:
+                return node.attr
+        elif isinstance(node, ast.Subscript) and _names_a_column(node.slice):
+            if _terminal_name(node.value) in {"c", "columns"}:
+                return node.slice.value
+        elif (
+            isinstance(node, ast.Call)
+            and _terminal_name(node.func) in {"column", "literal_column"}
+            and node.args
+            and _names_a_column(node.args[0])
+        ):
+            return node.args[0].value
+        return None
+
+    def binds_a_write(self, statement: ast.expr) -> bool:
+        """Whether execute()'s parameters are row values: the statement writes, or is unknown.
+
+        A statement passed by name, or SQL text that isn't a literal, can't be
+        read here, so its parameters are checked.
+        """
+        if isinstance(statement, (ast.Name, ast.Attribute)):
+            return True
+        for node in ast.walk(statement):
+            if isinstance(node, ast.Call) and self.is_builder(node):
+                return True
+            if isinstance(node, ast.Call) and _terminal_name(node.func) == "text":
+                text = _string_text(node.args[0]) if node.args else None
+                if text is None or _is_sql_write(text):
+                    return True
+        return False
+
+
+def _value_bindings(node: ast.AST):
+    """``(target, value)`` for the bindings one node makes with a known value."""
+    if isinstance(node, ast.Assign):
+        for target in node.targets:
+            yield target, node.value
+    elif isinstance(node, (ast.AnnAssign, ast.NamedExpr)) and node.value:
+        yield node.target, node.value
+    elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
+        if isinstance(node.iter, (ast.Tuple, ast.List, ast.Set)):
+            for element in node.iter.elts:
+                yield node.target, element
+    elif isinstance(node, (ast.With, ast.AsyncWith)):
+        for item in node.items:
+            if item.optional_vars is not None:
+                yield item.optional_vars, item.context_expr
+
+
+def _name_pairs(target: ast.AST, value: ast.AST):
+    """``(name node, value)`` a binding gives each plain name, unpacking literals."""
+    if isinstance(target, ast.Name):
+        yield target, value
+    elif (
+        isinstance(target, (ast.Tuple, ast.List))
+        and isinstance(value, (ast.Tuple, ast.List))
+        and len(target.elts) == len(value.elts)
+        and not any(isinstance(e, ast.Starred) for e in target.elts)
+    ):
+        for inner_target, inner_value in zip(target.elts, value.elts):
+            yield from _name_pairs(inner_target, inner_value)
+
+
+def _holds_stored(value: ast.AST, is_alias) -> bool:
+    """Whether the expression evaluates to the stored dict itself, not a copy."""
+    if _reads_stored(value):
+        return True
+    if isinstance(value, ast.Name):
+        return is_alias(value)
+    if isinstance(value, ast.BoolOp):
+        return any(_holds_stored(part, is_alias) for part in value.values)
+    if isinstance(value, ast.IfExp):
+        return _holds_stored(value.body, is_alias) or _holds_stored(
+            value.orelse, is_alias
+        )
+    if isinstance(value, ast.NamedExpr):
+        return _holds_stored(value.value, is_alias)
+    return (
+        isinstance(value, ast.Call)
+        and _terminal_name(value.func) == "nullcontext"
+        and bool(value.args)
+        and _holds_stored(value.args[0], is_alias)
+    )
+
+
+_DEFINITIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+_INLINED = (ast.ListComp, ast.SetComp, ast.DictComp)
+
+
+def _header_nodes(node: ast.AST) -> list[ast.AST]:
+    """A definition's parts that run in the enclosing scope.
+
+    Decorators, defaults, annotations, class bases and keywords; only the body
+    belongs to the definition's own scope. Type parameters have scopes of
+    their own.
+    """
+    if isinstance(node, ast.ClassDef):
+        return [*node.decorator_list, *node.bases, *node.keywords]
+    args = node.args
+    parts = [*args.defaults, *(d for d in args.kw_defaults if d is not None)]
+    if isinstance(node, ast.Lambda):
+        return parts
+    return [
+        *node.decorator_list,
+        *parts,
+        *(a.annotation for a in _params(node) if a.annotation is not None),
+        *([node.returns] if node.returns else []),
+    ]
+
+
+def _params(node: ast.AST) -> list[ast.arg]:
+    args = node.args
+    return [
+        *args.posonlyargs,
+        *args.args,
+        *args.kwonlyargs,
+        *([args.vararg] if args.vararg else []),
+        *([args.kwarg] if args.kwarg else []),
+    ]
+
+
+def _defaults(node: ast.AST):
+    """``(parameter, default)`` for each parameter that has one."""
+    args = node.args
+    positional = [*args.posonlyargs, *args.args]
+    yield from zip(positional[len(positional) - len(args.defaults) :], args.defaults)
+    for param, default in zip(args.kwonlyargs, args.kw_defaults):
+        if default is not None:
+            yield param, default
+
+
+def _kind(table: symtable.SymbolTable) -> str:
+    kind = table.get_type()
+    return getattr(kind, "value", kind)
+
+
+class _ClassComprehension:
+    """An inlined comprehension in a class body, which ``symtable`` folds into the class.
+
+    Only its iteration variables are its own; any other name skips the class,
+    as Python resolves it.
+    """
+
+    def __init__(self, node: ast.AST, table) -> None:
+        self._id = ("comprehension", id(node))
+        self._class = table._class if isinstance(table, _ClassComprehension) else table
+        self._targets = {
+            name.id
+            for generator in node.generators
+            for name in ast.walk(generator.target)
+            if isinstance(name, ast.Name) and isinstance(name.ctx, ast.Store)
+        }
+
+    def get_id(self) -> tuple[str, int]:
+        return self._id
+
+    def get_type(self) -> str:
+        return "comprehension"
+
+    def lookup(self, name: str) -> symtable.Symbol:
+        if name not in self._targets:
+            raise KeyError(name)
+        return self._class.lookup(name)
+
+
+class _Names:
+    """Which binding each name in a module refers to, by Python's own scope rules.
+
+    The standard library's ``symtable`` classifies every name in every scope
+    (module, function, lambda, class, type parameters) as local, free, global
+    or nonlocal. This maps the AST onto those scopes and resolves a name to the
+    scope that binds it, so an alias of the stored dict or a mapping of column
+    keys is followed wherever Python would follow it. List, set and dict
+    comprehensions share their enclosing scope (PEP 709), except in a class
+    body; a generator expression has its own, apart from its first iterable.
+    """
+
+    def __init__(self, module: _Module, tree: ast.AST, top: symtable.SymbolTable):
+        self.module = module
+        self.top = top
+        self._parent: dict[int, symtable.SymbolTable | None] = {}
+        self._tables: dict[tuple[str, str, int], deque] = defaultdict(deque)
+
+        def index(table, parent) -> None:
+            self._parent[table.get_id()] = parent
+            key = (_kind(table), table.get_name(), table.get_lineno())
+            self._tables[key].append(table)
+            for child in table.get_children():
+                index(child, table)
+
+        index(top, None)
+        self._table_of: dict[int, symtable.SymbolTable] = {}
+        # A class's table id -> the key of the name its statement binds.
+        self._class_keys: dict[int, tuple[int, str]] = {}
+        # A method's table id -> (its class's key, its first parameter).
+        self._methods: dict[int, tuple[tuple[int, str], str]] = {}
+        self._values: dict[tuple, list[ast.AST]] = defaultdict(list)
+        self._mapping_values: dict[tuple, list[ast.AST]] = defaultdict(list)
+        self._items: dict[tuple, list[ast.AST]] = defaultdict(list)
+        self._calls: dict[tuple, list[ast.Call]] = defaultdict(list)
+        self._assign(tree, top)
+        self.aliases = self._alias_keys()
+        self.class_aliases: dict[tuple[int, str], set[str]] = defaultdict(set)
+        for table_id, name in self.aliases:
+            if table_id in self._class_keys:
+                self.class_aliases[self._class_keys[table_id]].add(name)
+        # A name bound to such a class (H = Holder) reaches the same attributes.
+        grew = True
+        while grew:
+            grew = False
+            for key, values in self._values.items():
+                for value in values:
+                    if not isinstance(value, ast.Name):
+                        continue
+                    reached = self.class_aliases.get(self.key_of(value), set())
+                    if not reached <= self.class_aliases[key]:
+                        self.class_aliases[key] |= reached
+                        grew = True
+
+    def _table(self, kind: str, name: str, line: int, fallback):
+        tables = self._tables.get((kind, name, line))
+        if not tables:
+            return fallback
+        table = tables.popleft()
+        # The scope the AST encloses it in: symtable nests a scope inside a
+        # class-body comprehension in the class itself.
+        self._parent[table.get_id()] = fallback
+        return table
+
+    def _assign(self, node: ast.AST, table: symtable.SymbolTable) -> None:
+        """Record the scope of every name under ``node``, and what each binds."""
+        if isinstance(node, _DEFINITIONS):
+            for header in _header_nodes(node):
+                self._assign(header, table)
+            enclosing = self._type_params(node, table)
+            if isinstance(node, ast.ClassDef):
+                inner = self._table("class", node.name, node.lineno, enclosing)
+                if inner is not enclosing:
+                    self._class_keys[inner.get_id()] = self._key(node.name, table)
+            else:
+                name = "lambda" if isinstance(node, ast.Lambda) else node.name
+                inner = self._table("function", name, node.lineno, enclosing)
+                positional = [*node.args.posonlyargs, *node.args.args]
+                if table.get_id() in self._class_keys and positional:
+                    self._methods[inner.get_id()] = (
+                        self._class_keys[table.get_id()],
+                        positional[0].arg,
+                    )
+                for param, default in _defaults(node):
+                    self._values[self._key(param.arg, inner)].append(default)
+            body = [node.body] if isinstance(node, ast.Lambda) else node.body
+            for child in body:
+                self._assign(child, inner)
+            return
+        if isinstance(node, getattr(ast, "TypeAlias", ())):
+            self._assign(node.name, table)
+            enclosing = self._type_params(node, table, node.name.id)
+            alias = self._table("type alias", node.name.id, node.lineno, enclosing)
+            self._assign(node.value, alias)
+            return
+        in_class = _kind(table) in {"class", "comprehension"}
+        if isinstance(node, ast.GeneratorExp) or (
+            isinstance(node, _INLINED) and in_class
+        ):
+            first = node.generators[0]
+            self._assign(first.iter, table)
+            if isinstance(node, ast.GeneratorExp):
+                inner = self._table("function", "genexpr", node.lineno, table)
+            else:
+                inner = _ClassComprehension(node, table)
+                self._parent[inner.get_id()] = table
+            self._collect(first, inner)
+            elements = (
+                [node.key, node.value] if isinstance(node, ast.DictComp) else [node.elt]
+            )
+            for part in (*elements, first.target, *first.ifs, *node.generators[1:]):
+                self._assign(part, inner)
+            return
+        if isinstance(node, ast.Name):
+            self._table_of[id(node)] = table
+        self._collect(node, table)
+        for child in ast.iter_child_nodes(node):
+            self._assign(child, table)
+
+    def _type_params(self, node: ast.AST, table, name: str | None = None):
+        """The type-parameter scope a generic definition opens, with its bounds."""
+        params = getattr(node, "type_params", None)
+        if not params:
+            return table
+        scope = self._table("type parameters", name or node.name, node.lineno, table)
+        for param in params:
+            variable = self._table("type variable", param.name, param.lineno, scope)
+            for part in (
+                getattr(param, "bound", None),
+                getattr(param, "default_value", None),
+            ):
+                if part is not None:
+                    self._assign(part, variable)
+        return scope
+
+    def _collect(self, node: ast.AST, table) -> None:
+        for target, value in _value_bindings(node):
+            for name, bound in _name_pairs(target, value):
+                key = self._key(name.id, table)
+                self._values[key].append(bound)
+                self._mapping_values[key].append(bound)
+        if isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name):
+            self._mapping_values[self._key(node.target.id, table)].append(node.value)
+        if (
+            isinstance(node, ast.Subscript)
+            and isinstance(node.ctx, (ast.Store, ast.Del))
+            and isinstance(node.value, ast.Name)
+        ):
+            self._items[self._key(node.value.id, table)].append(node.slice)
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+        ):
+            self._calls[self._key(node.func.value.id, table)].append(node)
+
+    def _symbol(self, table, name: str):
+        try:
+            return table.lookup(name)
+        except KeyError:
+            return None
+
+    def owner(self, name: str, table) -> symtable.SymbolTable:
+        """The scope whose binding ``name`` refers to, seen from ``table``."""
+        symbol = self._symbol(table, name)
+        if symbol is not None:
+            if symbol.is_local() and not symbol.is_free():
+                return table
+            if symbol.is_global():
+                return self.top
+        # Free or nonlocal: the nearest enclosing function-like scope binding
+        # it. A class body is skipped, as Python skips it.
+        enclosing = self._parent.get(table.get_id())
+        while enclosing is not None:
+            if _kind(enclosing) != "class":
+                found = self._symbol(enclosing, name)
+                if found is not None and found.is_local() and not found.is_free():
+                    return enclosing
+            enclosing = self._parent.get(enclosing.get_id())
+        return self.top
+
+    def _key(self, name: str, table) -> tuple[int, str]:
+        return (self.owner(name, table).get_id(), name)
+
+    def key_of(self, node: ast.Name) -> tuple[int, str]:
+        return self._key(node.id, self._table_of.get(id(node), self.top))
+
+    def _alias_keys(self) -> set[tuple[int, str]]:
+        aliases: set[tuple[int, str]] = set()
+
+        def is_alias(node: ast.Name) -> bool:
+            return self.key_of(node) in aliases
+
+        grew = True
+        while grew:
+            grew = False
+            for key, values in self._values.items():
+                if key not in aliases and any(
+                    _holds_stored(v, is_alias) for v in values
+                ):
+                    aliases.add(key)
+                    grew = True
+        return aliases
+
+    def _key_column(self, key: ast.AST | None) -> str | None:
+        if key is None:
+            return None
+        if _names_a_column(key):
+            return key.value
+        return self.module.column_ref(key)
+
+    def mentions(self, node: ast.AST, *, follow: bool = True) -> list[str]:
+        found: list[str] = []
+        for inner in ast.walk(node):
+            if isinstance(inner, ast.Dict):
+                found.extend(c for k in inner.keys if (c := self._key_column(k)))
+            elif isinstance(inner, ast.Call) and _terminal_name(inner.func) == "dict":
+                found.extend(kw.arg for kw in inner.keywords if kw.arg in COLUMNS)
+            elif isinstance(inner, ast.Tuple) and inner.elts:
+                # ordered_values() takes (column, value) pairs.
+                if column := self._key_column(inner.elts[0]):
+                    found.append(column)
+            elif follow and isinstance(inner, ast.Name):
+                found.extend(self.assigned(inner))
+        return found
+
+    def assigned(self, name: ast.Name) -> list[str]:
+        """Columns the mapping a name refers to gets as keys, wherever it is filled."""
+        key = self.key_of(name)
+        found: list[str] = []
+        for value in self._mapping_values.get(key, []):
+            found.extend(self.mentions(value, follow=False))
+        found.extend(c for k in self._items.get(key, []) if (c := self._key_column(k)))
+        for call in self._calls.get(key, []):
+            if call.func.attr == "update":
+                found.extend(kw.arg for kw in call.keywords if kw.arg in COLUMNS)
+                for arg in call.args:
+                    found.extend(self.mentions(arg, follow=False))
+            elif call.func.attr in {"setdefault", "__setitem__"} and call.args:
+                if column := self._key_column(call.args[0]):
+                    found.append(column)
+        return found
+
+    def is_query(self, name: ast.Name) -> bool:
+        """Whether a name holds an ORM ``Query``."""
+        return any(
+            isinstance(value, ast.Call)
+            and any(
+                _terminal_name(r.func) == "query" for r in [value, *_receivers(value)]
+            )
+            for value in self._values.get(self.key_of(name), [])
+        )
+
+    def stored_dict(self, node: ast.AST) -> str | None:
+        """What a reference to the stored dict is called, if the node is one."""
+        if column := _reads_stored(node):
+            return column
+        if isinstance(node, ast.Name) and self.key_of(node) in self.aliases:
+            return f"the origin pointer through {node.id}"
+        # A class attribute aliasing it, read as Class.attr, self.attr or cls.attr.
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            holder = node.value
+            owner = self.key_of(holder)
+            method = self._methods.get(owner[0])
+            if method is not None and holder.id == method[1]:
+                owner = method[0]
+            if node.attr in self.class_aliases.get(owner, set()):
+                return f"the origin pointer through {owner[1]}.{node.attr}"
+        return None
+
+    def call_mentions(self, call: ast.Call, args: list[ast.expr]) -> list[str]:
+        found = [kw.arg for kw in call.keywords if kw.arg in COLUMNS]
+        for arg in args:
+            found.extend(self.mentions(arg))
+        return found
+
+
+def _mutated_dict(call: ast.Call, scope: _Names) -> str | None:
+    """The stored column a dict-mutating call changes in place, if any."""
+    func = call.func
+    name = _terminal_name(func)
+    # operator.setitem(dataset.origin_ref, key, value) and delitem.
+    if name in {"setitem", "delitem"} and call.args:
+        return scope.stored_dict(call.args[0])
+    if not isinstance(func, ast.Attribute) or name not in _DICT_MUTATORS:
+        return None
+    target = func.value
+    # dict.update(dataset.origin_ref, ...) and the like.
+    if _terminal_name(target) in {"dict", "MutableDict"} and call.args:
+        target = call.args[0]
+    return scope.stored_dict(target)
+
+
+def _table_load_writes(call: ast.Call, name: str) -> list[str]:
+    """A bulk load into datasets: every column, or the listed ones."""
+    keywords = {kw.arg: kw.value for kw in call.keywords if kw.arg}
+    table = (
+        call.args[0] if call.args else keywords.get("table_name", keywords.get("name"))
+    )
+    listed = keywords.get("columns")
+    if listed is not None:
+        return [
+            f"{name}() loads {element.value}"
+            for element in getattr(listed, "elts", [])
+            if _names_a_column(element)
+        ]
+    if (
+        isinstance(table, ast.Constant)
+        and str(table.value).split(".")[-1] == "datasets"
+    ):
+        return [f"{name}() loads every column of datasets"]
+    return []
+
+
+def _call_writes(call: ast.Call, scope: _Names) -> list[str]:
+    module = scope.module
+    func = call.func
+    name = _terminal_name(func)
+    if column := _mutated_dict(call, scope):
+        return [f"mutates {column} with {name}()"]
+    named = [
+        *call.args[:2],
+        *(kw.value for kw in call.keywords if kw.arg in _KEY_KEYWORDS),
+    ]
+    if name in _SETTERS and any(_names_a_column(arg) for arg in named):
+        return [f"{name}() sets a column by name"]
+    if name in _TABLE_LOADERS:
+        return _table_load_writes(call, name)
+    keyword_values = [kw.value for kw in call.keywords]
+    keywords = {kw.arg: kw.value for kw in call.keywords if kw.arg}
+    if name in module.dataset_names:
+        columns = scope.call_mentions(call, [*call.args, *keyword_values])
+    elif module.is_builder(call):
+        # The table is the argument; a legacy values= keyword holds the row.
+        columns = scope.call_mentions(call, keyword_values)
+    elif isinstance(func, ast.Attribute) and name in _WRITE_METHODS:
+        if name == "values" and not call.args and not call.keywords:
+            return []
+        columns = scope.call_mentions(call, [*call.args, *keyword_values])
+        if name == "from_select":
+            listed = call.args[0] if call.args else keywords.get("names")
+            columns.extend(
+                column
+                for element in getattr(listed, "elts", [])
+                if (column := scope._key_column(element))
+            )
+    elif (
+        isinstance(func, ast.Attribute)
+        and name == "update"
+        and (
+            any(_terminal_name(r.func) == "query" for r in _receivers(call))
+            or (isinstance(func.value, ast.Name) and scope.is_query(func.value))
+        )
+    ):
+        # Query.update(), the legacy ORM bulk update.
+        columns = scope.call_mentions(call, [*call.args, *keyword_values])
+    elif isinstance(func, ast.Attribute) and name == "execute":
+        statement = call.args[0] if call.args else keywords.get("statement")
+        if statement is None or not module.binds_a_write(statement):
+            return []
+        # The statement is checked as its own call; the rest are bind parameters.
+        params = [
+            *call.args[1:],
+            *([keywords["params"]] if "params" in keywords else []),
+        ]
+        columns = [c for arg in params for c in scope.mentions(arg)]
+    else:
+        return []
+    return [f"passes {column} to {name}()" for column in columns]
+
+
+def _node_writes(node: ast.AST, scope: _Names) -> list[str]:
+    stored = isinstance(getattr(node, "ctx", None), (ast.Store, ast.Del))
+    if stored and _is_column(node):
+        return [f"writes .{node.attr}"]
+    # ref |= {...} on a local bound to the stored dict changes it in place.
+    if isinstance(node, ast.AugAssign) and isinstance(node.op, ast.BitOr):
+        if not _is_column(node.target) and (held := scope.stored_dict(node.target)):
+            return [f"updates {held} in place"]
+    if stored and isinstance(node, ast.Subscript):
+        holder = node.value
+        if column := scope.stored_dict(holder):
+            return [f"writes an item of {column}"]
+        # obj.__dict__["origin_ref"] or vars(obj)["origin_ref"]
+        if _names_a_column(node.slice) and (
+            _terminal_name(holder) == "__dict__"
+            or (isinstance(holder, ast.Call) and _terminal_name(holder.func) == "vars")
+        ):
+            return [f"writes {node.slice.value} through __dict__"]
+    if isinstance(node, ast.Call):
+        return _call_writes(node, scope)
+    return []
+
+
+def binding_writes(source: str) -> list[tuple[int, str | None, str]]:
+    """Every write to the binding columns this module's text shows.
+
+    Each is ``(line, enclosing function or None, description)``.
+    """
+    offset = 0
+    try:
+        top = symtable.symtable(source, "<gate>", "exec")
+    except SyntaxError:
+        # A fragment such as a top-level await: read it as a function body.
+        source = "async def _fragment():\n" + textwrap.indent(source, "    ")
+        top = symtable.symtable(source, "<gate>", "exec")
+        offset = 1
+    tree = ast.parse(source)
+    names = _Names(_Module(tree), tree, top)
+    found: list[tuple[int, str | None, str]] = []
+
+    def visit(node: ast.AST, function: str | None, in_string: bool) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            function = None if node.name == "_fragment" and offset else node.name
+        found.extend(
+            (node.lineno - offset, function, what) for what in _node_writes(node, names)
+        )
+        # The outermost literal string expression is matched as one text.
+        text = None if in_string else _string_text(node)
+        if text is not None:
+            if _is_sql_write(text):
+                found.append(
+                    (node.lineno - offset, function, "raw SQL writes the column")
+                )
+            in_string = True
+        for child in ast.iter_child_nodes(node):
+            visit(child, function, in_string)
+
+    visit(tree, None, False)
+    return found
+
+
+# The backstop: any name for a column outside the binding module. A write needs
+# the column's name as text, as a keyword or as an attribute used for something
+# other than reading it.
+_LITERAL = re.compile(r"\borigin_(?:ref|uri)\b")
+# Calls on a column attribute that only read it: the stored dict's read methods
+# and SQLAlchemy's comparison operators.
+_READ_CALLS = frozenset(
+    {
+        "get",
+        "keys",
+        "values",
+        "items",
+        "copy",
+        "is_",
+        "is_not",
+        "isnot",
+        "is_distinct_from",
+        "is_not_distinct_from",
+        "in_",
+        "not_in",
+        "notin_",
+        "has_key",
+        "label",
+    }
+)
+# Every site that names a column, the binding module's included, by file and
+# dotted path, with how many mentions it has and why none is a write. The binding
+# module's setter writes through attribute stores, which OWNER_WRITES counts.
+NAME_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
+    (
+        "app/modules/catalog/datasets/api/router_refresh.py",
+        "_dispatch_postgis_refresh",
+    ): (
+        2,
+        "db.refresh() reloads the columns after the run is reserved",
+    ),
+    ("app/modules/catalog/datasets/api/router_refresh.py", "_dispatch_stac_refresh"): (
+        2,
+        "db.refresh() reloads the columns after the run is reserved",
+    ),
+    ("app/modules/catalog/datasets/api/router_refresh.py", "refresh_dataset"): (
+        2,
+        "db.refresh() reloads the columns after the run is reserved",
+    ),
+    (
+        "app/modules/catalog/datasets/api/router_refresh_database.py",
+        "dispatch_database_refresh",
+    ): (
+        2,
+        "db.refresh() reloads the columns after the run is reserved",
+    ),
+    ("app/modules/catalog/datasets/domain/helpers.py", "dataset_to_response"): (
+        2,
+        "builds the API response from the stored columns",
+    ),
+    ("app/modules/catalog/datasets/domain/models.py", "Dataset"): (
+        6,
+        "index definitions over the columns",
+    ),
+    ("app/modules/catalog/datasets/domain/schemas.py", "DatasetResponse"): (
+        1,
+        "the response field's description",
+    ),
+    ("app/platform/dataset_origin.py", "build_origin_ref"): (
+        1,
+        "the allowlist's refusal message names the column",
+    ),
+    ("app/processing/ingest/previous_version.py", "<module>"): (
+        1,
+        "an INSERT into dataset_versions that reads origin_ref->>'file_hash'",
+    ),
+    ("app/processing/ingest/tasks_database.py", "ingest_database"): (
+        2,
+        "the ref and pointer captured at import, stamped through restamp at commit",
+    ),
+    ("app/processing/ingest/tasks_database.py", "_DatabaseRefresh.write"): (
+        2,
+        "hands the database ref and pointer to _write_reupload_catalog, which "
+        "stamps them through restamp",
+    ),
+    ("app/processing/ingest/tasks_reupload.py", "_FileReupload.write"): (
+        1,
+        "hands the upload ref to _write_reupload_catalog, which stamps it through restamp",
+    ),
+    ("app/processing/ingest/tasks_reupload.py", "_ServiceReupload.write"): (
+        1,
+        "hands the service ref to _write_reupload_catalog, which stamps it through restamp",
+    ),
+    ("app/processing/ingest/tasks_vector.py", "ingest_file"): (
+        1,
+        "the ref captured at import, stamped through restamp at commit",
+    ),
+    ("app/processing/ingest/tasks_vector.py", "ingest_service"): (
+        1,
+        "the ref captured at import, stamped through restamp at commit",
+    ),
+}
+
+
+def _parents(tree: ast.AST) -> dict[ast.AST, ast.AST]:
+    return {
+        child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)
+    }
+
+
+def _attribute_use(node: ast.Attribute, parents: dict[ast.AST, ast.AST]) -> str | None:
+    """How a Load of ``x.origin_ref`` is used, when it is not a plain read."""
+    parent = parents.get(node)
+    if isinstance(parent, ast.Dict) and node in parent.keys:
+        return "a dict key"
+    if isinstance(parent, ast.Tuple):
+        call = parents.get(parent)
+        if isinstance(call, ast.Call) and _terminal_name(call.func) in {
+            "values",
+            "ordered_values",
+        }:
+            return f"a pair handed to {_terminal_name(call.func)}()"
+    if isinstance(parent, ast.Attribute):
+        called = isinstance(parents.get(parent), ast.Call) and (
+            parents[parent].func is parent
+        )
+        if called and parent.attr not in _READ_CALLS:
+            return f"the receiver of .{parent.attr}()"
+        if not called and (
+            parent.attr in _DICT_MUTATORS or parent.attr.startswith("__")
+        ):
+            return f"the owner of .{parent.attr}"
+    return None
+
+
+def name_mentions(source: str) -> list[tuple[int, str, str]]:
+    """``(line, site, how)`` of every name for a column outside a plain read.
+
+    A string naming one (an f-string or a ``+`` of strings read as one text,
+    docstrings aside), a keyword argument named after one, and a column attribute
+    used other than as a value. The site is the dotted path of enclosing classes
+    and functions (``Strategy.write``), or ``<module>``.
+    """
+    tree = ast.parse(source)
+    parents = _parents(tree)
+    docstrings = {
+        id(node.body[0].value)
+        for node in ast.walk(tree)
+        if isinstance(
+            node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+        )
+        and node.body
+        and isinstance(node.body[0], ast.Expr)
+        and isinstance(node.body[0].value, ast.Constant)
+    }
+    found: list[tuple[int, str, str]] = []
+
+    def visit(node: ast.AST, site: str, in_string: bool) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            site = node.name if site == "<module>" else f"{site}.{node.name}"
+        text = None if in_string or id(node) in docstrings else _string_text(node)
+        if text is not None:
+            if _LITERAL.search(text.lower()):
+                found.append((node.lineno, site, "a string naming a column"))
+            in_string = True
+        if isinstance(node, ast.keyword) and node.arg in COLUMNS:
+            found.append((node.value.lineno, site, f"the keyword {node.arg}="))
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr in COLUMNS
+            and isinstance(node.ctx, ast.Load)
+            and (use := _attribute_use(node, parents))
+        ):
+            found.append((node.lineno, site, f".{node.attr} as {use}"))
+        for child in ast.iter_child_nodes(node):
+            visit(child, site, in_string)
+
+    visit(tree, "<module>", False)
+    return found
+
+
+def site_problems(
+    rel: str, source: str, allowlist: dict[tuple[str, str], tuple[int, str]]
+) -> list[str]:
+    """Sites in one file whose mentions exceed, or fall short of, the allowlist."""
+    by_site: dict[str, list[str]] = {}
+    for line, site, how in name_mentions(source):
+        by_site.setdefault(site, []).append(f"{rel}:{line}: {how}")
+    problems = []
+    for site, mentions in by_site.items():
+        allowed = allowlist.get((rel, site), (0, ""))[0]
+        if len(mentions) > allowed:
+            problems.append(
+                f"{rel} {site}: {len(mentions)} mention(s), {allowed} allowed\n  "
+                + "\n  ".join(mentions)
+            )
+    for (listed_rel, site), (allowed, _) in allowlist.items():
+        if listed_rel == rel and len(by_site.get(site, [])) < allowed:
+            problems.append(
+                f"{rel} {site}: {len(by_site.get(site, []))} mention(s), "
+                f"{allowed} allowed; lower the entry"
+            )
+    return problems
+
+
+def _app_sources(*, owner: bool = False):
+    for path in sorted(APP_ROOT.rglob("*.py")):
+        rel = path.relative_to(BACKEND_ROOT).as_posix()
+        if owner or rel != OWNER:
+            yield rel, path.read_text(encoding="utf-8")
+
+
+def owner_writes(source: str) -> Counter:
+    return Counter((function, what) for _, function, what in binding_writes(source))
+
+
+def test_only_the_binding_module_writes_origin_columns() -> None:
+    violations = []
+    for path in sorted(APP_ROOT.rglob("*.py")):
+        rel = path.relative_to(BACKEND_ROOT).as_posix()
+        source = path.read_text(encoding="utf-8")
+        if rel == OWNER or not _may_write(source):
+            continue
+        for line, _, what in binding_writes(source):
+            violations.append(f"{rel}:{line}: {what}")
+    assert not violations, (
+        "origin_uri/origin_ref are written only by restamp in "
+        "backend/app/platform/dataset_origin.py:\n" + "\n".join(violations)
+    )
+
+
+def tree_problems(
+    sources: dict[str, str], allowlist: dict[tuple[str, str], tuple[int, str]]
+) -> list[str]:
+    """Every site in the tree that breaks the allowlist, and entries for missing files."""
+    listed_files = {rel for rel, _ in allowlist}
+    problems = [
+        problem
+        for rel, source in sources.items()
+        if "origin_" in source.lower() or rel in listed_files
+        for problem in site_problems(rel, source, allowlist)
+    ]
+    problems += [f"{rel}: no such file" for rel in sorted(listed_files - set(sources))]
+    return problems
+
+
+def test_every_name_for_a_column_is_at_an_allowlisted_site() -> None:
+    """The binding module too: only its recorded functions may name a column."""
+    problems = tree_problems(dict(_app_sources(owner=True)), NAME_ALLOWLIST)
+    assert not problems, (
+        "A string, keyword or attribute naming origin_ref/origin_uri can write "
+        "them. Write through restamp, or record the site in "
+        "NAME_ALLOWLIST with its count and why it is no write:\n" + "\n".join(problems)
+    )
+
+
+def _sites(source: str) -> list[tuple[int, str]]:
+    return [(line, site) for line, site, _ in name_mentions(source)]
+
+
+def test_the_backstop_catches_a_name_only_it_sees() -> None:
+    source = (
+        "COLUMN = 'origin_ref'\n"
+        "def write(obj, value):\n"
+        "    setattr(obj, COLUMN, value)\n"
+    )
+    assert binding_writes(source) == []
+    assert _sites(source) == [(1, "<module>")]
+    assert _sites("NAME = 'origin_' + 'uri'") == [(1, "<module>")]
+    assert _sites("KEY = f'{prefix}.origin_uri'") == [(1, "<module>")]
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        "dataset.__dict__.update(origin_ref=ref)",
+        "vars(dataset).update(origin_uri=uri)",
+        "helper(dataset, origin_ref=ref)",
+        "update(Dataset).values({Dataset.__table__.columns.origin_ref: ref})",
+        "update(Dataset).ordered_values((Dataset.__table__.columns.origin_uri, u))",
+        "Dataset.origin_ref.__set__(dataset, ref)",
+        "dataset.origin_ref.setdefault('token', t)",
+        "Dataset.origin_uri.__delete__(dataset)",
+        "write = dataset.origin_ref.update",
+    ],
+)
+def test_the_backstop_catches_an_identifier_write(snippet: str) -> None:
+    assert name_mentions(snippet), snippet
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        "ref = dataset.origin_ref",
+        "same = dataset.origin_uri == uri",
+        "where(Dataset.origin_uri.is_(None))",
+        "where(Dataset.origin_ref.is_not_distinct_from(ref))",
+        "probe(dataset.origin_ref, dataset.origin_uri)",
+        "url = dataset.origin_ref.get('url')",
+        "list(dataset.origin_ref.keys()), dataset.origin_ref.items()",
+        "snapshot = dataset.origin_ref.copy()",
+        "url = dataset.origin_ref['url']",
+        "pointer = (dataset.origin_uri, dataset.origin_ref, dataset.source_format)",
+        "Dataset.origin_ref['url'].astext == base_url",
+        "f'{dataset.origin_uri}'",
+    ],
+)
+def test_the_backstop_leaves_a_plain_read_alone(snippet: str) -> None:
+    assert name_mentions(snippet) == [], snippet
+
+
+def test_an_allowlist_entry_clears_only_its_own_site() -> None:
+    source = (
+        "def keys():\n    return ['origin_ref']\n\n"
+        "def other(dataset, ref):\n    helper(dataset, origin_uri=ref)\n"
+    )
+    assert len(site_problems("app/x.py", source, {})) == 2
+    listed = {("app/x.py", "keys"): (1, "a test")}
+    problems = site_problems("app/x.py", source, listed)
+    assert [p.split(":")[0] for p in problems] == ["app/x.py other"]
+
+
+def test_same_named_methods_in_two_classes_are_separate_sites() -> None:
+    source = (
+        "class Upload:\n    def write(self, ref):\n        stamp(origin_ref=ref)\n\n"
+        "class Service:\n    def write(self, ref):\n        stamp(origin_ref=ref)\n"
+    )
+    assert _sites(source) == [(3, "Upload.write"), (7, "Service.write")]
+    listed = {("app/x.py", "Upload.write"): (1, "a test")}
+    problems = site_problems("app/x.py", source, listed)
+    assert [p.split(":")[0] for p in problems] == ["app/x.py Service.write"]
+
+
+def test_a_second_mention_in_an_allowlisted_method_fails() -> None:
+    rel = "app/processing/ingest/tasks_reupload.py"
+    source = (BACKEND_ROOT / rel).read_text(encoding="utf-8")
+    anchor = (
+        '            origin_ref={"filename": self.source_filename, '
+        '"file_hash": self.file_hash},\n'
+    )
+    assert source.count(anchor) == 1
+    extra = source.replace(anchor, anchor + "            origin_uri=None,\n")
+    assert site_problems(rel, source, NAME_ALLOWLIST) == []
+    problems = site_problems(rel, extra, NAME_ALLOWLIST)
+    assert len(problems) == 1
+    assert problems[0].startswith(f"{rel} _FileReupload.write: 2 mention(s), 1 allowed")
+
+
+def test_an_allowlisted_site_is_held_to_its_count() -> None:
+    one = "def write(ref):\n    stamp(origin_ref=ref)\n"
+    two = one + "    keep(origin_uri=ref)\n"
+    listed = {("app/x.py", "write"): (1, "a test")}
+    assert site_problems("app/x.py", one, listed) == []
+    assert "2 mention(s), 1 allowed" in site_problems("app/x.py", two, listed)[0]
+    stale = {("app/x.py", "write"): (2, "a test")}
+    assert "lower the entry" in site_problems("app/x.py", one, stale)[0]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "    dataset.__dict__.update(origin_ref=ref)",
+        "    delattr(dataset, 'origin_uri')",
+        "    Dataset.origin_ref.__set__(dataset, ref)",
+    ],
+)
+def test_a_new_owner_function_that_names_a_column_fails(body: str) -> None:
+    sources = dict(_app_sources(owner=True))
+    sources[OWNER] += f"\n\ndef _sneak(dataset, ref):\n{body}\n"
+    problems = tree_problems(sources, NAME_ALLOWLIST)
+    assert [p.split(":")[0] for p in problems] == [f"{OWNER} _sneak"]
+
+
+def test_the_backstop_leaves_docstrings_and_other_names_alone() -> None:
+    source = (
+        '"""Reads origin_ref."""\n'
+        "def f():\n"
+        '    """Also origin_uri."""\n'
+        "    return 'ix_datasets_origin_uri', 'origin_ref_snapshot'\n"
+    )
+    assert name_mentions(source) == []
+
+
+def test_the_owner_module_writes_only_inside_its_setter() -> None:
+    owner = (BACKEND_ROOT / OWNER).read_text(encoding="utf-8")
+    assert owner_writes(owner) == OWNER_WRITES
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        (
+            "\ndef project_unknown(",
+            "\ndef _sneak(dataset):\n    dataset.origin_ref = {}\n\n\n"
+            "def project_unknown(",
+        ),
+        (
+            "    dataset.origin_uri = binding.uri\n",
+            "    dataset.origin_uri = binding.uri\n    dataset.origin_uri = binding.uri\n",
+        ),
+    ],
+    ids=["second_function", "second_site_in_the_setter"],
+)
+def test_the_owner_check_sees_an_extra_write(old: str, new: str) -> None:
+    owner = (BACKEND_ROOT / OWNER).read_text(encoding="utf-8")
+    assert owner.count(old) == 1
+    assert owner_writes(owner.replace(old, new)) != OWNER_WRITES
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        "dataset.origin_ref = {'kind': 'upload'}",
+        "dataset.origin_uri: str = 'x'",
+        "dataset.origin_uri += '/1'",
+        "a, dataset.origin_uri = 1, 'x'",
+        "del dataset.origin_ref",
+        "dataset.origin_ref['url'] = 'x'",
+        "del dataset.origin_ref['url']",
+        "dataset.origin_ref.update(url='x')",
+        "dataset.origin_ref.pop('token')",
+        "setattr(dataset, 'origin_uri', 'x')",
+        "Dataset(origin_ref={'kind': 'upload'})",
+        "update(Dataset).values(origin_uri='x')",
+        "sa.update(Dataset).values({'origin_ref': ref})",
+        "sqlalchemy.insert(Dataset).values(origin_uri='x')",
+        "session.execute(update(Dataset).values(origin_ref=ref))",
+        "insert(Dataset).values({'origin_ref': ref})",
+        "Dataset(**{'origin_uri': 'x'})",
+        "session.execute(update(Dataset), [{'id': 1, 'origin_ref': ref}])",
+        "text('UPDATE catalog.datasets SET origin_uri = :u WHERE id = :id')",
+        "text('INSERT INTO catalog.datasets (id, origin_ref) VALUES (:i, :r)')",
+        "text('UPDATE catalog.datasets SET \"origin_ref\" = :ref WHERE id = :id')",
+        "text('INSERT INTO catalog.datasets (id, \"origin_uri\") VALUES (:i, :u)')",
+        "text('UPDATE catalog.datasets SET ORIGIN_REF = :ref WHERE id = :id')",
+        "session.execute(stmt, [{'id': 1, 'origin_ref': ref}])",
+        "from app.modules.catalog.datasets.domain.models import Dataset as DatasetModel"
+        "\nDatasetModel(origin_ref={'kind': 'upload'})",
+        "from app.modules.catalog.datasets.domain import models\n"
+        "models.Dataset(origin_uri='x')",
+        "DatasetCls = get_processing_port().get_dataset_orm_class()\n"
+        "DatasetCls(origin_uri='x')",
+        "update(Dataset).values({Dataset.origin_ref: ref})",
+        "from app.modules.catalog.datasets.domain.models import Dataset as DatasetModel"
+        "\ninsert(DatasetModel).values({DatasetModel.origin_uri: uri})",
+        "text(\"UPDATE catalog.datasets SET origin_ref['token'] = :v WHERE id = :i\")",
+        "text('UPDATE catalog.datasets SET \"origin_ref\"[\\'url\\'] = :v')",
+        "text('UPDATE catalog.datasets SET origin_ref = "
+        "jsonb_set(origin_ref, :path, :v) WHERE id = :i')",
+        "session.execute(update(Dataset), params=[{'id': 1, 'origin_ref': ref}])",
+        "session.execute(stmt, params={'origin_uri': uri})",
+        "session.execute(statement=update(Dataset), params=[{'origin_ref': ref}])",
+        "insert(Dataset).from_select(['id', 'origin_ref'], select(a, b))",
+        "sa.insert(Dataset).from_select([Dataset.id, Dataset.origin_uri], query)",
+        "text('UPDATE catalog.datasets SET (title, origin_ref) = (:t, :r) "
+        "WHERE id = :i')",
+        "text('UPDATE catalog.datasets SET (\"origin_uri\") = ROW(:u)')",
+        "insert(Record).from_select(['id', 'origin_ref'], query)",
+        "stmt = insert(Dataset)\nstmt.from_select(['id', 'origin_ref'], query)",
+        "insert(Dataset).from_select(names=['id', 'origin_uri'], select=query)",
+        # Upserts.
+        "insert(Dataset).values(id=i).on_conflict_do_update("
+        "index_elements=['id'], set_={'origin_ref': ref})",
+        "from sqlalchemy.dialects.postgresql import insert as pg_insert\n"
+        "pg_insert(Dataset).values(id=i).on_conflict_do_update("
+        "index_elements=['id'], set_=dict(origin_ref=ref))",
+        "def f(i):\n    stmt = insert(Dataset).values(id=i)\n"
+        "    return stmt.on_conflict_do_update(index_elements=['id'], "
+        "set_={Dataset.origin_uri: stmt.excluded.origin_uri})",
+        "postgresql.insert(Dataset).on_conflict_do_update(set_={'origin_uri': u})",
+        "mysql_insert(Dataset).on_duplicate_key_update(origin_ref=ref)",
+        "from sqlalchemy.dialects.postgresql import insert as pg_insert\n"
+        "session.execute(pg_insert(Dataset), [{'origin_ref': ref}])",
+        "session.execute(postgresql.insert(Dataset), [{'origin_uri': u}])",
+        # Mappings passed by name.
+        "def f(ref):\n    changes = {'origin_ref': ref}\n"
+        "    return update(Dataset).values(**changes)",
+        "def f(u):\n    changes = {}\n    changes['origin_uri'] = u\n"
+        "    return update(Dataset).values(changes)",
+        "def f(ref):\n    changes = {'title': 't'}\n"
+        "    changes.update(origin_ref=ref)\n"
+        "    return update(Dataset).values(**changes)",
+        "def f(u):\n    fields = dict(origin_uri=u)\n    return Dataset(**fields)",
+        "def f(session, r):\n    rows = [{'id': 1, 'origin_ref': r}]\n"
+        "    session.bulk_update_mappings(Dataset, rows)",
+        # Tables, ordered values and the legacy Query API.
+        "session.execute(Dataset.__table__.update(), [{'origin_ref': ref}])",
+        "session.execute(metadata.tables['catalog.datasets'].insert(), "
+        "[{'origin_uri': u}])",
+        "sa.update(table).values({table.c.origin_ref: ref})",
+        "update(Dataset).ordered_values((Dataset.origin_ref, ref), ('title', t))",
+        "update(Dataset).ordered_values(('origin_uri', u))",
+        "session.query(Dataset).filter(Dataset.id == i).update({'origin_ref': ref})",
+        # SQLAlchemy reached through any name the module binds to it.
+        "import sqlalchemy as sqla\n"
+        "session.execute(sqla.update(Dataset), [{'origin_ref': ref}])",
+        "import sqlalchemy.dialects.postgresql as pgd\n"
+        "session.execute(pgd.insert(Dataset), [{'origin_uri': u}])",
+        "from sqlalchemy import update as sa_update\n"
+        "session.execute(sa_update(Dataset), [{'origin_ref': ref}])",
+        "from sqlalchemy.dialects import postgresql as pg\n"
+        "session.execute(pg.insert(Dataset), [{'origin_ref': ref}])",
+        "import sqlalchemy.dialects.postgresql\n"
+        "session.execute(sqlalchemy.dialects.postgresql.insert(Dataset), "
+        "[{'origin_uri': u}])",
+        "import sqlalchemy as sqla\n"
+        "session.execute(sqla.sql.expression.update(Dataset), [{'origin_ref': ref}])",
+        "from sqlalchemy import sql\n"
+        "session.execute(sql.update(Dataset), [{'origin_ref': ref}])",
+        "import sqlalchemy as sqla\nu = sqla.update\n"
+        "session.execute(u(Dataset), [{'origin_ref': ref}])",
+        "import sqlalchemy as sqla\nup = partial(sqla.update, Dataset)\n"
+        "session.execute(up(), [{'origin_uri': u}])",
+        "Model = Dataset\nModel(origin_ref=ref)",
+        # Other spellings of a column reference.
+        "update(t).values({t.c['origin_ref']: ref})",
+        "update(t).values({t.columns['origin_uri']: u})",
+        "update(t).values({literal_column('origin_ref'): ref})",
+        "update(t).values({column('origin_uri'): u})",
+        "def f(session, ref):\n    q = session.query(Dataset).filter(Dataset.id == 1)\n"
+        "    q.update({'origin_ref': ref})",
+        # Raw SQL, any target spelling and statement.
+        "text('INSERT INTO catalog.datasets AS d (id, origin_ref) VALUES (:i, :r)')",
+        'text(\'INSERT INTO "catalog"."datasets" (id, "origin_uri") VALUES (:i, :u)\')',
+        "text('INSERT INTO catalog.\"datasets\" AS d VALUES (:id, :title)')",
+        "text('INSERT INTO catalog.datasets SELECT * FROM staging')",
+        "text('INSERT INTO datasets DEFAULT VALUES')",
+        "text('INSERT INTO catalog.datasets OVERRIDING SYSTEM VALUE VALUES (:a)')",
+        "text('WITH s AS (SELECT 1) INSERT INTO catalog.datasets SELECT * FROM s')",
+        "text('UPDATE ONLY catalog.datasets AS d SET origin_uri = s.u "
+        "FROM staging s WHERE s.id = d.id')",
+        'text(\'UPDATE "catalog"."datasets" d SET title = s.t, origin_ref = s.r '
+        "FROM s WHERE s.id = d.id')",
+        "text('MERGE INTO catalog.datasets d USING s ON s.id = d.id "
+        "WHEN MATCHED THEN UPDATE SET origin_ref = s.r')",
+        "text('MERGE INTO catalog.datasets d USING s ON s.id = d.id "
+        "WHEN NOT MATCHED THEN INSERT (id, origin_uri) VALUES (s.id, s.u)')",
+        "text('MERGE INTO catalog.datasets AS d USING s ON true "
+        "WHEN NOT MATCHED THEN INSERT VALUES (s.a, s.b)')",
+        "text('INSERT INTO catalog.datasets (id, title) VALUES (:i, :t) "
+        "ON CONFLICT (id) DO UPDATE SET origin_ref = EXCLUDED.origin_ref')",
+        "text('COPY catalog.datasets (id, origin_ref) FROM STDIN')",
+        'text(\'COPY "catalog"."datasets" FROM STDIN\')',
+        "text('UPDATE catalog.datasets SET origin_ref /* json */ = :r')",
+        "text(f'INSERT INTO {schema}.datasets (id, origin_ref) VALUES (:i, :r)')",
+        "text('INSERT INTO ' + table + ' (id, origin_uri) VALUES (:i, :u)')",
+        "session.execute(text(sql), {'origin_ref': ref})",
+        # Attribute writes by name.
+        "set_attribute(dataset, 'origin_ref', ref)",
+        "set_committed_value(dataset, 'origin_uri', u)",
+        "set_attribute(instance=dataset, key='origin_ref', value=ref)",
+        "delattr(dataset, 'origin_uri')",
+        "text('INSERT INTO ONLY catalog.datasets VALUES (:a, :b)')",
+        "dataset.__dict__['origin_ref'] = ref",
+        "dataset.__setattr__('origin_ref', ref)",
+        "object.__setattr__(dataset, 'origin_uri', u)",
+        # The stored dict changed in place.
+        "dict.update(dataset.origin_ref, token=t)",
+        "def f(dataset, t):\n    ref = dataset.origin_ref\n    ref['token'] = t",
+        "def f(dataset, t):\n    ref = dataset.origin_ref or {}\n"
+        "    ref.update(token=t)",
+        "def f(dataset, extra):\n    ref = dataset.origin_ref\n    ref |= extra",
+        "getattr(dataset, 'origin_ref').update(token=t)",
+        "getattr(dataset, 'origin_ref')['token'] = t",
+        "operator.setitem(dataset.origin_ref, 'token', t)",
+        # Every way a local name can come to hold the stored dict.
+        "def f(dataset, t):\n    ref: dict = dataset.origin_ref\n    ref['token'] = t",
+        "def f(dataset, t):\n    if (ref := dataset.origin_ref):\n"
+        "        ref['token'] = t",
+        "def f(dataset, x, t):\n    ref, other = dataset.origin_ref, x\n"
+        "    ref['token'] = t",
+        "[ref, other] = [dataset.origin_ref, x]\nref.update(token=t)",
+        "def f(dataset, t):\n    for ref in (dataset.origin_ref,):\n"
+        "        ref['token'] = t",
+        "[ref.update(token=t) for ref in [dataset.origin_ref]]",
+        "def f(dataset, t):\n    with dataset.origin_ref as ref:\n"
+        "        ref['token'] = t",
+        "with nullcontext(dataset.origin_ref) as ref:\n    ref['token'] = t",
+        "def f(dataset, t):\n    a = dataset.origin_ref\n    b = a\n    b['token'] = t",
+        "ref = dataset.origin_ref if c else {}\nref['token'] = t",
+        "b = (a := dataset.origin_ref)\nb['token'] = t",
+        # Across scope boundaries.
+        "def outer(dataset, t):\n    ref = dataset.origin_ref\n"
+        "    def inner():\n        ref.update(token=t)\n    inner()",
+        "def outer(dataset, t):\n    ref = dataset.origin_ref\n"
+        "    touch = lambda: ref.update(token=t)\n    touch()",
+        "def outer(dataset, t):\n    ref = dataset.origin_ref\n"
+        "    def touch():\n        nonlocal ref\n        ref |= {'token': t}\n    touch()",
+        "def outer(dataset, t):\n    ref = {}\n    def bind():\n        nonlocal ref\n"
+        "        ref = dataset.origin_ref\n    bind()\n    ref['token'] = t",
+        "ref = None\ndef bind(dataset):\n    global ref\n    ref = dataset.origin_ref\n"
+        "def touch(t):\n    ref['token'] = t",
+        "ref = dataset.origin_ref\ndef outer():\n    ref = {}\n    def touch(t):\n"
+        "        global ref\n        ref |= {'token': t}",
+        "ref = dataset.origin_ref\ndef touch(t):\n    ref['token'] = t",
+        "class Holder:\n    ref = dataset.origin_ref\n    def touch(self, t):\n"
+        "        self.ref['token'] = t",
+        "class Holder:\n    ref = dataset.origin_ref\n    @classmethod\n"
+        "    def touch(cls, t):\n        cls.ref |= {'token': t}",
+        "class Holder:\n    ref = dataset.origin_ref\ndef touch(t):\n"
+        "    Holder.ref.update(token=t)",
+        "def outer(dataset, t):\n    def touch():\n        ref['token'] = t\n"
+        "    ref = dataset.origin_ref\n    touch()",
+        # Definition headers run in the enclosing scope, bodies in their own.
+        "f = lambda dataset: ((ref := dataset.origin_ref), ref.update(token='x'))",
+        "def outer(dataset):\n    def inner(x=(ref := dataset.origin_ref)):\n"
+        "        return x\n    ref.update(token='x')",
+        "def outer(dataset):\n    def inner(*, x=(ref := dataset.origin_ref)):\n"
+        "        return x\n    ref.update(token='x')",
+        "def outer(dataset):\n    @register((ref := dataset.origin_ref))\n"
+        "    def inner():\n        pass\n    ref.update(token='x')",
+        "def outer(dataset):\n    class Holder((ref := dataset.origin_ref).__class__):\n"
+        "        pass\n    ref.update(token='x')",
+        "def outer(dataset):\n    class Holder(meta=(ref := dataset.origin_ref)):\n"
+        "        pass\n    ref.update(token='x')",
+        "def outer(dataset):\n    f = lambda x=(ref := dataset.origin_ref): x\n"
+        "    ref.update(token='x')",
+        "def outer(dataset):\n    [(ref := dataset.origin_ref) for _ in range(1)]\n"
+        "    ref.update(token='x')",
+        "class Holder:\n    ref = dataset.origin_ref\n    ref['token'] = 't'",
+        "def f(dataset):\n"
+        "    any(ref.update(token='x') for ref in [dataset.origin_ref])",
+        # Type parameters: bounds and defaults run in scopes of their own.
+        "alias = dataset.origin_ref\ndef f[T: alias.update(token='x')]():\n    pass",
+        "alias = dataset.origin_ref\ndef f[T = alias.update(token='x')]():\n    pass",
+        "alias = dataset.origin_ref\nclass K[T: alias.update(token='x')]:\n    pass",
+        "def outer(dataset):\n    ref = dataset.origin_ref\n"
+        "    def f[T: (int, ref.update(token='x'))]():\n        pass",
+        "def outer(dataset):\n    ref = dataset.origin_ref\n"
+        "    def f[**P = ref.update(token='x')]():\n        pass",
+        "def outer(dataset):\n    ref = dataset.origin_ref\n"
+        "    type X[T: ref.update(token='x')] = int",
+        "def outer(dataset):\n    ref = dataset.origin_ref\n"
+        "    def f[T: ref.update(token='x')]():\n        pass",
+        "def outer(dataset):\n    ref = dataset.origin_ref\n    def middle():\n"
+        "        def inner():\n            ref.update(token='x')\n"
+        "        return ref, inner\n    return middle",
+        "def outer(dataset):\n    ref = dataset.origin_ref\n    class Holder:\n"
+        "        ref = {}\n        def touch(self):\n"
+        "            ref.update(token='x')\n    return Holder",
+        # Class bodies rebinding an enclosing or module name.
+        "def outer(dataset):\n    ref = {}\n    class Holder:\n        nonlocal ref\n"
+        "        ref = dataset.origin_ref\n    ref.update(token='x')",
+        "ref = {}\nclass Holder:\n    global ref\n    ref = dataset.origin_ref\n"
+        "ref.update(token='x')",
+        # A class-body comprehension sees the class only in its first iterable.
+        "ref = dataset.origin_ref\nclass C:\n    ref = {}\n"
+        "    values = [ref.update(token='x') for _ in (1,)]",
+        "def outer(dataset):\n    ref = dataset.origin_ref\n    class C:\n"
+        "        ref = {}\n        values = {k: ref.update(token='x') for k in (1,)}\n"
+        "    return C",
+        "class C:\n    ref = dataset.origin_ref\n"
+        "    values = [r.update(token='x') for r in [ref]]",
+        "class C:\n    values = [(lambda: r.update(token='x'))() "
+        "for r in [dataset.origin_ref]]",
+        "class C:\n    values = [[r.update(token='x') for _ in (1,)] "
+        "for r in [dataset.origin_ref]]",
+        # A class name is looked up like any other name.
+        "def a(dataset):\n    class Holder:\n        ref = dataset.origin_ref\n"
+        "    Holder.ref.update(title='x')",
+        "class Holder:\n    ref = dataset.origin_ref\nH = Holder\n"
+        "def touch(t):\n    K = H\n    K.ref.update(token=t)",
+        # A default value aliasing it, mutated through the parameter.
+        "def touch(ref=dataset.origin_ref):\n    ref['token'] = 'x'",
+        # Nested scopes writing to a name the enclosing scope owns.
+        "def outer(r):\n    changes = {}\n    def fill():\n"
+        "        changes['origin_ref'] = r\n    fill()\n"
+        "    return update(Dataset).values(**changes)",
+        "def outer(r):\n    changes = {}\n    def fill():\n"
+        "        changes.update(origin_ref=r)\n    fill()\n"
+        "    return update(Dataset).values(**changes)",
+        "def outer(r):\n    changes = {}\n    def fill():\n        nonlocal changes\n"
+        "        changes = {'origin_ref': r}\n    fill()\n"
+        "    return update(Dataset).values(**changes)",
+        "ref = None\ndef outer():\n    ref = {}\n    def bind(dataset):\n"
+        "        global ref\n        ref = dataset.origin_ref\n"
+        "def touch(t):\n    ref['token'] = t",
+        "changes = {}\ndef fill(r):\n    global changes\n"
+        "    changes = {'origin_uri': r}\ndef write():\n"
+        "    return update(Dataset).values(**changes)",
+        "def outer(dataset):\n    ref = {}\n    def middle():\n        ref = {}\n"
+        "        def inner():\n            nonlocal ref\n"
+        "            ref = dataset.origin_ref\n        inner()\n"
+        "        ref.update(title='x')\n    return middle",
+        "def outer(dataset):\n    ref = dataset.origin_ref\n"
+        "    def inner(ref=ref.update(token='x')):\n        return ref",
+        "def outer(r):\n    changes = {'origin_ref': r}\n    def run():\n"
+        "        return update(Dataset).values(**changes)\n    return run()",
+        "def outer(session, r):\n    q = session.query(Dataset)\n    def run():\n"
+        "        q.update({'origin_ref': r})\n    run()",
+        "def f(dataset):\n    ref = getattr(dataset, 'origin_ref')\n"
+        "    del ref['token']",
+        # Bulk loaders.
+        "await conn.copy_records_to_table('datasets', records=rows, "
+        "schema_name='catalog')",
+        "await conn.copy_records_to_table('staging', records=rows, "
+        "columns=['id', 'origin_ref'])",
+        "frame.to_sql('datasets', engine, schema='catalog', if_exists='append')",
+        "vars(dataset)['origin_uri'] = u",
+    ],
+)
+def test_the_scan_sees_a_write(snippet: str) -> None:
+    assert binding_writes(snippet), snippet
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        "pointer = (dataset.origin_uri, dataset.origin_ref, dataset.source_format)",
+        "Dataset.origin_ref['url'].astext == base_url",
+        "_write_reupload_catalog(session, origin_ref={'filename': name})",
+        "DatasetResponse(origin_uri=dataset.origin_uri)",
+        "origin_ref = {'filename': name}",
+        "origin_ref['filename'] = name",
+        "payload.update({'origin_ref': ref})",
+        "payload.update(origin_uri=uri)",
+        "response.values()",
+        "session.execute(select(Dataset.origin_ref))",
+        "update(Dataset).values({Dataset.title: title})",
+        "update(Record).values({Record.origin_ref: ref})",
+        "insert(DatasetAsset).values(key=k).on_conflict_do_update("
+        "constraint='uq', set_={'href': stmt.excluded.href})",
+        "def f(t):\n    changes = {'title': t}\n"
+        "    return update(Dataset).values(**changes)",
+        "def f(payload, ref):\n    payload['origin_ref'] = ref\n    return payload",
+        "session.query(Dataset).filter(Dataset.origin_ref.is_(None))"
+        ".update({'title': t})",
+        "update(Dataset).where(Dataset.origin_ref == ref).values(title=t)",
+        "vars(dataset)['title'] = t",
+        "def f(dataset):\n    uri = dataset.origin_uri\n    uri += '/1'\n"
+        "    return uri",
+        "getattr(dataset, 'origin_ref').get('url')",
+        "def f(dataset, x, t):\n    other, ref = dataset.origin_ref, x\n"
+        "    ref['token'] = t",
+        "def f(dataset, t):\n    ref = dict(dataset.origin_ref)\n    b = ref\n"
+        "    b['token'] = t",
+        "def f(dataset, payload):\n    for key in dataset.origin_ref:\n"
+        "        payload[key] = 1",
+        "def outer(dataset, t):\n    ref = dataset.origin_ref\n"
+        "    def inner(ref):\n        ref['token'] = t",
+        "def outer(dataset, t):\n    ref = dataset.origin_ref\n"
+        "    def inner():\n        ref = {}\n        ref['token'] = t",
+        "class Holder:\n    ref = {}\n    def touch(self, t):\n"
+        "        self.ref['token'] = t",
+        "def outer(t):\n    changes = {'title': t}\n    def run():\n"
+        "        return update(Dataset).values(**changes)\n    return run()",
+        # An alias inside a nested scope stays there.
+        "def f(dataset):\n    ref = {}\n"
+        "    any(True for ref in [dataset.origin_ref])\n    ref.update(title='x')",
+        "def outer(dataset):\n    ref = {}\n    def middle():\n        ref = {}\n"
+        "        class Holder:\n            nonlocal ref\n"
+        "            ref = dataset.origin_ref\n        return Holder\n"
+        "    ref.update(title='x')\n    return middle",
+        "alias = {}\ndef f[alias](x: alias):\n    alias = dataset.origin_ref\n"
+        "    return x\nalias.update(title='x')",
+        "def outer(r):\n    changes = {}\n    def fill():\n        changes = {}\n"
+        "        changes['origin_ref'] = r\n    fill()\n"
+        "    return update(Dataset).values(**changes)",
+        "def outer(dataset):\n    ref = {}\n    def middle():\n        ref = {}\n"
+        "        def inner():\n            nonlocal ref\n"
+        "            ref = dataset.origin_ref\n        inner()\n        return ref\n"
+        "    ref.update(title='x')\n    return middle",
+        "class Holder:\n    ref = dataset.origin_ref\n    def touch(self):\n"
+        "        ref.update(title='x')",
+        "def outer(dataset):\n    ref = {}\n    def inner():\n"
+        "        ref = dataset.origin_ref\n        return ref\n"
+        "    ref.update(title='x')\n    return inner",
+        "def outer(dataset):\n    ref = {}\n"
+        "    peek = lambda: (ref := dataset.origin_ref)\n"
+        "    ref.update(title='x')\n    return peek",
+        "def outer(dataset):\n    ref = {}\n    class Holder:\n"
+        "        ref = dataset.origin_ref\n    ref.update(title='x')\n    return Holder",
+        "ref = {}\nclass C:\n    ref = dataset.origin_ref\n"
+        "    values = [ref.update(title='x') for _ in (1,)]",
+        "def a(dataset):\n    class Holder:\n        ref = dataset.origin_ref\n"
+        "    return Holder\ndef b():\n    class Holder:\n        ref = {}\n"
+        "    Holder.ref.update(title='x')",
+        "class Holder:\n    ref = dataset.origin_ref\nclass Other:\n    ref = {}\n"
+        "H = Other\nH.ref.update(title='x')",
+        "def a(dataset):\n    class Holder:\n        ref = dataset.origin_ref\n"
+        "    return Holder\ndef b():\n    class Holder:\n        ref = {}\n"
+        "        def touch(self):\n            self.ref.update(title='x')\n"
+        "    return Holder",
+        "def outer(r, t):\n    changes = {'title': t}\n    def inner():\n"
+        "        changes = {'origin_ref': r}\n        return changes\n"
+        "    return update(Dataset).values(**changes)",
+        "def outer(r, t):\n    changes = {'title': t}\n    def inner():\n"
+        "        changes = {}\n        changes['origin_ref'] = r\n        return changes\n"
+        "    return update(Dataset).values(**changes)",
+        "frame.to_sql('dataset_stats', engine)",
+        "await conn.copy_records_to_table('datasets', records=rows, "
+        "columns=['id', 'title'])",
+        "import sqlalchemy as sqla\n"
+        "session.execute(sqla.select(Dataset.id), [{'origin_ref': ref}])",
+        "def f(session, q, ref):\n    result = dict(session.execute(q).one())\n"
+        "    result.update({'origin_ref': ref})\n    return result",
+        "def f(dataset):\n    ref = dict(dataset.origin_ref or {})\n"
+        "    ref['token'] = 1\n    return ref",
+        "text('COPY catalog.datasets (id, origin_ref) TO STDOUT')",
+        "text('INSERT INTO catalog.datasets (id, title) VALUES (:i, :t)')",
+        "text('UPDATE catalog.datasets SET title = :t FROM s WHERE s.origin_ref = :r')",
+        "text('MERGE INTO catalog.datasets d USING s ON s.id = d.id "
+        "WHEN MATCHED THEN UPDATE SET title = s.t')",
+        "text('INSERT INTO catalog.dataset_versions VALUES (:a, :b)')",
+        "text('UPDATE catalog.datasets d SET title = s.t "
+        "FROM s JOIN x ON x.origin_ref = s.r')",
+        "text('SELECT origin_ref FROM catalog.datasets -- SET origin_ref = x')",
+        "text(f'SELECT origin_ref FROM {schema}.datasets WHERE id = :i')",
+        "setattr(dataset, 'title', t)",
+        "insert(Dataset).from_select(['id', 'title'], query)",
+        "text('UPDATE catalog.datasets SET (title, summary) = (:t, :s) "
+        "WHERE origin_ref = :r')",
+        'text("UPDATE catalog.datasets SET last_checked_at = now() '
+        "WHERE origin_ref['url'] = :u\")",
+        "session.execute(text('SELECT id FROM catalog.datasets "
+        "WHERE origin_ref = :origin_ref'), params={'origin_ref': ref})",
+        "class DatasetModel(BaseModel):\n    origin_ref: dict | None = None\n"
+        "DatasetModel(origin_ref={'kind': 'upload'})",
+        "from app.modules.catalog.datasets.domain.schemas import DatasetResponse "
+        "as DatasetModel\nDatasetModel(origin_uri=uri)",
+        "session.execute(text('SELECT id FROM catalog.datasets "
+        "WHERE origin_ref = :origin_ref'), {'origin_ref': ref})",
+        "session.execute(select(Dataset.id).where(Dataset.origin_uri == bindparam("
+        "'origin_uri')), {'origin_uri': uri})",
+        "text('UPDATE catalog.datasets SET last_checked_at = now() "
+        "WHERE origin_ref = :ref')",
+        "text(\"INSERT INTO v (h) SELECT origin_ref->>'file_hash' FROM d\")",
+    ],
+)
+def test_the_scan_leaves_a_read_alone(snippet: str) -> None:
+    assert binding_writes(snippet) == [], snippet
+
+
+def test_only_the_dataset_model_maps_the_columns() -> None:
+    """A write that names the columns can only target catalog.datasets, so the scan needn't resolve the table."""
+    mapped = set()
+    for path in sorted(APP_ROOT.rglob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        if not _may_write(source):
+            continue
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.ClassDef):
+                for item in node.body:
+                    if (
+                        isinstance(item, ast.AnnAssign)
+                        and isinstance(item.target, ast.Name)
+                        and item.target.id in COLUMNS
+                        and isinstance(item.value, ast.Call)
+                        and _terminal_name(item.value.func)
+                        in {"mapped_column", "Column"}
+                    ):
+                        mapped.add(
+                            (path.relative_to(BACKEND_ROOT).as_posix(), node.name)
+                        )
+            elif (
+                isinstance(node, ast.Call)
+                and _terminal_name(node.func) == "Column"
+                and node.args
+                and _names_a_column(node.args[0])
+            ):
+                mapped.add((path.relative_to(BACKEND_ROOT).as_posix(), "Column"))
+    assert mapped == {("app/modules/catalog/datasets/domain/models.py", "Dataset")}
+
+
+def test_the_file_filter_keeps_upper_case_and_positional_writes() -> None:
+    assert _may_write("text('UPDATE catalog.datasets SET ORIGIN_URI = :u')")
+    assert not _may_write("text('UPDATE catalog.datasets SET title = :t')")
+    assert _may_write("text('INSERT INTO catalog.datasets VALUES (:a, :b)')")

@@ -20,9 +20,11 @@ import typer
 from keyring.errors import KeyringError
 from rich.table import Table
 
+from . import admin_users as _admin_users
 from . import analysis as _analysis
 from . import arcgis_inventory as _arcgis_inventory
 from . import arcgis_migrate as _arcgis_migrate
+from . import arcgis_migrate_cutover as _arcgis_cutover
 from . import arcgis_plan as _arcgis_plan
 from . import auth as _auth
 from . import config as _config
@@ -52,9 +54,13 @@ app.add_typer(export_app, name="export")
 analysis_app = typer.Typer(no_args_is_help=True, help="Analysis commands")
 app.add_typer(analysis_app, name="analysis")
 arcgis_app = typer.Typer(
-    no_args_is_help=True, help="ArcGIS Online and Portal for ArcGIS commands"
+    no_args_is_help=True, help="ArcGIS Online and self-hosted ArcGIS portal commands"
 )
 app.add_typer(arcgis_app, name="arcgis")
+admin_app = typer.Typer(no_args_is_help=True, help="Administration commands")
+app.add_typer(admin_app, name="admin")
+admin_users_app = typer.Typer(no_args_is_help=True, help="GeoLens user commands")
+admin_app.add_typer(admin_users_app, name="users")
 
 
 @dataclass
@@ -1992,7 +1998,7 @@ def arcgis_inventory(
         str,
         typer.Option(
             "--portal-url",
-            help="ArcGIS Online organization URL, or https://<host>/portal for ArcGIS Enterprise",
+            help="ArcGIS Online organization URL, or https://<host>/portal for a self-hosted portal",
         ),
     ] = _arcgis_inventory.DEFAULT_PORTAL_URL,
     token: Annotated[
@@ -2122,15 +2128,20 @@ def arcgis_plan(
     ] = None,
     force: Annotated[
         bool,
-        typer.Option("--force", help="Replace a plan file that differs from this one"),
+        typer.Option(
+            "--force",
+            help="Replace an existing plan file instead of merging into it",
+        ),
     ] = False,
 ) -> None:
     """Turn an inventory into an editable migration plan.
 
     Writes arcgis-migration-plan.json (mode 0600) with a default action for
     every item, the owners, groups and basemaps to map, and the order items
-    depend on. Edit the file, then migrate from it. Nothing on the portal or
-    in GeoLens is read or changed.
+    depend on. Edit the file, then migrate from it. Run it again on a newer
+    inventory to merge that inventory into the plan: your edits stay, new
+    items get defaults, and items gone from the portal are marked removed.
+    Nothing on the portal or in GeoLens is read or changed.
     """
     state: AppState = ctx.obj
     code = _arcgis_plan.run_cli(
@@ -2144,9 +2155,7 @@ def arcgis_plan(
         raise typer.Exit(code)
 
 
-# Hidden until it can run every plan action: it imports service layers, while
-# data files and web maps are still left pending.
-@arcgis_app.command("migrate", hidden=True)
+@arcgis_app.command("migrate")
 def arcgis_migrate(
     ctx: typer.Context,
     plan: Annotated[
@@ -2173,6 +2182,14 @@ def arcgis_migrate(
     ] = False,
     no_retry: Annotated[
         bool, typer.Option("--no-retry", help="Leave items that failed before alone")
+    ] = False,
+    start_fresh: Annotated[
+        bool,
+        typer.Option(
+            "--start-fresh",
+            help="Run without a state file even though GeoLens already holds "
+            "datasets migrated from the plan's items, importing them again",
+        ),
     ] = False,
     unmapped_owner: Annotated[
         Optional[str],
@@ -2227,20 +2244,82 @@ def arcgis_migrate(
             help="Most megabytes saved per item in the export folder for items GeoLens can't host",
         ),
     ] = _arcgis_migrate.DEFAULT_CAP_MB,
+    cutover: Annotated[
+        bool,
+        typer.Option(
+            "--cutover",
+            help="Mark this run as the migration's final one; refuses while anything "
+            "the plan covers wouldn't carry over, unless that loss is accepted",
+        ),
+    ] = False,
+    accept_unfinished_items: Annotated[
+        bool,
+        typer.Option(
+            "--accept-unfinished-items",
+            help="With --cutover, accept items that aren't done or not up to date",
+        ),
+    ] = False,
+    accept_incomplete_inventory: Annotated[
+        bool,
+        typer.Option(
+            "--accept-incomplete-inventory",
+            help="With --cutover, accept a plan not last merged from a complete "
+            "--scope org inventory read by an organization administrator",
+        ),
+    ] = False,
+    accept_attachment_loss: Annotated[
+        bool,
+        typer.Option(
+            "--accept-attachment-loss",
+            help="With --cutover, accept that migrated layers' attachments stay behind",
+        ),
+    ] = False,
+    accept_unresolved_users: Annotated[
+        bool,
+        typer.Option(
+            "--accept-unresolved-users",
+            help="With --cutover, accept items whose plan owner isn't a GeoLens user "
+            "who can take them, and ArcGIS group members who aren't GeoLens users yet",
+        ),
+    ] = False,
+    accept_under_sharing: Annotated[
+        bool,
+        typer.Option(
+            "--accept-under-sharing",
+            help="With --cutover, accept items shared only with ArcGIS groups that "
+            "may reach fewer people in GeoLens",
+        ),
+    ] = False,
 ) -> None:
     """Migrate the items of a plan into GeoLens, resuming from the state file.
 
-    Needs a GeoLens admin session. Items are imported as you, in depends_on
-    order, then transferred to the owner the plan maps them to. Items that
-    aren't public need an ArcGIS token or a built-in account.
+    Needs a GeoLens admin session, except when the plan maps every item to
+    you: an editor then migrates their own content, with nothing transferred.
+    Items are imported as you, in depends_on order, then transferred to the
+    owner the plan maps them to. A rerun also brings the items migrated before
+    up to date. Items that aren't public need an ArcGIS token or a built-in
+    account.
+
+    As an editor, a public item under restrict_public_visibility becomes
+    internal, collections are skipped without manage_collections, and an item
+    shared only with ArcGIS groups goes to the matching GeoLens groups you
+    belong to, or becomes private. The report lists each.
     """
     state: AppState = ctx.obj
+    accepted = {
+        _arcgis_cutover.UNFINISHED: accept_unfinished_items,
+        _arcgis_cutover.INVENTORY: accept_incomplete_inventory,
+        _arcgis_cutover.ATTACHMENTS: accept_attachment_loss,
+        _arcgis_cutover.USERS: accept_unresolved_users,
+        _arcgis_cutover.SHARING: accept_under_sharing,
+    }
     options = _arcgis_migrate.MigrateOptions(
         plan_path=plan,
         state_path=state_file,
         only=only or [],
         dry_run=dry_run,
         no_retry=no_retry,
+        start_fresh=start_fresh,
         unmapped_owner=unmapped_owner,
         token=token,
         token_stdin=token_stdin,
@@ -2249,10 +2328,91 @@ def arcgis_migrate(
         allow_insecure_http=allow_insecure_http,
         trusted_hosts=trust_service_host or [],
         export_cap_mb=export_cap_mb,
+        cutover=cutover,
+        accept=frozenset(name for name, given in accepted.items() if given),
     )
     code = _arcgis_migrate.run_cli(
         state.output,
         options,
+        sdk_factory=state.sdk,
+        instance=state.active_instance() or "",
+    )
+    if code:
+        raise typer.Exit(code)
+
+
+@admin_users_app.command("import")
+def admin_users_import(
+    ctx: typer.Context,
+    csv_file: Annotated[
+        Optional[Path],
+        typer.Argument(
+            help="CSV with a header row naming username, email and role; "
+            "leave it out when using --from-inventory",
+            exists=True,
+            dir_okay=False,
+        ),
+    ] = None,
+    from_inventory: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--from-inventory",
+            help="Take the users from an ArcGIS inventory: item owners as editors, "
+            "members of groups items are shared with as viewers",
+            exists=True,
+            dir_okay=False,
+        ),
+    ] = None,
+    seed_csv: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--seed-csv",
+            help="With --from-inventory, write the users to this CSV to review "
+            "and create nothing",
+            dir_okay=False,
+        ),
+    ] = None,
+    print_passwords: Annotated[
+        bool,
+        typer.Option(
+            "--print-passwords",
+            help="Show each new user's generated password, once, on standard output",
+        ),
+    ] = False,
+    link_by_email: Annotated[
+        bool,
+        typer.Option(
+            "--link-by-email",
+            help="On an instance that signs in through an identity provider, create "
+            "the users for their first sign-in to link to by email; needs the "
+            "provider to send email_verified, and the emails reviewed, since one "
+            "an admin enters counts as verified",
+        ),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Say what would be created; create nothing"),
+    ] = False,
+) -> None:
+    """Create GeoLens users in bulk, skipping the ones that already exist.
+
+    Needs a GeoLens admin session. Generated passwords are never written
+    anywhere; without --print-passwords nobody knows them, so set one for each
+    user through the admin password reset. An instance that signs in through
+    an identity provider creates its users at first sign-in, so nothing is
+    created there unless you pass --link-by-email.
+    """
+    state: AppState = ctx.obj
+    code = _admin_users.run_cli(
+        state.output,
+        _admin_users.ImportOptions(
+            csv_path=csv_file,
+            inventory_path=from_inventory,
+            seed_path=seed_csv,
+            print_passwords=print_passwords,
+            link_by_email=link_by_email,
+            dry_run=dry_run,
+        ),
         sdk_factory=state.sdk,
         instance=state.active_instance() or "",
     )

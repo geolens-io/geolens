@@ -121,7 +121,7 @@ def sync_detailed(
     skip: int | Unset = 0,
     offset: int | None | Unset = UNSET,
 ) -> Response[ColumnDdlFeedResponse | ProblemDetail]:
-    """Get Column Ddl Feed
+    """List a dataset's column change history
 
      Return the column-DDL audit history for a dataset.
 
@@ -172,7 +172,7 @@ def sync(
     skip: int | Unset = 0,
     offset: int | None | Unset = UNSET,
 ) -> ColumnDdlFeedResponse | ProblemDetail | None:
-    """Get Column Ddl Feed
+    """List a dataset's column change history
 
      Return the column-DDL audit history for a dataset.
 
@@ -218,7 +218,7 @@ async def asyncio_detailed(
     skip: int | Unset = 0,
     offset: int | None | Unset = UNSET,
 ) -> Response[ColumnDdlFeedResponse | ProblemDetail]:
-    """Get Column Ddl Feed
+    """List a dataset's column change history
 
      Return the column-DDL audit history for a dataset.
 
@@ -267,7 +267,7 @@ async def asyncio(
     skip: int | Unset = 0,
     offset: int | None | Unset = UNSET,
 ) -> ColumnDdlFeedResponse | ProblemDetail | None:
-    """Get Column Ddl Feed
+    """List a dataset's column change history
 
      Return the column-DDL audit history for a dataset.
 

@@ -27,6 +27,7 @@
 [![État de la CI](https://img.shields.io/github/actions/workflow/status/geolens-io/geolens/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/geolens-io/geolens/actions/workflows/ci.yml)
 [![Licence : Apache-2.0](https://img.shields.io/badge/licence-Apache--2.0-2563eb?style=flat-square)](LICENSE)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/geolens-io/geolens/badge)](https://securityscorecards.dev/viewer/?uri=github.com/geolens-io/geolens)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15857/badge)](https://www.bestpractices.dev/projects/15857)
 
 </div>
 
@@ -149,7 +150,7 @@ flowchart LR
     end
     subgraph GL ["GeoLens"]
       CAT["Catalogue<br/>recherche · métadonnées · provenance"]
-      MB["Générateur de cartes<br/>styles · 3D · analyse · partage"]
+      MB["Générateur de cartes<br/>styles · 3D · analyse · récits · tableaux de bord · partage"]
       STD["API ouvertes<br/>OGC API · STAC · DCAT · tuiles"]
     end
     subgraph OUT ["Utiliser partout"]
@@ -204,8 +205,13 @@ fonctionner.
 - Tampon, centroïde, découpage, fusion, jointure spatiale, sélection par localisation, mesure et
   intersection. La plupart des opérations s’affichent d’abord en aperçu sur la carte, et chaque
   résultat est enregistré comme un nouveau jeu de données, depuis le générateur ou la CLI.
-- Les liens publics affichent le titre et l’image de la carte lorsqu’ils sont collés dans Slack,
-  Teams ou les réseaux sociaux, et les cartes s’intègrent à d’autres sites avec des jetons privés.
+- Les cartes narratives guident le lecteur dans une carte scène par scène, avec du texte en
+  Markdown, des images, des boutons et des séparateurs. Les tableaux de bord placent indicateurs,
+  graphiques, filtres et notes en Markdown à côté d’une carte. Un panneau de données de la carte
+  affiche les lignes de chaque couche, en tableau ou en liste.
+- Les cartes publiques et les récits publiés affichent leur titre et leur image lorsqu’ils sont
+  collés dans Slack, Teams ou les réseaux sociaux, et les cartes s’intègrent à d’autres sites avec
+  des jetons privés.
 - L’interface est disponible en anglais, espagnol, français, allemand et chinois simplifié.
 
 ## Utiliser les données partout
@@ -361,8 +367,8 @@ donne les tailles et les options.
 ## Contribuer
 
 Les rapports de bogues, correctifs, traductions et contributions à la documentation sont les
-bienvenus. [CONTRIBUTING](.github/CONTRIBUTING.md) couvre la configuration, les tests et la
-signature DCO, et [ARCHITECTURE](.github/ARCHITECTURE.md) cartographie le code. Les dépôts de
+bienvenus. [CONTRIBUTING](.github/CONTRIBUTING.md) couvre la configuration et les tests,
+et [ARCHITECTURE](.github/ARCHITECTURE.md) cartographie le code. Les dépôts de
 l’[extension QGIS](https://github.com/geolens-io/qgis-geolens-plugin), des
 [exemples](https://github.com/geolens-io/geolens-examples) et des
 [déploiements](https://github.com/geolens-io/geolens-deployments) acceptent aussi les tickets et les

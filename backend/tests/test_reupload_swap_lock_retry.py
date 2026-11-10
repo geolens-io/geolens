@@ -41,7 +41,7 @@ async def swap_in(session, *, dataset, staging_table, measurement, **writes):
     )
     await _take_catalog_rows(session, _SWAP, dataset)
     written = await _write_reupload_catalog(
-        session, dataset=dataset, measurement=measurement, **writes
+        session, dataset=dataset, measurement=measurement, field_labels=None, **writes
     )
     await catalog_locks.bump_tile_cache_version_on(session, dataset)
     return written
@@ -93,14 +93,16 @@ def _make_dataset_stub(table_name: str):
         current_version=1,
         tile_cache_version=1,
         source_url=None,
+        origin_ref=None,
         last_refreshed_at=None,
+        column_info=None,
     )
 
 
 def _stub_projection(monkeypatch, trace: list | None = None) -> None:
     """Stand in for ``project``, which writes catalog rows these stubs do not have."""
 
-    async def _project(session, dataset, measurement):
+    async def _project(session, dataset, measurement, **_):
         if trace is not None:
             trace.append(("write", "project"))
         return {}
@@ -328,8 +330,9 @@ class TestReuploadSwapRetry:
 
         assert dataset.last_checked_at is not None
         assert dataset.last_checked_at == dataset.last_refreshed_at
-        # The health verdict itself stays with the probe's classifier.
-        assert dataset.source_health is None
+        # The bytes just came from the origin, so it is reachable.
+        assert dataset.source_health == "healthy"
+        assert dataset.source_health_detail is None
 
     async def test_retry_path_logs_and_succeeds(self, monkeypatch) -> None:
         """First swap raises ``LockNotAvailableError``; retry succeeds and both logs fire."""

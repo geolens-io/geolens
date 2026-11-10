@@ -338,6 +338,14 @@ class TestOriginRefusalMessage:
         assert message is not None
         assert "geolens refresh" in message
 
+    def test_database_origin_points_at_refresh(self) -> None:
+        from geolens_cli.replace import origin_refusal_message
+
+        message = origin_refusal_message("database")
+        assert message is not None
+        assert "database table" in message
+        assert "geolens refresh" in message
+
     @pytest.mark.parametrize("origin", ["upload", "created", None])
     def test_other_origins_are_not_refused(self, origin: str | None) -> None:
         from geolens_cli.replace import origin_refusal_message
@@ -349,7 +357,7 @@ class TestOriginRefusalMessage:
         a deliberate answer here, not a silent pass-through."""
         from geolens_cli.replace import KNOWN_ORIGIN_KINDS, origin_refusal_message
 
-        refused_kinds = {"postgis", "service", "stac"}
+        refused_kinds = {"postgis", "service", "stac", "database"}
         assert refused_kinds < KNOWN_ORIGIN_KINDS
 
         for kind in KNOWN_ORIGIN_KINDS:

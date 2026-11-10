@@ -120,6 +120,22 @@ describe('useEphemeralLayers', () => {
     expect(map.fitBoundsCalls[0].bounds).toEqual([[-1, -1], [1, 1]]);
   });
 
+  // MapLibre's globe fit returns no camera for a zero-size box.
+  it('fits a single-point result with a box that has width and height', () => {
+    const map = createMockMap();
+    const ref = { current: map as unknown as MaplibreMap };
+    const { result } = renderHook(() => useEphemeralLayers(ref));
+
+    act(() => {
+      result.current.handleQueryResult(sampleGeoJSON(), [12.5, 48.1, 12.5, 48.1]);
+    });
+
+    expect(map.fitBoundsCalls).toHaveLength(1);
+    const [[west, south], [east, north]] = map.fitBoundsCalls[0].bounds as [[number, number], [number, number]];
+    expect(east - west).toBeGreaterThan(0);
+    expect(north - south).toBeGreaterThan(0);
+  });
+
   it('handleDismissEphemeral removes all ephemeral layers and source', () => {
     const map = createMockMap();
     const ref = { current: map as unknown as MaplibreMap };

@@ -15,6 +15,7 @@ spec.loader.exec_module(seed)
 
 MAP_NAMES = set(seed.MAP_DESCRIPTIONS) | {
     seed.HURRICANE_MAP,
+    seed.DASHBOARD_MAP,
     "Everything That Fell From the Sky",
 }
 COLLECTION_NAMES = set(seed.COLLECTIONS)
@@ -195,22 +196,29 @@ def unrestorable_changes(api):
     # Rebuilding a missing map reuses and rewrites its existing datasets.
     for name in sorted(MAP_NAMES - {seed.CITY_SHADE_MAP} - set(maps)):
         problems.append(f"map {name!r} is missing")
-    if seed.HURRICANE_MAP_LEGACY in maps:
-        problems.append(f"legacy map name {seed.HURRICANE_MAP_LEGACY!r}")
+    for _, legacy in seed.LEGACY_MAP_NAMES:
+        if legacy in maps:
+            problems.append(f"legacy map name {legacy!r}")
     if seed.QUAKES_TITLE_LEGACY in titles:
         problems.append(f"legacy dataset title {seed.QUAKES_TITLE_LEGACY!r}")
-    for title in (seed.QUAKES_TITLE, seed.QUAKES_HEAT_TITLE):
-        if title not in titles:
-            continue
-        detail = api.dataset_detail(titles[title])
+    if seed.STATES_TITLE_LEGACY in titles:
+        problems.append(f"legacy dataset title {seed.STATES_TITLE_LEGACY!r}")
+    if seed.QUAKES_TITLE in titles:
+        detail = api.dataset_detail(titles[seed.QUAKES_TITLE])
         if (detail.get("origin"), detail.get("origin_uri")) != (
             "service",
             seed.USGS_QUAKES_SERVICE,
         ):
-            problems.append(f"{title!r} is not bound to the USGS service")
+            problems.append(f"{seed.QUAKES_TITLE!r} is not bound to the USGS service")
     meteorites = titles.get("Meteorite Landings (Meteoritical Society)")
     if meteorites and (api.dataset_feature_count(meteorites) or 0) < 20000:
         problems.append("the meteorite dataset would be reuploaded in place")
+    matterhorn = maps.get("The Matterhorn in 3D")
+    swiss = titles.get(seed.SWISSALTI_MOSAIC_TITLE)
+    if matterhorn and swiss:
+        terrain = api.get_map(matterhorn).get("terrain_config") or {}
+        if terrain.get("source_dataset_id") == swiss:
+            problems.append("the Matterhorn terrain would move to the Copernicus mosaic")
     # Restore cannot clear a description back to null.
     for name in set(seed.MAP_DESCRIPTIONS) & set(maps):
         if not api.get_map(maps[name]).get("description"):

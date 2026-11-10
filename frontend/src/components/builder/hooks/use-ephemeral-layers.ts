@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
+import { toFitBounds } from '@/lib/bbox';
 import { MAP_COLORS } from '@/lib/map-colors';
 
 const EPHEMERAL_LAYERS = [
@@ -137,8 +138,7 @@ export function useEphemeralLayers(
       addLayers();
       if (!zoomed) {
         zoomed = true;
-        const [west, south, east, north] = ephemeralResult.bbox;
-        map.fitBounds([[west, south], [east, north]], { padding: 40, maxZoom: 18 });
+        map.fitBounds(toFitBounds(ephemeralResult.bbox), { padding: 40, maxZoom: 18 });
       }
     }
 

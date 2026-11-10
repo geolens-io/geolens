@@ -1,0 +1,712 @@
+"""Stories API: published reads, draft saves, publishing and copies."""
+
+from __future__ import annotations
+
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.responses import HTMLResponse
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.dependencies import get_db
+from app.core.public_urls import (
+    get_public_api_url,
+    get_shareable_app_url,
+    join_public_url,
+)
+from app.core.identity import Identity
+from app.modules.audit.service import AuditEvent, audit_emit
+from app.modules.auth.dependencies import get_optional_user, require_permission
+from app.modules.catalog.authorization import (
+    check_public_visibility_allowed,
+    get_user_roles,
+)
+from app.modules.catalog.group_sharing import GroupNotJoinedError
+from app.modules.catalog.link_preview import (
+    link_preview_response,
+    preview_description,
+    site_card_image_url,
+)
+from app.modules.catalog.maps.sharing import get_share_card_image_url
+from app.modules.catalog.stories.assets import (
+    commit_pruning,
+    discard_story_asset_objects,
+    image_ids,
+    require_story_assets,
+    story_asset_keys,
+    touch_story_assets,
+)
+from app.modules.catalog.stories.groups import (
+    audit_shared_maps,
+    lock_story_groups,
+    sharing_blocking_maps,
+    story_groups,
+    story_visibility_for,
+)
+from app.modules.catalog.stories.models import Story
+from app.modules.catalog.stories.schemas import (
+    StoryCreate,
+    StoryDraftResponse,
+    StoryDraftUpdate,
+    StoryListResponse,
+    StoryPublish,
+    StoryRevision,
+    StoryResponse,
+    StorySummary,
+    StoryUpdate,
+)
+from app.modules.catalog.stories.service import (
+    STORY_NOT_FOUND,
+    StoryMapsNotFoundError,
+    StoryReachError,
+    can_edit_story,
+    check_story_access,
+    check_story_ownership,
+    check_visibility_change,
+    create_story,
+    delete_story,
+    discard,
+    duplicate_story,
+    get_story,
+    list_stories,
+    lock_story,
+    preview_scene_map,
+    publish,
+    reach_conflict,
+    refuse_stale_revision,
+    render_for,
+    save_draft,
+)
+from app.platform.extensions.reader_theme import current_reader_theme
+from app.platform.storage.publication import asset_publication
+from app.platform.story_frames import (
+    StoryFrameHost,
+    approved_frame_hosts,
+    frame_src_directive,
+)
+from app.standards.ogc.errors import (
+    BAD_GATEWAY_RESPONSE,
+    CONFLICT_RESPONSE,
+    ERROR_RESPONSES_WRITE,
+)
+
+router = APIRouter(prefix="/stories", tags=["Stories"], responses=ERROR_RESPONSES_WRITE)
+
+_REACH_CONFLICT = {
+    **CONFLICT_RESPONSE,
+    "description": (
+        "Maps the story uses are narrower than its visibility (`detail.code` "
+        "`maps_narrower_than_story`, the maps under `detail.maps`), a stale "
+        "draft revision (`stale_revision`), or another change holding the "
+        "story's lock (no `detail.code`)."
+    ),
+}
+
+
+def _summary(story: Story, can_edit: bool) -> dict:
+    return {
+        "id": story.id,
+        "title": story.title,
+        "summary": story.summary,
+        "visibility": story.visibility,
+        "created_by": story.created_by,
+        "published_at": story.published_at,
+        "cover_asset_id": story.cover_asset_id,
+        "created_at": story.created_at,
+        "updated_at": story.updated_at,
+        "can_edit": can_edit,
+    }
+
+
+def _ip(request: Request) -> str | None:
+    return request.client.host if request.client else None
+
+
+async def _readable_story(
+    db: AsyncSession, story_id: uuid.UUID, user: Identity | None
+) -> tuple[Story, set[str]]:
+    story = await get_story(db, story_id)
+    if story is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Story not found"
+        )
+    roles = await check_story_access(db, story, user)
+    return story, roles
+
+
+async def _owned_story(
+    db: AsyncSession, story_id: uuid.UUID, user: Identity
+) -> tuple[Story, set[str]]:
+    story = await get_story(db, story_id)
+    if story is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Story not found"
+        )
+    await check_story_ownership(db, story, user)
+    return await lock_story(db, story_id, user)
+
+
+async def _draft_response(
+    db: AsyncSession, story: Story, user: Identity, roles: set[str]
+) -> StoryDraftResponse:
+    return StoryDraftResponse(
+        **_summary(story, True),
+        revision=story.draft_revision,
+        document=await render_for(db, story.draft, user, roles),
+        groups=await story_groups(db, story.id),
+    )
+
+
+@router.get(
+    "",
+    response_model=StoryListResponse,
+    include_in_schema=False,
+    summary="List stories",
+)
+@router.get("/", response_model=StoryListResponse, summary="List stories")
+async def list_stories_endpoint(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    owned_only: bool = False,
+    search: str | None = Query(
+        None, description="Case-insensitive match on title and summary."
+    ),
+    published_only: bool = Query(
+        False, description="Leave out stories that were never published."
+    ),
+    user: Identity | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+) -> StoryListResponse:
+    """List the stories the caller may read, most recently updated first.
+
+    Anyone sees published public stories, signed-in users also published
+    internal ones, owners their own (published or not), and admins all.
+    """
+    roles = await get_user_roles(db, user) if user is not None else set()
+    stories, total = await list_stories(
+        db,
+        user,
+        roles,
+        skip=skip,
+        limit=limit,
+        owned_only=owned_only,
+        search=search,
+        published_only=published_only,
+    )
+    return StoryListResponse(
+        stories=[
+            StorySummary(
+                **_summary(s, can_edit_story(s, user, roles)), chapter_count=count
+            )
+            for s, count in stories
+        ],
+        total=total,
+    )
+
+
+@router.post(
+    "",
+    response_model=StoryDraftResponse,
+    status_code=status.HTTP_201_CREATED,
+    include_in_schema=False,
+    summary="Create a story",
+)
+@router.post(
+    "/",
+    response_model=StoryDraftResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a story",
+)
+async def create_story_endpoint(
+    body: StoryCreate,
+    request: Request,
+    user: Identity = Depends(require_permission("edit_metadata")),
+    db: AsyncSession = Depends(get_db),
+) -> StoryDraftResponse:
+    """Create a private, unpublished story with an empty draft."""
+    story = await create_story(
+        db, title=body.title, summary=body.summary, owner_id=user.id
+    )
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="story.create",
+            resource_type="story",
+            resource_id=story.id,
+            details={"title": body.title},
+            ip_address=_ip(request),
+        ),
+    )
+    await db.commit()
+    await db.refresh(story)
+    return await _draft_response(db, story, user, await get_user_roles(db, user))
+
+
+@router.get(
+    "/frame-hosts",
+    response_model=list[StoryFrameHost],
+    include_in_schema=False,
+    summary="List hosts a story may embed",
+)
+@router.get(
+    "/frame-hosts/",
+    response_model=list[StoryFrameHost],
+    summary="List hosts a story may embed",
+)
+async def story_frame_hosts_endpoint(
+    db: AsyncSession = Depends(get_db),
+) -> list[StoryFrameHost]:
+    """The hosts story embed and video blocks may frame (public, no auth required).
+
+    An admin sets them in `story_frame_hosts`. Empty means neither block can
+    be added, and none is shown to readers.
+    """
+    return await approved_frame_hosts(db)
+
+
+async def _story_frame_src(db: AsyncSession) -> str:
+    return frame_src_directive(await approved_frame_hosts(db))
+
+
+@router.get("/frame-src-policy", include_in_schema=False)
+async def story_frame_src_policy_endpoint(
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """The page CSP's ``frame-src``, in ``X-Story-Frame-Src``, for nginx.
+
+    Always 200 with no body, since nginx's ``auth_request`` treats any other
+    status as a failure.
+    """
+    return Response(
+        status_code=status.HTTP_200_OK,
+        headers={
+            "X-Story-Frame-Src": await _story_frame_src(db),
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.get("/{story_id}", response_model=StoryResponse, summary="Get a story")
+async def get_story_endpoint(
+    story_id: uuid.UUID,
+    user: Identity | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+) -> StoryResponse:
+    """Read a story's published document.
+
+    Scenes on maps the caller can't read come back without their scene. An
+    unpublished story is readable only by its owner and admins, with a null
+    document. 404 when the caller can't read the story.
+    """
+    story, roles = await _readable_story(db, story_id, user)
+    document = (
+        await render_for(db, story.published, user, roles)
+        if story.published is not None
+        else None
+    )
+    return StoryResponse(
+        **_summary(story, can_edit_story(story, user, roles)),
+        document=document,
+        reader_theme=current_reader_theme(),
+    )
+
+
+@router.get(
+    "/{story_id}/link-preview", response_class=HTMLResponse, include_in_schema=False
+)
+async def story_link_preview_endpoint(
+    story_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> HTMLResponse:
+    """Open Graph and Twitter tags for a story an anonymous caller may read,
+    which nginx serves to unfurl crawlers on ``/stories/<id>``.
+
+    Only a published public story gets its title and summary. Every other
+    story answers 404 with the same body as a missing one, as does a
+    deployment without a verified public app origin; nginx serves the SPA
+    shell for any 404. The card image is the story's cover in its JPEG size,
+    else that of the first scene map anyone may read, else the site image.
+    """
+    app_url = await get_shareable_app_url(db, request=request)
+    if app_url is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Story not found"
+        )
+    story, _ = await _readable_story(db, story_id, None)
+    if story.cover_asset_id is not None:
+        image_url = join_public_url(
+            await get_public_api_url(db, request=request),
+            f"/stories/{story.id}/assets/{story.cover_asset_id}?variant=social",
+        )
+    elif (scene_map := await preview_scene_map(db, story)) is not None:
+        image_url = await get_share_card_image_url(db, request, scene_map)
+    else:
+        image_url = await site_card_image_url(db, request)
+    return link_preview_response(
+        page_url=join_public_url(app_url, f"/stories/{story.id}"),
+        image_url=image_url,
+        title=story.title,
+        description=preview_description(story.summary, "Read this story on GeoLens"),
+    )
+
+
+# nginx copies this onto the embed page; it opens framing to any site only for
+# a story any anonymous reader may open.
+_EMBED_FRAMING_OPEN = "frame-ancestors *"
+_EMBED_FRAMING_CLOSED = "frame-ancestors 'none'"
+
+
+@router.get("/{story_id}/frame-policy", include_in_schema=False)
+async def story_embed_frame_policy_endpoint(
+    story_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """The framing policy for ``/stories/<id>/embed``, in ``X-Embed-Frame-Ancestors``,
+    and the frames that page may show, in ``X-Story-Frame-Src``.
+
+    Always 200 with no body, since nginx's ``auth_request`` treats any other
+    status as a failure. The story is read as an anonymous caller: a published
+    public story may be framed by any site, and every other story, a missing
+    one and a malformed id get the same ``frame-ancestors 'none'``.
+    """
+    directive = _EMBED_FRAMING_CLOSED
+    try:
+        story = await get_story(db, uuid.UUID(story_id))
+        if story is not None:
+            await check_story_access(db, story, None)
+            directive = _EMBED_FRAMING_OPEN
+    except (ValueError, HTTPException):
+        directive = _EMBED_FRAMING_CLOSED
+    return Response(
+        status_code=status.HTTP_200_OK,
+        headers={
+            "X-Embed-Frame-Ancestors": directive,
+            "X-Story-Frame-Src": await _story_frame_src(db),
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.get(
+    "/{story_id}/draft", response_model=StoryDraftResponse, summary="Get a story draft"
+)
+async def get_story_draft_endpoint(
+    story_id: uuid.UUID,
+    user: Identity = Depends(require_permission("edit_metadata")),
+    db: AsyncSession = Depends(get_db),
+) -> StoryDraftResponse:
+    """Read the draft with its revision (owner or admin).
+
+    Scenes on maps you can't read come back without their scene, marked
+    `scene_hidden`. 404 when you can't read the story, 403 when you can but
+    don't own it.
+    """
+    story = await get_story(db, story_id)
+    if story is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Story not found"
+        )
+    roles = await check_story_ownership(db, story, user)
+    return await _draft_response(db, story, user, roles)
+
+
+@router.put(
+    "/{story_id}/draft",
+    response_model=StoryDraftResponse,
+    responses={409: _REACH_CONFLICT},
+    summary="Save a story draft",
+)
+async def save_story_draft_endpoint(
+    story_id: uuid.UUID,
+    body: StoryDraftUpdate,
+    user: Identity = Depends(require_permission("edit_metadata")),
+    db: AsyncSession = Depends(get_db),
+) -> StoryDraftResponse:
+    """Replace the whole draft (owner or admin). Readers keep the published
+    document until Publish.
+
+    `revision` must match the stored draft's, or 409 `stale_revision`. 422
+    for an unknown or invalid block, for a scene on a map you can't read
+    (`detail.code` `story_maps_not_found`), for an image block naming an
+    image this story doesn't have (`story_assets_not_found`), or for an
+    embed or video block whose host isn't approved
+    (`story_frame_host_not_allowed`, the blocks under `detail.blocks`). Blocks
+    you can't see and scenes sent back with `scene_hidden` are kept as stored.
+    """
+    story, roles = await _owned_story(db, story_id, user)
+    before = story.draft
+    try:
+        draft_ids = await save_draft(
+            db, story, body.revision, body.document, user, roles
+        )
+    except StoryMapsNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "story_maps_not_found",
+                "message": "Some scenes use maps that weren't found.",
+                "map_ids": [str(map_id) for map_id in exc.map_ids],
+            },
+        ) from exc
+    await commit_pruning(db, story, draft_ids=draft_ids, released=image_ids(before))
+    await db.refresh(story)
+    return await _draft_response(db, story, user, roles)
+
+
+@router.patch(
+    "/{story_id}",
+    response_model=StoryResponse,
+    responses={409: _REACH_CONFLICT},
+    summary="Update a story",
+)
+async def update_story_endpoint(
+    story_id: uuid.UUID,
+    body: StoryUpdate,
+    request: Request,
+    user: Identity = Depends(require_permission("edit_metadata")),
+    db: AsyncSession = Depends(get_db),
+) -> StoryResponse:
+    """Change a story's title, summary, visibility or cover (owner or admin).
+
+    These apply at once, without Publish. A visibility wider than a map the
+    published story uses answers 409 `maps_narrower_than_story`; a narrower
+    one is always allowed. A story shared with groups stays restricted when
+    made private.
+    """
+    story = await get_story(db, story_id)
+    if story is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Story not found"
+        )
+    roles = await check_story_ownership(db, story, user)
+    visibility = body.visibility.value if body.visibility is not None else None
+    roles = (
+        await check_public_visibility_allowed(db, user, visibility, user_roles=roles)
+        or roles
+    )
+    story, roles = await lock_story(db, story_id, user)
+    changes = body.model_dump(exclude_unset=True, mode="json")
+    if visibility is not None:
+        visibility = await story_visibility_for(db, story.id, visibility)
+    if visibility is not None and visibility != story.visibility:
+        try:
+            await check_visibility_change(db, story, visibility, user, roles)
+        except StoryReachError as exc:
+            raise reach_conflict(exc) from exc
+        story.visibility = visibility
+    if "title" in changes and body.title is not None:
+        story.title = body.title
+    if "summary" in changes:
+        story.summary = body.summary
+    if "cover_asset_id" in changes:
+        if body.cover_asset_id is not None:
+            await require_story_assets(db, story.id, [body.cover_asset_id])
+        await touch_story_assets(db, story.id, [story.cover_asset_id])
+        story.cover_asset_id = body.cover_asset_id
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="story.update",
+            resource_type="story",
+            resource_id=story.id,
+            details=changes,
+            ip_address=_ip(request),
+        ),
+    )
+    await db.commit()
+    await db.refresh(story)
+    document = (
+        await render_for(db, story.published, user, roles)
+        if story.published is not None
+        else None
+    )
+    return StoryResponse(
+        **_summary(story, True),
+        document=document,
+        reader_theme=current_reader_theme(),
+    )
+
+
+@router.post(
+    "/{story_id}/publish",
+    response_model=StoryResponse,
+    responses={409: _REACH_CONFLICT},
+    summary="Publish a story",
+)
+async def publish_story_endpoint(
+    story_id: uuid.UUID,
+    body: StoryPublish,
+    request: Request,
+    user: Identity = Depends(require_permission("edit_metadata")),
+    db: AsyncSession = Depends(get_db),
+) -> StoryResponse:
+    """Publish the draft (owner or admin): readers get it from now on.
+
+    `revision` must match the stored draft's, or 409 `stale_revision`. 409
+    `maps_narrower_than_story` when a map a scene uses can't be read by
+    everyone the story's visibility reaches: `detail.maps` names the ones you
+    can read and `detail.unreadable_maps` counts the rest. For a restricted
+    story, a map only some of its groups lack is `can_share`; see `confirm`.
+    422 `story_frame_host_not_allowed` when an embed or video block frames a
+    host that isn't approved now; `detail.blocks` names each one.
+    """
+    if body.confirm is not None:
+        # Sharing maps locks the story's groups, which must come first.
+        found = await get_story(db, story_id)
+        if found is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=STORY_NOT_FOUND
+            )
+        await check_story_ownership(db, found, user)
+        await lock_story_groups(db, found)
+    story, roles = await _owned_story(db, story_id, user)
+    refuse_stale_revision(story, body.revision)
+    try:
+        released, shared = await sharing_blocking_maps(
+            db, lambda: publish(db, story, user, roles), user, body.confirm
+        )
+    except StoryReachError as exc:
+        raise reach_conflict(exc) from exc
+    except GroupNotJoinedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can share a map only with groups you belong to.",
+        )
+    await audit_shared_maps(db, shared, user, _ip(request), story.id)
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="story.publish",
+            resource_type="story",
+            resource_id=story.id,
+            details={"visibility": story.visibility},
+            ip_address=_ip(request),
+        ),
+    )
+    await commit_pruning(db, story, released=released)
+    await db.refresh(story)
+    return StoryResponse(
+        **_summary(story, True),
+        document=await render_for(db, story.published, user, roles),
+        reader_theme=current_reader_theme(),
+    )
+
+
+@router.post(
+    "/{story_id}/discard",
+    response_model=StoryDraftResponse,
+    summary="Discard a story draft",
+)
+async def discard_story_draft_endpoint(
+    story_id: uuid.UUID,
+    body: StoryRevision,
+    request: Request,
+    user: Identity = Depends(require_permission("edit_metadata")),
+    db: AsyncSession = Depends(get_db),
+) -> StoryDraftResponse:
+    """Revert the draft to the published document, or to an empty one for a
+    story never published (owner or admin).
+
+    `revision` must match the stored draft's, or 409 `stale_revision`, so a
+    stale tab or a retry can't erase a draft saved since.
+    """
+    story, roles = await _owned_story(db, story_id, user)
+    before = story.draft
+    await discard(db, story, body.revision)
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="story.update",
+            resource_type="story",
+            resource_id=story.id,
+            details={"discarded_draft": True},
+            ip_address=_ip(request),
+        ),
+    )
+    await commit_pruning(db, story, released=image_ids(before))
+    await db.refresh(story)
+    return await _draft_response(db, story, user, roles)
+
+
+@router.delete(
+    "/{story_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a story"
+)
+async def delete_story_endpoint(
+    story_id: uuid.UUID,
+    request: Request,
+    user: Identity = Depends(require_permission("edit_metadata")),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Delete a story and its images (owner or admin). The maps it uses are
+    untouched."""
+    story, _ = await _owned_story(db, story_id, user)
+    images = await story_asset_keys(db, story.id)
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="story.delete",
+            resource_type="story",
+            resource_id=story.id,
+            details={"title": story.title},
+            ip_address=_ip(request),
+        ),
+    )
+    await delete_story(db, story)
+    await db.commit()
+    await discard_story_asset_objects(images)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/{story_id}/duplicate",
+    response_model=StoryDraftResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        409: {
+            **CONFLICT_RESPONSE,
+            "description": (
+                "The copied images would take your stories past the most image "
+                "bytes the admin allows (`detail.code` `story_asset_owner_limit`)."
+            ),
+        },
+        502: BAD_GATEWAY_RESPONSE,
+    },
+    summary="Duplicate a story",
+)
+async def duplicate_story_endpoint(
+    story_id: uuid.UUID,
+    request: Request,
+    user: Identity = Depends(require_permission("edit_metadata")),
+    db: AsyncSession = Depends(get_db),
+) -> StoryDraftResponse:
+    """Copy a story you can read into a new private draft you own.
+
+    Its owner or an admin copies the draft; anyone else the published
+    document. Scenes on maps you can't read are left out of the copy. The
+    copy gets its own copies of the images it uses and of the cover.
+    """
+    source, roles = await _readable_story(db, story_id, user)
+    async with asset_publication() as publication:
+        copy = await duplicate_story(db, source, user, roles, publication)
+        await audit_emit(
+            db,
+            AuditEvent(
+                user_id=user.id,
+                action="story.duplicate",
+                resource_type="story",
+                resource_id=copy.id,
+                details={"source": str(source.id)},
+                ip_address=_ip(request),
+            ),
+        )
+        publication.committing()
+        await db.commit()
+        publication.settled()
+    await db.refresh(copy)
+    return await _draft_response(db, copy, user, roles)

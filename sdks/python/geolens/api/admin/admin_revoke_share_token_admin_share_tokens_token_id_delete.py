@@ -95,7 +95,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Admin Revoke Share Token
+    """Revoke a share token
 
      Revoke a basic share token and cascade to its embed tokens; no quota controls (admin only).
 
@@ -126,7 +126,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Admin Revoke Share Token
+    """Revoke a share token
 
      Revoke a basic share token and cascade to its embed tokens; no quota controls (admin only).
 
@@ -152,7 +152,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Admin Revoke Share Token
+    """Revoke a share token
 
      Revoke a basic share token and cascade to its embed tokens; no quota controls (admin only).
 
@@ -181,7 +181,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Admin Revoke Share Token
+    """Revoke a share token
 
      Revoke a basic share token and cascade to its embed tokens; no quota controls (admin only).
 

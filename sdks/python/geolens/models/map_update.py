@@ -10,10 +10,13 @@ from ..types import UNSET, Unset
 
 from ..models.map_visibility import check_map_visibility
 from ..models.map_visibility import MapVisibility
+from dateutil.parser import isoparse
 from typing import cast
+import datetime
 
 if TYPE_CHECKING:
     from ..models.basemap_config import BasemapConfig
+    from ..models.dashboard_config_input import DashboardConfigInput
     from ..models.map_layer_input import MapLayerInput
     from ..models.terrain_config import TerrainConfig
 
@@ -35,13 +38,23 @@ class MapUpdate:
         pitch (float | None | Unset): Map tilt in degrees (0-85)
         basemap_style (None | str | Unset): Basemap style ID or URL
         show_basemap_labels (bool | None | Unset):
+        show_attribute_table (bool | None | Unset): Whether viewers offer each layer's attribute table. Embed tokens for
+            the map may read a layer's rows only while it is on; the columns they may read come from each dataset's tile
+            column allowlist.
         basemap_config (BasemapConfig | None | Unset): Curated map-level basemap appearance preferences
         terrain_config (None | TerrainConfig | Unset): Map-level terrain source and exaggeration preferences
-        visibility (MapVisibility | None | Unset): private, internal, or public
+        dashboard_config (DashboardConfigInput | None | Unset): The dashboard. Omit to keep it; null removes the widgets
+            you see.
+        visibility (MapVisibility | None | Unset): private, internal, public or restricted. A map shared with groups is
+            restricted when it would otherwise be private, so private keeps it restricted; restricted needs at least one
+            group.
         layers (list[MapLayerInput] | None | Unset): Full replacement layer list (max 200 layers)
         plugins (list[str] | None | Unset): Enabled plugin IDs, e.g. ['measurement']
         legend_title (None | str | Unset): Custom map-level legend title. Null or empty leaves the legend without a
             heading override. At most 120 characters.
+        expected_updated_at (datetime.datetime | None | Unset): The map's `updated_at` the caller read. When set and the
+            map has changed since, nothing is written and the answer is 409 with `detail.code` `stale_write`. Omit it to
+            write unconditionally.
     """
 
     name: None | str | Unset = UNSET
@@ -54,16 +67,20 @@ class MapUpdate:
     pitch: float | None | Unset = UNSET
     basemap_style: None | str | Unset = UNSET
     show_basemap_labels: bool | None | Unset = UNSET
+    show_attribute_table: bool | None | Unset = UNSET
     basemap_config: BasemapConfig | None | Unset = UNSET
     terrain_config: None | TerrainConfig | Unset = UNSET
+    dashboard_config: DashboardConfigInput | None | Unset = UNSET
     visibility: MapVisibility | None | Unset = UNSET
     layers: list[MapLayerInput] | None | Unset = UNSET
     plugins: list[str] | None | Unset = UNSET
     legend_title: None | str | Unset = UNSET
+    expected_updated_at: datetime.datetime | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.basemap_config import BasemapConfig
+        from ..models.dashboard_config_input import DashboardConfigInput
         from ..models.terrain_config import TerrainConfig
 
         name: None | str | Unset
@@ -126,6 +143,12 @@ class MapUpdate:
         else:
             show_basemap_labels = self.show_basemap_labels
 
+        show_attribute_table: bool | None | Unset
+        if isinstance(self.show_attribute_table, Unset):
+            show_attribute_table = UNSET
+        else:
+            show_attribute_table = self.show_attribute_table
+
         basemap_config: dict[str, Any] | None | Unset
         if isinstance(self.basemap_config, Unset):
             basemap_config = UNSET
@@ -141,6 +164,14 @@ class MapUpdate:
             terrain_config = self.terrain_config.to_dict()
         else:
             terrain_config = self.terrain_config
+
+        dashboard_config: dict[str, Any] | None | Unset
+        if isinstance(self.dashboard_config, Unset):
+            dashboard_config = UNSET
+        elif isinstance(self.dashboard_config, DashboardConfigInput):
+            dashboard_config = self.dashboard_config.to_dict()
+        else:
+            dashboard_config = self.dashboard_config
 
         visibility: None | str | Unset
         if isinstance(self.visibility, Unset):
@@ -177,6 +208,14 @@ class MapUpdate:
         else:
             legend_title = self.legend_title
 
+        expected_updated_at: None | str | Unset
+        if isinstance(self.expected_updated_at, Unset):
+            expected_updated_at = UNSET
+        elif isinstance(self.expected_updated_at, datetime.datetime):
+            expected_updated_at = self.expected_updated_at.isoformat()
+        else:
+            expected_updated_at = self.expected_updated_at
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
@@ -200,10 +239,14 @@ class MapUpdate:
             field_dict["basemap_style"] = basemap_style
         if show_basemap_labels is not UNSET:
             field_dict["show_basemap_labels"] = show_basemap_labels
+        if show_attribute_table is not UNSET:
+            field_dict["show_attribute_table"] = show_attribute_table
         if basemap_config is not UNSET:
             field_dict["basemap_config"] = basemap_config
         if terrain_config is not UNSET:
             field_dict["terrain_config"] = terrain_config
+        if dashboard_config is not UNSET:
+            field_dict["dashboard_config"] = dashboard_config
         if visibility is not UNSET:
             field_dict["visibility"] = visibility
         if layers is not UNSET:
@@ -212,12 +255,15 @@ class MapUpdate:
             field_dict["plugins"] = plugins
         if legend_title is not UNSET:
             field_dict["legend_title"] = legend_title
+        if expected_updated_at is not UNSET:
+            field_dict["expected_updated_at"] = expected_updated_at
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.basemap_config import BasemapConfig
+        from ..models.dashboard_config_input import DashboardConfigInput
         from ..models.map_layer_input import MapLayerInput
         from ..models.terrain_config import TerrainConfig
 
@@ -315,6 +361,17 @@ class MapUpdate:
             d.pop("show_basemap_labels", UNSET)
         )
 
+        def _parse_show_attribute_table(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        show_attribute_table = _parse_show_attribute_table(
+            d.pop("show_attribute_table", UNSET)
+        )
+
         def _parse_basemap_config(data: object) -> BasemapConfig | None | Unset:
             if data is None:
                 return data
@@ -348,6 +405,25 @@ class MapUpdate:
             return cast(None | TerrainConfig | Unset, data)
 
         terrain_config = _parse_terrain_config(d.pop("terrain_config", UNSET))
+
+        def _parse_dashboard_config(
+            data: object,
+        ) -> DashboardConfigInput | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                dashboard_config_type_0 = DashboardConfigInput.from_dict(data)
+
+                return dashboard_config_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(DashboardConfigInput | None | Unset, data)
+
+        dashboard_config = _parse_dashboard_config(d.pop("dashboard_config", UNSET))
 
         def _parse_visibility(data: object) -> MapVisibility | None | Unset:
             if data is None:
@@ -416,6 +492,27 @@ class MapUpdate:
 
         legend_title = _parse_legend_title(d.pop("legend_title", UNSET))
 
+        def _parse_expected_updated_at(
+            data: object,
+        ) -> datetime.datetime | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                expected_updated_at_type_0 = isoparse(data)
+
+                return expected_updated_at_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.datetime | None | Unset, data)
+
+        expected_updated_at = _parse_expected_updated_at(
+            d.pop("expected_updated_at", UNSET)
+        )
+
         map_update = cls(
             name=name,
             description=description,
@@ -427,12 +524,15 @@ class MapUpdate:
             pitch=pitch,
             basemap_style=basemap_style,
             show_basemap_labels=show_basemap_labels,
+            show_attribute_table=show_attribute_table,
             basemap_config=basemap_config,
             terrain_config=terrain_config,
+            dashboard_config=dashboard_config,
             visibility=visibility,
             layers=layers,
             plugins=plugins,
             legend_title=legend_title,
+            expected_updated_at=expected_updated_at,
         )
 
         map_update.additional_properties = d

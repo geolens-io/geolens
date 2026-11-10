@@ -146,7 +146,7 @@ def sync_detailed(
     sort: ListShareTokensEndpointAdminShareTokensGetSort | Unset = "created_at",
     order: ListShareTokensEndpointAdminShareTokensGetOrder | Unset = "desc",
 ) -> Response[AdminShareTokenListResponse | ProblemDetail]:
-    """List Share Tokens Endpoint
+    """List share tokens
 
      List basic share-token inventory with map info; no quotas or domain controls (admin only).
 
@@ -198,7 +198,7 @@ def sync(
     sort: ListShareTokensEndpointAdminShareTokensGetSort | Unset = "created_at",
     order: ListShareTokensEndpointAdminShareTokensGetOrder | Unset = "desc",
 ) -> AdminShareTokenListResponse | ProblemDetail | None:
-    """List Share Tokens Endpoint
+    """List share tokens
 
      List basic share-token inventory with map info; no quotas or domain controls (admin only).
 
@@ -245,7 +245,7 @@ async def asyncio_detailed(
     sort: ListShareTokensEndpointAdminShareTokensGetSort | Unset = "created_at",
     order: ListShareTokensEndpointAdminShareTokensGetOrder | Unset = "desc",
 ) -> Response[AdminShareTokenListResponse | ProblemDetail]:
-    """List Share Tokens Endpoint
+    """List share tokens
 
      List basic share-token inventory with map info; no quotas or domain controls (admin only).
 
@@ -295,7 +295,7 @@ async def asyncio(
     sort: ListShareTokensEndpointAdminShareTokensGetSort | Unset = "created_at",
     order: ListShareTokensEndpointAdminShareTokensGetOrder | Unset = "desc",
 ) -> AdminShareTokenListResponse | ProblemDetail | None:
-    """List Share Tokens Endpoint
+    """List share tokens
 
      List basic share-token inventory with map info; no quotas or domain controls (admin only).
 

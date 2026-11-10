@@ -115,7 +115,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: OgImageUploadRequest,
 ) -> Response[Any | ProblemDetail]:
-    """Upload Og Image
+    """Upload a map social card image
 
      Upload a base64 OG social-card image (up to 750KB) for a map.
 
@@ -170,7 +170,7 @@ def sync(
     client: AuthenticatedClient,
     body: OgImageUploadRequest,
 ) -> Any | ProblemDetail | None:
-    """Upload Og Image
+    """Upload a map social card image
 
      Upload a base64 OG social-card image (up to 750KB) for a map.
 
@@ -220,7 +220,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: OgImageUploadRequest,
 ) -> Response[Any | ProblemDetail]:
-    """Upload Og Image
+    """Upload a map social card image
 
      Upload a base64 OG social-card image (up to 750KB) for a map.
 
@@ -273,7 +273,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: OgImageUploadRequest,
 ) -> Any | ProblemDetail | None:
-    """Upload Og Image
+    """Upload a map social card image
 
      Upload a base64 OG social-card image (up to 750KB) for a map.
 

@@ -184,7 +184,7 @@ class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
         cache.delete = AsyncMock()
         monkeypatch.setattr(embed_service, "get_cache", lambda: cache)
         membership = AsyncMock(return_value=True)
-        monkeypatch.setattr(embed_service, "map_contains_dataset", membership)
+        monkeypatch.setattr(embed_service, "map_embeds_dataset", membership)
 
         request = _make_request(origin="http://localhost:3000", client_host="127.0.0.1")
 

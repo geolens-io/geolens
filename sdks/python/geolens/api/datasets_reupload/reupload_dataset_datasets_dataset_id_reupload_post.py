@@ -117,7 +117,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: BodyReuploadDatasetDatasetsDatasetIdReuploadPost,
 ) -> Response[ProblemDetail | ReuploadResponse]:
-    """Reupload Dataset
+    """Stage a file to replace a dataset's data
 
      Upload a new file to replace the data in an existing dataset.
 
@@ -151,7 +151,7 @@ def sync(
     client: AuthenticatedClient,
     body: BodyReuploadDatasetDatasetsDatasetIdReuploadPost,
 ) -> ProblemDetail | ReuploadResponse | None:
-    """Reupload Dataset
+    """Stage a file to replace a dataset's data
 
      Upload a new file to replace the data in an existing dataset.
 
@@ -180,7 +180,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: BodyReuploadDatasetDatasetsDatasetIdReuploadPost,
 ) -> Response[ProblemDetail | ReuploadResponse]:
-    """Reupload Dataset
+    """Stage a file to replace a dataset's data
 
      Upload a new file to replace the data in an existing dataset.
 
@@ -212,7 +212,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: BodyReuploadDatasetDatasetsDatasetIdReuploadPost,
 ) -> ProblemDetail | ReuploadResponse | None:
-    """Reupload Dataset
+    """Stage a file to replace a dataset's data
 
      Upload a new file to replace the data in an existing dataset.
 

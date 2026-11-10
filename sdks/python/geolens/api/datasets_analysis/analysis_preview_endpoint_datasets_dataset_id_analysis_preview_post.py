@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: AnalysisPreviewRequest,
 ) -> Response[AnalysisPreviewResponse | ProblemDetail]:
-    """Analysis Preview Endpoint
+    """Preview a spatial analysis
 
      Run a parameterized PostGIS operation and return a GeoJSON preview.
 
@@ -152,7 +152,7 @@ def sync(
     client: AuthenticatedClient,
     body: AnalysisPreviewRequest,
 ) -> AnalysisPreviewResponse | ProblemDetail | None:
-    """Analysis Preview Endpoint
+    """Preview a spatial analysis
 
      Run a parameterized PostGIS operation and return a GeoJSON preview.
 
@@ -187,7 +187,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: AnalysisPreviewRequest,
 ) -> Response[AnalysisPreviewResponse | ProblemDetail]:
-    """Analysis Preview Endpoint
+    """Preview a spatial analysis
 
      Run a parameterized PostGIS operation and return a GeoJSON preview.
 
@@ -225,7 +225,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: AnalysisPreviewRequest,
 ) -> AnalysisPreviewResponse | ProblemDetail | None:
-    """Analysis Preview Endpoint
+    """Preview a spatial analysis
 
      Run a parameterized PostGIS operation and return a GeoJSON preview.
 

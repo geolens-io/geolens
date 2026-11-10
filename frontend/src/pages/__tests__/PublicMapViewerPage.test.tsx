@@ -3,6 +3,7 @@ import { Link, Route, Routes } from 'react-router';
 import { act, fireEvent, render, screen } from '@/test/test-utils';
 import { PublicMapViewerPage } from '../PublicMapViewerPage';
 import { useMap } from '@/hooks/use-maps';
+import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useViewerLayers } from '@/components/viewer/hooks/use-viewer-layers';
 import type { ViewerMap } from '@/components/viewer/ViewerMap';
 import type { LayerLegend } from '@/components/viewer/LayerLegend';
@@ -30,7 +31,7 @@ vi.mock('@/hooks/use-document-title', () => ({
 vi.mock('@/components/viewer/ViewerMap', () => ({
   ViewerMap: (props: React.ComponentProps<typeof ViewerMap>) => {
     viewerMapMock.props = props;
-    return <div data-testid="viewer-map">viewer map</div>;
+    return <div data-testid="viewer-map">viewer map{props.overlays}</div>;
   },
 }));
 
@@ -72,6 +73,7 @@ const PUBLIC_MAP: MapResponse = {
   pitch: 55,
   basemap_style: 'openfreemap-positron',
   show_basemap_labels: false,
+  show_attribute_table: true,
   basemap_config: {
     label_mode: 'hidden',
     road_visibility: 'subtle',
@@ -149,10 +151,18 @@ describe('PublicMapViewerPage', () => {
 
     mockedUseViewerLayers.mockReturnValue({
       visibleLayers: new Set(['layer-1']),
+      hiddenByReader: new Set<string>(),
       handleToggleVisibility: vi.fn(),
       isLegendOpen: true,
       setIsLegendOpen: vi.fn(),
     } as ReturnType<typeof useViewerLayers>);
+  });
+
+  it('titles the page with the loaded map name', async () => {
+    renderPage();
+    await screen.findByTestId('viewer-map');
+
+    expect(vi.mocked(useDocumentTitle)).toHaveBeenLastCalledWith('Public map');
   });
 
   it('hands the legend what the viewer map reports drawing', async () => {

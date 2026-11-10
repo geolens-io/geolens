@@ -16,7 +16,11 @@ from app.modules.catalog.sources.adapters.stac_asset_size import (
 from app.modules.catalog.sources.schemas import ServiceAuthRequest
 from app.modules.catalog.sources.stac_router import _validate_stac_http_url
 from app.platform.security import SSRFError, validate_url_for_ssrf
-from app.platform.service_auth import credential_or_422, service_credential_from_request
+from app.platform.service_auth import (
+    credential_or_422,
+    credential_over_http_or_422,
+    service_credential_from_request,
+)
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE, GATEWAY_TIMEOUT_RESPONSE
 
 router = APIRouter(
@@ -69,6 +73,7 @@ class StacAssetSizesResponse(BaseModel):
     "/asset-sizes",
     response_model=StacAssetSizesResponse,
     responses={504: GATEWAY_TIMEOUT_RESPONSE},
+    summary="Look up STAC asset sizes",
 )
 async def stac_asset_sizes(
     request: StacAssetSizesRequest,
@@ -83,6 +88,7 @@ async def stac_asset_sizes(
         service_credential_from_request(request.auth, None),
         service_format=STAC_SERVICE_FORMAT,
     )
+    credential_over_http_or_422(request.url, credential)
     started = time.monotonic()
     try:
         async with asyncio.timeout(BATCH_DEADLINE):

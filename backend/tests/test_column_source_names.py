@@ -164,3 +164,14 @@ def test_a_multi_layer_source_without_a_chosen_layer_has_no_source_columns():
     assert source_columns_for(single, None) == columns
     assert source_columns_for(multi, "a") == columns
     assert source_columns_for(multi, None) is None
+
+
+def test_the_layer_left_after_omitting_attachment_tables_is_named_for_the_loader():
+    from app.processing.ingest.tasks_staging import layer_to_load
+
+    omitted = {"attachments_omitted": True, "layer_name": "sites"}
+    assert layer_to_load(omitted, None) == "sites"
+    assert layer_to_load(omitted, "chosen") == "chosen"
+    assert (
+        layer_to_load({"attachments_omitted": False, "layer_name": "x"}, None) is None
+    )

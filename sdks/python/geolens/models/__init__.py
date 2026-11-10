@@ -18,6 +18,8 @@ from .admin_password_reset import AdminPasswordReset
 from .admin_share_token_list_response import AdminShareTokenListResponse
 from .admin_share_token_response import AdminShareTokenResponse
 from .admin_user_create import AdminUserCreate
+from .aggregate_row import AggregateRow
+from .aggregate_row_values import AggregateRowValues
 from .ai_availability_response import AIAvailabilityResponse
 from .ai_probe_check import AIProbeCheck
 from .ai_probe_report import AIProbeReport
@@ -63,14 +65,35 @@ from .api_key_status_response_anthropic_platform import (
 from .approve_request import ApproveRequest
 from .arc_gis_sign_in_request import ArcGISSignInRequest
 from .arc_gis_sign_in_response import ArcGISSignInResponse
+from .arcgis_loss_item import ArcgisLossItem
+from .arcgis_loss_report import ArcgisLossReport
+from .arcgis_loss_report_summary import ArcgisLossReportSummary
+from .arcgis_translated_view import ArcgisTranslatedView
+from .arcgis_unmatched_layer import ArcgisUnmatchedLayer
+from .arcgis_webmap_import_request import ArcgisWebmapImportRequest
+from .arcgis_webmap_import_request_basemap_map import (
+    ArcgisWebmapImportRequestBasemapMap,
+)
+from .arcgis_webmap_import_request_dataset_matches import (
+    ArcgisWebmapImportRequestDatasetMatches,
+)
+from .arcgis_webmap_import_request_webmap import ArcgisWebmapImportRequestWebmap
+from .arcgis_webmap_import_response import ArcgisWebmapImportResponse
+from .arcgis_webmap_import_response_layer_ids import ArcgisWebmapImportResponseLayerIds
 from .attribute_metadata_list_response import AttributeMetadataListResponse
 from .attribute_metadata_response import AttributeMetadataResponse
+from .attribute_metadata_response_value_labels_type_0 import (
+    AttributeMetadataResponseValueLabelsType0,
+)
 from .attribute_metadata_update import AttributeMetadataUpdate
 from .attribute_metadata_update_domain_type_type_0 import (
     AttributeMetadataUpdateDomainTypeType0,
 )
 from .attribute_metadata_update_semantic_role_type_0 import (
     AttributeMetadataUpdateSemanticRoleType0,
+)
+from .attribute_metadata_update_value_labels_type_0 import (
+    AttributeMetadataUpdateValueLabelsType0,
 )
 from .audit_log_list_response import AuditLogListResponse
 from .audit_log_response import AuditLogResponse
@@ -81,6 +104,14 @@ from .backfill_run_progress import BackfillRunProgress
 from .backfill_run_summary import BackfillRunSummary
 from .backfill_tenant_run import BackfillTenantRun
 from .backfill_tenant_run_status import BackfillTenantRunStatus
+from .bar_chart_config import BarChartConfig
+from .bar_chart_config_date_bucket_type_0 import BarChartConfigDateBucketType0
+from .bar_chart_config_mode import BarChartConfigMode
+from .bar_chart_config_sort import BarChartConfigSort
+from .bar_chart_config_stat import BarChartConfigStat
+from .bar_chart_widget import BarChartWidget
+from .bar_chart_widget_scope import BarChartWidgetScope
+from .bar_chart_widget_v import BarChartWidgetV
 from .basemap_config import BasemapConfig
 from .basemap_config_sublayer_overrides_type_0 import (
     BasemapConfigSublayerOverridesType0,
@@ -115,14 +146,18 @@ from .bulk_register_response import BulkRegisterResponse
 from .bulk_register_result import BulkRegisterResult
 from .bulk_revoke_request import BulkRevokeRequest
 from .bulk_revoke_response import BulkRevokeResponse
+from .button_config import ButtonConfig
+from .button_widget import ButtonWidget
 from .capabilities_auth import CapabilitiesAuth
 from .capabilities_basemap import CapabilitiesBasemap
+from .capabilities_database_connection import CapabilitiesDatabaseConnection
 from .capabilities_key import CapabilitiesKey
 from .capabilities_me import CapabilitiesMe
 from .capabilities_rate_limits import CapabilitiesRateLimits
 from .capabilities_response import CapabilitiesResponse
 from .capabilities_server import CapabilitiesServer
 from .capabilities_upload import CapabilitiesUpload
+from .carousel_widget import CarouselWidget
 from .catalog_stats_response import CatalogStatsResponse
 from .catalog_stats_response_datasets_by_geometry_type import (
     CatalogStatsResponseDatasetsByGeometryType,
@@ -131,6 +166,9 @@ from .catalog_stats_response_datasets_by_visibility import (
     CatalogStatsResponseDatasetsByVisibility,
 )
 from .catalog_stats_response_users_by_status import CatalogStatsResponseUsersByStatus
+from .category_selector_config import CategorySelectorConfig
+from .category_selector_widget import CategorySelectorWidget
+from .category_selector_widget_scope import CategorySelectorWidgetScope
 from .change_password_request import ChangePasswordRequest
 from .chat_action import ChatAction
 from .chat_action_label_config_type_0 import ChatActionLabelConfigType0
@@ -206,6 +244,10 @@ from .contact_response import ContactResponse
 from .contact_response_extra_json_type_0 import ContactResponseExtraJsonType0
 from .contact_update import ContactUpdate
 from .contact_update_extra_json_type_0 import ContactUpdateExtraJsonType0
+from .count_request import CountRequest
+from .count_request_filter_type_0 import CountRequestFilterType0
+from .count_response import CountResponse
+from .count_result import CountResult
 from .create_empty_dataset_request import CreateEmptyDatasetRequest
 from .create_feature_datasets_dataset_id_features_post_geo_json_feature import (
     CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature,
@@ -254,12 +296,27 @@ from .create_feature_datasets_dataset_id_features_post_geo_json_feature_properti
 )
 from .create_layer_request import CreateLayerRequest
 from .create_layer_response import CreateLayerResponse
+from .dashboard_config import DashboardConfig
+from .dashboard_config_input import DashboardConfigInput
+from .dashboard_config_input_panel_type_0 import DashboardConfigInputPanelType0
+from .dashboard_config_input_theme_type_0 import DashboardConfigInputThemeType0
+from .dashboard_config_panel import DashboardConfigPanel
+from .dashboard_config_theme import DashboardConfigTheme
+from .database_import_request import DatabaseImportRequest
+from .database_import_request_visibility import DatabaseImportRequestVisibility
+from .database_import_response import DatabaseImportResponse
+from .database_table import DatabaseTable
+from .database_table_column_type import DatabaseTableColumnType
+from .database_table_list_response import DatabaseTableListResponse
+from .database_table_object_type import DatabaseTableObjectType
 from .dataset_api_key_create_request import DatasetApiKeyCreateRequest
 from .dataset_api_key_create_request_scope import DatasetApiKeyCreateRequestScope
 from .dataset_api_key_list_item import DatasetApiKeyListItem
 from .dataset_api_key_list_response import DatasetApiKeyListResponse
 from .dataset_chat_request import DatasetChatRequest
 from .dataset_delete_request import DatasetDeleteRequest
+from .dataset_groups_response import DatasetGroupsResponse
+from .dataset_groups_update import DatasetGroupsUpdate
 from .dataset_list_response import DatasetListResponse
 from .dataset_meta import DatasetMeta
 from .dataset_meta_visibility_type_0 import DatasetMetaVisibilityType0
@@ -281,6 +338,7 @@ from .dataset_retention_response import DatasetRetentionResponse
 from .dataset_retention_update import DatasetRetentionUpdate
 from .dataset_rows_response import DatasetRowsResponse
 from .dataset_rows_response_rows_item import DatasetRowsResponseRowsItem
+from .dataset_rows_response_total_kind import DatasetRowsResponseTotalKind
 from .dataset_version_list_response import DatasetVersionListResponse
 from .dataset_version_response import DatasetVersionResponse
 from .dbf_truncation_collision_warning import DbfTruncationCollisionWarning
@@ -356,6 +414,7 @@ from .embed_token_created_response import EmbedTokenCreatedResponse
 from .embed_token_list_response import EmbedTokenListResponse
 from .embed_token_response import EmbedTokenResponse
 from .embed_token_update import EmbedTokenUpdate
+from .embed_widget import EmbedWidget
 from .embedding_stats_response import EmbeddingStatsResponse
 from .enterprise_tabs_response import EnterpriseTabsResponse
 from .export_format import ExportFormat
@@ -376,10 +435,18 @@ from .feature_collection_create import FeatureCollectionCreate
 from .feature_create import FeatureCreate
 from .feature_create_properties_type_0 import FeatureCreatePropertiesType0
 from .feature_flags_response import FeatureFlagsResponse
+from .feature_list_config import FeatureListConfig
+from .feature_list_config_sort import FeatureListConfigSort
+from .feature_list_widget import FeatureListWidget
+from .feature_list_widget_scope import FeatureListWidgetScope
 from .feature_replace import FeatureReplace
 from .feature_replace_properties import FeatureReplaceProperties
 from .feature_update import FeatureUpdate
 from .feature_update_properties_type_0 import FeatureUpdatePropertiesType0
+from .frame_config import FrameConfig
+from .gallery_config import GalleryConfig
+from .gallery_image import GalleryImage
+from .gallery_widget import GalleryWidget
 from .geo_json_feature import GeoJSONFeature
 from .geo_json_feature_collection import GeoJSONFeatureCollection
 from .geo_json_feature_geometry_type_0 import GeoJSONFeatureGeometryType0
@@ -468,12 +535,48 @@ from .get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature_g
 from .get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature_properties import (
     GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureProperties,
 )
+from .get_story_asset_endpoint_stories_story_id_assets_asset_id_get_variant_type_0 import (
+    GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetVariantType0,
+)
+from .group_by_request import GroupByRequest
+from .group_by_request_date_bucket_type_0 import GroupByRequestDateBucketType0
+from .group_by_request_filter_type_0 import GroupByRequestFilterType0
+from .group_by_request_sort_type_0 import GroupByRequestSortType0
+from .group_by_request_stat_type_0 import GroupByRequestStatType0
+from .group_by_response import GroupByResponse
+from .group_by_result import GroupByResult
+from .group_list_response import GroupListResponse
+from .group_member_list_response import GroupMemberListResponse
+from .group_members_add import GroupMembersAdd
+from .group_ref import GroupRef
+from .group_ref_list_response import GroupRefListResponse
+from .group_response import GroupResponse
+from .group_stat import GroupStat
+from .group_stat_stat import GroupStatStat
+from .group_value import GroupValue
+from .group_write import GroupWrite
 from .health_response import HealthResponse
 from .health_response_providers import HealthResponseProviders
+from .histogram_bin import HistogramBin
+from .histogram_config import HistogramConfig
+from .histogram_request import HistogramRequest
+from .histogram_request_filter_type_0 import HistogramRequestFilterType0
+from .histogram_response import HistogramResponse
+from .histogram_result import HistogramResult
+from .histogram_widget import HistogramWidget
+from .histogram_widget_scope import HistogramWidgetScope
+from .image_config import ImageConfig
+from .image_widget import ImageWidget
 from .import_configuration_config_ops_import_post_mode import (
     ImportConfigurationConfigOpsImportPostMode,
 )
 from .import_result import ImportResult
+from .indicator_config import IndicatorConfig
+from .indicator_config_comparison_type_0 import IndicatorConfigComparisonType0
+from .indicator_config_stat import IndicatorConfigStat
+from .indicator_widget import IndicatorWidget
+from .indicator_widget_scope import IndicatorWidgetScope
+from .indicator_widget_v import IndicatorWidgetV
 from .infrastructure_config import InfrastructureConfig
 from .infrastructure_response import InfrastructureResponse
 from .infrastructure_response_health import InfrastructureResponseHealth
@@ -502,6 +605,7 @@ from .landing_page import LandingPage
 from .layer_info import LayerInfo
 from .layer_info_kind import LayerInfoKind
 from .layer_preview import LayerPreview
+from .layer_relationship import LayerRelationship
 from .lineage_draft_response import LineageDraftResponse
 from .list_admin_jobs_admin_jobs_get_order import ListAdminJobsAdminJobsGetOrder
 from .list_admin_jobs_admin_jobs_get_sort import ListAdminJobsAdminJobsGetSort
@@ -565,11 +669,15 @@ from .map_create import MapCreate
 from .map_defaults_response import MapDefaultsResponse
 from .map_generate_request import MapGenerateRequest
 from .map_generate_response import MapGenerateResponse
+from .map_groups_response import MapGroupsResponse
+from .map_groups_update import MapGroupsUpdate
+from .map_groups_update_confirm_type_0 import MapGroupsUpdateConfirmType0
 from .map_history_event_response import MapHistoryEventResponse
 from .map_history_event_response_details import MapHistoryEventResponseDetails
 from .map_history_list_response import MapHistoryListResponse
 from .map_icon_list_response import MapIconListResponse
 from .map_icon_response import MapIconResponse
+from .map_layer_access_gap import MapLayerAccessGap
 from .map_layer_diff_request import MapLayerDiffRequest
 from .map_layer_input import MapLayerInput
 from .map_layer_input_label_config_type_0 import MapLayerInputLabelConfigType0
@@ -596,6 +704,8 @@ from .map_list_response import MapListResponse
 from .map_patch import MapPatch
 from .map_response import MapResponse
 from .map_sprite_entry import MapSpriteEntry
+from .map_stories_response import MapStoriesResponse
+from .map_story_reference import MapStoryReference
 from .map_style_import_request import MapStyleImportRequest
 from .map_style_import_request_layers_type_0_item import (
     MapStyleImportRequestLayersType0Item,
@@ -609,6 +719,8 @@ from .map_style_import_warning import MapStyleImportWarning
 from .map_summary_response import MapSummaryResponse
 from .map_update import MapUpdate
 from .map_visibility import MapVisibility
+from .markdown_config import MarkdownConfig
+from .markdown_widget import MarkdownWidget
 from .mercator_clip_detail import MercatorClipDetail
 from .mercator_clip_warning import MercatorClipWarning
 from .metadata_assist_request import MetadataAssistRequest
@@ -695,6 +807,10 @@ from .patch_single_feature_datasets_dataset_id_features_gid_patch_geo_json_featu
 )
 from .permissions_response import PermissionsResponse
 from .permissions_response_permissions import PermissionsResponsePermissions
+from .pie_chart_config import PieChartConfig
+from .pie_chart_config_stat import PieChartConfigStat
+from .pie_chart_widget import PieChartWidget
+from .pie_chart_widget_scope import PieChartWidgetScope
 from .point_cloud_metadata import PointCloudMetadata
 from .point_cloud_preview_response import PointCloudPreviewResponse
 from .point_cloud_preview_response_point_format import (
@@ -730,6 +846,7 @@ from .raster_tile_proxy_tiles_raster_proxy_dataset_id_zxy_fmt_get_stretch_type_0
     RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetStretchType0,
 )
 from .raster_tile_token import RasterTileToken
+from .reader_theme import ReaderTheme
 from .refresh_request import RefreshRequest
 from .refresh_verification import RefreshVerification
 from .refresh_verification_arcgis_id_coverage_type_0 import (
@@ -799,6 +916,11 @@ from .reupload_preview_response_sample_rows_item import (
 )
 from .reupload_response import ReuploadResponse
 from .reupload_service_preview_request import ReuploadServicePreviewRequest
+from .rows_request import RowsRequest
+from .rows_request_filter_type_0 import RowsRequestFilterType0
+from .rows_request_sort import RowsRequestSort
+from .rows_response import RowsResponse
+from .rows_result import RowsResult
 from .sandbox_query_request import SandboxQueryRequest
 from .sandbox_result import SandboxResult
 from .saved_search_create import SavedSearchCreate
@@ -813,6 +935,9 @@ from .search_datasets_endpoint_search_datasets_get_spatial_predicate import (
 from .search_facets_endpoint_search_facets_get_spatial_predicate import (
     SearchFacetsEndpointSearchFacetsGetSpatialPredicate,
 )
+from .separator_config import SeparatorConfig
+from .separator_config_style import SeparatorConfigStyle
+from .separator_widget import SeparatorWidget
 from .service_auth_request import ServiceAuthRequest
 from .service_auth_request_method import ServiceAuthRequestMethod
 from .service_health import ServiceHealth
@@ -899,11 +1024,50 @@ from .stac_search_request_cloud_cover_mode_type_0 import (
 )
 from .stac_search_response import StacSearchResponse
 from .stale_cleanup_response import StaleCleanupResponse
+from .stats_request import StatsRequest
+from .stats_request_filter_type_0 import StatsRequestFilterType0
+from .stats_request_stats_item import StatsRequestStatsItem
+from .stats_response import StatsResponse
+from .stats_result import StatsResult
 from .status_update import StatusUpdate
 from .status_update_response import StatusUpdateResponse
+from .stored_story_visibility import StoredStoryVisibility
+from .story_asset_response import StoryAssetResponse
+from .story_camera import StoryCamera
+from .story_chapter import StoryChapter
+from .story_chapter_input import StoryChapterInput
+from .story_create import StoryCreate
+from .story_document import StoryDocument
+from .story_document_input import StoryDocumentInput
+from .story_draft_response import StoryDraftResponse
+from .story_draft_update import StoryDraftUpdate
+from .story_frame_host import StoryFrameHost
+from .story_groups_response import StoryGroupsResponse
+from .story_groups_update import StoryGroupsUpdate
+from .story_list_response import StoryListResponse
+from .story_publish import StoryPublish
+from .story_response import StoryResponse
+from .story_revision import StoryRevision
+from .story_scene import StoryScene
+from .story_scene_layer_visibility import StorySceneLayerVisibility
+from .story_scene_transition_type_0 import StorySceneTransitionType0
+from .story_settings import StorySettings
+from .story_settings_layout import StorySettingsLayout
+from .story_settings_panel_position import StorySettingsPanelPosition
+from .story_settings_theme import StorySettingsTheme
+from .story_settings_transition import StorySettingsTransition
+from .story_summary import StorySummary
+from .story_update import StoryUpdate
+from .story_visibility import StoryVisibility
 from .sublayer_override import SublayerOverride
 from .summary_draft_response import SummaryDraftResponse
+from .table_config import TableConfig
+from .table_config_sort import TableConfigSort
 from .table_register_response import TableRegisterResponse
+from .table_stat import TableStat
+from .table_stat_stat import TableStatStat
+from .table_widget import TableWidget
+from .table_widget_scope import TableWidgetScope
 from .terrain_config import TerrainConfig
 from .thumbnail_upload_request import ThumbnailUploadRequest
 from .tile_config_response import TileConfigResponse
@@ -927,6 +1091,9 @@ from .translation_upsert import TranslationUpsert
 from .type_change import TypeChange
 from .upload_config_response import UploadConfigResponse
 from .upload_response import UploadResponse
+from .upload_story_asset_endpoint_stories_story_id_assets_post_body import (
+    UploadStoryAssetEndpointStoriesStoryIdAssetsPostBody,
+)
 from .url_upload_request import UrlUploadRequest
 from .user_create import UserCreate
 from .user_list_response import UserListResponse
@@ -942,8 +1109,14 @@ from .validation_result_response import ValidationResultResponse
 from .validation_result_response_quality_score_type_0 import (
     ValidationResultResponseQualityScoreType0,
 )
+from .value_count import ValueCount
+from .value_counts_request import ValueCountsRequest
+from .value_counts_request_filter_type_0 import ValueCountsRequestFilterType0
+from .value_counts_response import ValueCountsResponse
+from .value_counts_result import ValueCountsResult
 from .vector_tile_token import VectorTileToken
 from .verify_email_request import VerifyEmailRequest
+from .video_widget import VideoWidget
 from .visibility_check_response import VisibilityCheckResponse
 from .vrt_active_generation import VrtActiveGeneration
 from .vrt_add_source_request import VrtAddSourceRequest
@@ -981,6 +1154,8 @@ __all__ = (
     "AdminShareTokenListResponse",
     "AdminShareTokenResponse",
     "AdminUserCreate",
+    "AggregateRow",
+    "AggregateRowValues",
     "AIAvailabilityResponse",
     "AIProbeCheck",
     "AIProbeReport",
@@ -1010,13 +1185,26 @@ __all__ = (
     "ApiKeyStatusResponse",
     "ApiKeyStatusResponseAnthropicPlatform",
     "ApproveRequest",
+    "ArcgisLossItem",
+    "ArcgisLossReport",
+    "ArcgisLossReportSummary",
     "ArcGISSignInRequest",
     "ArcGISSignInResponse",
+    "ArcgisTranslatedView",
+    "ArcgisUnmatchedLayer",
+    "ArcgisWebmapImportRequest",
+    "ArcgisWebmapImportRequestBasemapMap",
+    "ArcgisWebmapImportRequestDatasetMatches",
+    "ArcgisWebmapImportRequestWebmap",
+    "ArcgisWebmapImportResponse",
+    "ArcgisWebmapImportResponseLayerIds",
     "AttributeMetadataListResponse",
     "AttributeMetadataResponse",
+    "AttributeMetadataResponseValueLabelsType0",
     "AttributeMetadataUpdate",
     "AttributeMetadataUpdateDomainTypeType0",
     "AttributeMetadataUpdateSemanticRoleType0",
+    "AttributeMetadataUpdateValueLabelsType0",
     "AuditLogListResponse",
     "AuditLogResponse",
     "AuditLogResponseDetailsType0",
@@ -1026,6 +1214,14 @@ __all__ = (
     "BackfillRunSummary",
     "BackfillTenantRun",
     "BackfillTenantRunStatus",
+    "BarChartConfig",
+    "BarChartConfigDateBucketType0",
+    "BarChartConfigMode",
+    "BarChartConfigSort",
+    "BarChartConfigStat",
+    "BarChartWidget",
+    "BarChartWidgetScope",
+    "BarChartWidgetV",
     "BasemapConfig",
     "BasemapConfigSublayerOverridesType0",
     "BasemapLabelMode",
@@ -1054,18 +1250,25 @@ __all__ = (
     "BulkRegisterResult",
     "BulkRevokeRequest",
     "BulkRevokeResponse",
+    "ButtonConfig",
+    "ButtonWidget",
     "CapabilitiesAuth",
     "CapabilitiesBasemap",
+    "CapabilitiesDatabaseConnection",
     "CapabilitiesKey",
     "CapabilitiesMe",
     "CapabilitiesRateLimits",
     "CapabilitiesResponse",
     "CapabilitiesServer",
     "CapabilitiesUpload",
+    "CarouselWidget",
     "CatalogStatsResponse",
     "CatalogStatsResponseDatasetsByGeometryType",
     "CatalogStatsResponseDatasetsByVisibility",
     "CatalogStatsResponseUsersByStatus",
+    "CategorySelectorConfig",
+    "CategorySelectorWidget",
+    "CategorySelectorWidgetScope",
     "ChangePasswordRequest",
     "ChatAction",
     "ChatActionLabelConfigType0",
@@ -1135,6 +1338,10 @@ __all__ = (
     "ContactResponseExtraJsonType0",
     "ContactUpdate",
     "ContactUpdateExtraJsonType0",
+    "CountRequest",
+    "CountRequestFilterType0",
+    "CountResponse",
+    "CountResult",
     "CreateEmptyDatasetRequest",
     "CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeature",
     "CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureCollectionWrite",
@@ -1153,12 +1360,27 @@ __all__ = (
     "CreateFeatureDatasetsDatasetIdFeaturesPostGeoJSONFeatureProperties",
     "CreateLayerRequest",
     "CreateLayerResponse",
+    "DashboardConfig",
+    "DashboardConfigInput",
+    "DashboardConfigInputPanelType0",
+    "DashboardConfigInputThemeType0",
+    "DashboardConfigPanel",
+    "DashboardConfigTheme",
+    "DatabaseImportRequest",
+    "DatabaseImportRequestVisibility",
+    "DatabaseImportResponse",
+    "DatabaseTable",
+    "DatabaseTableColumnType",
+    "DatabaseTableListResponse",
+    "DatabaseTableObjectType",
     "DatasetApiKeyCreateRequest",
     "DatasetApiKeyCreateRequestScope",
     "DatasetApiKeyListItem",
     "DatasetApiKeyListResponse",
     "DatasetChatRequest",
     "DatasetDeleteRequest",
+    "DatasetGroupsResponse",
+    "DatasetGroupsUpdate",
     "DatasetListResponse",
     "DatasetMeta",
     "DatasetMetaVisibilityType0",
@@ -1178,6 +1400,7 @@ __all__ = (
     "DatasetRetentionUpdate",
     "DatasetRowsResponse",
     "DatasetRowsResponseRowsItem",
+    "DatasetRowsResponseTotalKind",
     "DatasetVersionListResponse",
     "DatasetVersionResponse",
     "DbfTruncationCollisionWarning",
@@ -1220,6 +1443,7 @@ __all__ = (
     "EmbedTokenListResponse",
     "EmbedTokenResponse",
     "EmbedTokenUpdate",
+    "EmbedWidget",
     "EnterpriseTabsResponse",
     "ExportFormat",
     "ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200",
@@ -1237,10 +1461,18 @@ __all__ = (
     "FeatureCreate",
     "FeatureCreatePropertiesType0",
     "FeatureFlagsResponse",
+    "FeatureListConfig",
+    "FeatureListConfigSort",
+    "FeatureListWidget",
+    "FeatureListWidgetScope",
     "FeatureReplace",
     "FeatureReplaceProperties",
     "FeatureUpdate",
     "FeatureUpdatePropertiesType0",
+    "FrameConfig",
+    "GalleryConfig",
+    "GalleryImage",
+    "GalleryWidget",
     "GeoJSONFeature",
     "GeoJSONFeatureCollection",
     "GeoJSONFeatureGeometryType0",
@@ -1275,10 +1507,44 @@ __all__ = (
     "GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometryCollectionGeoJSONGeometryType",
     "GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureGeoJSONGeometryType",
     "GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureProperties",
+    "GetStoryAssetEndpointStoriesStoryIdAssetsAssetIdGetVariantType0",
+    "GroupByRequest",
+    "GroupByRequestDateBucketType0",
+    "GroupByRequestFilterType0",
+    "GroupByRequestSortType0",
+    "GroupByRequestStatType0",
+    "GroupByResponse",
+    "GroupByResult",
+    "GroupListResponse",
+    "GroupMemberListResponse",
+    "GroupMembersAdd",
+    "GroupRef",
+    "GroupRefListResponse",
+    "GroupResponse",
+    "GroupStat",
+    "GroupStatStat",
+    "GroupValue",
+    "GroupWrite",
     "HealthResponse",
     "HealthResponseProviders",
+    "HistogramBin",
+    "HistogramConfig",
+    "HistogramRequest",
+    "HistogramRequestFilterType0",
+    "HistogramResponse",
+    "HistogramResult",
+    "HistogramWidget",
+    "HistogramWidgetScope",
+    "ImageConfig",
+    "ImageWidget",
     "ImportConfigurationConfigOpsImportPostMode",
     "ImportResult",
+    "IndicatorConfig",
+    "IndicatorConfigComparisonType0",
+    "IndicatorConfigStat",
+    "IndicatorWidget",
+    "IndicatorWidgetScope",
+    "IndicatorWidgetV",
     "InfrastructureConfig",
     "InfrastructureResponse",
     "InfrastructureResponseHealth",
@@ -1303,6 +1569,7 @@ __all__ = (
     "LayerInfo",
     "LayerInfoKind",
     "LayerPreview",
+    "LayerRelationship",
     "LineageDraftResponse",
     "ListAdminJobsAdminJobsGetOrder",
     "ListAdminJobsAdminJobsGetSort",
@@ -1340,11 +1607,15 @@ __all__ = (
     "MapDefaultsResponse",
     "MapGenerateRequest",
     "MapGenerateResponse",
+    "MapGroupsResponse",
+    "MapGroupsUpdate",
+    "MapGroupsUpdateConfirmType0",
     "MapHistoryEventResponse",
     "MapHistoryEventResponseDetails",
     "MapHistoryListResponse",
     "MapIconListResponse",
     "MapIconResponse",
+    "MapLayerAccessGap",
     "MapLayerDiffRequest",
     "MapLayerInput",
     "MapLayerInputLabelConfigType0",
@@ -1367,6 +1638,8 @@ __all__ = (
     "MapPatch",
     "MapResponse",
     "MapSpriteEntry",
+    "MapStoriesResponse",
+    "MapStoryReference",
     "MapStyleImportRequest",
     "MapStyleImportRequestLayersType0Item",
     "MapStyleImportRequestMetadataType0",
@@ -1378,6 +1651,8 @@ __all__ = (
     "MapSummaryResponse",
     "MapUpdate",
     "MapVisibility",
+    "MarkdownConfig",
+    "MarkdownWidget",
     "MercatorClipDetail",
     "MercatorClipWarning",
     "MetadataAssistRequest",
@@ -1428,6 +1703,10 @@ __all__ = (
     "PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeatureProperties",
     "PermissionsResponse",
     "PermissionsResponsePermissions",
+    "PieChartConfig",
+    "PieChartConfigStat",
+    "PieChartWidget",
+    "PieChartWidgetScope",
     "PointCloudMetadata",
     "PointCloudPreviewResponse",
     "PointCloudPreviewResponsePointFormat",
@@ -1455,6 +1734,7 @@ __all__ = (
     "RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetColormapNameType0",
     "RasterTileProxyTilesRasterProxyDatasetIdZXYFmtGetStretchType0",
     "RasterTileToken",
+    "ReaderTheme",
     "RefreshRequest",
     "RefreshVerification",
     "RefreshVerificationArcgisIdCoverageType0",
@@ -1494,6 +1774,11 @@ __all__ = (
     "ReuploadPreviewResponseSampleRowsItem",
     "ReuploadResponse",
     "ReuploadServicePreviewRequest",
+    "RowsRequest",
+    "RowsRequestFilterType0",
+    "RowsRequestSort",
+    "RowsResponse",
+    "RowsResult",
     "SandboxQueryRequest",
     "SandboxResult",
     "SavedSearchCreate",
@@ -1504,6 +1789,9 @@ __all__ = (
     "SchemaDiff",
     "SearchDatasetsEndpointSearchDatasetsGetSpatialPredicate",
     "SearchFacetsEndpointSearchFacetsGetSpatialPredicate",
+    "SeparatorConfig",
+    "SeparatorConfigStyle",
+    "SeparatorWidget",
     "ServiceAuthRequest",
     "ServiceAuthRequestMethod",
     "ServiceHealth",
@@ -1576,11 +1864,50 @@ __all__ = (
     "StacSearchRequestCloudCoverModeType0",
     "StacSearchResponse",
     "StaleCleanupResponse",
+    "StatsRequest",
+    "StatsRequestFilterType0",
+    "StatsRequestStatsItem",
+    "StatsResponse",
+    "StatsResult",
     "StatusUpdate",
     "StatusUpdateResponse",
+    "StoredStoryVisibility",
+    "StoryAssetResponse",
+    "StoryCamera",
+    "StoryChapter",
+    "StoryChapterInput",
+    "StoryCreate",
+    "StoryDocument",
+    "StoryDocumentInput",
+    "StoryDraftResponse",
+    "StoryDraftUpdate",
+    "StoryFrameHost",
+    "StoryGroupsResponse",
+    "StoryGroupsUpdate",
+    "StoryListResponse",
+    "StoryPublish",
+    "StoryResponse",
+    "StoryRevision",
+    "StoryScene",
+    "StorySceneLayerVisibility",
+    "StorySceneTransitionType0",
+    "StorySettings",
+    "StorySettingsLayout",
+    "StorySettingsPanelPosition",
+    "StorySettingsTheme",
+    "StorySettingsTransition",
+    "StorySummary",
+    "StoryUpdate",
+    "StoryVisibility",
     "SublayerOverride",
     "SummaryDraftResponse",
+    "TableConfig",
+    "TableConfigSort",
     "TableRegisterResponse",
+    "TableStat",
+    "TableStatStat",
+    "TableWidget",
+    "TableWidgetScope",
     "TerrainConfig",
     "ThumbnailUploadRequest",
     "TileConfigResponse",
@@ -1600,6 +1927,7 @@ __all__ = (
     "TypeChange",
     "UploadConfigResponse",
     "UploadResponse",
+    "UploadStoryAssetEndpointStoriesStoryIdAssetsPostBody",
     "UrlUploadRequest",
     "UserCreate",
     "UserListResponse",
@@ -1613,8 +1941,14 @@ __all__ = (
     "ValidationIssueSeverity",
     "ValidationResultResponse",
     "ValidationResultResponseQualityScoreType0",
+    "ValueCount",
+    "ValueCountsRequest",
+    "ValueCountsRequestFilterType0",
+    "ValueCountsResponse",
+    "ValueCountsResult",
     "VectorTileToken",
     "VerifyEmailRequest",
+    "VideoWidget",
     "VisibilityCheckResponse",
     "VrtActiveGeneration",
     "VrtAddSourceRequest",

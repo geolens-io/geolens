@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import Any, TypeVar, TYPE_CHECKING
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
@@ -10,6 +10,11 @@ from ..types import UNSET, Unset
 
 from typing import cast
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from ..models.attribute_metadata_response_value_labels_type_0 import (
+        AttributeMetadataResponseValueLabelsType0,
+    )
 
 
 T = TypeVar("T", bound="AttributeMetadataResponse")
@@ -31,6 +36,8 @@ class AttributeMetadataResponse:
         user_modified_fields (list[str]): Field names manually edited by a user
         semantic_role (None | str | Unset): Inferred role: geometry, identifier, measure, etc.
         example_values (list[Any] | None | Unset): Sample values from the column
+        value_labels (AttributeMetadataResponseValueLabelsType0 | None | Unset): Label for each stored code, keyed by
+            the code as text.
         ordinal_position (int | None | Unset): Column position in the table (1-based)
         is_nullable (bool | None | Unset):
     """
@@ -47,11 +54,16 @@ class AttributeMetadataResponse:
     user_modified_fields: list[str]
     semantic_role: None | str | Unset = UNSET
     example_values: list[Any] | None | Unset = UNSET
+    value_labels: AttributeMetadataResponseValueLabelsType0 | None | Unset = UNSET
     ordinal_position: int | None | Unset = UNSET
     is_nullable: bool | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.attribute_metadata_response_value_labels_type_0 import (
+            AttributeMetadataResponseValueLabelsType0,
+        )
+
         id = str(self.id)
 
         dataset_id = str(self.dataset_id)
@@ -92,6 +104,14 @@ class AttributeMetadataResponse:
         else:
             example_values = self.example_values
 
+        value_labels: dict[str, Any] | None | Unset
+        if isinstance(self.value_labels, Unset):
+            value_labels = UNSET
+        elif isinstance(self.value_labels, AttributeMetadataResponseValueLabelsType0):
+            value_labels = self.value_labels.to_dict()
+        else:
+            value_labels = self.value_labels
+
         ordinal_position: int | None | Unset
         if isinstance(self.ordinal_position, Unset):
             ordinal_position = UNSET
@@ -124,6 +144,8 @@ class AttributeMetadataResponse:
             field_dict["semantic_role"] = semantic_role
         if example_values is not UNSET:
             field_dict["example_values"] = example_values
+        if value_labels is not UNSET:
+            field_dict["value_labels"] = value_labels
         if ordinal_position is not UNSET:
             field_dict["ordinal_position"] = ordinal_position
         if is_nullable is not UNSET:
@@ -133,6 +155,10 @@ class AttributeMetadataResponse:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.attribute_metadata_response_value_labels_type_0 import (
+            AttributeMetadataResponseValueLabelsType0,
+        )
+
         d = dict(src_dict)
         id = UUID(d.pop("id"))
 
@@ -205,6 +231,27 @@ class AttributeMetadataResponse:
 
         example_values = _parse_example_values(d.pop("example_values", UNSET))
 
+        def _parse_value_labels(
+            data: object,
+        ) -> AttributeMetadataResponseValueLabelsType0 | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                value_labels_type_0 = (
+                    AttributeMetadataResponseValueLabelsType0.from_dict(data)
+                )
+
+                return value_labels_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(AttributeMetadataResponseValueLabelsType0 | None | Unset, data)
+
+        value_labels = _parse_value_labels(d.pop("value_labels", UNSET))
+
         def _parse_ordinal_position(data: object) -> int | None | Unset:
             if data is None:
                 return data
@@ -236,6 +283,7 @@ class AttributeMetadataResponse:
             user_modified_fields=user_modified_fields,
             semantic_role=semantic_role,
             example_values=example_values,
+            value_labels=value_labels,
             ordinal_position=ordinal_position,
             is_nullable=is_nullable,
         )

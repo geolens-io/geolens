@@ -58,6 +58,7 @@ def _api_key_response(key: ApiKey) -> AdminApiKeyListItem:
     response_model=ApiKeyCreateResponse,
     status_code=status.HTTP_201_CREATED,
     include_in_schema=False,
+    summary="Create an API key for a user",
 )
 @router.post(
     "/api-keys/",
@@ -65,6 +66,7 @@ def _api_key_response(key: ApiKey) -> AdminApiKeyListItem:
     status_code=status.HTTP_201_CREATED,
     # A pending/suspended/deactivated target user raises 409.
     responses={409: CONFLICT_RESPONSE},
+    summary="Create an API key for a user",
 )
 @limiter.limit("30/minute")
 async def create_api_key(
@@ -83,8 +85,10 @@ async def create_api_key(
         ApiKeyTargetUserInactiveError,
         ApiKeyTargetUserNotFoundError,
         create_api_key_for_user,
+        lock_current_session_owner,
     )
 
+    await lock_current_session_owner(db, current_user)
     try:
         api_key, raw_key = await create_api_key_for_user(
             db,
@@ -142,11 +146,13 @@ async def create_api_key(
     response_model=AdminApiKeyListResponse,
     dependencies=[Depends(require_permission("manage_users"))],
     include_in_schema=False,
+    summary="List all API keys",
 )
 @router.get(
     "/api-keys/",
     response_model=AdminApiKeyListResponse,
     dependencies=[Depends(require_permission("manage_users"))],
+    summary="List all API keys",
 )
 async def list_api_keys(
     skip: int = Query(0, ge=0),
@@ -170,7 +176,11 @@ async def list_api_keys(
     )
 
 
-@router.delete("/api-keys/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/api-keys/{key_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Revoke any API key",
+)
 @limiter.limit("30/minute")
 async def revoke_api_key(
     key_id: uuid.UUID,
@@ -212,10 +222,12 @@ async def revoke_api_key(
     "/infrastructure",
     response_model=InfrastructureResponse,
     include_in_schema=False,
+    summary="Get infrastructure status",
 )
 @router.get(
     "/infrastructure/",
     response_model=InfrastructureResponse,
+    summary="Get infrastructure status",
 )
 async def get_infrastructure(
     _user: User = Depends(
@@ -254,11 +266,13 @@ async def get_infrastructure(
     response_model=AdminShareTokenListResponse,
     dependencies=[Depends(require_permission("manage_users"))],
     include_in_schema=False,
+    summary="List share tokens",
 )
 @router.get(
     "/share-tokens/",
     response_model=AdminShareTokenListResponse,
     dependencies=[Depends(require_permission("manage_users"))],
+    summary="List share tokens",
 )
 async def list_share_tokens_endpoint(
     skip: int = Query(0, ge=0),
@@ -298,7 +312,11 @@ async def list_share_tokens_endpoint(
     )
 
 
-@router.delete("/share-tokens/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/share-tokens/{token_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Revoke a share token",
+)
 @limiter.limit("30/minute")
 async def admin_revoke_share_token(
     token_id: uuid.UUID,

@@ -33,7 +33,8 @@ _MAX_REMEMBERED_QUERIES = 64
 # Kept local because catalog search currently exposes ``source_format`` but not
 # the backend's computed ``origin`` field. These values mirror the public source
 # formats accepted by GeoLens; the MCP response exposes only the coarse origin
-# kind, never the provider pointer used to refresh it.
+# kind, never the provider pointer used to refresh it. Search keeps a fixed
+# field list, so only the detail path needs the pointer field names.
 _SERVICE_SOURCE_FORMATS = frozenset({"wfs", "arcgis_featureserver", "ogcapi_features"})
 _ORIGINLESS_RECORD_TYPES = frozenset({"collection", "vrt_dataset"})
 _RAW_SOURCE_POINTER_FIELDS = frozenset({"source_url", "origin_uri", "origin_ref"})
@@ -43,6 +44,45 @@ _SOURCE_STATE_FIELDS = (
     "source_health_detail",
     "last_checked_at",
     "last_refreshed_at",
+)
+# A search hit carries what an agent needs to pick a dataset before calling
+# get_dataset_schema. A keep-list, so new backend fields never reach the agent.
+_SEARCH_PROPERTY_FIELDS = (
+    "title",
+    "record_type",
+    "geometry_type",
+    "feature_count",
+    "crs",
+    "keywords",
+    "updated",
+)
+_SEARCH_DESCRIPTION_CHARS = 300
+_MAP_FIELDS = (
+    "id",
+    "name",
+    "description",
+    "visibility",
+    "center_lng",
+    "center_lat",
+    "zoom",
+    "bearing",
+    "pitch",
+    "basemap_style",
+    "show_basemap_labels",
+    "terrain_config",
+    "layer_count",
+    "updated_at",
+)
+_MAP_LAYER_FIELDS = (
+    "id",
+    "dataset_id",
+    "dataset_name",
+    "dataset_table_name",
+    "dataset_geometry_type",
+    "display_name",
+    "visible",
+    "layer_type",
+    "filter",
 )
 
 
@@ -163,7 +203,7 @@ def _source_origin(properties: dict[str, Any]) -> str | None:
     source_format = properties.get("source_format")
     if not source_format:
         return "postgis"
-    if source_format in ("created", "stac"):
+    if source_format in ("created", "stac", "database"):
         return source_format
     if source_format in _SERVICE_SOURCE_FORMATS:
         return "service"
@@ -171,7 +211,7 @@ def _source_origin(properties: dict[str, Any]) -> str | None:
 
 
 def _with_search_source_state(fc: Any) -> Any:
-    """Add a stable, provider-safe source-state shape to search features.
+    """Trim search features to the kept fields and add a stable source-state shape.
 
     Catalog search currently supplies source origin inputs and freshness, but
     not health/check/refresh state. Null placeholders distinguish "not present
@@ -191,15 +231,68 @@ def _with_search_source_state(fc: Any) -> Any:
             features.append(feature)
             continue
         safe_properties = {
-            key: value
-            for key, value in properties.items()
-            if key not in _RAW_SOURCE_POINTER_FIELDS
+            key: properties[key] for key in _SEARCH_PROPERTY_FIELDS if key in properties
         }
+        description = properties.get("description")
+        if isinstance(description, str):
+            if len(description) > _SEARCH_DESCRIPTION_CHARS:
+                description = description[:_SEARCH_DESCRIPTION_CHARS].rstrip() + "…"
+            safe_properties["description"] = description
         safe_properties["source_origin"] = _source_origin(properties)
         for field in _SOURCE_STATE_FIELDS:
-            safe_properties.setdefault(field, None)
-        features.append({**feature, "properties": safe_properties})
-    return {**fc, "features": features}
+            safe_properties[field] = properties.get(field)
+        slim: dict[str, Any] = {"id": feature.get("id"), "properties": safe_properties}
+        if "bbox" in feature:
+            slim["bbox"] = feature["bbox"]
+        features.append(slim)
+    return {
+        key: fc[key] for key in ("type", "numberMatched", "numberReturned") if key in fc
+    } | {"features": features}
+
+
+def _map_summary(detail: Any) -> Any:
+    """Reduce a MapResponse to what identifies a map and its layers.
+
+    Styling, popups, labels, column info and sample data values are left out;
+    they dominate the payload and carry real dataset content.
+    """
+    if not isinstance(detail, dict):
+        return detail
+    out = {key: detail[key] for key in _MAP_FIELDS if key in detail}
+    out["layers"] = [
+        {key: layer[key] for key in _MAP_LAYER_FIELDS if key in layer}
+        for layer in detail.get("layers") or []
+        if isinstance(layer, dict)
+    ]
+    dashboard = detail.get("dashboard_config")
+    widgets = dashboard.get("widgets") if isinstance(dashboard, dict) else None
+    out["dashboard_widget_count"] = len(widgets) if isinstance(widgets, list) else 0
+    return out
+
+
+_STORY_FIELDS = ("id", "title", "summary", "visibility", "published_at", "updated_at")
+
+
+def _story_summary(story: Any) -> Any:
+    if not isinstance(story, dict):
+        return story
+    out = {key: story[key] for key in _STORY_FIELDS if key in story}
+    # Servers before the count was added omit it; null says "not reported".
+    out["chapter_count"] = story.get("chapter_count")
+    return out
+
+
+def _story_matches(story: dict[str, Any], needle: str) -> bool:
+    return any(needle in (story.get(f) or "").casefold() for f in ("title", "summary"))
+
+
+def _story_detail(detail: Any) -> Any:
+    """Reduce a StoryResponse to its metadata and published document."""
+    if not isinstance(detail, dict):
+        return detail
+    out = {key: detail[key] for key in _STORY_FIELDS if key in detail}
+    out["document"] = detail.get("document")
+    return out
 
 
 def _with_detail_source_state(detail: Any) -> Any:
@@ -271,12 +364,14 @@ class GeoLensReadOnlyAPI:
                 detail = body.get("detail") or body.get("message") or ""
                 if not isinstance(detail, str):
                     # FastAPI validation errors carry a structured detail list.
-                    detail = str(detail)[:200]
+                    detail = str(detail)[:500]
             except Exception:
                 detail = (exc.response.text or "")[:200]
+            retry_after = exc.response.headers.get("Retry-After")
             raise RuntimeError(
                 f"GeoLens API {exc.response.status_code} for {path}"
                 + (f": {detail}" if detail else "")
+                + (f" (Retry-After: {retry_after})" if retry_after else "")
             ) from exc
         except httpx.HTTPError as exc:
             raise RuntimeError(f"Could not reach GeoLens API at {path}: {exc}") from exc
@@ -354,7 +449,7 @@ class GeoLensReadOnlyAPI:
 
     def get_map(self, map_id: str) -> Any:
         # No trailing-slash sibling on this route — must omit it.
-        return self._get(f"/maps/{_id_segment(map_id)}")
+        return _map_summary(self._get(f"/maps/{_id_segment(map_id)}"))
 
     def query(self, sql: str, restrict_tables: list[str], row_limit: int = 100) -> Any:
         # Raw read-only SQL through the backend sandbox. The
@@ -363,3 +458,33 @@ class GeoLensReadOnlyAPI:
             "/query/",
             {"sql": sql, "restrict_tables": restrict_tables, "row_limit": row_limit},
         )
+
+    def list_stories(
+        self, search: Optional[str] = None, limit: int = 50, offset: int = 0
+    ) -> Any:
+        body = self._get(
+            "/stories/",
+            _params(search=search, limit=limit, skip=offset, published_only="true"),
+        )
+        if isinstance(body, dict) and isinstance(body.get("stories"), list):
+            # An older server ignores the filters; never pass drafts through.
+            needle = search.casefold() if search else None
+            kept = [
+                _story_summary(s)
+                for s in body["stories"]
+                if isinstance(s, dict)
+                and s.get("published_at")
+                and (needle is None or _story_matches(s, needle))
+            ]
+            body = {**body, "stories": kept}
+        return body
+
+    def get_story(self, story_id: str) -> Any:
+        # No trailing-slash sibling on this route; it serves the published
+        # document only, never the draft.
+        return _story_detail(self._get(f"/stories/{_id_segment(story_id)}"))
+
+    def aggregate(self, dataset_id: str, request: dict[str, Any]) -> Any:
+        # A POST that reads: the body goes through unchanged and the route
+        # validates it. The trailing slash is the canonical registration.
+        return self._post(f"/datasets/{_id_segment(dataset_id)}/aggregate/", request)

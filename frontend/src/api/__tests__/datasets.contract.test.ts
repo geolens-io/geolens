@@ -1,5 +1,5 @@
 import { apiFetch } from '@/api/client';
-import { reuploadCommit, reuploadDataset, setTargetStatus } from '@/api/datasets';
+import { getDatasetRows, reuploadCommit, reuploadDataset, setTargetStatus } from '@/api/datasets';
 import type {
   ReuploadCommitResponse,
   ReuploadResponse,
@@ -131,5 +131,21 @@ describe('reuploadCommit review fingerprint', () => {
 
     const [, options] = mockApiFetch.mock.calls[0];
     expect(JSON.parse(String(options?.body))).not.toHaveProperty('review_fingerprint');
+  });
+});
+
+describe('dataset rows request', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('sends gid beside the other filters, and nothing when it is unset', async () => {
+    mockApiFetch.mockResolvedValue({});
+
+    await getDatasetRows('ds', { limit: 50, gid: 382, filters: { name: 'x' } });
+    const url = new URL(String(mockApiFetch.mock.calls[0][0]), 'http://x');
+    expect(url.searchParams.get('gid')).toBe('382');
+    expect(url.searchParams.get('filter[name]')).toBe('x');
+
+    await getDatasetRows('ds', { limit: 50 });
+    expect(String(mockApiFetch.mock.calls[1][0])).not.toContain('gid');
   });
 });

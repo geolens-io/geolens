@@ -42,6 +42,14 @@ _RLS_TABLES = [
     "oauth_accounts",
     "audit_logs",
     "ingest_jobs",
+    "groups",
+    "group_members",
+    "dataset_group_grants",
+    "map_group_grants",
+    "stories",
+    "story_maps",
+    "story_assets",
+    "story_group_grants",
 ]
 
 
@@ -53,7 +61,9 @@ async def _autocommit_query(query: str, params: dict | None = None):
     """
     from app.core.config import settings
 
-    engine = create_async_engine(settings.database_url, isolation_level="AUTOCOMMIT")
+    engine = create_async_engine(
+        settings.test_database_url, isolation_level="AUTOCOMMIT"
+    )
     try:
         async with engine.connect() as conn:
             if params:
@@ -116,7 +126,15 @@ class TestRlsDisabledInSingleTenant:
                 'catalog.embed_tokens'::regclass,
                 'catalog.oauth_accounts'::regclass,
                 'catalog.audit_logs'::regclass,
-                'catalog.ingest_jobs'::regclass
+                'catalog.ingest_jobs'::regclass,
+                'catalog.groups'::regclass,
+                'catalog.group_members'::regclass,
+                'catalog.dataset_group_grants'::regclass,
+                'catalog.map_group_grants'::regclass,
+                'catalog.stories'::regclass,
+                'catalog.story_maps'::regclass,
+                'catalog.story_assets'::regclass,
+                'catalog.story_group_grants'::regclass
             ])
             ORDER BY relname
             """
@@ -148,7 +166,15 @@ class TestRlsDisabledInSingleTenant:
                 'catalog.embed_tokens'::regclass,
                 'catalog.oauth_accounts'::regclass,
                 'catalog.audit_logs'::regclass,
-                'catalog.ingest_jobs'::regclass
+                'catalog.ingest_jobs'::regclass,
+                'catalog.groups'::regclass,
+                'catalog.group_members'::regclass,
+                'catalog.dataset_group_grants'::regclass,
+                'catalog.map_group_grants'::regclass,
+                'catalog.stories'::regclass,
+                'catalog.story_maps'::regclass,
+                'catalog.story_assets'::regclass,
+                'catalog.story_group_grants'::regclass
             ])
             ORDER BY relname
             """
@@ -202,7 +228,7 @@ class TestCatalogReadsNotBlockedByRls:
         # Bypass count — SET LOCAL row_security=off then COUNT(*) in the same
         # connection, using separate execute() calls so asyncpg is happy.
         engine = create_async_engine(
-            settings.database_url, isolation_level="AUTOCOMMIT"
+            settings.test_database_url, isolation_level="AUTOCOMMIT"
         )
         try:
             async with engine.connect() as conn:
@@ -288,6 +314,38 @@ class TestCatalogReadsNotBlockedByRls:
             f"count={bypass}. RLS policy may be filtering rows in single_tenant."
         )
 
+    async def test_groups_read_not_blocked(self):
+        """Sharing groups stay readable when hosted tenancy is disabled."""
+        normal, bypass = await self._table_row_counts("groups")
+        assert normal == bypass, (
+            f"catalog.groups: normal count={normal} != bypass "
+            f"count={bypass}. RLS policy may be filtering rows in single_tenant."
+        )
+
+    async def test_group_members_read_not_blocked(self):
+        """Group memberships stay readable when hosted tenancy is disabled."""
+        normal, bypass = await self._table_row_counts("group_members")
+        assert normal == bypass, (
+            f"catalog.group_members: normal count={normal} != bypass "
+            f"count={bypass}. RLS policy may be filtering rows in single_tenant."
+        )
+
+    async def test_map_group_grants_read_not_blocked(self):
+        """Map group grants stay readable when hosted tenancy is disabled."""
+        normal, bypass = await self._table_row_counts("map_group_grants")
+        assert normal == bypass, (
+            f"catalog.map_group_grants: normal count={normal} != bypass "
+            f"count={bypass}. RLS policy may be filtering rows in single_tenant."
+        )
+
+    async def test_dataset_group_grants_read_not_blocked(self):
+        """Dataset group grants stay readable when hosted tenancy is disabled."""
+        normal, bypass = await self._table_row_counts("dataset_group_grants")
+        assert normal == bypass, (
+            f"catalog.dataset_group_grants: normal count={normal} != bypass "
+            f"count={bypass}. RLS policy may be filtering rows in single_tenant."
+        )
+
 
 # ---------------------------------------------------------------------------
 # (d) GUC is unset in a default single_tenant session
@@ -307,7 +365,7 @@ class TestGucUnsetInSingleTenant:
         from app.core.config import settings
 
         # Use a normal (non-AUTOCOMMIT) engine to exercise the session hook.
-        engine = create_async_engine(settings.database_url)
+        engine = create_async_engine(settings.test_database_url)
         try:
             async with engine.begin() as conn:
                 row = await conn.execute(

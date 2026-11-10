@@ -113,20 +113,20 @@ def is_raster_dataset(dataset: Any) -> bool:
 #: Update this set, and the dict `origin_refusal_message` builds below,
 #: together if that one changes.
 KNOWN_ORIGIN_KINDS: frozenset[str] = frozenset(
-    {"upload", "postgis", "service", "stac", "created"}
+    {"upload", "postgis", "service", "stac", "database", "created"}
 )
 
 
 def origin_refusal_message(origin: Optional[str]) -> Optional[str]:
     """Refuse before uploading when the dataset's origin is not a file.
 
-    The reupload worker always rebinds a committed dataset to the `upload`
-    origin (`platform/dataset_origin.set_dataset_origin`), so replacing a
+    The reupload worker rebinds a dataset replaced from a file to the
+    `upload` origin (`platform/dataset_origin.restamp`), so replacing a
     dataset bound to a refreshable remote origin, or to a registered
     table, through this door would silently sever its refresh source on
-    the first successful commit. `service` and `stac` are both
+    the first successful commit. `service`, `stac` and `database` are
     refreshable remote origins (`router_refresh.py`); `postgis` is a
-    registered table refreshed in place. All three are refused in favor
+    registered table refreshed in place. All four are refused in favor
     of `geolens refresh`.
 
     Every kind in KNOWN_ORIGIN_KINDS gets an explicit entry below, so a
@@ -145,6 +145,11 @@ def origin_refusal_message(origin: Optional[str]) -> Optional[str]:
         ),
         "service": _REFUSAL_MESSAGES["refresh_not_applicable"],
         "stac": _REFUSAL_MESSAGES["refresh_not_applicable"],
+        "database": (
+            "This dataset was imported from a database table, not an upload. "
+            "Run `geolens refresh <dataset-id>` to copy the table again "
+            "instead of replacing it with a file."
+        ),
     }
     assert set(by_kind) == KNOWN_ORIGIN_KINDS, (
         "origin_refusal_message must classify every kind in KNOWN_ORIGIN_KINDS"
@@ -207,11 +212,14 @@ def build_commit_request(
     srid_override: Optional[int],
     expected_origin_kind: Optional[str] = None,
     review_fingerprint: Optional[str] = None,
+    expected_data_revision: Optional[int] = None,
 ) -> Any:
     """Build a ReuploadCommitRequest. No ``token``; replace is file-only.
 
     ``review_fingerprint`` is the preview's, sent only after a person
     confirmed that preview; it acknowledges the reasons the preview listed.
+    ``expected_data_revision`` is the dataset's data revision the caller
+    checked, so an edit after that check stops the replacement for review.
 
     ``expected_origin_kind`` is the origin ``origin_refusal_message``
     above read and allowed, sent back so the commit door can refuse if it is no
@@ -236,6 +244,8 @@ def build_commit_request(
     }
     if review_fingerprint:
         kwargs["review_fingerprint"] = review_fingerprint
+    if expected_data_revision is not None:
+        kwargs["expected_data_revision"] = expected_data_revision
     return _build_model(ReuploadCommitRequest, kwargs, "confirming a reviewed replacement")
 
 

@@ -117,7 +117,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: ReuploadServicePreviewRequest,
 ) -> Response[ProblemDetail | ReuploadPreviewResponse]:
-    """Reupload Service Preview
+    """Preview a service layer for re-upload
 
      Preview a remote service layer for dataset re-upload.
 
@@ -151,7 +151,7 @@ def sync(
     client: AuthenticatedClient,
     body: ReuploadServicePreviewRequest,
 ) -> ProblemDetail | ReuploadPreviewResponse | None:
-    """Reupload Service Preview
+    """Preview a service layer for re-upload
 
      Preview a remote service layer for dataset re-upload.
 
@@ -180,7 +180,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: ReuploadServicePreviewRequest,
 ) -> Response[ProblemDetail | ReuploadPreviewResponse]:
-    """Reupload Service Preview
+    """Preview a service layer for re-upload
 
      Preview a remote service layer for dataset re-upload.
 
@@ -212,7 +212,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: ReuploadServicePreviewRequest,
 ) -> ProblemDetail | ReuploadPreviewResponse | None:
-    """Reupload Service Preview
+    """Preview a service layer for re-upload
 
      Preview a remote service layer for dataset re-upload.
 

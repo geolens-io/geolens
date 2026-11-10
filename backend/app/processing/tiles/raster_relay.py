@@ -16,6 +16,7 @@ import structlog
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import StreamingResponse
 
+from app.platform.http.forwarding import came_through_proxy
 from app.platform.http.remote_raster import (
     ByteRange,
     RemoteRasterRefused,
@@ -84,21 +85,13 @@ async def _body(
         await upstream.aclose()
 
 
-def _forwarded(request: Request) -> bool:
-    """Whether a proxy relayed this request; Titiler calls the API directly."""
-    return any(
-        name in request.headers
-        for name in ("forwarded", "x-forwarded-for", "x-real-ip")
-    )
-
-
 @router.api_route(
     "/{token}/" + RELAY_FILENAME, methods=["GET", "HEAD"], response_model=None
 )
 @limiter.exempt
 async def relay_remote_raster(request: Request, token: str) -> Response:
     """Serve one read of a remote raster for Titiler."""
-    claims = None if _forwarded(request) else read_relay_token(token)
+    claims = None if came_through_proxy(request.headers) else read_relay_token(token)
     if claims is None:
         return Response(status_code=404, headers={"Cache-Control": "no-store"})
     try:

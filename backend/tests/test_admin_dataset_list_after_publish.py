@@ -140,7 +140,11 @@ async def test_a_first_import_is_listed_once_its_job_reads_complete(
         file_path=str(source),
         created_by=admin_id,
         status="pending",
-        user_metadata={"title": title},
+        user_metadata={
+            "title": title,
+            "item_id": "c" * 32,
+            "portal_url": "https://org.maps.arcgis.com",
+        },
     )
     test_db_session.add(job)
     await test_db_session.commit()
@@ -182,6 +186,11 @@ async def test_a_first_import_is_listed_once_its_job_reads_complete(
     assert str(dataset_id) not in before
     assert poller.job_status == "complete"
     assert str(dataset_id) in poller.listed
+    from app.modules.catalog.datasets.domain.models import Dataset
+
+    origin_ref = (await test_db_session.get(Dataset, dataset_id)).origin_ref
+    assert origin_ref["item_id"] == "c" * 32
+    assert origin_ref["portal_url"] == "https://org.maps.arcgis.com"
 
 
 async def _fake_run_ogr2ogr_service(

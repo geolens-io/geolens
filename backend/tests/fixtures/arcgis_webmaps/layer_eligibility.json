@@ -1,0 +1,60 @@
+[
+  {
+    "name": "feature layer type",
+    "layer": {
+      "layerType": "ArcGISFeatureLayer"
+    },
+    "translated": true
+  },
+  {
+    "name": "FeatureLayer type",
+    "layer": {
+      "layerType": "FeatureLayer"
+    },
+    "translated": true
+  },
+  {
+    "name": "tile layer",
+    "layer": {
+      "layerType": "ArcGISTiledMapServiceLayer"
+    },
+    "translated": false
+  },
+  {
+    "name": "untyped feature service url",
+    "layer": {
+      "url": "https://h/arcgis/rest/services/S/FeatureServer/0"
+    },
+    "translated": true
+  },
+  {
+    "name": "untyped other url",
+    "layer": {
+      "url": "https://h/arcgis/rest/services/S/MapServer/0"
+    },
+    "translated": false
+  },
+  {
+    "name": "untyped no url",
+    "layer": {},
+    "translated": false
+  },
+  {
+    "name": "feature collection",
+    "layer": {
+      "layerType": "ArcGISFeatureLayer",
+      "featureCollection": {
+        "layers": []
+      }
+    },
+    "translated": false
+  },
+  {
+    "name": "typed other with feature url",
+    "layer": {
+      "layerType": "VectorTileLayer",
+      "url": "https://h/FeatureServer/0"
+    },
+    "translated": false
+  }
+]

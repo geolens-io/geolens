@@ -94,7 +94,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
-    """Oauth Callback
+    """Finish OAuth sign-in
 
      Handle IdP callback: exchange code, find/create user, redirect to frontend.
 
@@ -131,7 +131,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
-    """Oauth Callback
+    """Finish OAuth sign-in
 
      Handle IdP callback: exchange code, find/create user, redirect to frontend.
 
@@ -163,7 +163,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
-    """Oauth Callback
+    """Finish OAuth sign-in
 
      Handle IdP callback: exchange code, find/create user, redirect to frontend.
 
@@ -198,7 +198,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
-    """Oauth Callback
+    """Finish OAuth sign-in
 
      Handle IdP callback: exchange code, find/create user, redirect to frontend.
 

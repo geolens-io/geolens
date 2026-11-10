@@ -123,7 +123,7 @@ def sync_detailed(
     limit: int | Unset = 50,
     after: int | Unset = 0,
 ) -> Response[DatasetRowsResponse | ProblemDetail]:
-    """Get Feature Related Records
+    """List a feature's related records
 
      Get related records for a feature via FK relationship.
 
@@ -166,7 +166,7 @@ def sync(
     limit: int | Unset = 50,
     after: int | Unset = 0,
 ) -> DatasetRowsResponse | ProblemDetail | None:
-    """Get Feature Related Records
+    """List a feature's related records
 
      Get related records for a feature via FK relationship.
 
@@ -204,7 +204,7 @@ async def asyncio_detailed(
     limit: int | Unset = 50,
     after: int | Unset = 0,
 ) -> Response[DatasetRowsResponse | ProblemDetail]:
-    """Get Feature Related Records
+    """List a feature's related records
 
      Get related records for a feature via FK relationship.
 
@@ -245,7 +245,7 @@ async def asyncio(
     limit: int | Unset = 50,
     after: int | Unset = 0,
 ) -> DatasetRowsResponse | ProblemDetail | None:
-    """Get Feature Related Records
+    """List a feature's related records
 
      Get related records for a feature via FK relationship.
 

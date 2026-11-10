@@ -140,11 +140,15 @@ logs-api:
 
 # Snapshot the OpenAPI schema. Commit backend/openapi.json with the route changes;
 # CI runs `openapi-check` to fail builds when the snapshot drifts from runtime.
+# Settings refuse to load without the boot-required variables, and a worktree
+# has no .env, so the dump reads .env.test when present. It opens no database.
+DUMP_OPENAPI := cd backend && set -a && if [ -f ../.env.test ]; then . ../.env.test; fi && set +a && PYTHONPATH=. uv run python scripts/dump_openapi.py
+
 openapi:
-	cd backend && PYTHONPATH=. uv run python scripts/dump_openapi.py
+	$(DUMP_OPENAPI)
 
 openapi-check:
-	cd backend && PYTHONPATH=. uv run python scripts/dump_openapi.py --check
+	$(DUMP_OPENAPI) --check
 
 # ----- SDK generation -----
 # Hand-maintained files under sdks/ that the generators' --overwrite would
@@ -225,7 +229,7 @@ sdks:
 	  exit $$ec
 
 _sdks_generate:
-	cd backend && PYTHONPATH=. uv run python scripts/dump_openapi.py
+	$(DUMP_OPENAPI)
 	uv run --no-project python scripts/flatten_openapi_defs.py \
 	  --input backend/openapi.json \
 	  --output "$(SDKS_TMPDIR)/openapi-flat.json"

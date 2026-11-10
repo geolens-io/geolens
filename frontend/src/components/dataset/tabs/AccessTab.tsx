@@ -20,6 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -39,6 +40,7 @@ import { DistributionsList } from '@/components/dataset/DistributionsList';
 import { TilesetAccess } from '@/components/dataset/TilesetAccess';
 import { PointCloudAccess } from '@/components/dataset/PointCloudAccess';
 import { DatasetWriteKeys } from '@/components/dataset/DatasetWriteKeys';
+import { DatasetGroupShare } from '@/components/dataset/DatasetGroupShare';
 import { recordTypeCapabilities } from '@/lib/record-types';
 import { cn } from '@/lib/utils';
 
@@ -64,10 +66,11 @@ interface AccessTabProps {
 }
 
 /** The visibility values this control can move a dataset TO, in ladder order.
- * `restricted` is not one: a non-admin owner who picked it would lose access to
- * their own dataset, and grants have no write path. A dataset already stored
- * as `restricted` still displays its own value (see below), a one-way exit,
- * never a silent coercion. The import pickers stay at private/public. */
+ * `restricted` is not one: it follows from sharing a private dataset with
+ * groups (see DatasetGroupShare), and a non-admin owner who picked it directly
+ * would lose access to their own dataset. A dataset already stored as
+ * `restricted` still displays its own value (see below), a one-way exit, never
+ * a silent coercion. The import pickers stay at private/public. */
 const SELECTABLE_VISIBILITIES = ['private', 'internal', 'public'] as const;
 
 /** The full ladder in widening order, for deciding whether a visibility move
@@ -262,6 +265,9 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
   // no-longer-intended value. Each invocation takes a fresh id; a response whose
   // id is no longer current is discarded.
   const probeSeq = useRef(0);
+  // Going public is confirmed first, from any level, because anonymous readers
+  // reach the data through the standards endpoints and downloads as well.
+  const [confirmPublic, setConfirmPublic] = useState(false);
 
   function applyVisibility(visibility: DatasetVisibility) {
     updateDataset.mutate(
@@ -286,9 +292,18 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
     );
   }
 
-  async function handleVisibilityChange(value: string) {
+  function handleVisibilityChange(value: string) {
     if (value === dataset.visibility) return;
-    const visibility = value as DatasetVisibility;
+    if (value === 'public') {
+      // Discards any earlier selection's probe still in flight.
+      probeSeq.current++;
+      setConfirmPublic(true);
+      return;
+    }
+    void changeVisibility(value as DatasetVisibility);
+  }
+
+  async function changeVisibility(visibility: DatasetVisibility) {
     const seq = ++probeSeq.current;
     // Only a move that ADDS readers warrants the dialog. The probe asks an
     // absolute question ("does this audience exceed the source?"), so running
@@ -405,6 +420,14 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
               {t('common:visibilityPublicAdminOnly')}
             </p>
           )}
+          {/* The server sends the group list to the owner and admins only. */}
+          {canEdit && dataset.groups && (
+            <DatasetGroupShare
+              datasetId={dataset.id}
+              visibility={dataset.visibility}
+              groups={dataset.groups}
+            />
+          )}
         </CardContent>
       </Card>
 
@@ -468,6 +491,19 @@ export function AccessTab({ dataset, canEdit = false, canManageKeys = canEdit }:
           canCreate={canCreateKeys && dataset.geometry_type !== null}
         />
       )}
+
+      <ConfirmDialog
+        open={confirmPublic}
+        onOpenChange={setConfirmPublic}
+        title={t('metadataEdit.publicConfirmTitle')}
+        description={t('metadataEdit.publicConfirmDescription')}
+        confirm={{
+          label: t('metadataEdit.publicConfirmAction'),
+          onClick: () => {
+            void changeVisibility('public');
+          },
+        }}
+      />
 
       {/* The publish-moment diff — which inherited keywords the
           wider audience would see, with the option to back out and prune. */}

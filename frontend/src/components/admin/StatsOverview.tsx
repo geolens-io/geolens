@@ -174,7 +174,7 @@ function SystemHealthCard() {
             <div className="flex-1 min-w-0">
               <span className="text-sm font-medium">{t('infrastructure.tileCache')}</span>
               <span className="text-xs text-muted-foreground ms-2">
-                {formatInfraType(data.config.tile_cache)} &middot; TTL {data.config.tile_cache_ttl}s
+                {data.config.cdn_configured && <>{t('infrastructure.cdn')} &middot; </>}TTL {data.config.tile_cache_ttl}s
               </span>
             </div>
             <Badge

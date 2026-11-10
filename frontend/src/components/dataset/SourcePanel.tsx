@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { getServiceTypeLabel } from '@/i18n/labels';
 import { describeFailureReason } from '@/lib/failure-reason';
 import { Link } from 'react-router';
-import { AlertCircle, Loader2 } from 'lucide-react';
+import { AlertCircle, ExternalLink, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   useCancelRefreshJob,
@@ -26,6 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { stripTrailingSlashes } from '@/lib/dataset-access';
 import { formatDateTimeSmart, formatDateTimeUtc, formatNumber } from '@/lib/format';
 import {
   healthDotColors,
@@ -71,7 +72,7 @@ export interface BlockedRunToAccept {
 }
 
 type PointerField = {
-  label: 'filename' | 'fingerprint' | 'table' | 'serviceType' | 'layer' | 'endpoint' | 'collection' | 'asset' | 'item';
+  label: 'filename' | 'fingerprint' | 'table' | 'connection' | 'sourceTable' | 'serviceType' | 'layer' | 'endpoint' | 'collection' | 'asset' | 'item';
   value: string;
 };
 
@@ -121,7 +122,7 @@ const freshnessClasses: Record<SourceFreshness, string> = {
 
 const driftClasses: Record<SchemaDriftStatus, string> = {
   none: semanticBadgeColors.success,
-  drifted: semanticBadgeColors.destructive,
+  drifted: semanticBadgeColors.warning,
   unknown: 'border-border bg-muted text-muted-foreground',
 };
 
@@ -150,6 +151,18 @@ function safeHttpPointer(value: string | null): string | null {
   }
 }
 
+const ARCGIS_ITEM_ID = /^[0-9a-f]{32}$/;
+
+/** The portal's page for the item this dataset was built from, or null. */
+function arcgisItemUrl(dataset: DatasetResponse, origin: DatasetOrigin | null): string | null {
+  if (origin !== 'service' && origin !== 'upload') return null;
+  const ref = trustedRef(dataset, origin);
+  const itemId = refString(ref, 'item_id');
+  const portal = safeHttpPointer(refString(ref, 'portal_url'));
+  if (!itemId || !ARCGIS_ITEM_ID.test(itemId) || !portal?.startsWith('https://')) return null;
+  return `${portal.replace(/\/$/, '')}/home/item.html?id=${itemId}`;
+}
+
 function matchesCurrentServiceBinding(
   dataset: DatasetResponse,
   binding: Record<string, unknown>,
@@ -164,7 +177,24 @@ function matchesCurrentServiceBinding(
     && typeof binding.layer_id === 'string'
     && binding.layer_id === currentLayer
     && typeof binding.url === 'string'
-    && safeHttpPointer(binding.url) === currentUrl;
+    && sameServiceUrl(safeHttpPointer(binding.url), currentUrl);
+}
+
+function matchesCurrentDatabaseBinding(
+  dataset: DatasetResponse,
+  binding: Record<string, unknown>,
+): boolean {
+  if ((dataset.origin ?? datasetOrigin(dataset)) !== 'database') return false;
+  const ref = trustedRef(dataset, 'database');
+  return ['connection', 'schema', 'table'].every((key) => {
+    const current = refString(ref, key);
+    return current !== null && binding[key] === current;
+  });
+}
+
+// canonical_service_source_binding_fingerprint ignores a trailing slash too.
+function sameServiceUrl(a: string | null, b: string | null): boolean {
+  return (a && stripTrailingSlashes(a)) === (b && stripTrailingSlashes(b));
 }
 
 // A later published run replaced the data this held upload was measured
@@ -201,6 +231,16 @@ function pointerFields(dataset: DatasetResponse, origin: DatasetOrigin | null): 
   if (origin === 'postgis') {
     const table = refString(ref, 'table_name');
     return table ? [{ label: 'table', value: table }] : [];
+  }
+
+  if (origin === 'database') {
+    const connection = refString(ref, 'connection');
+    const schema = refString(ref, 'schema');
+    const table = refString(ref, 'table');
+    return [
+      ...(connection ? [{ label: 'connection' as const, value: connection }] : []),
+      ...(schema && table ? [{ label: 'sourceTable' as const, value: `${schema}.${table}` }] : []),
+    ];
   }
 
   if (origin === 'service') {
@@ -528,6 +568,9 @@ function RefreshRunHistory({
                   {run.origin_kind !== 'upload' && run.verification.identity_check === 'unavailable' && (
                     <p>{t('sourcePanel.refresh.history.identityUnavailable')}</p>
                   )}
+                  {run.status === 'succeeded' && run.verification.data_unchanged && (
+                    <p>{t('sourcePanel.refresh.history.dataUnchanged')}</p>
+                  )}
                   {typeof run.verification.source_binding.url === 'string'
                     && safeHttpPointer(run.verification.source_binding.url) && (
                     <p className="break-all">
@@ -560,7 +603,8 @@ function RefreshRunHistory({
                     && canEdit
                     && run.verification
                     && (run.origin_kind === 'upload'
-                      || matchesCurrentServiceBinding(dataset, run.verification.source_binding))
+                      || matchesCurrentServiceBinding(dataset, run.verification.source_binding)
+                      || matchesCurrentDatabaseBinding(dataset, run.verification.source_binding))
                     && run.verification.review_fingerprint
                     && !run.verification.acceptance_consumed_by_run_id
                     && !heldUploadSuperseded(run, runs)
@@ -775,6 +819,7 @@ export function SourcePanel({
   const isVrt = dataset.record_type === 'vrt_dataset';
   const origin = dataset.origin ?? datasetOrigin(dataset);
   const pointers = pointerFields(dataset, origin);
+  const itemUrl = arcgisItemUrl(dataset, origin);
   const health = dataset.source_health ?? 'unknown';
   const freshness = dataset.source_freshness ?? 'unknown';
   const drift = dataset.schema_drift_status ?? 'unknown';
@@ -830,6 +875,20 @@ export function SourcePanel({
                 </div>
               ))}
             </dl>
+          )}
+
+          {itemUrl && (
+            <a
+              href={itemUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-sm font-medium underline underline-offset-4"
+            >
+              {t('sourcePanel.openInArcgis')}
+              <ExternalLink className="size-3.5" aria-hidden="true" />
+              {' '}
+              <span className="sr-only">{t('sourcePanel.opensInNewTab')}</span>
+            </a>
           )}
 
           <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">

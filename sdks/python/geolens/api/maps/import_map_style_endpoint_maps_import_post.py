@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: MapStyleImportRequest,
 ) -> Response[MapStyleImportResponse | ProblemDetail]:
-    r"""Import Map Style Endpoint
+    r"""Import a MapLibre style as a map
 
      Import a MapLibre style JSON document into a new GeoLens map.
 
@@ -125,10 +125,6 @@ def sync_detailed(
             forward-compatibility with future MapLibre fields (e.g. ``projection``,
             ``light``, ``transition``) so adding a new key on the client side
             doesn't require a server release.
-
-            Replacing the previous bare-``dict`` body parameter removes
-            ``additionalProperties: true`` from the OpenAPI schema and lets
-            openapi-python-client generate a navigable named model class.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -154,7 +150,7 @@ def sync(
     client: AuthenticatedClient,
     body: MapStyleImportRequest,
 ) -> MapStyleImportResponse | ProblemDetail | None:
-    r"""Import Map Style Endpoint
+    r"""Import a MapLibre style as a map
 
      Import a MapLibre style JSON document into a new GeoLens map.
 
@@ -173,10 +169,6 @@ def sync(
             forward-compatibility with future MapLibre fields (e.g. ``projection``,
             ``light``, ``transition``) so adding a new key on the client side
             doesn't require a server release.
-
-            Replacing the previous bare-``dict`` body parameter removes
-            ``additionalProperties: true`` from the OpenAPI schema and lets
-            openapi-python-client generate a navigable named model class.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -197,7 +189,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: MapStyleImportRequest,
 ) -> Response[MapStyleImportResponse | ProblemDetail]:
-    r"""Import Map Style Endpoint
+    r"""Import a MapLibre style as a map
 
      Import a MapLibre style JSON document into a new GeoLens map.
 
@@ -216,10 +208,6 @@ async def asyncio_detailed(
             forward-compatibility with future MapLibre fields (e.g. ``projection``,
             ``light``, ``transition``) so adding a new key on the client side
             doesn't require a server release.
-
-            Replacing the previous bare-``dict`` body parameter removes
-            ``additionalProperties: true`` from the OpenAPI schema and lets
-            openapi-python-client generate a navigable named model class.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -243,7 +231,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: MapStyleImportRequest,
 ) -> MapStyleImportResponse | ProblemDetail | None:
-    r"""Import Map Style Endpoint
+    r"""Import a MapLibre style as a map
 
      Import a MapLibre style JSON document into a new GeoLens map.
 
@@ -262,10 +250,6 @@ async def asyncio(
             forward-compatibility with future MapLibre fields (e.g. ``projection``,
             ``light``, ``transition``) so adding a new key on the client side
             doesn't require a server release.
-
-            Replacing the previous bare-``dict`` body parameter removes
-            ``additionalProperties: true`` from the OpenAPI schema and lets
-            openapi-python-client generate a navigable named model class.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

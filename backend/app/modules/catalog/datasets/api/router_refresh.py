@@ -23,7 +23,7 @@ SSRF check, no credential) and still goes through the same
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -44,6 +44,10 @@ from app.modules.catalog.datasets.api.refresh_acceptance import (
     held_reupload_binding,
     refuse_unless_reupload_source_current,
 )
+from app.modules.catalog.datasets.api.router_refresh_database import (
+    AcceptedRun,
+    dispatch_database_refresh,
+)
 from app.modules.catalog.datasets.domain.schemas import (
     DatasetRefreshRequest,
     DatasetRefreshResponse,
@@ -52,13 +56,20 @@ from app.modules.catalog.datasets.domain.service import get_dataset
 from app.platform.security import SSRFError, validate_url_for_ssrf
 from app.modules.catalog.sources.schemas import service_credential_from_request
 from app.modules.catalog.sources.stac_resolve import states_verifiable_identity
-from app.platform.service_auth import wire_credential
+from app.platform.service_auth import credential_over_http_or_422, wire_credential
 from app.modules.catalog.sources.origin_probe import (
     AUTH_CHALLENGE_DETAILS,
     probe_arcgis_origin,
     service_probe_target,
 )
-from app.platform.dataset_origin import classify_origin, service_auth_required
+from app.platform.dataset_origin import (
+    PostgisSource,
+    ServiceSource,
+    StacSource,
+    Unavailable,
+    classify_origin,
+    read_source,
+)
 from app.platform.extensions import get_catalog_port
 from app.platform.jobs.defer_guard import (
     RollbackCallable,
@@ -107,13 +118,16 @@ class _ServiceOrigin:
     under one key; unpacked here once, and the worker's
     ``service_layer_identity`` folds it back to the same value after a
     swap, so a refresh doesn't slowly rewrite the pointer it refreshed from.
+    ``auth_required`` is outside equality; see
+    :func:`_recheck_service_token_after_reservation`.
     """
 
     source_format: str
     service_label: str
     base_url: str
-    layer_id: int | str | None
+    layer_id: str
     layer_name: str
+    auth_required: bool = field(default=False, compare=False)
 
 
 async def _prepare_blocked_refresh_acceptance(
@@ -125,10 +139,11 @@ async def _prepare_blocked_refresh_acceptance(
 ) -> str | None:
     if run_id is None:
         return None
-    if origin_kind != "service":
+    if origin_kind not in ("service", "database"):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Only service refreshes can accept a blocked publication.",
+            detail="Only service and database refreshes can accept a blocked "
+            "publication.",
         )
     return await accepted_refresh_fingerprint(
         db,
@@ -156,75 +171,83 @@ def _lease_releasing_rollback(
     return _rollback
 
 
+def _refresh_not_applicable(origin_kind: str | None, message: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": "refresh_not_applicable",
+            "message": message,
+            "origin_kind": origin_kind,
+        },
+    )
+
+
+_NO_SERVICE_ORIGIN = (
+    "This dataset has no remote service origin to refresh "
+    "from. Replace its data through re-upload instead."
+)
+
+
+def _service_origin_unavailable(source: Unavailable) -> HTTPException:
+    if source.missing == "layer_id":
+        message = (
+            "This dataset's source binding records no layer, so "
+            "GeoLens cannot tell which layer of the service to "
+            "re-pull. Re-import the layer through the service import "
+            "flow."
+        )
+    else:
+        message = (
+            "This dataset's source binding is incomplete, so GeoLens "
+            "cannot re-pull it without being told where from. "
+            "Re-import the layer through the service import flow."
+        )
+    return _origin_unavailable("service", message)
+
+
+def _origin_unavailable(origin_kind: str, message: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": "origin_unavailable",
+            "message": message,
+            "origin_kind": origin_kind,
+        },
+    )
+
+
 def _resolve_service_origin(dataset) -> _ServiceOrigin:
     """Unpack a service dataset's binding, or explain why it cannot refresh.
 
     Two different 409s, because they are two different problems for the
     person reading them: ``refresh_not_applicable`` means this kind of dataset
     has no origin to re-pull from (an upload, a drawn layer, a collection, a
-    VRT — a registered table has one, and reaches this function only if it
-    was rebound mid-request, since the handler routes that kind to its own
+    VRT — another refreshable kind reaches this function only if it was
+    rebound mid-request, since the handler routes each kind to its own
     strategy), and ``origin_unavailable`` means it does but GeoLens never
     recorded enough of it — a service dataset from before the binding existed
     whose backfill could not reconstruct a base URL and layer.
     """
     origin_kind = classify_origin(dataset.source_format, dataset.record.record_type)
     if origin_kind != "service":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "refresh_not_applicable",
-                "message": (
-                    "This dataset has no remote service origin to refresh "
-                    "from. Replace its data through re-upload instead."
-                ),
-                "origin_kind": origin_kind,
-            },
-        )
+        raise _refresh_not_applicable(origin_kind, _NO_SERVICE_ORIGIN)
 
-    ref = dataset.origin_ref or {}
-    base_url = ref.get("url")
-    stored_format = ref.get("service_type")
-    layer_identity = ref.get("layer_id")
-    service_label = _SERVICE_TYPE_LABELS.get(stored_format or "")
-    if not base_url or not service_label:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "origin_unavailable",
-                "message": (
-                    "This dataset's source binding is incomplete, so GeoLens "
-                    "cannot re-pull it without being told where from. "
-                    "Re-import the layer through the service import flow."
-                ),
-                "origin_kind": "service",
-            },
-        )
-    if layer_identity is None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "origin_unavailable",
-                "message": (
-                    "This dataset's source binding records no layer, so "
-                    "GeoLens cannot tell which layer of the service to "
-                    "re-pull. Re-import the layer through the service import "
-                    "flow."
-                ),
-                "origin_kind": "service",
-            },
-        )
+    source = read_source("service", dataset.origin_ref)
+    if not isinstance(source, ServiceSource):
+        raise _service_origin_unavailable(source)
 
-    if stored_format == "arcgis_featureserver":
+    service_label = _SERVICE_TYPE_LABELS[source.service_type]
+    if source.service_type == "arcgis_featureserver":
         return _ServiceOrigin(
-            source_format=stored_format,
+            source_format=source.service_type,
             service_label=service_label,
-            base_url=base_url,
-            layer_id=layer_identity,
+            base_url=source.url,
+            layer_id=source.layer_id,
             # Ignored by the ArcGIS branch of build_gdal_source, and left
             # empty rather than guessed: a name here would be a second layer
             # identifier that nothing reads and the next reader would trust.
             layer_name="",
+            auth_required=source.auth_required,
         )
     # layer_id must carry the identity here too; None would respell the
     # binding. `build_gdal_source` ignores layer_id for WFS/OGC API, but the
@@ -234,12 +257,28 @@ def _resolve_service_origin(dataset) -> _ServiceOrigin:
     # duplicate-source guard matches on origin_uri, so a re-import of the same
     # layer would stop looking like a duplicate after one refresh.
     return _ServiceOrigin(
-        source_format=stored_format or "",
+        source_format=source.service_type,
         service_label=service_label,
-        base_url=base_url,
-        layer_id=layer_identity,
-        layer_name=str(layer_identity),
+        base_url=source.url,
+        layer_id=source.layer_id,
+        layer_name=source.layer_id,
+        auth_required=source.auth_required,
     )
+
+
+def _refuse_expected_revision_off_service(
+    body: DatasetRefreshRequest, origin_kind: str | None
+) -> None:
+    """422 for an expected revision on anything but a service refresh, the
+    only refresh that replaces the dataset's data from a fetch."""
+    if body.expected_data_revision is not None and origin_kind != "service":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "expected_data_revision_not_applicable",
+                "message": "Only a service refresh takes expected_data_revision.",
+            },
+        )
 
 
 def _service_token_required() -> HTTPException:
@@ -270,7 +309,7 @@ def _service_token_required() -> HTTPException:
 
 
 async def _recheck_service_token_after_reservation(
-    db, dataset, token, *, marked_before: bool
+    db, token, *, marked_before: bool, marked_now: bool
 ) -> None:
     """Catch a marker that APPEARED while the refresh was being reserved.
 
@@ -279,9 +318,10 @@ async def _recheck_service_token_after_reservation(
     after a token-less refresh already read it unmarked, sending dispatch
     token-less into the worker failure the guard exists to prevent. The
     post-reservation ``_ServiceOrigin`` equality check can't catch it (auth
-    state changed, not the source), and folding the marker into that dataclass
-    would answer ``origin_changed``, whose copy tells the caller to check the
-    new source when the fix is a token. So the decision is re-applied here.
+    state changed, not the source), and comparing the marker there would
+    answer ``origin_changed``, whose copy tells the caller to check the new
+    source when the fix is a token. So the decision is re-applied here, on
+    ``marked_now``, the marker the post-reservation read found.
 
     No probe: a marker that just appeared was written by an authenticated pull
     seconds ago, the strongest evidence possible. A TRANSITION, not a second
@@ -289,7 +329,7 @@ async def _recheck_service_token_after_reservation(
     (probed ArcGIS, or refused WFS outright), so re-deciding on the marker
     alone would overturn a healthy probe with no new evidence.
     """
-    if token or marked_before or not service_auth_required(dataset.origin_ref):
+    if token or marked_before or not marked_now:
         return
     # Release the reservation the way every other post-reservation
     # refusal does, so a refused request leaves no run row holding the dataset.
@@ -297,11 +337,14 @@ async def _recheck_service_token_after_reservation(
     raise _service_token_required()
 
 
-async def _require_service_token_if_marked(db, dataset, dataset_id, token):
+async def _require_service_token_if_marked(
+    db, dataset, dataset_id, token, origin: _ServiceOrigin
+):
     """Handle a token-less refresh of an origin whose last pull used a token.
 
     Returns the dataset to carry forward (re-read if the ArcGIS probe path had
-    to release the session).
+    to release the session). ``origin`` is the binding just resolved from
+    ``dataset``.
 
     CALLER CONTRACT: the ArcGIS probe path may roll back, expiring EVERY ORM
     instance in the session; anything the caller loaded earlier and still
@@ -327,13 +370,12 @@ async def _require_service_token_if_marked(db, dataset, dataset_id, token):
     challenge refuses on the ArcGIS path; every other outcome fails open,
     since a third party's bad day shouldn't become a refusal.
     """
-    if token or not service_auth_required(dataset.origin_ref):
+    if token or not origin.auth_required:
         return dataset
-    ref = dataset.origin_ref or {}
-    if ref.get("service_type") != "arcgis_featureserver":
+    if origin.source_format != "arcgis_featureserver":
         # No probe, and no session released: this path touches no network.
         raise _service_token_required()
-    target = service_probe_target(ref, dataset.origin_uri)
+    target = service_probe_target(dataset.origin_ref, dataset.origin_uri)
     if not target:
         # Nothing safe to contact, so there is nothing to ask. The health
         # endpoint answers 409 here; a refresh has no verdict to persist and
@@ -379,7 +421,7 @@ class _PostgisOrigin:
     this kind accepts ``table_name`` and nothing else — no host, port, DSN or
     credential — so there is no shape in which this dataclass could address a
     table outside this instance. The stored value is schema-qualified
-    (``set_postgis_origin`` composes it), and the worker proves it names this
+    (``SourceBinding.postgis`` composes it), and the worker proves it names this
     dataset's own live table before reading anything.
     """
 
@@ -397,32 +439,20 @@ def _resolve_postgis_origin(dataset) -> _PostgisOrigin:
     """
     origin_kind = classify_origin(dataset.source_format, dataset.record.record_type)
     if origin_kind != "postgis":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "refresh_not_applicable",
-                "message": (
-                    "This dataset is not backed by a registered table, so "
-                    "there is nothing to re-measure."
-                ),
-                "origin_kind": origin_kind,
-            },
+        raise _refresh_not_applicable(
+            origin_kind,
+            "This dataset is not backed by a registered table, so "
+            "there is nothing to re-measure.",
         )
-    table_name = (dataset.origin_ref or {}).get("table_name")
-    if not table_name:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "origin_unavailable",
-                "message": (
-                    "This dataset's source binding does not record which "
-                    "table it was registered from, so GeoLens cannot tell "
-                    "what to re-measure. Register the table again."
-                ),
-                "origin_kind": "postgis",
-            },
+    source = read_source("postgis", dataset.origin_ref)
+    if not isinstance(source, PostgisSource):
+        raise _origin_unavailable(
+            "postgis",
+            "This dataset's source binding does not record which "
+            "table it was registered from, so GeoLens cannot tell "
+            "what to re-measure. Register the table again.",
         )
-    return _PostgisOrigin(table_name=table_name)
+    return _PostgisOrigin(table_name=source.table_name)
 
 
 async def _dispatch_postgis_refresh(
@@ -585,6 +615,8 @@ class _StacOrigin:
     The other three are the identity the worker re-resolves WITH — the
     collection scopes the fallback search, and the key and the previous href
     are how the right asset is recognised in the item that comes back.
+    ``catalog_url`` and ``auth_required`` serve the credential checks and are
+    outside equality, as on :class:`_ServiceOrigin`.
     """
 
     item_href: str
@@ -592,6 +624,8 @@ class _StacOrigin:
     collection_id: str | None
     asset_href: str | None
     asset_key: str | None
+    catalog_url: str | None = field(default=None, compare=False)
+    auth_required: bool = field(default=False, compare=False)
 
 
 def _resolve_stac_origin(dataset) -> _StacOrigin:
@@ -605,37 +639,24 @@ def _resolve_stac_origin(dataset) -> _StacOrigin:
     """
     origin_kind = classify_origin(dataset.source_format, dataset.record.record_type)
     if origin_kind != "stac":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "refresh_not_applicable",
-                "message": (
-                    "This dataset was not imported from a STAC item, so there "
-                    "is no item to re-resolve."
-                ),
-                "origin_kind": origin_kind,
-            },
+        raise _refresh_not_applicable(
+            origin_kind,
+            "This dataset was not imported from a STAC item, so there "
+            "is no item to re-resolve.",
         )
-    ref = dataset.origin_ref or {}
-    item_href = ref.get("item_href")
-    item_id = ref.get("item_id")
-    collection_id = ref.get("collection_id")
-    if not item_href:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "origin_unavailable",
-                "message": (
-                    "This dataset's source binding does not record the STAC "
-                    "item its asset was published in, so GeoLens cannot ask "
-                    "the catalog where that asset is now. Re-import it from "
-                    "the STAC catalog to record one."
-                ),
-                "origin_kind": "stac",
-            },
+    source = read_source("stac", dataset.origin_ref)
+    if not isinstance(source, StacSource):
+        raise _origin_unavailable(
+            "stac",
+            "This dataset's source binding does not record the STAC "
+            "item its asset was published in, so GeoLens cannot ask "
+            "the catalog where that asset is now. Re-import it from "
+            "the STAC catalog to record one.",
         )
     if not states_verifiable_identity(
-        item_href=item_href, item_id=item_id, collection_id=collection_id
+        item_href=source.item_href,
+        item_id=source.item_id,
+        collection_id=source.collection_id,
     ):
         # Refused here rather than discovered by the worker, so the caller
         # learns immediately and no run row is spent. A binding written before
@@ -644,26 +665,22 @@ def _resolve_stac_origin(dataset) -> _StacOrigin:
         # publisher's answer against, and an unverified first answer would be
         # adopted AND recorded as durable truth. Re-importing records the
         # identity.
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "origin_unavailable",
-                "message": (
-                    "GeoLens cannot tell this dataset's STAC item from "
-                    "another one its stored URL might serve: the binding "
-                    "predates item-identity tracking and the catalog's item "
-                    "URLs carry no identity of their own. Re-import it from "
-                    "the STAC catalog to record one."
-                ),
-                "origin_kind": "stac",
-            },
+        raise _origin_unavailable(
+            "stac",
+            "GeoLens cannot tell this dataset's STAC item from "
+            "another one its stored URL might serve: the binding "
+            "predates item-identity tracking and the catalog's item "
+            "URLs carry no identity of their own. Re-import it from "
+            "the STAC catalog to record one.",
         )
     return _StacOrigin(
-        item_href=item_href,
-        item_id=item_id,
-        collection_id=collection_id,
-        asset_href=ref.get("asset_href"),
-        asset_key=ref.get("asset_key"),
+        item_href=source.item_href,
+        item_id=source.item_id,
+        collection_id=source.collection_id,
+        asset_href=source.asset_href,
+        asset_key=source.asset_key,
+        catalog_url=source.catalog_url,
+        auth_required=source.auth_required,
     )
 
 
@@ -691,7 +708,7 @@ async def _dispatch_stac_refresh(
     # The WFS/OGC API rule, for its reason — the marker means
     # the last successful refresh used a credential, so a token-less one
     # collects a 401 and reports a live dataset as inaccessible. No probe.
-    marked_before = service_auth_required(dataset.origin_ref)
+    marked_before = candidate.auth_required
     if not token and marked_before:
         raise _service_token_required()
 
@@ -700,20 +717,16 @@ async def _dispatch_stac_refresh(
     # chose. A binding from before that was recorded has no anchor, and
     # falling back to the stored item pointer would let a document from that
     # era name where the credential goes.
-    if token and not (dataset.origin_ref or {}).get("url"):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "origin_unavailable",
-                "message": (
-                    "This dataset's source binding does not record which STAC "
-                    "catalog it was imported from, so GeoLens cannot tell "
-                    "which host the credential belongs to. Re-import it from "
-                    "the catalog, or refresh it without a credential."
-                ),
-                "origin_kind": "stac",
-            },
+    catalog_url = candidate.catalog_url
+    if token and not catalog_url:
+        raise _origin_unavailable(
+            "stac",
+            "This dataset's source binding does not record which STAC "
+            "catalog it was imported from, so GeoLens cannot tell "
+            "which host the credential belongs to. Re-import it from "
+            "the catalog, or refresh it without a credential.",
         )
+    credential_over_http_or_422(catalog_url, token)
 
     # Refused before anything is written, for the reason the service path
     # gives: without a shared store the secret cannot reach the worker.
@@ -814,7 +827,7 @@ async def _dispatch_stac_refresh(
     # window marks the dataset without moving its origin, so the check above
     # passes and only this one notices. Same helper the service path uses.
     await _recheck_service_token_after_reservation(
-        db, dataset, token, marked_before=marked_before
+        db, token, marked_before=marked_before, marked_now=origin.auth_required
     )
 
     # The job carries no source pointer of its own — the worker reads the
@@ -927,10 +940,20 @@ def _refuse_publish_key_asset_repoint(db: AsyncSession, dataset) -> None:
         )
 
 
+# The kinds refreshed by a strategy of their own. The service strategy is the
+# handler's own body, and every other kind is refused there.
+_OWN_REFRESH_STRATEGIES = {
+    "postgis": _dispatch_postgis_refresh,
+    "stac": _dispatch_stac_refresh,
+    "database": dispatch_database_refresh,
+}
+
+
 @router.post(
     "/{dataset_id}/refresh",
     response_model=DatasetRefreshResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    summary="Refresh a dataset from its source",
 )
 async def refresh_dataset(
     dataset_id: uuid.UUID,
@@ -1001,10 +1024,10 @@ async def refresh_dataset(
     service_token = wire_credential(credential, service_format=dataset.source_format)
 
     # `classify_origin` is the same pure derivation the API's `origin`
-    # field keeps, so this dispatch can't disagree
-    # with it. Unnamed kinds fall through to the service path, whose
-    # resolver answers `refresh_not_applicable` for originless kinds.
+    # field keeps, so this dispatch can't disagree with it. Each refreshable
+    # kind is named below; any other kind is refused before its strategy.
     origin_kind = classify_origin(dataset.source_format, dataset.record.record_type)
+    _refuse_expected_revision_off_service(body, origin_kind)
     # The blocked run's door, not the dataset's origin: a file replacement of a
     # service dataset is an upload run.
     if (
@@ -1030,34 +1053,38 @@ async def refresh_dataset(
     reupload_binding = await held_reupload_binding(
         db, dataset_id=dataset_id, run_id=body.accept_blocked_run_id
     )
-    if origin_kind == "postgis":
-        return await _dispatch_postgis_refresh(
+    strategy = _OWN_REFRESH_STRATEGIES.get(origin_kind)
+    if strategy is not None:
+        # An acceptance is resolved only for a kind whose runs can block, and
+        # of the kinds here that is the database one.
+        accepted = (
+            {"accepted": AcceptedRun(body.accept_blocked_run_id, accepted_fingerprint)}
+            if body.accept_blocked_run_id is not None and accepted_fingerprint
+            else {}
+        )
+        return await strategy(
             db,
             dataset=dataset,
             dataset_id=dataset_id,
             user=user,
             token=service_token,
+            **accepted,
         )
-    if origin_kind == "stac":
-        return await _dispatch_stac_refresh(
-            db,
-            dataset=dataset,
-            dataset_id=dataset_id,
-            user=user,
-            token=service_token,
-        )
-
     # Record-type eligibility isn't checked separately: `classify_origin`
     # already returns None for the two originless record types
     # (collection, VRT), and `refresh_not_applicable` is the honest
     # answer for both -- the re-upload door's guard talks about a file
     # swap and would answer a refresh with advice about a different feature.
+    if origin_kind != "service":
+        raise _refresh_not_applicable(origin_kind, _NO_SERVICE_ORIGIN)
+
     #
     # This read is a PRE-CHECK, not what gets dispatched --
     # it answers cheap refusals before the admission index and supplies
     # a URL to validate outside the reservation window. The binding the
     # worker actually gets is read again below, after the reservation.
     candidate = _resolve_service_origin(dataset)
+    credential_over_http_or_422(candidate.base_url, credential)
 
     # Rule 2: the URL is ours, but "ours" isn't a safety property -- it
     # was a client's when ingest stored it, and DNS moves. Revalidating
@@ -1094,9 +1121,9 @@ async def refresh_dataset(
     # can tell a marker that appeared in the window apart from one this
     # guard already adjudicated. Read before the guard, since its ArcGIS
     # path re-reads the row.
-    marked_before = service_auth_required(dataset.origin_ref)
+    marked_before = candidate.auth_required
     dataset = await _require_service_token_if_marked(
-        db, dataset, dataset_id, service_token
+        db, dataset, dataset_id, service_token, candidate
     )
 
     # Refuse a credentialed refresh we cannot carry out, before writing
@@ -1158,6 +1185,7 @@ async def refresh_dataset(
             ingest_job_id=job.id,
             feature_count_before=dataset.feature_count,
             verification_policy=body.verification_policy,
+            expected_data_revision=body.expected_data_revision,
         )
     except DatasetBusyError as exc:
         # The job row rolls back with the refusal, so a busy dataset leaves no
@@ -1207,7 +1235,7 @@ async def refresh_dataset(
     # window marks the dataset without moving its origin, so the check above
     # passes and only this one notices.
     await _recheck_service_token_after_reservation(
-        db, dataset, service_token, marked_before=marked_before
+        db, service_token, marked_before=marked_before, marked_now=origin.auth_required
     )
 
     # Read after the reservation too -- an unchanged binding

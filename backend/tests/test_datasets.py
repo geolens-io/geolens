@@ -1059,7 +1059,7 @@ class TestUpdateMetadata:
 
         This pins the placement rather than the symptom. An overlay predicate
         that reads a nullable column yields NULL for a row, and
-        `_stranded_viewer_exists` deliberately sends NULL to the refusing side
+        `_lost_readers` deliberately sends NULL to the refusing side
         on BOTH halves of the difference: `NULL IS NOT false` and
         `NULL IS NOT true` are each true, so an unclassifiable account counts
         as stranded. That is the right answer for a real change and the wrong

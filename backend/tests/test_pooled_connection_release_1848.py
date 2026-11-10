@@ -22,6 +22,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import HTTPException
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1236,3 +1237,61 @@ async def test_a_direct_reupload_refused_for_content_leaves_a_completed_failed_r
     assert job.error_message == "a2b: not a recognised dataset"
     assert job.completed_at is not None
     assert not staged_file.exists()
+
+
+@pytest.mark.parametrize(
+    ("file_type", "io_target"),
+    [
+        (None, "run_ogrinfo_preview"),
+        ("raster", "_preview_raster"),
+        ("tiles3d", "preview_staged_tileset"),
+        ("pointcloud", "preview_staged_pointcloud"),
+    ],
+)
+async def test_staged_preview_releases_the_connection_before_storage_and_gdal(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    request_sessions,
+    file_type: str | None,
+    io_target: str,
+):
+    """Storage download and GDAL ran on a held connection in every file-type branch."""
+    from app.processing.ingest import router as ingest_router
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    metadata = {"file_type": file_type} if file_type else None
+    job = IngestJob(
+        source_filename="staged.dat",
+        file_path="/tmp/a2-staged.dat",
+        created_by=admin_id,
+        status="pending",
+        user_metadata=metadata,
+    )
+    test_db_session.add(job)
+    await test_db_session.commit()
+
+    held: dict[str, bool] = {}
+
+    async def _resolve(path, _job_id):
+        held["resolve"] = _holds_connection(request_sessions)
+        return path
+
+    def _recorder(name: str):
+        async def _record(*_args, **_kwargs):
+            held[name] = _holds_connection(request_sessions)
+            raise HTTPException(status_code=422, detail="stop here")
+
+        return _record
+
+    with (
+        patch.object(ingest_router, "resolve_file_path", new=_resolve),
+        patch.object(ingest_router, io_target, new=_recorder(io_target)),
+    ):
+        resp = await client.post(f"/ingest/preview/{job.id}", headers=admin_auth_header)
+
+    assert resp.status_code == 422, resp.text
+    assert held.pop(io_target) is False, (
+        f"the request session was still in a transaction when {io_target} ran"
+    )
+    assert not any(held.values()), "the session was in a transaction at resolve"

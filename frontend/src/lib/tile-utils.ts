@@ -54,6 +54,11 @@ interface TileTransformRequestOptions {
   getTileConfig?: () => { cdn_base_url?: string | null } | null | undefined;
 }
 
+/** A site-relative tile URL made absolute against this page, as MapLibre requests it. */
+export function absoluteTileUrl(url: string): string {
+  return url.startsWith('/') && !url.startsWith('//') ? `${window.location.origin}${url}` : url;
+}
+
 /**
  * Resolve site-relative URLs and attach credentials only to first-party requests.
  * Embed viewers never use the signed-in session, even without an embed token.
@@ -70,8 +75,7 @@ export function buildTileTransformRequest(
     // Absolutify only site-relative paths: a `startsWith('http')` predicate would
     // origin-prefix other schemes, and transformRequest runs before MapLibre's
     // custom-protocol dispatch, so `pmtiles://…` would never reach its handler.
-    const absUrl =
-      url.startsWith('/') && !url.startsWith('//') ? `${window.location.origin}${url}` : url;
+    const absUrl = absoluteTileUrl(url);
     const tileConfig = options.getTileConfig?.() ?? null;
     const headers: Record<string, string> = {};
     if (options.embedToken && !isThirdPartyTileUrl(url, tileConfig)) {
@@ -137,6 +141,8 @@ export function isMvtSourceLayerConfigReady(
  * paint expressions fall to their default branch. Names are joined with a comma
  * and sorted for cache-key stability; the server validates each against the
  * dataset's column_info.
+ *
+ * `colsOnly`: ask the server for exactly `extraCols` at every zoom (`cols_only=true`).
  */
 export function buildSignedTileUrl(
   tableName: string,
@@ -144,13 +150,17 @@ export function buildSignedTileUrl(
   tileBaseUrl?: string | null,
   tileVersion?: string | number | null,
   extraCols?: string[] | null,
+  colsOnly = false,
 ): string {
   const base = tileBaseUrl
     ? tileBaseUrl.replace(/\/$/, '')
     : `${window.location.origin}/api`;
   const url = `${base}/tiles/${getMvtSourceLayerName(tableName)}/{z}/{x}/{y}.pbf`;
   const cols = normalizeExtraCols(extraCols);
-  return appendTileParams(url, tileToken, tileVersion, cols ? { cols } : {});
+  return appendTileParams(url, tileToken, tileVersion, {
+    ...(cols ? { cols } : {}),
+    ...(colsOnly ? { cols_only: 'true' } : {}),
+  });
 }
 
 /** Sort + dedupe + filter falsy entries so the same set always serializes to
@@ -193,6 +203,7 @@ export function buildClusterTileUrl(
   tileVersion?: string | number | null,
   options: { clusterRadius?: number; clusterMaxZoom?: number; filter?: string } = {},
   extraCols?: string[] | null,
+  colsOnly = false,
 ): string {
   const base = tileBaseUrl
     ? tileBaseUrl.replace(/\/$/, '')
@@ -207,6 +218,7 @@ export function buildClusterTileUrl(
     cluster_max_zoom: options.clusterMaxZoom,
     filter: options.filter,
     ...(cols ? { cols } : {}),
+    ...(colsOnly ? { cols_only: 'true' } : {}),
   });
 }
 
@@ -248,4 +260,14 @@ export function refreshRasterTileSources(map: MaplibreMapLike | null | undefined
 interface MaplibreMapLike {
   getStyle?: () => { sources?: Record<string, unknown> } | undefined;
   refreshTiles?: (sourceId: string) => void;
+}
+
+/**
+ * The row `gid` of a feature picked from a vector tile. The tile server writes
+ * each feature's `gid` as its MVT feature id, so MapLibre reports it as
+ * `feature.id`; undefined for anything else, such as a cluster or a feature
+ * whose id is not a safe integer.
+ */
+export function featureGid(feature: { id?: unknown }): number | undefined {
+  return typeof feature.id === 'number' && Number.isSafeInteger(feature.id) ? feature.id : undefined;
 }

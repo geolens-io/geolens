@@ -6,6 +6,7 @@ from typing import Any, TypeVar, TYPE_CHECKING
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..types import UNSET, Unset
 
 from typing import cast
 from uuid import UUID
@@ -35,6 +36,8 @@ class ServicePreviewResponse:
         feature_count (int | None): Total feature count if reported by the source service.
         sample_rows (list[ServicePreviewResponseSampleRowsItem]): Up to 5 sample rows for preview display.
         layer_name (str): Layer name as it appears in the remote service.
+        origin_link_loss (list[str] | Unset): Reasons the item link was dropped: 'item_id_invalid',
+            'portal_url_invalid', 'portal_url_domain_mismatch' or 'origin_link_unsupported'. Empty when nothing was dropped.
     """
 
     job_id: UUID
@@ -45,6 +48,7 @@ class ServicePreviewResponse:
     feature_count: int | None
     sample_rows: list[ServicePreviewResponseSampleRowsItem]
     layer_name: str
+    origin_link_loss: list[str] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -74,6 +78,10 @@ class ServicePreviewResponse:
 
         layer_name = self.layer_name
 
+        origin_link_loss: list[str] | Unset = UNSET
+        if not isinstance(self.origin_link_loss, Unset):
+            origin_link_loss = self.origin_link_loss
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -88,6 +96,8 @@ class ServicePreviewResponse:
                 "layer_name": layer_name,
             }
         )
+        if origin_link_loss is not UNSET:
+            field_dict["origin_link_loss"] = origin_link_loss
 
         return field_dict
 
@@ -151,6 +161,8 @@ class ServicePreviewResponse:
 
         layer_name = d.pop("layer_name")
 
+        origin_link_loss = cast(list[str], d.pop("origin_link_loss", UNSET))
+
         service_preview_response = cls(
             job_id=job_id,
             source_filename=source_filename,
@@ -160,6 +172,7 @@ class ServicePreviewResponse:
             feature_count=feature_count,
             sample_rows=sample_rows,
             layer_name=layer_name,
+            origin_link_loss=origin_link_loss,
         )
 
         service_preview_response.additional_properties = d

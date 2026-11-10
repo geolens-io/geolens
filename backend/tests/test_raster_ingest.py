@@ -746,10 +746,8 @@ class TestFirstIngestOriginFileHash:
 
         ADR-002 Decision 7 leans on this provenance hash to justify deleting
         the pre-conversion source after a sample-preserving conversion. The
-        replace tail's equivalent call (_write_swapped_fields in
-        tasks_raster_swap.py) already passes file_hash=source_sha256 to the
-        same set_dataset_origin authority; first-ingest silently omitted it,
-        even though source_sha256 was already a required argument here.
+        replace tail (_write_swapped_fields in tasks_raster_swap.py) binds the
+        same hash.
         """
         from sqlalchemy import delete, select
 

@@ -7,13 +7,23 @@ import { ChevronLeft, ChevronRight, Copy, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { truncateGraphemes } from '@/lib/text';
 import { splitTextWithUrls, classifyUrl } from '@/lib/popup-rich-text';
-import { formatFeaturePropertyValue } from '@/lib/feature-property-value';
+import { formatFeaturePropertyValue, groupsDigits } from '@/lib/feature-property-value';
 import { useAttributes } from '@/components/dataset/hooks/use-dataset';
+import { valueLabelFor, valueLabelsByField, type ValueLabels } from '@/lib/value-labels';
+import { useFeatureRow } from '@/components/map/hooks/use-feature-row';
 
 export interface FeatureInfo {
   properties: Record<string, unknown>;
   layerName: string;
-  columnInfo?: { name: string; type: string; title?: string }[] | null;
+  columnInfo?:
+    | {
+        name: string;
+        type: string;
+        title?: string;
+        value_labels?: Record<string, string>;
+        semantic_role?: string | null;
+      }[]
+    | null;
   /** Dataset whose attribute metadata supplies the row labels; without it
    *  every key is humanized. */
   datasetId?: string;
@@ -27,6 +37,14 @@ export interface FeatureInfo {
    *  attribute stripping ("zoom in" hint) from a feature whose values are
    *  genuinely all null ("no attributes"). */
   zoomAtClick?: number;
+  /** The map layer the feature was clicked on. */
+  layerId?: string;
+  /** The vector tile feature id, which is the row's `gid`. */
+  featureId?: number;
+  /** The tile carries only the columns the map draws with; read the other fields from the rows endpoint. */
+  fetchRow?: boolean;
+  /** Sent with the rows request, for an embedded map's reader. */
+  embedToken?: string;
 }
 
 /** MVT attribute budget: below this zoom the tile
@@ -74,13 +92,21 @@ export function FeaturePopup({
   // trap: map interaction is preserved.
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
+    // The popup sits inside its own map; a page can hold several maps.
+    const ownMap = closeButtonRef.current?.closest<HTMLElement>('.maplibregl-map') ?? null;
     closeButtonRef.current?.focus();
     return () => {
-      // Restore focus to the map so the keyboard context returns to the map
-      // (canvas carries tabindex=0); fall back to the map container, then to
-      // wherever focus was before the popup opened.
+      // A control the reader moved to meanwhile keeps focus. Otherwise the map
+      // takes it (canvas carries tabindex=0): this popup's map, or when that
+      // left the page with its chapter, the map on screen (an inert one is a
+      // story's standby or outgoing map); then wherever focus was before.
+      const active = document.activeElement;
+      if (active && active !== document.body) return;
+      const liveMap = ownMap?.isConnected ? ownMap : null;
       const restoreTarget =
-        document.querySelector<HTMLElement>('.maplibregl-canvas') ??
+        liveMap?.querySelector<HTMLElement>('.maplibregl-canvas') ??
+        liveMap ??
+        Array.from(document.querySelectorAll<HTMLElement>('.maplibregl-canvas')).find((c) => !c.closest('[inert]')) ??
         document.querySelector<HTMLElement>('.maplibregl-map') ??
         previouslyFocused;
       restoreTarget?.focus?.();
@@ -89,10 +115,11 @@ export function FeaturePopup({
 
   // Escape closes the popup (focus is restored by the unmount effect above).
   // Document-level listener so it fires wherever focus is inside the popup,
-  // without a keyboard handler on the non-interactive dialog container.
+  // without a keyboard handler on the non-interactive dialog container. It
+  // stays quiet while an ancestor is inert, as a story's standby map is.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.defaultPrevented) {
+      if (e.key === 'Escape' && !e.defaultPrevented && !closeButtonRef.current?.closest('[inert]')) {
         e.preventDefault();
         onClose();
       }
@@ -107,17 +134,6 @@ export function FeaturePopup({
   }, [features.length, activeIndex]);
 
   const feature = features[activeIndex] ?? features[0];
-
-  const formatValue = useCallback(
-    (value: unknown): string =>
-      formatFeaturePropertyValue(
-        value,
-        i18n.language,
-        t('featurePopup.booleanTrue'),
-        t('featurePopup.booleanFalse'),
-      ) ?? '--',
-    [t],
-  );
 
   const { data: attributeList } = useAttributes(feature?.datasetId);
   const columnInfoForTitles = feature?.columnInfo;
@@ -136,7 +152,60 @@ export function FeaturePopup({
     return titles;
   }, [attributeList, columnInfoForTitles]);
 
-  const properties = feature?.properties;
+  const valueLabels = useMemo(() => {
+    // The attributes route is the live source. A capability-authorized viewer
+    // cannot read it, so column_info carries the labels for that case only.
+    if (attributeList) return valueLabelsByField(attributeList.attributes);
+    const labels = new Map<string, ValueLabels>();
+    for (const column of columnInfoForTitles ?? []) {
+      if (column.value_labels) labels.set(column.name, column.value_labels);
+    }
+    return labels;
+  }, [attributeList, columnInfoForTitles]);
+
+  const semanticRoles = useMemo(() => {
+    const roles = new Map<string, string>();
+    if (attributeList) {
+      for (const attribute of attributeList.attributes) {
+        if (attribute.is_current && attribute.semantic_role) {
+          roles.set(attribute.field_name, attribute.semantic_role);
+        }
+      }
+      return roles;
+    }
+    for (const column of columnInfoForTitles ?? []) {
+      if (column.semantic_role) roles.set(column.name, column.semantic_role);
+    }
+    return roles;
+  }, [attributeList, columnInfoForTitles]);
+
+  const formatValue = useCallback(
+    (value: unknown, key: string): string =>
+      formatFeaturePropertyValue(
+        value,
+        i18n.language,
+        t('featurePopup.booleanTrue'),
+        t('featurePopup.booleanFalse'),
+        4,
+        groupsDigits(semanticRoles.get(key)),
+      ) ?? '--',
+    [t, semanticRoles],
+  );
+
+  const featureRow = useFeatureRow(
+    feature?.datasetId,
+    feature?.featureId,
+    feature?.fetchRow === true,
+    feature?.embedToken,
+  );
+  // The tile's values stay; the row adds the fields the tile left out.
+  const properties = useMemo(
+    () => (featureRow.status === 'ready'
+      ? { ...feature?.properties, ...featureRow.row }
+      : feature?.properties),
+    [feature?.properties, featureRow],
+  );
+  const awaitingRow = feature?.fetchRow === true && (featureRow.status === 'loading' || featureRow.status === 'error');
   const columnInfo = feature?.columnInfo;
   const visibleFields = feature?.visibleFields;
 
@@ -180,7 +249,7 @@ export function FeaturePopup({
   const { layerName, title } = feature;
 
   const handleCopy = async (key: string, value: unknown) => {
-    const text = formatValue(value);
+    const text = formatValue(value, key);
     try {
       await navigator.clipboard.writeText(text);
       setCopiedKey(key);
@@ -275,8 +344,21 @@ export function FeaturePopup({
 
         {/* Properties */}
         <div className="max-h-48 overflow-y-auto">
+          {featureRow.status === 'loading' && (
+            <p role="status" className="text-xs text-muted-foreground py-1">
+              {t('featurePopup.loadingFields')}
+            </p>
+          )}
+          {featureRow.status === 'error' && (
+            <p role="alert" className="text-xs text-destructive py-1">
+              {t('featurePopup.fieldsFailed')}
+            </p>
+          )}
+          {featureRow.status === 'missing' && (
+            <p className="text-xs text-muted-foreground py-1">{t('featurePopup.rowGone')}</p>
+          )}
           {visibleEntries.length === 0 ? (
-            <p className="text-xs text-muted-foreground py-1">
+            awaitingRow || featureRow.status === 'missing' ? null : <p className="text-xs text-muted-foreground py-1">
               {/* Below the attribute budget, the tile server strips attribute columns
                   unless opted in via cols=; in all-fields mode nothing is
                   opted in, so a dataset WITH columns arriving property-less
@@ -315,7 +397,11 @@ export function FeaturePopup({
                     </td>
                     <td className="py-1 text-xs text-foreground">
                       <span className="flex items-start gap-1">
-                        <ValueDisplay value={value} formatValue={formatValue} />
+                        <ValueDisplay
+                          value={value}
+                          formatValue={(v) => formatValue(v, key)}
+                          labels={valueLabels.get(key)}
+                        />
                         <span className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5">
                           {copiedKey === key ? (
                             <Check className="h-3 w-3 text-success" />
@@ -339,16 +425,28 @@ export function FeaturePopup({
 function ValueDisplay({
   value,
   formatValue,
+  labels,
 }: {
   value: unknown;
   formatValue: (v: unknown) => string;
+  labels?: ValueLabels;
 }) {
   const [expanded, setExpanded] = useState(false);
   const { t } = useTranslation('builder');
 
-  // YouTube embeds require allow-same-origin so the
-  // player can load its own JS. This is intentionally laxer than the share-embed
-  // sandbox with allow-scripts only.
+  const codeLabel = valueLabelFor(labels, value);
+  if (codeLabel !== undefined) {
+    return (
+      <span className="break-words">
+        {codeLabel}{' '}
+        {/* The code stays in the accessibility tree and shows on hover and row focus. */}
+        <span className="text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100">
+          ({formatValue(value)})
+        </span>
+      </span>
+    );
+  }
+
   if (isUrl(value)) {
     const { kind, srcUrl } = classifyUrl(value);
 
@@ -371,6 +469,10 @@ function ValueDisplay({
             rel="noopener noreferrer"
             className="text-primary underline break-all text-2xs"
             onClick={(e) => e.stopPropagation()}
+            // Preserve native link activation inside the copyable property row.
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') e.stopPropagation();
+            }}
           >
             {truncateGraphemes(srcUrl, MAX_VALUE_LENGTH)}
           </a>
@@ -392,21 +494,6 @@ function ValueDisplay({
       );
     }
 
-    if (kind === 'youtube') {
-      return (
-        <span className="block">
-          <iframe
-            src={srcUrl}
-            title={t('featurePopup.youtubeTitle')}
-            sandbox="allow-scripts allow-same-origin allow-presentation"
-            referrerPolicy="strict-origin-when-cross-origin"
-            loading="lazy"
-            className="max-h-32 max-w-full rounded-sm w-full aspect-video"
-          />
-        </span>
-      );
-    }
-
     return (
       <a
         href={value}
@@ -414,6 +501,10 @@ function ValueDisplay({
         rel="noopener noreferrer"
         className="text-primary underline break-all"
         onClick={(e) => e.stopPropagation()}
+        // Preserve native link activation inside the copyable property row.
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') e.stopPropagation();
+        }}
       >
         {!expanded ? truncateGraphemes(value, MAX_VALUE_LENGTH) : value}
       </a>
@@ -435,6 +526,10 @@ function ValueDisplay({
                 rel="noopener noreferrer"
                 className="text-primary underline break-all"
                 onClick={(e) => e.stopPropagation()}
+                // Preserve native link activation inside the copyable property row.
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') e.stopPropagation();
+                }}
               >
                 {seg.value}
               </a>

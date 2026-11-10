@@ -211,9 +211,7 @@ async def test_chat_stream_records_usage_per_round(monkeypatch):
 
     recorded: list = []
 
-    async def _capture(
-        _session, *, user_id, subsystem, model, input_tokens, output_tokens
-    ):
+    async def _capture(*, user_id, subsystem, model, input_tokens, output_tokens):
         recorded.append((subsystem, input_tokens, output_tokens))
 
     monkeypatch.setattr(streaming, "record_token_usage", _capture)

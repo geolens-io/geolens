@@ -15,13 +15,14 @@ export function formatFeaturePropertyValue(
   // Each caller states its own precision: the data panel renders raw feature
   // coordinates at 5 fraction digits, and the popup's 4-digit default dropped one.
   maxFractionDigits = 4,
+  useGrouping = true,
 ): string | null {
   if (value === null || value === undefined) return null;
   if (typeof value === 'boolean') return value ? booleanTrue : booleanFalse;
   if (typeof value === 'number') {
     return Number.isInteger(value)
-      ? value.toLocaleString(locale)
-      : value.toLocaleString(locale, { maximumFractionDigits: maxFractionDigits });
+      ? value.toLocaleString(locale, { useGrouping })
+      : value.toLocaleString(locale, { maximumFractionDigits: maxFractionDigits, useGrouping });
   }
   if (typeof value === 'object') {
     // Circular structures throw in JSON.stringify; fall back to String()
@@ -33,4 +34,10 @@ export function formatFeaturePropertyValue(
     }
   }
   return String(value);
+}
+
+/** Whether a field's numbers take digit grouping: an identifier or a year
+ *  reads as 1952, not 1,952. */
+export function groupsDigits(semanticRole: string | null | undefined): boolean {
+  return semanticRole !== 'identifier' && semanticRole !== 'temporal';
 }

@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: ServicePreviewRequest,
 ) -> Response[ProblemDetail | ServicePreviewResponse]:
-    """Preview Service Layer
+    """Preview a remote service layer
 
      Preview a selected remote layer via ogrinfo and create a pending IngestJob.
 
@@ -141,7 +141,7 @@ def sync(
     client: AuthenticatedClient,
     body: ServicePreviewRequest,
 ) -> ProblemDetail | ServicePreviewResponse | None:
-    """Preview Service Layer
+    """Preview a remote service layer
 
      Preview a selected remote layer via ogrinfo and create a pending IngestJob.
 
@@ -171,7 +171,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: ServicePreviewRequest,
 ) -> Response[ProblemDetail | ServicePreviewResponse]:
-    """Preview Service Layer
+    """Preview a remote service layer
 
      Preview a selected remote layer via ogrinfo and create a pending IngestJob.
 
@@ -204,7 +204,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: ServicePreviewRequest,
 ) -> ProblemDetail | ServicePreviewResponse | None:
-    """Preview Service Layer
+    """Preview a remote service layer
 
      Preview a selected remote layer via ogrinfo and create a pending IngestJob.
 

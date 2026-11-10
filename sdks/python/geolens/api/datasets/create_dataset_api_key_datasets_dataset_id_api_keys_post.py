@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: DatasetApiKeyCreateRequest,
 ) -> Response[ApiKeyCreateResponse | ProblemDetail]:
-    """Create Dataset Api Key
+    """Create a dataset API key
 
      Create a key that reaches only this dataset's features.
 
@@ -160,7 +160,7 @@ def sync(
     client: AuthenticatedClient,
     body: DatasetApiKeyCreateRequest,
 ) -> ApiKeyCreateResponse | ProblemDetail | None:
-    """Create Dataset Api Key
+    """Create a dataset API key
 
      Create a key that reaches only this dataset's features.
 
@@ -203,7 +203,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: DatasetApiKeyCreateRequest,
 ) -> Response[ApiKeyCreateResponse | ProblemDetail]:
-    """Create Dataset Api Key
+    """Create a dataset API key
 
      Create a key that reaches only this dataset's features.
 
@@ -249,7 +249,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: DatasetApiKeyCreateRequest,
 ) -> ApiKeyCreateResponse | ProblemDetail | None:
-    """Create Dataset Api Key
+    """Create a dataset API key
 
      Create a key that reaches only this dataset's features.
 

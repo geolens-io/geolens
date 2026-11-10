@@ -115,7 +115,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: EmbedTokenUpdate,
 ) -> Response[EmbedTokenResponse | ProblemDetail]:
-    """Update Embed Token Endpoint
+    """Update an embed token
 
      Update embed token allowed_origins.
 
@@ -154,7 +154,7 @@ def sync(
     client: AuthenticatedClient,
     body: EmbedTokenUpdate,
 ) -> EmbedTokenResponse | ProblemDetail | None:
-    """Update Embed Token Endpoint
+    """Update an embed token
 
      Update embed token allowed_origins.
 
@@ -188,7 +188,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: EmbedTokenUpdate,
 ) -> Response[EmbedTokenResponse | ProblemDetail]:
-    """Update Embed Token Endpoint
+    """Update an embed token
 
      Update embed token allowed_origins.
 
@@ -225,7 +225,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: EmbedTokenUpdate,
 ) -> EmbedTokenResponse | ProblemDetail | None:
-    """Update Embed Token Endpoint
+    """Update an embed token
 
      Update embed token allowed_origins.
 

@@ -7,7 +7,8 @@ import { useAuthStore } from '@/stores/auth-store';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (_key: string, options?: { defaultValue?: string }) => options?.defaultValue ?? _key,
+    t: (_key: string, options?: { defaultValue?: string; count?: number }) =>
+      options?.defaultValue ?? (options?.count === undefined ? _key : `${_key}:${options.count}`),
   }),
 }));
 
@@ -19,6 +20,20 @@ vi.mock('@/components/builder/HistoryPanel', () => ({
 
 vi.mock('@/components/builder/ChatPanel', () => ({
   ChatPanel: () => <div data-testid="chat-panel" />,
+}));
+
+vi.mock('@/components/builder/DashboardEditorPanel', () => ({
+  DashboardEditorPanel: ({
+    draft,
+    onChange,
+  }: {
+    draft: { panel: string; widgets: unknown[] };
+    onChange: (draft: { panel: string; widgets: unknown[] }) => void;
+  }) => (
+    <button type="button" onClick={() => onChange({ ...draft, panel: 'bottom' })}>
+      {`editor ${draft.panel}`}
+    </button>
+  ),
 }));
 
 vi.mock('@/components/builder/AnalysisPanel', () => ({
@@ -94,6 +109,27 @@ function RailHarness({ showRail = true, aiAvailable = true }: { showRail?: boole
 }
 
 describe('BuilderRail', () => {
+  it('opens the dashboard editor on the draft and passes its edits up', async () => {
+    const onDashboardChange = vi.fn();
+    render(
+      <BuilderRail
+        activePanel="dashboard"
+        onPanelChange={vi.fn()}
+        aiAvailable
+        notes=""
+        onNotesChange={vi.fn()}
+        dashboard={{ panel: 'right', widgets: [] }}
+        onDashboardChange={onDashboardChange}
+        mapId="map-1"
+        layers={[]}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'dock.dashboard' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(await screen.findByRole('button', { name: 'editor right' }));
+    expect(onDashboardChange).toHaveBeenCalledWith({ panel: 'bottom', widgets: [] });
+  });
+
   it('opens and closes the history panel from the icon rail', () => {
     render(<RailHarness />);
 
@@ -231,6 +267,36 @@ describe('named aside landmarks', () => {
     expect(
       screen.getByRole('complementary', { name: 'History' }),
     ).toBeInTheDocument();
+  });
+});
+
+describe('Dashboard presence indicator', () => {
+  const widget = { id: 'w', type: 'indicator' } as never;
+  const renderRail = (widgets: unknown[]) =>
+    render(
+      <BuilderRail
+        activePanel={null}
+        onPanelChange={vi.fn()}
+        aiAvailable
+        notes=""
+        onNotesChange={vi.fn()}
+        dashboard={{ panel: 'right', widgets: widgets as never[] }}
+        onDashboardChange={vi.fn()}
+        mapId="map-1"
+        layers={[]}
+      />,
+    );
+
+  it('counts the widgets in the button name and shows the dot', () => {
+    renderRail([widget, widget, widget]);
+    const button = screen.getByRole('button', { name: 'rail.dashboardButtonWithWidgets:3' });
+    expect(button.querySelector('[aria-hidden="true"].bg-primary')).not.toBeNull();
+  });
+
+  it('keeps the plain name and no dot without widgets', () => {
+    renderRail([]);
+    const button = screen.getByRole('button', { name: 'dock.dashboard' });
+    expect(button.querySelector('.bg-primary')).toBeNull();
   });
 });
 

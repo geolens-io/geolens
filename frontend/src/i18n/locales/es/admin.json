@@ -224,7 +224,7 @@
     }
   },
   "audit": {
-    "title": "Registros de auditoría",
+    "title": "Registro de auditoría",
     "loading": "Cargando registros de auditoría...",
     "errorLoading": "Error al cargar registros de auditoría: {{message}}",
     "searchPlaceholder": "Usuario / Acción",
@@ -387,7 +387,7 @@
     "scopeFull": "Acceso completo",
     "scopeReadOnly": "Solo lectura",
     "scopePublish": "Publicar",
-    "scopePublishDescription": "Añade tus propios datos y mapas, edita los detalles de tus conjuntos de datos y reemplaza conjuntos de datos subidos, conservando una versión anterior. No puede hacer nada público ni ampliar la visibilidad de un conjunto de datos, actualizar un mapa existente, reemplazar conjuntos de datos ráster ni vinculados a un servicio, elemento STAC o tabla, escribir entidades ni eliminar nada.",
+    "scopePublishDescription": "Añade tus propios datos y mapas, edita los detalles de tus conjuntos de datos y reemplaza conjuntos de datos subidos, conservando sus versiones anteriores. No puede hacer nada público ni ampliar la visibilidad de un conjunto de datos, actualizar un mapa existente, reemplazar conjuntos de datos ráster ni vinculados a un servicio, elemento STAC o tabla, escribir entidades ni eliminar nada.",
     "scopeDatasetWrite": "Un conjunto de datos",
     "scopeDatasetAppend": "Un conjunto de datos, solo añadir",
     "expiry": "Caduca",
@@ -695,6 +695,8 @@
       "invalidStorageQuantity": "Introduzca una cantidad equivalente a un número entero de bytes.",
       "maxDatasetsPerUser": "Conjuntos de datos máx. por usuario",
       "maxDatasetsPerUserDescription": "Número máximo de conjuntos de datos que cada usuario puede crear (0 = ilimitado).",
+      "maxStoryImageMbPerUser": "Almacenamiento máximo de imágenes de historias por usuario (MB)",
+      "maxStoryImageMbPerUserDescription": "El tamaño total de las imágenes que pueden contener las historias de un usuario, en megabytes (0 = ilimitado). Las imágenes ya guardadas se conservan; solo se rechazan las nuevas subidas y copias.",
       "saved": "Configuración de subida guardada"
     },
     "oauth": {
@@ -804,6 +806,20 @@
       "registrationAdminConfirmDescription": "Todo registro con contraseña que verifique su correo se convertirá en administrador. Asegúrate de que es lo que quieres.",
       "signupAdminActivationDescription": "Después de este cambio, quienes se registren pueden convertirse en administradores sin que un administrador los apruebe. Asegúrate de que es lo que quieres.",
       "verificationNeedsRegistration": "Se aplica cuando el autorregistro está activado."
+    },
+    "storyFrames": {
+      "title": "Páginas incrustadas y vídeos en historias",
+      "description": "Sitios cuyas páginas y reproductores de vídeo pueden mostrar las historias en un marco. Los navegadores de los lectores los cargan directamente desde estos sitios. Sin sitios, los bloques de páginas incrustadas y vídeo están desactivados.",
+      "empty": "Todavía no hay sitios, así que los bloques de páginas incrustadas y vídeo están desactivados.",
+      "hostLabel": "Nombre de host del sitio",
+      "add": "Añadir sitio",
+      "invalid": "Introduce un nombre de host como media.example.org, sin https:// ni ruta. No se aceptan comodines.",
+      "duplicate": "Ese sitio ya está en la lista.",
+      "full": "La lista admite como máximo {{max}} sitios.",
+      "sameOrigin": "Conservar el origen del sitio",
+      "sameOriginHint": "Algunos reproductores de vídeo necesitan su propio origen para reproducir. El marco conserva ese origen adonde lo lleve el sitio, así que cualquier otro sitio aprobado que abra también lo recibe. Actívalo solo para un sitio en el que confíes con todos los sitios aprobados.",
+      "remove": "Quitar {{host}}",
+      "reloadHint": "Las páginas ya abiertas aplican la lista después de recargarlas."
     }
   },
   "infrastructure": {
@@ -892,5 +908,66 @@
   "sortable": {
     "sortAscending": "ordenar de forma ascendente",
     "sortDescending": "ordenar de forma descendente"
+  },
+  "groups": {
+    "title": "Grupos",
+    "listHeading": "Grupos para compartir",
+    "errorLoading": "No se pudieron cargar los grupos: {{message}}",
+    "nameLabel": "Nombre del grupo",
+    "actionsFor": "Acciones del grupo {{name}}",
+    "table": {
+      "name": "Nombre",
+      "members": "Miembros",
+      "created": "Creado",
+      "actions": "Acciones",
+      "manageMembers": "Miembros",
+      "memberCount_one": "{{count}} miembro",
+      "memberCount_other": "{{count}} miembros"
+    },
+    "empty": {
+      "title": "Aún no hay grupos",
+      "hint": "Cree un grupo, añada personas y comparta con él conjuntos de datos, mapas e historias."
+    },
+    "create": {
+      "button": "Crear grupo",
+      "title": "Crear grupo",
+      "description": "Los grupos permiten compartir conjuntos de datos, mapas e historias restringidos con un conjunto de personas."
+    },
+    "rename": {
+      "button": "Renombrar",
+      "title": "Renombrar grupo",
+      "description": "Elija un nombre nuevo para {{name}}."
+    },
+    "delete": {
+      "title": "¿Eliminar {{name}}?",
+      "description_one": "Este grupo tiene {{count}} miembro. Pierde de inmediato el acceso a los conjuntos de datos, mapas e historias compartidos con el grupo. Esta acción no se puede deshacer.",
+      "description_other": "Este grupo tiene {{count}} miembros. Pierden de inmediato el acceso a los conjuntos de datos, mapas e historias compartidos con el grupo. Esta acción no se puede deshacer.",
+      "deleting": "Eliminando..."
+    },
+    "members": {
+      "title": "Miembros de {{name}}",
+      "description": "Las personas de este grupo pueden abrir los conjuntos de datos, mapas e historias compartidos con él.",
+      "addLabel": "Añadir una persona",
+      "listHeading_one": "{{count}} miembro",
+      "listHeading_other": "{{count}} miembros",
+      "listLabel": "Miembros de {{name}}",
+      "removeLabel": "Quitar a {{name}} de {{group}}",
+      "empty": "Este grupo aún no tiene miembros.",
+      "added": "{{name}} añadido",
+      "removed": "{{name}} quitado",
+      "errorLoading": "No se pudieron cargar los miembros: {{message}}",
+      "needsUserManagement": "Añadir personas requiere permiso de gestión de usuarios. Aún puede ver y quitar miembros."
+    },
+    "picker": {
+      "placeholder": "Buscar por nombre de usuario",
+      "noMatches": "No hay personas que coincidan",
+      "results_one": "{{count}} persona disponible",
+      "results_other": "{{count}} personas disponibles"
+    },
+    "toasts": {
+      "created": "Grupo creado",
+      "renamed": "Grupo renombrado",
+      "deleted": "Grupo eliminado"
+    }
   }
 }

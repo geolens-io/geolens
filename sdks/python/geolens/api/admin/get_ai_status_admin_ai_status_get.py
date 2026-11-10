@@ -102,7 +102,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     probe: bool | Unset = False,
 ) -> Response[AIStatusResponse | ProblemDetail]:
-    """Get Ai Status
+    """Get the AI feature status
 
      Return single-deployment AI status; no provider-routing policy controls (admin only).
 
@@ -135,7 +135,7 @@ def sync(
     client: AuthenticatedClient,
     probe: bool | Unset = False,
 ) -> AIStatusResponse | ProblemDetail | None:
-    """Get Ai Status
+    """Get the AI feature status
 
      Return single-deployment AI status; no provider-routing policy controls (admin only).
 
@@ -163,7 +163,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     probe: bool | Unset = False,
 ) -> Response[AIStatusResponse | ProblemDetail]:
-    """Get Ai Status
+    """Get the AI feature status
 
      Return single-deployment AI status; no provider-routing policy controls (admin only).
 
@@ -194,7 +194,7 @@ async def asyncio(
     client: AuthenticatedClient,
     probe: bool | Unset = False,
 ) -> AIStatusResponse | ProblemDetail | None:
-    """Get Ai Status
+    """Get the AI feature status
 
      Return single-deployment AI status; no provider-routing policy controls (admin only).
 

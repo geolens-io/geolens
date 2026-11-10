@@ -97,7 +97,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | UserResponse]:
-    """Get User
+    """Get a user
 
      Get a specific user by ID (admin only).
 
@@ -128,7 +128,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | UserResponse | None:
-    """Get User
+    """Get a user
 
      Get a specific user by ID (admin only).
 
@@ -154,7 +154,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | UserResponse]:
-    """Get User
+    """Get a user
 
      Get a specific user by ID (admin only).
 
@@ -183,7 +183,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | UserResponse | None:
-    """Get User
+    """Get a user
 
      Get a specific user by ID (admin only).
 

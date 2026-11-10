@@ -6,6 +6,7 @@ import { useMaps, useDeleteMap } from '@/hooks/use-maps';
 vi.mock('@/hooks/use-maps', () => ({
   useMaps: vi.fn(),
   useDeleteMap: vi.fn(),
+  useMapStories: () => ({ data: undefined }),
 }));
 
 vi.mock('@/hooks/use-document-title', () => ({

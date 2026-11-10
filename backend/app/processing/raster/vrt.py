@@ -1,7 +1,10 @@
 """VRT build module: gdalbuildvrt subprocess wrappers and source path resolver."""
 
+import logging
 import math
 import os
+import posixpath
+import shutil
 import subprocess
 
 from app.core.geo import LON_EPSILON_DEGREES, wrap_longitude
@@ -12,6 +15,8 @@ from app.platform.gdal_env import (  # noqa: F401
     gdal_service_safe_env,
     gdal_vector_safe_env,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # Clamp the GDAL VSI surface: CPL_VSIL_CURL_ALLOWED_EXTENSIONS gates fetchable
@@ -420,3 +425,237 @@ def build_vrt(
         resolution_strategy,
         separate=(vrt_type == "band_stack"),
     )
+
+
+OVERVIEW_SUFFIX = ".ovr.tif"
+
+
+# Levels past the half-resolution image are plain files beside it, so the
+# reprojecting reader can pick a level near the one it needs.
+MAX_OVERVIEW_LEVELS = 10
+_LEVEL_FLOOR_PX = 512
+
+
+def overview_key_for(vrt_key: str) -> str:
+    """The object beside a VRT that holds its half-resolution overview COG."""
+    return posixpath.splitext(vrt_key)[0] + OVERVIEW_SUFFIX
+
+
+def overview_keys_for(vrt_key: str) -> list[str]:
+    """Every object a VRT's overview levels can occupy, finest level first."""
+    stem = posixpath.splitext(vrt_key)[0]
+    return [
+        overview_key_for(vrt_key),
+        *(f"{stem}.ovr{2**level}.tif" for level in range(2, MAX_OVERVIEW_LEVELS + 1)),
+    ]
+
+
+def mosaic_needs_overview(vrt_path: str) -> bool:
+    """Whether GDAL exposes no overviews for the VRT, so a low-zoom read is full-size.
+
+    GDAL derives a VRT's overviews from its member's only when there is one
+    member. A mosaic of several has none even when every member has its own,
+    and a reprojected low-zoom read then decodes the full grid. Opening the VRT
+    reads its members, which can sit in object storage, so the probe gets the
+    render timeout. A VRT the probe cannot read counts as needing one: a broken
+    member fails the translate safely, and skipping would hide it from every
+    low-zoom read.
+    """
+    from app.processing.raster.probe import (
+        RENDER_TIMEOUT_SECONDS,
+        RasterProbeError,
+        read_raster_metadata,
+    )
+
+    try:
+        meta = read_raster_metadata(vrt_path, timeout=RENDER_TIMEOUT_SECONDS)
+    except RasterProbeError:
+        return True
+    return not meta.get("overview_levels")
+
+
+# Bytes per sample by VRT data type, for the scratch-space estimate.
+_SAMPLE_BYTES = {
+    "Byte": 1,
+    "Int8": 1,
+    "UInt16": 2,
+    "Int16": 2,
+    "UInt32": 4,
+    "Int32": 4,
+    "Float32": 4,
+    "CInt16": 4,
+    "UInt64": 8,
+    "Int64": 8,
+    "Float64": 8,
+    "CInt32": 8,
+    "CFloat32": 8,
+    "CFloat64": 16,
+}
+
+
+def _unshareable_reason(root, bands) -> str | None:
+    """Why one shared overview image cannot stand in for these bands, if so.
+
+    One COG carries one data type and one nodata value, and a mask band stays
+    backed by the full-resolution members.
+    """
+    if len({band.get("dataType") for band in bands}) > 1:
+        return "the bands have different data types"
+    if len({band.findtext("NoDataValue") for band in bands}) > 1:
+        return "the bands carry different nodata values"
+    if root.find(".//MaskBand") is not None:
+        return "the VRT carries a mask band"
+    return None
+
+
+def _overview_exceeds_free_space(vrt_path: str, root, bands) -> bool:
+    """Whether the half-resolution image, uncompressed, would not fit beside the VRT."""
+    estimate = sum(
+        (int(root.get("rasterXSize")) // 2)
+        * (int(root.get("rasterYSize")) // 2)
+        * _SAMPLE_BYTES.get(band.get("dataType", ""), 8)
+        for band in bands
+    )
+    free = shutil.disk_usage(posixpath.dirname(vrt_path) or ".").free
+    if estimate > free:
+        logger.info(
+            "VRT overview skipped: %d bytes needed, %d free beside the VRT",
+            estimate,
+            free,
+        )
+    return estimate > free
+
+
+def add_vrt_overview(vrt_path: str) -> list[str] | None:
+    """Build overview images beside a VRT and reference each from every band.
+
+    Returns the files, finest first, or None when GDAL already exposes
+    overviews for the VRT or the build was skipped or failed (the VRT is then
+    left as it was). The first is a half-resolution COG; each next one halves the previous
+    until the longer side is at most 512 px, resampled by ``nearest`` for integer
+    data and ``average`` for float. GDAL lists only the levels named by
+    ``<Overview>`` elements, and TiTiler opens with
+    ``GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR``, so a ``.ovr`` sidecar is never found.
+    """
+    from xml.etree.ElementTree import SubElement, parse
+
+    try:
+        tree = parse(vrt_path)
+    except Exception:  # broad: an optimisation must not fail a build gdalbuildvrt reported as successful
+        return None
+    root = tree.getroot()
+    bands = root.findall("VRTRasterBand")
+    if (
+        not bands
+        or int(root.get("rasterXSize", "0")) < 2
+        or int(root.get("rasterYSize", "0")) < 2
+    ):
+        return None
+    reason = _unshareable_reason(root, bands)
+    if reason:
+        logger.info("VRT overview skipped: %s", reason)
+        return None
+    if not mosaic_needs_overview(vrt_path):
+        return None
+
+    from app.processing.raster.cog import _is_float_dtype
+
+    if _overview_exceeds_free_space(vrt_path, root, bands):
+        return None
+
+    # The COG driver would resample integer classes with cubic and invent
+    # values; averaging only suits continuous data.
+    resampling = (
+        "average"
+        if any(_is_float_dtype(band.get("dataType", "")) for band in bands)
+        else "nearest"
+    )
+    overview_path = overview_key_for(vrt_path)
+    if not _translate(
+        [
+            "-of",
+            "COG",
+            "-co",
+            "BIGTIFF=IF_SAFER",
+            "-co",
+            f"OVERVIEW_RESAMPLING={resampling}",
+        ],
+        resampling,
+        vrt_path,
+        overview_path,
+    ):
+        return None
+    paths = [overview_path]
+    for key in overview_keys_for(vrt_path)[1:]:
+        if not _longer_side_exceeds_floor(paths[-1]):
+            break
+        if not _translate(
+            ["-of", "GTiff", "-co", "TILED=YES", "-co", "COMPRESS=DEFLATE"]
+            + ["-co", "BIGTIFF=IF_SAFER"],
+            resampling,
+            paths[-1],
+            key,
+        ):
+            break
+        paths.append(key)
+
+    for position, band in enumerate(bands, start=1):
+        for path in paths:
+            overview = SubElement(band, "Overview")
+            name = SubElement(overview, "SourceFilename", relativeToVRT="1")
+            name.text = posixpath.basename(path)
+            SubElement(overview, "SourceBand").text = band.get("band", str(position))
+    staged = vrt_path + ".staged"
+    try:
+        tree.write(staged, encoding="utf-8", xml_declaration=True)
+        os.replace(staged, vrt_path)
+    except OSError:
+        logger.warning("VRT overview skipped: the VRT could not be rewritten")
+        for leftover in (staged, *paths):
+            if os.path.exists(leftover):
+                os.remove(leftover)
+        return None
+    return paths
+
+
+def _translate(options: list[str], resampling: str, source: str, target: str) -> bool:
+    """Halve ``source`` into ``target``; a failure or timeout leaves no file."""
+    try:
+        result = run_gdal(
+            ["gdal_translate", "-q", *options, "-r", resampling]
+            + ["-outsize", "50%", "50%", source, target],
+            env=gdal_safe_env(),
+            tool="gdal_translate",
+        )
+        failure = result.stderr if result.returncode != 0 else None
+    except RuntimeError as exc:  # an optional overview timing out must not fail the VRT
+        failure = str(exc)
+    if failure is not None:
+        logger.warning("VRT overview build failed: %s", failure)
+        if os.path.exists(target):
+            os.remove(target)
+        return False
+    return True
+
+
+def _longer_side_exceeds_floor(path: str) -> bool:
+    from app.processing.raster.probe import RasterProbeError, read_raster_metadata
+
+    try:
+        meta = read_raster_metadata(path)
+    except RasterProbeError:
+        return False
+    return max(meta["width"], meta["height"]) > _LEVEL_FLOOR_PX
+
+
+def strip_vrt_overview(vrt_path: str, overview_paths: list[str]) -> None:
+    """Undo ``add_vrt_overview``: remove the ``Overview`` elements and the files."""
+    from xml.etree.ElementTree import parse
+
+    tree = parse(vrt_path)
+    for band in tree.getroot().findall("VRTRasterBand"):
+        for overview in band.findall("Overview"):
+            band.remove(overview)
+    tree.write(vrt_path, encoding="utf-8", xml_declaration=True)
+    for path in overview_paths:
+        os.remove(path)

@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: CollectionAddDatasetsRequest,
 ) -> Response[AddDatasetsResponse | ProblemDetail]:
-    """Add Datasets Endpoint
+    """Add datasets to a collection
 
      Add datasets to a collection. Collection owner or admin only.
 
@@ -146,7 +146,7 @@ def sync(
     client: AuthenticatedClient,
     body: CollectionAddDatasetsRequest,
 ) -> AddDatasetsResponse | ProblemDetail | None:
-    """Add Datasets Endpoint
+    """Add datasets to a collection
 
      Add datasets to a collection. Collection owner or admin only.
 
@@ -175,7 +175,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: CollectionAddDatasetsRequest,
 ) -> Response[AddDatasetsResponse | ProblemDetail]:
-    """Add Datasets Endpoint
+    """Add datasets to a collection
 
      Add datasets to a collection. Collection owner or admin only.
 
@@ -207,7 +207,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: CollectionAddDatasetsRequest,
 ) -> AddDatasetsResponse | ProblemDetail | None:
-    """Add Datasets Endpoint
+    """Add datasets to a collection
 
      Add datasets to a collection. Collection owner or admin only.
 

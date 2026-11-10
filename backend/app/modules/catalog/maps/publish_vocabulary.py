@@ -124,5 +124,8 @@ STYLE_CONFIG_DESCRIPTION = (
     "map is exported as a MapLibre style. Builder-only state lives under "
     f"builder, whose interpreted keys are {_listed(BUILDER_STYLE_KEYS)}. "
     "Other builder keys are stored and exported unchanged but have no effect. "
+    "legendLabel replaces the layer's name in the legend and layer list; "
+    "colorLabel and sizeLabel replace the column name in the title of the "
+    "color and size legend sections. "
     f"See {PUBLISHING_GUIDE_URL}"
 )

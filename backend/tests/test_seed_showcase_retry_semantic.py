@@ -279,12 +279,13 @@ def _main_with_failed_builder(
         raise RuntimeError("upstream down")
 
     for name in (
+        "set_attribute_titles",
         "enrich_showcase_metadata",
         "apply_globe_projection",
         "apply_showcase_styling",
     ):
-        monkeypatch.setattr(seeder, name, lambda _api: [])
-    monkeypatch.setattr(seeder, "_rename_map_if_needed", lambda *_a: None)
+        monkeypatch.setattr(seeder, name, lambda _api, **_kw: [])
+    monkeypatch.setattr(seeder, "rename_legacy_maps", lambda _api: None)
     monkeypatch.setattr(seeder, "refresh_sentinel2_scenes", lambda _api: None)
     steps = post_steps if post_steps is not None else []
     monkeypatch.setattr(
@@ -387,3 +388,35 @@ def test_a_transport_error_in_the_semantic_step_does_not_skip_the_post_steps(
     assert rc == 0
     assert steps == ["thumbnails", "summary"]
     assert "semantic search step failed" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("flag", "expected"),
+    [
+        ("--story-and-dashboard", ["rename", "maintenance"]),
+        ("--refresh-hurdat2", ["rename", "maintenance"]),
+        ("--prune-userdata", ["maintenance"]),
+        ("--refresh-quakes", ["maintenance"]),
+        ("--refresh-services", ["maintenance"]),
+    ],
+)
+def test_legacy_maps_are_renamed_before_a_maintenance_mode_except_prune(
+    monkeypatch, flag, expected
+):
+    order = []
+
+    class FakeApi:
+        @classmethod
+        def login(cls, *_a):
+            return cls()
+
+    monkeypatch.setattr(seeder, "Api", FakeApi)
+    monkeypatch.setattr(
+        seeder, "rename_legacy_maps", lambda _api: order.append("rename")
+    )
+    monkeypatch.setattr(
+        seeder, "run_maintenance_mode", lambda *_a: order.append("maintenance") or 0
+    )
+    monkeypatch.setattr("sys.argv", ["seed", "--password", "p", flag])
+    assert seeder.main() == 0
+    assert order == expected

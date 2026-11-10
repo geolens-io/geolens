@@ -164,7 +164,7 @@ def sync_detailed(
     | DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostGeoJSONFeatureDryRun
     | ProblemDetail
 ]:
-    """Dry Run Create Feature
+    """Check a feature create without saving
 
      Check a feature create without writing it.
 
@@ -219,7 +219,7 @@ def sync(
     | ProblemDetail
     | None
 ):
-    """Dry Run Create Feature
+    """Check a feature create without saving
 
      Check a feature create without writing it.
 
@@ -268,7 +268,7 @@ async def asyncio_detailed(
     | DryRunCreateFeatureDatasetsDatasetIdFeaturesDryRunPostGeoJSONFeatureDryRun
     | ProblemDetail
 ]:
-    """Dry Run Create Feature
+    """Check a feature create without saving
 
      Check a feature create without writing it.
 
@@ -321,7 +321,7 @@ async def asyncio(
     | ProblemDetail
     | None
 ):
-    """Dry Run Create Feature
+    """Check a feature create without saving
 
      Check a feature create without writing it.
 

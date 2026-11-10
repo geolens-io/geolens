@@ -21,9 +21,25 @@ from typing import Any
 
 from . import arcgis_report as _report
 from .arcgis_migrate_collections import DENIED
-from .arcgis_migrate_export import replacement_note
+from .arcgis_migrate_cutover import (
+    attachment_losses,
+    current,
+    groups_in_use,
+    in_use,
+    sharing_losses,
+)
+from .arcgis_migrate_export import dashboard_layout_follow_up, item_replacement
+from .arcgis_migrate_groups import NO_GROUP, PUBLIC_BLOCKED, SHARING_LABELS
 from . import arcgis_plan as _plan
-from .arcgis_migrate_state import DONE, EXISTS, FAILED, PENDING, SKIPPED, MigrationState
+from .arcgis_migrate_state import (
+    DONE,
+    EXISTS,
+    FAILED,
+    PENDING,
+    SKIPPED,
+    ItemState,
+    MigrationState,
+)
 from .arcgis_portal import Redactor, redact_json
 
 REPORT_JSON = "arcgis-migration-report.json"
@@ -37,6 +53,8 @@ def _follow_ups(
     state: MigrationState,
     runnable: Container[str],
     owner_changes: Sequence[Mapping[str, str]],
+    owner_unresolved: Sequence[Mapping[str, str]] = (),
+    owner_conflicts: Sequence[Mapping[str, str]] = (),
 ) -> list[dict[str, str]]:
     """What the operator still has to do, one entry per item and reason."""
     items = {item["id"]: item for item in plan["items"]}
@@ -57,31 +75,56 @@ def _follow_ups(
                 add(item["id"], "skipped_layer", note)
             elif note.startswith("skipped"):
                 add(item["id"], "skipped", note)
+            elif note == PUBLIC_BLOCKED:
+                add(
+                    item["id"],
+                    "public_blocked_by_policy",
+                    note + "; make it public in GeoLens once the policy allows it",
+                )
+            elif note == NO_GROUP:
+                add(
+                    item["id"],
+                    "private_no_matching_group",
+                    note + "; share it with a group in GeoLens",
+                )
             elif note == DENIED:
                 add(
                     item["id"],
                     "collections",
                     note + "; file its datasets into the target collections by hand",
                 )
-        made = entry is not None and (entry.dataset_ids or entry.map_id)
-        groups = item["target"].get("groups")
-        if made and groups is None:
+        if entry is not None and entry.loss_report_path:
             add(
                 item["id"],
-                "group_unknown",
-                "its ArcGIS group sharing wasn't read; check who it should be "
-                "shared with and set its audience by hand",
+                "web_map_losses",
+                "parts of the web map were not carried over; see "
+                + entry.loss_report_path,
             )
-        elif made and groups:
+        made = entry is not None and (entry.dataset_ids or entry.map_id)
+        if item.get("removed"):
             add(
                 item["id"],
-                "group_sharing",
-                "shared with ArcGIS groups "
-                + ", ".join(groups)
-                + "; GeoLens groups are not migrated yet, so set its audience by hand",
+                "removed",
+                "gone from the portal; what it migrated stays in GeoLens"
+                if made
+                else "gone from the portal before it was migrated",
+            )
+        elif item.get("unlisted") and status not in _SETTLED:
+            add(
+                item["id"],
+                "unlisted",
+                "missing from the inventory the plan was last merged from; merge a "
+                "complete inventory to run it",
+            )
+        for reason in sharing_losses(plan, state, item):
+            add(
+                item["id"],
+                "under_shared",
+                f"{reason}; check who it should be shared with in GeoLens",
             )
         layer = item.get("superseded_by")
-        if layer:
+        # An operator who changed the source file's action decided what it becomes.
+        if layer and item["action"] == (item.get("defaults") or item)["action"]:
             layer_entry = state.items.get(layer)
             ids = (
                 ", ".join(layer_entry.dataset_ids) if layer_entry else ""
@@ -107,6 +150,41 @@ def _follow_ups(
                 )
             for error in entry.export["errors"]:
                 add(item["id"], "export_error", error)
+        layout = dashboard_layout_follow_up(item, plan)
+        if layout and not item.get("removed") and item["action"] != _plan.SKIP:
+            add(item["id"], "dashboard_layout", layout)
+        if entry is None or item.get("removed"):
+            continue
+        for reason in entry.stale:
+            add(item["id"], "not_up_to_date", reason)
+        if entry.owner_pending:
+            add(
+                item["id"],
+                "owner_pending",
+                f"with --unmapped-owner until its owner can take it: "
+                f"{entry.owner_pending}; a later run hands it over",
+            )
+        for layer, _dataset, has in attachment_losses(item, entry):
+            add(
+                item["id"],
+                "attachments",
+                f"layer {layer} {has} attachments, which GeoLens doesn't import yet",
+            )
+        for text in _relationship_losses(item, entry):
+            add(item["id"], "relationships", text)
+    for unresolved in owner_unresolved:
+        add(unresolved["item"], "owner_unresolved", unresolved["reason"])
+    needed = groups_in_use(plan, state)
+    for group_id, group in sorted(state.groups.items()):
+        group = current(group)
+        is_current = in_use(group) and group_id in needed
+        for pending in (group.get("pending") or []) if is_current else []:
+            add(
+                f"group {group_id}",
+                "member_pending",
+                f"{pending['member']} isn't in GeoLens group {group['name']} yet: "
+                f"{pending['reason']}; a later run adds them",
+            )
     for change in owner_changes:
         add(
             change["item"],
@@ -114,8 +192,20 @@ def _follow_ups(
             f"migrated before its owner changed to {change['owner']}; "
             "it was not imported again, so transfer it by hand",
         )
+    for conflict in owner_conflicts:
+        add(
+            conflict["item"],
+            "owner_conflict",
+            f"its ArcGIS owner is now {conflict['portal_owner']}, but the plan's "
+            f"target.owner keeps it with {conflict['owner']}",
+        )
     for item in plan["items"]:
-        if state.status(item["id"]) != PENDING or item["action"] == _plan.SKIP:
+        if (
+            state.status(item["id"]) != PENDING
+            or item["action"] == _plan.SKIP
+            or item.get("removed")
+            or item.get("unlisted")
+        ):
             continue
         if item["action"] not in runnable:
             add(
@@ -126,12 +216,19 @@ def _follow_ups(
         unmet = [
             dep
             for dep in item["depends_on"]
-            if dep in items and state.status(dep) not in _SETTLED
+            if dep in items
+            and not items[dep].get("removed")
+            and state.status(dep) not in _SETTLED
         ]
         if unmet:
             add(item["id"], "unresolved_dependency", "waits on " + ", ".join(unmet))
     for item in plan["items"]:
-        if item["action"] == _plan.SKIP or state.status(item["id"]) == SKIPPED:
+        if (
+            item["action"] == _plan.SKIP
+            or state.status(item["id"]) == SKIPPED
+            or item.get("removed")
+            or item.get("unlisted")
+        ):
             continue
         for dep in item["depends_on"]:
             if dep not in items:
@@ -140,7 +237,39 @@ def _follow_ups(
                     "unresolved_dependency",
                     f"depends on {dep}, not in the plan",
                 )
+            elif items[dep].get("removed") and state.status(dep) not in _SETTLED:
+                add(
+                    item["id"],
+                    "unresolved_dependency",
+                    f"depends on {dep}, gone from the portal before it was migrated",
+                )
     return out
+
+
+def _relationship_losses(item: Mapping[str, Any], entry: ItemState) -> list[str]:
+    """One line per relationship class of a migrated service item, which
+    GeoLens doesn't carry over. Both layers of a class declare it; it is listed
+    once. A class with no name is told apart by its id."""
+    if item["action"] != _plan.IMPORT_LAYERS:
+        return []
+    lines: dict[tuple[str | int | None, frozenset[str]], str] = {}
+    for layer, records in (entry.relationships or {}).items():
+        for rel in records:
+            related = rel["related"]
+            # Without a stated role the direction isn't known, so none is claimed.
+            if rel["role"] == "Origin":
+                ends = f"from layer {layer} (origin) to layer {related} (destination)"
+            elif rel["role"] == "Destination":
+                ends = f"from layer {related} (origin) to layer {layer} (destination)"
+            else:
+                ends = f"between layers {' and '.join(sorted((layer, related)))}"
+            detail = f"{rel['cardinality']}, " if rel["cardinality"] else ""
+            lines.setdefault(
+                (rel["name"] or rel["id"], frozenset((layer, related))),
+                f"relationship class {rel['name'] or '(unnamed)'} {ends}, "
+                f"{detail}which GeoLens doesn't import",
+            )
+    return list(lines.values())
 
 
 def _export_section(
@@ -161,10 +290,31 @@ def _export_section(
                     # A failed export holds what was fetched, not all of it.
                     "incomplete": entry.status == FAILED,
                     "errors": entry.export["errors"],
-                    "replacement": replacement_note(item["type"]),
+                    "replacement": item_replacement(item, plan, state),
+                    "superseded_by": item.get("superseded_by"),
                 }
             )
     return rows
+
+
+def _cutover_section(
+    state: MigrationState, cutover: Mapping[str, Any] | None
+) -> dict[str, Any] | None:
+    """This run's cutover checks, or when an earlier run was marked final."""
+    if cutover is not None:
+        return {
+            **cutover,
+            "at": (state.cutover or {}).get("at") if cutover["marked"] else None,
+        }
+    if state.cutover:
+        return {
+            "marked": True,
+            "refused": [],
+            "accepted": state.cutover["accepted"],
+            "checks": [],
+            "at": state.cutover["at"],
+        }
+    return None
 
 
 def build_run_report(
@@ -173,10 +323,17 @@ def build_run_report(
     *,
     runnable: Container[str] = (),
     owner_changes: Sequence[Mapping[str, str]] = (),
+    owner_unresolved: Sequence[Mapping[str, str]] = (),
+    owner_conflicts: Sequence[Mapping[str, str]] = (),
     stopped: str | None = None,
+    cutover: Mapping[str, Any] | None = None,
     generated_at: str | None = None,
+    members_removed: Mapping[str, Sequence[str]] | None = None,
+    sharing_changes: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """The report of the whole plan as of *state*."""
+    """The report of the whole plan as of *state*; *members_removed* holds the
+    users this run removed from each ArcGIS group's GeoLens group, and
+    *sharing_changes* the GeoLens groups it shared items with or took off."""
     rows = []
     for item in plan["items"]:
         entry = state.items.get(item["id"])
@@ -202,13 +359,58 @@ def build_run_report(
         "portal": plan["portal"]["url"],
         "counts": dict(sorted(counts.items())),
         "stopped": stopped,
+        "cutover": _cutover_section(state, cutover),
         "items": rows,
         "unsupported": _export_section(plan, state),
-        "follow_ups": _follow_ups(plan, state, runnable, owner_changes),
+        "groups": [
+            {
+                "arcgis_group": group_id,
+                "name": group.get("name") if in_use(group) else None,
+                "id": group.get("id"),
+                "created": bool(group.get("created")),
+                "members": dict(sorted((group.get("members") or {}).items())),
+                "members_added": len(group.get("added") or []),
+                "members_pending": len(group.get("pending") or []),
+                "members_unsynced": len(group.get("unsynced") or []),
+                "members_unread": group.get("members_unread"),
+                "members_removed": list((members_removed or {}).get(group_id, [])),
+            }
+            for group_id, group in sorted(
+                (g, current(r)) for g, r in state.groups.items()
+            )
+        ],
+        "sharing_changes": [dict(row) for row in sharing_changes or []],
+        "follow_ups": _follow_ups(
+            plan, state, runnable, owner_changes, owner_unresolved, owner_conflicts
+        ),
         "loss_reports": sorted(
             {row["loss_report"] for row in rows if row["loss_report"]}
         ),
     }
+
+
+def _cutover_lines(cutover: Mapping[str, Any] | None) -> list[str]:
+    if cutover is None:
+        return []
+    esc = _report.md_escape
+    if cutover["marked"]:
+        accepted = ", ".join(cutover["accepted"]) or "none"
+        lines = [
+            f"**Cut over** at {esc(cutover['at'])}; losses accepted: {esc(accepted)}",
+            "",
+        ]
+    else:
+        lines = [
+            "**Cutover refused:** " + esc(", ".join(cutover["refused"])),
+            "",
+        ]
+    for check in cutover["checks"]:
+        lines.append(f"- `{check['check']}`")
+        lines += [
+            f"  - {esc(found['item'])}: {esc(found['reason'])}"
+            for found in check["items"]
+        ]
+    return lines + ([""] if cutover["checks"] else [])
 
 
 def render_run_markdown(report: Mapping[str, Any]) -> str:
@@ -222,6 +424,7 @@ def render_run_markdown(report: Mapping[str, Any]) -> str:
     ]
     if report["stopped"]:
         lines += [f"**The run stopped:** {esc(report['stopped'])}", ""]
+    lines += _cutover_lines(report.get("cutover"))
     lines += ["## Counts", ""]
     lines += _report.md_table(
         ["Status", "Items"], ([esc(s), str(n)] for s, n in report["counts"].items())
@@ -250,13 +453,73 @@ def render_run_markdown(report: Mapping[str, Any]) -> str:
             for r in report["items"]
         ),
     )
-    if report["unsupported"]:
-        lines += ["", "## Items GeoLens can't host", ""]
-        by_type: dict[str, list[Mapping[str, Any]]] = {}
-        for row in report["unsupported"]:
-            by_type.setdefault(row["type"], []).append(row)
-        for item_type, rows in sorted(by_type.items()):
-            lines += [f"### {esc(item_type)}", "", esc(rows[0]["replacement"]), ""]
+    if report.get("groups"):
+        lines += ["", "## GeoLens groups for ArcGIS groups", ""]
+        lines += _report.md_table(
+            [
+                "ArcGIS group",
+                "GeoLens group",
+                "Made by this command",
+                "Members added",
+                "Pending",
+                "Not in it",
+                "Unread",
+            ],
+            (
+                [
+                    esc(g["arcgis_group"]),
+                    esc(g["name"] or ""),
+                    "yes" if g["created"] else "no",
+                    str(g["members_added"]),
+                    str(g["members_pending"]),
+                    str(g["members_unsynced"]),
+                    esc(g["members_unread"] or ""),
+                ]
+                for g in report["groups"]
+            ),
+        )
+        for g in report["groups"]:
+            if g["members"]:
+                lines += [
+                    "",
+                    f"ArcGIS members of {esc(g['arcgis_group'])} found in GeoLens:",
+                    "",
+                ]
+                lines += [
+                    f"- {esc(member)}: {esc(user)}"
+                    for member, user in g["members"].items()
+                ]
+            if g["members_removed"]:
+                lines += [
+                    "",
+                    f"Removed from {esc(g['name'] or g['arcgis_group'])} after "
+                    "leaving the ArcGIS group: "
+                    + ", ".join(esc(user) for user in g["members_removed"]),
+                ]
+    if report.get("sharing_changes"):
+        lines += ["", "## Item sharing changed by this run", ""]
+        for row in report["sharing_changes"]:
+            for key, text in SHARING_LABELS.items():
+                if row[key]:
+                    lines.append(
+                        f"- {esc(row['item'])}: {text} "
+                        + ", ".join(esc(g) for g in row[key])
+                    )
+    for heading, superseded in (
+        ("Items GeoLens can't host", False),
+        ("Source files published as hosted layers", True),
+    ):
+        section = [
+            r for r in report["unsupported"] if bool(r["superseded_by"]) is superseded
+        ]
+        if not section:
+            continue
+        lines += ["", f"## {heading}", ""]
+        by_type: dict[tuple[str, str], list[Mapping[str, Any]]] = {}
+        for row in section:
+            by_type.setdefault((row["type"], row["replacement"]), []).append(row)
+        for (item_type, replacement), rows in sorted(by_type.items()):
+            lines += [f"### {esc(item_type)}", "", esc(replacement), ""]
             for row in rows:
                 flag = " (partial)" if row["partial"] else ""
                 if row["incomplete"]:

@@ -8,13 +8,16 @@ Requirements:
   - Alembic migrations must be applied
 """
 
+import json
 import uuid
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, text
 
+from app.modules.catalog.datasets.domain import service_query
 from app.modules.catalog.datasets.domain.models import Dataset
+from app.modules.catalog.datasets.domain.schemas import DatasetRowsResponse
 
 from tests.factories import create_dataset, get_user_id
 
@@ -296,6 +299,7 @@ class TestRowsResponse:
         assert "columns" in data
         assert isinstance(data["rows"], list)
         assert data["approximate_total"] >= 5  # reltuples is approximate
+        assert data["total_kind"] == "estimate"
         assert data["columns"] == TEST_COLUMN_INFO
 
     @pytest.mark.anyio
@@ -464,6 +468,409 @@ class TestRowsKeysetPagination:
         assert data["rows"][0]["name"] == "a"
 
 
+class TestRowsFilteredTotal:
+    @pytest.fixture
+    async def more_a_rows(self, test_db_session, rows_dataset):
+        """Two more rows whose name contains "a", so three match ``filter[name]=a``."""
+        await test_db_session.execute(
+            text(
+                f"INSERT INTO data.{TEST_TABLE_NAME} (name, value) VALUES ('ab', 6), ('ca', 7)"
+            )
+        )
+        await test_db_session.commit()
+        return rows_dataset
+
+    @pytest.mark.anyio
+    async def test_a_filtered_page_counts_its_matches(
+        self, client: AsyncClient, admin_auth_header: dict, rows_dataset
+    ):
+        resp = await client.get(
+            f"/datasets/{rows_dataset.id}/rows/",
+            params={"filter[name]": "a"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert (data["approximate_total"], data["total_kind"]) == (1, "exact")
+
+    @pytest.mark.anyio
+    async def test_a_later_filtered_page_counts_every_match(
+        self, client: AsyncClient, admin_auth_header: dict, more_a_rows
+    ):
+        first = await client.get(
+            f"/datasets/{more_a_rows.id}/rows/",
+            params={"filter[name]": "a", "limit": 1},
+            headers=admin_auth_header,
+        )
+        resp = await client.get(
+            f"/datasets/{more_a_rows.id}/rows/",
+            params={
+                "filter[name]": "a",
+                "limit": 1,
+                "after": first.json()["next_cursor"],
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["rows"]) == 1
+        assert (data["approximate_total"], data["total_kind"]) == (3, "exact")
+
+    @pytest.mark.anyio
+    async def test_matches_past_the_cap_report_the_cap_as_a_floor(
+        self, client: AsyncClient, admin_auth_header: dict, more_a_rows, monkeypatch
+    ):
+        monkeypatch.setattr(service_query, "FILTERED_COUNT_CAP", 2)
+        resp = await client.get(
+            f"/datasets/{more_a_rows.id}/rows/",
+            params={"filter[name]": "a"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert (data["approximate_total"], data["total_kind"]) == (2, "at_least")
+
+
+def test_the_documented_cap_is_the_counted_cap():
+    description = DatasetRowsResponse.model_fields["total_kind"].description
+    assert f"{service_query.FILTERED_COUNT_CAP:,}" in description
+
+
+# ---------------------------------------------------------------------------
+# CQL2 filter tests
+# ---------------------------------------------------------------------------
+
+
+def _cql2_eq(column: str, value: str) -> str:
+    """A CQL2-JSON equality filter body for one column and value."""
+    return json.dumps({"op": "=", "args": [{"property": column}, value]})
+
+
+class TestRowsCql2Filter:
+    @pytest.mark.anyio
+    async def test_cql2_filter_narrows_rows_and_absent_returns_all(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        rows_dataset,
+    ):
+        """Without `filter` the unfiltered page comes back; with it, only the
+        matching rows. The empty result must not read as the absent case."""
+        unfiltered = await client.get(
+            f"/datasets/{rows_dataset.id}/rows/", headers=admin_auth_header
+        )
+        assert unfiltered.status_code == 200
+        assert len(unfiltered.json()["rows"]) == 5
+
+        resp = await client.get(
+            f"/datasets/{rows_dataset.id}/rows/",
+            params={"filter": _cql2_eq("name", "b")},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert [row["name"] for row in data["rows"]] == ["b"]
+        assert data["next_cursor"] is None
+
+    @pytest.mark.anyio
+    async def test_cql2_filter_matches_zero_rows_returns_empty_page(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        rows_dataset,
+    ):
+        """A filter matching nothing is 200 with an empty page, not a 400
+        and not the unfiltered page."""
+        resp = await client.get(
+            f"/datasets/{rows_dataset.id}/rows/",
+            params={
+                "filter": json.dumps({"op": ">", "args": [{"property": "value"}, 100]})
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["rows"] == []
+        assert data["next_cursor"] is None
+
+    @pytest.mark.anyio
+    async def test_cql2_filter_combines_with_column_filter(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        rows_dataset,
+    ):
+        """The CQL2 expression ANDs with the ILIKE column filter.
+
+        Two requests isolate each limb: value >= 2 AND name ILIKE %b% keeps
+        exactly b, and value >= 3 AND name ILIKE %b% keeps nothing — an
+        implementation that ignores either limb fails the second request."""
+        resp = await client.get(
+            f"/datasets/{rows_dataset.id}/rows/",
+            params={
+                "filter": json.dumps({"op": ">=", "args": [{"property": "value"}, 2]}),
+                "filter[name]": "b",
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert [row["name"] for row in data["rows"]] == ["b"]
+
+        stricter = await client.get(
+            f"/datasets/{rows_dataset.id}/rows/",
+            params={
+                "filter": json.dumps({"op": ">=", "args": [{"property": "value"}, 3]}),
+                "filter[name]": "b",
+            },
+            headers=admin_auth_header,
+        )
+        assert stricter.status_code == 200
+        assert stricter.json()["rows"] == []
+
+    @pytest.mark.anyio
+    async def test_cql2_filter_combines_with_sort_and_after_cursor(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        rows_dataset,
+    ):
+        """Sorted keyset paging continues correctly over the filtered row set.
+
+        value >= 2 leaves b(2), c(3), d(4), e(5); ordered by value desc in
+        pages of two: [e, d] then [c, b]."""
+        page1 = await client.get(
+            f"/datasets/{rows_dataset.id}/rows/",
+            params={
+                "filter": json.dumps({"op": ">=", "args": [{"property": "value"}, 2]}),
+                "sort": "value",
+                "order": "desc",
+                "limit": 2,
+            },
+            headers=admin_auth_header,
+        )
+        assert page1.status_code == 200
+        data1 = page1.json()
+        assert [row["value"] for row in data1["rows"]] == [5, 4]
+        assert data1["next_cursor"] is not None
+
+        page2 = await client.get(
+            f"/datasets/{rows_dataset.id}/rows/",
+            params={
+                "filter": json.dumps({"op": ">=", "args": [{"property": "value"}, 2]}),
+                "sort": "value",
+                "order": "desc",
+                "limit": 2,
+                "after": data1["next_cursor"],
+            },
+            headers=admin_auth_header,
+        )
+        assert page2.status_code == 200
+        data2 = page2.json()
+        assert [row["value"] for row in data2["rows"]] == [3, 2]
+        # A full page always carries a cursor (the last row's gid), even with
+        # nothing behind it; the filtered end is proven by one more empty page.
+        assert data2["next_cursor"] == data2["rows"][-1]["gid"]
+
+        page3 = await client.get(
+            f"/datasets/{rows_dataset.id}/rows/",
+            params={
+                "filter": json.dumps({"op": ">=", "args": [{"property": "value"}, 2]}),
+                "sort": "value",
+                "order": "desc",
+                "limit": 2,
+                "after": data2["next_cursor"],
+            },
+            headers=admin_auth_header,
+        )
+        assert page3.status_code == 200
+        assert page3.json()["rows"] == []
+        assert page3.json()["next_cursor"] is None
+
+    @pytest.mark.anyio
+    async def test_cql2_filter_malformed_returns_400(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        rows_dataset,
+    ):
+        """A filter that is not valid JSON is the caller's fault: 400."""
+        resp = await client.get(
+            f"/datasets/{rows_dataset.id}/rows/",
+            params={"filter": '{"op": "=", '},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.anyio
+    async def test_cql2_filter_parser_depth_failure_returns_400(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        rows_dataset,
+        monkeypatch,
+    ):
+        """A filter that defeats the JSON parser's own depth limit is the
+        caller's bug too: ``json.loads`` raises RecursionError for a deeply
+        nested body (on Pythons where that crossover sits below the HTTP
+        client's maximum URL length, a literal probe cannot reach the
+        server), which is no ValueError and must still answer 400, not
+        500."""
+        from app.modules.catalog.datasets.api import router_data
+
+        real_loads = router_data.json.loads
+
+        def too_deep(expr: str, **kwargs):
+            """json.loads stand-in that hits the parser depth limit on the probe body alone."""
+            # Raise only for the probe body; every other parse (the auth
+            # token among them) must behave normally.
+            if expr == "deep-probe":
+                raise RecursionError
+            return real_loads(expr, **kwargs)
+
+        monkeypatch.setattr(router_data.json, "loads", too_deep)
+        resp = await client.get(
+            f"/datasets/{rows_dataset.id}/rows/",
+            params={"filter": "deep-probe"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.anyio
+    async def test_cql2_filter_unknown_column_returns_400(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        rows_dataset,
+    ):
+        """A filter naming a column the table lacks is 400, not a silent
+        no-op or a 5xx."""
+        resp = await client.get(
+            f"/datasets/{rows_dataset.id}/rows/",
+            params={"filter": _cql2_eq("nonexistent_column", "x")},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.anyio
+    async def test_cql2_filter_null_is_malformed_not_absent(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        rows_dataset,
+    ):
+        """A present-but-null filter is a malformed expression, not an
+        absent one: the param's absence means unfiltered, `filter=null`
+        means the caller sent something that is not an expression."""
+        absent = await client.get(
+            f"/datasets/{rows_dataset.id}/rows/", headers=admin_auth_header
+        )
+        assert absent.status_code == 200
+        assert len(absent.json()["rows"]) == 5
+
+        null = await client.get(
+            f"/datasets/{rows_dataset.id}/rows/",
+            params={"filter": "null"},
+            headers=admin_auth_header,
+        )
+        assert null.status_code == 400
+
+    @pytest.mark.anyio
+    async def test_cql2_filter_keeps_access_guard(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+        test_db_session,
+        rows_table,
+    ):
+        """The access guard runs before the filter is ever compiled.
+
+        Pinned in both directions: a VALID filter on a dataset the caller
+        cannot see stays 404, and so does an INVALID one — a caller who
+        cannot see the dataset must never learn its column set from a
+        400 that names the unknown column."""
+        leftover = await test_db_session.execute(
+            select(Dataset).where(Dataset.table_name == rows_table)
+        )
+        existing = leftover.scalar_one_or_none()
+        if existing:
+            await test_db_session.delete(existing)
+            await test_db_session.commit()
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            visibility="private",
+            name="PrivateCql2RowsDS",
+            table_name=rows_table,
+            column_info=TEST_COLUMN_INFO,
+        )
+
+        resp = await client.get(
+            f"/datasets/{ds.id}/rows/",
+            params={"filter": _cql2_eq("name", "b")},
+            headers=viewer_auth_header,
+        )
+        assert resp.status_code == 404
+
+        # The guard-first ordering disagreement row: compiling before the
+        # guard would answer 400 here and leak the column set.
+        invalid = await client.get(
+            f"/datasets/{ds.id}/rows/",
+            params={"filter": _cql2_eq("nonexistent_column", "x")},
+            headers=viewer_auth_header,
+        )
+        assert invalid.status_code == 404
+
+        # An unknown dataset with a syntactically valid filter stays 404 too.
+        fake = await client.get(
+            f"/datasets/{uuid.uuid4()}/rows/",
+            params={"filter": _cql2_eq("name", "b")},
+            headers=admin_auth_header,
+        )
+        assert fake.status_code == 404
+
+    @pytest.mark.anyio
+    async def test_a_cql2_only_filter_counts_its_matches(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        rows_dataset,
+    ):
+        """A request whose only filter is the CQL2 ``filter`` counts the rows
+        the filter matches, not the table's planner estimate."""
+        resp = await client.get(
+            f"/datasets/{rows_dataset.id}/rows/",
+            params={"filter": _cql2_eq("name", "b")},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert (data["approximate_total"], data["total_kind"]) == (1, "exact")
+
+    @pytest.mark.anyio
+    async def test_a_cql2_filter_matching_every_row_counts_them(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        rows_dataset,
+    ):
+        """A CQL2 filter matching all five rows counts them ``"exact"``, where
+        the estimate branch would report reltuples as ``"estimate"``."""
+        resp = await client.get(
+            f"/datasets/{rows_dataset.id}/rows/",
+            params={
+                "filter": json.dumps({"op": ">=", "args": [{"property": "value"}, 1]})
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert (data["approximate_total"], data["total_kind"]) == (5, "exact")
+
+
 # ---------------------------------------------------------------------------
 # Validation tests
 # ---------------------------------------------------------------------------
@@ -495,6 +902,18 @@ class TestRowsValidation:
             headers=admin_auth_header,
         )
         assert resp.status_code == 422
+
+    @pytest.mark.anyio
+    async def test_rows_after_past_bigint_is_422(
+        self, client: AsyncClient, admin_auth_header: dict, rows_dataset
+    ):
+        """An ``after`` cursor past the bigint range is refused, not sent to SQL."""
+        resp = await client.get(
+            f"/datasets/{rows_dataset.id}/rows/",
+            params={"after": 2**63},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422, resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -564,6 +983,48 @@ async def test_rows_serialize_bit_and_bytea_values(
                 "DELETE FROM catalog.records WHERE id IN "
                 "(SELECT record_id FROM catalog.datasets WHERE table_name = :t)"
             ).bindparams(t=table)
+        )
+        await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table}"))
+        await test_db_session.commit()
+
+
+@pytest.mark.anyio
+async def test_gid_zero_reads_a_row_of_a_registered_table(
+    client: AsyncClient, test_db_session, admin_auth_header: dict
+):
+    """A registered table can hold gid 0, which a single-row read returns."""
+    table = f"test_rows_zero_{uuid.uuid4().hex[:8]}"
+    await test_db_session.execute(
+        text(f"CREATE TABLE data.{table} (gid integer PRIMARY KEY, name text)")
+    )
+    await test_db_session.execute(
+        text(f"INSERT INTO data.{table} VALUES (0, 'zero'), (1, 'one')")
+    )
+    await test_db_session.commit()
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await _create_dataset(
+        test_db_session,
+        created_by=admin_id,
+        table_name=table,
+        column_info=[
+            {"name": "gid", "type": "integer"},
+            {"name": "name", "type": "text"},
+        ],
+    )
+    try:
+        resp = await client.get(
+            f"/datasets/{ds.id}/rows/", params={"gid": 0}, headers=admin_auth_header
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert [row["name"] for row in body["rows"]] == ["zero"]
+        assert body["approximate_total"] == 1
+    finally:
+        await test_db_session.execute(
+            text(
+                "DELETE FROM catalog.records WHERE id IN "
+                f"(SELECT record_id FROM catalog.datasets WHERE table_name = '{table}')"
+            )
         )
         await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table}"))
         await test_db_session.commit()

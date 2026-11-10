@@ -169,12 +169,30 @@ export function getExpressionSafeOpacity(
 ): DataDrivenPropertyValueSpecification<number> {
   const propOpacity = getFeatureOpacity(paint, geomType);
   if (typeof propOpacity === 'number') return propOpacity * masterOpacity;
-  // Multiply expression-valued opacity by the master slider; returning the
+  // Scale an expression-valued opacity by the master slider; returning the
   // expression untouched would make the slider a no-op whenever *-opacity is a
   // zoom/data expression.
-  return (masterOpacity === 1
-    ? propOpacity
-    : ['*', propOpacity, masterOpacity]) as DataDrivenPropertyValueSpecification<number>;
+  return (masterOpacity === 1 ? propOpacity : scaleOpacity(propOpacity, masterOpacity)) as DataDrivenPropertyValueSpecification<number>;
+}
+
+const hasZoom = (value: unknown): boolean =>
+  Array.isArray(value) && (value[0] === 'zoom' || value.some(hasZoom));
+
+/**
+ * An opacity value scaled by `factor`: a number multiplies; a top-level `step` or
+ * `interpolate` scales each output stop and keeps its input in place, since
+ * MapLibre accepts `zoom` only there; any other expression is wrapped in `*`.
+ * An expression that reads zoom elsewhere can't be scaled and is returned as is.
+ */
+export function scaleOpacity(value: unknown, factor: number): unknown {
+  if (typeof value === 'number') return value * factor;
+  if (!Array.isArray(value)) return value;
+  const first = value[0] === 'step' ? 2 : value[0] === 'interpolate' ? 4 : -1;
+  if (first < 0) return hasZoom(value) ? value : ['*', value, factor];
+  return value.map((item, index) => {
+    if (index < first || (index - first) % 2 !== 0) return item;
+    return typeof item === 'number' ? item * factor : ['*', item, factor];
+  });
 }
 
 /**

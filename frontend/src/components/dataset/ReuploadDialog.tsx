@@ -40,7 +40,7 @@ import { Globe, Loader2, CheckCircle2, AlertCircle, AlertTriangle, Upload } from
 import { toast } from 'sonner';
 import { probeService } from '@/api/ingest';
 import { ApiError } from '@/api/client';
-import { reuploadPresigned, getDataset } from '@/api/datasets';
+import { reuploadPresigned, getDataset, getDatasetRefreshRuns } from '@/api/datasets';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { formatNumber } from '@/lib/format';
 import type {
@@ -149,6 +149,8 @@ export function ReuploadDialog({
   // raster-specific copy in the preview/tracking steps.
   const isRaster = dataset.record_type === 'raster_dataset';
   const [step, setStep] = useState<ReuploadStep>('source-select');
+  // The completed replacement matched the live data, so nothing was published.
+  const [dataUnchanged, setDataUnchanged] = useState(false);
   const [sourceType, setSourceType] = useState<ReuploadSourceType | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   // The dataset's origin as of when this replacement was staged, captured beside
@@ -203,6 +205,7 @@ export function ReuploadDialog({
     // dialog was closed mid-refetch).
     refreshGenerationRef.current += 1;
     setPreview(null);
+    setDataUnchanged(false);
     setError(null);
     setSelectedFile(null);
     setServiceUrl(dataset.source_url ?? '');
@@ -253,7 +256,20 @@ export function ReuploadDialog({
           queryClient.invalidateQueries({ queryKey: queryKeys.datasets.all }),
           queryClient.invalidateQueries({ queryKey: queryKeys.search.all }),
         ]);
+        let unchanged = false;
+        try {
+          const history = await queryClient.fetchQuery({
+            queryKey: queryKeys.datasets.refreshRuns(dataset.id, 0, 10),
+            queryFn: () => getDatasetRefreshRuns(dataset.id, { skip: 0, limit: 10 }),
+          });
+          unchanged = history.runs.some(
+            (run) => run.ingest_job_id === jobId && run.verification?.data_unchanged === true,
+          );
+        } catch {
+          // Without the run the ordinary completion message stands.
+        }
         if (cancelled) return;
+        setDataUnchanged(unchanged);
         // A raster's tile URL is a fixed per-dataset route, not versioned by
         // content, so invalidating the dataset query alone leaves the hero map's
         // MapLibre raster source serving the old tiles until something remounts
@@ -263,7 +279,7 @@ export function ReuploadDialog({
           onReplaceComplete?.();
         }
         setStep('complete');
-        toast.success(t('reupload.toastSuccess'));
+        toast.success(t(unchanged ? 'reupload.toastUnchanged' : 'reupload.toastSuccess'));
       })();
       return () => {
         cancelled = true;
@@ -666,7 +682,9 @@ export function ReuploadDialog({
         defaultValue: 'Converting to Cloud Optimized GeoTIFF. This can take several minutes.',
       })
       : t('reupload.descriptions.tracking'),
-    complete: t('reupload.descriptions.complete'),
+    complete: dataUnchanged
+      ? t('reupload.descriptions.unchanged')
+      : t('reupload.descriptions.complete'),
     held: t('reupload.descriptions.held'),
     error: t('reupload.descriptions.error'),
   };
@@ -1138,9 +1156,11 @@ export function ReuploadDialog({
         {step === 'complete' && (
           <div className="flex flex-col items-center justify-center gap-3 py-8">
             <CheckCircle2 className="h-10 w-10 text-success" />
-            <p className="text-sm font-medium">{t('reupload.completeTitle')}</p>
+            <p className="text-sm font-medium">
+              {t(dataUnchanged ? 'reupload.unchangedTitle' : 'reupload.completeTitle')}
+            </p>
             <p className="text-xs text-muted-foreground">
-              {t('reupload.completeMessage')}
+              {t(dataUnchanged ? 'reupload.unchangedMessage' : 'reupload.completeMessage')}
             </p>
             <DialogFooter className="w-full">
               <Button onClick={() => handleOpenChange(false)}>{t('common:close')}</Button>

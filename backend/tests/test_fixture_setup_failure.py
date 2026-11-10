@@ -71,6 +71,41 @@ async def test_client_fixture_restores_shared_state_when_admin_seeding_fails(
     test_engine.dispose.assert_awaited_once()
 
 
+def test_teardown_leaves_the_db_facade_on_the_production_engine(monkeypatch):
+    """Whatever a test's fixtures leave on ``app.core.db``, teardown ends on production."""
+    from app.core.db import session
+
+    monkeypatch.setattr(db_module, "engine", db_module.engine)
+    monkeypatch.setattr(db_module, "async_session", db_module.async_session)
+    teardown = conftest.pytest_runtest_teardown(item=None, nextitem=None)
+    next(teardown)
+    db_module.engine = MagicMock()
+    db_module.async_session = MagicMock()
+
+    with pytest.raises(StopIteration):
+        teardown.send(None)
+
+    assert (db_module.engine, db_module.async_session) == (
+        session.engine,
+        session.async_session,
+    )
+
+
+def test_teardown_drops_a_dependency_override_a_test_set_under_the_client(
+    monkeypatch,
+):
+    """monkeypatch undoes after ``client`` cleared, so teardown must clear again."""
+    monkeypatch.setattr(app, "dependency_overrides", dict(app.dependency_overrides))
+    teardown = conftest.pytest_runtest_teardown(item=None, nextitem=None)
+    next(teardown)
+    app.dependency_overrides[get_db] = MagicMock()
+
+    with pytest.raises(StopIteration):
+        teardown.send(None)
+
+    assert get_db not in app.dependency_overrides
+
+
 @pytest.fixture
 def harness_steps(monkeypatch):
     steps = MagicMock()

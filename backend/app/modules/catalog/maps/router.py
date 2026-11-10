@@ -29,6 +29,7 @@ from app.modules.auth.dependencies import (
     require_permission,
 )
 from app.modules.catalog.authorization import (
+    check_map_access,
     check_public_visibility_allowed,
     get_user_roles,
     visible_vrt_extents,
@@ -56,6 +57,7 @@ from app.modules.catalog.maps.schemas import (
     ThumbnailUploadRequest,
 )
 from app.modules.catalog.maps.router_assets import router as assets_router
+from app.modules.catalog.maps.router_groups import router as groups_router
 from app.modules.catalog.maps.router_sharing import router as sharing_router
 from app.modules.catalog.maps.style_import import MapStyleImportLayerLimitError
 from app.modules.catalog.maps.style_json import parse_maplibre_style_import
@@ -74,22 +76,19 @@ from app.modules.catalog.maps.service import (
     list_map_history,
     list_maps,
     lock_map_for_asset_write,
-    lock_map_layers,
     map_asset_publication,
+    map_groups,
     new_map_asset_key,
     record_map_history_event,
+    RestrictedWithoutGroupsError,
     remove_layer,
-    revoke_share_token_by_map,
     update_map,
     validate_public_visibility,
     with_visible_vrt_extents,
 )
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.service import remove_layers_bulk
-from app.modules.embed_tokens.service import (
-    revoke_embed_tokens_by_map,
-    revoke_embed_tokens_for_dropped_datasets,
-)
+from app.modules.embed_tokens.service import revoke_embed_tokens_for_dropped_datasets
 from app.platform.request_credential import refuse_publish_key
 from app.platform.binary_response import binary_response
 from app.platform.storage.titiler_url import (
@@ -105,24 +104,34 @@ from app.modules.catalog.maps._router_helpers import (
     _build_map_response,
     _readable_terrain,
     _can_edit_map,
-    _is_map_owner_or_admin,
-    _check_map_read_access,
     _layer_history_name,
     _layer_patch_history_actions,
     _layer_rows_by_id,
     _layers_from_tuples,
     _meta_to_kwargs,
+    _readable_layers,
     _reject_non_public_datasets,
     _stored_image_cache_control,
     _stored_image_response,
-    _visibility_value,
     _visible_map_response,
+)
+from app.modules.catalog.maps.visibility_contract import (
+    map_visibility_contract,
+    stored_map_visibilities,
 )
 
 logger = structlog.stdlib.get_logger(__name__)
 
-router = APIRouter(prefix="/maps", tags=["Maps"], responses=ERROR_RESPONSES_WRITE)
+# Every map route reads the restricted-visibility opt-in, so the slash
+# aliases cloned from these routes read it too.
+router = APIRouter(
+    prefix="/maps",
+    tags=["Maps"],
+    responses=ERROR_RESPONSES_WRITE,
+    dependencies=[Depends(map_visibility_contract)],
+)
 router.include_router(assets_router)
+router.include_router(groups_router)
 router.include_router(sharing_router)
 
 
@@ -133,8 +142,14 @@ router.include_router(sharing_router)
     response_model=MapResponse,
     status_code=status.HTTP_201_CREATED,
     include_in_schema=False,
+    summary="Create a map",
 )
-@router.post("/", response_model=MapResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=MapResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a map",
+)
 async def create_map_endpoint(
     body: MapCreate,
     request: Request,
@@ -197,6 +212,7 @@ async def create_map_endpoint(
     response_model=MapListResponse,
     include_in_schema=False,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List maps",
 )
 @router.get(
     "/",
@@ -204,6 +220,7 @@ async def create_map_endpoint(
     # Read-gated (visibility filtering inside list_maps), not write-gated —
     # see get_map_endpoint below.
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List maps",
 )
 async def list_maps_endpoint(
     skip: int = Query(0, ge=0),
@@ -216,10 +233,10 @@ async def list_maps_endpoint(
     db: AsyncSession = Depends(get_db),
     owned_only: bool = False,
 ) -> MapListResponse:
-    """List maps. Admins see all; authenticated users see own + internal + public; anonymous see public only.
+    """List maps. Admins see all; authenticated users see own + internal + public + restricted maps shared with their groups; anonymous see public only.
 
     Supports search (ILIKE on name+description), sort_by (name/created_at/updated_at),
-    sort_dir (asc/desc), and visibility filter (private/internal/public).
+    sort_dir (asc/desc), and visibility filter (private/internal/public/restricted).
     owned_only restricts results to the caller's maps; anonymous callers get no maps.
     """
     user_roles = await get_user_roles(db, user) if user is not None else set()
@@ -232,7 +249,7 @@ async def list_maps_endpoint(
         search=search,
         sort_by=sort_by,
         sort_dir=sort_dir,
-        visibility=visibility,
+        visibilities=stored_map_visibilities(visibility) if visibility else None,
         owned_only=owned_only,
     )
 
@@ -244,6 +261,7 @@ async def list_maps_endpoint(
     "/import",
     response_model=MapStyleImportResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Import a MapLibre style as a map",
 )
 async def import_map_style_endpoint(
     body: MapStyleImportRequest,
@@ -353,17 +371,17 @@ async def import_map_style_endpoint(
     await db.commit()
 
     map_obj, layer_tuples, forked_name, owner_username = await get_map_with_layers(
-        db,
-        map_obj.id,
+        db, map_obj.id
     )
-    layers = _layers_from_tuples(await with_visible_vrt_extents(db, layer_tuples, user))
     assert map_obj is not None
     return MapStyleImportResponse(
-        map=_build_map_response(
+        map=await _visible_map_response(
+            db,
             map_obj,
-            layers,
-            forked_from_name=forked_name,
-            created_by_username=owner_username,
+            layer_tuples,
+            user,
+            forked_name,
+            owner_username,
             include_notes=True,
         ),
         summary=imported.summary,
@@ -376,6 +394,7 @@ async def import_map_style_endpoint(
     # Read-gated, not write-gated, so the router's default 403 misdescribes
     # this route's cause. Every read-gated GET here overrides it.
     responses={403: FORBIDDEN_RESPONSE},
+    summary="Get a map",
 )
 async def get_map_endpoint(
     map_id: uuid.UUID,
@@ -392,22 +411,30 @@ async def get_map_endpoint(
             detail="Map not found",
         )
 
-    await _check_map_read_access(map_obj, user, db)
-    return await _visible_map_response(
+    roles = await check_map_access(db, map_obj, user)
+    owner_or_admin = user is not None and (
+        map_obj.created_by == user.id or "admin" in roles
+    )
+    response = await _visible_map_response(
         db,
         map_obj,
         layer_tuples,
         user,
         forked_name,
         owner_username,
-        include_notes=await _is_map_owner_or_admin(map_obj, user, db),
+        include_notes=owner_or_admin,
+        roles=roles,
     )
+    if owner_or_admin:
+        response.groups = await map_groups(db, map_id)
+    return response
 
 
 @router.get(
     "/{map_id}/access/",
     response_model=MapAccessResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="Get the caller's access to a map",
 )
 async def get_map_access_endpoint(
     map_id: uuid.UUID,
@@ -421,14 +448,18 @@ async def get_map_access_endpoint(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Map not found",
         )
-    await _check_map_read_access(map_obj, user, db)
+    await check_map_access(db, map_obj, user)
     return MapAccessResponse(
         can_view=True,
         can_edit=await _can_edit_map(map_obj, user, db),
     )
 
 
-@router.get("/{map_id}/history", response_model=MapHistoryListResponse)
+@router.get(
+    "/{map_id}/history",
+    response_model=MapHistoryListResponse,
+    summary="List a map's edit history",
+)
 async def get_map_history_endpoint(
     map_id: uuid.UUID,
     skip: int = Query(0, ge=0),
@@ -453,7 +484,7 @@ async def get_map_history_endpoint(
     )
 
 
-@router.put("/{map_id}", response_model=MapResponse)
+@router.put("/{map_id}", response_model=MapResponse, summary="Update a map")
 async def update_map_endpoint(
     map_id: uuid.UUID,
     body: MapUpdate,
@@ -470,18 +501,6 @@ async def update_map_endpoint(
         )
     await check_map_ownership(map_obj, user, db)
     await _readable_terrain(db, user, body.terrain_config, map_obj.terrain_config)
-
-    # Auto-revoke share tokens when visibility moves away from public. Layer
-    # writers hold the map while they revoke tokens; taking it first keeps the
-    # two from waiting on each other, and the visibility read under it is current.
-    if body.visibility is not None and body.visibility != MapVisibility.public:
-        await lock_map_layers(db, map_id)
-        current = await db.scalar(select(Map.visibility).where(Map.id == map_id))
-        if current == "public":
-            await revoke_share_token_by_map(db, map_id)
-            # Embed tokens must be revoked too, or they keep serving tiles
-            # for a now-private map.
-            await revoke_embed_tokens_by_map(db, map_id)
 
     # A non-admin may not move a map to public when restrict_public_visibility
     # is on. None (untouched) passes through.
@@ -536,11 +555,14 @@ async def update_map_endpoint(
         kwargs["basemap_config"] = body.basemap_config.model_dump(mode="json")
     if "layers" in kwargs and body.layers is not None:
         kwargs["layers"] = [layer.model_dump() for layer in body.layers]
+    kwargs["expected_updated_at"] = body.expected_updated_at
 
     try:
         map_obj, layer_tuples, forked_name, owner_username = await update_map(
             db, map_id, user=user, **kwargs
         )
+    except RestrictedWithoutGroupsError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -561,11 +583,7 @@ async def update_map_endpoint(
     )
     # One table of (changed, action, summary, details) drives the per-field
     # history events.
-    new_visibility = (
-        _visibility_value(kwargs["visibility"])
-        if "visibility" in kwargs and kwargs["visibility"] is not None
-        else None
-    )
+    new_visibility = map_obj.visibility
     config_fields = sorted(
         set(changed_fields)
         - {"name", "visibility", "terrain_config", "basemap_config", "layers"}
@@ -663,11 +681,14 @@ async def update_map_endpoint(
     return response
 
 
-@router.patch("/{map_id}/layers", response_model=MapResponse)
+@router.patch(
+    "/{map_id}/layers", response_model=MapResponse, summary="Change a map's layers"
+)
 @router.patch(
     "/{map_id}/layers/",
     response_model=MapResponse,
     include_in_schema=False,
+    summary="Change a map's layers",
 )
 async def patch_map_layers_endpoint(
     map_id: uuid.UUID,
@@ -839,7 +860,9 @@ async def patch_map_layers_endpoint(
     return response
 
 
-@router.delete("/{map_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{map_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a map"
+)
 async def delete_map_endpoint(
     map_id: uuid.UUID,
     request: Request,
@@ -883,6 +906,7 @@ async def delete_map_endpoint(
     "/{map_id}/duplicate/",
     response_model=DuplicateMapResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Duplicate a map",
 )
 async def duplicate_map_endpoint(
     map_id: uuid.UUID,
@@ -923,7 +947,7 @@ async def duplicate_map_endpoint(
     )
     await db.commit()
 
-    layers = _layers_from_tuples(await with_visible_vrt_extents(db, layer_tuples, user))
+    layers = await _readable_layers(db, layer_tuples, user)
     base_resp = _build_map_response(
         new_map,
         layers,
@@ -971,6 +995,7 @@ async def _record_image_capture(
     "/{map_id}/thumbnail/",
     status_code=status.HTTP_204_NO_CONTENT,
     responses={502: BAD_GATEWAY_RESPONSE},
+    summary="Upload a map thumbnail",
 )
 async def upload_thumbnail(
     map_id: uuid.UUID,
@@ -1087,6 +1112,7 @@ async def upload_thumbnail(
         200: binary_response("The thumbnail image", "image/png", "image/jpeg"),
         403: FORBIDDEN_RESPONSE,
     },
+    summary="Get a map thumbnail",
 )
 async def get_thumbnail(
     map_id: uuid.UUID,
@@ -1095,8 +1121,6 @@ async def get_thumbnail(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Serve map thumbnail image from storage (visibility-checked)."""
-    from app.platform.storage.provider import get_storage
-
     map_obj = await get_map(db, map_id)
     if map_obj is None or not map_obj.thumbnail_uri:
         raise HTTPException(
@@ -1104,7 +1128,7 @@ async def get_thumbnail(
             detail="Thumbnail not found",
         )
 
-    await _check_map_read_access(map_obj, user, db)
+    await check_map_access(db, map_obj, user)
     cache_control = await _stored_image_cache_control(db, map_obj, user)
     if cache_control is None:
         raise HTTPException(
@@ -1112,22 +1136,16 @@ async def get_thumbnail(
             detail="Thumbnail not found",
         )
 
-    storage = get_storage()
-    try:
-        data = await storage.get(_map_asset_storage_key(map_obj.thumbnail_uri))
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Thumbnail not found",
-        )
-    media_type = "image/jpeg" if map_obj.thumbnail_uri.endswith(".jpg") else "image/png"
-    return _stored_image_response(request, data, media_type, cache_control)
+    return await _stored_image_response(
+        request, map_obj.thumbnail_uri, cache_control, "Thumbnail not found"
+    )
 
 
 @router.put(
     "/{map_id}/og-image/",
     status_code=status.HTTP_204_NO_CONTENT,
     responses={502: BAD_GATEWAY_RESPONSE},
+    summary="Upload a map social card image",
 )
 async def upload_og_image(
     map_id: uuid.UUID,
@@ -1243,6 +1261,7 @@ async def upload_og_image(
         200: binary_response("The social preview image", "image/png", "image/jpeg"),
         403: FORBIDDEN_RESPONSE,
     },
+    summary="Get a map social card image",
 )
 async def get_og_image(
     map_id: uuid.UUID,
@@ -1255,8 +1274,6 @@ async def get_og_image(
     Mirrors get_thumbnail but reads ``og_image_uri`` and uses the
     ``maps/og-images/`` key space.
     """
-    from app.platform.storage.provider import get_storage
-
     map_obj = await get_map(db, map_id)
     if map_obj is None or not map_obj.og_image_uri:
         raise HTTPException(
@@ -1264,7 +1281,7 @@ async def get_og_image(
             detail="OG image not found",
         )
 
-    await _check_map_read_access(map_obj, user, db)
+    await check_map_access(db, map_obj, user)
     cache_control = await _stored_image_cache_control(db, map_obj, user)
     if cache_control is None:
         raise HTTPException(
@@ -1272,28 +1289,23 @@ async def get_og_image(
             detail="OG image not found",
         )
 
-    storage = get_storage()
-    try:
-        data = await storage.get(_map_asset_storage_key(map_obj.og_image_uri))
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="OG image not found",
-        )
-    media_type = "image/jpeg" if map_obj.og_image_uri.endswith(".jpg") else "image/png"
-    return _stored_image_response(request, data, media_type, cache_control)
+    return await _stored_image_response(
+        request, map_obj.og_image_uri, cache_control, "OG image not found"
+    )
 
 
 @router.post(
     "/{map_id}/layers",
     response_model=MapLayerResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Add a layer to a map",
 )
 @router.post(
     "/{map_id}/layers/",
     response_model=MapLayerResponse,
     status_code=status.HTTP_201_CREATED,
     include_in_schema=False,
+    summary="Add a layer to a map",
 )
 async def add_layer_endpoint(
     map_id: uuid.UUID,
@@ -1372,7 +1384,11 @@ async def add_layer_endpoint(
     return _build_layer_response(layer, _meta_to_kwargs(meta))
 
 
-@router.delete("/{map_id}/layers/{layer_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{map_id}/layers/{layer_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Remove a layer from a map",
+)
 async def remove_layer_endpoint(
     map_id: uuid.UUID,
     layer_id: uuid.UUID,
@@ -1444,6 +1460,7 @@ async def remove_layer_endpoint(
     "/{map_id}/layers/bulk-delete",
     response_model=BulkDeleteLayersResponse,
     status_code=status.HTTP_200_OK,
+    summary="Remove several layers from a map",
 )
 async def bulk_delete_layers_endpoint(
     map_id: uuid.UUID,

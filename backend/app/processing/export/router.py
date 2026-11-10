@@ -34,6 +34,7 @@ from app.platform.storage import get_storage
 from app.processing.export import artifact_cache, artifact_response
 from app.processing.export.ogr import (
     FORMAT_MAP,
+    MAX_EXPORT_FEATURES as _MAX_EXPORT_FEATURES,
     PARQUET_MEDIA_TYPE,
     ExportError,
     bbox_where_sql,
@@ -81,13 +82,6 @@ _EXPORT_BODY = {
     )
     if media_type != "application/geo+json"
 }
-
-# Ceiling for full-table exports (by feature count): an unbounded ogr2ogr
-# writes an arbitrarily large temp file and holds a worker for the duration. A
-# tautological filter (where=1=1) cannot bypass the cap, since oversized
-# datasets get a bounded COUNT with the caller's filters applied. The
-# subprocess timeout bounds runtime regardless.
-_MAX_EXPORT_FEATURES = 5_000_000
 
 # Each cold conversion spawns ogr2ogr or streams rows into a temp file, so
 # concurrent ones are capped per process and the overflow is shed with a retry.
@@ -259,7 +253,9 @@ def _head_export_response(dataset_title: str, format_key: str) -> Response:
 # HEAD alongside GET, which FastAPI's APIRoute doesn't add automatically;
 # GDAL/QGIS probe with it. include_in_schema=False: a derived route publishes
 # nothing new.
-@router.head("/{dataset_id}/export", include_in_schema=False)
+@router.head(
+    "/{dataset_id}/export", include_in_schema=False, summary="Export a dataset"
+)
 @router.get(
     "/{dataset_id}/export",
     response_class=FileResponse,
@@ -275,6 +271,7 @@ def _head_export_response(dataset_title: str, format_key: str) -> Response:
         412: PRECONDITION_FAILED_RESPONSE,
         429: RATE_LIMIT_RESPONSE,
     },
+    summary="Export a dataset",
 )
 async def export_dataset_endpoint(
     dataset_id: uuid.UUID,
@@ -357,7 +354,7 @@ async def export_dataset_endpoint(
 
     # 4. Validate target_crs
     if target_crs is not None:
-        if not re.match(r"^EPSG:\d+$", target_crs, re.IGNORECASE):
+        if not re.fullmatch(r"EPSG:[0-9]{1,6}", target_crs, re.IGNORECASE):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid target_crs: must match EPSG:<code> (e.g. EPSG:3857)",

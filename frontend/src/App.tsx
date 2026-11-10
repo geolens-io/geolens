@@ -1,7 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { Route, Navigate, Outlet, useLocation } from 'react-router';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
-import { AdminCapabilityRoute, AdminIndexRoute, AdminRoute, AdminSettingsRoute } from '@/components/auth/AdminRoute';
+import { AdminCapabilityRoute, AdminIndexRoute, AdminRoute, AdminSettingsRoute, AdminGroupsRoute } from '@/components/auth/AdminRoute';
 import { LandingFirstGuard } from '@/components/auth/LandingFirstGuard';
 import { EditorRoute } from '@/components/auth/EditorRoute';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -9,6 +9,7 @@ import { SiteBanner } from '@/components/layout/SiteBanner';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { LazyLoadErrorBoundary, RouteErrorBoundary } from '@/components/error';
+import { StoryEmbedError } from '@/components/stories/StoryEmbedError';
 import { SessionExpiredDialog } from '@/components/auth/SessionExpiredDialog';
 import { SessionRestoreNotice } from '@/components/auth/SessionRestoreNotice';
 import { AnalysisJobWatcher } from '@/components/analysis/AnalysisJobWatcher';
@@ -59,12 +60,24 @@ const loadMapViewerGate = () =>
     ([m]) => ({ default: m.MapViewerGate }),
   );
 const MapViewerGate = lazy(loadMapViewerGate);
+const loadStoryPage = () =>
+  import('./pages/StoryPage').then(m => ({ default: m.StoryPage }));
+const StoryPage = lazy(loadStoryPage);
+const loadStoryEditorPage = () =>
+  import('./pages/StoryEditorPage').then(m => ({ default: m.StoryEditorPage }));
+const StoryEditorPage = lazy(loadStoryEditorPage);
+const loadStoryEmbedPage = () =>
+  import('./pages/StoryEmbedPage').then(m => ({ default: m.StoryEmbedPage }));
+const StoryEmbedPage = lazy(loadStoryEmbedPage);
 const loadAdminOverviewPage = () =>
   import('./pages/admin/AdminOverviewPage').then(m => ({ default: m.AdminOverviewPage }));
 const AdminOverviewPage = lazy(loadAdminOverviewPage);
 const loadAdminUsersPage = () =>
   import('./pages/admin/AdminUsersPage').then(m => ({ default: m.AdminUsersPage }));
 const AdminUsersPage = lazy(loadAdminUsersPage);
+const loadAdminGroupsPage = () =>
+  import('./pages/admin/AdminGroupsPage').then(m => ({ default: m.AdminGroupsPage }));
+const AdminGroupsPage = lazy(loadAdminGroupsPage);
 const loadAdminJobsPage = () =>
   import('./pages/admin/AdminJobsPage').then(m => ({ default: m.AdminJobsPage }));
 const AdminJobsPage = lazy(loadAdminJobsPage);
@@ -139,6 +152,7 @@ export const appRoutes = (
       <Route path="/oauth/callback" element={<OAuthCallbackPage />} handle={preload(loadOAuthCallbackPage)} errorElement={<RouteErrorBoundary />} />
     </Route>
     <Route path="/m/:token" element={<PublicViewerPage />} handle={preload(loadPublicViewerPage)} errorElement={<RouteErrorBoundary />} />
+    <Route path="/stories/:id/embed" element={<StoryEmbedPage />} handle={preload(loadStoryEmbedPage)} errorElement={<StoryEmbedError />} />
     <Route element={<AppLayout />} errorElement={<RouteErrorBoundary />}>
       {/* Public routes — no auth required */}
       {/* LandingFirstGuard redirects anonymous visitors to /login when the
@@ -150,11 +164,14 @@ export const appRoutes = (
       <Route path="collections/:id" element={<CollectionDetailPage />} handle={preload(loadCollectionDetailPage)} errorElement={<RouteErrorBoundary />} />
       <Route path="maps" element={<MapsPage />} handle={preload(loadMapsPage)} errorElement={<RouteErrorBoundary />} />
       <Route path="maps/new" element={<Navigate to="/maps" replace />} />
+      <Route path="stories" element={<Navigate to={{ pathname: '/maps', search: '?type=stories' }} replace />} />
       <Route path="maps/:id" element={<MapViewerGate />} handle={preload(loadMapViewerGate)} errorElement={<RouteErrorBoundary />} />
+      <Route path="stories/:id" element={<StoryPage />} handle={preload(loadStoryPage)} errorElement={<RouteErrorBoundary />} />
 
       {/* Protected routes — auth required */}
       <Route element={<ProtectedRoute />} handle={requires('user')} errorElement={<RouteErrorBoundary />}>
         <Route path="settings" element={<SettingsPage />} handle={preload(loadSettingsPage)} errorElement={<RouteErrorBoundary />} />
+        <Route path="stories/:id/edit" element={<StoryEditorPage />} handle={preload(loadStoryEditorPage)} errorElement={<RouteErrorBoundary />} />
         <Route element={<EditorRoute />} handle={requires('editor')} errorElement={<RouteErrorBoundary />}>
           <Route path="import" element={<ImportPage />} handle={preload(loadImportPage)} errorElement={<RouteErrorBoundary />} />
         </Route>
@@ -169,6 +186,9 @@ export const appRoutes = (
             </Route>
             <Route element={<AdminCapabilityRoute capability="manage_settings" />} handle={requires('capability')}>
               <Route path="admin/audit" element={<AdminAuditPage />} handle={preload(loadAdminAuditPage)} errorElement={<RouteErrorBoundary />} />
+            </Route>
+            <Route element={<AdminGroupsRoute />} handle={requires('capability')}>
+              <Route path="admin/groups" element={<AdminGroupsPage />} handle={preload(loadAdminGroupsPage)} errorElement={<RouteErrorBoundary />} />
             </Route>
             {/* The settings and config-ops APIs flip to manage_tenants in
                 multi-tenant mode, so these routes gate mode-aware; plain

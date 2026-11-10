@@ -362,10 +362,10 @@ describe('applyMasterOpacity (#1625)', () => {
     expect(map.setPaintProperty.mock.calls).toEqual([['L', 'circle-opacity', 0.4]]);
   });
 
-  it('circle: an expression per-feature opacity is wrapped in ["*", expr, master]', () => {
+  it('circle: a zoom-stepped per-feature opacity has its outputs scaled by the master', () => {
     const map = { setPaintProperty: vi.fn() };
     applyMasterOpacity(map, 'L', { 'circle-opacity': expr }, 'circle', 0.5);
-    expect(map.setPaintProperty.mock.calls).toEqual([['L', 'circle-opacity', ['*', expr, 0.5]]]);
+    expect(map.setPaintProperty.mock.calls).toEqual([['L', 'circle-opacity', ['step', ['zoom'], 0.1, 9, 0.35]]]);
   });
 });
 
@@ -381,10 +381,12 @@ describe('getFeatureOpacity / getExpressionSafeOpacity', () => {
     expect(getFeatureOpacity({ 'fill-opacity': '0.5' }, 'fill')).toBe(0.3);
   });
 
-  it('getExpressionSafeOpacity multiplies a number and wraps an expression (skipping the wrap at master 1)', () => {
+  it('getExpressionSafeOpacity multiplies a number, scales a zoom step, and wraps a data expression (skipping both at master 1)', () => {
     const expr = ['step', ['zoom'], 0.2, 9, 0.7];
+    const byValue = ['get', 'opacity'];
     expect(getExpressionSafeOpacity({ 'circle-opacity': 0.8 }, 'circle', 0.5)).toBeCloseTo(0.4);
-    expect(getExpressionSafeOpacity({ 'circle-opacity': expr }, 'circle', 0.5)).toEqual(['*', expr, 0.5]);
+    expect(getExpressionSafeOpacity({ 'circle-opacity': expr }, 'circle', 0.5)).toEqual(['step', ['zoom'], 0.1, 9, 0.35]);
+    expect(getExpressionSafeOpacity({ 'circle-opacity': byValue }, 'circle', 0.5)).toEqual(['*', byValue, 0.5]);
     expect(getExpressionSafeOpacity({ 'circle-opacity': expr }, 'circle', 1)).toBe(expr);
     expect(getExpressionSafeOpacity({}, 'fill', 0.5)).toBeCloseTo(0.15);
   });

@@ -121,7 +121,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: ConnectorDiscoverRequest,
 ) -> Response[ConnectorDiscoverResponse | ProblemDetail]:
-    """Discover Connector Resources Endpoint
+    """Discover connector resources
 
      Validate connector config and discover non-secret source resources.
 
@@ -155,7 +155,7 @@ def sync(
     client: AuthenticatedClient,
     body: ConnectorDiscoverRequest,
 ) -> ConnectorDiscoverResponse | ProblemDetail | None:
-    """Discover Connector Resources Endpoint
+    """Discover connector resources
 
      Validate connector config and discover non-secret source resources.
 
@@ -184,7 +184,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: ConnectorDiscoverRequest,
 ) -> Response[ConnectorDiscoverResponse | ProblemDetail]:
-    """Discover Connector Resources Endpoint
+    """Discover connector resources
 
      Validate connector config and discover non-secret source resources.
 
@@ -216,7 +216,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: ConnectorDiscoverRequest,
 ) -> ConnectorDiscoverResponse | ProblemDetail | None:
-    """Discover Connector Resources Endpoint
+    """Discover connector resources
 
      Validate connector config and discover non-secret source resources.
 

@@ -221,7 +221,7 @@ describe('DatasetSearchPanel', () => {
     expect(roadsRow).not.toBeNull();
     expect(within(roadsRow as HTMLElement).getByText('Added')).toBeInTheDocument();
 
-    fireEvent.click(within(roadsRow as HTMLElement).getByRole('button', { name: 'another rendering' }));
+    fireEvent.click(within(roadsRow as HTMLElement).getByRole('button', { name: 'Add another rendering: Roads' }));
     expect(onDuplicateRendering).toHaveBeenCalledWith('roads-layer');
 
     fireEvent.click(screen.getByRole('button', { name: 'Add to map: Population' }));
@@ -238,6 +238,17 @@ describe('DatasetSearchPanel', () => {
     expect(screen.getByText('Count')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Add to map: Population' }).length).toBeGreaterThan(0);
     expect(screen.getByRole('link', { name: 'Import data...' })).toHaveAttribute('href', '/import');
+  });
+
+  it('leaves out an expanded row description that repeats the title', async () => {
+    const parks = makeRecord({ id: 'parks', title: 'Parks' });
+    parks.properties.description = 'Parks';
+    mockSearchDatasets.mockResolvedValue({ ...searchResponse, numberMatched: 1, numberReturned: 1, features: [parks] });
+    render(<DatasetSearchPanel {...defaultProps()} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Expand Parks' }));
+
+    expect(screen.getAllByText('Parks')).toHaveLength(1);
   });
 
   it('offers no Add to map, drag or Vector label for an unknown record type', async () => {

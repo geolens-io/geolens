@@ -227,3 +227,25 @@ describe('UnifiedStackPanel HT-03: terrain-mode DEM rows stay reachable', () => 
     expect(document.querySelector('[data-row-id="dem-terrain"]')).toBeTruthy();
   });
 });
+
+describe('UnifiedStackPanel audience-hidden badge on a restricted map', () => {
+  it("badges the layers the server says the map's groups can't read", () => {
+    const restricted = { dataset_visibility: 'restricted', dataset_status: 'published' } as const;
+    const unshared = { ...makeDemLayer('dem-unshared', 'hillshade'), ...restricted };
+    const shared = { ...makeDemLayer('dem-shared', 'hillshade'), ...restricted, sort_order: 1 };
+
+    render(
+      <UnifiedStackPanel
+        {...defaultProps([unshared, shared], {
+          mapVisibility: 'restricted',
+          groupHiddenLayerIds: new Set(['dem-unshared']),
+        })}
+      />,
+    );
+
+    const badgeIn = (id: string) =>
+      document.querySelector(`[data-row-id="${id}"]`)?.textContent?.includes("Hidden from this map's viewers");
+    expect(badgeIn('dem-unshared')).toBe(true);
+    expect(badgeIn('dem-shared')).toBe(false);
+  });
+});

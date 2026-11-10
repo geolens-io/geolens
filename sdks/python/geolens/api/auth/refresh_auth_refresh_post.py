@@ -114,7 +114,7 @@ def sync_detailed(
     x_geo_lens_auth_mode: None | str | Unset = UNSET,
     x_csrf_token: None | str | Unset = UNSET,
 ) -> Response[ProblemDetail | TokenResponse]:
-    """Refresh
+    """Refresh the access token
 
      Exchange a valid refresh token for a new access + refresh token pair.
 
@@ -171,7 +171,7 @@ def sync(
     x_geo_lens_auth_mode: None | str | Unset = UNSET,
     x_csrf_token: None | str | Unset = UNSET,
 ) -> ProblemDetail | TokenResponse | None:
-    """Refresh
+    """Refresh the access token
 
      Exchange a valid refresh token for a new access + refresh token pair.
 
@@ -223,7 +223,7 @@ async def asyncio_detailed(
     x_geo_lens_auth_mode: None | str | Unset = UNSET,
     x_csrf_token: None | str | Unset = UNSET,
 ) -> Response[ProblemDetail | TokenResponse]:
-    """Refresh
+    """Refresh the access token
 
      Exchange a valid refresh token for a new access + refresh token pair.
 
@@ -278,7 +278,7 @@ async def asyncio(
     x_geo_lens_auth_mode: None | str | Unset = UNSET,
     x_csrf_token: None | str | Unset = UNSET,
 ) -> ProblemDetail | TokenResponse | None:
-    """Refresh
+    """Refresh the access token
 
      Exchange a valid refresh token for a new access + refresh token pair.
 

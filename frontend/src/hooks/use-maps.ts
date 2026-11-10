@@ -1,10 +1,11 @@
-import { useQuery, useMutation, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient, useIsMutating, keepPreviousData, type QueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { formatMutationError } from '@/lib/error-map';
 import {
   listMaps,
   getMap,
   getMapAccess,
+  getMapStories,
   getMapHistory,
   createMap,
   updateMap,
@@ -27,9 +28,11 @@ import {
   importMapStyleJson,
   listMapIcons,
   uploadMapIcon,
+  setMapGroups,
+  checkMapVisibility,
 } from '@/api/maps';
 import type { ShareExpirationInput } from '@/api/maps';
-import type { MapUpdateRequest, MapLayerDiffRequest, MapLayerInput, MapBrowseParams } from '@/types/api';
+import type { MapGroupsConfirm, MapResponse, MapUpdateRequest, MapLayerDiffRequest, MapLayerInput, MapBrowseParams, MapVisibility, VisibilityCheckResponse } from '@/types/api';
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
 import { useAnalysisAddedStore } from '@/stores/analysis-job-store';
@@ -53,13 +56,41 @@ function invalidateDatasetMapLists(qc: QueryClient) {
   qc.invalidateQueries({ queryKey: queryKeys.datasets.all });
 }
 
-export function useMaps(params: MapBrowseParams = {}) {
+export function useMaps(params: MapBrowseParams = {}, opts?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.maps.list(params),
     queryFn: () => listMaps(params),
+    enabled: opts?.enabled ?? true,
     placeholderData: keepPreviousData,
     staleTime: 60_000,
   });
+}
+
+const NO_LAYER_IDS: ReadonlySet<string> = new Set();
+
+function gapLayerIds(check: VisibilityCheckResponse): ReadonlySet<string> {
+  return new Set((check.hidden_from_groups ?? []).map((gap) => gap.layer_id));
+}
+
+/**
+ * The layers of a restricted map that some of its groups can't read, as the
+ * server answers it. Only the owner and admins receive `groups`, and only
+ * they may ask.
+ */
+export function useLayersHiddenFromMapGroups(
+  mapId: string | undefined,
+  visibility: MapVisibility | undefined,
+  groups: readonly unknown[] | null | undefined,
+): ReadonlySet<string> {
+  const enabled = visibility === 'restricted' && groups != null;
+  const { data } = useQuery({
+    queryKey: queryKeys.maps.groupGaps(mapId),
+    queryFn: () => checkMapVisibility(mapId!),
+    enabled: enabled && !!mapId,
+    select: gapLayerIds,
+  });
+  // A disabled query still returns what it cached while the map was restricted.
+  return (enabled && data) || NO_LAYER_IDS;
 }
 
 export function useMap(id: string | undefined, opts?: { refetchOnWindowFocus?: boolean }) {
@@ -75,12 +106,54 @@ export function useMap(id: string | undefined, opts?: { refetchOnWindowFocus?: b
   });
 }
 
+const MAP_SEARCH_PAGE = 25;
+
+/** Maps matching `search` by name or description, a page at a time, sorted by name. */
+export function useMapSearch(search: string, enabled: boolean) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.maps.picker(search),
+    queryFn: ({ pageParam }) =>
+      listMaps({ search: search || undefined, skip: pageParam, limit: MAP_SEARCH_PAGE, sort_by: 'name', sort_dir: 'asc' }),
+    initialPageParam: 0,
+    getNextPageParam: (last, _pages, lastPageParam) => {
+      const next = lastPageParam + last.maps.length;
+      return next < last.total ? next : undefined;
+    },
+    enabled,
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+  });
+}
+
+/** The query `useMap` reads, for loading a map outside a component. */
+export function mapDetailQuery(id: string) {
+  return { queryKey: queryKeys.maps.detail(id), queryFn: () => getMap(id), staleTime: 60_000, retry: false };
+}
+
+/** Loads a map into the cache `useMap` reads, so opening it later shows no spinner. */
+export function prefetchMap(qc: QueryClient, id: string) {
+  return qc.prefetchQuery(mapDetailQuery(id));
+}
+
 export function useMapAccess(id: string | undefined, opts?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.maps.access(id),
     queryFn: () => getMapAccess(id!),
     enabled: !!id && (opts?.enabled ?? true),
     staleTime: 30_000,
+    retry: false,
+  });
+}
+
+/** The stories that use a map, for its delete confirmation. */
+export function useMapStories(id: string | undefined, opts?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: queryKeys.maps.stories(id),
+    queryFn: () => getMapStories(id!),
+    enabled: !!id && (opts?.enabled ?? true),
+    // Each time the delete dialog opens it asks again; a story may have
+    // started using the map since.
+    staleTime: 0,
     retry: false,
   });
 }
@@ -267,12 +340,52 @@ export function useMapShareToken(mapId: string | undefined) {
   });
 }
 
-export function usePublishMap() {
+// Group saves and visibility changes share this key, which holds the controls
+// while either runs, and a per-map scope, which sends them in the order made.
+const mapAudienceMutationKey = ['maps', 'audience'] as const;
+
+function mapAudienceScope(mapId: string | undefined) {
+  return mapId ? { id: `map-audience:${mapId}` } : undefined;
+}
+
+export function useMapAudienceBusy() {
+  return useIsMutating({ mutationKey: mapAudienceMutationKey }) > 0;
+}
+
+// Written into the cached map as soon as the server answers: a draft rebuilt
+// from the replaced groups would grant them again on the next save.
+async function applyMapAudience(
+  qc: QueryClient,
+  mapId: string,
+  audience: Partial<Pick<MapResponse, 'visibility' | 'groups'>>,
+) {
+  await qc.cancelQueries({ queryKey: queryKeys.maps.detail(mapId) });
+  qc.setQueryData<MapResponse>(queryKeys.maps.detail(mapId), (old) => old && { ...old, ...audience });
+}
+
+export function usePublishMap(mapId?: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, visibility }: { id: string; visibility: 'public' | 'private' | 'internal' }) =>
-      publishMap(id, visibility),
-    onSuccess: (_data, variables) => {
+    mutationKey: mapAudienceMutationKey,
+    scope: mapAudienceScope(mapId),
+    // A map with groups stays restricted when set private, so a caller who is
+    // sent the group list unshares first, even when the cached list is empty:
+    // it may predate a grant, and with no groups the call changes nothing.
+    mutationFn: async ({ id, visibility }: { id: string; visibility: MapVisibility }) => {
+      const cachedGroups = qc.getQueryData<MapResponse>(queryKeys.maps.detail(id))?.groups;
+      const unshare = visibility === 'private' && Array.isArray(cachedGroups);
+      const clearedGroups = unshare && cachedGroups.length > 0;
+      if (unshare) {
+        const unshared = await setMapGroups(id, []);
+        await applyMapAudience(qc, id, { visibility: unshared.visibility as MapVisibility, groups: unshared.groups });
+        if (unshared.visibility === visibility) return { clearedGroups, visibility };
+      }
+      const published = await publishMap(id, visibility);
+      await applyMapAudience(qc, id, { visibility: published.visibility });
+      return { clearedGroups, visibility: published.visibility };
+    },
+    // Settled, not success: the groups may already be cleared when publishMap fails.
+    onSettled: (_data, _error, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.id) });
       qc.invalidateQueries({ queryKey: queryKeys.maps.all });
       invalidateMapHistory(qc, variables.id);
@@ -282,6 +395,33 @@ export function usePublishMap() {
     onError: (err) => {
       if (nonPublicDatasetsFromError(err)) return;
       toast.error(i18n.t('builder:toasts.visibilityFailed'));
+    },
+  });
+}
+
+export function useSetMapGroups(mapId?: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationKey: mapAudienceMutationKey,
+    scope: mapAudienceScope(mapId),
+    mutationFn: ({ mapId, groupIds, confirm }: { mapId: string; groupIds: string[]; confirm?: MapGroupsConfirm }) =>
+      setMapGroups(mapId, groupIds, confirm),
+    onSuccess: async (data, variables) => {
+      await applyMapAudience(qc, variables.mapId, {
+        visibility: data.visibility as MapVisibility,
+        groups: data.groups,
+      });
+      // A map that becomes restricted loses its share link and embed tokens.
+      qc.invalidateQueries({ queryKey: queryKeys.maps.shareToken(variables.mapId) });
+      qc.invalidateQueries({ queryKey: queryKeys.maps.embedTokens(variables.mapId) });
+      // Sharing the layers' datasets changes those datasets too.
+      for (const datasetId of data.shared_dataset_ids ?? []) {
+        qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(datasetId) });
+      }
+      if (data.shared_dataset_ids?.length) invalidateDatasetMapLists(qc);
+      qc.invalidateQueries({ queryKey: queryKeys.maps.detail(variables.mapId) });
+      qc.invalidateQueries({ queryKey: queryKeys.maps.all });
+      invalidateMapHistory(qc, variables.mapId);
     },
   });
 }

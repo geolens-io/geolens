@@ -116,7 +116,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[None | ShareTokenResponse | ProblemDetail]:
-    """Get Map Share Token Endpoint
+    """Get a map's share token
 
      Return the active share token for a map, or null if none exists.
 
@@ -147,7 +147,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> None | ShareTokenResponse | ProblemDetail | None:
-    """Get Map Share Token Endpoint
+    """Get a map's share token
 
      Return the active share token for a map, or null if none exists.
 
@@ -173,7 +173,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[None | ShareTokenResponse | ProblemDetail]:
-    """Get Map Share Token Endpoint
+    """Get a map's share token
 
      Return the active share token for a map, or null if none exists.
 
@@ -202,7 +202,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> None | ShareTokenResponse | ProblemDetail | None:
-    """Get Map Share Token Endpoint
+    """Get a map's share token
 
      Return the active share token for a map, or null if none exists.
 

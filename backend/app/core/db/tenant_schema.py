@@ -58,7 +58,7 @@ def tenant_data_schema(tenant_id: str | None) -> str:
         )
 
     normalized = tenant_id.lower()
-    if not _TENANT_ID_RE.match(normalized):
+    if not _TENANT_ID_RE.fullmatch(normalized):
         raise ValueError(f"tenant_data_schema: invalid tenant_id: {tenant_id!r}")
 
     # All identifiers derive from the validated UUID — string formatting is safe.
@@ -83,7 +83,7 @@ def tenant_reader_role(tenant_id: str | None) -> str:
         )
 
     normalized = tenant_id.lower()
-    if not _TENANT_ID_RE.match(normalized):
+    if not _TENANT_ID_RE.fullmatch(normalized):
         raise ValueError(f"tenant_reader_role: invalid tenant_id: {tenant_id!r}")
 
     # All identifiers derive from the validated UUID — string formatting is safe.

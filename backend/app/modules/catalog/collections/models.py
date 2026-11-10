@@ -14,7 +14,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -119,6 +119,7 @@ class DatasetVersion(Base):
     srid: Mapped[int | None] = mapped_column(Integer, nullable=True)
     geometry_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     file_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    column_info: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     # What a restore of this version puts back on the dataset.
     original_srid: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_3d: Mapped[bool | None] = mapped_column(Boolean, nullable=True)

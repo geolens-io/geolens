@@ -103,7 +103,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Translation Endpoint
+    """Delete a record translation
 
      Delete one localized title/summary variant.
 
@@ -137,7 +137,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Delete Translation Endpoint
+    """Delete a record translation
 
      Delete one localized title/summary variant.
 
@@ -166,7 +166,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Translation Endpoint
+    """Delete a record translation
 
      Delete one localized title/summary variant.
 
@@ -198,7 +198,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Delete Translation Endpoint
+    """Delete a record translation
 
      Delete one localized title/summary variant.
 

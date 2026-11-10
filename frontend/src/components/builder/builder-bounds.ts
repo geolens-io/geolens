@@ -1,14 +1,20 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';
+import { toFitBounds } from '@/lib/bbox';
 
 // Imports nothing from BuilderMap.tsx: a static import would defeat
 // MapBuilderPage's `lazy(() => import(BuilderMap))` code-split boundary.
 
 type VisibleLayerBounds = [[number, number], [number, number]];
+/** The fields a layer's extent is read from; shared viewer layers carry them too. */
+type ExtentLayer = Pick<MapLayerResponse, 'visible'> & { dataset_extent_bbox?: number[] | null };
+
+/** How the Builder and the shared viewer fit a map to its layers. */
+export const FIT_BOUNDS_OPTIONS = { padding: 40, maxZoom: 18 } as const;
 
 /** Merges every visible layer's bbox into one box, unwrapping an
  * antimeridian crossing (west > east) rather than dropping it. */
-export function getVisibleLayerBounds(layers: MapLayerResponse[]): VisibleLayerBounds | null {
+export function getVisibleLayerBounds(layers: readonly ExtentLayer[]): VisibleLayerBounds | null {
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
@@ -63,7 +69,7 @@ export function getVisibleLayerBounds(layers: MapLayerResponse[]): VisibleLayerB
     minX = -180;
     maxX = 180;
   }
-  return [[minX, minY], [maxX, maxY]];
+  return toFitBounds([minX, minY, maxX, maxY]);
 }
 
 /** Comparable string for a bounds value — cheap equality check for effect deps. */

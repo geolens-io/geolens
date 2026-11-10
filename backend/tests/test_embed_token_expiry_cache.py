@@ -231,7 +231,7 @@ class TestEmbedTokenExpiryCacheHit:
                 AsyncMock(return_value=_TEST_GENERATION),
             ),
             patch(
-                "app.modules.embed_tokens.service.map_contains_dataset",
+                "app.modules.embed_tokens.service.map_embeds_dataset",
                 new=AsyncMock(return_value=True),
             ) as membership,
             patch(

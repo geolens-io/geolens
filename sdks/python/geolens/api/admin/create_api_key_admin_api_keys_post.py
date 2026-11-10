@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: AdminApiKeyCreateRequest,
 ) -> Response[ApiKeyCreateResponse | ProblemDetail]:
-    """Create Api Key
+    """Create an API key for a user
 
      Create an API key for a user (admin only).
 
@@ -140,7 +140,7 @@ def sync(
     client: AuthenticatedClient,
     body: AdminApiKeyCreateRequest,
 ) -> ApiKeyCreateResponse | ProblemDetail | None:
-    """Create Api Key
+    """Create an API key for a user
 
      Create an API key for a user (admin only).
 
@@ -169,7 +169,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: AdminApiKeyCreateRequest,
 ) -> Response[ApiKeyCreateResponse | ProblemDetail]:
-    """Create Api Key
+    """Create an API key for a user
 
      Create an API key for a user (admin only).
 
@@ -201,7 +201,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: AdminApiKeyCreateRequest,
 ) -> ApiKeyCreateResponse | ProblemDetail | None:
-    """Create Api Key
+    """Create an API key for a user
 
      Create an API key for a user (admin only).
 

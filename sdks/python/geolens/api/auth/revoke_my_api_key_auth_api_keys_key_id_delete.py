@@ -95,7 +95,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Revoke My Api Key
+    """Revoke an API key
 
      Revoke (soft-delete) one of the current user's API keys.
 
@@ -126,7 +126,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Revoke My Api Key
+    """Revoke an API key
 
      Revoke (soft-delete) one of the current user's API keys.
 
@@ -152,7 +152,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Revoke My Api Key
+    """Revoke an API key
 
      Revoke (soft-delete) one of the current user's API keys.
 
@@ -181,7 +181,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Revoke My Api Key
+    """Revoke an API key
 
      Revoke (soft-delete) one of the current user's API keys.
 

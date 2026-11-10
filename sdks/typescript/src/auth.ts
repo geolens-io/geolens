@@ -31,6 +31,19 @@ import { createClient, createConfig, type Client } from './client/client/index.j
 import { installFileReadHandling } from './fileReads.js';
 import { installRedirectHandling } from './redirects.js';
 
+const MAP_VISIBILITY_HEADER = 'X-GeoLens-Map-Visibility';
+
+/**
+ * Sent by every client this wrapper configures with a credential, so it reads
+ * the `restricted` map visibility. A client that doesn't send it reads a
+ * restricted map as `private`. An anonymous client can't read a restricted
+ * map and leaves it out, since the header would make each cross-origin call a
+ * preflight that the anonymous public CORS policy refuses.
+ */
+export const MAP_VISIBILITY_OPT_IN: Readonly<Record<string, string>> = {
+  [MAP_VISIBILITY_HEADER]: 'restricted',
+};
+
 export interface GeolensClientOptions {
   /**
    * Base URL of the GeoLens instance, including the `/api` prefix the
@@ -94,6 +107,9 @@ export const createGeolensClient = (
   if (opts.apiKey) {
     headers['X-API-Key'] = opts.apiKey;
   }
+  if (opts.bearerToken || opts.apiKey) {
+    Object.assign(headers, MAP_VISIBILITY_OPT_IN);
+  }
 
   // A client scoped to this call, so two concurrent createGeolensClient()
   // calls (e.g. one per request in a Node server) never share credentials
@@ -114,6 +130,7 @@ export const createGeolensClient = (
     headers: {
       Authorization: headers['Authorization'] ?? null,
       'X-API-Key': headers['X-API-Key'] ?? null,
+      [MAP_VISIBILITY_HEADER]: headers[MAP_VISIBILITY_HEADER] ?? null,
     },
   });
   installFileReadHandling(client);

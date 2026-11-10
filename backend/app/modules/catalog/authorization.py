@@ -1,16 +1,18 @@
-"""Dataset visibility enforcement.
+"""Dataset and map visibility enforcement.
 
 All dataset access paths use these shared functions:
 DatasetVisibility, apply_visibility_filter(), get_user_roles(),
-check_dataset_access().
+check_dataset_access(). Map reads use check_map_access() and
+apply_map_visibility_filter().
 """
 
 import enum
 import uuid
 from dataclasses import replace
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from typing import Any
 
+import structlog
 from fastapi import HTTPException, status
 from sqlalchemy import (
     ColumnElement,
@@ -60,6 +62,7 @@ from app.platform.extensions import (
     get_permission_extension,
 )
 
+logger = structlog.stdlib.get_logger(__name__)
 
 # catalog.vrt_source_links, whose ORM class belongs to processing.
 _VRT_SOURCE_LINKS = table(
@@ -641,6 +644,26 @@ def can_view_dataset_provenance(
     return bool(user and (record.created_by == user.id or "admin" in user_roles))
 
 
+async def may_read_dataset(
+    db: AsyncSession, dataset: Any, dataset_id: uuid.UUID, user: Identity | None
+) -> bool:
+    """Non-raising form of ``check_dataset_access_or_anonymous``."""
+    user_roles = await get_user_roles(db, user) if user is not None else set()
+    return await get_permission_extension().can_access_dataset(
+        db, dataset, dataset_id, user, user_roles=user_roles
+    )
+
+
+def readable_columns(dataset: Any, *, embed_authorized: bool) -> list[str] | None:
+    """The columns a REST read of ``dataset`` may return or read; None means all.
+
+    Narrowed only when the embed token alone authorizes the read. A column
+    outside the list is treated as missing, and callers apply it before any
+    cache read. The tile routes apply ``tile_columns`` to every caller.
+    """
+    return dataset.tile_columns if embed_authorized else None
+
+
 async def check_dataset_write_access(
     db: AsyncSession,
     dataset: Any,
@@ -999,6 +1022,45 @@ async def vrt_member_ids(
     return list(rows.scalars())
 
 
+async def groups_lacking_datasets(
+    db: AsyncSession,
+    dataset_ids: Iterable[uuid.UUID],
+    group_ids: Iterable[uuid.UUID],
+) -> dict[uuid.UUID, set[uuid.UUID]]:
+    """For each dataset, the groups of ``group_ids`` with an active member who
+    can't read it.
+
+    Asked of the permission authority, as the shared-map guard asks it; an
+    authority that can't answer gets every group counted.
+    """
+    groups = set(group_ids)
+    queries = await _record_audience_queries(db, dataset_ids)
+    if not groups:
+        return {dataset_id: set() for dataset_id in queries}
+    permission = get_permission_extension()
+    if not answers_audience_questions(permission):
+        return {dataset_id: set(groups) for dataset_id in queries}
+
+    from app.modules.auth.models import GroupMember, User
+    from app.modules.catalog.datasets.domain.models import DatasetGrant
+
+    lacking = {}
+    for dataset_id, (query, _) in queries.items():
+        audience = await permission.record_audience(query, User, grant_cls=DatasetGrant)
+        lacking[dataset_id] = set(
+            await db.scalars(
+                select(GroupMember.group_id)
+                .distinct()
+                .join(User, User.id == GroupMember.user_id)
+                .where(GroupMember.group_id.in_(groups))
+                .where(User.is_active.is_(True))
+                .where(User.status == "active")
+                .where(audience.users.is_not(True))
+            )
+        )
+    return lacking
+
+
 def dataset_audience_query(dataset: Any) -> RecordAudienceQuery:
     """The audience question for a loaded dataset as it stands."""
     record = dataset.record
@@ -1069,6 +1131,35 @@ async def vrts_beyond_member_audience(
     return beyond
 
 
+async def vrt_links_beyond_audience(
+    db: AsyncSession, dataset_ids: Iterable[uuid.UUID]
+) -> dict[tuple[uuid.UUID, uuid.UUID], str]:
+    """Each ``(vrt, member)`` link with either end in ``dataset_ids`` whose VRT
+    reaches past the member as the catalog stands now, mapped to the VRT's
+    title."""
+    wanted = bindparam("wanted", list(set(dataset_ids)), type_=ARRAY(Uuid))
+    links = _VRT_SOURCE_LINKS
+    rows = await db.execute(
+        select(links.c.vrt_dataset_id, links.c.source_dataset_id).where(
+            or_(
+                links.c.vrt_dataset_id == any_(wanted),
+                links.c.source_dataset_id == any_(wanted),
+            )
+        )
+    )
+    pairs = [tuple(row) for row in rows.all()]
+    queries = await _record_audience_queries(db, {i for pair in pairs for i in pair})
+    pairs = [pair for pair in pairs if pair[0] in queries and pair[1] in queries]
+    flags = await _audiences_exceeded(
+        db, [(queries[vrt][0], queries[member][0]) for vrt, member in pairs]
+    )
+    return {
+        pair: queries[pair[0]][1]
+        for pair, flag in zip(pairs, flags, strict=True)
+        if flag
+    }
+
+
 async def check_vrt_within_member_audience(
     db: AsyncSession, member_ids: Iterable[uuid.UUID], vrt: RecordAudienceQuery
 ) -> None:
@@ -1114,6 +1205,7 @@ async def check_vrt_audiences_after_change(
     visibility: str | None = None,
     record_status: str | None = None,
     owner_id: uuid.UUID | None = None,
+    regrant: Callable[[], Awaitable[object]] | None = None,
 ) -> None:
     """Raise 422 when a new visibility, status or owner (None keeps the current
     one) would make a VRT reach past a member it doesn't reach past now.
@@ -1123,6 +1215,8 @@ async def check_vrt_audiences_after_change(
     shared-owner exemption the transfer moves; other users' VRTs stop serving
     tiles instead of refusing a change.
     Only a newly exceeded member is refused, so a VRT can always narrow.
+    ``regrant``, when given, changes the dataset's grants; it runs once,
+    between the two measurements, and does not commit.
     """
     record = dataset.record
     before = dataset_audience_query(dataset)
@@ -1132,7 +1226,7 @@ async def check_vrt_audiences_after_change(
         record_status=record_status or before.record_status,
         owner_id=owner_id or before.owner_id,
     )
-    if after == before:
+    if after == before and regrant is None:
         return
     is_vrt = record.record_type == "vrt_dataset"
     if is_vrt:
@@ -1149,6 +1243,8 @@ async def check_vrt_audiences_after_change(
         linked = await _record_audience_queries(db, vrt_ids)
         pairs = [((q, before), (q, after), t) for q, t in linked.values()]
     then = await _audiences_exceeded(db, [pair[0] for pair in pairs])
+    if regrant is not None:
+        await regrant()
     now = await _audiences_exceeded(db, [pair[1] for pair in pairs])
     newly = sorted(
         pair[2]
@@ -1184,3 +1280,117 @@ async def _owner_vrt_ids(
         .where(Record.created_by.in_(owners))
     )
     return list(rows.scalars())
+
+
+# Map visibilities open to a caller who neither owns the map nor is an admin.
+ANONYMOUS_MAP_VISIBILITIES = ("public",)
+SIGNED_IN_MAP_VISIBILITIES = ("internal", "public")
+# Open, beyond the owner and admins, to members of the groups granted on the map.
+RESTRICTED_MAP_VISIBILITY = "restricted"
+
+
+def map_group_member(map_id: Any, user_id: Any) -> ColumnElement[bool]:
+    """Whether ``user_id`` belongs to a group granted on ``map_id``."""
+    from app.modules.catalog.group_sharing import granted_group_member
+    from app.modules.catalog.maps.models import MapGroupGrant
+
+    return granted_group_member(MapGroupGrant, "map_id", map_id, user_id)
+
+
+def apply_map_visibility_filter(
+    stmt: Select[Any], user_id: uuid.UUID | None, is_admin: bool
+) -> Select[Any]:
+    """Limit a Map query to the maps a caller may read; ``user_id`` None is anonymous."""
+    from app.modules.catalog.maps.models import Map
+
+    if is_admin:
+        return stmt
+    if user_id is None:
+        return stmt.where(Map.visibility.in_(ANONYMOUS_MAP_VISIBILITIES))
+    return stmt.where(
+        or_(
+            Map.created_by == user_id,
+            Map.visibility.in_(SIGNED_IN_MAP_VISIBILITIES),
+            and_(
+                Map.visibility == RESTRICTED_MAP_VISIBILITY,
+                map_group_member(Map.id, user_id),
+            ),
+        )
+    )
+
+
+async def check_map_access(
+    db: AsyncSession, map_obj: Any, user: Identity | None
+) -> set[str]:
+    """Raise 404 unless ``user`` (None for anonymous) may read ``map_obj``.
+
+    Returns the caller's roles (empty for anonymous), as the dataset guards do.
+    """
+    if user is None:
+        roles: set[str] = set()
+        allowed = map_obj.visibility in ANONYMOUS_MAP_VISIBILITIES
+    else:
+        roles = await get_user_roles(db, user)
+        allowed = (
+            "admin" in roles
+            or map_obj.created_by == user.id
+            or map_obj.visibility in SIGNED_IN_MAP_VISIBILITIES
+            or (
+                map_obj.visibility == RESTRICTED_MAP_VISIBILITY
+                and bool(await db.scalar(select(map_group_member(map_obj.id, user.id))))
+            )
+        )
+    if not allowed:
+        logger.warning(
+            "map_read_denied map_id=%s user_id=%s",
+            map_obj.id,
+            user.id if user is not None else "anon",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Map not found"
+        )
+    return roles
+
+
+async def groups_lacking_maps(
+    db: AsyncSession,
+    map_ids: Iterable[uuid.UUID],
+    group_ids: Iterable[uuid.UUID],
+) -> dict[uuid.UUID, set[uuid.UUID]]:
+    """For each map of ``map_ids`` that some group of ``group_ids`` lacks,
+    those groups: each has an active member ``check_map_access`` refuses."""
+    from app.modules.auth.models import GroupMember, Role, User, UserRole
+    from app.modules.catalog.maps.models import Map
+
+    maps, groups = set(map_ids), set(group_ids)
+    if not (maps and groups):
+        return {}
+    member = aliased(GroupMember)
+    reads = or_(
+        User.id.in_(
+            select(UserRole.user_id)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(Role.name == "admin")
+        ),
+        Map.created_by == User.id,
+        Map.visibility.in_(SIGNED_IN_MAP_VISIBILITIES),
+        and_(
+            Map.visibility == RESTRICTED_MAP_VISIBILITY,
+            map_group_member(Map.id, User.id),
+        ),
+    )
+    rows = await db.execute(
+        select(Map.id, member.group_id)
+        .distinct()
+        .join(member, member.group_id.in_(groups))
+        .join(User, User.id == member.user_id)
+        .where(Map.id.in_(maps))
+        .where(User.is_active.is_(True))
+        .where(User.status == "active")
+        # NULL, as for a map without an owner, counts as unable.
+        .where(reads.is_not(True))
+    )
+    lacking: dict[uuid.UUID, set[uuid.UUID]] = {}
+    for map_id, group_id in rows.all():
+        lacking.setdefault(map_id, set()).add(group_id)
+    return lacking

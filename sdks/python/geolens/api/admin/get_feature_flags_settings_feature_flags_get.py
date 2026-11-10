@@ -65,7 +65,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[FeatureFlagsResponse | ProblemDetail]:
-    """Get Feature Flags
+    """Get feature flags
 
      Return public feature flags (no auth required).
 
@@ -90,7 +90,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> FeatureFlagsResponse | ProblemDetail | None:
-    """Get Feature Flags
+    """Get feature flags
 
      Return public feature flags (no auth required).
 
@@ -111,7 +111,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[FeatureFlagsResponse | ProblemDetail]:
-    """Get Feature Flags
+    """Get feature flags
 
      Return public feature flags (no auth required).
 
@@ -134,7 +134,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> FeatureFlagsResponse | ProblemDetail | None:
-    """Get Feature Flags
+    """Get feature flags
 
      Return public feature flags (no auth required).
 

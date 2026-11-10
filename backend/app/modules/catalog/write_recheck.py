@@ -13,6 +13,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 from weakref import ReferenceType, WeakKeyDictionary, ref
 
@@ -294,3 +295,19 @@ async def refuse_publish_key_widening(
         and now.record_status != "published"
     ):
         raise api_key_scope_refusal("A publish key can't publish a public dataset")
+
+
+def refuse_stale_write(updated_at: datetime, expected: datetime | None) -> None:
+    """409 ``stale_write`` when *updated_at*, read under the row lock, isn't
+    the *expected* value the caller read; nothing when *expected* is None."""
+    if expected is not None and updated_at != expected:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "stale_write",
+                "message": (
+                    "This changed after it was read, so nothing was written. "
+                    "Read it again and retry."
+                ),
+            },
+        )

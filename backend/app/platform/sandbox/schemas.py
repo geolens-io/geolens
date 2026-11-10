@@ -16,6 +16,8 @@ class SandboxError(Exception):
         - query_timeout: Query exceeded time limit
         - query_busy: Another query is already running for the caller
         - result_too_large: A result row exceeds the result-byte cap
+        - query_unavailable: The database could not serve the query (resources,
+          connection, cancellation); a retry may succeed
         - query_failed: Database execution error
     """
 
@@ -23,6 +25,11 @@ class SandboxError(Exception):
         self.category = category
         self.user_message = user_message
         super().__init__(user_message)
+
+    @property
+    def headers(self) -> dict[str, str] | None:
+        """HTTP headers for a response carrying this error."""
+        return {"Retry-After": "2"} if self.category == "query_unavailable" else None
 
 
 @dataclass

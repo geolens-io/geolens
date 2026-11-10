@@ -27,6 +27,7 @@
 [![CI status](https://img.shields.io/github/actions/workflow/status/geolens-io/geolens/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/geolens-io/geolens/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-2563eb?style=flat-square)](LICENSE)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/geolens-io/geolens/badge)](https://securityscorecards.dev/viewer/?uri=github.com/geolens-io/geolens)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15857/badge)](https://www.bestpractices.dev/projects/15857)
 
 </div>
 
@@ -147,7 +148,7 @@ flowchart LR
     end
     subgraph GL ["GeoLens"]
       CAT["Catalog<br/>search · metadata · provenance"]
-      MB["Map builder<br/>styles · 3D · analysis · sharing"]
+      MB["Map builder<br/>styles · 3D · analysis · stories · dashboards · sharing"]
       STD["Open APIs<br/>OGC API · STAC · DCAT · tiles"]
     end
     subgraph OUT ["Use it anywhere"]
@@ -199,8 +200,11 @@ schema changes before they reach your maps. If a service disappears, the importe
 - Buffer, centroid, clip, dissolve, spatial join, select by location, measure and intersect. Most
   operations preview on the map, and each result is saved as a new dataset, from the builder or
   the CLI.
-- Public links show the map's title and image when pasted into Slack, Teams or social posts, and
-  maps embed in other sites with private tokens.
+- Story maps walk readers through a map scene by scene, with Markdown text, images, buttons and
+  separators. Dashboards put indicators, charts, filters and Markdown notes beside a map. A Map
+  data panel shows the rows behind each layer, as a table or a list.
+- Public maps and published stories show their title and image when pasted into Slack, Teams or
+  social posts, and maps embed in other sites with private tokens.
 - The interface is in English, Spanish, French, German and Simplified Chinese.
 
 ## Use the data from anywhere
@@ -342,13 +346,16 @@ sizes and options.
 - One organization per deployment.
 - Terrain rendering assumes elevation in meters; other vertical units render exaggerated.
 - GeoLens's own REST API can change between minor releases (the standards endpoints follow their
-  specifications). The [CHANGELOG](CHANGELOG.md) lists contract changes, and a breaking change
-  keeps the old form working for one more minor release.
+  specifications). The [CHANGELOG](CHANGELOG.md) lists contract changes. When a change breaks
+  callers, the old form keeps working for the later of the next minor release and 90 days, and
+  the CHANGELOG records its removal date. That covers REST routes and fields, the map and
+  dashboard JSON clients write, and CLI commands and flags; the SDKs follow the API, and MCP
+  tool names and arguments aren't covered.
 
 ## Contributing
 
 Bug reports, fixes, translations and docs are welcome. [CONTRIBUTING](.github/CONTRIBUTING.md)
-covers setup, tests and DCO sign-off, and [ARCHITECTURE](.github/ARCHITECTURE.md) maps the code.
+covers setup and tests, and [ARCHITECTURE](.github/ARCHITECTURE.md) maps the code.
 The [QGIS plugin](https://github.com/geolens-io/qgis-geolens-plugin),
 [examples](https://github.com/geolens-io/geolens-examples) and
 [deployments](https://github.com/geolens-io/geolens-deployments) repositories take issues and pull

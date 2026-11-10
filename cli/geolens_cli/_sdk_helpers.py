@@ -348,7 +348,9 @@ def call_sdk(
             raise
         typer.secho("Request timed out", fg="red", err=True)
         raise typer.Exit(EXIT_NETWORK)
-    except httpx.NetworkError as exc:
+    except (httpx.NetworkError, httpx.RemoteProtocolError) as exc:
+        # A server that drops the connection mid-request (a restart) raises
+        # RemoteProtocolError, which httpx does not class as a NetworkError.
         typer.secho(f"Network error: {exc}", fg="red", err=True)
         raise typer.Exit(EXIT_NETWORK)
 

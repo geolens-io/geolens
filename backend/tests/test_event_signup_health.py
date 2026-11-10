@@ -36,6 +36,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.modules.auth.router import REGISTRATION_ENABLED
+from app.observability.health import service as _health_service
 
 
 # ===========================================================================
@@ -318,10 +319,8 @@ class TestHealthAlert:
         else:
             await get_cache().set_if_absent(health_svc._HEALTH_ALERT_KEY, 1, ttl=300)
 
-        import app.api.main as main_mod
-
-        main_mod._last_health_alert_at = None
-        main_mod._last_health_status = "healthy"
+        _health_service._last_health_alert_at = None
+        _health_service._last_health_status = "healthy"
 
         from unittest.mock import MagicMock
 
@@ -340,7 +339,6 @@ class TestHealthAlert:
         )
         from unittest.mock import MagicMock
 
-        import app.api.main as main_mod
         from app.observability.health import service as health_svc
         from app.platform.notifications import events as events_mod
 
@@ -357,8 +355,8 @@ class TestHealthAlert:
         healthy = {"status": "healthy", "providers": {}}
         check = AsyncMock(side_effect=[degraded, healthy, degraded])
         monkeypatch.setattr(health_svc, "check_health", check)
-        main_mod._last_health_alert_at = None
-        main_mod._last_health_status = "healthy"
+        _health_service._last_health_alert_at = None
+        _health_service._last_health_status = "healthy"
         request = MagicMock()
         request.client.host = "127.0.0.1"
 
@@ -374,7 +372,6 @@ class TestHealthAlert:
     ) -> None:
         from unittest.mock import MagicMock
 
-        import app.api.main as main_mod
         from app.observability.health import service as health_svc
         from app.platform.cache import get_cache
 
@@ -387,8 +384,8 @@ class TestHealthAlert:
             health_svc, "check_health", AsyncMock(side_effect=[degraded, healthy])
         )
         await get_cache().set_if_absent(health_svc._HEALTH_ALERT_KEY, "other", ttl=300)
-        main_mod._last_health_alert_at = None
-        main_mod._last_health_status = "healthy"
+        _health_service._last_health_alert_at = None
+        _health_service._last_health_status = "healthy"
         request = MagicMock()
         request.client.host = "127.0.0.1"
 
@@ -402,7 +399,6 @@ class TestHealthAlert:
         import asyncio
         from unittest.mock import MagicMock
 
-        import app.api.main as main_mod
         from app.observability.health import service as health_svc
         from app.platform.cache import get_cache, provider
         from app.platform.cache.memory import InMemoryCacheProvider
@@ -424,8 +420,8 @@ class TestHealthAlert:
         monkeypatch.setattr(
             health_svc, "check_health", AsyncMock(side_effect=[degraded, healthy])
         )
-        main_mod._last_health_alert_at = None
-        main_mod._last_health_status = "healthy"
+        _health_service._last_health_alert_at = None
+        _health_service._last_health_status = "healthy"
         request = MagicMock()
         request.client.host = "127.0.0.1"
 
@@ -449,7 +445,6 @@ class TestHealthAlert:
         import asyncio
         from unittest.mock import MagicMock
 
-        import app.api.main as main_mod
         from app.observability.health import service as health_svc
         from app.platform.cache import provider
         from app.platform.cache.memory import InMemoryCacheProvider
@@ -477,8 +472,8 @@ class TestHealthAlert:
                 }
             ),
         )
-        main_mod._last_health_alert_at = None
-        main_mod._last_health_status = "healthy"
+        _health_service._last_health_alert_at = None
+        _health_service._last_health_status = "healthy"
         request = MagicMock()
         request.client.host = "127.0.0.1"
 
@@ -494,7 +489,6 @@ class TestHealthAlert:
         import asyncio
         from unittest.mock import MagicMock
 
-        import app.api.main as main_mod
         from app.observability.health import service as health_svc
         from app.platform.cache import get_cache
 
@@ -511,8 +505,8 @@ class TestHealthAlert:
             return {"status": "healthy", "providers": {}}
 
         monkeypatch.setattr(health_svc, "check_health", _check_health)
-        main_mod._last_health_alert_at = None
-        main_mod._last_health_status = "healthy"
+        _health_service._last_health_alert_at = None
+        _health_service._last_health_status = "healthy"
         request = MagicMock()
         request.client.host = "127.0.0.1"
 
@@ -523,7 +517,7 @@ class TestHealthAlert:
         response = await old_probe
 
         assert response.status_code == 503
-        assert main_mod._last_health_status == "healthy"
+        assert _health_service._last_health_status == "healthy"
         assert await get_cache().get(health_svc._HEALTH_ALERT_KEY) is None
 
     @pytest.mark.anyio
@@ -532,7 +526,6 @@ class TestHealthAlert:
     ) -> None:
         from unittest.mock import MagicMock
 
-        import app.api.main as main_mod
         from app.observability.health import service as health_svc
         from app.platform.cache import get_cache
 
@@ -545,8 +538,8 @@ class TestHealthAlert:
         # holds the claim for a newer one.
         monkeypatch.setattr(health_svc, "_alert_claim_token", "earlier")
         await get_cache().set_if_absent(health_svc._HEALTH_ALERT_KEY, "newer", ttl=300)
-        main_mod._last_health_alert_at = None
-        main_mod._last_health_status = "degraded"
+        _health_service._last_health_alert_at = None
+        _health_service._last_health_status = "degraded"
         request = MagicMock()
         request.client.host = "127.0.0.1"
 
@@ -585,11 +578,9 @@ class TestHealthAlert:
             },
         }
 
-        import app.api.main as main_mod
-
         # Reset cooldown state before test
-        main_mod._last_health_alert_at = None
-        main_mod._last_health_status = "healthy"
+        _health_service._last_health_alert_at = None
+        _health_service._last_health_status = "healthy"
 
         from app.observability.health import service as health_svc
 
@@ -649,10 +640,8 @@ class TestHealthAlert:
             },
         }
 
-        import app.api.main as main_mod
-
-        main_mod._last_health_alert_at = None
-        main_mod._last_health_status = "healthy"
+        _health_service._last_health_alert_at = None
+        _health_service._last_health_status = "healthy"
 
         from app.observability.health import service as health_svc
 
@@ -702,11 +691,9 @@ class TestHealthAlert:
             },
         }
 
-        import app.api.main as main_mod
-
         # Reset cooldown
-        main_mod._last_health_alert_at = None
-        main_mod._last_health_status = "healthy"
+        _health_service._last_health_alert_at = None
+        _health_service._last_health_status = "healthy"
 
         from app.observability.health import service as health_svc
 
@@ -756,10 +743,8 @@ class TestHealthAlert:
             },
         }
 
-        import app.api.main as main_mod
-
-        main_mod._last_health_alert_at = None
-        main_mod._last_health_status = "healthy"
+        _health_service._last_health_alert_at = None
+        _health_service._last_health_status = "healthy"
 
         from app.observability.health import service as health_svc
 
@@ -806,10 +791,8 @@ class TestHealthAlert:
             },
         }
 
-        import app.api.main as main_mod
-
-        main_mod._last_health_alert_at = None
-        main_mod._last_health_status = "healthy"
+        _health_service._last_health_alert_at = None
+        _health_service._last_health_status = "healthy"
 
         from app.observability.health import service as health_svc
 

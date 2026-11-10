@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: MapUpdate,
 ) -> Response[MapResponse | ProblemDetail]:
-    """Update Map Endpoint
+    """Update a map
 
      Update a map's metadata and/or replace its layers.
 
@@ -146,7 +146,7 @@ def sync(
     client: AuthenticatedClient,
     body: MapUpdate,
 ) -> MapResponse | ProblemDetail | None:
-    """Update Map Endpoint
+    """Update a map
 
      Update a map's metadata and/or replace its layers.
 
@@ -175,7 +175,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: MapUpdate,
 ) -> Response[MapResponse | ProblemDetail]:
-    """Update Map Endpoint
+    """Update a map
 
      Update a map's metadata and/or replace its layers.
 
@@ -207,7 +207,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: MapUpdate,
 ) -> MapResponse | ProblemDetail | None:
-    """Update Map Endpoint
+    """Update a map
 
      Update a map's metadata and/or replace its layers.
 

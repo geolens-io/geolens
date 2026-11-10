@@ -39,6 +39,9 @@ class ReuploadCommitRequest:
         review_fingerprint (None | str | Unset): The preview's `review_fingerprint`, sent once a person has seen the
             changes it describes. A file replacement or service re-upload with review reasons publishes only when the
             worker's own fingerprint matches; otherwise its run ends `blocked`.
+        expected_data_revision (int | None | Unset): The dataset's `data_revision` the caller last saw. When it differs
+            from the revision this replacement is compared with, every write counts as later, so the run stops for review
+            with `live_data_changed` instead of publishing. Omit it to compare with the revision at admission only.
     """
 
     srid_override: int | None | Unset = UNSET
@@ -49,6 +52,7 @@ class ReuploadCommitRequest:
     layer_name: None | str | Unset = UNSET
     auth: None | ServiceAuthRequest | Unset = UNSET
     review_fingerprint: None | str | Unset = UNSET
+    expected_data_revision: int | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -94,6 +98,12 @@ class ReuploadCommitRequest:
         else:
             review_fingerprint = self.review_fingerprint
 
+        expected_data_revision: int | None | Unset
+        if isinstance(self.expected_data_revision, Unset):
+            expected_data_revision = UNSET
+        else:
+            expected_data_revision = self.expected_data_revision
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
@@ -109,6 +119,8 @@ class ReuploadCommitRequest:
             field_dict["auth"] = auth
         if review_fingerprint is not UNSET:
             field_dict["review_fingerprint"] = review_fingerprint
+        if expected_data_revision is not UNSET:
+            field_dict["expected_data_revision"] = expected_data_revision
 
         return field_dict
 
@@ -198,6 +210,17 @@ class ReuploadCommitRequest:
             d.pop("review_fingerprint", UNSET)
         )
 
+        def _parse_expected_data_revision(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        expected_data_revision = _parse_expected_data_revision(
+            d.pop("expected_data_revision", UNSET)
+        )
+
         reupload_commit_request = cls(
             srid_override=srid_override,
             expected_origin_kind=expected_origin_kind,
@@ -205,6 +228,7 @@ class ReuploadCommitRequest:
             layer_name=layer_name,
             auth=auth,
             review_fingerprint=review_fingerprint,
+            expected_data_revision=expected_data_revision,
         )
 
         reupload_commit_request.additional_properties = d

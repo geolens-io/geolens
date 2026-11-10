@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: DatasetMeta,
 ) -> Response[DatasetResponse | ProblemDetail]:
-    """Update Dataset Metadata
+    """Update dataset metadata
 
      Update user-editable dataset metadata.
 
@@ -149,7 +149,7 @@ def sync(
     client: AuthenticatedClient,
     body: DatasetMeta,
 ) -> DatasetResponse | ProblemDetail | None:
-    """Update Dataset Metadata
+    """Update dataset metadata
 
      Update user-editable dataset metadata.
 
@@ -181,7 +181,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: DatasetMeta,
 ) -> Response[DatasetResponse | ProblemDetail]:
-    """Update Dataset Metadata
+    """Update dataset metadata
 
      Update user-editable dataset metadata.
 
@@ -216,7 +216,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: DatasetMeta,
 ) -> DatasetResponse | ProblemDetail | None:
-    """Update Dataset Metadata
+    """Update dataset metadata
 
      Update user-editable dataset metadata.
 

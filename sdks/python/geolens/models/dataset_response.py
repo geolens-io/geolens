@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     )
     from ..models.dataset_retention import DatasetRetention
     from ..models.derived_from_response import DerivedFromResponse
+    from ..models.group_ref import GroupRef
     from ..models.point_cloud_metadata import PointCloudMetadata
     from ..models.previous_version_response import PreviousVersionResponse
     from ..models.quality_detail import QualityDetail
@@ -121,6 +122,8 @@ class DatasetResponse:
         owner_org (None | str | Unset): Owning organization name
         published_at (datetime.datetime | None | Unset):
         updated_by (None | Unset | UUID):
+        data_revision (int | None | Unset): Counts writes to the dataset's features and columns. Owner and admin only;
+            null for other readers.
         record_type (str | Unset): Record type: 'vector_dataset' (spatial features), 'raster_dataset' (single COG),
             'vrt_dataset' (VRT mosaic), 'table' (non-spatial tabular), 'map' (saved map), 'service' (catalogued remote
             service), 'collection' (flat dataset group), 'tiles3d_dataset' (3D Tiles tileset), 'pointcloud_dataset' (COPC
@@ -141,6 +144,8 @@ class DatasetResponse:
         previous_versions (list[PreviousVersionResponse] | None | Unset): The kept previous versions, newest first, each
             of which POST /previous-versions/{version_number}/restore publishes again. An administrator sets how many a
             dataset keeps. Set on the detail endpoint only; null elsewhere.
+        groups (list[GroupRef] | None | Unset): The sharing groups the dataset is shared with, by name. Set on the
+            detail endpoint for the owner and admins only; null elsewhere.
     """
 
     id: UUID
@@ -200,6 +205,7 @@ class DatasetResponse:
     owner_org: None | str | Unset = UNSET
     published_at: datetime.datetime | None | Unset = UNSET
     updated_by: None | Unset | UUID = UNSET
+    data_revision: int | None | Unset = UNSET
     record_type: str | Unset = "vector_dataset"
     raster: None | RasterMetadata | Unset = UNSET
     tileset: None | TilesetMetadata | Unset = UNSET
@@ -210,6 +216,7 @@ class DatasetResponse:
     metadata_warnings: list[str] | None | Unset = UNSET
     previous_version: None | PreviousVersionResponse | Unset = UNSET
     previous_versions: list[PreviousVersionResponse] | None | Unset = UNSET
+    groups: list[GroupRef] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -547,6 +554,12 @@ class DatasetResponse:
         else:
             updated_by = self.updated_by
 
+        data_revision: int | None | Unset
+        if isinstance(self.data_revision, Unset):
+            data_revision = UNSET
+        else:
+            data_revision = self.data_revision
+
         record_type = self.record_type
 
         raster: dict[str, Any] | None | Unset
@@ -626,6 +639,18 @@ class DatasetResponse:
 
         else:
             previous_versions = self.previous_versions
+
+        groups: list[dict[str, Any]] | None | Unset
+        if isinstance(self.groups, Unset):
+            groups = UNSET
+        elif isinstance(self.groups, list):
+            groups = []
+            for groups_type_0_item_data in self.groups:
+                groups_type_0_item = groups_type_0_item_data.to_dict()
+                groups.append(groups_type_0_item)
+
+        else:
+            groups = self.groups
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -735,6 +760,8 @@ class DatasetResponse:
             field_dict["published_at"] = published_at
         if updated_by is not UNSET:
             field_dict["updated_by"] = updated_by
+        if data_revision is not UNSET:
+            field_dict["data_revision"] = data_revision
         if record_type is not UNSET:
             field_dict["record_type"] = record_type
         if raster is not UNSET:
@@ -755,6 +782,8 @@ class DatasetResponse:
             field_dict["previous_version"] = previous_version
         if previous_versions is not UNSET:
             field_dict["previous_versions"] = previous_versions
+        if groups is not UNSET:
+            field_dict["groups"] = groups
 
         return field_dict
 
@@ -770,6 +799,7 @@ class DatasetResponse:
         )
         from ..models.dataset_retention import DatasetRetention
         from ..models.derived_from_response import DerivedFromResponse
+        from ..models.group_ref import GroupRef
         from ..models.point_cloud_metadata import PointCloudMetadata
         from ..models.previous_version_response import PreviousVersionResponse
         from ..models.quality_detail import QualityDetail
@@ -1348,6 +1378,15 @@ class DatasetResponse:
 
         updated_by = _parse_updated_by(d.pop("updated_by", UNSET))
 
+        def _parse_data_revision(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        data_revision = _parse_data_revision(d.pop("data_revision", UNSET))
+
         record_type = d.pop("record_type", UNSET)
 
         def _parse_raster(data: object) -> None | RasterMetadata | Unset:
@@ -1508,6 +1547,28 @@ class DatasetResponse:
 
         previous_versions = _parse_previous_versions(d.pop("previous_versions", UNSET))
 
+        def _parse_groups(data: object) -> list[GroupRef] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                groups_type_0 = []
+                _groups_type_0 = data
+                for groups_type_0_item_data in _groups_type_0:
+                    groups_type_0_item = GroupRef.from_dict(groups_type_0_item_data)
+
+                    groups_type_0.append(groups_type_0_item)
+
+                return groups_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[GroupRef] | None | Unset, data)
+
+        groups = _parse_groups(d.pop("groups", UNSET))
+
         dataset_response = cls(
             id=id,
             record_id=record_id,
@@ -1566,6 +1627,7 @@ class DatasetResponse:
             owner_org=owner_org,
             published_at=published_at,
             updated_by=updated_by,
+            data_revision=data_revision,
             record_type=record_type,
             raster=raster,
             tileset=tileset,
@@ -1576,6 +1638,7 @@ class DatasetResponse:
             metadata_warnings=metadata_warnings,
             previous_version=previous_version,
             previous_versions=previous_versions,
+            groups=groups,
         )
 
         dataset_response.additional_properties = d

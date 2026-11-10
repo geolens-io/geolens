@@ -52,6 +52,7 @@ from app.modules.catalog.authorization import (
     visible_vrt_extents,
 )
 from app.modules.catalog.datasets.domain.helpers import (
+    DatasetNotFoundError,
     WorkflowTransitionDenied,
     dataset_to_response,
     _load_actor_identities,
@@ -77,6 +78,7 @@ from app.platform.http.ranges import if_none_match_matches
 from app.platform.cache.tiles import invalidate_catalog_cache
 from app.modules.catalog.collections.service import get_dataset_collections
 from app.modules.catalog.features.service import lock_catalog_rows_for_write
+from app.modules.catalog.write_recheck import refuse_stale_write
 from app.modules.catalog.ownership import (
     require_transfer_admin,
     transfer_dataset_owner,
@@ -117,6 +119,7 @@ router = APIRouter(
     response_model=DatasetListResponse,
     include_in_schema=False,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List datasets",
 )
 @router.get(
     "/",
@@ -124,6 +127,7 @@ router = APIRouter(
     # Read-gated (visibility filtering inside get_datasets_list), not
     # write-gated -- see get_single_dataset below.
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List datasets",
 )
 async def list_all_datasets(
     request: Request,
@@ -142,7 +146,10 @@ async def list_all_datasets(
 
 
 @router.post(
-    "/create/", response_model=DatasetResponse, status_code=status.HTTP_201_CREATED
+    "/create/",
+    response_model=DatasetResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create an empty dataset",
 )
 async def create_empty_dataset_endpoint(
     body: CreateEmptyDatasetRequest,
@@ -183,6 +190,7 @@ async def create_empty_dataset_endpoint(
     # -- same override on every other read-gated GET in this file (quicklook,
     # history, refresh-runs).
     responses={403: FORBIDDEN_RESPONSE},
+    summary="Get a dataset",
 )
 async def get_single_dataset(
     dataset_id: uuid.UUID,
@@ -253,6 +261,7 @@ _QUICKLOOK_READ_ATTEMPTS = 3
         200: binary_response("The quicklook image", "image/png"),
         403: FORBIDDEN_RESPONSE,
     },
+    summary="Get a dataset quicklook image",
 )
 async def get_quicklook(
     dataset_id: uuid.UUID,
@@ -357,7 +366,19 @@ async def get_quicklook(
     return Response(content=data, media_type="image/png", headers=headers)
 
 
-@router.patch("/{dataset_id}", response_model=DatasetResponse)
+async def _refuse_stale_write(
+    db: AsyncSession, dataset, meta: DatasetMetaUpdate
+) -> None:
+    await lock_catalog_rows_for_write(
+        db, dataset, with_raster_asset="is_dem" in meta.model_fields_set
+    )
+    await db.refresh(dataset.record, ["updated_at"])
+    refuse_stale_write(dataset.record.updated_at, meta.expected_updated_at)
+
+
+@router.patch(
+    "/{dataset_id}", response_model=DatasetResponse, summary="Update dataset metadata"
+)
 async def update_dataset_metadata(
     dataset_id: uuid.UUID,
     meta: DatasetMetaUpdate,
@@ -397,6 +418,9 @@ async def update_dataset_metadata(
         list(dataset.tile_columns) if dataset.tile_columns is not None else None
     )
 
+    if meta.expected_updated_at is not None:
+        await _refuse_stale_write(db, dataset, meta)
+
     if owner_id is not None:
         # Before the metadata update, so its visibility and audience checks
         # see the new owner. Locked in house order, as update_user_metadata
@@ -432,20 +456,19 @@ async def update_dataset_metadata(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=e.detail,
         )
+    except DatasetNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
     except ValueError as e:
-        msg = str(e)
-        if "not found" in msg.lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Dataset not found",
-            )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=msg,
+            detail=str(e),
         )
     # A transfer has its own audit row, so a body naming only owner_id is
     # not also a metadata edit.
-    if meta.model_fields_set != {"owner_id"}:
+    if meta.model_fields_set - {"expected_updated_at"} != {"owner_id"}:
         await audit_emit(
             db,
             AuditEvent(
@@ -458,7 +481,9 @@ async def update_dataset_metadata(
                 # serialized with stdlib json.dumps, which cannot take the
                 # vintage dates and would roll back the UPDATE at flush.
                 details=meta.model_dump(
-                    mode="json", exclude_unset=True, exclude={"owner_id"}
+                    mode="json",
+                    exclude_unset=True,
+                    exclude={"owner_id", "expected_updated_at"},
                 ),
                 ip_address=request.client.host if request.client else None,
             ),
@@ -563,8 +588,17 @@ async def _rollback_failed_item(db: AsyncSession, user) -> None:
 # Dual-shape decorator: the no-slash variant is a hidden alias of the canonical
 # slash form (already in OpenAPI), closing the 404 from redirect_slashes=False
 # (api/main.py).
-@router.post("/bulk-delete", response_model=BulkDeleteResponse, include_in_schema=False)
-@router.post("/bulk-delete/", response_model=BulkDeleteResponse)
+@router.post(
+    "/bulk-delete",
+    response_model=BulkDeleteResponse,
+    include_in_schema=False,
+    summary="Delete several datasets",
+)
+@router.post(
+    "/bulk-delete/",
+    response_model=BulkDeleteResponse,
+    summary="Delete several datasets",
+)
 async def bulk_delete_datasets_endpoint(
     body: BulkDeleteRequest,
     request: Request,
@@ -697,7 +731,9 @@ async def bulk_delete_datasets_endpoint(
     )
 
 
-@router.delete("/{dataset_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{dataset_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a dataset"
+)
 async def delete_dataset_endpoint(
     dataset_id: uuid.UUID,
     body: DatasetDeleteRequest,
@@ -783,6 +819,7 @@ async def delete_dataset_endpoint(
     "/{dataset_id}/history",
     response_model=AuditLogListResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List a dataset's audit history",
 )
 async def get_dataset_history(
     dataset_id: uuid.UUID,
@@ -839,6 +876,7 @@ async def get_dataset_history(
     "/{dataset_id}/refresh-runs",
     response_model=DatasetRefreshRunListResponse,
     responses={403: FORBIDDEN_RESPONSE},
+    summary="List a dataset's refresh runs",
 )
 async def list_dataset_refresh_runs(
     dataset_id: uuid.UUID,

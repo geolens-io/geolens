@@ -117,7 +117,7 @@ def sync_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[MapHistoryListResponse | ProblemDetail]:
-    """Get Map History Endpoint
+    """List a map's edit history
 
      Return recent builder edit history for a map.
 
@@ -154,7 +154,7 @@ def sync(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> MapHistoryListResponse | ProblemDetail | None:
-    """Get Map History Endpoint
+    """List a map's edit history
 
      Return recent builder edit history for a map.
 
@@ -186,7 +186,7 @@ async def asyncio_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[MapHistoryListResponse | ProblemDetail]:
-    """Get Map History Endpoint
+    """List a map's edit history
 
      Return recent builder edit history for a map.
 
@@ -221,7 +221,7 @@ async def asyncio(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> MapHistoryListResponse | ProblemDetail | None:
-    """Get Map History Endpoint
+    """List a map's edit history
 
      Return recent builder edit history for a map.
 

@@ -387,7 +387,7 @@
     "scopeFull": "Accès complet",
     "scopeReadOnly": "Lecture seule",
     "scopePublish": "Publication",
-    "scopePublishDescription": "Ajoute vos propres données et cartes, modifie les informations de vos jeux de données et remplace les jeux de données téléversés en conservant une version précédente. Elle ne peut rien rendre public ni élargir la visibilité d'un jeu de données, mettre à jour une carte existante, remplacer les jeux de données raster ou liés à un service, un élément STAC ou une table, écrire des entités ni rien supprimer.",
+    "scopePublishDescription": "Ajoute vos propres données et cartes, modifie les informations de vos jeux de données et remplace les jeux de données téléversés en conservant leurs versions précédentes. Elle ne peut rien rendre public ni élargir la visibilité d'un jeu de données, mettre à jour une carte existante, remplacer les jeux de données raster ou liés à un service, un élément STAC ou une table, écrire des entités ni rien supprimer.",
     "scopeDatasetWrite": "Un jeu de données",
     "scopeDatasetAppend": "Un jeu de données, ajout uniquement",
     "expiry": "Expiration",
@@ -695,6 +695,8 @@
       "invalidStorageQuantity": "Saisissez une quantité correspondant à un nombre entier d’octets.",
       "maxDatasetsPerUser": "Jeux de données max. par utilisateur",
       "maxDatasetsPerUserDescription": "Nombre maximal de jeux de données que chaque utilisateur peut créer (0 = illimité).",
+      "maxStoryImageMbPerUser": "Stockage maximal d’images d’histoires par utilisateur (Mo)",
+      "maxStoryImageMbPerUserDescription": "La taille totale des images que les histoires d’un utilisateur peuvent contenir, en mégaoctets (0 = illimité). Les images déjà stockées restent ; seuls les nouveaux envois et les copies sont refusés.",
       "saved": "Paramètres de téléchargement enregistrés"
     },
     "oauth": {
@@ -804,6 +806,20 @@
       "registrationAdminConfirmDescription": "Chaque inscription par mot de passe dont l'e-mail est vérifié deviendra administrateur. Assurez-vous que c'est bien voulu.",
       "signupAdminActivationDescription": "Après cette modification, les personnes qui s'inscrivent peuvent devenir administratrices sans l'approbation d'un administrateur. Assurez-vous que c'est bien ce que vous voulez.",
       "verificationNeedsRegistration": "S'applique lorsque l'auto-inscription est activée."
+    },
+    "storyFrames": {
+      "title": "Intégrations et vidéos des récits",
+      "description": "Sites dont les récits peuvent afficher les pages et les lecteurs vidéo dans un cadre. Les navigateurs des lecteurs les chargent directement depuis ces sites. Sans site, les blocs d’intégration et de vidéo sont désactivés.",
+      "empty": "Aucun site pour l’instant : les blocs d’intégration et de vidéo sont désactivés.",
+      "hostLabel": "Nom d’hôte du site",
+      "add": "Ajouter le site",
+      "invalid": "Saisissez un nom d’hôte comme media.example.org, sans https:// ni chemin. Les jokers ne sont pas acceptés.",
+      "duplicate": "Ce site figure déjà dans la liste.",
+      "full": "La liste contient au plus {{max}} sites.",
+      "sameOrigin": "Conserver l’origine du site",
+      "sameOriginHint": "Certains lecteurs vidéo ont besoin de leur propre origine pour lire. Le cadre garde cette origine où que le site l’emmène, donc tout autre site approuvé qu’il ouvre la reçoit aussi. À activer seulement pour un site auquel vous confiez tous les sites approuvés.",
+      "remove": "Retirer {{host}}",
+      "reloadHint": "Les pages déjà ouvertes prennent en compte la liste après un rechargement."
     }
   },
   "infrastructure": {
@@ -892,5 +908,66 @@
   "sortable": {
     "sortAscending": "trier par ordre croissant",
     "sortDescending": "trier par ordre décroissant"
+  },
+  "groups": {
+    "title": "Groupes",
+    "listHeading": "Groupes de partage",
+    "errorLoading": "Impossible de charger les groupes : {{message}}",
+    "nameLabel": "Nom du groupe",
+    "actionsFor": "Actions du groupe {{name}}",
+    "table": {
+      "name": "Nom",
+      "members": "Membres",
+      "created": "Créé",
+      "actions": "Actions",
+      "manageMembers": "Membres",
+      "memberCount_one": "{{count}} membre",
+      "memberCount_other": "{{count}} membres"
+    },
+    "empty": {
+      "title": "Aucun groupe pour le moment",
+      "hint": "Créez un groupe, ajoutez-y des personnes, puis partagez-lui des jeux de données, des cartes et des récits."
+    },
+    "create": {
+      "button": "Créer un groupe",
+      "title": "Créer un groupe",
+      "description": "Les groupes permettent de partager des jeux de données, des cartes et des récits restreints avec un ensemble de personnes."
+    },
+    "rename": {
+      "button": "Renommer",
+      "title": "Renommer le groupe",
+      "description": "Choisissez un nouveau nom pour {{name}}."
+    },
+    "delete": {
+      "title": "Supprimer {{name}} ?",
+      "description_one": "Ce groupe compte {{count}} membre. Il perd aussitôt l’accès aux jeux de données, aux cartes et aux récits partagés avec le groupe. Cette action est irréversible.",
+      "description_other": "Ce groupe compte {{count}} membres. Ils perdent aussitôt l’accès aux jeux de données, aux cartes et aux récits partagés avec le groupe. Cette action est irréversible.",
+      "deleting": "Suppression..."
+    },
+    "members": {
+      "title": "Membres de {{name}}",
+      "description": "Les personnes de ce groupe peuvent ouvrir les jeux de données, les cartes et les récits partagés avec lui.",
+      "addLabel": "Ajouter une personne",
+      "listHeading_one": "{{count}} membre",
+      "listHeading_other": "{{count}} membres",
+      "listLabel": "Membres de {{name}}",
+      "removeLabel": "Retirer {{name}} de {{group}}",
+      "empty": "Ce groupe n’a pas encore de membres.",
+      "added": "{{name}} ajouté",
+      "removed": "{{name}} retiré",
+      "errorLoading": "Impossible de charger les membres : {{message}}",
+      "needsUserManagement": "Ajouter des personnes nécessite l’autorisation de gérer les utilisateurs. Vous pouvez toujours voir et retirer des membres."
+    },
+    "picker": {
+      "placeholder": "Rechercher par nom d’utilisateur",
+      "noMatches": "Aucune personne correspondante",
+      "results_one": "{{count}} personne disponible",
+      "results_other": "{{count}} personnes disponibles"
+    },
+    "toasts": {
+      "created": "Groupe créé",
+      "renamed": "Groupe renommé",
+      "deleted": "Groupe supprimé"
+    }
   }
 }

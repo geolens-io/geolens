@@ -12,6 +12,7 @@ import {
   isKnownMissingRemoteStyleImage,
   isPmtilesArchiveUrl,
   makeStyleImageMissingResolver,
+  isBasemapOwnedLayer,
   LIGHT_PRESET_ID,
   DARK_PRESET_ID,
   BLANK_BASEMAP_ID,
@@ -19,6 +20,24 @@ import {
   FALLBACK_BASEMAP_STYLE_URL_DARK,
 } from '../basemap-utils';
 import type { BasemapEntry } from '@/api/settings';
+
+describe('isBasemapOwnedLayer', () => {
+  it.each([
+    [{ id: 'water', source: 'basemap' }, 'source-', true],
+    [{ id: 'background' }, 'source-', true],
+    [{ id: 'water', source: 0 }, 'source-', true],
+    [{ id: 'layer-1', source: 'source-data-population' }, 'source-', false],
+    [{ id: 'layer-1', source: 'preview-source-data-population' }, 'preview-source-', false],
+    [{ id: 'attribute-table-highlight', source: 'basemap' }, 'source-', false],
+    [{ id: 'attribute-table-highlight-line', source: 'basemap' }, 'source-', false],
+    [{ id: 'attribute-table-highlight-point', source: 'basemap' }, 'source-', false],
+    [{ id: 'attribute-table-highlight-road', source: 'basemap' }, 'source-', true],
+    [{ id: 'attribute-table-highlight-line-label', source: 'basemap' }, 'source-', true],
+    [{ id: 'road', source: 'attribute-table-highlight' }, 'source-', true],
+  ])('classifies %j with prefix %s as owned=%s', (layer, prefix, owned) => {
+    expect(isBasemapOwnedLayer(layer, prefix)).toBe(owned);
+  });
+});
 
 describe('toMaplibreStyle', () => {
   it('returns GL style JSON URL as-is', () => {
@@ -369,8 +388,8 @@ describe('sanitizeMaplibreStyle', () => {
 
     expect(layer.filter).toEqual([
       'all',
-      ['>=', ['to-number', ['get', 'admin_level'], -1_000_000_000_000], 3],
-      ['<=', ['to-number', ['get', 'admin_level'], 1_000_000_000_000], 6],
+      ['all', ['!=', ['typeof', ['get', 'admin_level']], 'null'], ['>=', ['to-number', ['get', 'admin_level'], -1_000_000_000_000], 3]],
+      ['all', ['!=', ['typeof', ['get', 'admin_level']], 'null'], ['<=', ['to-number', ['get', 'admin_level'], 1_000_000_000_000], 6]],
     ]);
   });
 });

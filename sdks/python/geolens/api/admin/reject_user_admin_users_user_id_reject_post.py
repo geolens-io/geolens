@@ -95,7 +95,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Reject User
+    """Reject a pending user
 
      Reject a pending user by hard-deleting them (admin only).
 
@@ -126,7 +126,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Reject User
+    """Reject a pending user
 
      Reject a pending user by hard-deleting them (admin only).
 
@@ -152,7 +152,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Reject User
+    """Reject a pending user
 
      Reject a pending user by hard-deleting them (admin only).
 
@@ -181,7 +181,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Reject User
+    """Reject a pending user
 
      Reject a pending user by hard-deleting them (admin only).
 

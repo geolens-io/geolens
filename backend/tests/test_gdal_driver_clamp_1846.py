@@ -27,6 +27,7 @@ import http.server
 import json
 import os
 import functools
+import secrets
 import shutil
 import sqlite3
 import socketserver
@@ -53,6 +54,7 @@ from app.processing.ingest.validation import (
     validate_file_content,
 )
 from app.platform.egress_proxy import ServiceEgress
+from app.platform.gdal_env import gdal_database_safe_env
 from app.processing.raster.vrt import gdal_service_safe_env, gdal_vector_safe_env
 
 # A member whose bytes tell the OGR_VRT driver to go read a local path.
@@ -404,6 +406,7 @@ def test_every_declared_driver_name_is_a_real_driver():
         set(ARCHIVE_MEMBER_DRIVERS)
         | _skipped(gdal_vector_safe_env())
         | _skipped(gdal_service_safe_env(_EGRESS))
+        | _skipped(gdal_database_safe_env("/nonexistent/freetds.conf", "u", "p"))
     )
     assert declared <= known, sorted(declared - known)
 
@@ -1306,7 +1309,7 @@ def _strip_steps(text: str) -> int:
 
 
 def test_the_comment_strip_is_linear_in_the_size_of_the_schema():
-    """The lazy regex this replaced was quadratic on uploader-chosen text.
+    r"""The lazy regex this replaced was quadratic on uploader-chosen text.
 
     `re.compile(r"/\*.*?\*/", re.DOTALL)` restarts a scan to end-of-string at
     every unterminated opener: 64 KB took 3.6 s, and the scan used to run
@@ -1557,3 +1560,99 @@ async def test_reupload_preview_maps_a_content_refusal_to_422(
     )
     assert response.status_code == 422, response.text
     assert detail in response.json()["detail"]["message"]
+
+
+# ---------------------------------------------------------------------------
+# Database drivers: only the database env may sign in to a server
+# ---------------------------------------------------------------------------
+
+# A source per driver that makes it try to connect, and what GDAL prints when
+# it did try.
+_DATABASE_SOURCES = {
+    "MSSQLSpatial": "MSSQL:Driver=FreeTDS;Servername=geolens;Database=probe",
+    "ODBC": "ODBC:probe/probe@nodsn",
+    "PGeo": "PGeo:/nonexistent/probe.mdb",
+}
+_DRIVER_TRIED = "Unable to initialize"
+
+
+def _closed_port_conf(tmp_path) -> str:
+    conf = tmp_path / "freetds.conf"
+    conf.write_text("[geolens]\nhost = 127.0.0.1\nport = 1\ntds version = 7.4\n")
+    return str(conf)
+
+
+def _open_database(driver: str, env: dict) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["ogrinfo", "-ro", "-if", driver, _DATABASE_SOURCES[driver]],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=120,
+    )
+
+
+@needs_ogr
+@pytest.mark.parametrize("driver", sorted(_DATABASE_SOURCES))
+def test_upload_and_service_envs_refuse_the_database_drivers(tmp_path, driver):
+    _require_if_flag()
+    plain = {k: v for k, v in os.environ.items() if k != "GDAL_SKIP"}
+    plain["FREETDSCONF"] = _closed_port_conf(tmp_path)
+    assert _DRIVER_TRIED in _open_database(driver, plain).stderr, (
+        "the driver did not try to connect without the clamp, so a pass here "
+        "would prove nothing"
+    )
+    for env in (gdal_vector_safe_env(), gdal_service_safe_env(_EGRESS)):
+        result = _open_database(driver, {**env, "FREETDSCONF": plain["FREETDSCONF"]})
+        assert result.returncode != 0
+        assert _DRIVER_TRIED not in result.stderr
+        assert "not a recognized driver" in result.stderr
+
+
+@needs_ogr
+def test_the_database_env_tries_mssqlspatial_and_nothing_else(tmp_path, monkeypatch):
+    """Even when the parent names a GDAL config file that tells GDAL to ignore
+    the environment, which would drop the GDAL_SKIP clamp with it."""
+    _require_if_flag()
+    gdalrc = tmp_path / "gdalrc"
+    gdalrc.write_text("[directives]\nignore-env-vars=yes\n")
+    monkeypatch.setenv("GDAL_CONFIG_FILE", str(gdalrc))
+    env = gdal_database_safe_env(_closed_port_conf(tmp_path), "probe", "probe")
+    assert _DRIVER_TRIED in _open_database("MSSQLSpatial", env).stderr
+    for driver in ("ODBC", "PGeo"):
+        assert "not a recognized driver" in _open_database(driver, env).stderr
+
+
+@needs_ogr
+def test_the_database_env_never_prints_the_password(tmp_path, monkeypatch):
+    """GDAL's ODBC debug line spells out the connection string, PWD included.
+
+    Debug is pinned off in the child even when the parent turns it on through
+    the environment or a GDAL config file, and a FreeTDS dump file is dropped.
+    """
+    _require_if_flag()
+    password = secrets.token_hex(12)
+    conf = _closed_port_conf(tmp_path)
+    leaky = {k: v for k, v in os.environ.items() if k != "GDAL_SKIP"}
+    leaky.update(
+        CPL_DEBUG="ON",
+        FREETDSCONF=conf,
+        MSSQLSPATIAL_UID="probe",
+        MSSQLSPATIAL_PWD=password,
+    )
+    assert password in _open_database("MSSQLSpatial", leaky).stderr, (
+        "debug output did not print the password, so a pass here would prove nothing"
+    )
+
+    gdalrc = tmp_path / "gdalrc"
+    gdalrc.write_text("[configoptions]\nCPL_DEBUG=ON\n")
+    dump = tmp_path / "tds.log"
+    monkeypatch.setenv("CPL_DEBUG", "ON")
+    monkeypatch.setenv("GDAL_CONFIG_FILE", str(gdalrc))
+    monkeypatch.setenv("TDSDUMP", str(dump))
+    result = _open_database(
+        "MSSQLSpatial", gdal_database_safe_env(conf, "probe", password)
+    )
+    assert _DRIVER_TRIED in result.stderr
+    assert password not in result.stderr + result.stdout
+    assert not dump.exists()

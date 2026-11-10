@@ -169,13 +169,42 @@
     "visibilityPublic": "Öffentlich",
     "visibilityPrivate": "Privat",
     "visibilityRestricted": "Eingeschränkt",
-    "visibilityHelp": "Privat = nur der Eigentümer und Administratoren. Intern = alle bei GeoLens angemeldeten Benutzer. Öffentlich = für alle sichtbar, auch für nicht angemeldete Besucher.",
+    "visibilityHelp": "Privat = nur der Eigentümer und Administratoren. Eingeschränkt = der Eigentümer, Administratoren und alle in den Gruppen oder Rollen, mit denen er geteilt ist. Intern = alle bei GeoLens angemeldeten Benutzer. Öffentlich = für alle sichtbar, auch für nicht angemeldete Besucher.",
     "visibilityUpdated": "Sichtbarkeit aktualisiert",
     "visibilityFailed": "Sichtbarkeit konnte nicht geändert werden",
     "license": "Lizenz",
     "vintageStart": "Datenstand Beginn",
     "vintageEnd": "Datenstand Ende",
-    "saving": "Wird gespeichert..."
+    "saving": "Wird gespeichert...",
+    "publicConfirmTitle": "Diesen Datensatz öffentlich machen?",
+    "publicConfirmDescription": "Anonyme Nutzer können seine Features über die OGC API, seine Kartenkacheln, seine Downloads und seinen Katalogeintrag erreichen. Gruppen, für die dieser Datensatz freigegeben ist, behalten ihren Zugriff.",
+    "publicConfirmAction": "Öffentlich machen"
+  },
+  "groupShare": {
+    "title": "Mit Gruppen teilen",
+    "help": "Mit Gruppen teilen Sie einen privaten Datensatz mit einem Personenkreis, ohne ihn für alle sichtbar zu machen.",
+    "selectedLabel": "Gruppen, mit denen dieser Datensatz geteilt wird",
+    "none": "Mit keiner Gruppe geteilt.",
+    "remove": "{{name}} entfernen",
+    "pickerLabel": "Gruppe hinzufügen",
+    "placeholder": "Gruppen suchen",
+    "noMatches": "Keine passenden Gruppen",
+    "results_one": "{{count}} Gruppe verfügbar",
+    "results_many": "{{count}} Gruppen verfügbar",
+    "results_other": "{{count}} Gruppen verfügbar",
+    "noGroupsAvailable": "Sie gehören keiner Gruppe an. Ein Administrator kann Sie einer Gruppe hinzufügen.",
+    "noGroupsAdmin": "Noch keine Gruppen. <1>Legen Sie unter Admin > Gruppen eine an.</1>",
+    "added": "{{name}} hinzugefügt. Zum Übernehmen speichern.",
+    "removed": "{{name}} entfernt. Zum Übernehmen speichern.",
+    "save": "Gruppen speichern",
+    "saved": "Gruppen gespeichert. Dieser Datensatz ist jetzt {{visibility}}.",
+    "failed": "Gruppen konnten nicht gespeichert werden",
+    "loadFailed": "Ihre Gruppen konnten nicht geladen werden",
+    "effectPrivateEmpty": "Dieser Datensatz ist Privat. Fügen Sie eine Gruppe hinzu und speichern Sie, damit er Eingeschränkt wird.",
+    "effectToRestricted": "Durch Speichern wird dieser Datensatz Eingeschränkt: Nur Sie, Administratoren und Mitglieder dieser Gruppen können ihn öffnen.",
+    "effectRestricted": "Dieser Datensatz ist Eingeschränkt. Durch Speichern ändert sich, welche Gruppen ihn öffnen können.",
+    "effectToPrivate": "Durch Speichern wird die letzte Gruppe entfernt. Der Datensatz wird Privat, sofern keine anderen Zugriffsfreigaben bestehen.",
+    "effectKept": "Dieser Datensatz ist {{visibility}}, daher ändert Speichern nicht, wer ihn öffnen kann. Die Gruppen bleiben erhalten."
   },
   "export": {
     "gpkg": "GeoPackage",
@@ -199,6 +228,7 @@
     "filterColumn": "{{column}} filtern",
     "noResults": "Keine passenden Zeilen gefunden.",
     "showingExact": "{{start}}-{{end}} von {{total}} Zeilen",
+    "showingAtLeast": "{{start}}-{{end}} von über {{total}} Zeilen",
     "rowsPerPage": "Zeilen pro Seite",
     "columns": "Spalten",
     "loadFailed": "Daten konnten nicht geladen werden. Bitte erneut versuchen.",
@@ -206,6 +236,7 @@
     "cellEditorLabel": "{{column}} für Feature {{gid}} bearbeiten",
     "selectPage": "Alle Zeilen auf dieser Seite auswählen",
     "selectRow": "Zeile {{gid}} auswählen",
+    "rowActionLabel": "Zeile {{gid}} auf der Karte anzeigen",
     "deleteRows_one": "{{formattedCount}} Zeile löschen",
     "deleteRows_many": "{{formattedCount}} Zeilen löschen",
     "deleteRows_other": "{{formattedCount}} Zeilen löschen",
@@ -334,6 +365,7 @@
       "committing": "Erneutes Hochladen wird übernommen...",
       "tracking": "Der Datensatz wird im Hintergrund aktualisiert.",
       "complete": "Der Datensatz wurde erfolgreich aktualisiert.",
+      "unchanged": "Das erneute Hochladen wurde abgeschlossen, ohne den Datensatz zu ändern.",
       "held": "Diese Ersetzung wurde zur Prüfung zurückgehalten.",
       "error": "Beim erneuten Hochladen ist ein Fehler aufgetreten."
     },
@@ -392,10 +424,13 @@
     "trackingBackground": "Der Datensatz wird im Hintergrund aktualisiert.",
     "completeTitle": "Erneutes Hochladen abgeschlossen!",
     "completeMessage": "Der Datensatz wurde aktualisiert.",
+    "unchangedTitle": "Nichts geändert",
+    "unchangedMessage": "Die Daten stimmten mit dem bisherigen Stand des Datensatzes überein, daher wurde keine neue Version veröffentlicht.",
     "errorFallback": "Ein unerwarteter Fehler ist aufgetreten.",
     "tryAgain": "Erneut versuchen",
     "refreshingOrigin": "Wird aktualisiert...",
     "toastSuccess": "Erneutes Hochladen abgeschlossen!",
+    "toastUnchanged": "Erneutes Hochladen abgeschlossen: nichts geändert",
     "uploadFailed": "Hochladen fehlgeschlagen. Bitte versuchen Sie es erneut.",
     "commitFailed": "Übernahme fehlgeschlagen. Bitte versuchen Sie es erneut.",
     "originRefreshFailed": "Die Datensatzinformationen konnten nach diesem Konflikt nicht aktualisiert werden. Laden Sie die Seite neu und versuchen Sie es erneut.",
@@ -817,7 +852,8 @@
       "stac": "Entfernte Referenz aus einem STAC-Katalog. Das Quell-Asset muss verfügbar bleiben.",
       "created": "In GeoLens erstellt und als eigener, bearbeitbarer Datensatz gespeichert.",
       "vrt": "Aus anderen von GeoLens verwalteten Rasterdatensätzen zusammengesetzt.",
-      "unknown": "Für diesen Datensatz ist keine maschinenlesbare Herkunft erfasst."
+      "unknown": "Für diesen Datensatz ist keine maschinenlesbare Herkunft erfasst.",
+      "database": "Aus einer angebundenen Datenbank importiert. GeoLens behält eine eigene Kopie; eine Aktualisierung kopiert die Tabelle erneut."
     },
     "storage": {
       "upload": "Eigene Kopie",
@@ -826,8 +862,11 @@
       "stac": "Entfernte Referenz",
       "created": "Eigene Kopie",
       "vrt": "Zusammengesetzt",
-      "unknown": "Nicht erfasst"
+      "unknown": "Nicht erfasst",
+      "database": "Eigene Kopie"
     },
+    "openInArcgis": "In ArcGIS öffnen",
+    "opensInNewTab": "öffnet in einem neuen Tab",
     "pointer": {
       "filename": "Quelldateiname",
       "fingerprint": "Dateifingerabdruck",
@@ -837,7 +876,9 @@
       "endpoint": "Quell-URL (Zugangsdaten entfernt)",
       "collection": "STAC-Collection",
       "asset": "STAC-Asset",
-      "item": "STAC-Element"
+      "item": "STAC-Element",
+      "connection": "Datenbankverbindung",
+      "sourceTable": "Quelltabelle"
     },
     "status": {
       "health": {
@@ -854,7 +895,7 @@
       },
       "drift": {
         "none": "Keine Änderung",
-        "drifted": "Änderung erkannt",
+        "drifted": "Spalten bei der letzten Aktualisierung geändert",
         "unknown": "Nicht verglichen"
       }
     },
@@ -966,6 +1007,7 @@
         },
         "sourceCountUnavailable": "Quellanzahl nicht verfügbar.",
         "identityUnavailable": "Datensatzkennungen wurden nicht verglichen.",
+        "dataUnchanged": "Die Daten stimmten mit dem bisherigen Stand des Datensatzes überein, daher wurde keine neue Version veröffentlicht.",
         "countEvidence": "Quelle: {{source}} · abgerufen: {{fetched}}",
         "sourceUsed": "Verwendete Quelle: {{source}}",
         "columnsRemoved": "Entfernte Spalten: {{columns}}",

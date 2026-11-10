@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import json
 from typing import Annotated, Any, Callable, Optional, TypeVar
 
 from mcp.server.mcpserver import MCPServer
@@ -33,8 +34,9 @@ def _tool(fn: _F) -> _F:
     The tool bodies make blocking HTTP calls. The SDK runs sync tools in a
     worker thread that a cancelled request still waits for, so the registered
     wrapper runs them through ``asyncio.to_thread`` instead: a cancelled
-    request stops awaiting the thread and sends no result. Arguments outside
-    the advertised schema are rejected instead of dropped. The client's
+    request stops awaiting the thread and sends no result. Results go out as
+    compact JSON text. Arguments outside the advertised schema are rejected
+    instead of dropped. The client's
     errors are written for the agent (API status and detail, unreachable
     instance, bad id or config), and the SDK only relays a ``ToolError``'s
     message, so they are re-raised as one.
@@ -43,9 +45,13 @@ def _tool(fn: _F) -> _F:
     @functools.wraps(fn)
     async def run_off_loop(*args: Any, **kwargs: Any) -> Any:
         try:
-            return await asyncio.to_thread(fn, *args, **kwargs)
+            result = await asyncio.to_thread(fn, *args, **kwargs)
         except (RuntimeError, ValueError) as exc:
             raise ToolError(str(exc)) from exc
+        # The SDK indents non-string results; a string passes through as is.
+        return json.dumps(
+            result, separators=(",", ":"), default=str, ensure_ascii=False
+        )
 
     mcp.tool(name=fn.__name__)(run_off_loop)
     registered = mcp._tool_manager.get_tool(fn.__name__)
@@ -74,11 +80,15 @@ def search_datasets(
     """Search the GeoLens catalog for datasets by free text.
 
     Matches title, description, and keywords (semantic ranking is used
-    automatically when the instance has it enabled). Returns a GeoJSON
-    FeatureCollection where each feature is a dataset record; use the feature
-    `id` as the dataset_id for the other tools. Each feature's properties include
-    `source_origin` (upload, postgis, service, stac, created, or null) and
-    `source_freshness` (fresh, due, overdue, or unknown). Freshness is advisory:
+    automatically when the instance has it enabled). Returns a compact
+    FeatureCollection (`numberMatched`, `numberReturned`, `features`) where each
+    feature is a trimmed dataset record: `id`, `bbox`, and properties `title`,
+    `description` (cut at 300 characters), `record_type`, `geometry_type`,
+    `feature_count`, `crs`, `keywords` and `updated`. Use the feature `id` as the
+    dataset_id for the other tools; `get_dataset_schema` has the full detail.
+    Each feature's properties also include `source_origin` (upload, postgis,
+    service, stac, created, or null) and `source_freshness` (fresh, due,
+    overdue, or unknown). Freshness is advisory:
     `due` means one declared update interval has elapsed, while `overdue` means
     two have elapsed; neither proves that the content is wrong.
 
@@ -158,13 +168,92 @@ def list_maps(
 
 @_tool
 def get_map(map_id: str) -> Any:
-    """Get one saved map's full metadata, including its layers, view state,
-    basemap, and terrain configuration.
+    """Get a summary of one saved map: name, description, visibility, view
+    state (center, zoom, bearing, pitch), basemap, terrain configuration and
+    layer list.
+
+    Each layer has `id`, `dataset_id`, `dataset_name`, `dataset_table_name`,
+    `dataset_geometry_type`, `display_name`, `visible`, `layer_type` and
+    `filter`. Styling, popups, labels, column info and sample values are not
+    included. `dashboard_widget_count` is the number of dashboard widgets
+    (0 for none).
 
     Args:
         map_id: Map id (e.g. from list_maps).
     """
     return _get_api().get_map(map_id)
+
+
+@_tool
+def list_stories(
+    search: Optional[str] = None,
+    limit: Annotated[int, Field(ge=1, le=200)] = 50,
+    offset: Annotated[int, Field(ge=0)] = 0,
+) -> Any:
+    """List published stories you can read (read-only metadata: id, title,
+    summary, visibility, chapter count). Drafts are never listed.
+
+    Args:
+        search: Optional text filter on story title/summary.
+        limit: Max results (1-200, default 50).
+        offset: Result offset for paging. `total` and paging reflect the
+            server's answer.
+    """
+    return _get_api().list_stories(search=search, limit=limit, offset=offset)
+
+
+@_tool
+def get_story(story_id: str) -> Any:
+    """Get one story's published version: title, summary, visibility and the
+    document with its chapters. Each chapter has a title, blocks and a scene
+    (`map_id`, `camera`, `layer_visibility`); a chapter on a map you can't read
+    comes back without its scene and with `scene_hidden` true. Never returns
+    the draft. `document` is null until the story is published, and a story
+    you can't read answers 404.
+
+    Args:
+        story_id: Story id (e.g. from list_stories).
+    """
+    return _get_api().get_story(story_id)
+
+
+@_tool
+def aggregate(dataset_id: str, request: dict[str, Any]) -> Any:
+    """Compute an exact aggregate over a dataset's rows: counts, summaries and
+    breakdowns without writing SQL. Use `query` for anything else.
+
+    `request` is the JSON body of the aggregate route, chosen by `op`. Every
+    op takes an optional CQL2-JSON `filter` and an optional `bbox`
+    `[west, south, east, north]` in WGS 84. Unknown keys are refused.
+    - `{"op": "count"}`
+    - `{"op": "stats", "column", "stats": [count|sum|avg|min|max, ...]}`
+    - `{"op": "value_counts", "column", "limit"}` (limit 1-50, default 10)
+    - `{"op": "histogram", "column", "bins"}` (bins 1-50, default 10)
+    - `{"op": "group_by", "group_column", "stat", "column"}` or `"stats":
+      [{"stat", "column"}]`, plus optional `date_bucket`
+      (day|week|month|year), `sort_by`, `sort` and `limit` (1-50)
+    - `{"op": "rows", "columns": [up to 20], "sort_column", "sort", "limit",
+      "cursor"}` lists features a page at a time (limit 1-100, default 25),
+      each with its `gid` and `bbox`, never a geometry; pass the previous
+      page's `next_cursor` as `cursor` under the same sort.
+
+    Returns `{op, result, approximate, cached}`. Refusals keep the route's
+    HTTP status and a `code` in the error detail:
+    - 422 `too_wide`: the `bbox` view holds over 500,000 rows. Narrow the bbox
+      or drop it.
+    - 422 `invalid_column`, `invalid_cursor`, `invalid_filter`, `no_geometry`,
+      `query_timeout`, `query_data_error`, `result_too_large`: fix the request
+      and retry.
+    - 429 `query_busy` (two aggregates already running for you) or
+      `query_at_capacity`: retry after 200-400 ms with jitter.
+    - 503 `query_unavailable`: retry after the `Retry-After` delay.
+    Datasets you can't read answer 404. The route allows 10 requests a second.
+
+    Args:
+        dataset_id: Dataset id with a feature table (not a raster).
+        request: The aggregate body described above.
+    """
+    return _get_api().aggregate(dataset_id, request)
 
 
 @_tool
@@ -177,10 +266,22 @@ def query(
 
     Executes through the server's hardened SQL sandbox: a single SELECT over
     `data.*` tables, an allowlisted function set (aggregates, math, string,
-    date, JSON, common PostGIS like ST_Area/ST_DWithin/ST_Intersects), and a
-    strict server-side budget (a few seconds of runtime, a repetition cap on
-    self-joins, and `row_limit` rows). Returns `{columns, rows, row_count,
-    truncated}` with rows as lists in column order.
+    date, JSON), and a strict server-side budget (a 5 s statement timeout, a
+    repetition cap on self-joins, and `row_limit` rows, at most 1000).
+    For counts, statistics, histograms and group-by summaries prefer
+    `aggregate`, which needs no SQL. Returns `{columns, rows, row_count, truncated}` with rows as lists in
+    column order. Geometry columns come back as hex EWKB; select
+    `ST_AsText(geom)` or `ST_AsGeoJSON(geom)` for readable geometry.
+    `ST_AsGeoJSON(geom, 6)` rounds coordinates to six decimals, which suits
+    display but can make a small polygon invalid.
+
+    PostGIS functions allowed: ST_Area, ST_AsGeoJSON, ST_AsText, ST_Buffer,
+    ST_Centroid, ST_Collect, ST_Contains, ST_Distance, ST_DWithin,
+    ST_GeometryType, ST_GeomFromGeoJSON, ST_GeomFromText, ST_Intersects,
+    ST_IsValid, ST_Length, ST_MakeEnvelope, ST_MakePoint, ST_NPoints, ST_Point,
+    ST_SetSRID, ST_Transform, ST_Union, ST_Within, ST_X, ST_Y. ST_Collect and
+    ST_Union take two geometries (no aggregate form). The `&&` bounding-box
+    operator works, as do `::geography` / `::geometry` and `geography(geom)`.
 
     Requires credentials with AI-chat permission — anonymous configurations
     cannot use this tool. Workflow: `search_datasets` to find a dataset, then
@@ -188,7 +289,8 @@ def query(
     as `data.<table_name>` in the SQL and list the same `table_name` in
     `restrict_tables`. Every table the query touches must be listed there;
     the scope can only narrow what your credentials already see. Writes,
-    other schemas, and unlisted functions are rejected with a short reason.
+    other schemas, and unlisted functions are rejected with a short reason
+    that names the refused function.
 
     Args:
         sql: A single SELECT statement over `data.*` tables.

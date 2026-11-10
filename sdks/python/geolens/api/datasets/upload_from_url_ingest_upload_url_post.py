@@ -116,7 +116,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: UrlUploadRequest,
 ) -> Response[ProblemDetail | UploadResponse]:
-    """Upload From Url
+    """Import a file from a URL
 
      Start importing a geospatial file from an HTTP(S) URL.
 
@@ -165,7 +165,7 @@ def sync(
     client: AuthenticatedClient,
     body: UrlUploadRequest,
 ) -> ProblemDetail | UploadResponse | None:
-    """Upload From Url
+    """Import a file from a URL
 
      Start importing a geospatial file from an HTTP(S) URL.
 
@@ -209,7 +209,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: UrlUploadRequest,
 ) -> Response[ProblemDetail | UploadResponse]:
-    """Upload From Url
+    """Import a file from a URL
 
      Start importing a geospatial file from an HTTP(S) URL.
 
@@ -256,7 +256,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: UrlUploadRequest,
 ) -> ProblemDetail | UploadResponse | None:
-    """Upload From Url
+    """Import a file from a URL
 
      Start importing a geospatial file from an HTTP(S) URL.
 

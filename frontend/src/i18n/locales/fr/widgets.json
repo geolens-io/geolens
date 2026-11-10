@@ -1,0 +1,277 @@
+{
+  "unavailable": "Impossible d’afficher ce bloc. Il provient peut-être d’une version plus récente de GeoLens.",
+  "noData": "Pas encore de données",
+  "noRows": "Aucune donnée",
+  "showTable": "Afficher le tableau de données",
+  "picked": "sélectionné",
+  "noValue": "(sans valeur)",
+  "other": "Autres",
+  "stats": {
+    "count": "Nombre",
+    "sum": "Somme de {{column}}",
+    "mean": "Moyenne de {{column}}",
+    "min": "Minimum de {{column}}",
+    "max": "Maximum de {{column}}"
+  },
+  "types": {
+    "markdown": {
+      "label": "Texte",
+      "imageNotShown": "Image non affichée",
+      "imageNotShownAlt": "Image non affichée : {{alt}}",
+      "sourceHint": "Markdown : les titres, les listes et les liens fonctionnent. Le HTML et les images ne sont pas affichés."
+    },
+    "indicator": {
+      "label": "Indicateur",
+      "summary": "{{label}} : {{value}}",
+      "reference": "{{label}} : {{value}}",
+      "referenceDefault": "Référence",
+      "referenceDefaultPhrase": "la référence",
+      "above": "{{amount}} au-dessus de {{label}}",
+      "below": "{{amount}} en dessous de {{label}}",
+      "same": "Identique à {{label}}",
+      "outcome": "{{difference}}, {{outcome}}",
+      "difference": "Écart",
+      "measure": "Mesure",
+      "value": "Valeur",
+      "good": "favorable",
+      "bad": "défavorable"
+    },
+    "bar_chart": {
+      "label": "Diagramme en barres",
+      "summary": "{{stat}} par {{column}}",
+      "keyboardHint": "Utilisez les flèches pour passer d’une barre à l’autre.",
+      "keyboardHintPick": "Utilisez les flèches pour passer d’une barre à l’autre. Appuyez sur Entrée pour filtrer la carte selon une barre, puis de nouveau pour retirer le filtre.",
+      "keyboardHintPickPage": "Utilisez les flèches pour passer d’une barre à l’autre. Appuyez sur Entrée pour filtrer le tableau de bord selon une barre, puis de nouveau pour retirer le filtre.",
+      "bar": "{{label}} : {{value}}",
+      "roleDescription": "diagramme en barres",
+      "summaryDate": "{{stat}} par {{bucket}} (UTC)",
+      "summaryFeature": "{{value}} par {{label}}",
+      "summaryFields": "{{stat}} par champ",
+      "fieldHeader": "Champ",
+      "buckets": {
+        "day": "jour",
+        "week": "semaine",
+        "month": "mois",
+        "year": "année"
+      },
+      "moreBuckets": "Affichage des {{shown}} premières périodes. La couche en compte davantage.",
+      "moreFeatures": "Affichage de {{shown}} entités. La couche en compte davantage."
+    },
+    "histogram": {
+      "label": "Histogramme",
+      "summary": "Distribution de {{column}}",
+      "keyboardHint": "Utilisez les flèches pour passer d’une classe à l’autre.",
+      "keyboardHintPick": "Utilisez les flèches pour passer d’une classe à l’autre. Appuyez sur Entrée pour filtrer la carte selon une classe, puis de nouveau pour retirer le filtre.",
+      "keyboardHintPickPage": "Utilisez les flèches pour passer d’une classe à l’autre. Appuyez sur Entrée pour filtrer le tableau de bord selon une classe, puis de nouveau pour retirer le filtre.",
+      "bin": "{{range}} : {{value}}",
+      "range": "{{lower}} – {{upper}}",
+      "rangeHeader": "Intervalle",
+      "roleDescription": "histogramme"
+    },
+    "category_selector": {
+      "label": "Sélecteur de catégories",
+      "summary": "Filtrer par {{column}}",
+      "all": "Tout",
+      "other": "Autres valeurs : {{value}}"
+    },
+    "image": {
+      "label": "Image",
+      "description": "Image : {{alt}}",
+      "loading": "Chargement de l’image : {{alt}}"
+    },
+    "button": {
+      "label": "Bouton",
+      "opensInNewTab": "(s’ouvre dans un nouvel onglet)"
+    },
+    "separator": {
+      "label": "Séparateur"
+    },
+    "gallery": {
+      "label": "Galerie",
+      "open": "Ouvrir l’image {{current}} sur {{total}}"
+    },
+    "carousel": {
+      "label": "Carrousel",
+      "previous": "Image précédente",
+      "next": "Image suivante",
+      "position": "Image {{current}} sur {{total}}",
+      "roleDescription": "carrousel",
+      "slideRoleDescription": "diapositive"
+    },
+    "table": {
+      "label": "Tableau",
+      "summary": "Statistiques par {{column}}",
+      "truncated_one": "Seule la première valeur est affichée. Les autres valeurs ne sont pas listées.",
+      "truncated_many": "Les {{count}} premières valeurs sont affichées. Les autres valeurs ne sont pas listées.",
+      "truncated_other": "Les {{count}} premières valeurs sont affichées. Les autres valeurs ne sont pas listées."
+    },
+    "feature_list": {
+      "label": "Liste d’entités",
+      "summary": "Entités par {{column}}",
+      "listLabel": "Entités",
+      "shown": "{{shown}} entités affichées",
+      "shownMore": "{{shown}} entités affichées, d’autres sont disponibles",
+      "loadMore": "Charger plus",
+      "loadingMore": "Chargement en cours",
+      "zoomTo": "Zoomer sur l’entité sur la carte",
+      "noMap": "Ce tableau de bord n’a pas de carte, il est donc impossible de zoomer sur les entités.",
+      "loadFailed": "Impossible de charger d’autres entités.",
+      "retryLoadMore": "Réessayer"
+    },
+    "embed": {
+      "label": "Intégration",
+      "unavailable": "Cette page intégrée ne peut pas s’afficher ici, car son site n’est plus approuvé.",
+      "originalLink": "Si le cadre reste vide, ouvrez l’original :"
+    },
+    "video": {
+      "label": "Vidéo",
+      "unavailable": "Cette vidéo ne peut pas s’afficher ici, car son site n’est plus approuvé."
+    },
+    "pie_chart": {
+      "label": "Diagramme circulaire",
+      "summary": "{{stat}} par {{column}}",
+      "keyboardHint": "Utilisez les flèches pour passer d’un secteur à l’autre.",
+      "keyboardHintPick": "Utilisez les flèches pour passer d’un secteur à l’autre. Appuyez sur Entrée pour filtrer la carte selon un secteur, puis de nouveau pour retirer le filtre.",
+      "keyboardHintPickPage": "Utilisez les flèches pour passer d’un secteur à l’autre. Appuyez sur Entrée pour filtrer le tableau de bord selon un secteur, puis de nouveau pour retirer le filtre.",
+      "slice": "{{label}} : {{value}} ({{share}})",
+      "roleDescription": "diagramme circulaire",
+      "sliceValue": "{{label}} : {{value}}",
+      "truncated": "Affichage des {{shown}} premières valeurs. La couche en compte davantage, les secteurs ne forment donc pas le tout.",
+      "signed": "Les secteurs ne peuvent pas représenter de valeurs négatives ou non numériques ; ce diagramme est donc affiché sous forme de tableau."
+    }
+  },
+  "dashboard": {
+    "title": "Tableau de bord",
+    "open": "Ouvrir le tableau de bord",
+    "openWithFilters_one": "Ouvrir le tableau de bord, {{count}} filtre appliqué",
+    "openWithFilters_many": "Ouvrir le tableau de bord, {{count}} filtres appliqués",
+    "openWithFilters_other": "Ouvrir le tableau de bord, {{count}} filtres appliqués",
+    "hide": "Masquer le tableau de bord",
+    "followsView": "Suit la vue de la carte",
+    "viewScopeUnavailable": "Toute la couche est affichée : ce tableau de bord masque sa carte.",
+    "filterIgnored": "Affiche toutes les entités : le filtre de la couche ne peut pas s'appliquer à ces chiffres.",
+    "filterIgnoredWithPicks": "Applique vos filtres, mais pas le filtre propre à la couche, qui ne peut pas s’appliquer à ces chiffres.",
+    "tooWide": "Trop d'entités dans la vue. Zoomez pour voir ces chiffres.",
+    "loadFailed": "Impossible de charger ces chiffres.",
+    "columnUnavailable": "La colonne de ce widget n'est pas disponible ici.",
+    "filterRefused": "Le filtre de ce widget ne peut pas être appliqué ici.",
+    "allHidden": "Les couches que résument ces widgets sont masquées. Affichez-en une dans la légende pour voir ses widgets.",
+    "retry": "Réessayer",
+    "someFailed": "Certains widgets n'ont pas pu charger leurs chiffres.",
+    "someTooWide": "Zoomez pour voir les chiffres de certains widgets.",
+    "filters": "Filtres",
+    "filterChip": "{{column}} : {{value}}",
+    "removeFilter": "Retirer le filtre {{filter}} sur {{layer}}",
+    "filterApplied": "{{layer}} filtrée sur {{filter}}.",
+    "filterCleared": "Filtre {{filter}} retiré de {{layer}}.",
+    "cantFilter": "« {{value}} » ne peut pas servir de filtre.",
+    "tooManyForClusters": "Trop de valeurs pour filtrer les regroupements de cette couche. Choisissez-en moins.",
+    "clustersCantFilter": "Ce filtre ne peut pas s’appliquer aux regroupements de cette couche sur la carte.",
+    "tooManyValues": "Trop de valeurs pour filtrer. Choisissez-en moins."
+  },
+  "editor": {
+    "panelPosition": "Position du panneau",
+    "panelRight": "À droite de la carte",
+    "panelBottom": "Sous la carte",
+    "hideMap": "Masquer la carte",
+    "hideMapHelp": "Les lecteurs voient les widgets sur toute la page et aucune carte n'est chargée.",
+    "theme": "Thème pour les lecteurs",
+    "themeFollow": "Selon le lecteur",
+    "empty": "Aucun widget pour l'instant.",
+    "noLayers": "Ajoutez à la carte une couche vectorielle ou une table pour lui donner des widgets.",
+    "add": "Ajouter : {{type}}",
+    "title": "Titre",
+    "layer": "Couche",
+    "pickLayer": "Choisissez une couche",
+    "scope": "Porte sur",
+    "scopeLayer": "Toute la couche",
+    "scopeView": "Ce qui est dans la vue de la carte",
+    "moveUp": "Monter {{name}}",
+    "moveDown": "Descendre {{name}}",
+    "remove": "Supprimer {{name}}",
+    "preview": "Aperçu",
+    "previewPanel": "Aperçu du panneau",
+    "embedColumnHint": "Les copies intégrées de cette carte ne peuvent pas afficher cette colonne.",
+    "previewPanelDescription": "Le panneau tel que les lecteurs le voient, avec un espace réservé pour la carte.",
+    "previewMap": "Carte",
+    "stat": "Statistique",
+    "statNames": {
+      "count": "Nombre",
+      "sum": "Somme",
+      "mean": "Moyenne",
+      "min": "Minimum",
+      "max": "Maximum"
+    },
+    "noNumericColumns": "Cette couche n'a pas de colonne numérique : seul un comptage est possible.",
+    "column": "Colonne",
+    "groupBy": "Regrouper par",
+    "limit": "Barres",
+    "bins": "Classes",
+    "multiple": "Les lecteurs peuvent choisir plusieurs valeurs",
+    "histogramNeedsNumbers": "Cette couche n’a pas de colonne numérique à répartir en classes.",
+    "pickColumn": "Choisissez une colonne",
+    "problem": {
+      "layerRemoved": "Sa couche n'est plus sur la carte : l'enregistrement supprimera ce widget.",
+      "missingColumn": "La couche n'a pas de colonne « {{column}} ». Choisissez-en une autre avant d'enregistrer.",
+      "notNumeric": "« {{column}} » n'est pas une colonne numérique. Choisissez-en une autre avant d'enregistrer.",
+      "viewWithoutGeometry": "Cette couche n'a pas de géométrie : le widget ne peut pas suivre la vue de la carte. Faites-le porter sur toute la couche.",
+      "notSortable": "« {{column}} » ne peut pas servir au tri. Choisissez-en une autre avant d’enregistrer.",
+      "notListable": "« {{column}} » ne peut pas être listée. Choisissez-en une autre avant d’enregistrer.",
+      "notDate": "« {{column}} » n’est pas une colonne de date. Choisissez-en une autre avant d’enregistrer."
+    },
+    "maxWidgets": "Un tableau de bord contient au plus {{max}} widgets.",
+    "reference": "Valeur de référence",
+    "referenceLabel": "Libellé de la référence",
+    "comparison": "Afficher l'écart sous forme de",
+    "comparisons": {
+      "both": "Valeur et variation en pourcentage",
+      "value": "Valeur",
+      "percent": "Variation en pourcentage"
+    },
+    "higherIsBetter": "Une valeur plus élevée est meilleure",
+    "statN": "Statistique {{n}}",
+    "removeStat": "Retirer la statistique {{n}}",
+    "addStat": "Ajouter une statistique",
+    "sortBy": "Trier par",
+    "sortGroup": "Valeur du groupe",
+    "sortDirection": "Ordre",
+    "sortDesc": "Du plus grand au plus petit",
+    "sortAsc": "Du plus petit au plus grand",
+    "rows": "Lignes",
+    "featureList": {
+      "title": "Colonne du titre",
+      "subtitle": "Colonne du sous-titre",
+      "none": "Aucune",
+      "sortBy": "Trier par",
+      "direction": "Ordre",
+      "ascending": "Croissant",
+      "descending": "Décroissant",
+      "pageSize": "Entités par page"
+    },
+    "barMode": "Les barres montrent",
+    "barModes": {
+      "category": "Valeurs d’une colonne",
+      "date": "Dates",
+      "by_feature": "Une barre par entité",
+      "by_fields": "Une barre par champ"
+    },
+    "barNeedsNumbers": "Cette couche n’a aucune colonne numérique pour ce diagramme.",
+    "barNeedsDates": "Cette couche n’a aucune colonne de date.",
+    "dateColumn": "Colonne de date",
+    "dateBucket": "Regrouper par",
+    "dateBuckets": {
+      "day": "Jour",
+      "week": "Semaine",
+      "month": "Mois",
+      "year": "Année"
+    },
+    "labelField": "Champ d’étiquette",
+    "valueField": "Champ de valeur",
+    "sortOrder": "Ordre",
+    "fields": "Champs",
+    "layerColors": "Utiliser les couleurs de la couche",
+    "layerColorsHelp": "S’applique lorsque la colonne est celle par laquelle le style de la couche colore la carte.",
+    "fieldUnavailable": "{{column}} (n’est pas une colonne numérique de cette couche)",
+    "slices": "Secteurs"
+  }
+}

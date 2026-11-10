@@ -17,10 +17,8 @@ import { formatNumber } from '@/lib/format';
 import { describeFailureReason } from '@/lib/failure-reason';
 
 // `restricted` is not offered at import time: a non-admin owner who picked it
-// would lose access to their own dataset, and grants have no write path. The
-// type goes with the option, so nothing typechecks against a value the picker
-// cannot produce.
-type DatasetVisibilityChoice = 'private' | 'public';
+// would lock themselves out, and the dataset Access tab owns group sharing.
+type DatasetVisibilityChoice = 'private' | 'internal' | 'public';
 
 // The schema discovery scans for unregistered tables.
 const DISCOVERY_SCHEMA = 'data';
@@ -155,7 +153,7 @@ export function RegisterForm() {
   if (discoverError) {
     return (
       <div className="rounded-xl border border-border bg-card p-6">
-        <p className="text-sm text-destructive">
+        <p role="alert" className="text-sm text-destructive">
           {t('register.discoverFailed')}
         </p>
       </div>
@@ -302,7 +300,7 @@ function TableDetail({
       </dl>
 
       {refusal && (
-        <p id={refusalId} className="max-w-lg text-xs text-destructive">
+        <p id={refusalId} role="alert" className="max-w-lg text-xs text-destructive">
           {REFUSAL_CODES.has(refusal) ? t(`register.refusal.${refusal}`) : refusal}
         </p>
       )}
@@ -319,6 +317,7 @@ function TableDetail({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="private">{t('register.visibilityPrivate')}</SelectItem>
+            <SelectItem value="internal">{t('register.visibilityInternal')}</SelectItem>
             {canSetPublic && (
               <SelectItem value="public">{t('register.visibilityPublic')}</SelectItem>
             )}

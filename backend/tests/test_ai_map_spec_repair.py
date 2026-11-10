@@ -45,7 +45,7 @@ class _FakeProvider:
 def usage_records(monkeypatch):
     records: list[dict] = []
 
-    async def _record(_db, **kwargs):
+    async def _record(**kwargs):
         records.append(kwargs)
 
     monkeypatch.setattr(ai_service, "record_token_usage", _record)

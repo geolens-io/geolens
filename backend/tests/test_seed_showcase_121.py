@@ -199,7 +199,7 @@ class TargetApi:
         names = state.MAP_NAMES - {seed.CITY_SHADE_MAP} if maps == () else maps
         self.maps = {name: f"{name}-id" for name in names}
         self.jobs = 0
-        self.titles = titles or {seed.QUAKES_TITLE: "q", seed.QUAKES_HEAT_TITLE: "h"}
+        self.titles = titles or {seed.QUAKES_TITLE: "q"}
         self.origin = origin
         self.visibility = visibility
         self.features = features
@@ -244,6 +244,21 @@ def test_guarded_update_accepts_a_service_bound_target_without_legacy_rows(job_c
     assert state.unrestorable_changes(TargetApi()) == []
 
 
+def test_guarded_update_refuses_to_move_the_matterhorn_terrain(job_counts):
+    api = TargetApi(
+        titles={seed.QUAKES_TITLE: "q", seed.SWISSALTI_MOSAIC_TITLE: "swiss"}
+    )
+    api.get_map = lambda _id: {
+        "visibility": "public",
+        "description": "text",
+        "terrain_config": {"source_dataset_id": "swiss"},
+    }
+    assert (
+        "the Matterhorn terrain would move to the Copernicus mosaic"
+        in state.unrestorable_changes(api)
+    )
+
+
 def test_guarded_update_waits_for_a_running_job(job_counts):
     job_counts["running"] = 1
     assert state.unrestorable_changes(TargetApi()) == [
@@ -259,6 +274,7 @@ def test_guarded_update_waits_for_a_running_job(job_counts):
         TargetApi(maps=[*state.MAP_NAMES, seed.HURRICANE_MAP_LEGACY]),
         TargetApi(maps=[seed.CITY_SHADE_MAP]),
         TargetApi(titles={seed.QUAKES_TITLE_LEGACY: "legacy"}),
+        TargetApi(titles={seed.STATES_TITLE_LEGACY: "legacy"}),
         TargetApi(maps=[*state.MAP_NAMES], visibility="private"),
         TargetApi(titles={seed.COPC_TITLE: "copc"}, visibility="private"),
         TargetApi(titles={"Matterhorn Peaks": "peaks"}, visibility="private"),
@@ -409,9 +425,12 @@ class CameraApi:
         return self.cameras[name]
 
 
-@pytest.mark.parametrize("key", ["expected", "wanted"])
-def test_guarded_preflight_accepts_a_known_camera(key):
-    api = CameraApi({name: fix[key] for name, fix in seed.MAP_VIEW_FIXES.items()})
+@pytest.mark.parametrize("pick", ["wanted", 0, -1])
+def test_guarded_preflight_accepts_a_known_camera(pick):
+    def camera(fix):
+        return fix["wanted"] if pick == "wanted" else seed._view_baselines(fix)[pick]
+
+    api = CameraApi({name: camera(fix) for name, fix in seed.MAP_VIEW_FIXES.items()})
     assert seed.view_baseline_problems(api) == []
 
 
@@ -437,20 +456,51 @@ class MatterhornCameraApi:
             self.camera_writes.append(fields)
 
 
-def test_styling_frames_a_matterhorn_map_saved_without_a_camera():
-    api = MatterhornCameraApi(
-        {"center_lng": None, "center_lat": None, "zoom": None, "pitch": 0, "bearing": 0}
-    )
-    assert seed.apply_showcase_styling(api) == []
-    assert api.camera_writes == [
+MATTERHORN_VIEW = {
+    "center_lng": 7.660389,
+    "center_lat": 45.980888,
+    "zoom": 12.819672,
+    "pitch": 60,
+    "bearing": -150,
+}
+
+
+@pytest.mark.parametrize(
+    "camera",
+    [
+        {
+            "center_lng": None,
+            "center_lat": None,
+            "zoom": None,
+            "pitch": 0,
+            "bearing": 0,
+        },
         {
             "center_lng": 7.6586,
             "center_lat": 45.9750,
             "zoom": 14.0,
             "pitch": 66,
             "bearing": -150,
-        }
-    ]
+        },
+    ],
+    ids=["no camera", "previous seed camera"],
+)
+def test_styling_frames_a_matterhorn_map_from_either_baseline(camera):
+    api = MatterhornCameraApi(camera)
+    assert seed.apply_showcase_styling(api) == []
+    assert api.camera_writes == [MATTERHORN_VIEW]
+
+
+def test_styling_leaves_the_matterhorn_view_it_wants_alone():
+    api = MatterhornCameraApi(dict(MATTERHORN_VIEW))
+    assert seed.apply_showcase_styling(api) == []
+    assert api.camera_writes == []
+    assert (
+        seed.view_baseline_problems(
+            CameraApi({"The Matterhorn in 3D": MATTERHORN_VIEW})
+        )
+        == []
+    )
 
 
 def test_styling_leaves_a_moved_matterhorn_camera_alone():
@@ -554,7 +604,7 @@ def _enriched(title):
 def test_enrich_names_the_sentinel_scene_in_its_summary_and_credit():
     fields = _enriched("Sentinel-2 TCI S2B_T18TXL_20260911T155930_L2A")
     assert fields["summary"].startswith(
-        "Sentinel-2B Level-2A true-colour image (TCI) of MGRS tile 18TXL, "
+        "Sentinel-2B Level-2A true-color image (TCI) of MGRS tile 18TXL, "
         "acquired 2026-09-11 at 15:59 UTC."
     )
     assert "UTM zone 18N (EPSG:32618)" in fields["summary"]
@@ -624,6 +674,192 @@ def test_the_basin_context_layer_explains_its_hatch_in_the_legend():
     body = seed._basin_context_layer_body("regions")
     assert body["paint"]["fill-pattern"] == "geolens-fill-hatch"
     assert body["show_in_legend"] is True
-    assert body["display_name"] == (
-        "Atlantic basin regions (hatched where no major storm passed within 100 km)"
+    assert body["display_name"] == "Regions no major storm reached"
+    assert body["paint"]["fill-opacity"] <= 0.15
+
+
+class StatesApi:
+    def __init__(self):
+        self.patches: list[dict] = []
+        self.ingested: list[str] = []
+
+    def patch_dataset(self, dataset_id, **fields):
+        self.patches.append({"id": dataset_id, **fields})
+
+    def ingest_geojson(self, filename, data, title, summary, **_):
+        self.ingested.append(title)
+
+
+def test_states_dataset_takes_its_new_title_in_place(monkeypatch):
+    monkeypatch.setattr(seed, "fetch", lambda _url: b"{}")
+    api = StatesApi()
+    by_title = {seed.STATES_TITLE_LEGACY: "states-id"}
+    seed.ensure_states_dataset(api, by_title)
+    assert api.patches == [{"id": "states-id", "title": seed.STATES_TITLE}]
+    assert api.ingested == []
+    assert by_title == {seed.STATES_TITLE: "states-id"}
+    seed.ensure_states_dataset(api, by_title)
+    assert len(api.patches) == 1
+
+
+def test_states_dataset_is_ingested_under_the_new_title_when_absent(monkeypatch):
+    monkeypatch.setattr(seed, "fetch", lambda _url: b"{}")
+    api = StatesApi()
+    seed.ensure_states_dataset(api, {})
+    assert api.ingested == [seed.STATES_TITLE]
+    assert "World" not in seed.STATES_TITLE
+
+
+class CollectionsApi:
+    def __init__(self, titles):
+        self.titles = titles
+        self.members: dict[str, list[str]] = {}
+
+    def list_collections(self):
+        return []
+
+    def create_collection(self, name, description):
+        return name
+
+    def datasets_by_title(self):
+        return self.titles
+
+    def add_to_collection(self, collection_id, member_ids):
+        self.members[collection_id] = member_ids
+        return len(member_ids)
+
+
+def test_collections_hold_the_derived_hurricane_data_and_new_york_imagery():
+    titles = {
+        "Major Hurricane Corridors (100 km buffer)": "corridors",
+        "Coastal Regions Inside a Major Hurricane Corridor": "coastal",
+        "Sentinel-2 TCI S2B_T18TXL_20260911T155930_L2A": "scene-b",
+        "Sentinel-2 TCI S2A_T18TWL_20260829T155705_L2A": "scene-a",
+    }
+    api = CollectionsApi(titles)
+    seed.build_collections(api)
+    assert {"corridors", "coastal"} <= set(api.members["Restless Planet"])
+    assert api.members["Human World"] == ["scene-a", "scene-b"]
+
+
+def test_client_connection_records_say_the_dataset_page_draws_them():
+    texts = [
+        seed.COLLECTIONS["Client Connections"][0],
+        seed.SHOWCASE_METADATA[seed.COPC_TITLE]["summary"],
+        seed.SHOWCASE_METADATA[seed.TILES3D_TITLE]["summary"],
+    ]
+    for text in texts:
+        assert "does not render" not in text
+        assert "map builder does not layer" in text
+
+
+def test_every_showcase_record_states_how_often_it_is_updated():
+    missing = [
+        title
+        for title, spec in seed.SHOWCASE_METADATA.items()
+        if not (
+            spec.get("update_frequency")
+            or spec.get("gated", {}).get("update_frequency")
+        )
+    ]
+    assert missing == []
+
+
+def test_new_york_scenes_say_new_york_in_their_summary():
+    fields = seed._sentinel2_scene_fields(
+        "Sentinel-2 TCI S2B_T18TXL_20260911T155930_L2A"
     )
+    assert "New York City" in fields["summary"]
+    assert "2026-09-11" in fields["summary"]
+    south = seed._sentinel2_scene_fields(
+        "Sentinel-2 TCI S2A_T33HUD_20260101T090000_L2A"
+    )
+    assert "New York" not in south["summary"]
+
+
+def test_orbit_map_text_does_not_count_its_scenes():
+    notes = seed.MAP_LEGEND_AND_NOTES[seed.ORBIT_MAP][1]
+    description = seed.MAP_DESCRIPTIONS[seed.ORBIT_MAP]
+    assert "four" not in (notes + description).lower()
+
+
+def test_the_legacy_states_title_is_still_enriched_collected_and_snapshotted(
+    monkeypatch,
+):
+    legacy = seed.STATES_TITLE_LEGACY
+
+    class LegacyEnrichApi(EnrichApi):
+        def list_own_datasets(self):
+            return [{"title": legacy, "id": "states", "origin": "upload"}]
+
+        def existing_keywords(self, _):
+            return set()
+
+        def add_keyword(self, *_):
+            pass
+
+    api = LegacyEnrichApi()
+    seed.enrich_showcase_metadata(api)
+    assert api.patches and api.patches[0]["license"] == "Natural Earth (public domain)"
+
+    collections = CollectionsApi({legacy: "states"})
+    seed.build_collections(collections)
+    assert "states" in collections.members["Human World"]
+
+    monkeypatch.setattr(state, "get", lambda _api, _path: {"keywords": []})
+
+    class LegacySnapshotApi(SnapshotApi):
+        def list_own_datasets(self):
+            return [{"title": legacy, "id": "states"}]
+
+    assert list(state.snapshot(LegacySnapshotApi())["datasets"]) == [legacy]
+
+
+def test_datasets_on_public_maps_carry_an_attribution():
+    needing = [
+        seed.QUAKES_TITLE,
+        "Tectonic Plate Boundaries (PB2002)",
+        "Significant Volcanic Eruptions (NCEI, 4360 BC-present)",
+        "World Major Cities (500k+)",
+        "Atlantic Basin Regions (Natural Earth admin-1)",
+        seed.CITY_SHADE_WINDOW,
+        "New York Median Household Income by County",
+    ]
+    for title in needing:
+        assert seed.SHOWCASE_METADATA[title].get("attribution"), title
+    income = seed.SHOWCASE_METADATA["New York Median Household Income by County"]
+    assert "USDA" in income["attribution"] and "USDA" in income["summary"]
+    assert "USDA" in income["license"]
+    pb = seed.SHOWCASE_METADATA["Tectonic Plate Boundaries (PB2002)"]
+    assert "Bird, P. (2003)" in pb["attribution"]
+
+
+class RenameApi:
+    def __init__(self, maps):
+        self.maps = dict(maps)
+        self.renamed = []
+
+    def list_maps(self):
+        return dict(self.maps)
+
+    def set_view(self, map_id, **fields):
+        self.renamed.append((map_id, fields["name"]))
+
+
+def test_legacy_map_names_are_renamed_in_place_once():
+    skyline = "Manhattan: A Century of Skyline"
+    api = RenameApi(
+        {
+            "Manhattan - A Century of Skyline": "skyline-id",
+            "Hurricane Alley - Major Atlantic Storms Since 1950": "old-alley-id",
+            seed.HURRICANE_MAP: "alley-id",
+        }
+    )
+    seed.rename_legacy_maps(api)
+    assert api.renamed == [("skyline-id", skyline)]
+
+
+def test_every_legacy_map_name_maps_to_a_name_the_seeder_still_uses():
+    current = {name for name, _ in seed.LEGACY_MAP_NAMES}
+    assert current <= seed._showcase_map_names()
+    assert not current & {legacy for _, legacy in seed.LEGACY_MAP_NAMES}

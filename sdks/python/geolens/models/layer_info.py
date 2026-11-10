@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import Any, TypeVar, TYPE_CHECKING
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
@@ -11,6 +11,9 @@ from ..types import UNSET, Unset
 from ..models.layer_info_kind import check_layer_info_kind
 from ..models.layer_info_kind import LayerInfoKind
 from typing import cast
+
+if TYPE_CHECKING:
+    from ..models.layer_relationship import LayerRelationship
 
 
 T = TypeVar("T", bound="LayerInfo")
@@ -31,6 +34,10 @@ class LayerInfo:
         parent_layer_id (int | None | Unset): ArcGIS ID of the group layer that contains this layer, if any.
         importable (bool | Unset): False when the layer holds no features (ArcGIS composite, raster and annotation
             layers) and a preview of it is refused with 'unsupported_layer_type'. Default: True.
+        has_attachments (bool | None | Unset): Whether the ArcGIS layer reports file attachments. Null when the service
+            does not say, and for other service types.
+        relationships (list[LayerRelationship] | Unset): Relationship classes the ArcGIS layer takes part in. Empty when
+            the service declares none or does not say, and for other service types.
         layer_id (int | None | str | Unset): Numeric or string layer ID used by ArcGIS services.
         object_id_field (None | str | Unset): ArcGIS object ID field name, used for stable pagination.
         kind (LayerInfoKind | Unset): Backend-classified layer kind. 'vector' = point/line/polygon feature data.
@@ -47,6 +54,8 @@ class LayerInfo:
     source_layer_type: None | str | Unset = UNSET
     parent_layer_id: int | None | Unset = UNSET
     importable: bool | Unset = True
+    has_attachments: bool | None | Unset = UNSET
+    relationships: list[LayerRelationship] | Unset = UNSET
     layer_id: int | None | str | Unset = UNSET
     object_id_field: None | str | Unset = UNSET
     kind: LayerInfoKind | Unset = "vector"
@@ -89,6 +98,19 @@ class LayerInfo:
 
         importable = self.importable
 
+        has_attachments: bool | None | Unset
+        if isinstance(self.has_attachments, Unset):
+            has_attachments = UNSET
+        else:
+            has_attachments = self.has_attachments
+
+        relationships: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.relationships, Unset):
+            relationships = []
+            for relationships_item_data in self.relationships:
+                relationships_item = relationships_item_data.to_dict()
+                relationships.append(relationships_item)
+
         layer_id: int | None | str | Unset
         if isinstance(self.layer_id, Unset):
             layer_id = UNSET
@@ -126,6 +148,10 @@ class LayerInfo:
             field_dict["parent_layer_id"] = parent_layer_id
         if importable is not UNSET:
             field_dict["importable"] = importable
+        if has_attachments is not UNSET:
+            field_dict["has_attachments"] = has_attachments
+        if relationships is not UNSET:
+            field_dict["relationships"] = relationships
         if layer_id is not UNSET:
             field_dict["layer_id"] = layer_id
         if object_id_field is not UNSET:
@@ -137,6 +163,8 @@ class LayerInfo:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.layer_relationship import LayerRelationship
+
         d = dict(src_dict)
         name = d.pop("name")
 
@@ -189,6 +217,26 @@ class LayerInfo:
 
         importable = d.pop("importable", UNSET)
 
+        def _parse_has_attachments(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        has_attachments = _parse_has_attachments(d.pop("has_attachments", UNSET))
+
+        _relationships = d.pop("relationships", UNSET)
+        relationships: list[LayerRelationship] | Unset = UNSET
+        if _relationships is not UNSET:
+            relationships = []
+            for relationships_item_data in _relationships:
+                relationships_item = LayerRelationship.from_dict(
+                    relationships_item_data
+                )
+
+                relationships.append(relationships_item)
+
         def _parse_layer_id(data: object) -> int | None | str | Unset:
             if data is None:
                 return data
@@ -223,6 +271,8 @@ class LayerInfo:
             source_layer_type=source_layer_type,
             parent_layer_id=parent_layer_id,
             importable=importable,
+            has_attachments=has_attachments,
+            relationships=relationships,
             layer_id=layer_id,
             object_id_field=object_id_field,
             kind=kind,

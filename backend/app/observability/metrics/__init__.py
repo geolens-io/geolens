@@ -15,7 +15,9 @@ import os
 from collections.abc import Iterator
 
 import structlog
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, status
+
+from app.platform.http.forwarding import came_through_proxy
 
 from .instrumentator import create_instrumentator
 
@@ -52,6 +54,25 @@ def _sweep_lock_path(multiproc_dir: str) -> str:
 LATENCY_LOWR_BUCKETS = (0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
 
 
+def _route_path(request: Request) -> str:
+    """The path routing matches on: the app also routes a path that still
+    carries its ``root_path``, so ``/api/metrics`` reaches ``/metrics``."""
+    path = request.scope.get("path", "")
+    root_path = request.scope.get("root_path", "").rstrip("/")
+    if root_path and path.startswith(root_path + "/"):
+        return path[len(root_path) :]
+    return path
+
+
+def _refuse_proxied_scrape(request: Request) -> None:
+    """Answer a scrape the public edge relayed as if the route did not exist.
+
+    The endpoint is unauthenticated; Prometheus scrapes the API directly.
+    """
+    if came_through_proxy(request.headers):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+
 def init_metrics(app: FastAPI):
     """Instrument the FastAPI app and expose /metrics endpoint."""
     instrumentator = create_instrumentator()
@@ -59,7 +80,12 @@ def init_metrics(app: FastAPI):
     # Instrumentator.__init__ takes no bucket args; instrument() is the
     # only place they can be set (prometheus_fastapi_instrumentator 8.1.0).
     instrumentator.instrument(app, latency_lowr_buckets=LATENCY_LOWR_BUCKETS)
-    instrumentator.expose(app, include_in_schema=False, should_gzip=True)
+    instrumentator.expose(
+        app,
+        include_in_schema=False,
+        should_gzip=True,
+        dependencies=[Depends(_refuse_proxied_scrape)],
+    )
 
     @app.middleware("http")
     async def _hold_scrape_lock_during_metrics_response(request: Request, call_next):
@@ -77,7 +103,7 @@ def init_metrics(app: FastAPI):
         from instrumentation so the wait is never measured as latency.
         """
         multiproc_dir = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
-        if request.url.path != _METRICS_ENDPOINT_PATH or not multiproc_dir:
+        if _route_path(request) != _METRICS_ENDPOINT_PATH or not multiproc_dir:
             return await call_next(request)
 
         import fcntl

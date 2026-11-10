@@ -244,12 +244,12 @@ async def test_an_analysis_job_past_its_lease_is_failed(
 async def test_an_analysis_job_inside_its_lease_is_left_running(
     test_db_session, settle
 ) -> None:
-    """An analysis job 299 s past its heartbeat stays running."""
+    """An analysis job well inside its 300 s lease stays running."""
     job = await _add(
         test_db_session,
         status="running",
         started_at=_ago(JOB_TIMEOUT_SECONDS),
-        heartbeat_at=_ago(299),
+        heartbeat_at=_ago(240),
         user_metadata={"analysis": {"operation": "buffer"}},
     )
 

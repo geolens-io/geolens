@@ -118,7 +118,7 @@ def sync_detailed(
     body: ConfigImportRequest,
     mode: DryRunConfigurationConfigOpsDryRunPostMode | Unset = "merge",
 ) -> Response[DryRunResponse | ProblemDetail]:
-    """Dry Run Configuration
+    """Preview a configuration import
 
      Preview what an import would change without applying any modifications.
 
@@ -152,7 +152,7 @@ def sync(
     body: ConfigImportRequest,
     mode: DryRunConfigurationConfigOpsDryRunPostMode | Unset = "merge",
 ) -> DryRunResponse | ProblemDetail | None:
-    """Dry Run Configuration
+    """Preview a configuration import
 
      Preview what an import would change without applying any modifications.
 
@@ -181,7 +181,7 @@ async def asyncio_detailed(
     body: ConfigImportRequest,
     mode: DryRunConfigurationConfigOpsDryRunPostMode | Unset = "merge",
 ) -> Response[DryRunResponse | ProblemDetail]:
-    """Dry Run Configuration
+    """Preview a configuration import
 
      Preview what an import would change without applying any modifications.
 
@@ -213,7 +213,7 @@ async def asyncio(
     body: ConfigImportRequest,
     mode: DryRunConfigurationConfigOpsDryRunPostMode | Unset = "merge",
 ) -> DryRunResponse | ProblemDetail | None:
-    """Dry Run Configuration
+    """Preview a configuration import
 
      Preview what an import would change without applying any modifications.
 

@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.platform.portal_link import ITEM_ID_MAX_LENGTH, PORTAL_URL_MAX_LENGTH
 from app.platform.service_auth import (
     DEPRECATED_TOKEN_SUFFIX,
     SERVICE_AUTH_FIELD_DESCRIPTION,
@@ -285,6 +286,28 @@ class VectorCommitRequest(BaseCommitRequest):
         default=None,
         description="CSV/Excel only: name of the WKT geometry column (alternative to x_column/y_column).",
     )
+    item_id: str | None = Field(
+        default=None,
+        max_length=ITEM_ID_MAX_LENGTH,
+        description=(
+            "Vector file only: ArcGIS portal item ID the file came from, at "
+            "most 64 characters (longer is refused with 422). Stored as "
+            "provenance when it is 32 hex characters, otherwise dropped and "
+            "reported in origin_link_loss; other import types report it as "
+            "'origin_link_unsupported'."
+        ),
+    )
+    portal_url: str | None = Field(
+        default=None,
+        max_length=PORTAL_URL_MAX_LENGTH,
+        description=(
+            "Vector file only: ArcGIS portal address for the item link, at "
+            "most 2048 characters (longer is refused with 422). Stored only "
+            "when it is an https URL, otherwise dropped and reported in "
+            "origin_link_loss; other import types report it as "
+            "'origin_link_unsupported'."
+        ),
+    )
 
 
 # Each of these reaches a conversion argument, the rewrite strict mode exists
@@ -491,13 +514,46 @@ class CommitRequest(BaseModel):
             "refused with a 422 naming the fields that clash."
         ),
     )
+    # Appended after `strict_cog` for the positional-slot reason above.
+    item_id: str | None = Field(
+        default=None,
+        max_length=ITEM_ID_MAX_LENGTH,
+        description=(
+            "Vector file only: ArcGIS portal item ID the file came from, at "
+            "most 64 characters (longer is refused with 422). Stored as "
+            "provenance when it is 32 hex characters, otherwise dropped and "
+            "reported in origin_link_loss; other import types report it as "
+            "'origin_link_unsupported'."
+        ),
+    )
+    portal_url: str | None = Field(
+        default=None,
+        max_length=PORTAL_URL_MAX_LENGTH,
+        description=(
+            "Vector file only: ArcGIS portal address for the item link, at "
+            "most 2048 characters (longer is refused with 422). Stored only "
+            "when it is an https URL, otherwise dropped and reported in "
+            "origin_link_loss; other import types report it as "
+            "'origin_link_unsupported'."
+        ),
+    )
     _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
+
+
+LINK_LOSS_DESCRIPTION = (
+    "Reasons the ArcGIS item link was dropped: 'item_id_invalid', "
+    "'portal_url_invalid', 'portal_url_domain_mismatch' or "
+    "'origin_link_unsupported'. Empty when nothing was dropped."
+)
 
 
 class CommitResponse(BaseModel):
     job_id: uuid.UUID = Field(description="Identifier of the committed ingestion job.")
     status: str = Field(description="Updated job status after commit.")
     message: str = Field(description="Human-readable commit result.")
+    origin_link_loss: list[str] = Field(
+        default_factory=list, description=LINK_LOSS_DESCRIPTION
+    )
 
 
 class RegisterRequest(BaseModel):
@@ -754,6 +810,24 @@ class FanOutCommitRequest(BaseModel):
         max_length=50,
         description="Layers to ingest as separate datasets. Maximum 50 per request.",
     )
+    item_id: str | None = Field(
+        default=None,
+        max_length=ITEM_ID_MAX_LENGTH,
+        description=(
+            "ArcGIS portal item ID the file came from. "
+            "Stored as provenance when it is 32 hex characters, otherwise "
+            "dropped and reported in origin_link_loss."
+        ),
+    )
+    portal_url: str | None = Field(
+        default=None,
+        max_length=PORTAL_URL_MAX_LENGTH,
+        description=(
+            "ArcGIS portal address for the item link. "
+            "Stored only when it is an https URL, otherwise dropped and "
+            "reported in origin_link_loss."
+        ),
+    )
 
 
 class FanOutLayerResult(BaseModel):
@@ -785,4 +859,7 @@ class FanOutCommitResponse(BaseModel):
     )
     results: list[FanOutLayerResult] = Field(
         description="Per-layer outcomes in the same order as the request layers."
+    )
+    origin_link_loss: list[str] = Field(
+        default_factory=list, description=LINK_LOSS_DESCRIPTION
     )

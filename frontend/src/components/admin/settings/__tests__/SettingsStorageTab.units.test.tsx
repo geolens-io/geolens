@@ -8,6 +8,7 @@ function renderStorage(bytes: number) {
   const settings: SettingItem[] = [
     { key: 'max_storage_bytes_per_user', value: bytes, source: 'overridden', label: 'Storage' },
     { key: 'max_datasets_per_user', value: 0, source: 'default', label: 'Datasets' },
+    { key: 'max_story_image_mb_per_user', value: 0, source: 'default', label: 'Story images' },
   ];
   render(<SettingsStorageTab settings={settings} envOnly={false} onSave={onSave} onReset={vi.fn()} isSaving={false} />);
   return { onSave };
@@ -72,5 +73,17 @@ describe('storage quota units', () => {
       expect.stringMatching(/^Enter a quantity that equals a whole number of bytes\. 0 means unlimited\./),
     );
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
+
+  it('saves the story image cap in megabytes', async () => {
+    const user = userEvent.setup();
+    const { onSave } = renderStorage(0);
+    const cap = screen.getByLabelText('Max story image storage per user (MB)');
+
+    await user.clear(cap);
+    await user.type(cap, '512');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(onSave).toHaveBeenCalledWith({ max_story_image_mb_per_user: 512 });
   });
 });

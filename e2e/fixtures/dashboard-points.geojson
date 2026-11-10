@@ -1,0 +1,11 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-73.99, 40.74] }, "properties": { "kind": "park", "height": 1 } },
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-73.98, 40.75] }, "properties": { "kind": "park", "height": 2 } },
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-73.97, 40.76] }, "properties": { "kind": "park", "height": 3 } },
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-73.96, 40.74] }, "properties": { "kind": "school", "height": 4 } },
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-73.95, 40.75] }, "properties": { "kind": "school", "height": 5 } },
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-73.94, 40.76] }, "properties": { "kind": "clinic", "height": 6 } }
+  ]
+}

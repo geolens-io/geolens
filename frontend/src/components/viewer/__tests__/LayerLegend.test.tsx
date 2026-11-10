@@ -137,12 +137,34 @@ describe('LayerLegend notes under an entry', () => {
   const clusters = [SAVED_LAYERS.boundedCluster, SAVED_LAYERS.serverCluster, SAVED_LAYERS.fallbackCluster];
   const entry = (name: string) => within(screen.getByText(name).closest('li')!);
 
-  it('names each cluster by its saved strategy when the map has reported nothing', () => {
+  it('says a layer is a sample while a capped tile is in view, and clears when none is', () => {
+    const note = 'Showing a sample at this zoom. Zoom in to see all features.';
+    const quakes = layer();
+    const legend = (drawn: ReadonlyMap<string, DrawnLayer>) => (
+      <LayerLegend
+        layers={[quakes]}
+        visibleLayers={new Set([quakes.id])}
+        onToggleVisibility={vi.fn()}
+        isOpen
+        onToggle={vi.fn()}
+        drawn={drawn}
+      />
+    );
+    const { rerender } = render(legend(new Map([[quakes.id, { drawsAs: 'circle', sampled: true }]])));
+
+    expect(entry('Earthquakes (M5+)').getByText(note)).toBeInTheDocument();
+
+    rerender(legend(new Map([[quakes.id, { drawsAs: 'circle' }]])));
+
+    expect(screen.queryByText(note)).not.toBeInTheDocument();
+  });
+
+  it('words each cluster by its saved strategy when the map has reported nothing', () => {
     renderLegend(clusters);
 
-    expect(entry('Bike racks').getByText('Bounded cluster')).toBeInTheDocument();
-    expect(entry('Street trees').getByText('Server cluster')).toBeInTheDocument();
-    expect(entry('Survey points').getByText('Point fallback')).toBeInTheDocument();
+    expect(entry('Bike racks').getByText('Grouped into clusters as you zoom out')).toBeInTheDocument();
+    expect(entry('Street trees').getByText('Grouped into clusters as you zoom out')).toBeInTheDocument();
+    expect(entry('Survey points').getByText('Shown as individual points')).toBeInTheDocument();
   });
 
   it('explains the cluster circle colours with their point counts', () => {
@@ -170,14 +192,14 @@ describe('LayerLegend notes under an entry', () => {
     expect(entry('Street trees').queryByText('Points per cluster')).not.toBeInTheDocument();
   });
 
-  it('names a bounded cluster the map drew as single points a point fallback', () => {
+  it('names a bounded cluster the map drew as single points an individual-points note', () => {
     renderLegend(clusters, new Map([
       [SAVED_LAYERS.boundedCluster.id, { drawsAs: 'circle' }],
       [SAVED_LAYERS.serverCluster.id, { drawsAs: 'cluster' }],
     ]));
 
-    expect(entry('Bike racks').getByText('Point fallback')).toBeInTheDocument();
-    expect(entry('Street trees').getByText('Server cluster')).toBeInTheDocument();
+    expect(entry('Bike racks').getByText('Shown as individual points')).toBeInTheDocument();
+    expect(entry('Street trees').getByText('Grouped into clusters as you zoom out')).toBeInTheDocument();
   });
 
   it('names the column a heatmap is weighted by', () => {

@@ -1934,3 +1934,47 @@ describe('LayerStyleEditor - symbol-mode advanced paint edits', () => {
     expect(config.savedCirclePaint).toEqual({ 'circle-color': '#00ff00', 'circle-radius': 9 });
   });
 });
+
+describe('LayerStyleEditor - tile cap hint', () => {
+  const hint = /Map tiles hold up to 50,000 features/;
+  const renderLayer = (overrides: Partial<MapLayerResponse>) =>
+    render(
+      <LayerStyleEditor
+        layer={makeLayer({
+          dataset_geometry_type: 'Point',
+          paint: { 'circle-color': '#ff0000' },
+          dataset_feature_count: 50_001,
+          ...overrides,
+        })}
+        onPaintChange={vi.fn()}
+        onOpacityChange={vi.fn()}
+        onStyleConfigChange={vi.fn()}
+        onLayoutChange={vi.fn()}
+      />,
+    );
+
+  it('shows for a point layer over the tile limit in points mode with no minimum zoom', () => {
+    renderLayer({});
+    expect(screen.getByText(hint)).toHaveTextContent('this layer has 50,001.');
+  });
+
+  it('stays hidden at the limit', () => {
+    renderLayer({ dataset_feature_count: 50_000 });
+    expect(screen.queryByText(hint)).not.toBeInTheDocument();
+  });
+
+  it('stays hidden in cluster mode', () => {
+    renderLayer({ style_config: { render_mode: 'cluster' } as StyleConfig });
+    expect(screen.queryByText(hint)).not.toBeInTheDocument();
+  });
+
+  it('stays hidden once a minimum zoom is set', () => {
+    renderLayer({ layout: { _minzoom: 6 } });
+    expect(screen.queryByText(hint)).not.toBeInTheDocument();
+  });
+
+  it('stays hidden for a polygon layer', () => {
+    renderLayer({ dataset_geometry_type: 'Polygon', paint: { 'fill-color': '#ff0000' } });
+    expect(screen.queryByText(hint)).not.toBeInTheDocument();
+  });
+});

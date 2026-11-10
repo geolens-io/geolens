@@ -1124,7 +1124,7 @@ async def main():
     from fastapi import FastAPI
     from httpx import ASGITransport, AsyncClient
 
-    app = FastAPI()
+    app = FastAPI(root_path=sys.argv[3])
     init_metrics(app)
 
     order = []
@@ -1145,7 +1145,7 @@ async def main():
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.get("/metrics")
+        resp = await client.get(sys.argv[2])
     order.append("scrape_completed")
     await writer_future
 
@@ -1159,9 +1159,14 @@ asyncio.run(main())
 """
 
 
-def test_metrics_endpoint_survives_concurrent_sweep(tmp_path):
+@pytest.mark.parametrize(
+    ("path", "root_path"),
+    [("/metrics", ""), ("/metrics", "/api"), ("/api/metrics", "/api")],
+)
+def test_metrics_endpoint_survives_concurrent_sweep(tmp_path, path, root_path):
     """The reported symptom end to end --
-    a real GET /metrics request, issued while the sweep holds the exclusive
+    a real GET /metrics request, under either spelling the app routes with
+    a root_path, issued while the sweep holds the exclusive
     lock and is mid-rename, must wait and then succeed (200, correct data),
     never surface a FileNotFoundError-driven 500. Exercises the actual
     middleware wired into init_metrics(), not just the raw lock file.
@@ -1185,6 +1190,8 @@ def test_metrics_endpoint_survives_concurrent_sweep(tmp_path):
             "-c",
             _METRICS_ENDPOINT_CONCURRENT_SWEEP_SCRIPT,
             multiproc_dir,
+            path,
+            root_path,
         ],
         cwd=str(_BACKEND_ROOT),
         env={**os.environ, "PROMETHEUS_MULTIPROC_DIR": multiproc_dir},

@@ -8,17 +8,77 @@ const NUMERIC_TYPES = new Set([
 
 /** Check if a column type string represents a numeric Postgres type. */
 export function isNumericColumn(type: string): boolean {
-  const t = type.toLowerCase();
-  if (NUMERIC_TYPES.has(t)) return true;
-  // Fall back to substring match for compound types (e.g. "double precision")
-  for (const nt of NUMERIC_TYPES) {
-    if (t.includes(nt)) return true;
-  }
-  return false;
+  return NUMERIC_TYPES.has(type.toLowerCase());
+}
+
+// The column types the aggregate endpoint reads as numbers (column_stats._NUMERIC_TYPES),
+// as information_schema names them.
+const AGGREGATE_NUMERIC_TYPES = new Set([
+  'smallint',
+  'integer',
+  'bigint',
+  'decimal',
+  'numeric',
+  'real',
+  'double precision',
+  'money',
+]);
+
+/**
+ * True for a column type the aggregate endpoint sums, averages and compares.
+ * Unlike `isNumericColumn` it takes `money` and none of the aliases
+ * information_schema never reports.
+ */
+export function isAggregateNumeric(type: string): boolean {
+  return AGGREGATE_NUMERIC_TYPES.has(type.toLowerCase());
+}
+
+/** information_schema's names for PostgreSQL's text types. */
+export const TEXT_COLUMN_TYPES: ReadonlySet<string> = new Set(['text', 'character varying', 'character']);
+
+export function isTextColumn(type: string | null | undefined): boolean {
+  return TEXT_COLUMN_TYPES.has((type ?? '').toLowerCase());
+}
+
+// The column types the rows endpoint orders by (service_query._SORTABLE_TYPES), as information_schema names them.
+const SORTABLE_TYPES = new Set([
+  'smallint', 'integer', 'bigint', 'numeric', 'real', 'double precision',
+  'character varying', 'character', 'text', 'date',
+  'timestamp without time zone', 'timestamp with time zone',
+  'time without time zone', 'time with time zone', 'interval',
+  'boolean', 'uuid', 'inet', 'cidr', 'bytea',
+]);
+const GEOMETRY_COLUMN_NAMES = new Set(['geom', 'geom_4326', 'wkb_geometry']);
+
+/** True for a column the rows endpoint accepts as a sort: a plain lowercase name of an orderable type. */
+export function isSortableColumn(name: string, type: string | null | undefined): boolean {
+  return /^[a-z0-9_]+$/.test(name) && !GEOMETRY_COLUMN_NAMES.has(name) && SORTABLE_TYPES.has((type ?? '').toLowerCase());
+}
+
+/** True for a column the rows endpoint lists: a plain lowercase name that isn't geometry or a user-defined type. */
+export function isListableColumn(name: string, type: string | null | undefined): boolean {
+  return /^[a-z0-9_]+$/.test(name) && !GEOMETRY_COLUMN_NAMES.has(name) && (type ?? '').toLowerCase() !== 'user-defined';
 }
 
 /** Check if a column type string represents a Postgres boolean. */
 export function isBooleanColumn(type: string): boolean {
   const t = type.toLowerCase();
   return t === 'boolean' || t === 'bool';
+}
+
+const INTEGER_TYPES = new Set([
+  'smallint', 'integer', 'bigint', 'int', 'int2', 'int4', 'int8',
+  'serial', 'smallserial', 'bigserial',
+]);
+
+/** Check if a column type string represents a Postgres integer type. */
+export function isIntegerColumn(type: string): boolean {
+  return INTEGER_TYPES.has(type.toLowerCase());
+}
+
+const DATE_COLUMN_TYPES = new Set(['date', 'timestamp with time zone', 'timestamp without time zone']);
+
+/** Whether a column holds dates the aggregate endpoint can group by day, week, month or year. */
+export function isDateColumn(type: string): boolean {
+  return DATE_COLUMN_TYPES.has(type.toLowerCase());
 }

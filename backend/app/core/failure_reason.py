@@ -14,6 +14,7 @@ from app.core.url_redaction import (
     REDACTED_QUERY_VALUE,
     redact_filesystem_paths,
     redact_libpq_credentials,
+    redact_odbc_credentials,
     redact_url_credentials,
     scrub_registered_credentials,
 )
@@ -129,15 +130,17 @@ _QUERY_TAIL_RE = re.compile(r"\?[^\s=?]*=\S*")
 def _scrub(text: str) -> str:
     """Every shape Decision 3 keeps out of a reason, masked.
 
-    The last two are what a GDAL wrapper drags in. Being defined
+    The last three are what a GDAL wrapper drags in. Being defined
     under ``app.`` says who raised the exception, never that its message is
     free of the subprocess output it was built from.
     """
     return redact_filesystem_paths(
-        redact_libpq_credentials(
-            scrub_registered_credentials(
-                _QUERY_TAIL_RE.sub(
-                    f"?{REDACTED_QUERY_VALUE}", redact_url_credentials(text)
+        redact_odbc_credentials(
+            redact_libpq_credentials(
+                scrub_registered_credentials(
+                    _QUERY_TAIL_RE.sub(
+                        f"?{REDACTED_QUERY_VALUE}", redact_url_credentials(text)
+                    )
                 )
             )
         )

@@ -82,10 +82,11 @@ ANALYSIS_JOB_PRIORITY = -10
 # Sandbox error categories -> HTTP status. Everything else is a sanitized
 # 500. query_data_error (SQLSTATE class 22 / GEOS internal errors) is a
 # 422 since all SQL here is server-built from validated params, so
-# failures are data-driven (e.g. degenerate geometries). Generic
-# query_failed stays a 500 -- also covers connection loss and role-binding
-# failures, server faults rather than bad requests.
-_SANDBOX_STATUS = {
+# failures are data-driven (e.g. degenerate geometries). query_unavailable
+# (an operational SQLSTATE: resources, connection loss) is a retryable 503.
+# Generic query_failed stays a 500 -- role-binding failures and other server
+# faults rather than bad requests.
+SANDBOX_STATUS = {
     "query_busy": status.HTTP_429_TOO_MANY_REQUESTS,
     # Server-at-capacity is also a 429, but a distinct
     # category so the message isn't relabelled as the per-user one.
@@ -93,6 +94,7 @@ _SANDBOX_STATUS = {
     "query_timeout": status.HTTP_422_UNPROCESSABLE_CONTENT,
     "query_data_error": status.HTTP_422_UNPROCESSABLE_CONTENT,
     "result_too_large": status.HTTP_422_UNPROCESSABLE_CONTENT,
+    "query_unavailable": status.HTTP_503_SERVICE_UNAVAILABLE,
 }
 
 
@@ -299,7 +301,11 @@ def _validate_intersect_columns(source, overlay) -> None:
     # guard above stays: that one really does group by a user-chosen column.
 
 
-@router.post("/{dataset_id}/analysis/preview/", response_model=AnalysisPreviewResponse)
+@router.post(
+    "/{dataset_id}/analysis/preview/",
+    response_model=AnalysisPreviewResponse,
+    summary="Preview a spatial analysis",
+)
 async def analysis_preview_endpoint(
     dataset_id: uuid.UUID,
     body: AnalysisPreviewRequest,
@@ -350,10 +356,11 @@ async def analysis_preview_endpoint(
         ) from exc
     except SandboxError as exc:
         raise HTTPException(
-            status_code=_SANDBOX_STATUS.get(
+            status_code=SANDBOX_STATUS.get(
                 exc.category, status.HTTP_500_INTERNAL_SERVER_ERROR
             ),
             detail=exc.user_message,
+            headers=exc.headers,
         ) from exc
 
 
@@ -474,6 +481,7 @@ def _build_analysis_job_metadata(
 @router.post(
     "/{dataset_id}/analysis/materialize/",
     response_model=AnalysisMaterializeResponse,
+    summary="Save a spatial analysis as a dataset",
 )
 async def analysis_materialize_endpoint(
     dataset_id: uuid.UUID,

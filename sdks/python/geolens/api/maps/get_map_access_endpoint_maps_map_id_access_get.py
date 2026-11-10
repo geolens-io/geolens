@@ -102,7 +102,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[MapAccessResponse | ProblemDetail]:
-    """Get Map Access Endpoint
+    """Get the caller's access to a map
 
      Return server-confirmed route access for the map viewer gate.
 
@@ -133,7 +133,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> MapAccessResponse | ProblemDetail | None:
-    """Get Map Access Endpoint
+    """Get the caller's access to a map
 
      Return server-confirmed route access for the map viewer gate.
 
@@ -159,7 +159,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[MapAccessResponse | ProblemDetail]:
-    """Get Map Access Endpoint
+    """Get the caller's access to a map
 
      Return server-confirmed route access for the map viewer gate.
 
@@ -188,7 +188,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> MapAccessResponse | ProblemDetail | None:
-    """Get Map Access Endpoint
+    """Get the caller's access to a map
 
      Return server-confirmed route access for the map viewer gate.
 

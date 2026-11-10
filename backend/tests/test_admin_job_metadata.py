@@ -44,6 +44,7 @@ BOOKKEEPING = {
     "url_download_in_flight": True,
     "url_import": "https://files.example.test/roads.geojson",
     "commit_attempted_at": "2026-09-25T00:00:00+00:00",
+    "published_for": "8d5c3f0e-2c64-4f8b-9e57-7b1a6c2d9f10",
     "s3_key_reaped": True,
     "s3_key_reaped_final": True,
     "manifest_stage": "downloading",

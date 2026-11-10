@@ -96,6 +96,77 @@ generate_password() {
   printf 'Aa%s_1\n' "$(generate_jwt_secret)"
 }
 
+# get_env_value with the matching quotes stripped, as Compose reads .env.
+get_env_value_decoded() {
+  get_env_value "$1" | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"
+}
+
+# Compose prefers the installer's own environment over .env, so exported cache
+# settings would make anything written to .env moot.
+cache_env_exported() {
+  if [ "${REDIS_URL+x}${VALKEY_PASSWORD+x}${COMPOSE_PROFILES+x}" = "" ]; then
+    return 1
+  fi
+  warn "REDIS_URL, VALKEY_PASSWORD or COMPOSE_PROFILES is set in this shell and takes precedence over .env; leaving the cache settings alone. Set those three lines in .env yourself."
+}
+
+# True when the URL's host is the bundled service (case-insensitive, any port,
+# with or without credentials or a path).
+is_bundled_cache_url() {
+  cache_host="${1#*://}"
+  cache_host="${cache_host%%/*}"
+  cache_host="${cache_host##*@}"
+  cache_host="${cache_host%%:*}"
+  [ "$(printf '%s' "$cache_host" | tr 'A-Z' 'a-z')" = "valkey" ]
+}
+
+# Token-protected service imports hand the token to the worker through a shared
+# cache, so a stock install runs the bundled Valkey (docker-compose.prod.yml,
+# profile `cache`). An operator-supplied REDIS_URL is left alone, and the
+# bundled service starts only when that URL points at it.
+enable_bundled_cache() {
+  if cache_env_exported; then
+    return 0
+  fi
+  if [ -z "$(get_env_value_decoded REDIS_URL)" ]; then
+    cache_pw="$(get_env_value_decoded VALKEY_PASSWORD)"
+    if [ -z "$cache_pw" ]; then
+      cache_pw="$(generate_jwt_secret)"
+      update_env_value VALKEY_PASSWORD "$cache_pw"
+    fi
+    update_env_value REDIS_URL "redis://:${cache_pw}@valkey:6379/0"
+  fi
+  if ! is_bundled_cache_url "$(get_env_value_decoded REDIS_URL)"; then
+    return 0
+  fi
+  profiles="$(get_env_value_decoded COMPOSE_PROFILES)"
+  case ",${profiles}," in
+    *,cache,*) ;;
+    *) update_env_value COMPOSE_PROFILES "${profiles:+${profiles},}cache" ;;
+  esac
+}
+
+# docker-compose.yml's valkey is passwordless and runs only under `cloud-dev`,
+# so a REDIS_URL written for the prebuilt install's bundled cache points nowhere
+# once the install falls back to the source build.
+drop_bundled_cache_url() {
+  if cache_env_exported; then
+    return 0
+  fi
+  redis_url="$(get_env_value_decoded REDIS_URL)"
+  is_bundled_cache_url "$redis_url" || return 0
+  case "$redis_url" in
+    *@*) ;;
+    *)
+      case ",$(get_env_value_decoded COMPOSE_PROFILES)," in
+        *,cloud-dev,*) return 0 ;;
+      esac
+      ;;
+  esac
+  update_env_value REDIS_URL ""
+  warn "The source build does not run the bundled cache; cleared REDIS_URL. Imports from token-protected services need a cache, so set REDIS_URL to your own Valkey/Redis."
+}
+
 check_port() {
   port="$1"
   if command -v lsof >/dev/null 2>&1 && lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
@@ -576,6 +647,7 @@ main() {
       # docker-compose.yml (the dev source-build file) and silently rebuilds.
       update_env_value GEOLENS_VERSION "$RELEASE_VERSION"
       update_env_value COMPOSE_FILE "docker-compose.prod.yml"
+      enable_bundled_cache
     else
       warn "Could not pull prebuilt images; building from source instead."
       COMPOSE_FILE="docker-compose.yml"
@@ -583,6 +655,7 @@ main() {
       # Overwrite any stale prod pin from a previous run so bare `docker compose`
       # matches the source build we actually ran.
       update_env_value COMPOSE_FILE "docker-compose.yml"
+      drop_bundled_cache_url
     fi
   fi
 

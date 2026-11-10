@@ -67,10 +67,11 @@ from app.core.db import release_connection
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var
 from app.core.tenancy import is_multi_tenant
-from app.processing.tiles.admission import tile_render_slot
+from app.processing.tiles.admission import raster_render_slot, tile_render_slot
 from app.processing.tiles import cluster_filter as cluster_filters
 from app.processing.tiles.cache_key import (
     generation_table_key as _generation_table_key,
+    tile_cache_entry,
     tile_cache_key,
 )
 from app.processing.tiles.pool import (
@@ -79,6 +80,7 @@ from app.processing.tiles.pool import (
     set_tenant_role_for_tile_request,
 )
 from app.processing.tiles.responses import (
+    _cached_tile_response,
     _empty_tile_headers as _empty_tile_headers,
     _if_none_match_satisfied as _if_none_match_satisfied,
     _serving_tile_headers,
@@ -86,6 +88,7 @@ from app.processing.tiles.responses import (
     _tile_headers as _tile_headers,
     _tile_response,
     tile_busy_error,
+    tile_unavailable_error,
 )
 from app.processing.tiles.service import (
     _TABLE_NAME_RE,
@@ -212,8 +215,26 @@ router = APIRouter(prefix="/tiles", tags=["Tiles"], responses=ERROR_RESPONSES_PU
 # otherwise this must move to `make_safe_client`.
 _titiler_client = httpx.AsyncClient(
     timeout=httpx.Timeout(30.0, connect=10.0),
+    # Idle keep-alive connections count toward Titiler's concurrency cap, so a
+    # process never holds more than its raster slots.
+    limits=httpx.Limits(
+        max_connections=settings.tile_pool_max_size,
+        max_keepalive_connections=settings.tile_pool_max_size,
+    ),
     follow_redirects=True,
 )
+_NOT_SENT_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+
+
+def _is_renderer_saturated(resp: httpx.Response) -> bool:
+    """True for uvicorn's concurrency-limit 503, which has a plain-text body.
+
+    Titiler's own 503s are JSON, so only the former means "busy, don't retry".
+    """
+    return resp.status_code == 503 and not resp.headers.get(
+        "content-type", ""
+    ).lower().startswith("application/json")
+
 
 # In-memory TTL cache for dataset metadata: one DB read per TTL, not per tile.
 _DATASET_CACHE_TTL = 60  # seconds
@@ -562,7 +583,8 @@ async def _load_band_statistics(
     )
     bands: list[dict] | None = None
     try:
-        resp = await _titiler_client.get(stats_url)
+        async with raster_render_slot():
+            resp = await _titiler_client.get(stats_url)
         if resp.status_code == 200:
             data = resp.json()
             if isinstance(data, dict) and data:
@@ -1126,7 +1148,9 @@ async def raster_auth_check(
                 "context"
             ),
         },
+        429: RATE_LIMIT_RESPONSE,
     },
+    summary="Get a raster tile",
 )
 @limiter.exempt
 async def raster_tile_proxy(
@@ -1201,9 +1225,10 @@ async def raster_tile_proxy(
     unsupported format, 401 when a request that no capability authorized
     carried a credential which did not resolve, 403 when the embed token is
     invalid or expired or a multi-tenant request arrives with no tenant
-    context, 422 for an out-of-range stretch parameter, and 503 when the
-    renderer cannot be reached. A different failure from the renderer is
-    passed through with its own status.
+    context, 422 for an out-of-range stretch parameter, 429 with
+    ``Retry-After`` when the per-process capacity for uncached raster renders
+    stays full for a short wait, and 503 when the renderer cannot be reached. A
+    different failure from the renderer is passed through with its own status.
 
     404 covers more than a missing dataset. A dataset that is unknown, is not a
     raster or has no image answers 404. Where no capability authorized the
@@ -1379,12 +1404,15 @@ async def raster_tile_proxy(
     resp: httpx.Response | None = None
     for attempt in range(max_retries + 1):
         try:
-            resp = await _titiler_client.get(titiler_url)
+            async with raster_render_slot():
+                resp = await _titiler_client.get(titiler_url)
         except (httpx.TimeoutException, httpx.TransportError) as exc:
-            if attempt == max_retries:
+            # Once the request is sent, Titiler keeps rendering after we give
+            # up, so only a failure that never reached it is retried.
+            if attempt == max_retries or not isinstance(exc, _NOT_SENT_ERRORS):
                 # Lets operators tell "titiler down" from normal activity.
                 logger.warning(
-                    "Raster tile proxy exhausted retries",
+                    "Raster tile proxy could not get a tile from Titiler",
                     dataset_id=str(dataset_id),
                     z=z,
                     x=x,
@@ -1407,10 +1435,13 @@ async def raster_tile_proxy(
             await asyncio.sleep(0.5 * (2**attempt))
             continue
         else:
+            if _is_renderer_saturated(resp):
+                raise tile_busy_error()
             if resp.status_code in (500, 503) and attempt < max_retries:
                 logger.debug(
-                    "Raster tile proxy got 503; retrying",
+                    "Raster tile proxy got a retryable status; retrying",
                     attempt=attempt,
+                    status_code=resp.status_code,
                     dataset_id=str(dataset_id),
                 )
                 await asyncio.sleep(0.5 * (2**attempt))
@@ -1633,7 +1664,11 @@ async def _enforce_tile_token_access(
             )
 
 
-@router.get("/token/{dataset_id}/", response_model=VectorTileToken | RasterTileToken)
+@router.get(
+    "/token/{dataset_id}/",
+    response_model=VectorTileToken | RasterTileToken,
+    summary="Create a tile token",
+)
 @limiter.exempt
 async def get_tile_token(
     dataset_id: uuid.UUID,
@@ -1687,7 +1722,11 @@ async def get_tile_token(
     return token
 
 
-@router.post("/tokens/", response_model=TileTokenBatchResponse)
+@router.post(
+    "/tokens/",
+    response_model=TileTokenBatchResponse,
+    summary="Create tile tokens for several datasets",
+)
 @limiter.exempt
 async def get_tile_tokens_batch(
     body: TileTokenBatchRequest,
@@ -2341,13 +2380,13 @@ def _cluster_cache_table_key(
     cluster_max_zoom: int,
     filter_digest: str | None = None,
 ) -> str:
-    # The version tag pins the cluster SQL semantics. Bump it whenever
-    # _build_cluster_tile_query changes the emitted tile geometry/properties, or
+    # The version tag pins the cluster SQL semantics and the cache entry
+    # layout (cache_key.tile_cache_entry). Bump it whenever either changes, or
     # a deploy keeps serving stale cluster tiles until TTL expiry.
     generation = _generation_table_key(
         table_name, dataset_id, publication_version, tile_cache_version
     )
-    key = f"{generation}:cluster:v3:r{cluster_radius}:z{cluster_max_zoom}"
+    key = f"{generation}:cluster:v4:r{cluster_radius}:z{cluster_max_zoom}"
     return f"{key}:f{filter_digest}" if filter_digest else key
 
 
@@ -2373,11 +2412,12 @@ async def _acquire_and_serve_tile(
     """Shared acquire, bind-role, run-query, gzip, cache and respond core.
 
     Both the vector and cluster endpoints supply a ``query_callable`` (async
-    ``(pool, conn) -> bytes | None``) plus a cache key; this owns the
+    ``(pool, conn) -> RenderedTile | None``) plus a cache key; this owns the
     shared scaffold: bounded tile-pool acquire, a single-connection
     transaction with per-tenant role/search_path bind, error mapping
-    (timeout -> 429, broad Exception -> 503), empty-tile caching (-> 204),
-    gzip offload, cache write, usage event, and the ETag/304 response.
+    (pool acquire timeout -> 429, query timeout or broad Exception -> 503),
+    empty-tile caching (-> 204), gzip offload, cache write, usage event, and
+    the ETag/304 response.
 
     Callers own cache hits, tenant/global admission and cold rehydration.
     """
@@ -2395,20 +2435,38 @@ async def _acquire_and_serve_tile(
             detail="Tile service unavailable",
         )
 
+    # Releasing the connection can itself time out and replace the 503 below.
+    query_timed_out = False
     # SET LOCAL role and schema bindings must share the query transaction to
     # survive PgBouncer transaction pooling.
     try:
         # Bounded, so an exhausted pool sheds through the 429 below rather
         # than parking the request until the client gives up.
         async with pool.acquire(timeout=TILE_POOL_ACQUIRE_TIMEOUT_SECONDS) as tile_conn:
-            async with tile_conn.transaction():
-                # Bound before the tile query; a no-op in single_tenant or when
-                # tid is None.
-                await set_tenant_role_for_tile_request(tile_conn, tid)
-                tile_data = await query_callable(pool, tile_conn)
+            try:
+                async with tile_conn.transaction():
+                    # Bound before the tile query; a no-op in single_tenant or
+                    # when tid is None.
+                    await set_tenant_role_for_tile_request(tile_conn, tid)
+                    tile = await query_callable(pool, tile_conn)
+            except asyncio.TimeoutError:
+                # A query that outruns the command timeout will again, so a
+                # retry hint would only repeat the work.
+                query_timed_out = True
+                logger.warning(
+                    "Tile query timeout",
+                    table_name=table_name,
+                    mode=mode,
+                    z=z,
+                    x=x,
+                    y=y,
+                )
+                raise tile_unavailable_error()
     except HTTPException:
         raise
     except asyncio.TimeoutError:
+        if query_timed_out:
+            raise tile_unavailable_error()
         logger.warning(
             "Tile pool acquire timeout",
             table_name=table_name,
@@ -2433,7 +2491,7 @@ async def _acquire_and_serve_tile(
             detail="Tile service unavailable",
         )
 
-    if tile_data is None:
+    if tile is None:
         # Empty tiles are cached to avoid repeated PostGIS queries for sparse
         # datasets.
         if tile_cache is not None:
@@ -2454,13 +2512,14 @@ async def _acquire_and_serve_tile(
     # gzip is CPU-bound, so offload to a thread so the event loop isn't
     # stalled compressing wide low-zoom tiles. mtime=0 makes the gzip stream
     # deterministic so the content-hash ETag is stable across requests.
-    compressed = await asyncio.to_thread(gzip.compress, tile_data, 6, mtime=0)
+    compressed = await asyncio.to_thread(gzip.compress, tile.mvt, 6, mtime=0)
     if tile_cache is not None:
+        entry = tile_cache_entry(compressed, sampled=tile.sampled)
         await tile_cache.set(
-            cache_key, z, x, y, compressed, ttl=cache_ttl, cols_key=cols_cache_key
+            cache_key, z, x, y, entry, ttl=cache_ttl, cols_key=cols_cache_key
         )
 
-    return _tile_response(request, compressed, base_headers)
+    return _tile_response(request, compressed, base_headers, sampled=tile.sampled)
 
 
 @router.get(
@@ -2470,6 +2529,7 @@ async def _acquire_and_serve_tile(
         200: binary_response("The vector tile", "application/vnd.mapbox-vector-tile"),
         429: RATE_LIMIT_RESPONSE,
     },
+    summary="Get a clustered vector tile",
 )
 @limiter.exempt
 async def cluster_tile_endpoint(
@@ -2482,6 +2542,10 @@ async def cluster_tile_endpoint(
     exp: int | None = None,
     scope: str | None = None,
     cols: str | None = None,
+    cols_only: bool = Query(
+        False,
+        description="Carry only the columns named by `cols`, at every zoom.",
+    ),
     cluster_radius: int = Query(48, ge=1, le=256),
     cluster_max_zoom: int = Query(14, ge=0, le=22),
     layer_filter: str | None = Query(None, alias="filter", max_length=4096),
@@ -2522,13 +2586,15 @@ async def cluster_tile_endpoint(
     a malformed table path or an out-of-range tile coordinate.
 
     A tile holding no features answers 204, and a repeat request whose
-    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    ``If-None-Match`` matches answers 304. When more than 100,000 points fall
+    in or next to the tile, or it would hold more than 50,000 features, it
+    holds a fixed sample and carries ``X-GeoLens-Tile-Sampled: true``. Where a deployment runs cold storage,
     a dataset still being restored answers 202 with a job id to poll. Requests
     answer 429 with ``Retry-After`` when the per-process capacity for uncached
-    renders stays full for a short wait, tile-pool acquisition times out, a
-    tile query exceeds the pool's per-command timeout, or the configured
-    per-tenant concurrency limit is exceeded. Any other failure serving the
-    tile answers 503.
+    renders stays full for a short wait, tile-pool acquisition times out, or the
+    configured per-tenant concurrency limit is exceeded. A tile query that
+    exceeds the pool's per-command timeout answers 503 without ``Retry-After``
+    and is not cached, as does any other failure serving the tile.
     """
     table_name = _parse_vector_tile_table(table_path)
     _validate_tile_coordinates(z, x, y)
@@ -2557,6 +2623,7 @@ async def cluster_tile_endpoint(
         z,
         tile_columns=meta.tile_columns,
         mode="cluster",
+        cols_only=cols_only,
     )
 
     filter_digest = cluster_filters.validated_digest(layer_filter)
@@ -2596,7 +2663,7 @@ async def cluster_tile_endpoint(
                         empty=True,
                     ),
                 )
-            return _tile_response(
+            return _cached_tile_response(
                 request,
                 cached,
                 _serving_tile_headers(cache_scope, cache_ttl, _cluster_cache_control),
@@ -2639,6 +2706,7 @@ async def cluster_tile_endpoint(
                 meta.column_info,
                 tile_columns=meta.tile_columns,
                 additional_columns=additional_columns,
+                cols_only=cols_only,
                 cluster_radius=cluster_radius,
                 cluster_max_zoom=cluster_max_zoom,
                 conn=conn,
@@ -2681,6 +2749,7 @@ async def cluster_tile_endpoint(
         200: binary_response("The vector tile", "application/vnd.mapbox-vector-tile"),
         429: RATE_LIMIT_RESPONSE,
     },
+    summary="Get a vector tile",
 )
 @limiter.exempt
 async def tile_endpoint(
@@ -2693,6 +2762,10 @@ async def tile_endpoint(
     exp: int | None = None,
     scope: str | None = None,
     cols: str | None = None,
+    cols_only: bool = Query(
+        False,
+        description="Carry only the columns named by `cols`, at every zoom.",
+    ),
     db: AsyncSession = Depends(get_db),
     user: Identity | None = Depends(get_optional_user_fail_open),
 ) -> Response:
@@ -2729,13 +2802,15 @@ async def tile_endpoint(
 
     A malformed table path or an out-of-range tile coordinate answers 400. A
     tile holding no features answers 204, and a repeat request whose
-    ``If-None-Match`` matches answers 304. Where a deployment runs cold storage,
+    ``If-None-Match`` matches answers 304. When the tile holds more than 50,000
+    features, it carries a fixed sample of them spread across the tile and
+    ``X-GeoLens-Tile-Sampled: true``. Where a deployment runs cold storage,
     a dataset still being restored answers 202 with a job id to poll. Requests
     answer 429 with ``Retry-After`` when the per-process capacity for uncached
-    renders stays full for a short wait, tile-pool acquisition times out, a
-    tile query exceeds the pool's per-command timeout, or the configured
-    per-tenant concurrency limit is exceeded. Any other failure serving the
-    tile answers 503.
+    renders stays full for a short wait, tile-pool acquisition times out, or the
+    configured per-tenant concurrency limit is exceeded. A tile query that
+    exceeds the pool's per-command timeout answers 503 without ``Retry-After``
+    and is not cached, as does any other failure serving the tile.
     """
     table_name = _parse_vector_tile_table(table_path)
     _validate_tile_coordinates(z, x, y)
@@ -2760,7 +2835,7 @@ async def tile_endpoint(
     # `z` and the allowlist have to reach it. At z >= 10 every valid subset
     # collapses onto one entry.
     additional_columns, cols_cache_key = parse_cols_param(
-        cols, columns, z, tile_columns=meta.tile_columns
+        cols, columns, z, tile_columns=meta.tile_columns, cols_only=cols_only
     )
 
     cache_ttl = meta.tile_cache_ttl or settings.tile_cache_ttl
@@ -2794,7 +2869,7 @@ async def tile_endpoint(
                         empty=True,
                     ),
                 )
-            return _tile_response(
+            return _cached_tile_response(
                 request,
                 cached,
                 _serving_tile_headers(cache_scope, cache_ttl, _tile_cache_control),
@@ -2842,6 +2917,7 @@ async def tile_endpoint(
                 columns,
                 tile_columns=meta.tile_columns,
                 additional_columns=additional_columns,
+                cols_only=cols_only,
                 conn=conn,
                 schema=_schema,
             )

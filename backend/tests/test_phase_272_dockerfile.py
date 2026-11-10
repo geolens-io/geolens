@@ -159,7 +159,7 @@ class TestInf15PythonPinReconciliation:
         """
         text = DOCKERFILE.read_text()
         match = re.search(
-            r"^FROM\s+(python:\d+\.\d+\.\d+-slim)\s+AS\s+backend-system\s*$",
+            r"^FROM\s+(python:\d+\.\d+\.\d+-slim)@sha256:[0-9a-f]{64}\s+AS\s+backend-system\s*$",
             text,
             re.M,
         )

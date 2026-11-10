@@ -813,9 +813,15 @@ class TestValidateAndExecuteIntegration:
         assert exc_info.value.category == "table_not_accessible"
 
 
+class _DriverError(Exception):
+    def __init__(self, code: str | None) -> None:
+        super().__init__("driver error")
+        self.sqlstate = code
+
+
 class TestExecutionErrorClassification:
-    """Only data-driven failures may map to a 4xx category —
-    infrastructure failures must stay generic (callers report those as 500)."""
+    """Only data-driven failures may map to a 4xx category. A database that
+    could not serve the query is query_unavailable; other faults stay generic."""
 
     def test_data_and_internal_errors_classify_as_data_error(self):
         from sqlalchemy.exc import DataError, InternalError
@@ -828,12 +834,32 @@ class TestExecutionErrorClassification:
                 _handle_execution_error(exc, "SELECT 1")
             assert exc_info.value.category == "query_data_error"
 
-    def test_operational_errors_stay_generic(self):
-        from sqlalchemy.exc import OperationalError
+    @pytest.mark.parametrize("code", ["53100", "53200", "08006", None])
+    def test_operational_errors_are_unavailable(self, code):
+        from sqlalchemy.exc import DBAPIError
 
         from app.platform.sandbox.executor import _handle_execution_error
 
-        exc = OperationalError("SELECT 1", None, Exception("connection refused"))
+        exc = DBAPIError("SELECT 1", None, _DriverError(code))
+        with pytest.raises(SandboxError) as exc_info:
+            _handle_execution_error(exc, "SELECT 1")
+        assert exc_info.value.category == "query_unavailable"
+        assert exc_info.value.headers == {"Retry-After": "2"}
+
+    def test_a_refused_connection_is_unavailable(self):
+        from app.platform.sandbox.executor import _handle_execution_error
+
+        with pytest.raises(SandboxError) as exc_info:
+            _handle_execution_error(ConnectionRefusedError(111, "refused"), "SELECT 1")
+        assert exc_info.value.category == "query_unavailable"
+
+    def test_other_database_errors_stay_generic(self):
+        from sqlalchemy.exc import DBAPIError
+
+        from app.platform.sandbox.executor import _handle_execution_error
+
+        exc = DBAPIError("SELECT 1", None, _DriverError("42501"))
         with pytest.raises(SandboxError) as exc_info:
             _handle_execution_error(exc, "SELECT 1")
         assert exc_info.value.category == "query_failed"
+        assert exc_info.value.headers is None

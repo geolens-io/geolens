@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import math
+import struct
 import uuid
+from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -30,8 +33,9 @@ from app.modules.catalog.datasets.domain._sql_safety import (
     SAFE_TABLE_NAME_RE,
     _safe_column_ref,
 )
-from app.modules.catalog.datasets.domain.service_analysis import _json_safe
+from app.modules.catalog.datasets.domain.service_analysis import LayerFilter, _json_safe
 from app.modules.catalog.datasets.domain.models import (
+    AttributeMetadata,
     Dataset,
     DatasetGrant,
     Record,
@@ -50,7 +54,10 @@ __all__ = [
     "get_datasets_list",
     "get_dataset_detail",
     "get_dataset_rows",
+    "get_row_bboxes",
     "InvalidSortColumn",
+    "is_sortable_column",
+    "nulls_last_keyset",
     "sortable_columns",
 ]
 
@@ -281,6 +288,8 @@ async def get_dataset_detail(
         visible_lineage_summary,
     )
 
+    # Owner-or-admin only, like the sharing groups below.
+    can_view_provenance = can_view_dataset_provenance(dataset.record, user, user_roles)
     response = dataset_to_response(
         dataset,
         collections=collections_data,
@@ -302,12 +311,16 @@ async def get_dataset_detail(
         lineage_summary=await visible_lineage_summary(
             db, dataset.record, user, user_roles
         ),
-        # Owner-or-admin only; every other accessible-dataset
-        # reader (named or anonymous) gets origin_uri/origin_ref nulled.
-        can_view_provenance=can_view_dataset_provenance(
-            dataset.record, user, user_roles
-        ),
+        # Every other accessible-dataset reader (named or anonymous) gets
+        # origin_uri/origin_ref nulled.
+        can_view_provenance=can_view_provenance,
     )
+    if response is not None and can_view_provenance:
+        from app.modules.catalog.datasets.domain.service_sharing import (
+            dataset_groups,
+        )
+
+        response.groups = await dataset_groups(db, dataset.id)
     # Genericity probe (helpers.py) keeps all draw modes.
     if response is not None and dataset.source_format == "created":
         response.has_generic_geometry = await dataset_geom_is_generic(
@@ -376,12 +389,21 @@ def _build_select_cols(column_info: list[dict]) -> list[str]:
     return [_safe_column_ref(c["name"]) for c in _projected_columns(column_info)]
 
 
+def is_sortable_column(name: str, data_type: str | None) -> bool:
+    """Whether a column with this name and type can be a row list's sort."""
+    return (
+        bool(SAFE_TABLE_NAME_RE.match(name))
+        and name not in _GEOM_COLUMN_NAMES
+        and data_type in _SORTABLE_TYPES
+    )
+
+
 def sortable_columns(column_info: list[dict]) -> list[str]:
     """Names the rows endpoint accepts as ``sort``: projected, orderable columns."""
     return [
         c["name"]
         for c in _projected_columns(column_info)
-        if c.get("type") in _SORTABLE_TYPES
+        if is_sortable_column(c["name"], c.get("type"))
     ]
 
 
@@ -391,46 +413,119 @@ _ANCHOR_CTE = '"Anchor"'
 _ANCHOR = '"Anchor"."V"'
 
 
-def _sorted_keyset(col: str, *, descending: bool) -> str:
+def nulls_last_keyset(
+    col: str, anchor: str, gid: str, after_gid: str, *, descending: bool
+) -> str:
     """Predicate for rows after the cursor row in (col, gid), NULLs last.
 
-    The cursor row's value stays in PostgreSQL and is compared in the
-    column's own type; a Python round trip changes some values (a year of
-    interval, second-resolution offsets, the largest dates).
+    ``anchor`` is the cursor row's ``col`` value and ``after_gid`` its gid,
+    both read inside the query, so the comparison stays in the column's own
+    type; a Python round trip changes some values (a year of interval,
+    second-resolution offsets, the largest dates).
     """
     op = "<" if descending else ">"
     return (
-        f"gid > 0 AND ({_ANCHOR} IS NULL AND {col} IS NULL AND gid > :after_gid"
-        f" OR {_ANCHOR} IS NOT NULL AND ({col} IS NULL OR {col} {op} {_ANCHOR}"
-        f" OR ({col} = {_ANCHOR} AND gid > :after_gid)))"
+        f"({anchor} IS NULL AND {col} IS NULL AND {gid} > {after_gid}"
+        f" OR {anchor} IS NOT NULL AND ({col} IS NULL OR {col} {op} {anchor}"
+        f" OR ({col} = {anchor} AND {gid} > {after_gid})))"
     )
+
+
+def _sorted_keyset(col: str, *, descending: bool) -> str:
+    keyset = nulls_last_keyset(col, _ANCHOR, "gid", ":after_gid", descending=descending)
+    return f"gid > 0 AND {keyset}"
+
+
+# A number's text form needn't be its label key (1e16 reads back as "1e+16",
+# numeric 1.50 as "1.50"), so codes on these types compare as numbers.
+_NUMBER_TYPES = {"double precision", "real", "numeric"}
+
+
+def _is_number_text(code: str, col_type: str) -> bool:
+    """Whether PostgreSQL reads *code* as a finite *col_type* value, so the
+    cast can't fail the request."""
+    try:
+        exact = Decimal(code)
+    except InvalidOperation:
+        return False
+    if "_" in code or not code.isascii() or not exact.is_finite():
+        return False
+    if col_type == "numeric":
+        return -16383 < exact.adjusted() < 131072
+    # float4in and float8in refuse overflow and a nonzero value that rounds to 0.
+    number = float(exact)
+    if col_type == "real" and math.isfinite(number):
+        try:
+            number = struct.unpack("f", struct.pack("f", number))[0]
+        except OverflowError:
+            return False
+    return math.isfinite(number) and (number != 0 or exact == 0)
+
+
+async def _label_matched_codes(
+    db: AsyncSession, dataset_id: uuid.UUID, filters: dict[str, str]
+) -> dict[str, list[str]]:
+    """Per filtered column, the stored codes whose value label contains the term."""
+    result = await db.execute(
+        select(AttributeMetadata.field_name, AttributeMetadata.value_labels).where(
+            AttributeMetadata.dataset_id == dataset_id,
+            AttributeMetadata.is_current.is_(True),
+            AttributeMetadata.field_name.in_(list(filters)),
+            AttributeMetadata.value_labels.is_not(None),
+        )
+    )
+    return {
+        name: [
+            code
+            for code, label in labels.items()
+            if isinstance(label, str) and filters[name].casefold() in label.casefold()
+        ]
+        for name, labels in result.all()
+        # Cleared labels are stored as JSON null, which IS NOT NULL lets through.
+        if isinstance(labels, dict)
+    }
 
 
 def _build_where_filters(
     filters: dict[str, str] | None,
-    valid_columns: set[str],
+    column_types: dict[str, str],
     *,
     after_gid: int,
     limit: int,
     keyset: str,
+    label_codes: dict[str, list[str]],
+    gid: int | None = None,
 ) -> tuple[str, dict[str, object]]:
     """Compose the WHERE clause + bind params for keyset pagination + ILIKE filters.
 
     ``keyset`` is the predicate selecting rows after ``after_gid``.
+    ``label_codes`` adds, per column, rows whose stored code is in the list.
+    ``gid`` keeps only that row.
     """
     where_clauses: list[str] = [f"({keyset})"]
     bind_params: dict[str, object] = {"limit": limit, "after_gid": after_gid}
+    if gid is not None:
+        where_clauses.append("gid = CAST(:row_gid AS bigint)")
+        bind_params["row_gid"] = gid
     for col_name, search_term in (filters or {}).items():
         if not SAFE_TABLE_NAME_RE.match(col_name):
             continue
-        if col_name not in valid_columns:
+        if col_name not in column_types:
             continue
         param_key = f"f_{col_name}"
         # Quoted, for the same reason as _build_select_cols.
-        where_clauses.append(
-            f"CAST({_safe_column_ref(col_name)} AS text) ILIKE :{param_key}"
-        )
+        as_text = f"CAST({_safe_column_ref(col_name)} AS text)"
+        clause = f"{as_text} ILIKE :{param_key}"
         bind_params[param_key] = f"%{search_term}%"
+        if codes := label_codes.get(col_name):
+            lhs, codes_ref = as_text, f"CAST(:fc_{col_name} AS text[])"
+            if (col_type := column_types[col_name]) in _NUMBER_TYPES:
+                codes = [code for code in codes if _is_number_text(code, col_type)]
+                lhs = _safe_column_ref(col_name)
+                codes_ref = f"CAST({codes_ref} AS {col_type}[])"
+            clause += f" OR {lhs} = ANY({codes_ref})"
+            bind_params[f"fc_{col_name}"] = codes
+        where_clauses.append(f"({clause})")
     return " WHERE " + " AND ".join(where_clauses), bind_params
 
 
@@ -445,11 +540,17 @@ async def _select_rows(
     limit: int,
     sort_col: str | None,
     descending: bool,
+    label_codes: dict[str, list[str]],
+    cql2_filter: LayerFilter | None = None,
+    gid: int | None = None,
 ) -> list[dict]:
     """Run the page query; a sorted page continues after the cursor row."""
     # Sorted reads keep the unsorted domain, gid > 0: a row at gid 0 or below
     # could never be a cursor, since `after` starts at 0 and can't go negative.
-    keyset = "gid > :after_gid"
+    # A single-row read has no cursor, and a registered table may hold gid 0.
+    keyset = (
+        "gid >= :after_gid" if gid is not None and not after_gid else "gid > :after_gid"
+    )
     order_sql = "gid"
     with_sql = join_sql = ""
     if sort_col is not None:
@@ -466,21 +567,72 @@ async def _select_rows(
             keyset = _sorted_keyset(sort_col, descending=descending)
     where_sql, bind_params = _build_where_filters(
         filters,
-        valid_columns={c["name"] for c in cols},
+        column_types={c["name"]: c.get("type", "") for c in cols},
         after_gid=after_gid,
         limit=limit,
         keyset=keyset,
+        label_codes=label_codes,
+        gid=gid,
     )
+    cql2_binds: list = []
+    if cql2_filter is not None:
+        # An extra AND limb from compile_feature_cql2_ast: an unqualified,
+        # live-schema-vetted fragment whose values ride named :cql2_* binds.
+        where_sql += f" AND ({cql2_filter[0]})"
+        cql2_binds = cql2_filter[1]
     result = await db.execute(
         text(
             # codeql[py/sql-injection]
             f"{with_sql}SELECT {select_sql} FROM {table_ref}{join_sql}{where_sql} ORDER BY {order_sql} LIMIT :limit"
-        ).bindparams(**bind_params)
+        ).bindparams(*cql2_binds, **bind_params)
     )
     return [
         {key: _json_safe(value) for key, value in row._mapping.items()}
         for row in result.all()
     ]
+
+
+# A filtered page counts its matches up to here; past it the total is a floor.
+FILTERED_COUNT_CAP = 10_000
+
+
+async def _count_matches(
+    db: AsyncSession,
+    table_ref: str,
+    cols: list[dict],
+    filters: dict[str, str] | None,
+    label_codes: dict[str, list[str]],
+    cql2_filter: LayerFilter | None = None,
+    gid: int | None = None,
+) -> tuple[int, str]:
+    """``(count, "exact")`` for the rows *filters* and *cql2_filter* match, or
+    ``(FILTERED_COUNT_CAP, "at_least")`` when more match."""
+    where_sql, bind_params = _build_where_filters(
+        filters,
+        column_types={c["name"]: c.get("type", "") for c in cols},
+        after_gid=0,
+        limit=FILTERED_COUNT_CAP + 1,
+        # The same single-row domain as the page query, which includes gid 0.
+        keyset="gid >= :after_gid" if gid is not None else "gid > :after_gid",
+        label_codes=label_codes,
+        gid=gid,
+    )
+    cql2_binds: list = []
+    if cql2_filter is not None:
+        # The page query's same AND limb: the count answers for the rows the
+        # request would actually return.
+        where_sql += f" AND ({cql2_filter[0]})"
+        cql2_binds = cql2_filter[1]
+    result = await db.execute(
+        text(
+            # codeql[py/sql-injection]
+            f"SELECT count(*) FROM (SELECT 1 FROM {table_ref}{where_sql} LIMIT :limit) AS matched"
+        ).bindparams(*cql2_binds, **bind_params)
+    )
+    count = result.scalar_one()
+    if count > FILTERED_COUNT_CAP:
+        return FILTERED_COUNT_CAP, "at_least"
+    return count, "exact"
 
 
 async def get_dataset_rows(
@@ -493,20 +645,35 @@ async def get_dataset_rows(
     filters: dict[str, str] | None = None,
     sort: str | None = None,
     descending: bool = False,
-) -> tuple[list[dict], int, list[dict], int | None]:
+    dataset_id: uuid.UUID | None = None,
+    cql2_filter: LayerFilter | None = None,
+    gid: int | None = None,
+) -> tuple[list[dict], int, str, list[dict], int | None]:
     """Fetch keyset-paginated rows from a dataset's data table.
 
-    Returns (rows, approximate_total, column_info, next_cursor). Uses keyset
+    Returns (rows, total, total_kind, column_info, next_cursor). Uses keyset
     pagination (WHERE gid > :after_gid) for constant-time page access at any
     depth. Geometry columns are excluded from SELECT to avoid transferring
-    large binary data. Count uses pg_class.reltuples for O(1) estimation.
+    large binary data. Without column filters and without a ``cql2_filter``
+    the total is pg_class.reltuples, an ``"estimate"``; with either it is the
+    matching rows, ``"exact"`` up to FILTERED_COUNT_CAP and ``"at_least"``
+    past it.
 
     ``filters`` is a dict of {column_name: search_term} for ILIKE filtering.
     Column names are validated against column_info to prevent injection.
+    With ``dataset_id``, a filter also matches rows whose code's value label
+    contains the term.
+
+    ``cql2_filter`` is a ``(where_sql, binds)`` pair from
+    ``compile_layer_filter``; its fragment ANDs into the same WHERE, and the
+    caller owns its validation.
 
     ``sort`` orders by that column, then gid; ``after_gid`` is still the last
     row's gid, and a page after a since-deleted cursor row is empty. Raises
     InvalidSortColumn for a column not in ``sortable_columns(column_info)``.
+
+    ``gid`` keeps only that row, ANDed with the other filters, and counts
+    like a filter.
     """
     if not SAFE_TABLE_NAME_RE.match(table_name):
         raise ValueError(f"Invalid table name: {table_name}")
@@ -529,6 +696,11 @@ async def get_dataset_rows(
             raise InvalidSortColumn(sort)
         sort_col = _safe_column_ref(name)
 
+    label_codes = (
+        await _label_matched_codes(db, dataset_id, filters)
+        if dataset_id is not None and filters
+        else {}
+    )
     try:
         rows = await _select_rows(
             db,
@@ -540,17 +712,31 @@ async def get_dataset_rows(
             limit=limit,
             sort_col=sort_col,
             descending=descending,
+            label_codes=label_codes,
+            cql2_filter=cql2_filter,
+            gid=gid,
         )
 
-        count_result = await db.execute(
-            text(
-                "SELECT reltuples::bigint FROM pg_class"
-                " WHERE relname = :tbl"
-                " AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = :schema)"
-            ).bindparams(tbl=table_name, schema=_schema)
-        )
-        rel = count_result.scalar_one_or_none()
-        approx_total = max(0, rel) if rel is not None else 0
+        if filters or cql2_filter is not None or gid is not None:
+            total, total_kind = await _count_matches(
+                db,
+                _table_ref,
+                cols,
+                filters,
+                label_codes,
+                cql2_filter=cql2_filter,
+                gid=gid,
+            )
+        else:
+            count_result = await db.execute(
+                text(
+                    "SELECT reltuples::bigint FROM pg_class"
+                    " WHERE relname = :tbl"
+                    " AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = :schema)"
+                ).bindparams(tbl=table_name, schema=_schema)
+            )
+            rel = count_result.scalar_one_or_none()
+            total, total_kind = max(0, rel) if rel is not None else 0, "estimate"
 
         next_cursor = rows[-1]["gid"] if rows and len(rows) == limit else None
     except DBAPIError as exc:
@@ -566,6 +752,39 @@ async def get_dataset_rows(
             logger.error("Data schema %s does not exist", _schema)
             raise
         logger.warning("Data table %s is absent", table_name, exc_info=True)
-        return [], 0, column_info or [], None
+        return [], 0, "exact", column_info or [], None
 
-    return rows, approx_total, column_info or [], next_cursor
+    return rows, total, total_kind, column_info or [], next_cursor
+
+
+async def get_row_bboxes(
+    db: AsyncSession, table_name: str, gids: list[int]
+) -> dict[int, list[float] | None]:
+    """Each row's [minx, miny, maxx, maxy] in EPSG:4326 to 6 decimals, as the
+    feature GeoJSON routes write coordinates; None for no geometry.
+
+    The table must have a ``geom_4326`` column. Rows deleted since the caller
+    read them are absent from the result.
+    """
+    if not SAFE_TABLE_NAME_RE.match(table_name):
+        raise ValueError(f"Invalid table name: {table_name}")
+    if not gids:
+        return {}
+
+    from app.core.db.tenant_schema import tenant_data_schema
+    from app.core.db.tenant_session import current_tenant_var
+    from app.modules.catalog.datasets.domain._sql_safety import _safe_table_ref
+
+    table_ref = _safe_table_ref(
+        table_name, schema=tenant_data_schema(current_tenant_var.get())
+    )
+    result = await db.execute(
+        text(
+            # codeql[py/sql-injection]
+            f"SELECT gid, ST_XMin(geom_4326), ST_YMin(geom_4326), ST_XMax(geom_4326), ST_YMax(geom_4326) FROM {table_ref} WHERE gid = ANY(CAST(:gids AS bigint[]))"
+        ).bindparams(gids=gids)
+    )
+    return {
+        row[0]: None if row[1] is None else [round(float(v), 6) for v in row[1:]]
+        for row in result.all()
+    }

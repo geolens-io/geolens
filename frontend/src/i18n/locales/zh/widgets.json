@@ -1,0 +1,277 @@
+{
+  "unavailable": "无法显示此块。它可能来自较新版本的 GeoLens。",
+  "noData": "暂无数据",
+  "noRows": "无数据",
+  "showTable": "显示数据表",
+  "picked": "已选择",
+  "noValue": "（无值）",
+  "other": "其他",
+  "stats": {
+    "count": "计数",
+    "sum": "{{column}} 总和",
+    "mean": "{{column}} 平均值",
+    "min": "{{column}} 最小值",
+    "max": "{{column}} 最大值"
+  },
+  "types": {
+    "markdown": {
+      "label": "文本",
+      "imageNotShown": "未显示图片",
+      "imageNotShownAlt": "未显示图片：{{alt}}",
+      "sourceHint": "支持 Markdown 的标题、列表和链接。不显示 HTML 和图片。"
+    },
+    "indicator": {
+      "label": "指标",
+      "summary": "{{label}}：{{value}}",
+      "reference": "{{label}}：{{value}}",
+      "referenceDefault": "参考值",
+      "referenceDefaultPhrase": "参考值",
+      "above": "比{{label}}高 {{amount}}",
+      "below": "比{{label}}低 {{amount}}",
+      "same": "与{{label}}相同",
+      "outcome": "{{difference}}，{{outcome}}",
+      "difference": "差值",
+      "measure": "指标",
+      "value": "数值",
+      "good": "有利",
+      "bad": "不利"
+    },
+    "bar_chart": {
+      "label": "条形图",
+      "summary": "按 {{column}} 统计的{{stat}}",
+      "keyboardHint": "使用方向键在各条之间移动。",
+      "keyboardHintPick": "使用方向键在条形之间移动。按 Enter 键按某个条形筛选地图，再按一次清除筛选。",
+      "keyboardHintPickPage": "使用方向键在条形之间移动。按 Enter 键按某个条形筛选仪表板，再按一次清除筛选。",
+      "bar": "{{label}}：{{value}}",
+      "roleDescription": "条形图",
+      "summaryDate": "按{{bucket}}统计的{{stat}}（UTC）",
+      "summaryFeature": "按 {{label}} 统计的 {{value}}",
+      "summaryFields": "按字段统计的{{stat}}",
+      "fieldHeader": "字段",
+      "buckets": {
+        "day": "日",
+        "week": "周",
+        "month": "月",
+        "year": "年"
+      },
+      "moreBuckets": "显示前 {{shown}} 个时段。图层还有更多。",
+      "moreFeatures": "显示 {{shown}} 个要素。图层还有更多。"
+    },
+    "histogram": {
+      "label": "直方图",
+      "summary": "{{column}} 的分布",
+      "keyboardHint": "使用方向键在分组之间移动。",
+      "keyboardHintPick": "使用方向键在分组之间移动。按 Enter 键按某个分组筛选地图，再按一次清除筛选。",
+      "keyboardHintPickPage": "使用方向键在分组之间移动。按 Enter 键按某个分组筛选仪表板，再按一次清除筛选。",
+      "bin": "{{range}}：{{value}}",
+      "range": "{{lower}} – {{upper}}",
+      "rangeHeader": "范围",
+      "roleDescription": "直方图"
+    },
+    "category_selector": {
+      "label": "类别选择器",
+      "summary": "按 {{column}} 筛选",
+      "all": "全部",
+      "other": "其他值：{{value}}"
+    },
+    "image": {
+      "label": "图片",
+      "description": "图片：{{alt}}",
+      "loading": "正在加载图片：{{alt}}"
+    },
+    "button": {
+      "label": "按钮",
+      "opensInNewTab": "（在新标签页中打开）"
+    },
+    "separator": {
+      "label": "分隔线"
+    },
+    "gallery": {
+      "label": "图库",
+      "open": "打开第 {{current}} 张图片，共 {{total}} 张"
+    },
+    "carousel": {
+      "label": "轮播",
+      "previous": "上一张图片",
+      "next": "下一张图片",
+      "position": "第 {{current}} 张，共 {{total}} 张",
+      "roleDescription": "轮播",
+      "slideRoleDescription": "幻灯片"
+    },
+    "table": {
+      "label": "表格",
+      "summary": "按{{column}}统计",
+      "truncated_one": "仅显示第一个值，未列出更多值。",
+      "truncated_many": "仅显示前 {{count}} 个值，未列出更多值。",
+      "truncated_other": "仅显示前 {{count}} 个值，未列出更多值。"
+    },
+    "feature_list": {
+      "label": "要素列表",
+      "summary": "按{{column}}列出的要素",
+      "listLabel": "要素",
+      "shown": "已显示 {{shown}} 个要素",
+      "shownMore": "已显示 {{shown}} 个要素，还有更多",
+      "loadMore": "加载更多",
+      "loadingMore": "正在加载更多",
+      "zoomTo": "在地图上缩放到该要素",
+      "noMap": "此仪表板没有地图，因此无法缩放到要素。",
+      "loadFailed": "无法加载更多要素。",
+      "retryLoadMore": "重试"
+    },
+    "embed": {
+      "label": "嵌入内容",
+      "unavailable": "此嵌入页面无法在此显示，因为其网站已不再获准。",
+      "originalLink": "如果框架一直为空，请打开原始内容："
+    },
+    "video": {
+      "label": "视频",
+      "unavailable": "此视频无法在此显示，因为其网站已不再获准。"
+    },
+    "pie_chart": {
+      "label": "饼图",
+      "summary": "按 {{column}} 统计的{{stat}}",
+      "keyboardHint": "使用方向键在各扇区之间移动。",
+      "keyboardHintPick": "使用方向键在扇区之间移动。按 Enter 键按某个扇区筛选地图，再按一次清除筛选。",
+      "keyboardHintPickPage": "使用方向键在扇区之间移动。按 Enter 键按某个扇区筛选仪表板，再按一次清除筛选。",
+      "slice": "{{label}}：{{value}}（{{share}}）",
+      "roleDescription": "饼图",
+      "sliceValue": "{{label}}：{{value}}",
+      "truncated": "显示前 {{shown}} 个值。图层还有更多，因此各扇区加起来不是整体。",
+      "signed": "扇区无法表示负值或非数值，因此此图表以表格显示。"
+    }
+  },
+  "dashboard": {
+    "title": "仪表板",
+    "open": "打开仪表板",
+    "openWithFilters_one": "打开仪表板，已应用 {{count}} 个筛选条件",
+    "openWithFilters_many": "打开仪表板，已应用 {{count}} 个筛选条件",
+    "openWithFilters_other": "打开仪表板，已应用 {{count}} 个筛选条件",
+    "hide": "隐藏仪表板",
+    "followsView": "跟随地图视图",
+    "viewScopeUnavailable": "显示整个图层：此仪表板已隐藏其地图。",
+    "filterIgnored": "显示全部要素：图层的筛选条件无法应用于这些数字。",
+    "filterIgnoredWithPicks": "已应用你的筛选条件，但未应用图层自身的筛选条件，因为它无法用于这些数字。",
+    "tooWide": "视图中的要素过多。请放大地图以查看这些数字。",
+    "loadFailed": "无法加载这些数字。",
+    "columnUnavailable": "此小组件的列在此处不可用。",
+    "filterRefused": "此小组件的筛选条件无法在此处应用。",
+    "allHidden": "这些小组件汇总的图层已隐藏。在图例中显示一个图层即可看到其小组件。",
+    "retry": "重试",
+    "someFailed": "部分小组件无法加载数字。",
+    "someTooWide": "请放大地图以查看部分小组件的数字。",
+    "filters": "筛选条件",
+    "filterChip": "{{column}}：{{value}}",
+    "removeFilter": "移除 {{layer}} 上的筛选 {{filter}}",
+    "filterApplied": "已按 {{filter}} 筛选 {{layer}}。",
+    "filterCleared": "已移除 {{layer}} 上的筛选 {{filter}}。",
+    "cantFilter": "“{{value}}”无法用作筛选条件。",
+    "tooManyForClusters": "值太多，无法筛选此图层的聚合点。请少选一些。",
+    "clustersCantFilter": "此筛选条件无法应用于地图上此图层的聚合点。",
+    "tooManyValues": "用于筛选的值太多。请少选一些。"
+  },
+  "editor": {
+    "panelPosition": "面板位置",
+    "panelRight": "地图右侧",
+    "panelBottom": "地图下方",
+    "hideMap": "隐藏地图",
+    "hideMapHelp": "读者可在整页看到这些组件，且不会加载地图。",
+    "theme": "读者主题",
+    "themeFollow": "跟随读者设置",
+    "empty": "还没有小组件。",
+    "noLayers": "向地图添加矢量或表格图层后即可添加小组件。",
+    "add": "添加{{type}}",
+    "title": "标题",
+    "layer": "图层",
+    "pickLayer": "选择图层",
+    "scope": "统计范围",
+    "scopeLayer": "整个图层",
+    "scopeView": "地图视图内的内容",
+    "moveUp": "上移{{name}}",
+    "moveDown": "下移{{name}}",
+    "remove": "移除{{name}}",
+    "preview": "预览",
+    "previewPanel": "预览面板",
+    "embedColumnHint": "此地图的嵌入副本无法显示此列。",
+    "previewPanelDescription": "读者所见的面板，地图处为占位。",
+    "previewMap": "地图",
+    "stat": "统计量",
+    "statNames": {
+      "count": "计数",
+      "sum": "总和",
+      "mean": "平均值",
+      "min": "最小值",
+      "max": "最大值"
+    },
+    "noNumericColumns": "此图层没有数值列，只能计数。",
+    "column": "列",
+    "groupBy": "分组依据",
+    "limit": "条数",
+    "bins": "分组数",
+    "multiple": "读者可以选择多个值",
+    "histogramNeedsNumbers": "此图层没有可分组的数值列。",
+    "pickColumn": "选择列",
+    "problem": {
+      "layerRemoved": "其图层已不在地图上，保存时会移除此小组件。",
+      "missingColumn": "该图层没有“{{column}}”列。保存前请另选一列。",
+      "notNumeric": "“{{column}}”不是数值列。保存前请另选一列。",
+      "viewWithoutGeometry": "此图层没有几何，小组件无法跟随地图视图。请将其设为统计整个图层。",
+      "notSortable": "无法按“{{column}}”排序。请在保存前选择其他列。",
+      "notListable": "无法列出“{{column}}”。请在保存前选择其他列。",
+      "notDate": "“{{column}}”不是日期列。请在保存前选择其他列。"
+    },
+    "maxWidgets": "一个仪表板最多包含 {{max}} 个小组件。",
+    "reference": "参考值",
+    "referenceLabel": "参考值名称",
+    "comparison": "差值显示为",
+    "comparisons": {
+      "both": "数值和百分比变化",
+      "value": "数值",
+      "percent": "百分比变化"
+    },
+    "higherIsBetter": "数值越高越好",
+    "statN": "统计 {{n}}",
+    "removeStat": "移除统计 {{n}}",
+    "addStat": "添加统计",
+    "sortBy": "排序依据",
+    "sortGroup": "分组值",
+    "sortDirection": "顺序",
+    "sortDesc": "从大到小",
+    "sortAsc": "从小到大",
+    "rows": "行数",
+    "featureList": {
+      "title": "标题列",
+      "subtitle": "副标题列",
+      "none": "无",
+      "sortBy": "排序依据",
+      "direction": "顺序",
+      "ascending": "升序",
+      "descending": "降序",
+      "pageSize": "每页要素数"
+    },
+    "barMode": "条形显示",
+    "barModes": {
+      "category": "某列的取值",
+      "date": "日期",
+      "by_feature": "每个要素一条",
+      "by_fields": "每个字段一条"
+    },
+    "barNeedsNumbers": "此图层没有可用于该图表的数值列。",
+    "barNeedsDates": "此图层没有日期列。",
+    "dateColumn": "日期列",
+    "dateBucket": "分组单位",
+    "dateBuckets": {
+      "day": "日",
+      "week": "周",
+      "month": "月",
+      "year": "年"
+    },
+    "labelField": "标签字段",
+    "valueField": "数值字段",
+    "sortOrder": "排序",
+    "fields": "字段",
+    "layerColors": "使用图层的颜色",
+    "layerColorsHelp": "当该列正是图层地图样式用来着色的列时生效。",
+    "fieldUnavailable": "{{column}}（不是此图层的数值列）",
+    "slices": "扇区数"
+  }
+}

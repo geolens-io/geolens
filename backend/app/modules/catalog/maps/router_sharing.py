@@ -35,10 +35,11 @@ from app.modules.auth.dependencies import (
     reject_unresolvable_credentials,
     require_permission,
 )
-from app.modules.catalog.authorization import get_user_roles
+from app.modules.catalog.authorization import ANONYMOUS_MAP_VISIBILITIES
+from app.modules.catalog.authorization import check_map_access, get_user_roles
+from app.modules.catalog.link_preview import preview_description
 from app.modules.catalog.maps._router_helpers import (
     _build_frame_ancestors,
-    _check_map_read_access,
     _layers_from_tuples,
 )
 from app.modules.catalog.maps.schemas import (
@@ -59,6 +60,7 @@ from app.modules.catalog.maps.service import (
     get_map_with_layers,
     get_shared_map,
     lock_map_layers,
+    map_group_layer_gaps,
     revoke_share_token_by_map,
     update_share_token,
     validate_public_visibility,
@@ -66,6 +68,7 @@ from app.modules.catalog.maps.service import (
 from app.modules.catalog.maps.style_json import build_maplibre_style
 from app.modules.embed_tokens.service import revoke_embed_tokens_by_map
 from app.platform.cache.scope import public_cache_control
+from app.platform.extensions.reader_theme import current_reader_theme
 from app.platform.request_credential import refuse_publish_key
 from app.standards.ogc.errors import FORBIDDEN_RESPONSE, GONE_RESPONSE
 
@@ -92,7 +95,7 @@ async def shared_map_card_endpoint(
     map_obj = None
     if token_obj is not None and not isinstance(token_obj, str):
         map_obj = await get_map(db, token_obj.map_id)
-    if map_obj is None or map_obj.visibility != "public":
+    if map_obj is None or map_obj.visibility not in ANONYMOUS_MAP_VISIBILITIES:
         # "Copy Link" copies this /card URL — return 200 HTML
         # with a meta-refresh into the SPA shell (not bare 404 JSON) so it
         # lands on the same "link expired" page as /m/{token}.
@@ -112,7 +115,9 @@ async def shared_map_card_endpoint(
     image_url = await get_share_card_image_url(db, request, map_obj)
     image_url = html.escape(image_url, quote=True)
     title = html.escape(map_obj.name or "GeoLens Map")
-    description = html.escape(map_obj.description or "View this map on GeoLens")
+    description = html.escape(
+        preview_description(map_obj.description, "View this map on GeoLens")
+    )
     viewer_url = f"/m/{html.escape(token)}"
     card_html = (
         "<!doctype html>\n"
@@ -139,6 +144,7 @@ async def shared_map_card_endpoint(
     "/shared/{token}",
     response_model=SharedMapResponse,
     responses={403: FORBIDDEN_RESPONSE, 410: GONE_RESPONSE},
+    summary="Get a shared map",
 )
 async def get_shared_map_endpoint(
     token: str,
@@ -192,31 +198,36 @@ async def get_shared_map_endpoint(
     response.headers["Content-Security-Policy"] = _build_frame_ancestors(
         allowed_origins
     )
-    return SharedMapResponse(**map_data, layers=layers)
+    return SharedMapResponse(
+        **map_data, layers=layers, reader_theme=current_reader_theme()
+    )
 
 
-@router.get("/{map_id}/visibility-check/", response_model=VisibilityCheckResponse)
+@router.get(
+    "/{map_id}/visibility-check/",
+    response_model=VisibilityCheckResponse,
+    summary="Check which layers a map's audience cannot see",
+)
 async def visibility_check_endpoint(
     map_id: uuid.UUID,
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> VisibilityCheckResponse:
-    """Check if a map has non-public datasets. Informational only.
+    """Check which layers a map's audience can't see. Informational only.
 
-    Owner-or-admin like the other sharing mutations: the response names
-    non-public dataset titles, which read access alone must not reveal.
-    Read access is checked first so unreadable maps keep answering 404
-    (existence-hiding); readable non-owners get 403.
+    Owner-or-admin, since the answer names datasets that read access alone
+    must not reveal. Unreadable maps answer 404; readable non-owners get 403.
     """
     map_obj = await get_map(db, map_id)
     if map_obj is None:
         raise HTTPException(status_code=404, detail="Map not found")
-    await _check_map_read_access(map_obj, user, db)
-    await check_map_ownership(map_obj, user, db)
+    roles = await check_map_ownership(map_obj, user, db)
     non_public_names = await validate_public_visibility(db, map_id, user)
+    gaps = await map_group_layer_gaps(db, map_obj, user, "admin" in roles)
     return VisibilityCheckResponse(
         non_public_datasets=non_public_names,
         has_non_public=len(non_public_names) > 0,
+        hidden_from_groups=gaps,
     )
 
 
@@ -253,6 +264,7 @@ async def visibility_check_endpoint(
         },
         403: FORBIDDEN_RESPONSE,
     },
+    summary="Export a map as a MapLibre style",
 )
 async def export_map_style_endpoint(
     map_id: uuid.UUID,
@@ -270,7 +282,7 @@ async def export_map_style_endpoint(
     map_obj, layer_tuples, _, _ = await get_map_with_layers(db, map_id)
     if map_obj is None:
         raise HTTPException(status_code=404, detail="Map not found")
-    await _check_map_read_access(map_obj, user, db)
+    await check_map_access(db, map_obj, user)
     layer_tuples = await filter_layer_rows_by_dataset_visibility(db, layer_tuples, user)
     layers = _layers_from_tuples(layer_tuples)
     style = build_maplibre_style(
@@ -295,7 +307,11 @@ def _app_link(app_url: str | None, path: str) -> str | None:
     return f"{app_url}{path}" if app_url else None
 
 
-@router.get("/{map_id}/share/", response_model=ShareTokenResponse | None)
+@router.get(
+    "/{map_id}/share/",
+    response_model=ShareTokenResponse | None,
+    summary="Get a map's share token",
+)
 async def get_map_share_token_endpoint(
     map_id: uuid.UUID,
     request: Request,
@@ -321,7 +337,11 @@ async def get_map_share_token_endpoint(
     )
 
 
-@router.post("/{map_id}/share/", response_model=ShareTokenResponse)
+@router.post(
+    "/{map_id}/share/",
+    response_model=ShareTokenResponse,
+    summary="Create a map share token",
+)
 async def share_map_endpoint(
     map_id: uuid.UUID,
     request: Request,
@@ -334,7 +354,7 @@ async def share_map_endpoint(
     if map_obj is None:
         raise HTTPException(status_code=404, detail="Map not found")
     await check_map_ownership(map_obj, user, db)
-    if map_obj.visibility != "public":
+    if map_obj.visibility not in ANONYMOUS_MAP_VISIBILITIES:
         raise HTTPException(status_code=400, detail="Map must be public before sharing")
     # A new expiry on a live link could end it early. Locked first, as
     # create_share_token locks, so the check and the write see the same token.
@@ -381,7 +401,11 @@ async def share_map_endpoint(
     )
 
 
-@router.patch("/{map_id}/share/", response_model=ShareTokenResponse)
+@router.patch(
+    "/{map_id}/share/",
+    response_model=ShareTokenResponse,
+    summary="Update a map share token",
+)
 async def update_map_share_token_endpoint(
     map_id: uuid.UUID,
     body: ShareTokenRequest,
@@ -432,7 +456,11 @@ async def update_map_share_token_endpoint(
     )
 
 
-@router.delete("/{map_id}/share/", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{map_id}/share/",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Revoke a map share token",
+)
 async def revoke_map_share_endpoint(
     map_id: uuid.UUID,
     request: Request,

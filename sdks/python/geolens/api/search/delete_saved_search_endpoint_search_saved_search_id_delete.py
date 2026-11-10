@@ -80,7 +80,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Saved Search Endpoint
+    """Delete a saved search
 
      Delete a saved search.
 
@@ -111,7 +111,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Delete Saved Search Endpoint
+    """Delete a saved search
 
      Delete a saved search.
 
@@ -137,7 +137,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[Any | ProblemDetail]:
-    """Delete Saved Search Endpoint
+    """Delete a saved search
 
      Delete a saved search.
 
@@ -166,7 +166,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> Any | ProblemDetail | None:
-    """Delete Saved Search Endpoint
+    """Delete a saved search
 
      Delete a saved search.
 

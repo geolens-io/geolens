@@ -94,7 +94,7 @@ def sync_detailed(
     GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetResponseGetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGet
     | ProblemDetail
 ]:
-    """Get Geolens Sprite Index Endpoint
+    """Get the GeoLens sprite index
 
      Serve the stable GeoLens sprite JSON index.
 
@@ -123,7 +123,7 @@ def sync(
     | ProblemDetail
     | None
 ):
-    """Get Geolens Sprite Index Endpoint
+    """Get the GeoLens sprite index
 
      Serve the stable GeoLens sprite JSON index.
 
@@ -147,7 +147,7 @@ async def asyncio_detailed(
     GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetResponseGetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGet
     | ProblemDetail
 ]:
-    """Get Geolens Sprite Index Endpoint
+    """Get the GeoLens sprite index
 
      Serve the stable GeoLens sprite JSON index.
 
@@ -174,7 +174,7 @@ async def asyncio(
     | ProblemDetail
     | None
 ):
-    """Get Geolens Sprite Index Endpoint
+    """Get the GeoLens sprite index
 
      Serve the stable GeoLens sprite JSON index.
 

@@ -1,5 +1,6 @@
-import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
+import { hashKey, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { toFitBounds } from '@/lib/bbox';
@@ -11,6 +12,7 @@ import {
   type BuilderLayerAction,
 } from '@/components/builder/builder-action-contract';
 import { resolveBasemapId } from '@/lib/basemap-utils';
+import { queryKeys } from '@/lib/query-keys';
 import {
   hasSavedMapCamera,
   readMapCamera,
@@ -18,12 +20,12 @@ import {
   savedMapCamera,
   type BuilderCamera,
 } from '@/components/builder/builder-camera';
-import { deepEqual } from '@/components/builder/LayerStyleEditor/utils';
+import { deepEqual } from '@/lib/deep-equal';
 import type { MapBasemapConfig, MapLayerResponse, MapResponse, MapTerrainConfig, StyleConfig } from '@/types/api';
 import type { useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
 import { useEphemeralLayers } from '@/components/builder/hooks/use-ephemeral-layers';
 import { useLayerMapSync } from '@/components/builder/hooks/use-layer-map-sync';
-import type { SaveBaselineSync } from '@/components/builder/hooks/use-builder-save';
+import type { SaveBaselineSync, SaveFence } from '@/components/builder/hooks/use-builder-save';
 import {
   buildDuplicateRenderingInput,
   removePerLayerCompanions,
@@ -45,6 +47,8 @@ import { useTerrainLayers } from '@/components/builder/hooks/use-terrain-layers'
 import { useRenderModeLayers } from '@/components/builder/hooks/use-render-mode-layers';
 import { useLayerStyleClipboard } from '@/components/builder/hooks/use-layer-style-clipboard';
 import { useTileConfig } from '@/hooks/use-settings';
+import { useDashboardDraft } from '@/components/builder/hooks/use-dashboard-draft';
+import type { DashboardDraft } from '@/components/builder/dashboard-draft';
 export { buildDuplicateRenderingInput } from '@/components/builder/hooks/builder-layer-mutations';
 
 // A camera reading is only meaningful with the map it was read for.
@@ -79,6 +83,9 @@ function savedTerrainConfig(mapData: { terrain_config?: MapTerrainConfig | null 
     exaggeration: normalizeTerrainExaggeration(mapData.terrain_config.exaggeration),
   };
 }
+
+const detailDataVersion = (queryClient: QueryClient, id: string | undefined): number =>
+  queryClient.getQueryState(queryKeys.maps.detail(id))?.dataUpdateCount ?? 0;
 
 export function useBuilderLayers(
   mapData: MapResponse | undefined,
@@ -121,24 +128,24 @@ export function useBuilderLayers(
   const [layersMapId, setLayersMapId] = useState<string | null>(null);
   const layersMapIdRef = useRef<string | null>(null);
   const [localBasemap, setLocalBasemap] = useState<string>('openfreemap-positron');
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const hasUnsavedChangesRef = useRef(false);
-  hasUnsavedChangesRef.current = hasUnsavedChanges;
+  // Unsaved edits other than the camera; these ask before leaving. A moved
+  // camera only enables Save, through hasUnsavedChanges below.
+  const [hasUnsavedEdits, setHasUnsavedChanges] = useState(false);
   // Live camera sampled on moveend, tagged with the map it was taken on. Null
   // until the map has settled once, since a map that never moved can't have
   // changed the view a save would store. The tag matters because direct
-  // /maps/:id navigation keeps this hook and the MapGL instance mounted, and a
-  // sample from the previous map must not be judged against the next map's
-  // saved view. The sample lives in a ref; state holds only whether it differs
+  // /maps/:id navigation keeps this hook mounted, and a sample from the
+  // previous map must not be judged against the next map's saved view. The
+  // sample lives in a ref; state holds only whether it differs
   // from the saved view, so a pan that doesn't flip that answer doesn't
   // re-render the page.
   const liveCameraRef = useRef<CameraSample | null>(null);
   const mapDataRef = useRef(mapData);
   mapDataRef.current = mapData;
   const [cameraUnsaved, setCameraUnsaved] = useState<boolean | null>(null);
-  // The camera the current map was entered on, until the camera leaves it: the
-  // saved view on a fresh load, or the previous map's position after in-page
-  // navigation (nothing repositions the shared instance). Not an edit.
+  const hasUnsavedChanges = hasUnsavedEdits || cameraUnsaved === true;
+  // The camera the current map opened at, until the camera leaves it: its
+  // saved view, or the fit to its layers when it has none. Not an edit.
   const cameraEntryRef = useRef<CameraSample | null>(null);
   // Dirt this hook can't re-derive from server state: plugin toggles and other
   // page-owned edits through markDirty. recheckClean refuses to clear the flag
@@ -170,9 +177,62 @@ export function useBuilderLayers(
   const [localDescription, setLocalDescription] = useState('');
   // Map-level custom legend title. Null means no override.
   const [localLegendTitle, setLocalLegendTitle] = useState<string | null>(null);
+  // Whether readers can open the Map data table.
+  const [localShowAttributeTable, setLocalShowAttributeTable] = useState(true);
+  const warnDashboardChanged = useCallback(
+    () => toast.warning(t('toasts.dashboardChangedElsewhere'), { id: 'dashboard-changed-elsewhere' }),
+    [t],
+  );
+  const { dashboard, savedDashboard, setDashboard, beginSave: beginDashboardSave, dashboardEdited } =
+    useDashboardDraft(mapData?.dashboard_config, mapId, mapData?.layers, localLayers, warnDashboardChanged);
   const [freshLayerId, setFreshLayerId] = useState<string | null>(null);
   const freshLayerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedLayerBaselineRef = useRef<MapLayerResponse[]>([]);
+  // Maps fenced by a save: null while the save is in flight, then the detail
+  // query's data version when it settled. From the save's start until data
+  // fetched after it settles, mapData may not match the server, whether the
+  // save succeeded, failed or half-failed.
+  const saveFenceRef = useRef(new Map<string, number | null>());
+  const queryClient = useQueryClient();
+  // The detail query's data version as of its last fetch, counting a refetch
+  // whose data is unchanged. A manual cache write, such as a sharing change
+  // merging audience fields, bumps the version too but refreshes nothing the
+  // fence waits for, so it doesn't count.
+  const fetchedVersionRef = useRef(new Map<string, number>());
+  const detailVersion = useSyncExternalStore(
+    useCallback(
+      (onChange) =>
+        queryClient.getQueryCache().subscribe((event) => {
+          if (event.type !== 'updated' || event.action.type !== 'success' || event.action.manual) return;
+          const id = event.query.queryKey[1];
+          if (typeof id !== 'string' || event.query.queryHash !== hashKey(queryKeys.maps.detail(id))) return;
+          fetchedVersionRef.current.set(id, event.query.state.dataUpdateCount);
+          onChange();
+        }),
+      [queryClient],
+    ),
+    () => (mapId ? fetchedVersionRef.current.get(mapId) ?? 0 : 0),
+  );
+  const saveFenced = useCallback((): boolean => {
+    const settled = mapId ? saveFenceRef.current.get(mapId) : undefined;
+    return settled !== undefined && (settled === null || detailVersion <= settled);
+  }, [mapId, detailVersion]);
+  const saveFence = useMemo<SaveFence>(
+    () => ({
+      inFlight: (id) => saveFenceRef.current.get(id) === null,
+      begin: (id) => {
+        saveFenceRef.current.set(id, null);
+      },
+      // Taken after the save's own cache write, so only data delivered later
+      // lifts the fence. The refetch makes sure some arrives, even after a
+      // failure, without restarting one already in flight.
+      settle: (id) => {
+        saveFenceRef.current.set(id, detailDataVersion(queryClient, id));
+        void queryClient.invalidateQueries({ queryKey: queryKeys.maps.detail(id) }, { cancelRefetch: false });
+      },
+    }),
+    [queryClient],
+  );
 
   // Mirror current layers in a ref so stable callbacks read fresh state without
   // invalidating on every mutation, which would defeat React.memo() on StackRow.
@@ -190,7 +250,7 @@ export function useBuilderLayers(
 
   // Live map sync handlers
   const {
-    handleToggleVisibility,
+    handleToggleVisibility: toggleLayerVisibility,
     handlePaintChange,
     handleStyleConfigChange,
     handleOpacityChange,
@@ -219,7 +279,7 @@ export function useBuilderLayers(
   // ungroup / delete) and in-flight isDeleting state.
   const {
     handleBulkApplyStyle,
-    handleBulkVisibility,
+    handleBulkVisibility: bulkToggleVisibility,
     handleBulkOpacity,
     handleBulkGroup,
     handleBulkUngroup,
@@ -247,7 +307,7 @@ export function useBuilderLayers(
     handleCreateGroupWithLayer,
     handleRenameGroup,
     handleUngroup,
-    handleToggleGroupVisibility,
+    handleToggleGroupVisibility: toggleGroupVisibility,
     handleDeleteGroup,
     handleAddLayerToExistingGroup,
     handleMoveLayerOutOfGroup,
@@ -327,6 +387,7 @@ export function useBuilderLayers(
       setLocalName(mapData.name);
       setLocalDescription(mapData.description ?? '');
       setLocalLegendTitle(mapData.legend_title ?? null);
+      setLocalShowAttributeTable(mapData.show_attribute_table ?? true);
       initializedRef.current = true;
     }
   }, [mapData]);
@@ -339,18 +400,21 @@ export function useBuilderLayers(
   // Sync layers from API when they change (after add/remove mutations)
   const apiLayers = mapData?.layers;
   useEffect(() => {
-    if (apiLayers && initializedRef.current && !hasUnsavedChanges) {
-      const hydrated = hydrateFolderGroupLayers(apiLayers);
-      setLocalLayers(hydrated.layers);
-      layersMapIdRef.current = mapData?.id ?? null;
-      setLayersMapId(mapData?.id ?? null);
-      savedLayerBaselineRef.current = hydrated.layers;
-      setGroupMeta({
-        ...hydrated.groupMeta,
-        ...((mapData as { group_meta?: Record<string, { expanded: boolean }> } | undefined)?.group_meta ?? {}),
-      });
-    }
-  }, [apiLayers, hasUnsavedChanges, mapData]);
+    if (!apiLayers || !initializedRef.current || saveFenced()) return;
+    const fenceLifted = mapId !== undefined && saveFenceRef.current.delete(mapId);
+    if (hasUnsavedChanges && !fenceLifted) return;
+    const hydrated = hydrateFolderGroupLayers(apiLayers);
+    savedLayerBaselineRef.current = hydrated.layers;
+    // A dirty map keeps its edits; only the clean check learns the saved layers.
+    if (hasUnsavedChanges) return;
+    setLocalLayers(hydrated.layers);
+    layersMapIdRef.current = mapData?.id ?? null;
+    setLayersMapId(mapData?.id ?? null);
+    setGroupMeta({
+      ...hydrated.groupMeta,
+      ...((mapData as { group_meta?: Record<string, { expanded: boolean }> } | undefined)?.group_meta ?? {}),
+    });
+  }, [apiLayers, hasUnsavedChanges, mapData, mapId, saveFenced]);
 
   // Compute initial view state only once
   const initialViewState = useMemo(() => {
@@ -531,6 +595,11 @@ export function useBuilderLayers(
       setHasUnsavedChanges(true);
       return next;
     });
+  }, [setHasUnsavedChanges]);
+
+  const handleShowAttributeTableChange = useCallback((next: boolean) => {
+    setLocalShowAttributeTable(next);
+    setHasUnsavedChanges(true);
   }, [setHasUnsavedChanges]);
 
   // Set a per-entry legend label override on style_config.legendLabel; an empty
@@ -894,6 +963,26 @@ export function useBuilderLayers(
     );
   }, [addLayerMutation, mapId, t, saveBaselineSyncRef]);
 
+  const remapLayerIds = useCallback((ids: ReadonlyMap<string, string>) => {
+    setLocalLayers((prev) =>
+      prev.map((layer) => {
+        const next = ids.get(layer.id);
+        return next ? { ...layer, id: next } : layer;
+      }),
+    );
+    setExpandedLayerId((prev) => (prev && ids.get(prev)) ?? prev);
+    // Otherwise the next save would drop the widgets as on a removed layer.
+    if (dashboard.widgets.some((w) => w.layer_id && ids.has(w.layer_id))) {
+      setDashboard({
+        ...dashboard,
+        widgets: dashboard.widgets.map((w) => {
+          const next = w.layer_id && ids.get(w.layer_id);
+          return next ? { ...w, layer_id: next } : w;
+        }),
+      });
+    }
+  }, [dashboard, setDashboard]);
+
   const markDirty = useCallback(() => setHasUnsavedChanges(true), []);
 
   // For state this hook can't compare against server data (dock notes, plugin
@@ -928,7 +1017,11 @@ export function useBuilderLayers(
     for (let i = 0; i < current.length; i += 1) {
       const saved = savedById.get(current[i].id);
       // Order matters (sort_order is persisted), so compare position too.
-      if (!saved || saved.id !== baseline[i].id || !deepEqual(current[i], saved)) return false;
+      if (!saved || saved.id !== baseline[i].id) return false;
+      // A folder row is never persisted and its own `visible` can lag its
+      // children, so only the children's visibility counts.
+      const layer = isFolderGroupLayer(current[i]) ? { ...current[i], visible: saved.visible } : current[i];
+      if (!deepEqual(layer, saved)) return false;
     }
 
     // Compare the save payload's normalization, not the raw local strings:
@@ -942,13 +1035,12 @@ export function useBuilderLayers(
     // value": identical text is clean, as is any pair that both persist as null.
     if (!sameSavedText(localDescription, mapData.description)) return false;
     if (!sameSavedText(localLegendTitle, mapData.legend_title)) return false;
+    if (localShowAttributeTable !== (mapData.show_attribute_table ?? true)) return false;
     if (localBasemap !== resolveBasemapId(mapData.basemap_style || 'positron')) return false;
     if (showBasemapLabels !== (mapData.show_basemap_labels ?? true)) return false;
     if (!deepEqual(basemapConfig, mapData.basemap_config ?? null)) return false;
     if (!deepEqual(localTerrainConfig, savedTerrainConfig(mapData))) return false;
-    // Every save rewrites center, zoom, bearing and pitch from the live map, so
-    // an unsaved pan here is a pending change to the stored view.
-    if (unsavedCamera()) return false;
+    if (dashboardEdited) return false;
 
     // Folder expansion is persisted (prepareLayersForPersistence reads
     // groupMeta) and handleToggleGroupExpand dirties the map, so an
@@ -963,8 +1055,8 @@ export function useBuilderLayers(
 
     return true;
   }, [
-    mapData, localName, localDescription, localLegendTitle, localBasemap,
-    showBasemapLabels, basemapConfig, localTerrainConfig, groupMeta, unsavedCamera,
+    mapData, localName, localDescription, localLegendTitle, localShowAttributeTable, localBasemap,
+    showBasemapLabels, basemapConfig, localTerrainConfig, groupMeta, dashboardEdited,
   ]);
 
   // The recheck must observe the reverted layers, so it runs in an effect after
@@ -977,18 +1069,40 @@ export function useBuilderLayers(
     setRecheckNonce((n) => n + 1);
   }, []);
   // A request stays pending until it finds the map clean, and re-runs when the
-  // saved baselines change: a save invalidates the map-detail query, and a
-  // revert racing the refetch would otherwise compare stale server data once.
+  // saved baselines change, so one made behind a save fence waits for the
+  // refetch.
   useEffect(() => {
     if (recheckNonce === 0 || !recheckPendingRef.current) return;
-    if (!computeMapIsClean()) return;
+    if (saveFenced() || !computeMapIsClean()) return;
     recheckPendingRef.current = false;
     setHasUnsavedChanges(false);
-  }, [recheckNonce, computeMapIsClean]);
+  }, [recheckNonce, computeMapIsClean, saveFenced]);
 
-  // Camera a change of map identity starts from. Re-read on every identity
-  // change: the shared MapGL instance isn't repositioned, so the screen still
-  // shows the previous map's view.
+  // A dashboard edit can put back the saved dashboard, so each one asks too.
+  const handleDashboardChange = useCallback((next: DashboardDraft) => {
+    setDashboard(next);
+    setHasUnsavedChanges(true);
+    requestCleanRecheck();
+  }, [setDashboard, requestCleanRecheck]);
+
+  // A visibility toggle is the only edit a user routinely undoes by repeating
+  // it, so each one asks whether the map is back to the saved state.
+  const handleToggleVisibility = useCallback((layerId: string, visible?: boolean) => {
+    toggleLayerVisibility(layerId, visible);
+    requestCleanRecheck();
+  }, [toggleLayerVisibility, requestCleanRecheck]);
+  const handleToggleGroupVisibility = useCallback((groupId: string) => {
+    toggleGroupVisibility(groupId);
+    requestCleanRecheck();
+  }, [toggleGroupVisibility, requestCleanRecheck]);
+  const handleBulkVisibility = useCallback((selectedIds: Set<string>) => {
+    bulkToggleVisibility(selectedIds);
+    requestCleanRecheck();
+  }, [bulkToggleVisibility, requestCleanRecheck]);
+
+  // Re-read on every identity change and map instance. MapBuilderPage gives
+  // each map its own BuilderMap, which positions it (saved view or a fit) in a
+  // child effect that runs before this one.
   const currentMapId = mapData?.id ?? null;
   useEffect(() => {
     const map = mapInstance ?? mapInstanceRef.current;
@@ -1020,25 +1134,16 @@ export function useBuilderLayers(
         !(cameraEntryRef.current?.mapId === data.id && sameMapCamera(sample.camera, cameraEntryRef.current.camera)) &&
         !sameMapCamera(sample.camera, savedMapCamera(data));
       setCameraUnsaved(unsaved);
-      // A save clears the flag while the camera stays unsaved-looking, so the
-      // next pan has no flip to re-dirty it through.
-      if (unsaved && !hasUnsavedChangesRef.current) setHasUnsavedChanges(true);
     };
     map.on('moveend', handleMoveEnd);
     return () => { map.off?.('moveend', handleMoveEnd); };
   }, [currentMapId, mapInstance, mapInstanceRef]);
 
-  // An unsaved camera edit is unsaved work (the navigation blocker and
-  // beforeunload read hasUnsavedChanges); anything else asks for the ordinary
-  // recheck, which clears the flag only if nothing else is outstanding.
+  // A save publishes the camera it stored into mapData, and a map switch
+  // replaces mapData, so the last sample is judged again against the new one.
   useEffect(() => {
-    if (cameraUnsaved === null) return;
-    if (unsavedCamera()) {
-      setHasUnsavedChanges(true);
-      return;
-    }
-    requestCleanRecheck();
-  }, [cameraUnsaved, unsavedCamera, requestCleanRecheck]);
+    setCameraUnsaved((prev) => (prev === null ? null : !!unsavedCamera()));
+  }, [unsavedCamera]);
 
   // Identity-stable "is this row a folder group?" lookup. Reads through
   // layersRef so MapBuilderPage's memoized onToggleVisibility needn't depend on
@@ -1157,12 +1262,21 @@ export function useBuilderLayers(
     localLegendTitle, setLocalLegendTitle,
     handleLegendTitleChange,
     handleLegendLabelChange,
+    localShowAttributeTable,
+    handleShowAttributeTableChange,
+    dashboard,
+    savedDashboard,
+    dashboardEdited,
+    handleDashboardChange,
+    beginDashboardSave,
     localLayers,
     layersMapId,
     freshLayerId,
     savedLayerBaseline: savedLayerBaselineRef.current,
+    saveFence,
     localBasemap, setLocalBasemap,
     hasUnsavedChanges, setHasUnsavedChanges: setHasUnsavedChangesTracked,
+    hasUnsavedEdits,
     requestCleanRecheck,
     expandedLayerId,
     activeEditorTab,
@@ -1206,6 +1320,7 @@ export function useBuilderLayers(
     handleMoveLayerOutOfGroup,
     handleAddDataset,
     handleDuplicateRendering,
+    remapLayerIds,
     dispatchLayerAction,
     handleAiRemoveLayer,
     handleQueryResult,

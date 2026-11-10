@@ -180,7 +180,11 @@ def test_generate_token_sends_the_password_once_in_a_post_body(invoke, tmp_path)
     assert others and all(SECRET_PASSWORD not in s.url + s.body for s in others)
     _assert_token_only_in_header(portal, MINTED_TOKEN)
     report = json.loads((tmp_path / "out" / "arcgis-inventory.json").read_text())
-    assert report["auth"] == {"mode": "generateToken", "user": USER}
+    assert report["auth"] == {
+        "mode": "generateToken",
+        "user": USER,
+        "role": "org_admin",
+    }
 
 
 def test_password_from_stdin(invoke):

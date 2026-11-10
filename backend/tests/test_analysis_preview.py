@@ -292,30 +292,30 @@ class TestPreviewGlobalBound:
         # request session, so those previews cost two slots each.
         monkeypatch.setattr(settings, "db_pool_size", 10)
         monkeypatch.setattr(settings, "db_max_overflow", 3)
-        assert service_analysis._preview_bound() == 3
+        assert service_analysis.preview_slot_bound() == 3
 
         monkeypatch.setattr(settings, "db_pool_size", 2)
         monkeypatch.setattr(settings, "db_max_overflow", 0)
-        assert service_analysis._preview_bound() == 1
+        assert service_analysis.preview_slot_bound() == 1
 
         # -1 means "unlimited overflow"; it must not shrink the budget.
         monkeypatch.setattr(settings, "db_pool_size", 8)
         monkeypatch.setattr(settings, "db_max_overflow", -1)
-        assert service_analysis._preview_bound() == 2
+        assert service_analysis.preview_slot_bound() == 2
 
         # Never zero — a semaphore of zero would refuse every preview.
         monkeypatch.setattr(settings, "db_pool_size", 1)
         monkeypatch.setattr(settings, "db_max_overflow", 0)
-        assert service_analysis._preview_bound() == 1
+        assert service_analysis.preview_slot_bound() == 1
 
         # With an external pooler the engine uses NullPool, so DB_POOL_SIZE and
         # DB_MAX_OVERFLOW are ignored and deriving from them would be
         # arithmetic on numbers that no longer mean anything.
         monkeypatch.setattr(settings, "db_use_external_pooler", True)
-        assert service_analysis._preview_bound() == 3
+        assert service_analysis.preview_slot_bound() == 3
         monkeypatch.setattr(settings, "db_pool_size", 400)
         monkeypatch.setattr(settings, "db_max_overflow", 400)
-        assert service_analysis._preview_bound() == 3
+        assert service_analysis.preview_slot_bound() == 3
 
     async def test_previews_never_exceed_the_global_bound(
         self,
@@ -767,9 +767,10 @@ class TestAnalysisPreviewEndpoint:
             ("query_timeout", 422),
             ("query_data_error", 422),
             ("result_too_large", 422),
+            ("query_unavailable", 503),
             # Anything unmapped falls through the .get default. query_failed
-            # also covers connection loss and role-binding failures, which are
-            # server faults rather than bad requests.
+            # covers role-binding failures and other server faults rather than
+            # bad requests.
             ("query_failed", 500),
         ],
     )
@@ -781,7 +782,7 @@ class TestAnalysisPreviewEndpoint:
         category: str,
         expected_status: int,
     ):
-        """_SANDBOX_STATUS is the only thing standing between a
+        """SANDBOX_STATUS is the only thing standing between a
         sandbox failure category and the status the caller sees.
         tests/test_sandbox.py asserts the category the sandbox
         raises, not what the route does with it.
@@ -803,6 +804,7 @@ class TestAnalysisPreviewEndpoint:
                 headers=admin_auth_header,
             )
         assert resp.status_code == expected_status, resp.text
+        assert ("Retry-After" in resp.headers) == (category == "query_unavailable")
         # user_message is the sandbox's already-sanitized text, so it is what
         # the caller reads on every branch including the 500 fallback.
         assert resp.json()["detail"] == message
@@ -812,12 +814,13 @@ class TestAnalysisPreviewEndpoint:
         added to the mapping could go untested while the suite stays green. Pin
         the mapping's key set: adding a category fails here until it is given a
         case above."""
-        assert set(router_analysis._SANDBOX_STATUS) == {
+        assert set(router_analysis.SANDBOX_STATUS) == {
             "query_busy",
             "query_at_capacity",
             "query_timeout",
             "query_data_error",
             "result_too_large",
+            "query_unavailable",
         }
 
     async def test_truncation_at_feature_cap(

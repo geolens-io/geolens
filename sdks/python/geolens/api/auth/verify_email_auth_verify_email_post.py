@@ -59,6 +59,11 @@ def _parse_response(
 
         return response_404
 
+    if response.status_code == 409:
+        response_409 = ProblemDetail.from_dict(response.json())
+
+        return response_409
+
     if response.status_code == 422:
         response_422 = ProblemDetail.from_dict(response.json())
 
@@ -101,13 +106,15 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     body: VerifyEmailRequest,
 ) -> Response[ProblemDetail | RegisterResponse]:
-    r"""Verify Email
+    r"""Verify an email address
 
-     Redeem a verification token to activate the account.
+     Redeem a verification token, confirming the address.
 
-    A valid single-use expiring token flips email_verified=True,
-    is_active=True, and status=\"active\" so the user can log in via the
-    existing auth gate in dependencies.py.
+    A valid single-use expiring token sets email_verified=True. While
+    self-registration is on and requires email verification, it also
+    activates a pending account with the default self-registration role.
+    Otherwise a pending account stays pending and the response carries
+    ``next_step=\"await_approval\"``.
 
     Expired, unknown, and already-consumed tokens all return the same
     \"Invalid or expired\" error (enumeration-safe).
@@ -139,13 +146,15 @@ def sync(
     client: AuthenticatedClient | Client,
     body: VerifyEmailRequest,
 ) -> ProblemDetail | RegisterResponse | None:
-    r"""Verify Email
+    r"""Verify an email address
 
-     Redeem a verification token to activate the account.
+     Redeem a verification token, confirming the address.
 
-    A valid single-use expiring token flips email_verified=True,
-    is_active=True, and status=\"active\" so the user can log in via the
-    existing auth gate in dependencies.py.
+    A valid single-use expiring token sets email_verified=True. While
+    self-registration is on and requires email verification, it also
+    activates a pending account with the default self-registration role.
+    Otherwise a pending account stays pending and the response carries
+    ``next_step=\"await_approval\"``.
 
     Expired, unknown, and already-consumed tokens all return the same
     \"Invalid or expired\" error (enumeration-safe).
@@ -172,13 +181,15 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     body: VerifyEmailRequest,
 ) -> Response[ProblemDetail | RegisterResponse]:
-    r"""Verify Email
+    r"""Verify an email address
 
-     Redeem a verification token to activate the account.
+     Redeem a verification token, confirming the address.
 
-    A valid single-use expiring token flips email_verified=True,
-    is_active=True, and status=\"active\" so the user can log in via the
-    existing auth gate in dependencies.py.
+    A valid single-use expiring token sets email_verified=True. While
+    self-registration is on and requires email verification, it also
+    activates a pending account with the default self-registration role.
+    Otherwise a pending account stays pending and the response carries
+    ``next_step=\"await_approval\"``.
 
     Expired, unknown, and already-consumed tokens all return the same
     \"Invalid or expired\" error (enumeration-safe).
@@ -208,13 +219,15 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     body: VerifyEmailRequest,
 ) -> ProblemDetail | RegisterResponse | None:
-    r"""Verify Email
+    r"""Verify an email address
 
-     Redeem a verification token to activate the account.
+     Redeem a verification token, confirming the address.
 
-    A valid single-use expiring token flips email_verified=True,
-    is_active=True, and status=\"active\" so the user can log in via the
-    existing auth gate in dependencies.py.
+    A valid single-use expiring token sets email_verified=True. While
+    self-registration is on and requires email verification, it also
+    activates a pending account with the default self-registration role.
+    Otherwise a pending account stays pending and the response carries
+    ``next_step=\"await_approval\"``.
 
     Expired, unknown, and already-consumed tokens all return the same
     \"Invalid or expired\" error (enumeration-safe).

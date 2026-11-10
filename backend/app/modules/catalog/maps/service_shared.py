@@ -6,7 +6,7 @@ from typing import NamedTuple
 
 import structlog
 from fastapi import HTTPException, status
-from sqlalchemy import Select, or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -55,6 +55,7 @@ class DatasetMeta(NamedTuple):
     # The record's required credit line, for the viewer's
     # attribution control.
     attribution: str | None
+    tile_columns: list[str] | None = None
 
 
 class LayerRow(NamedTuple):
@@ -83,6 +84,7 @@ class LayerRow(NamedTuple):
     visibility: str | None = None  # Dataset visibility for audience-badge
     record_status: str | None = None
     attribution: str | None = None  # Required credit line
+    tile_columns: list[str] | None = None
 
 
 def _extract_dem_vertical_units(band_info: object) -> str | None:
@@ -126,6 +128,7 @@ async def get_dataset_meta(
             Record.visibility,
             Record.record_status,
             Record.attribution,
+            Dataset.tile_columns,
         )
         .join(Record, Dataset.record_id == Record.id)
         .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
@@ -152,6 +155,7 @@ async def get_dataset_meta(
         visibility=row[14],
         record_status=row[15],
         attribution=row[16],
+        tile_columns=row[17],
     )
 
 
@@ -261,6 +265,7 @@ async def _fetch_layer_rows_ordered(
             Record.visibility,
             Record.record_status,
             Record.attribution,
+            Dataset.tile_columns,
         )
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
         .join(Record, Dataset.record_id == Record.id)
@@ -291,6 +296,7 @@ async def _fetch_layer_rows_ordered(
             visibility=row[15],
             record_status=row[16],
             attribution=row[17],
+            tile_columns=row[18],
         )
         for row in result.all()
     ]
@@ -379,29 +385,6 @@ async def _resolve_save_response_metadata(
     if row is None:
         return None, None, None
     return row[0], row[1], row[2]
-
-
-def _apply_map_visibility_filter(
-    stmt: Select,
-    user_id: uuid.UUID | None,
-    is_admin: bool,
-) -> Select:
-    """Apply RBAC visibility filter to a Map query.
-
-    - Admins see everything (no filter).
-    - Authenticated users see: their own private maps + all internal + all public.
-    - Anonymous users see public only.
-    """
-    if is_admin:
-        return stmt
-    if user_id is not None:
-        return stmt.where(
-            or_(
-                Map.created_by == user_id,
-                Map.visibility.in_(["internal", "public"]),
-            )
-        )
-    return stmt.where(Map.visibility == "public")
 
 
 def _infer_layer_type(record_type: str | None) -> str:

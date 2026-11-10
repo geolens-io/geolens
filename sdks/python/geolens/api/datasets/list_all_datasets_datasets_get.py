@@ -111,7 +111,7 @@ def sync_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[DatasetListResponse | ProblemDetail]:
-    """List All Datasets
+    """List datasets
 
      List datasets with visibility filtering and pagination.
 
@@ -145,7 +145,7 @@ def sync(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> DatasetListResponse | ProblemDetail | None:
-    """List All Datasets
+    """List datasets
 
      List datasets with visibility filtering and pagination.
 
@@ -174,7 +174,7 @@ async def asyncio_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[DatasetListResponse | ProblemDetail]:
-    """List All Datasets
+    """List datasets
 
      List datasets with visibility filtering and pagination.
 
@@ -206,7 +206,7 @@ async def asyncio(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> DatasetListResponse | ProblemDetail | None:
-    """List All Datasets
+    """List datasets
 
      List datasets with visibility filtering and pagination.
 

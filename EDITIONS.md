@@ -6,7 +6,7 @@ This repository is the self-hosted GeoLens application for one organization's sp
 
 ## What's here, and what stays free
 
-Everything in this repository is Apache-2.0: catalog, semantic and full-text search, the map builder, editing, the open standards it implements (OGC API Features/Records, STAC, DCAT), single-organization multi-user collaboration, and the CLI/SDKs. You can run it, modify it, and self-host it indefinitely with no license fee.
+Everything in this repository is Apache-2.0: catalog, semantic and full-text search, the map builder, story maps, map dashboards, editing, the open standards it implements (OGC API Features/Records, STAC, DCAT), single-organization multi-user collaboration, and the CLI/SDKs. You can run it, modify it, and self-host it indefinitely with no license fee.
 
 These commitments define the free and paid boundary:
 
@@ -14,7 +14,7 @@ These commitments define the free and paid boundary:
 - Capabilities released for free in this repository will stay free. Paid modules will add separate capabilities instead of taking existing ones away.
 - Your data and catalog remain exportable through open standards.
 
-We offer optional paid support and add-ons. Enterprise includes SAML identity, identity-provider role mapping, attribute-based access control, publication approval workflows, SIEM audit streaming, branding controls, arbitrary share-link expiration, custom embed-token lifetimes, origin-restricted embeds, and support with an SLA. Community includes OIDC and OAuth, bounded CSV and JSON audit export, share creation and revocation, fixed expiration presets, non-expiring links, and default-lifetime embeds. Community also includes manual dataset refresh; stored source credentials, persistent connector configurations, and scheduled refresh are paid capabilities. The paid modules ship in a separately licensed, immutable Enterprise image. You do not need them to build or run this repository.
+We offer optional paid support and add-ons. Enterprise includes SAML identity, identity-provider role mapping, attribute-based access control, publication approval workflows, SIEM audit streaming, branding controls, arbitrary share-link expiration, custom embed-token lifetimes, origin-restricted embeds, and support with an SLA. Community includes OIDC and OAuth, bounded CSV and JSON audit export, share creation and revocation, fixed expiration presets, non-expiring links, and default-lifetime embeds. Community also includes manual dataset refresh; stored source credentials, persistent connector configurations, and scheduled refresh are paid capabilities. Database connections an operator lists in the deployment configuration (`DATABASE_SOURCES`) are Community, because GeoLens reads them from that configuration and never stores them. The paid modules ship in a separately licensed, immutable Enterprise image. You do not need them to build or run this repository.
 
 A valid commercial license grants perpetual use of the installed version. The maintenance term controls access to updates and support. When maintenance ends, the installed version keeps working, data and backups remain accessible, and local administrators keep their login path.
 

@@ -1,6 +1,10 @@
 import { fireEvent, render, screen } from '@/test/test-utils';
 import { ImportPage } from '../ImportPage';
 
+vi.mock('@/components/import/hooks/use-ingest', () => ({
+  useDatabaseConnections: () => ({ data: [] }),
+}));
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, options?: { defaultValue?: string }) => {

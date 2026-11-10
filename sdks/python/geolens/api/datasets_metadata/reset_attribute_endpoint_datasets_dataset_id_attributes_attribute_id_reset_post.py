@@ -105,7 +105,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[AttributeMetadataResponse | ProblemDetail]:
-    """Reset Attribute Endpoint
+    """Reset an attribute to its detected values
 
      Reset attribute metadata to auto-populated values, clearing user_modified_fields.
 
@@ -139,7 +139,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> AttributeMetadataResponse | ProblemDetail | None:
-    """Reset Attribute Endpoint
+    """Reset an attribute to its detected values
 
      Reset attribute metadata to auto-populated values, clearing user_modified_fields.
 
@@ -168,7 +168,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[AttributeMetadataResponse | ProblemDetail]:
-    """Reset Attribute Endpoint
+    """Reset an attribute to its detected values
 
      Reset attribute metadata to auto-populated values, clearing user_modified_fields.
 
@@ -200,7 +200,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> AttributeMetadataResponse | ProblemDetail | None:
-    """Reset Attribute Endpoint
+    """Reset an attribute to its detected values
 
      Reset attribute metadata to auto-populated values, clearing user_modified_fields.
 

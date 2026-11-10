@@ -44,7 +44,13 @@ from app.observability.metrics.refresh import (
     origin_probe_total,
 )
 from app.platform.cache.tiles import invalidate_catalog_cache
-from app.platform.dataset_origin import classify_origin
+from app.platform.dataset_origin import (
+    StacSource,
+    bound_pointer,
+    classify_origin,
+    read_source,
+    still_bound,
+)
 from app.platform.extensions import get_catalog_port
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
 
@@ -103,7 +109,8 @@ async def _stac_probe_targets(
     database.
     """
     asset_uri = await _remote_stac_asset_uri(db, dataset.id) or dataset.origin_uri
-    item_href = (dataset.origin_ref or {}).get("item_href")
+    source = read_source("stac", dataset.origin_ref)
+    item_href = source.item_href if isinstance(source, StacSource) else None
     if not asset_uri and not item_href:
         raise _origin_pointer_missing("stac")
     return asset_uri, item_href
@@ -166,7 +173,11 @@ def _service_probe_target(dataset: Dataset) -> str:
     return target
 
 
-@router.post("/{dataset_id}/source-health/", response_model=SourceHealthResponse)
+@router.post(
+    "/{dataset_id}/source-health/",
+    response_model=SourceHealthResponse,
+    summary="Check a dataset's source",
+)
 async def check_source_health(
     dataset_id: uuid.UUID,
     user: Identity = Depends(get_current_active_user),
@@ -207,11 +218,9 @@ async def check_source_health(
     # ORM instance would write the OLD origin's verdict onto the new
     # binding, permanently if a service became an upload (uploads 409
     # above, so nothing could re-probe). Snapshot the binding now and make
-    # the write conditional on it below; set_dataset_origin clearing probe
-    # state on rebind covers the other interleaving.
-    bound_uri = dataset.origin_uri
-    bound_ref = dataset.origin_ref
-    bound_format = dataset.source_format
+    # the write conditional on it below; restamp clearing probe state on
+    # rebind covers the other interleaving.
+    bound = bound_pointer(dataset)
 
     # Resolve what to contact while the session is still live...
     if origin == "stac":
@@ -270,12 +279,7 @@ async def check_source_health(
         values["last_checked_at"] = now
     outcome = await db.execute(
         update(Dataset)
-        .where(
-            Dataset.id == dataset_id,
-            Dataset.origin_uri.is_not_distinct_from(bound_uri),
-            Dataset.origin_ref.is_not_distinct_from(bound_ref),
-            Dataset.source_format.is_not_distinct_from(bound_format),
-        )
+        .where(still_bound(Dataset, dataset_id, bound))
         .values(**values)
         # The response reports what the row actually holds
         # after this write, not a pre-probe snapshot -- a concurrent probe

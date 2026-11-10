@@ -136,6 +136,8 @@ export function BuilderDialogs({
           mapId={mapId}
           mapName={mapData.name}
           visibility={mapData.visibility ?? 'private'}
+          groups={mapData.groups}
+          hasDashboard={(mapData.dashboard_config?.widgets?.length ?? 0) > 0}
           open={showShare}
           onOpenChange={onShowShareChange}
           hasUnsavedChanges={hasUnsavedChanges}

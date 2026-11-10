@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildCategoricalExpression, buildGraduatedExpression, buildGraduatedSizeExpression, getRampColors } from '@/lib/color-ramps';
 import { MAP_COLORS } from '@/lib/map-colors';
-import { buildNullableSafeNumericAccessor } from '@/lib/maplibre-filter-utils';
+import { buildNullSafeNumericComparison } from '@/lib/maplibre-filter-utils';
 import type { BuilderStyleConfig, MapLayerResponse } from '@/types/api';
 import { describeLayers } from '@/components/builder/layer-description';
 import { toSyncInput } from '@/components/builder/map-sync';
@@ -177,6 +177,16 @@ const swatchRows: Row[] = [
     'outline from the paint mirror',
     polygon({ 'fill-color': '#3b82f6', 'fill-opacity': 0.5, '_outline-color': '#ec4b7f', '_outline-width': 2 }),
     fillFacts({ fill: '#3b82f6', fillOpacity: 0.5, stroke: { color: '#ec4b7f', width: 2 } }),
+  ],
+  [
+    'outline from the native fill-outline-color',
+    polygon({ 'fill-color': '#3b82f6', 'fill-outline-color': '#14532d' }),
+    fillFacts({ fill: '#3b82f6', stroke: { color: '#14532d', width: 1 } }),
+  ],
+  [
+    'builder outline over the native fill-outline-color',
+    polygon({ 'fill-color': '#3b82f6', 'fill-outline-color': '#14532d' }, { outlineColor: '#ec4b7f' }),
+    fillFacts({ fill: '#3b82f6', stroke: { color: '#ec4b7f', width: 1 } }),
   ],
   [
     'builder outline width over the paint mirror',
@@ -388,7 +398,7 @@ const codedPoints = (arms: [number, string][], filter: unknown, type = 'integer'
   filter: filter as MapLayerResponse['filter'],
 });
 /** The filter editor's equality on a numeric `code` column. */
-const codeEquals = (value: number) => ['all', ['==', buildNullableSafeNumericAccessor('code', '==', value), value]];
+const codeEquals = (value: number) => ['all', buildNullSafeNumericComparison('code', '==', value)];
 /** The graduated-colour fixture with its fill-color replaced. */
 const graduatedPop = (fillColor: unknown) => ({ ...SAVED_LAYERS.graduatedColor, paint: { 'fill-color': fillColor } });
 
@@ -773,8 +783,13 @@ const classRows: ClassRow[] = [
     [categories('code', [{ color: '#f472b6', label: '1' }, { color: '#60a5fa', label: '2' }])],
   ],
   [
-    'a numeric equality with 0, which lets nulls reach the fallback',
+    'a numeric equality with 0, which lets no null reach the fallback',
     codedPoints([[0, '#f472b6'], [1, '#60a5fa']], codeEquals(0)),
+    [categories('code', [{ color: '#f472b6', label: '0' }, { color: '#60a5fa', label: '1' }])],
+  ],
+  [
+    'a bare number accessor equal to 0, which lets nulls reach the fallback',
+    codedPoints([[0, '#f472b6'], [1, '#60a5fa']], ['all', ['==', ['to-number', ['get', 'code'], 0], 0]]),
     [categories('code', [{ color: '#f472b6', label: '0' }, { color: '#60a5fa', label: '1' }, other('#cccccc')])],
   ],
   [
@@ -1159,5 +1174,33 @@ describe('legendFacts for what the map drew', () => {
       const [described] = describeLayers([toSyncInput(layer)], RENDER_CONTEXTS.viewer).layers;
       expect(legendFacts(layer, described), layer.id).toEqual(legendFacts(layer));
     }
+  });
+});
+
+describe('legendFacts size titles', () => {
+  const sizedPoints = (style_config: Record<string, unknown>) => savedLayer({
+    dataset_geometry_type: 'MULTIPOINT',
+    paint: {
+      'circle-radius': ['step', ['get', 'mass_kg'], 3, 10, 6, 1000, 10],
+      'circle-color': ['match', ['get', 'fall'], 'Fell', '#f59e0b', '#94a3b8'],
+    },
+    style_config,
+  });
+  const titles = (layer: MapLayerResponse) => legendFacts(layer)?.classes?.map((classes) => classes.title);
+
+  it("names a colour classification's sizes with its size label, whatever column they read", () => {
+    const layer = sizedPoints({
+      mode: 'categorical',
+      column: 'fall',
+      categories: [{ value: 'Fell', color: '#f59e0b' }],
+      colorLabel: 'Recovery',
+      sizeLabel: 'Mass (kg)',
+    });
+    expect(titles(layer)).toEqual(['Mass (kg)', 'Recovery']);
+  });
+
+  it("keeps a size classification's label off sizes that read another column", () => {
+    const layer = sizedPoints({ mode: 'graduated', column: 'mag', target: 'radius', sizes: [3, 6, 10], breaks: [10, 1000], sizeLabel: 'Magnitude' });
+    expect(titles(layer)?.[0]).toBe('mass kg');
   });
 });

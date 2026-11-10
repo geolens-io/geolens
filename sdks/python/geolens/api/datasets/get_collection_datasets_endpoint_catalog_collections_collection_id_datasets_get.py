@@ -117,7 +117,7 @@ def sync_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[DatasetListResponse | ProblemDetail]:
-    """Get Collection Datasets Endpoint
+    """List a collection's datasets
 
      Get datasets in a collection with RBAC filtering.
 
@@ -154,7 +154,7 @@ def sync(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> DatasetListResponse | ProblemDetail | None:
-    """Get Collection Datasets Endpoint
+    """List a collection's datasets
 
      Get datasets in a collection with RBAC filtering.
 
@@ -186,7 +186,7 @@ async def asyncio_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[DatasetListResponse | ProblemDetail]:
-    """Get Collection Datasets Endpoint
+    """List a collection's datasets
 
      Get datasets in a collection with RBAC filtering.
 
@@ -221,7 +221,7 @@ async def asyncio(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> DatasetListResponse | ProblemDetail | None:
-    """Get Collection Datasets Endpoint
+    """List a collection's datasets
 
      Get datasets in a collection with RBAC filtering.
 

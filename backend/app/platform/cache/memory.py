@@ -82,6 +82,25 @@ class InMemoryCacheProvider:
         self._put(key, value, time.monotonic() + ttl)
         return key in self._store
 
+    async def compare_and_set(
+        self, key: str, expected: Any, value: Any, ttl: int = 300
+    ) -> bool:
+        # No await between comparison and mutation: another coroutine cannot
+        # replace the token in the gap on this event loop.
+        entry = self._store.get(key)
+        if entry is None or time.monotonic() > entry[1] or entry[0] != expected:
+            return False
+        self._put(key, value, time.monotonic() + ttl)
+        return key in self._store
+
+    async def compare_and_delete(self, key: str, expected: Any) -> bool:
+        # Keep comparison and eviction in one uninterrupted event-loop step.
+        entry = self._store.get(key)
+        if entry is None or time.monotonic() > entry[1] or entry[0] != expected:
+            return False
+        self._pop(key)
+        return True
+
     async def set_authoritative(self, key: str, value: Any, ttl: int = 300) -> None:
         """One store, so this is ``set``. Named separately because
         the layered provider has to do more."""

@@ -9,6 +9,7 @@ export type GeometryTypeName = string;
 export type MapLayerType = 'vector_geolens' | 'raster_geolens' | 'geojson';
 
 export type MapTerrainConfig = components['schemas']['TerrainConfig'];
+export type DashboardConfig = components['schemas']['DashboardConfig'];
 
 export type MapBasemapVisibilityMode = components['schemas']['BasemapSublayerVisibility'];
 export type MapBasemapLandWaterTone = components['schemas']['BasemapLandWaterTone'];
@@ -36,6 +37,16 @@ export type TokenResponse = components['schemas']['TokenResponse'];
 export type UserQuotaUsage = components['schemas']['UserQuotaUsage'];
 
 export type UserResponse = components['schemas']['UserResponse'];
+
+export type GroupResponse = components['schemas']['GroupResponse'];
+export type GroupListResponse = components['schemas']['GroupListResponse'];
+export type GroupRef = components['schemas']['GroupRef'];
+export type GroupRefListResponse = components['schemas']['GroupRefListResponse'];
+export type MapGroupsResponse = components['schemas']['MapGroupsResponse'];
+export type MapLayerAccessGap = components['schemas']['MapLayerAccessGap'];
+export type MapGroupsConfirm = NonNullable<components['schemas']['MapGroupsUpdate']['confirm']>;
+export type DatasetGroupsResponse = components['schemas']['DatasetGroupsResponse'];
+export type GroupMemberListResponse = components['schemas']['GroupMemberListResponse'];
 
 /** @public Mirrored by the backend drift checker (backend/scripts/check_fe_type_drift.py). */
 export type RasterBandInfo = components['schemas']['RasterBandInfo'];
@@ -470,6 +481,8 @@ export interface StyleConfig {
   categories?: { value: string | number | null; label?: string; color: string }[];
   breaks?: number[];
   colors?: string[];
+  /** Colour of features whose classified value is null (graduated colour mode). */
+  nullColor?: string;
   /** Styling target — defaults to 'color' when absent for backward compatibility */
   target?: 'color' | 'radius' | 'width';
   /** Per-class size values for graduated size mode (parallel to colors) */
@@ -517,7 +530,15 @@ export type MapLayerResponse = Omit<
   | 'layer_type'
   | 'dataset_record_type'
 > & {
-  dataset_column_info?: { name: string; type: string }[] | null;
+  dataset_column_info?:
+    | {
+        name: string;
+        type: string;
+        title?: string;
+        value_labels?: Record<string, string>;
+        semantic_role?: string | null;
+      }[]
+    | null;
   dataset_sample_values?: Record<string, unknown[]> | null;
   filter?: FilterSpecification | null;
   label_config?: LabelConfig | null;
@@ -550,6 +571,21 @@ export type MapListResponse = components['schemas']['MapListResponse'];
 export type MapHistoryEntryResponse = components['schemas']['MapHistoryEventResponse'];
 
 export type MapHistoryListResponse = components['schemas']['MapHistoryListResponse'];
+
+export type StorySummary = components['schemas']['StorySummary'];
+export type StoryListResponse = components['schemas']['StoryListResponse'];
+export type StoryResponse = components['schemas']['StoryResponse'];
+export type StoryChapter = components['schemas']['StoryChapter'];
+export type StoryScene = components['schemas']['StoryScene'];
+export type StorySettings = components['schemas']['StorySettings'];
+export type StoryCamera = components['schemas']['StoryCamera'];
+export type StoryDraftResponse = components['schemas']['StoryDraftResponse'];
+export type StoryCreate = components['schemas']['StoryCreate'];
+export type StoryUpdate = components['schemas']['StoryUpdate'];
+export type StoryFrameHost = components['schemas']['StoryFrameHost'];
+export type StoryVisibility = components['schemas']['StoryVisibility'];
+export type StoryAssetResponse = components['schemas']['StoryAssetResponse'];
+export type StoryGroupsResponse = components['schemas']['StoryGroupsResponse'];
 
 export interface MapBrowseParams {
   skip?: number;
@@ -621,7 +657,14 @@ export type SharedLayerResponse = Omit<
   'column_info' | 'filter' | 'label_config' | 'style_config' | 'layer_type' | 'dataset_record_type'
 > & {
   column_info?:
-    | { name: string; type: string; title?: string; semantic_role?: string | null; domain_type?: string | null }[]
+    | {
+        name: string;
+        type: string;
+        title?: string;
+        value_labels?: Record<string, string>;
+        semantic_role?: string | null;
+        domain_type?: string | null;
+      }[]
     | null;
   filter?: FilterSpecification | null;
   label_config?: LabelConfig | null;
@@ -645,6 +688,7 @@ export type SharedMapResponse = Omit<
 export type ShareTokenResponse = components['schemas']['ShareTokenResponse'];
 
 export type MapAccessResponse = components['schemas']['MapAccessResponse'];
+export type MapStoriesResponse = components['schemas']['MapStoriesResponse'];
 
 // AI Status
 export type AIProbeCheck = components['schemas']['AIProbeCheck'];
@@ -748,6 +792,12 @@ export type DataKind = 'vector' | 'raster' | 'table' | 'vrt' | 'tiles3d' | 'poin
 export type DiscoveredTable = components['schemas']['DiscoveredTable'];
 
 export type DiscoverResponse = components['schemas']['DiscoverResponse'];
+
+export type DatabaseTable = components['schemas']['DatabaseTable'];
+export type DatabaseTableListResponse = components['schemas']['DatabaseTableListResponse'];
+export type DatabaseImportRequest = components['schemas']['DatabaseImportRequest'];
+export type DatabaseImportResponse = components['schemas']['DatabaseImportResponse'];
+export type CapabilitiesResponse = components['schemas']['CapabilitiesResponse'];
 
 export type BulkRegisterRequest = components['schemas']['BulkRegisterRequest'];
 

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
 import { useParams, Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { FileText, History, Sparkles, Info, FlaskConical, Loader2 } from 'lucide-react';
+import { FileText, History, Sparkles, Info, FlaskConical, Loader2, LayoutDashboard } from 'lucide-react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { ApiError } from '@/api/client';
 import {
@@ -56,6 +56,7 @@ import { isFolderGroupLayer } from '@/lib/layer-capabilities';
 import { clearPersistedFolderGroup, getParentGroupId, resolveDropGroupMembership } from '@/components/builder/folder-groups';
 import { SidebarRail } from '@/components/builder/SidebarRail';
 import { LayerEditorPanel, type LayerEditorHandlers } from '@/components/builder/LayerEditorPanel';
+import { AttributeTableDrawer } from '@/components/builder/AttributeTableDrawer';
 import { EphemeralBadge } from '@/components/builder/EphemeralBadge';
 import { previewSaveMode } from '@/components/builder/ephemeral-preview';
 // Lazy: it pulls in the import page's metadata form and is mounted only while
@@ -65,7 +66,8 @@ const SaveChatPreviewDialog = lazy(() =>
 );
 import { MapToolbar } from '@/components/builder/MapToolbar';
 import { MapTitleBar } from '@/components/builder/MapTitleBar';
-import { BuilderRail, type RailPanel } from '@/components/builder/BuilderRail';
+import { BuilderRail, railButtonPresence, type RailPanel } from '@/components/builder/BuilderRail';
+import { useDashboardAutoOpen } from '@/components/builder/hooks/use-dashboard-auto-open';
 import { BuilderDialogs } from '@/components/builder/BuilderDialogs';
 const StyleJsonDialog = lazy(() =>
   import('@/components/builder/StyleJsonDialog').then((m) => ({ default: m.StyleJsonDialog }))
@@ -81,7 +83,7 @@ import { LoadingState } from '@/components/layout/LoadingState';
 import { ErrorState } from '@/components/layout/ErrorState';
 import { MapErrorBoundary, PanelErrorBoundary } from '@/components/error';
 import { LazyLoadErrorBoundary } from '@/components/error/LazyLoadErrorBoundary';
-import { useMap, useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
+import { useMap, useAddLayer, useRemoveLayer, useLayersHiddenFromMapGroups } from '@/hooks/use-maps';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useDocumentTitle } from '@/hooks/use-document-title';
@@ -317,13 +319,21 @@ export function MapBuilderPage() {
     localName: layers.localName,
     localDescription: layers.localDescription,
     legendTitle: layers.localLegendTitle,
+    showAttributeTable: layers.localShowAttributeTable,
     dockNotes,
+    dashboard: layers.dashboard,
+    savedDashboard: layers.savedDashboard,
+    dashboardEdited: layers.dashboardEdited,
+    onDashboardSave: layers.beginDashboardSave,
     mapInstanceRef,
     setHasUnsavedChanges: layers.setHasUnsavedChanges,
     hasUnsavedChanges: layers.hasUnsavedChanges,
+    hasUnsavedEdits: layers.hasUnsavedEdits,
     hasThumbnail: !!mapData?.thumbnail_url,
     pendingLayerAdd,
     saveBaselineSyncRef,
+    remapLayerIds: layers.remapLayerIds,
+    saveFence: layers.saveFence,
   });
 
   const handleMapRef = useCallback((map: MaplibreMap | null) => {
@@ -853,6 +863,15 @@ export function MapBuilderPage() {
     },
     [setAnalysisJob, id],
   );
+  const dashboardWidgetCount = layers.dashboard.widgets.length;
+  useDashboardAutoOpen({
+    mapId: id,
+    ready: !error && !!mapData && layers.layersMapId === id,
+    hasWidgets: dashboardWidgetCount > 0,
+    sheetLayout: isEditorHidden,
+    railPanel,
+    setRailPanel,
+  });
   // Only a loaded map whose layers have hydrated can take the add, so the
   // loading and error screens below leave an open toast on "View dataset".
   const addAnalysisOutput =
@@ -919,6 +938,63 @@ export function MapBuilderPage() {
     setRailPanel('analysis');
   }, []);
 
+  // The open attribute-table drawer holds one layer id; opening another
+  // layer's table replaces the current one, and a removed layer closes it.
+  const [attributeTableLayerId, setAttributeTableLayerId] = useState<string | null>(null);
+  const attributeTableLayer = useMemo(
+    () => layers.localLayers.find((l) => l.id === attributeTableLayerId) ?? null,
+    [layers.localLayers, attributeTableLayerId],
+  );
+  // What opened the table, so closing it returns focus there: the layer's
+  // kebab trigger on the stack path, the editor's open-attribute-table button
+  // on the editor path.
+  const attributeTableOpenerRef = useRef<{ path: 'stack' | 'editor'; layerId: string } | null>(null);
+  // One focus return per close, whether the ✕, a second activation of the
+  // opener, or the layer's removal closed the table.
+  const attributeTableWasOpenRef = useRef(false);
+  useEffect(() => {
+    const isOpen = attributeTableLayer !== null;
+    if (!isOpen && attributeTableLayerId !== null) setAttributeTableLayerId(null);
+    const wasOpen = attributeTableWasOpenRef.current;
+    attributeTableWasOpenRef.current = isOpen;
+    if (!wasOpen || isOpen) return;
+    // Same pattern as handleCloseEditor: focus lands inside
+    // requestAnimationFrame; the opener row may be gone (layer deleted while
+    // open), where the first stack row keeps focus out of <body> — the same
+    // known limit: zero remaining rows leaves focus on <body>.
+    const opener = attributeTableOpenerRef.current;
+    attributeTableOpenerRef.current = null;
+    requestAnimationFrame(() => {
+      const openerEl = opener
+        ? opener.path === 'stack'
+          // Below 1100px the rail replaces the stack rows.
+          ? document
+            .getElementById(`stack-row-${opener.layerId}`)
+            ?.querySelector<HTMLElement>('[data-kebab-trigger]')
+            ?? document.querySelector<HTMLElement>(`[data-rail-layer-id="${CSS.escape(opener.layerId)}"]`)
+          : document.querySelector<HTMLElement>('[data-testid="layer-editor-open-attribute-table"]')
+        : null;
+      (openerEl ?? document.querySelector<HTMLElement>('[data-row-id]'))?.focus();
+    });
+  }, [attributeTableLayer, attributeTableLayerId]);
+
+  const handleCloseAttributeTable = useCallback(() => {
+    setAttributeTableLayerId(null);
+  }, []);
+  // A second activation of the same entry point closes the table; a different
+  // layer's activation replaces it.
+  const handleOpenAttributeTable = useCallback(
+    (layerId: string, path: 'stack' | 'editor' = 'stack') => {
+      if (attributeTableLayerId === layerId) {
+        handleCloseAttributeTable();
+        return;
+      }
+      attributeTableOpenerRef.current = { path, layerId };
+      setAttributeTableLayerId(layerId);
+    },
+    [attributeTableLayerId, handleCloseAttributeTable],
+  );
+
   // Clearing on any navigation away from the panel keeps a later ordinary
   // opening from remounting the form with stale handoff params.
   useEffect(() => {
@@ -931,6 +1007,9 @@ export function MapBuilderPage() {
     aiAvailable: !!aiAvailable,
     notes: dockNotes,
     onNotesChange: setDockNotes,
+    dashboard: layers.dashboard,
+    onDashboardChange: layers.handleDashboardChange,
+    map: mapInstance,
     mapId: id,
     layers: layers.localLayers,
     layersMapId: layers.layersMapId,
@@ -947,13 +1026,20 @@ export function MapBuilderPage() {
     onAnalysisJobChange: handleAnalysisJobChange,
     onMarkDirty: handleMarkDirty,
     viewport,
-  }), [railPanel, aiAvailable, dockNotes, id, layers.localLayers, layers.layersMapId, layers.expandedLayerId, layers.chatLayerActions, layers.handleQueryResult, layers.handleDismissEphemeral, layers.ephemeralResult, analysisPrefill, mapInstanceRef, handleMarkDirty, viewport, handleAnalysisJobChange]);
+  }), [railPanel, aiAvailable, dockNotes, layers.dashboard, layers.handleDashboardChange, mapInstance, id, layers.localLayers, layers.layersMapId, layers.expandedLayerId, layers.chatLayerActions, layers.handleQueryResult, layers.handleDismissEphemeral, layers.ephemeralResult, analysisPrefill, mapInstanceRef, handleMarkDirty, viewport, handleAnalysisJobChange]);
 
   const mobileRailButtons = useMemo(() => [
     {
       id: 'notes' as const,
       icon: FileText,
       label: t('dock.notes', { defaultValue: 'Notes' }),
+      disabled: false,
+      unavailable: false,
+    },
+    {
+      id: 'dashboard' as const,
+      icon: LayoutDashboard,
+      label: t('dock.dashboard'),
       disabled: false,
       unavailable: false,
     },
@@ -982,7 +1068,9 @@ export function MapBuilderPage() {
     },
   ], [aiAvailable, t]);
 
-  const railSheetTitle = railPanel === 'history'
+  const railSheetTitle = railPanel === 'dashboard'
+    ? t('dock.dashboard')
+    : railPanel === 'history'
     ? t('dock.history', { defaultValue: 'History' })
     : railPanel === 'analysis'
     ? t('analysisTools.title', { defaultValue: 'Analysis' })
@@ -991,7 +1079,9 @@ export function MapBuilderPage() {
         ? t('dock.askAi', { defaultValue: 'Ask AI' })
         : t('rail.aiUnavailable', { defaultValue: 'AI unavailable' })
       : t('dock.notes', { defaultValue: 'Notes' });
-  const railSheetDescription = railPanel === 'history'
+  const railSheetDescription = railPanel === 'dashboard'
+    ? t('dock.dashboardDescription')
+    : railPanel === 'history'
     ? t('history.timelineLabel', { defaultValue: 'Map edit history' })
     : railPanel === 'analysis'
     ? t('analysisTools.description', { defaultValue: 'Run buffer, centroid, and clip operations on a layer' })
@@ -1415,6 +1505,8 @@ export function MapBuilderPage() {
     return ids;
   }, [layers.localLayers, isTerrainActive, boundTerrainLayer?.id]);
 
+  const groupHiddenLayerIds = useLayersHiddenFromMapGroups(id, mapData?.visibility, mapData?.groups);
+
   let sceneContent: ReactNode = null;
   let sceneFooter: ReactNode = null;
   let breadcrumbPresetName: string | undefined = undefined;
@@ -1616,6 +1708,8 @@ export function MapBuilderPage() {
             }}
             projection={localProjection}
             onSetProjection={handleSetProjection}
+            showAttributeTable={layers.localShowAttributeTable}
+            onShowAttributeTableChange={layers.handleShowAttributeTableChange}
           />
         </Suspense>
       </LazyLoadErrorBoundary>
@@ -1772,6 +1866,7 @@ export function MapBuilderPage() {
               // Drives the per-layer "hidden from public viewers" badge.
               mapVisibility={mapData?.visibility}
               drawsNothingLayerIds={drawsNothingLayerIds}
+              groupHiddenLayerIds={groupHiddenLayerIds}
               selectedLayerId={layers.expandedLayerId}
               onSelectLayer={handleSelectLayer}
               onToggleVisibility={handleRowToggleVisibility}
@@ -1782,6 +1877,7 @@ export function MapBuilderPage() {
               onDuplicate={handleRowDuplicate}
               onZoomToLayer={layers.handleZoomToLayer}
               onAnalyzeLayer={handleAnalyzeLayer}
+              onOpenAttributeTable={handleOpenAttributeTable}
               onCopyStyle={layers.handleCopyStyle}
               onPasteStyle={layers.handlePasteStyle}
               onBulkApplyStyle={handleBulkApplyStyle}
@@ -1874,6 +1970,7 @@ export function MapBuilderPage() {
                 sceneFooter={sceneFooter ?? undefined}
                 breadcrumbPresetName={breadcrumbPresetName}
                 onBreadcrumbClick={onBreadcrumbClick}
+                onOpenAttributeTable={(layerId) => handleOpenAttributeTable(layerId, 'editor')}
                 featureCount={filteredFeatureCount}
               />
               </Suspense>
@@ -1922,6 +2019,12 @@ export function MapBuilderPage() {
                   sceneFooter={sceneFooter ?? undefined}
                   breadcrumbPresetName={breadcrumbPresetName}
                   onBreadcrumbClick={onBreadcrumbClick}
+                  onOpenAttributeTable={(layerId) => {
+                    // This sheet would cover the features the table fits to,
+                    // so the table replaces it and closing returns to the layer's rail button.
+                    if (attributeTableLayerId !== layerId) handleCloseEditor();
+                    handleOpenAttributeTable(layerId, 'stack');
+                  }}
                   featureCount={filteredFeatureCount}
                 />
                 </Suspense>
@@ -1930,102 +2033,116 @@ export function MapBuilderPage() {
           </Sheet>
         )}
 
-        {/* Column 3 (or 2 when no editor): map canvas */}
-        <div className="relative min-h-0 min-w-0">
-          <MapErrorBoundary hasUnsavedChanges={layers.hasUnsavedChanges}>
-            <Suspense fallback={<LoadingState />}>
-              <BuilderMap
-                layers={layers.localLayers}
-                // Hiding the basemap keeps data layers and drops the imagery.
-                basemapStyle={basemapVisible ? basemapState.basemapStyle : BLANK_BASEMAP_ID}
-                initialViewState={layers.initialViewState}
-                terrainConfig={basemapState.terrainConfig}
-                onMapRef={handleMapRef}
-                showBasemapLabels={basemapState.showBasemapLabels}
-                basemapConfig={basemapState.config}
-              />
-            </Suspense>
-          </MapErrorBoundary>
-          {/* The preview's surface is the stack row above — but the
+        {/* Column 3 (or 2 when no editor): map canvas with the docked
+            attribute table under it. The plain wrapper carries the map area's
+            flex-1 sizing and hosts the map overlays; the boundary wraps the
+            map alone, so a crash or a retry never touches the overlays; the
+            table docks as the wrapper's following sibling. */}
+        <div className="relative flex min-h-0 min-w-0 flex-col">
+          <div className="relative min-h-0 flex-1">
+            <MapErrorBoundary hasUnsavedChanges={layers.hasUnsavedChanges}>
+              <Suspense fallback={<LoadingState />}>
+                {/* Keyed by map so in-page navigation opens the next map the way a
+                    fresh load does: at its saved view, or fitted to its layers. */}
+                <BuilderMap
+                  key={id}
+                  layers={layers.localLayers}
+                  // Hiding the basemap keeps data layers and drops the imagery.
+                  basemapStyle={basemapVisible ? basemapState.basemapStyle : BLANK_BASEMAP_ID}
+                  initialViewState={layers.initialViewState}
+                  terrainConfig={basemapState.terrainConfig}
+                  onMapRef={handleMapRef}
+                  showBasemapLabels={basemapState.showBasemapLabels}
+                  basemapConfig={basemapState.config}
+                />
+              </Suspense>
+            </MapErrorBoundary>
+            {/* The preview's surface is the stack row above — but the
               stack panel only exists at ≥1100px; below that the sidebar
               collapses to SidebarRail, which has no rows. Keep the badge for
               exactly that case, so the narrow layout doesn't lose the count,
               the dismiss, and the #675 hand-off altogether. Still one surface
               at a time, never both. */}
-          {isRail && previewRowProps && (
-            <EphemeralBadge
-              featureCount={previewRowProps.featureCount}
-              onDismiss={previewRowProps.onDismiss}
-              truncated={previewRowProps.truncated}
-              totalCount={previewRowProps.totalCount}
-              viewportScoped={previewRowProps.viewportScoped}
-              onSaveAsDataset={previewRowProps.onSaveAsDataset}
-              saveDisabledReason={previewRowProps.saveDisabledReason}
+            {isRail && previewRowProps && (
+              <EphemeralBadge
+                featureCount={previewRowProps.featureCount}
+                onDismiss={previewRowProps.onDismiss}
+                truncated={previewRowProps.truncated}
+                totalCount={previewRowProps.totalCount}
+                viewportScoped={previewRowProps.viewportScoped}
+                onSaveAsDataset={previewRowProps.onSaveAsDataset}
+                saveDisabledReason={previewRowProps.saveDisabledReason}
+              />
+            )}
+
+            {/* Centered toolbar */}
+            <MapToolbar
+              onStyleJsonClick={() => setShowStyleJson(true)}
+              onShortcutsClick={() => setShowShortcuts(true)}
+            />
+            {isEditorHidden && (
+              <div className="absolute end-2 top-16 z-30 flex flex-col gap-1 rounded-md border bg-background/95 p-1 shadow-md backdrop-blur-sm">
+                {mobileRailButtons.map((btn) => (
+                  <button
+                    key={btn.id}
+                    type="button"
+                    onClick={btn.disabled ? undefined : () => setRailPanel(btn.id)}
+                    disabled={btn.disabled}
+                    data-unavailable={btn.unavailable || undefined}
+                    title={btn.label}
+                    aria-label={railButtonPresence(btn.id, btn.label, { notes: dockNotes, widgetCount: dashboardWidgetCount }, t).label}
+                    aria-pressed={railPanel === btn.id}
+                    aria-busy={btn.id === 'analysis' && analysisJobRunning}
+                    className={cn(
+                      'relative flex h-11 w-11 items-center justify-center rounded-md transition-colors',
+                      btn.disabled
+                        ? 'cursor-not-allowed text-muted-foreground/40'
+                        : railPanel === btn.id
+                          ? 'bg-accent text-primary'
+                          : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                    )}
+                  >
+                    {btn.id === 'analysis' && analysisJobRunning ? (
+                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <btn.icon className="h-4 w-4" aria-hidden="true" />
+                    )}
+                    {/* Mobile counterpart of BuilderRail's presence dot (the rail is hidden at <800px). */}
+                    {railButtonPresence(btn.id, btn.label, { notes: dockNotes, widgetCount: dashboardWidgetCount }, t).dot && (
+                      <span
+                        aria-hidden="true"
+                        className="absolute -top-0.5 -end-0.5 size-1.5 rounded-full bg-primary"
+                      />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <PluginHost
+              byAnchor={byAnchor}
+              ctx={pluginCtx}
+              topLeftSlot={
+                <ActiveFilterChips
+                  layers={layers.localLayers}
+                  onClearFilter={handleClearFilter}
+                />
+              }
+            />
+          </div>
+
+          {/* Read-only attribute table for one layer, docked under the map.
+              Unmounts when the layer is removed, taking its highlight with it. */}
+          {attributeTableLayer && (
+            <AttributeTableDrawer
+              layer={attributeTableLayer}
+              open
+              onClose={handleCloseAttributeTable}
+              mapRef={mapInstanceRef}
+              layers={layers.localLayers}
+              onLayerChange={setAttributeTableLayerId}
             />
           )}
-
-          {/* Centered toolbar */}
-          <MapToolbar
-            onStyleJsonClick={() => setShowStyleJson(true)}
-            onShortcutsClick={() => setShowShortcuts(true)}
-          />
-          {isEditorHidden && (
-            <div className="absolute end-2 top-16 z-30 flex flex-col gap-1 rounded-md border bg-background/95 p-1 shadow-md backdrop-blur-sm">
-              {mobileRailButtons.map((btn) => (
-                <button
-                  key={btn.id}
-                  type="button"
-                  onClick={btn.disabled ? undefined : () => setRailPanel(btn.id)}
-                  disabled={btn.disabled}
-                  data-unavailable={btn.unavailable || undefined}
-                  title={btn.label}
-                  // aria-label replaces the subtree, so the notes-presence state
-                  // lives in the name rather than on the dot span.
-                  aria-label={
-                    btn.id === 'notes' && dockNotes.trim().length > 0
-                      ? t('rail.notesButtonWithNotes', { defaultValue: 'Notes (map has notes)' })
-                      : btn.label
-                  }
-                  aria-pressed={railPanel === btn.id}
-                  aria-busy={btn.id === 'analysis' && analysisJobRunning}
-                  className={cn(
-                    'relative flex h-11 w-11 items-center justify-center rounded-md transition-colors',
-                    btn.disabled
-                      ? 'cursor-not-allowed text-muted-foreground/40'
-                      : railPanel === btn.id
-                        ? 'bg-accent text-primary'
-                        : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                  )}
-                >
-                  {btn.id === 'analysis' && analysisJobRunning ? (
-                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                  ) : (
-                    <btn.icon className="h-4 w-4" aria-hidden="true" />
-                  )}
-                  {/* Mobile counterpart of BuilderRail's notes dot (the rail is
-                      hidden at <800px). Decorative: the aria-label above carries
-                      the state. */}
-                  {btn.id === 'notes' && dockNotes.trim().length > 0 && (
-                    <span
-                      aria-hidden="true"
-                      className="absolute -top-0.5 -end-0.5 size-1.5 rounded-full bg-primary"
-                    />
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <PluginHost
-            byAnchor={byAnchor}
-            ctx={pluginCtx}
-            topLeftSlot={
-              <ActiveFilterChips
-                layers={layers.localLayers}
-                onClearFilter={handleClearFilter}
-              />
-            }
-          />
         </div>
       </div>
 

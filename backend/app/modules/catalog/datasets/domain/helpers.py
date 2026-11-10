@@ -284,6 +284,7 @@ def dataset_to_response(
         # reader keeps `origin` (above) and the freshness/health fields below.
         origin_uri=dataset.origin_uri if can_view_provenance else None,
         origin_ref=dataset.origin_ref if can_view_provenance else None,
+        data_revision=dataset.data_revision if can_view_provenance else None,
         last_refreshed_at=dataset.last_refreshed_at,
         last_checked_at=dataset.last_checked_at,
         # NULL is the stored spelling of "never determined"; "unknown" is the
@@ -355,6 +356,10 @@ async def dataset_geom_is_generic(db, table_name: str) -> bool:
     )
     col_type = result.scalar_one_or_none()
     return col_type is not None and col_type.strip().upper() == "GEOMETRY"
+
+
+class DatasetNotFoundError(LookupError):
+    """The dataset to update no longer exists."""
 
 
 class WorkflowTransitionDenied(ValueError):

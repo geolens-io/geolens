@@ -169,13 +169,42 @@
     "visibilityPublic": "Publique",
     "visibilityPrivate": "Privé",
     "visibilityRestricted": "Restreint",
-    "visibilityHelp": "Privé = uniquement le propriétaire et les administrateurs. Interne = toute personne connectée à GeoLens. Public = visible par tous, y compris les visiteurs non connectés.",
+    "visibilityHelp": "Privé = uniquement le propriétaire et les administrateurs. Restreint = le propriétaire, les administrateurs et toute personne des groupes ou rôles avec lesquels il est partagé. Interne = toute personne connectée à GeoLens. Public = visible par tous, y compris les visiteurs non connectés.",
     "visibilityUpdated": "Visibilité mise à jour",
     "visibilityFailed": "Impossible de modifier la visibilité",
     "license": "Licence",
     "vintageStart": "Début du millésime",
     "vintageEnd": "Fin du millésime",
-    "saving": "Enregistrement..."
+    "saving": "Enregistrement...",
+    "publicConfirmTitle": "Rendre ce jeu de données public ?",
+    "publicConfirmDescription": "Les utilisateurs anonymes pourront accéder à ses entités via l'API OGC, à ses tuiles cartographiques, à ses téléchargements et à sa fiche de catalogue. Les groupes avec lesquels ce jeu de données est partagé conservent leur accès.",
+    "publicConfirmAction": "Rendre public"
+  },
+  "groupShare": {
+    "title": "Partager avec des groupes",
+    "help": "Les groupes permettent de partager un jeu de données privé avec un ensemble de personnes sans le rendre visible de tous.",
+    "selectedLabel": "Groupes avec lesquels ce jeu de données est partagé",
+    "none": "Non partagé avec un groupe.",
+    "remove": "Retirer {{name}}",
+    "pickerLabel": "Ajouter un groupe",
+    "placeholder": "Rechercher des groupes",
+    "noMatches": "Aucun groupe correspondant",
+    "results_one": "{{count}} groupe disponible",
+    "results_many": "{{count}} groupes disponibles",
+    "results_other": "{{count}} groupes disponibles",
+    "noGroupsAvailable": "Vous n'appartenez à aucun groupe. Un administrateur peut vous en ajouter un.",
+    "noGroupsAdmin": "Aucun groupe pour l’instant. <1>Créez-en un sous Administration > Groupes.</1>",
+    "added": "{{name}} ajouté. Enregistrez pour appliquer.",
+    "removed": "{{name}} retiré. Enregistrez pour appliquer.",
+    "save": "Enregistrer les groupes",
+    "saved": "Groupes enregistrés. Ce jeu de données est maintenant {{visibility}}.",
+    "failed": "Impossible d'enregistrer les groupes",
+    "loadFailed": "Impossible de charger vos groupes",
+    "effectPrivateEmpty": "Ce jeu de données est Privé. Ajoutez un groupe et enregistrez pour le passer en Restreint.",
+    "effectToRestricted": "L'enregistrement passe ce jeu de données en Restreint : seuls vous, les administrateurs et les membres de ces groupes pourront l'ouvrir.",
+    "effectRestricted": "Ce jeu de données est Restreint. L'enregistrement modifie les groupes qui peuvent l'ouvrir.",
+    "effectToPrivate": "L'enregistrement retire le dernier groupe. Le jeu de données devient Privé, sauf s'il reste d'autres autorisations d'accès.",
+    "effectKept": "Ce jeu de données est {{visibility}} ; l'enregistrement ne change donc pas qui peut l'ouvrir. Les groupes sont conservés."
   },
   "export": {
     "gpkg": "GeoPackage",
@@ -199,6 +228,7 @@
     "filterColumn": "Filtrer {{column}}",
     "noResults": "Aucune ligne correspondante trouvée.",
     "showingExact": "Affichage {{start}}-{{end}} sur {{total}} lignes",
+    "showingAtLeast": "Affichage {{start}}-{{end}} sur plus de {{total}} lignes",
     "rowsPerPage": "Lignes par page",
     "columns": "Colonnes",
     "loadFailed": "Impossible de charger les données. Veuillez réessayer.",
@@ -206,6 +236,7 @@
     "cellEditorLabel": "Modifier {{column}} pour l’entité {{gid}}",
     "selectPage": "Sélectionner toutes les lignes de cette page",
     "selectRow": "Sélectionner la ligne {{gid}}",
+    "rowActionLabel": "Afficher la ligne {{gid}} sur la carte",
     "deleteRows_one": "Supprimer {{formattedCount}} ligne",
     "deleteRows_many": "Supprimer {{formattedCount}} lignes",
     "deleteRows_other": "Supprimer {{formattedCount}} lignes",
@@ -334,6 +365,7 @@
       "committing": "Validation du rechargement...",
       "tracking": "Le jeu de données est en cours de mise à jour en arrière-plan.",
       "complete": "Le jeu de données a été mis à jour avec succès.",
+      "unchanged": "Le rechargement s’est terminé sans modifier le jeu de données.",
       "held": "Ce remplacement a été mis en attente de révision.",
       "error": "Un problème est survenu lors du rechargement."
     },
@@ -392,10 +424,13 @@
     "trackingBackground": "Le jeu de données est en cours de mise à jour en arrière-plan.",
     "completeTitle": "Rechargement terminé !",
     "completeMessage": "Le jeu de données a été mis à jour.",
+    "unchangedTitle": "Rien n’a changé",
+    "unchangedMessage": "Les données correspondaient à celles que le jeu de données contient déjà ; aucune nouvelle version n’a donc été publiée.",
     "errorFallback": "Une erreur inattendue s'est produite.",
     "tryAgain": "Réessayer",
     "refreshingOrigin": "Actualisation...",
     "toastSuccess": "Rechargement terminé !",
+    "toastUnchanged": "Rechargement terminé : rien n’a changé",
     "uploadFailed": "Échec du téléchargement. Veuillez réessayer.",
     "commitFailed": "Échec de la validation. Veuillez réessayer.",
     "originRefreshFailed": "Impossible d'actualiser les informations du jeu de données après ce conflit. Rechargez la page et réessayez.",
@@ -817,7 +852,8 @@
       "stac": "Référencé à distance depuis un catalogue STAC. La ressource source doit rester disponible.",
       "created": "Créé dans GeoLens et stocké comme un jeu de données propre et modifiable.",
       "vrt": "Composé d’autres jeux de données raster gérés par GeoLens.",
-      "unknown": "Aucune origine lisible par machine n’est enregistrée pour ce jeu de données."
+      "unknown": "Aucune origine lisible par machine n’est enregistrée pour ce jeu de données.",
+      "database": "Importé depuis une base de données connectée. GeoLens garde une copie propre ; une actualisation recopie la table."
     },
     "storage": {
       "upload": "Copie propre",
@@ -826,8 +862,11 @@
       "stac": "Référence distante",
       "created": "Copie propre",
       "vrt": "Composite",
-      "unknown": "Non enregistré"
+      "unknown": "Non enregistré",
+      "database": "Copie propre"
     },
+    "openInArcgis": "Ouvrir dans ArcGIS",
+    "opensInNewTab": "s'ouvre dans un nouvel onglet",
     "pointer": {
       "filename": "Nom du fichier source",
       "fingerprint": "Empreinte du fichier",
@@ -837,7 +876,9 @@
       "endpoint": "URL de la source (identifiants retirés)",
       "collection": "Collection STAC",
       "asset": "Ressource STAC",
-      "item": "Élément STAC"
+      "item": "Élément STAC",
+      "connection": "Connexion à la base de données",
+      "sourceTable": "Table source"
     },
     "status": {
       "health": {
@@ -854,7 +895,7 @@
       },
       "drift": {
         "none": "Aucune évolution",
-        "drifted": "Évolution détectée",
+        "drifted": "Colonnes modifiées à la dernière actualisation",
         "unknown": "Non comparé"
       }
     },
@@ -966,6 +1007,7 @@
         },
         "sourceCountUnavailable": "Décompte de la source indisponible.",
         "identityUnavailable": "Les identifiants des enregistrements n’ont pas été comparés.",
+        "dataUnchanged": "Les données correspondaient à celles que le jeu de données contient déjà ; aucune nouvelle version n’a donc été publiée.",
         "countEvidence": "Source : {{source}} · récupérées : {{fetched}}",
         "sourceUsed": "Source utilisée : {{source}}",
         "columnsRemoved": "Colonnes supprimées : {{columns}}",

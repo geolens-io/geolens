@@ -384,13 +384,13 @@ async def resolve_resource_names(
     """Batch-resolve display names for one page of audit rows.
 
     Returns ``{(resource_type, resource_id): name}`` for the resource types
-    with a canonical display name (dataset, map, collection, user). Deleted
+    with a canonical display name (dataset, map, collection, user, group). Deleted
     resources and other types are absent; callers fall back to None.
 
     Cross-module imports are function-scoped (test_layering allowlist: SQL
     InstrumentedAttribute use only).
     """
-    from app.modules.auth.models import User
+    from app.modules.auth.models import Group, User
     from app.modules.catalog.collections.models import Collection
     from app.modules.catalog.datasets.domain.models import Dataset, Record
     from app.modules.catalog.maps.sharing import get_map_names
@@ -406,6 +406,7 @@ async def resolve_resource_names(
         ),
         "collection": select(Collection.id, Collection.name),
         "user": select(User.id, User.username),
+        "group": select(Group.id, Group.name),
     }
     names: dict[tuple[str, uuid.UUID], str] = {}
     for resource_type, query in lookups.items():
@@ -491,11 +492,13 @@ async def stream_audit_logs(
     date_to: datetime | None = None,
     snapshot_at: datetime | None = None,
     search: str | None = None,
+    max_rows: int | None = None,
 ) -> AsyncIterator[AuditLog]:
     """Stream audit logs with filters, no pagination.
 
-    Yields AuditLog rows one at a time from a server-side cursor
-    for memory-efficient export of large result sets.
+    Fetches in batches of 100 from a server-side cursor for memory-efficient
+    export of large result sets. ``max_rows`` bounds the query itself, so rows
+    past the caller's cap are never read.
     """
     query = select(AuditLog).options(joinedload(AuditLog.user))
     query = _apply_filters(
@@ -512,6 +515,9 @@ async def stream_audit_logs(
     )
     query = query.order_by(AuditLog.created_at.desc())
 
-    result = await session.stream(query)
+    if max_rows is not None:
+        query = query.limit(max_rows)
+
+    result = await session.stream(query.execution_options(yield_per=100))
     async for row in result.scalars():
         yield row

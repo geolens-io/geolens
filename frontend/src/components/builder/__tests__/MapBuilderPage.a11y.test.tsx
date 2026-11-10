@@ -114,6 +114,7 @@ vi.mock('@/hooks/use-maps', () => ({
   useRemoveLayer: () => ({}),
   useExportMapStyleJson: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useImportMapStyleJson: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useLayersHiddenFromMapGroups: () => new Set(),
 }));
 
 vi.mock('@/hooks/use-ai-availability', () => ({
@@ -156,6 +157,7 @@ vi.mock('@/components/builder/hooks/use-builder-dialogs', () => ({
 
 vi.mock('@/components/builder/hooks/use-builder-layers', () => ({
   useBuilderLayers: () => ({
+    dashboard: { panel: 'right', widgets: [] },
     localLayers: [],
     localName: 'A11Y Test Map',
     setLocalName: vi.fn(),

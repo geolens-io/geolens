@@ -163,6 +163,14 @@ _TENANT_SCOPED_CATALOG_TABLES = (
     "records",
     "audit_logs",
     "oauth_accounts",
+    "group_members",
+    "dataset_group_grants",
+    "map_group_grants",
+    "stories",
+    "story_maps",
+    "story_assets",
+    "story_group_grants",
+    "groups",
 )
 
 

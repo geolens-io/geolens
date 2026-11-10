@@ -69,7 +69,7 @@ from app.modules.auth.schemas import (
     UserResponse,
     VerifyEmailRequest,
 )
-from app.modules.auth.service import AuthService
+from app.modules.auth.service import AuthService, lock_current_session_owner
 from app.modules.quota.schemas import UserQuotaUsage
 from app.modules.quota.service import get_user_quota_usage
 from app.core.config import settings
@@ -92,7 +92,11 @@ from app.core.persistent_config import (
 )
 from app.modules.auth.domain_policy import enforce_email_domain_gate
 from app.platform.ratelimit import limiter
-from app.standards.ogc.errors import BAD_GATEWAY_RESPONSE, ERROR_RESPONSES_AUTH
+from app.standards.ogc.errors import (
+    BAD_GATEWAY_RESPONSE,
+    ERROR_RESPONSES_AUTH,
+    PROBLEM_RESPONSE,
+)
 
 router = APIRouter(prefix="/auth", tags=["Auth"], responses=ERROR_RESPONSES_AUTH)
 
@@ -130,8 +134,17 @@ _CSRF_PARAM_DESCRIPTION = (
 # /login is canonical (in OpenAPI) and /login/ a hidden alias; both register
 # because api/main.py sets redirect_slashes=False. Elsewhere in this router the
 # trailing-slash form is canonical and the no-slash form the hidden alias.
-@router.post("/login/", response_model=TokenResponse, include_in_schema=False)
-@router.post("/login", response_model=TokenResponse)
+@router.post(
+    "/login/",
+    response_model=TokenResponse,
+    include_in_schema=False,
+    summary="Sign in with a username and password",
+)
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+    summary="Sign in with a username and password",
+)
 @limiter.limit(_login_rate_limit)
 async def login(
     request: Request,
@@ -396,8 +409,15 @@ def _refresh_session_key(request: Request) -> str:
     return f"refresh-session:{session_id}"
 
 
-@router.post("/refresh", response_model=TokenResponse, include_in_schema=False)
-@router.post("/refresh/", response_model=TokenResponse)
+@router.post(
+    "/refresh",
+    response_model=TokenResponse,
+    include_in_schema=False,
+    summary="Refresh the access token",
+)
+@router.post(
+    "/refresh/", response_model=TokenResponse, summary="Refresh the access token"
+)
 @limiter.limit("30/minute", key_func=_refresh_session_key)
 async def refresh(
     request: Request,
@@ -502,12 +522,14 @@ async def refresh(
     response_model=RegisterResponse,
     status_code=status.HTTP_201_CREATED,
     include_in_schema=False,
+    summary="Register an account",
 )
 @router.post(
     "/register/",
     response_model=RegisterResponse,
     status_code=status.HTTP_201_CREATED,
     responses={502: BAD_GATEWAY_RESPONSE},
+    summary="Register an account",
 )
 @limiter.limit("5/minute")
 async def register(
@@ -708,23 +730,46 @@ async def _grant_registration_role(db: AsyncSession, user_id: uuid.UUID) -> None
         db.add(UserRole(user_id=user_id, role_id=role_id))
 
 
+async def _email_link_activates(db: AsyncSession) -> bool:
+    """Whether following a verification link may activate a pending sign-up.
+
+    Only while sign-ups are open and verification is how they activate;
+    otherwise a pending account waits for an administrator, whatever link
+    its owner holds.
+    """
+    return bool(
+        await EMAIL_VERIFICATION_REQUIRED.get_uncached(db)
+        and await REGISTRATION_ENABLED.get_uncached(db)
+    )
+
+
 @router.post(
     "/verify-email",
     response_model=RegisterResponse,
     include_in_schema=False,
+    summary="Verify an email address",
 )
-@router.post("/verify-email/", response_model=RegisterResponse)
+@router.post(
+    "/verify-email/",
+    response_model=RegisterResponse,
+    responses={
+        409: {**PROBLEM_RESPONSE, "description": "The account can't be activated yet"}
+    },
+    summary="Verify an email address",
+)
 @limiter.limit("10/minute")
 async def verify_email(
     request: Request,
     body: VerifyEmailRequest,
     db: AsyncSession = Depends(get_db),
 ) -> RegisterResponse:
-    """Redeem a verification token to activate the account.
+    """Redeem a verification token, confirming the address.
 
-    A valid single-use expiring token flips email_verified=True,
-    is_active=True, and status="active" so the user can log in via the
-    existing auth gate in dependencies.py.
+    A valid single-use expiring token sets email_verified=True. While
+    self-registration is on and requires email verification, it also
+    activates a pending account with the default self-registration role.
+    Otherwise a pending account stays pending and the response carries
+    ``next_step="await_approval"``.
 
     Expired, unknown, and already-consumed tokens all return the same
     "Invalid or expired" error (enumeration-safe).
@@ -751,19 +796,36 @@ async def verify_email(
     # user through (redeem_verification_token already flipped email_verified).
     # Only accounts still PENDING: an admin may have suspended the account
     # within the token's validity window, and the link must NOT undo that.
-    activated = await db.scalar(
-        update(User)
-        .where(
-            User.id == user_id,
-            User.status == "pending",
-            User.is_active.is_(False),
+    async def activate() -> None:
+        activated = await db.scalar(
+            update(User)
+            .where(
+                User.id == user_id,
+                User.status == "pending",
+                User.is_active.is_(False),
+            )
+            .values(is_active=True, status="active", key_epoch=User.key_epoch + 1)
+            .returning(User.id)
         )
-        .values(is_active=True, status="active", key_epoch=User.key_epoch + 1)
-        .returning(User.id)
-    )
-    if activated is not None:
-        await _grant_registration_role(db, user_id)
+        if activated is not None:
+            await _grant_registration_role(db, user_id)
+            await db.flush()
 
+    from app.modules.catalog.group_access import reactivate_member_access
+
+    if await _email_link_activates(db):
+        try:
+            await reactivate_member_access(db, user_id, activate)
+        except HTTPException as exc:
+            # The refusal names datasets; this caller is not signed in.
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This account can't be activated yet. Contact an administrator.",
+            ) from exc
+
+    awaiting_approval = (
+        await db.scalar(select(User.status).where(User.id == user_id))
+    ) == "pending"
     await audit_emit(
         db,
         AuditEvent(
@@ -771,11 +833,16 @@ async def verify_email(
             action="user.verify_email",
             resource_type="user",
             resource_id=user_id,
-            details={"method": "email_link"},
+            details={"method": "email_link", "awaiting_approval": awaiting_approval},
             ip_address=get_client_ip(request),
         ),
     )
     await db.commit()
+    if awaiting_approval:
+        return RegisterResponse(
+            message="Email verified. Your account is awaiting admin approval.",
+            next_step="await_approval",
+        )
     return RegisterResponse(message="Email verified successfully. You can now log in.")
 
 
@@ -783,8 +850,13 @@ async def verify_email(
     "/resend-verification",
     response_model=RegisterResponse,
     include_in_schema=False,
+    summary="Resend the verification email",
 )
-@router.post("/resend-verification/", response_model=RegisterResponse)
+@router.post(
+    "/resend-verification/",
+    response_model=RegisterResponse,
+    summary="Resend the verification email",
+)
 @limiter.limit("5/minute")
 async def resend_verification(
     request: Request,
@@ -792,6 +864,9 @@ async def resend_verification(
     db: AsyncSession = Depends(get_db),
 ) -> RegisterResponse:
     """Re-issue and re-send a verification email.
+
+    Sends nothing unless self-registration is on and requires email
+    verification, since only then can the link activate an account.
 
     Enumeration-safe: ALWAYS returns the same 200 body
     regardless of whether the email exists, is unknown, or is already verified.
@@ -825,7 +900,7 @@ async def resend_verification(
     )
     user = result.scalar_one_or_none()
 
-    if user is not None:
+    if user is not None and await _email_link_activates(db):
         # Swallow send errors so the response stays identical to the
         # unknown-email path (enumeration-safe); log at WARNING so operators
         # can diagnose SMTP misconfiguration without surfacing it to clients.
@@ -861,9 +936,16 @@ async def resend_verification(
 
 
 @router.post(
-    "/logout/session", status_code=status.HTTP_204_NO_CONTENT, include_in_schema=False
+    "/logout/session",
+    status_code=status.HTTP_204_NO_CONTENT,
+    include_in_schema=False,
+    summary="Sign out of the current session",
 )
-@router.post("/logout/session/", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/logout/session/",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Sign out of the current session",
+)
 async def logout_current_session(
     request: Request,
     body: RefreshRequest | None = None,
@@ -912,8 +994,15 @@ async def logout_current_session(
     return response
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, include_in_schema=False)
-@router.post("/logout/", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    include_in_schema=False,
+    summary="Sign out everywhere",
+)
+@router.post(
+    "/logout/", status_code=status.HTTP_204_NO_CONTENT, summary="Sign out everywhere"
+)
 async def logout(
     request: Request,
     # The ONE fail-open exception. Every other anonymous-capable
@@ -1004,7 +1093,11 @@ async def logout(
     return logout_response
 
 
-@router.post("/download-token/{dataset_id}", response_model=DownloadTokenResponse)
+@router.post(
+    "/download-token/{dataset_id}",
+    response_model=DownloadTokenResponse,
+    summary="Create a download token for a dataset",
+)
 @limiter.limit("60/minute")
 async def create_download_token_endpoint(
     request: Request,
@@ -1063,6 +1156,7 @@ async def create_download_token_endpoint(
             user_id=user.id,
             username=user.username,  # type: ignore[attr-defined]
         )
+        await lock_current_session_owner(db, user)
         service = AuthService(db)
         token = await service.create_download_token(
             identity,
@@ -1089,8 +1183,17 @@ async def create_download_token_endpoint(
     return DownloadTokenResponse(token=token, expires_in=120)
 
 
-@router.get("/config", response_model=ConfigResponse, include_in_schema=False)
-@router.get("/config/", response_model=ConfigResponse)
+@router.get(
+    "/config",
+    response_model=ConfigResponse,
+    include_in_schema=False,
+    summary="Get the public sign-in configuration",
+)
+@router.get(
+    "/config/",
+    response_model=ConfigResponse,
+    summary="Get the public sign-in configuration",
+)
 async def config(
     db: AsyncSession = Depends(get_db),
 ) -> ConfigResponse:
@@ -1121,8 +1224,13 @@ async def config(
     )
 
 
-@router.get("/me", response_model=UserResponse, include_in_schema=False)
-@router.get("/me/", response_model=UserResponse)
+@router.get(
+    "/me",
+    response_model=UserResponse,
+    include_in_schema=False,
+    summary="Get the signed-in user",
+)
+@router.get("/me/", response_model=UserResponse, summary="Get the signed-in user")
 async def me(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
@@ -1147,8 +1255,13 @@ async def me(
     "/me/permissions",
     response_model=PermissionsResponse,
     include_in_schema=False,
+    summary="Get the signed-in user's permissions",
 )
-@router.get("/me/permissions/", response_model=PermissionsResponse)
+@router.get(
+    "/me/permissions/",
+    response_model=PermissionsResponse,
+    summary="Get the signed-in user's permissions",
+)
 async def me_permissions(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
@@ -1160,8 +1273,17 @@ async def me_permissions(
     return PermissionsResponse(permissions=effective)
 
 
-@router.get("/me/usage", response_model=UserQuotaUsage, include_in_schema=False)
-@router.get("/me/usage/", response_model=UserQuotaUsage)
+@router.get(
+    "/me/usage",
+    response_model=UserQuotaUsage,
+    include_in_schema=False,
+    summary="Get the signed-in user's quota usage",
+)
+@router.get(
+    "/me/usage/",
+    response_model=UserQuotaUsage,
+    summary="Get the signed-in user's quota usage",
+)
 async def me_usage(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
@@ -1170,8 +1292,15 @@ async def me_usage(
     return await get_user_quota_usage(db, current_user.id)
 
 
-@router.get("/api-keys", response_model=ApiKeyListResponse, include_in_schema=False)
-@router.get("/api-keys/", response_model=ApiKeyListResponse)
+@router.get(
+    "/api-keys",
+    response_model=ApiKeyListResponse,
+    include_in_schema=False,
+    summary="List your API keys",
+)
+@router.get(
+    "/api-keys/", response_model=ApiKeyListResponse, summary="List your API keys"
+)
 async def list_my_api_keys(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
@@ -1209,11 +1338,13 @@ async def list_my_api_keys(
     response_model=ApiKeyCreateResponse,
     status_code=status.HTTP_201_CREATED,
     include_in_schema=False,
+    summary="Create an API key",
 )
 @router.post(
     "/api-keys/",
     response_model=ApiKeyCreateResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Create an API key",
 )
 async def create_my_api_key(
     body: ApiKeyCreateRequest,
@@ -1230,8 +1361,12 @@ async def create_my_api_key(
         AuditEvent,
         audit_emit,
     )
-    from app.modules.auth.service import create_api_key_for_user
+    from app.modules.auth.service import (
+        create_api_key_for_user,
+        lock_current_session_owner,
+    )
 
+    await lock_current_session_owner(db, current_user)
     api_key, raw_key = await create_api_key_for_user(
         db, current_user.id, body.name, expires_at=body.expires_at, scope=body.scope
     )
@@ -1269,7 +1404,11 @@ async def create_my_api_key(
     )
 
 
-@router.delete("/api-keys/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/api-keys/{key_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Revoke an API key",
+)
 async def revoke_my_api_key(
     key_id: uuid.UUID,
     request: Request,
@@ -1312,8 +1451,13 @@ async def revoke_my_api_key(
     "/change-password",
     status_code=status.HTTP_204_NO_CONTENT,
     include_in_schema=False,
+    summary="Change your password",
 )
-@router.post("/change-password/", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/change-password/",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Change your password",
+)
 async def change_password(
     body: ChangePasswordRequest,
     request: Request,

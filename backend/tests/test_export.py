@@ -310,17 +310,24 @@ class TestExportValidation:
         assert resp.status_code == 400
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "target_crs", ["invalid", "EPSG:4326\n", "EPSG:1234567", "EPSG:\u0664\u0663"]
+    )
     async def test_export_invalid_target_crs(
-        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        target_crs: str,
     ):
-        """Request with target_crs=invalid returns 400."""
+        """A target_crs other than EPSG: and one to six ASCII digits returns 400."""
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset(
             test_db_session, created_by=admin_id, name="CrsTestDS"
         )
         resp = await client.get(
             f"/datasets/{ds.id}/export",
-            params={"target_crs": "invalid"},
+            params={"target_crs": target_crs},
             headers=admin_auth_header,
         )
         assert resp.status_code == 400

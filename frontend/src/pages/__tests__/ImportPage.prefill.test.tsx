@@ -3,6 +3,10 @@ import * as serviceSession from '@/api/service-url-session';
 import { ImportPage } from '../ImportPage';
 
 const mockGetJobStatus = vi.hoisted(() => vi.fn());
+vi.mock('@/components/import/hooks/use-ingest', () => ({
+  useDatabaseConnections: () => ({ data: [] }),
+}));
+
 vi.mock('@/api/ingest', () => ({ getJobStatus: mockGetJobStatus }));
 vi.mock('@/hooks/use-document-title', () => ({ useDocumentTitle: vi.fn() }));
 vi.mock('@/hooks/use-settings-admin', () => ({ useSettingsAdmin: () => false }));

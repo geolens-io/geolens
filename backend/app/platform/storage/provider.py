@@ -40,7 +40,7 @@ class StorageProvider(Protocol):
         Server-side wherever the provider supports it — the bytes must not
         round-trip through this process, because callers use this to snapshot
         multi-GB uploads. Raises FileNotFoundError if ``src_key`` does not
-        exist.
+        exist. The copy's modified time is the time of the copy.
         """
         ...
 

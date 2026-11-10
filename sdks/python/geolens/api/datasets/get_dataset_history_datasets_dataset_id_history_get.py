@@ -117,7 +117,7 @@ def sync_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[AuditLogListResponse | ProblemDetail]:
-    """Get Dataset History
+    """List a dataset's audit history
 
      Get audit log history for a specific dataset.
 
@@ -154,7 +154,7 @@ def sync(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> AuditLogListResponse | ProblemDetail | None:
-    """Get Dataset History
+    """List a dataset's audit history
 
      Get audit log history for a specific dataset.
 
@@ -186,7 +186,7 @@ async def asyncio_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[AuditLogListResponse | ProblemDetail]:
-    """Get Dataset History
+    """List a dataset's audit history
 
      Get audit log history for a specific dataset.
 
@@ -221,7 +221,7 @@ async def asyncio(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> AuditLogListResponse | ProblemDetail | None:
-    """Get Dataset History
+    """List a dataset's audit history
 
      Get audit log history for a specific dataset.
 

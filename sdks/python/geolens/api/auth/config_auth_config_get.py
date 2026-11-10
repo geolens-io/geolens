@@ -90,7 +90,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ConfigResponse | ProblemDetail]:
-    """Config
+    """Get the public sign-in configuration
 
      Return public auth configuration (no authentication required).
 
@@ -115,7 +115,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> ConfigResponse | ProblemDetail | None:
-    """Config
+    """Get the public sign-in configuration
 
      Return public auth configuration (no authentication required).
 
@@ -136,7 +136,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[ConfigResponse | ProblemDetail]:
-    """Config
+    """Get the public sign-in configuration
 
      Return public auth configuration (no authentication required).
 
@@ -159,7 +159,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> ConfigResponse | ProblemDetail | None:
-    """Config
+    """Get the public sign-in configuration
 
      Return public auth configuration (no authentication required).
 

@@ -445,6 +445,7 @@ class DefaultProcessingPort:
         result_offset=None,
         object_ids=None,
         force_arcgis_geojson=False,
+        return_z=False,
     ):  # type: ignore[no-untyped-def]
         from app.modules.catalog.sources.preview import build_gdal_source
 
@@ -459,6 +460,7 @@ class DefaultProcessingPort:
             result_offset=result_offset,
             object_ids=object_ids,
             force_arcgis_geojson=force_arcgis_geojson,
+            return_z=return_z,
         )
 
     async def fetch_arcgis_id_plan(

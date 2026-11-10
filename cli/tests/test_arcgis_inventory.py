@@ -45,6 +45,7 @@ from .arcgis_fake import (
     EMPTY_GROUPS,
     FOLDER,
     HYDRANTS,
+    inventory_report,
     NO_RELATED,
     ORG_ID,
     PORTAL,
@@ -406,6 +407,75 @@ def test_no_groups_makes_no_group_requests(run):
     assert [s for s in portal.seen if s.path.endswith("/groups")] == []
     assert {r["groups"] for r in report["items"]} == {None}
     assert _read_errors(report) == []
+    assert "groups" not in report
+
+
+def _member_routes(role: str = "org_admin") -> dict[str, Any]:
+    portal_self = load("portal_self.json")
+    portal_self["user"]["role"] = role
+    return portal_routes(
+        {
+            "portals/self": portal_self,
+            f"content/items/{A1}/groups": {
+                "admin": [],
+                "member": [
+                    {"id": "g1", "title": "Planning", "access": "org"},
+                    {"id": "g2", "title": "Inspectors", "access": "private"},
+                ],
+                "other": [{"id": "g3", "title": "Partners", "access": "public"}],
+            },
+            "community/groups/g1": {"id": "g1", "hiddenMembers": False},
+            "community/groups/g1/users": {
+                "owner": "lead",
+                "admins": ["lead", "deputy"],
+                "users": ["staff_a", "staff_b"],
+            },
+            "community/groups/g2": {"id": "g2", "hiddenMembers": True},
+            "community/groups/g2/users": {"owner": "boss", "admins": [], "users": []},
+            "community/groups/g3": (403, {"error": {"code": 403}}),
+        }
+    )
+
+
+def test_the_members_of_every_shared_group_are_read(run):
+    result, _ = run(FakePortal(_member_routes()), "--scope", "org")
+    report = _report(result)
+
+    Draft202012Validator(
+        arcgis_report.inventory_schema(), format_checker=FormatChecker()
+    ).validate(report)
+    groups = {g["id"]: g for g in report["groups"]}
+    assert groups["g1"]["members"] == ["deputy", "lead", "staff_a", "staff_b"]
+    # An org admin is shown every member, hidden or not.
+    assert groups["g2"]["members"] == ["boss"]
+    assert groups["g3"]["members"] is None
+    assert groups["g3"]["members_unread"]
+    assert _read_errors(report) == []
+
+
+def test_a_group_member_read_failure_is_reported_but_fails_no_item(run):
+    routes = _member_routes()
+    routes["community/groups/g3"] = (404, {"error": {"code": 404}})
+    result, _ = run(FakePortal(routes), "--scope", "org")
+    report = _report(result)
+
+    assert [(e["item_id"], e["phase"]) for e in _read_errors(report)] == [
+        ("g3", "group_members")
+    ]
+    # Only the fixture's broken web map counts.
+    assert report["counts"]["failed"] == len(
+        {e["item_id"] for e in report["errors"] if e["phase"] == "item_data"}
+    )
+
+
+def test_hidden_members_are_unknown_to_anyone_but_an_org_admin(run):
+    result, _ = run(FakePortal(_member_routes("org_user")), "--scope", "org")
+    groups = {g["id"]: g for g in _report(result)["groups"]}
+
+    # The portal answers with the owner alone, which isn't the membership.
+    assert groups["g2"]["members"] is None
+    assert "hides its members" in groups["g2"]["members_unread"]
+    assert groups["g1"]["members"] == ["deputy", "lead", "staff_a", "staff_b"]
 
 
 def test_failed_item_read_keeps_the_search_result_fields(run):
@@ -1183,6 +1253,87 @@ def test_read_all_item_data_does_not_report_a_file_download_as_an_error(
     assert [s for s in portal.seen if s.url.startswith(download)] == []
 
 
+def test_a_notebook_data_redirect_on_the_portal_host_is_followed(run):
+    item = "7f" * 16
+    target = f"{PORTAL}/sharing/rest/content/items/{item}/data/notebook"
+    notebook = {"map": {"itemId": A1}}
+    routes = _one_item(item, "Notebook", data=(302, {}, {"Location": target}))
+    routes[f"content/items/{item}/data/notebook"] = notebook
+    portal = FakePortal(routes)
+
+    result, _ = run(portal, "--scope", "org", "--strict")
+
+    assert result.exit_code == 0
+    report = _report(result)
+
+    assert report["errors"] == []
+    assert _rows(report)[item]["dependencies_status"] == "parsed"
+    assert (A1, "app_web_map", None) in _links(report, item)
+    hop = portal.requests_to(f"content/items/{item}/data/notebook")
+    assert len(hop) == 1
+
+
+def test_a_notebook_data_redirect_chain_stops_after_one_hop(run):
+    item = "7f" * 16
+    hop = f"{PORTAL}/sharing/rest/content/items/{item}/data/notebook"
+    routes = _one_item(item, "Notebook", data=(302, {}, {"Location": hop}))
+    routes[f"content/items/{item}/data/notebook"] = (302, {}, {"Location": hop})
+    portal = FakePortal(routes)
+
+    result, _ = run(portal, "--scope", "org", "--strict")
+
+    assert _rows(_report(result))[item]["dependencies_status"] == "error"
+    assert len(portal.requests_to(f"content/items/{item}/data")) == 1
+    assert len(portal.requests_to(f"content/items/{item}/data/notebook")) == 1
+
+
+def test_a_notebook_data_redirect_to_another_host_is_still_refused(run):
+    item = "7f" * 16
+    elsewhere = f"https://other.example.com/sharing/rest/content/items/{item}/data"
+    routes = _one_item(item, "Notebook", data=(302, {}, {"Location": elsewhere}))
+    portal = FakePortal(routes)
+
+    result, _ = run(portal, "--scope", "org", "--strict")
+
+    report = _report(result)
+    assert _rows(report)[item]["dependencies_status"] == "error"
+    assert [e["item_id"] for e in report["errors"]] == [item]
+    assert [
+        s for s in portal.seen if urlsplit(s.url).hostname == "other.example.com"
+    ] == []
+
+
+@pytest.mark.parametrize(
+    ("root", "location", "followed"),
+    [
+        (
+            "https://portal.example.com:7443/arcgis",
+            "https://portal.example.com/x",
+            False,
+        ),
+        (
+            "https://portal.example.com/arcgis",
+            "https://portal.example.com:7443/x",
+            False,
+        ),
+        (
+            "https://portal.example.com:7443/arcgis",
+            "https://portal.example.com:7443/x",
+            True,
+        ),
+        ("https://portal.example.com/arcgis", "https://portal.example.com:443/x", True),
+    ],
+)
+def test_a_followed_redirect_keeps_the_portal_host_and_effective_port(
+    root, location, followed
+):
+    client = arcgis_portal.PortalClient(root, redact=str, opener=FakePortal({}))
+
+    target = client._same_host_target(f"{root}/sharing/rest/x", location)
+
+    assert (target is not None) is followed
+
+
 def test_a_web_map_data_redirect_is_an_item_error_without_portal_advice(run):
     item = B1
     routes = _one_item(
@@ -1791,7 +1942,11 @@ def test_token_ignored_in_the_header_but_read_from_the_form_proceeds(run):
     portal = FakePortal(portal_routes({"portals/self": self_info}))
     result, _ = run(portal, "--scope", "org")
     assert result.exit_code == 0, result.output
-    assert _report(result)["auth"] == {"mode": "token", "user": USER}
+    assert _report(result)["auth"] == {
+        "mode": "token",
+        "user": USER,
+        "role": "org_admin",
+    }
     assert all(s.method == "POST" for s in portal.seen[1:])
 
 
@@ -2960,3 +3115,25 @@ def test_custom_parameters_objects_are_replaced_by_key_name():
         arcgis_portal.Redactor(),
     )
     assert cleaned == {"a": {"b": {"customParameters": "[REDACTED]"}}}
+
+
+def test_markdown_header_says_a_non_admin_inventory_lists_only_shared_items():
+    report = inventory_report()
+    report["auth"]["role"] = "org_user"
+    report["groups"] = [
+        {"id": "g1", "title": "Hidden team", "members": [], "members_unread": "hidden"}
+    ]
+
+    markdown = arcgis_report.render_markdown(report)
+
+    assert "only items that account can see are listed" in markdown
+    assert "Groups whose members could not be read (1): Hidden team" in markdown
+    report["auth"]["role"] = "org_admin"
+    assert "only items shared with" not in arcgis_report.render_markdown(report)
+
+
+def test_markdown_header_flags_a_sign_in_with_no_role():
+    report = inventory_report()
+    report["auth"].pop("role", None)
+
+    assert "role-less sign-in" in arcgis_report.render_markdown(report)

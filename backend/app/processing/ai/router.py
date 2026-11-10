@@ -2,10 +2,11 @@
 
 import json
 import uuid as uuid_mod
-from collections.abc import Awaitable
+from collections.abc import AsyncIterator, Awaitable
 from datetime import datetime, timedelta, timezone
 from typing import TypeVar
 
+import anyio
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
@@ -60,8 +61,7 @@ from typing import TYPE_CHECKING
 from app.core.identity import Identity
 from app.platform.extensions import get_processing_port
 from app.modules.auth.dependencies import require_permission
-from app.core.ai_credentials import anthropic_configured
-from app.core.config import settings
+from app.core.ai_credentials import builtin_providers_configured
 from app.core.dependencies import get_db
 from app.core.persistent_config import (
     AI_ENABLED,
@@ -70,6 +70,7 @@ from app.core.persistent_config import (
     llm_model_unset,
 )
 from app.processing.ai.token_usage import AITokenUsage
+from app.platform.cache import get_cache
 from app.platform.ratelimit import limiter
 from app.platform.sandbox.validator import build_table_allowlist
 from app.standards.ogc.errors import BAD_GATEWAY_RESPONSE, ERROR_RESPONSES_AUTH
@@ -188,10 +189,7 @@ async def _ai_availability(db: AsyncSession) -> bool:
     if not await AI_ENABLED.get(db):
         return False
     provider = await LLM_PROVIDER.get(db)
-    keys = {
-        "anthropic": anthropic_configured(),
-        "openai_compatible": settings.openai_api_key,
-    }
+    keys = builtin_providers_configured()
     return bool(keys.get(provider)) and not await llm_model_unset(db, provider)
 
 
@@ -207,10 +205,7 @@ async def _check_ai_available(db: AsyncSession) -> None:
             detail="AI features are disabled by administrator",
         )
     provider = await LLM_PROVIDER.get(db)
-    keys = {
-        "anthropic": anthropic_configured(),
-        "openai_compatible": settings.openai_api_key,
-    }
+    keys = builtin_providers_configured()
     if not keys.get(provider):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -223,8 +218,8 @@ async def _check_ai_available(db: AsyncSession) -> None:
         )
 
 
-async def _check_ai_budget(db: AsyncSession, user: Identity) -> None:
-    """Enforce the per-user rolling 24h AI token budget. No-op when unset.
+async def _check_ai_budget(db: AsyncSession, user: Identity) -> int:
+    """Enforce the per-user rolling 24h AI token budget and return the cap.
 
     slowapi's per-IP limits cap request *frequency*, not cumulative token
     spend, so an editor could sustain heavy multi-round tool loops
@@ -235,7 +230,7 @@ async def _check_ai_budget(db: AsyncSession, user: Identity) -> None:
     """
     cap = await MAX_AI_TOKENS_PER_USER_PER_DAY.get(db)
     if cap <= 0:
-        return
+        return cap
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     used = await db.scalar(
         select(
@@ -249,22 +244,63 @@ async def _check_ai_budget(db: AsyncSession, user: Identity) -> None:
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Daily AI token budget exceeded. Try again later.",
         )
+    return cap
+
+
+# Usage lands only as each provider call returns, so requests that pass the
+# budget check together each spend unseen by the others. Bounding a capped
+# user's requests in flight bounds that overshoot.
+_MAX_AI_REQUESTS_IN_FLIGHT = 2
+# Outlives the longest gated request (map generation's 300 s tool loop); a
+# slot expires on its own only when its worker died without releasing it.
+_IN_FLIGHT_SLOT_TTL_SECONDS = 600
+
+
+async def _claim_in_flight_slot(user: Identity) -> tuple[str, str] | None:
+    """Take one of the user's in-flight slots: ``(key, token)``, or None when all are held."""
+    cache = get_cache()
+    token = uuid_mod.uuid4().hex
+    for slot in range(_MAX_AI_REQUESTS_IN_FLIGHT):
+        key = f"ai:in_flight:{user.id}:{slot}"
+        if await cache.set_if_absent(key, token, ttl=_IN_FLIGHT_SLOT_TTL_SECONDS):
+            return key, token
+    return None
 
 
 async def enforce_ai_token_budget(
     user: Identity = Depends(_require_ai_chat),
     db: AsyncSession = Depends(get_db),
-) -> Identity:
+) -> AsyncIterator[Identity]:
     """AI-endpoint gate: ``use_ai_chat`` permission + the per-user token budget.
 
     Runs before the handler body (and before any SSE stream opens), so an
     over-budget caller gets a clean 429 rather than a mid-stream failure.
+    With a daily cap set, the caller also holds one of a few per-user
+    in-flight slots until the response, streamed or not, has finished.
     """
-    await _check_ai_budget(db, user)
-    return user
+    if await _check_ai_budget(db, user) <= 0:
+        yield user
+        return
+    claim = await _claim_in_flight_slot(user)
+    if claim is None:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many AI requests in progress. Try again when one finishes.",
+        )
+    try:
+        yield user
+    finally:
+        # Shielded: a client that disconnects mid-stream cancels the response,
+        # and the slot must still be released.
+        with anyio.CancelScope(shield=True):
+            await get_cache().compare_and_delete(*claim)
 
 
-@router.get("/availability/", response_model=AIAvailabilityResponse)
+@router.get(
+    "/availability/",
+    response_model=AIAvailabilityResponse,
+    summary="Check whether AI chat is available",
+)
 async def ai_availability_endpoint(
     user: Identity = Depends(_require_ai_chat),
     db: AsyncSession = Depends(get_db),
@@ -307,7 +343,7 @@ async def _validate_chat_layers(
     from app.modules.catalog.maps.models import Map as MapORM
     from app.modules.catalog.maps._router_helpers import (
         _can_edit_map,
-        _check_map_read_access,
+        check_map_access,
     )
 
     try:
@@ -326,7 +362,7 @@ async def _validate_chat_layers(
     # Gate on VIEW access, not ownership: a non-viewer gets 404 (no existence
     # oracle), same as a missing map. can_edit selects the AI tool set so a
     # viewer can ask questions but cannot use the AI to edit.
-    await _check_map_read_access(map_row, user, db)
+    await check_map_access(db, map_row, user)
     can_edit = await _can_edit_map(map_row, user, db)
     basemap_style = getattr(map_row, "basemap_style", None)
 
@@ -381,6 +417,7 @@ async def _validate_chat_layers(
     "/generate-map/",
     response_model=MapGenerateResponse,
     responses={502: BAD_GATEWAY_RESPONSE},
+    summary="Generate a map from a prompt",
 )
 @limiter.limit(_AI_GENERATE_LIMIT)
 async def generate_map_endpoint(
@@ -412,6 +449,7 @@ async def generate_map_endpoint(
     "/generate-map/stream/",
     response_class=EventSourceResponse,
     responses=_MAP_STREAM_RESPONSES,
+    summary="Generate a map from a prompt as a stream",
 )
 @limiter.limit(_AI_GENERATE_LIMIT)
 async def generate_map_stream_endpoint(
@@ -466,7 +504,10 @@ async def generate_map_stream_endpoint(
 
 
 @router.post(
-    "/chat/", response_model=ChatResponse, responses={502: BAD_GATEWAY_RESPONSE}
+    "/chat/",
+    response_model=ChatResponse,
+    responses={502: BAD_GATEWAY_RESPONSE},
+    summary="Edit a map with AI chat",
 )
 @limiter.limit(_AI_GENERATE_LIMIT)
 async def chat_endpoint(
@@ -508,6 +549,7 @@ async def chat_endpoint(
     "/chat/stream/",
     response_class=EventSourceResponse,
     responses=_CHAT_STREAM_RESPONSES,
+    summary="Edit a map with AI chat as a stream",
 )
 @limiter.limit(_AI_GENERATE_LIMIT)
 async def chat_stream_endpoint(
@@ -643,6 +685,7 @@ async def _validate_chat_dataset(
     "/chat/dataset/stream/",
     response_class=EventSourceResponse,
     responses=_CHAT_STREAM_RESPONSES,
+    summary="Ask AI about a dataset",
 )
 @limiter.limit(_AI_GENERATE_LIMIT)
 async def dataset_chat_stream_endpoint(
@@ -787,7 +830,7 @@ async def _call_llm_endpoint(
 
 
 async def _authorize_metadata_dataset(
-    db: AsyncSession, dataset_id: str, user: Identity
+    db: AsyncSession, dataset_id: str, user: Identity, port: "ProcessingPort"
 ) -> None:
     """Authorize the attacker-controlled body.dataset_id before AI metadata
     generation. Without this, any editor (default role has ``use_ai_chat``)
@@ -802,8 +845,6 @@ async def _authorize_metadata_dataset(
     Goes through ProcessingPort, not a direct catalog import, so an
     Enterprise/Cloud port can observe this authorization.
     """
-    port = get_processing_port()
-
     try:
         dsid = uuid_mod.UUID(dataset_id)
     except (ValueError, AttributeError, TypeError):
@@ -823,6 +864,7 @@ async def _authorize_metadata_dataset(
     "/metadata/summary/",
     response_model=SummaryDraftResponse,
     responses={502: BAD_GATEWAY_RESPONSE},
+    summary="Draft a dataset summary with AI",
 )
 @limiter.limit(_AI_METADATA_LIMIT)
 async def generate_metadata_summary(
@@ -834,7 +876,7 @@ async def generate_metadata_summary(
 ) -> SummaryDraftResponse:
     """Generate an AI-drafted summary for a dataset."""
     await _check_ai_available(db)
-    await _authorize_metadata_dataset(db, body.dataset_id, user)
+    await _authorize_metadata_dataset(db, body.dataset_id, user, port)
     return await _call_llm_endpoint(
         generate_summary_draft(db, body.dataset_id, port=port, user_id=user.id),
         error_prefix="AI metadata summary generation",
@@ -845,6 +887,7 @@ async def generate_metadata_summary(
     "/metadata/keywords/",
     response_model=KeywordSuggestionsResponse,
     responses={502: BAD_GATEWAY_RESPONSE},
+    summary="Suggest dataset keywords with AI",
 )
 @limiter.limit(_AI_METADATA_LIMIT)
 async def generate_metadata_keywords(
@@ -856,7 +899,7 @@ async def generate_metadata_keywords(
 ) -> KeywordSuggestionsResponse:
     """Generate AI-suggested keywords for a dataset."""
     await _check_ai_available(db)
-    await _authorize_metadata_dataset(db, body.dataset_id, user)
+    await _authorize_metadata_dataset(db, body.dataset_id, user, port)
     user_roles = await port.get_user_roles(db, user)
     return await _call_llm_endpoint(
         generate_keyword_suggestions(
@@ -870,6 +913,7 @@ async def generate_metadata_keywords(
     "/metadata/lineage/",
     response_model=LineageDraftResponse,
     responses={502: BAD_GATEWAY_RESPONSE},
+    summary="Draft dataset lineage with AI",
 )
 @limiter.limit(_AI_METADATA_LIMIT)
 async def generate_metadata_lineage(
@@ -881,7 +925,7 @@ async def generate_metadata_lineage(
 ) -> LineageDraftResponse:
     """Generate an AI-drafted lineage summary for a dataset."""
     await _check_ai_available(db)
-    await _authorize_metadata_dataset(db, body.dataset_id, user)
+    await _authorize_metadata_dataset(db, body.dataset_id, user, port)
     return await _call_llm_endpoint(
         generate_lineage_draft(db, body.dataset_id, port=port, user_id=user.id),
         error_prefix="AI metadata lineage generation",
@@ -892,6 +936,7 @@ async def generate_metadata_lineage(
     "/metadata/quality-statement/",
     response_model=QualityStatementDraftResponse,
     responses={502: BAD_GATEWAY_RESPONSE},
+    summary="Draft a dataset quality statement with AI",
 )
 @limiter.limit(_AI_METADATA_LIMIT)
 async def generate_metadata_quality_statement(
@@ -903,7 +948,7 @@ async def generate_metadata_quality_statement(
 ) -> QualityStatementDraftResponse:
     """Generate an AI-drafted quality statement for a dataset."""
     await _check_ai_available(db)
-    await _authorize_metadata_dataset(db, body.dataset_id, user)
+    await _authorize_metadata_dataset(db, body.dataset_id, user, port)
     return await _call_llm_endpoint(
         generate_quality_statement_draft(
             db, body.dataset_id, port=port, user_id=user.id

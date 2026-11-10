@@ -12,7 +12,8 @@ import {
   BLANK_BASEMAP_ID,
   FALLBACK_BASEMAP_STYLE_URL,
 } from '@/lib/basemap-utils';
-import { buildTileTransformRequest, isMvtSourceLayerConfigReady, refreshRasterTileSources } from '@/lib/tile-utils';
+import { buildTileTransformRequest, featureGid, isMvtSourceLayerConfigReady, refreshRasterTileSources } from '@/lib/tile-utils';
+import { useMapSelectionStore } from '@/stores/map-selection-store';
 import { toMapLibreAttribution } from '@/lib/attribution-safety';
 import { useRemoteBasemapStyle } from '@/components/map/hooks/use-remote-basemap-style';
 import { isRasterTileAuthError, isRefreshableRasterAuthError, logUnhandledMapError } from '@/lib/map-error-log';
@@ -60,7 +61,7 @@ import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapLayerResponse, MapTerrainConfig } from '@/types/api';
 import type { TileToken } from '@/api/tiles';
-import { getVisibleLayerBounds, visibleLayerBoundsKey, clampMinZoomAfterFit } from './builder-bounds';
+import { getVisibleLayerBounds, visibleLayerBoundsKey, clampMinZoomAfterFit, FIT_BOUNDS_OPTIONS } from './builder-bounds';
 import 'maplibre-gl/dist/maplibre-gl.css';
 // Wires maplibre v6's worker URL. Side-effect import, kept out of
 // main.tsx so map-vendor stays out of the eager entry graph.
@@ -93,8 +94,6 @@ interface BuilderMapProps {
   basemapConfig?: MapBasemapConfig | null;
   onMapRef?: (map: MaplibreMap | null) => void;
   showBasemapLabels?: boolean;
-  /** Called when the user clicks a map feature. `null` when clicking empty space. */
-  onFeatureSelect?: (feature: FeatureInfo | null) => void;
 }
 
 // The five statuses that leave a cluster layer rendering as points, mapped to
@@ -207,7 +206,6 @@ export const BuilderMap = memo(function BuilderMap({
   basemapConfig = null,
   onMapRef,
   showBasemapLabels = true,
-  onFeatureSelect,
 }: BuilderMapProps) {
   const { t } = useTranslation('builder');
   const mapLocale = useMapLocale();
@@ -234,6 +232,8 @@ export const BuilderMap = memo(function BuilderMap({
   const sawTileErrorSinceLoadingRef = useRef(false);
   const lastOrderKeyRef = useRef('');
   const [mapReady, setMapReady] = useState(false);
+  // The selection belongs to this map; the next one starts with none.
+  useEffect(() => () => useMapSelectionStore.getState().clear(), []);
   // State mirror of mapRef.current so MapCoordReadout consumes the map via
   // state rather than reading a ref during render.
   const [mapInstance, setMapInstance] = useState<MaplibreMap | null>(null);
@@ -953,10 +953,8 @@ export const BuilderMap = memo(function BuilderMap({
           latitude: coordinates?.[1] ?? fallbackLngLat?.lat ?? 0,
           features: [info],
         });
-        onFeatureSelect?.(info);
       } else {
         setPopupInfo(null);
-        onFeatureSelect?.(null);
       }
       void activateClusterFeature(map, feature, hit.sourceId);
     };
@@ -988,9 +986,19 @@ export const BuilderMap = memo(function BuilderMap({
           title: cfg?.expression ? substitutePopupTemplate(cfg.expression, props) : null,
           visibleFields: cfg?.visible_fields ?? null,
           zoomAtClick: map.getZoom(),
+          layerId: layer.id,
+          featureId: featureGid(feature),
+          // Bounded cluster GeoJSON has no source layer and already carries every property.
+          fetchRow: cfg?.visible_fields == null && feature.sourceLayer !== undefined && featureGid(feature) !== undefined,
         });
       }
       return mapped;
+    };
+
+    // A cluster or a feature without a tile id selects no table row.
+    const selectFirst = (features: FeatureInfo[]) => {
+      const { layerId, featureId } = features[0];
+      if (layerId && featureId !== undefined) useMapSelectionStore.getState().select(layerId, featureId);
     };
 
     const handleClick = (e: MapMouseEvent) => {
@@ -1018,10 +1026,9 @@ export const BuilderMap = memo(function BuilderMap({
           latitude: e.lngLat.lat,
           features: mapped,
         });
-        onFeatureSelect?.(mapped[0]);
+        selectFirst(mapped);
       } else {
         setPopupInfo(null);
-        onFeatureSelect?.(null);
       }
     };
 
@@ -1093,7 +1100,7 @@ export const BuilderMap = memo(function BuilderMap({
         latitude: lngLat.lat,
         features: mapped,
       });
-      onFeatureSelect?.(mapped[0]);
+      selectFirst(mapped);
     };
 
     map.on('click', handleClick);
@@ -1117,7 +1124,7 @@ export const BuilderMap = memo(function BuilderMap({
         // Map already torn down — nothing to reset.
       }
     };
-  }, [mapReady, t, lookupHitLayer, onFeatureSelect]);
+  }, [mapReady, t, lookupHitLayer]);
 
   // Popup invalidation key: changes whenever any structural property of the
   // layers list shifts (add/remove/reorder/visibility toggle, dataset rename,
@@ -1269,30 +1276,22 @@ export const BuilderMap = memo(function BuilderMap({
       if (hasSavedView) return; // MapGL already positioned via initialViewState
     }
 
-    // Only fit when the visible extent genuinely changed. Duplicate renderings
-    // add a layer row but keep the same dataset bounds, so they must not move
-    // the user's current map view.
-    if (!layerCountChanged) return;
-    if (!visibleBounds || !visibleBoundsChanged) return;
+    // After the first fit, only fit when the visible extent genuinely changed.
+    // Duplicate renderings add a layer row but keep the same dataset bounds, so
+    // they must not move the user's current map view.
+    if (!isFirstFit && !layerCountChanged) return;
+    if (!visibleBounds || (!isFirstFit && !visibleBoundsChanged)) return;
 
     // Capture the camera first and offer a one-shot return, so the fit has a
     // way back. Not on the very first fit: there is no user-chosen view yet, so
     // the offer would be page-load noise.
-    const previousCamera = {
-      center: map.getCenter(),
-      zoom: map.getZoom(),
-      bearing: map.getBearing(),
-      pitch: map.getPitch(),
-    };
-
-    map.fitBounds(
-      visibleBounds,
-      { padding: 40, maxZoom: 18, duration: 0 },
-    );
-
-    clampMinZoomAfterFit(map);
-
     if (!isFirstFit) {
+      const previousCamera = {
+        center: map.getCenter(),
+        zoom: map.getZoom(),
+        bearing: map.getBearing(),
+        pitch: map.getPitch(),
+      };
       // Replace rather than stack: a second auto-fit makes the older offer stale,
       // and its camera is no longer the one the user was looking at.
       if (returnToViewToastRef.current !== undefined) toast.dismiss(returnToViewToastRef.current);
@@ -1313,6 +1312,10 @@ export const BuilderMap = memo(function BuilderMap({
         },
       });
     }
+
+    map.fitBounds(visibleBounds, { ...FIT_BOUNDS_OPTIONS, duration: 0 });
+
+    clampMinZoomAfterFit(map);
   // Reads `layers.length` rather than popupInvalidationKey: the effect
   // short-circuits on unchanged layer count and visible bounds, so the full key
   // would only add misleading extra runs on heatmap-ramp / height-column edits.

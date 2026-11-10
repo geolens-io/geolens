@@ -9,12 +9,14 @@ import type { QueryClient } from '@tanstack/react-query';
 /**
  * Feature/schema mutations change the column distribution, so the cached
  * distinct-values and min/max stats (data-driven style editors, filter
- * pickers) are invalidated by prefix. After dropColumn the column-keyed cache
- * would otherwise serve values for a column that no longer exists.
+ * pickers) and dashboard aggregates are invalidated by prefix. After
+ * dropColumn the column-keyed cache would otherwise serve values for a column
+ * that no longer exists.
  */
 function invalidateColumnCaches(qc: QueryClient, datasetId: string): void {
   qc.invalidateQueries({ queryKey: queryKeys.maps.columnValuesPrefix(datasetId) });
   qc.invalidateQueries({ queryKey: queryKeys.maps.columnStatsPrefix(datasetId) });
+  qc.invalidateQueries({ queryKey: queryKeys.dashboard.aggregatePrefix(datasetId) });
 }
 
 /**

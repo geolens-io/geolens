@@ -211,7 +211,8 @@ class DatasetAsset(Base):
     Decision 7, hash-suffixed so every kept original counts, not just the
     newest), 'tileset' (a 3D Tiles dataset's live unpack attempt, sized to
     the unpacked bytes), 'pointcloud' (a COPC point cloud's live file, sized
-    to the file), 'retained_cog:<attempt_id>' (a superseded COG a VRT may
+    to the file), 'vrt_overview' (a VRT's overview COG, sized to the file,
+    internal), 'retained_cog:<attempt_id>' (a superseded COG a VRT may
     still read, kept until reclaimed). The archived, tileset, pointcloud and
     retained keys are internal: they feed the per-user storage sum but are
     never published as STAC assets (see ``app.platform.assets.keys``).
@@ -222,7 +223,7 @@ class DatasetAsset(Base):
         UniqueConstraint("dataset_id", "key", name="uq_dataset_assets_key"),
         CheckConstraint(
             "key IN ('data', 'vrt', 'thumbnail', 'overview', 'metadata', 'tileset', "
-            "'pointcloud') OR key LIKE 'archived_original:%' "
+            "'pointcloud', 'vrt_overview') OR key LIKE 'archived_original:%' "
             "OR key LIKE 'retained_cog:%'",
             name="chk_dataset_assets_key",
         ),

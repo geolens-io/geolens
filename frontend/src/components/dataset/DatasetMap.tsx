@@ -49,6 +49,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { motionDuration } from '@/lib/reduced-motion';
 import { buildTileTransformRequest, isMvtSourceLayerConfigReady, refreshRasterTileSources } from '@/lib/tile-utils';
 import { isRasterTileAuthError, isRefreshableRasterAuthError, logUnhandledMapError } from '@/lib/map-error-log';
+import { keepCompactAttributionFolded } from '@/lib/compact-attribution';
 import { reportTileTokenRemint } from '@/lib/report';
 // Wires maplibre v6's worker URL. Side-effect import, kept out of
 // main.tsx so map-vendor stays out of the eager entry graph.
@@ -751,14 +752,7 @@ export const DatasetMap = memo(function DatasetMap({
       mapRef.current = map;
       setMapInstance(map);
 
-      // MapLibre's compact attribution starts expanded and only folds on the
-      // first drag; fold it now so it doesn't cover a narrow preview.
-      const container = map.getContainer();
-      if (container.clientWidth <= 640) {
-        const attrib = container.querySelector('.maplibregl-ctrl-attrib');
-        attrib?.classList.remove('maplibregl-compact-show');
-        attrib?.removeAttribute('open');
-      }
+      map.once('remove', keepCompactAttributionFolded(map.getContainer()));
 
       // Absolutify URLs and attach the auth header for raster tile requests.
       // react-maplibre v8 ignores the transformRequest PROP after mount, so

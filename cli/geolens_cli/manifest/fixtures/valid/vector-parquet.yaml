@@ -1,0 +1,21 @@
+manifest_version: "1"
+catalog:
+  title: Parcel catalog
+  organization: Assessor Office
+datasets:
+  - key: parcels
+    title: Parcel boundaries
+    description: GeoParquet export of the parcel layer.
+    sources:
+      - type: vector
+        uri: ./data/parcels.parquet
+        format: geoparquet
+    metadata:
+      tags:
+        - parcels
+      organization: Assessor Office
+      crs: EPSG:4326
+      license: CC-BY-4.0
+      attribution: Assessor Office
+    publication:
+      intent: draft

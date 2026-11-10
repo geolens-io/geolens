@@ -7,6 +7,7 @@ import {
   getDataset,
   getDatasetRows,
   updateDataset,
+  setDatasetGroups,
   setDatasetRetention,
   setTargetStatus,
   deleteDataset,
@@ -28,6 +29,7 @@ import { cancelJob } from '@/api/ingest';
 import type {
   CreateDatasetRequest,
   DatasetOrigin,
+  DatasetResponse,
   DatasetUpdateRequest,
   DatasetRetention,
   AttributeMetadataUpdate,
@@ -78,10 +80,14 @@ export function useDatasetRows(
   cursor: number,
   filters?: Record<string, string>,
   sort?: DatasetRowsSort,
+  cql2Filter?: string,
+  gid?: number,
+  request: { withBbox?: boolean; embedToken?: string } = {},
 ) {
+  const { withBbox, embedToken } = request;
   return useQuery({
-    queryKey: queryKeys.datasets.rows(id, limit, cursor, filters, sort),
-    queryFn: () => getDatasetRows(id, { limit, after: cursor, filters, sort }),
+    queryKey: queryKeys.datasets.rows(id, limit, cursor, filters, sort, cql2Filter, gid, { withBbox, embedToken }),
+    queryFn: () => getDatasetRows(id, { limit, after: cursor, filters, sort, cql2Filter, gid, withBbox, embedToken }),
     enabled: !!id,
     placeholderData: keepPreviousData,
     staleTime: 60_000,
@@ -107,6 +113,28 @@ export function useUpdateDataset() {
       // quality-score badge reflects the recomputed value.
       qc.invalidateQueries({ queryKey: queryKeys.datasets.validation(variables.datasetId) });
       if (variables.data.visibility !== undefined) invalidateTileTokens(qc, variables.datasetId);
+    },
+  });
+}
+
+export function useSetDatasetGroups() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ datasetId, groupIds }: { datasetId: string; groupIds: string[] }) =>
+      setDatasetGroups(datasetId, groupIds),
+    onSuccess: (result, variables) => {
+      // Shows the new audience at once; the refetch below confirms it.
+      qc.setQueryData<DatasetResponse>(queryKeys.datasets.detail(variables.datasetId), (old) =>
+        old && {
+          ...old,
+          visibility: result.visibility as DatasetResponse['visibility'],
+          groups: result.groups,
+        },
+      );
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.all });
+      qc.invalidateQueries({ queryKey: queryKeys.search.all });
+      invalidateTileTokens(qc, variables.datasetId);
     },
   });
 }

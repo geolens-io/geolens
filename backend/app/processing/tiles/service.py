@@ -2,7 +2,7 @@
 
 import re
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, NamedTuple
 
 import asyncpg
 import structlog
@@ -54,6 +54,14 @@ _TILE_FEATURE_LIMIT = 50000
 # allowing many more points than client-side GeoJSON.
 _CLUSTER_INPUT_LIMIT = 100000
 
+# The order rows meet a feature cap in. A hash of gid spreads the kept rows
+# across the tile when the table was loaded sorted by place, date or category,
+# where gid order would keep only the first ones. It is deterministic, so
+# rebuilds keep the content-hash ETag and every worker caches the same tile;
+# gid breaks hash collisions. No index serves this order, so a crowded tile
+# reads every row it covers instead of stopping at the cap.
+_SAMPLE_ORDER = "hashint8(t.gid::bigint), t.gid"
+
 # MVT tile extent (ST_AsMVTGeom resolution). One MVT coordinate unit spans
 # 360/(extent*2^z) degrees of longitude at zoom z.
 _MVT_EXTENT = 4096
@@ -104,6 +112,7 @@ def _effective_attr_names(
     tile_columns: list[str] | None,
     additional_columns: list[str] | None,
     mode: str,
+    cols_only: bool = False,
 ) -> set[str]:
     """The attribute names this request would actually emit into the MVT.
 
@@ -122,6 +131,7 @@ def _effective_attr_names(
         z,
         tile_columns=tile_columns,
         additional_columns=additional_columns,
+        cols_only=cols_only,
     )
     return {
         name
@@ -140,6 +150,7 @@ def parse_cols_param(
     *,
     tile_columns: list[str] | None = None,
     mode: str = "vector",
+    cols_only: bool = False,
 ) -> tuple[list[str] | None, str]:
     """Normalize a `cols=` query param into (additional_columns, cache_key).
 
@@ -168,8 +179,11 @@ def parse_cols_param(
     on the raw request. The zoom is already its own cache-key segment, so the
     suffix only has to separate requests at one tile; an empty suffix stays
     byte-identical to the no-`cols=` key.
+
+    With ``cols_only`` the key is the full projection behind an ``only:``
+    prefix, since the tile is no longer a superset of the default one.
     """
-    if not cols:
+    if not cols and not cols_only:
         return None, ""
     resolved = columns or []
     known = {
@@ -179,16 +193,21 @@ def parse_cols_param(
         and isinstance(name := col.get("name"), str)
         and _COLUMN_NAME_RE.match(name)
     }
-    if not known:
+    if not known and not cols_only:
         return None, ""
     # The raw string is bounded by the server's request-line limit and the
     # result by the dataset's column count. Names are compared, never
     # interpolated: the query builders revalidate every name they emit.
-    additional = sorted({c.strip() for c in cols.split(",")} & known)
+    additional = sorted({c.strip() for c in (cols or "").split(",")} & known)
+    projection = {"tile_columns": tile_columns, "mode": mode}
+    if cols_only:
+        effective = _effective_attr_names(
+            resolved, z, additional_columns=additional, cols_only=True, **projection
+        )
+        return additional, "only:" + ",".join(sorted(effective))
     if not additional:
         return None, ""
 
-    projection = {"tile_columns": tile_columns, "mode": mode}
     baseline = _effective_attr_names(resolved, z, additional_columns=None, **projection)
     effective = _effective_attr_names(
         resolved, z, additional_columns=additional, **projection
@@ -206,6 +225,7 @@ def _select_tile_columns(
     *,
     tile_columns: list[str] | None = None,
     additional_columns: list[str] | None = None,
+    cols_only: bool = False,
 ) -> list[dict]:
     """Apply the column allowlist + per-zoom defaults.
 
@@ -224,6 +244,9 @@ def _select_tile_columns(
     When `tile_columns` is set, `additional_columns` is also intersected with
     it, so the three rules above hold for a `cols=` request too: the zoom
     budget is a default the caller may override; the allowlist is not.
+
+    `cols_only`: skip the base selection, so the result is the validated
+    `additional_columns` plus the jsonb columns (none when both are absent).
     """
     allowlist: set[str] | None = None
     if tile_columns is not None:
@@ -239,6 +262,15 @@ def _select_tile_columns(
         base = []
     else:
         base = columns
+    if cols_only:
+        # ST_AsMVT flattens a jsonb column into attributes, so no requested name
+        # can be resolved against the keys it carries.
+        pool = (
+            columns
+            if allowlist is None
+            else [c for c in columns if c.get("name") in allowlist]
+        )
+        base = [c for c in pool if str(c.get("type") or "").lower() == "jsonb"]
 
     if additional_columns:
         # The `cols=` opt-in projects the requested columns at every zoom,
@@ -254,8 +286,8 @@ def _select_tile_columns(
             # Unioning past `tile_columns` would make the per-dataset
             # attribute-exposure control advisory: any client appending `cols=`
             # would get every other column, including an anonymous holder of a
-            # signed tile template for a non-public dataset, who has no REST
-            # route to those attributes.
+            # signed tile template or embed token for a non-public dataset. The
+            # REST reads an embed token authorizes keep to the same allowlist.
             valid_extra &= allowlist
         if valid_extra:
             already = {c.get("name") for c in base}
@@ -266,15 +298,54 @@ def _select_tile_columns(
     return base
 
 
-def _attr_select(alias: str, col: dict) -> str:
-    """One attribute's projection, named after the column."""
+def _guarded_columns(
+    columns: list[dict],
+    z: int,
+    *,
+    tile_columns: list[str] | None,
+    additional_columns: list[str] | None,
+    selected: list[dict],
+    cols_only: bool,
+) -> list[dict]:
+    """The columns ``cols_only`` drops that the default projection would carry."""
+    if not cols_only:
+        return []
+    kept = {col.get("name") for col in selected}
+    default = _select_tile_columns(
+        columns,
+        z,
+        tile_columns=tile_columns,
+        additional_columns=additional_columns,
+    )
+    return [col for col in default if col.get("name") not in kept]
+
+
+# Number.MAX_SAFE_INTEGER. A browser cannot hold an id past it exactly, and
+# ST_AsMVT leaves out a negative one, so neither can be looked up as a row.
+_MAX_SAFE_FEATURE_ID = 9007199254740991
+
+
+def _attr_select(alias: str, col: dict, *, guarded: bool = False) -> str:
+    """One attribute's projection, named after the column.
+
+    A guarded column is only carried by a feature whose id cannot identify a
+    row (negative or beyond the safe range), so no row lookup can restore it.
+    A NULL attribute is left out of the tile.
+    """
     ref = f'{alias}."{col["name"]}"'
     if str(col.get("type") or "").lower() == "timestamp with time zone":
         ref = utc_timestamptz_text(ref)
+    if guarded:
+        ref = (
+            f"CASE WHEN {alias}.gid NOT BETWEEN 0 "
+            f"AND {_MAX_SAFE_FEATURE_ID} THEN {ref} END"
+        )
     return f'{ref} AS "{col["name"]}"'
 
 
-def _build_attr_columns(columns: list[dict]) -> str:
+def _build_attr_columns(
+    columns: list[dict], guarded_columns: Sequence[dict] = ()
+) -> str:
     """Build the attribute column list for the MVT query.
 
     Excludes geometry columns and gid (gid is always included separately
@@ -284,8 +355,9 @@ def _build_attr_columns(columns: list[dict]) -> str:
     column and keeps its case as the MVT property name.
     """
     attr_cols = [
-        _attr_select("t", col)
-        for col in columns
+        _attr_select("t", col, guarded=guarded)
+        for guarded, group in ((False, columns), (True, guarded_columns))
+        for col in group
         if col.get("name")
         and col["name"] not in _EXCLUDED_COLUMNS
         and _COLUMN_NAME_RE.match(col["name"])
@@ -296,12 +368,16 @@ def _build_attr_columns(columns: list[dict]) -> str:
 
 
 def _build_tile_query(
-    table_name: str, columns: list[dict], schema: str = "data"
+    table_name: str,
+    columns: list[dict],
+    schema: str = "data",
+    guarded_columns: Sequence[dict] = (),
 ) -> str:
     """Build the ST_AsMVT tile query for the given table and columns.
 
-    Simplification applies below z=10, and the inner CTE has a 50K-feature
-    LIMIT to bound query cost on wide low-zoom tiles. The tolerance is in
+    Simplification applies below z=10, and a 50K-feature cap bounds query
+    cost on wide low-zoom tiles. Past the cap the tile holds a sample taken in
+    ``_SAMPLE_ORDER``, and the query's second column says so. The tolerance is in
     EPSG:4326 degrees and follows one continuous schedule
     (``_simplify_tolerance_degrees``) that halves each zoom (z>=10 uses the
     original geometry untouched).
@@ -314,7 +390,7 @@ def _build_tile_query(
     schema-qualified; search_path alone is not the primary isolation control.
     """
     _validate_tile_table_name(table_name)
-    attr_columns = _build_attr_columns(columns)
+    attr_columns = _build_attr_columns(columns, guarded_columns)
     # The schema name derives from the validated-UUID tenant_data_schema(), so
     # it is safe to quote.
     qualified_table = f'"{schema}"."{table_name}"'
@@ -327,7 +403,7 @@ _env AS (
 bounds AS (
     SELECT _env.geom, ST_Transform(_env.geom, 4326) AS geom_4326 FROM _env
 ),
-mvtgeom AS (
+sampled AS (
     SELECT ST_AsMVTGeom(
         ST_Transform(
             -- Single continuous tolerance schedule for all
@@ -357,15 +433,18 @@ mvtgeom AS (
     t.gid{attr_columns}
     FROM {qualified_table} t, bounds
     WHERE t.geom_4326 && bounds.geom_4326
-    -- Deterministic under the feature cap, matching the cluster
-    -- query's candidate CTE. Without an ordering a tile whose bbox selects
-    -- more than {_TILE_FEATURE_LIMIT} rows returns an arbitrary subset, so
-    -- successive rebuilds flip the content-hash ETag and each uvicorn worker
-    -- can hold a different rendering of the same tile in its own cache.
-    ORDER BY t.gid
-    LIMIT {_TILE_FEATURE_LIMIT}
+    ORDER BY {_SAMPLE_ORDER}
+    LIMIT {_TILE_FEATURE_LIMIT + 1}
+),
+-- The row past the cap only marks the tile sampled; keeping the sample's
+-- lowest gids drops it. Encoding in gid order keeps a tile under the cap
+-- byte-identical whatever the sample order.
+mvtgeom AS (
+    SELECT * FROM sampled ORDER BY gid LIMIT {_TILE_FEATURE_LIMIT}
 )
-SELECT ST_AsMVT(mvtgeom.*, $4::text, 4096, 'geom', 'gid')
+SELECT
+    ST_AsMVT(mvtgeom.*, $4::text, 4096, 'geom', 'gid'),
+    (SELECT count(*) FROM sampled) > {_TILE_FEATURE_LIMIT}
 FROM mvtgeom
 -- ST_AsMVTGeom returns NULL for features clipped away or
 -- degenerate at this zoom; without this WHERE those rows are encoded as
@@ -389,6 +468,7 @@ def _build_cluster_tile_query(
     schema: str = "data",
     attr_columns: list[dict] | None = None,
     filter_sql: str | None = None,
+    guarded_columns: Sequence[dict] = (),
 ) -> str:
     """Build a bounded server-side cluster MVT query for point datasets.
 
@@ -426,10 +506,11 @@ def _build_cluster_tile_query(
     keeps every anchor inside [world_min, world_max]: inclusive lower bounds
     cover the west/south world edges, and the east/north edge tiles use
     inclusive upper bounds since an anchor can land exactly on the world
-    maximum; internal borders stay half-open. ``ORDER BY gid`` keeps candidate
-    membership deterministic per envelope.
+    maximum; internal borders stay half-open. ``_SAMPLE_ORDER`` keeps candidate
+    membership deterministic per envelope, and the query's second column says
+    whether the input cap or the feature cap left anything out.
 
-    Ownership filters before the feature cap (in the ``grouped`` CTE), so
+    Ownership filters before the feature cap (in the ``cells`` CTE), so
     neighbor-owned cells can never consume the output budget and displace
     owned cells. A cell owned via its anchor can have its centroid up to one
     bucket inside the neighbor tile, where a client whose viewport covers the
@@ -468,8 +549,9 @@ def _build_cluster_tile_query(
     # Mirrors _build_attr_columns' exclusion, revalidation and quoting rules,
     # projecting from the joined source row for unclustered features only.
     unclustered_attr_select = "".join(
-        f",\n        {_attr_select('src', col)}"
-        for col in (attr_columns or [])
+        f",\n        {_attr_select('src', col, guarded=guarded)}"
+        for guarded, group in ((False, attr_columns or []), (True, guarded_columns))
+        for col in group
         if col.get("name")
         and col["name"] not in _EXCLUDED_COLUMNS
         and col["name"] not in _CLUSTER_RESERVED_COLUMNS
@@ -515,7 +597,7 @@ grid AS (
 -- Scan envelope = tile + one full bucket, so
 -- a cell straddling the tile border is seen with its COMPLETE membership.
 -- Expansion applies at clustering zooms ONLY: past cluster
--- max zoom no cross-tile cells exist, and lower-gid ring candidates would
+-- max zoom no cross-tile cells exist, and ring candidates would
 -- just consume the input cap before ownership discards them, starving the
 -- tile of its own points. Clamped to the world envelope BEFORE the 4326
 -- transform: past the world edge proj wraps longitude and the transformed
@@ -537,7 +619,7 @@ scan AS (
     ) AS geom_4326
     FROM bounds, grid
 ),
-candidates AS (
+sampled AS (
     SELECT
         t.gid,
         ST_Transform(ST_PointOnSurface(t.geom_4326), 3857) AS geom_3857
@@ -546,8 +628,12 @@ candidates AS (
       AND NOT ST_IsEmpty(t.geom_4326){filter_clause}
     -- Deterministic under the input cap, so neighboring tiles
     -- that both see a straddling cell agree on membership and centroid.
-    ORDER BY t.gid
-    LIMIT {_CLUSTER_INPUT_LIMIT}
+    ORDER BY {_SAMPLE_ORDER}
+    LIMIT {_CLUSTER_INPUT_LIMIT + 1}
+),
+-- The candidate past the cap only marks the tile sampled.
+candidates AS (
+    SELECT * FROM sampled ORDER BY gid LIMIT {_CLUSTER_INPUT_LIMIT}
 ),
 bucketed AS (
     SELECT
@@ -590,7 +676,7 @@ anchored AS (
         END AS anchor_y
     FROM bucketed, grid
 ),
-grouped AS (
+cells AS (
     SELECT
         bucket_x,
         bucket_y,
@@ -624,10 +710,14 @@ grouped AS (
         OR ($3::integer = 0 AND anchored.anchor_y <= ST_YMax(bounds.geom))
       )
     GROUP BY bucket_x, bucket_y
-    -- Same determinism rule as the vector query above -- the cap
-    -- has to pick the same cells every rebuild.
-    ORDER BY bucket_x, bucket_y
-    LIMIT {_TILE_FEATURE_LIMIT}
+    -- Same sample rule as the candidates, on each cell's source gid. Past
+    -- cluster max zoom every point is its own cell, so this cap samples too.
+    ORDER BY hashint8(min(gid)::bigint), min(gid)
+    LIMIT {_TILE_FEATURE_LIMIT + 1}
+),
+-- The cell past the cap only marks the tile sampled.
+grouped AS (
+    SELECT * FROM cells ORDER BY bucket_x, bucket_y LIMIT {_TILE_FEATURE_LIMIT}
 ),
 features AS (
     SELECT
@@ -706,10 +796,29 @@ features AS (
         ) AS geom
     FROM grouped{unclustered_attr_join}, bounds, grid
 )
-SELECT ST_AsMVT(features.*, $4::text, 4096, 'geom', 'gid')
+SELECT
+    ST_AsMVT(features.*, $4::text, 4096, 'geom', 'gid'),
+    (SELECT count(*) FROM sampled) > {_CLUSTER_INPUT_LIMIT}
+        OR (SELECT count(*) FROM cells) > {_TILE_FEATURE_LIMIT}
 FROM features
 WHERE geom IS NOT NULL
 """
+
+
+class RenderedTile(NamedTuple):
+    """An MVT tile and whether a feature cap left features out of it."""
+
+    mvt: bytes
+    sampled: bool
+
+
+async def _fetch_rendered_tile(
+    executor: asyncpg.Pool | asyncpg.Connection, query: str, *args: Any
+) -> RenderedTile | None:
+    row = await executor.fetchrow(query, *args)
+    if row is None or not row[0]:
+        return None
+    return RenderedTile(bytes(row[0]), bool(row[1]))
 
 
 async def get_tile(
@@ -722,10 +831,11 @@ async def get_tile(
     *,
     tile_columns: list[str] | None = None,
     additional_columns: list[str] | None = None,
+    cols_only: bool = False,
     conn: asyncpg.Connection | None = None,
     schema: str = "data",
-) -> bytes | None:
-    """Execute a tile query and return MVT bytes, or None if empty.
+) -> RenderedTile | None:
+    """Execute a tile query and return the rendered tile, or None if empty.
 
     Args:
         pool: asyncpg connection pool (used only when ``conn`` is None).
@@ -738,6 +848,7 @@ async def get_tile(
         additional_columns: Runtime opt-in columns the caller needs at all
             zooms (e.g. data-driven styling columns). Unioned with the
             base selection; validated against ``columns``.
+        cols_only: Project exactly ``additional_columns``, none of the defaults.
         conn: Optional already-acquired asyncpg connection to reuse. Pass one
             that already had ``set_tenant_role_for_tile_request`` called inside
             an open transaction so the per-tenant role/search_path survive.
@@ -747,7 +858,8 @@ async def get_tile(
             clause is explicitly schema-qualified.
 
     Returns:
-        MVT binary data, or None if the tile contains no features.
+        The MVT bytes and whether the feature cap sampled them, or None if
+        the tile contains no features.
     """
     _validate_tile_table_name(table_name)
 
@@ -756,23 +868,30 @@ async def get_tile(
         z,
         tile_columns=tile_columns,
         additional_columns=additional_columns,
+        cols_only=cols_only,
     )
-    query = _build_tile_query(table_name, selected_columns, schema=schema)
+    query = _build_tile_query(
+        table_name,
+        selected_columns,
+        schema=schema,
+        guarded_columns=_guarded_columns(
+            columns,
+            z,
+            tile_columns=tile_columns,
+            additional_columns=additional_columns,
+            selected=selected_columns,
+            cols_only=cols_only,
+        ),
+    )
     # layer_name must match the schema-qualified table so clients can identify
     # it. In multi_tenant the tile-config contract exposes the resolved tenant
     # schema as ``mvt_source_layer_prefix``, while ``data.{table}`` still signs
     # URLs. The physical schema qualification is required for tenant isolation.
     layer_name = f"{schema}.{table_name}"
 
-    if conn is not None:
-        result = await conn.fetchval(query, z, x, y, layer_name)
-    else:
-        result = await pool.fetchval(query, z, x, y, layer_name)
-
-    if result is None or len(result) == 0:
-        return None
-
-    return result
+    return await _fetch_rendered_tile(
+        conn if conn is not None else pool, query, z, x, y, layer_name
+    )
 
 
 async def get_cluster_tile(
@@ -785,13 +904,14 @@ async def get_cluster_tile(
     *,
     tile_columns: list[str] | None = None,
     additional_columns: list[str] | None = None,
+    cols_only: bool = False,
     cluster_radius: int = 48,
     cluster_max_zoom: int = 14,
     conn: asyncpg.Connection | None = None,
     schema: str = "data",
     filter_sql: str | None = None,
     filter_params: Sequence[Any] = (),
-) -> bytes | None:
+) -> RenderedTile | None:
     """Execute a server-side point-cluster MVT query.
 
     Emits MapLibre-compatible cluster properties while keeping the source
@@ -809,6 +929,7 @@ async def get_cluster_tile(
             and popups work past cluster max zoom.
         tile_columns: Allowlist override (None / [] / list).
         additional_columns: Runtime opt-in columns (the ``cols=`` param).
+        cols_only: Project exactly ``additional_columns``, none of the defaults.
         cluster_radius: Cluster radius in CSS/screen pixels (MapLibre
             ``clusterRadius`` semantics; converted to MVT extent units
             inside the query).
@@ -826,14 +947,27 @@ async def get_cluster_tile(
         z,
         tile_columns=tile_columns,
         additional_columns=additional_columns,
+        cols_only=cols_only,
     )
     query = _build_cluster_tile_query(
-        table_name, schema=schema, attr_columns=attr_columns, filter_sql=filter_sql
+        table_name,
+        schema=schema,
+        attr_columns=attr_columns,
+        filter_sql=filter_sql,
+        guarded_columns=_guarded_columns(
+            columns or [],
+            z,
+            tile_columns=tile_columns,
+            additional_columns=additional_columns,
+            selected=attr_columns,
+            cols_only=cols_only,
+        ),
     )
     layer_name = f"{schema}.{table_name}"
 
     try:
-        result = await (conn if conn is not None else pool).fetchval(
+        return await _fetch_rendered_tile(
+            conn if conn is not None else pool,
             query,
             z,
             x,
@@ -849,8 +983,3 @@ async def get_cluster_tile(
 
             refuse_type_fault(exc)
         raise
-
-    if result is None or len(result) == 0:
-        return None
-
-    return result

@@ -7,7 +7,8 @@ and commit each layer, then wait for its ingest job. GeoLens fetches the
 service server-side under its SSRF checks; this module never contacts it.
 A non-public item's requests carry the run's ArcGIS token as ``auth`` on the
 probe, the preview and the commit, since each reads the credential from its
-own body.
+own body. A rerun of an item whose import stage finished takes none of those
+requests: it resumes from the state file's recorded pass.
 """
 
 from __future__ import annotations
@@ -25,11 +26,12 @@ from .arcgis_migrate_session import (
     ItemResult,
     MigrationContext,
     StopRun,
+    changed_before_handover,
+    operator_or_nobody_wrote_last,
 )
 from .arcgis_migrate_state import DONE, EXISTS, ItemState
 
-# ArcGIS sub-layer types that hold features GeoLens can import.
-IMPORTABLE_LAYER_TYPES = frozenset({"Feature Layer", "Table"})
+GROUP_LAYER = "Group Layer"
 MAX_TITLE = 500
 JOB_POLL_INTERVAL = 5.0
 JOB_TIMEOUT = 3600.0
@@ -40,6 +42,8 @@ _TOKEN_REFUSED = "Provide a valid ArcGIS token"
 _STORE_UNAVAILABLE = "credential_store_unavailable"
 # GeoLens's answer to a commit of a job that was committed before.
 _ALREADY_COMMITTED = "already processed"
+# The note an import with no importable layer ends with, fresh or resumed.
+_NO_LAYER_NOTE = "the service has no layer to import"
 
 
 def _row(ctx: MigrationContext, item: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -123,18 +127,25 @@ def _send(
     raise AssertionError("unreachable")
 
 
-def _title(base: str, layer: str | None) -> str:
+def _title(base: str, layer: str | None, layer_id: str | None = None) -> str:
     """The dataset title: the item's, then `` - <layer>`` for a service with
-    several layers, within GeoLens's title limit."""
+    several layers, within GeoLens's title limit. A layer whose title another
+    layer of the same service also takes carries `` (<layer id>)`` as well,
+    so the catalog can tell the two datasets apart."""
     if layer is None:
         return base[:MAX_TITLE]
-    suffix = f" - {layer}"[: MAX_TITLE // 2]
+    tag = f" ({layer_id})" if layer_id is not None else ""
+    suffix = f" - {layer}"[: MAX_TITLE // 2 - len(tag)] + tag
     return base[: MAX_TITLE - len(suffix)] + suffix
 
 
-def _layer_key(layer: Any) -> str:
+def _layer_id(layer: Any) -> str | None:
     layer_id = getattr(layer, "layer_id", None)
-    return str(layer_id) if isinstance(layer_id, int | str) else str(layer.name)
+    return str(layer_id) if isinstance(layer_id, int | str) else None
+
+
+def _layer_key(layer: Any) -> str:
+    return _layer_id(layer) or str(layer.name)
 
 
 def _layer_label(layer: Any) -> str:
@@ -142,16 +153,99 @@ def _layer_label(layer: Any) -> str:
     return title if isinstance(title, str) and title else str(layer.name)
 
 
+def attachment_flags(layers: Any) -> dict[str, bool | None]:
+    """Probed layer -> whether it has attachments, None where the service
+    doesn't say."""
+    flags: dict[str, bool | None] = {}
+    for layer in layers:
+        value = getattr(layer, "has_attachments", None)
+        flags[_layer_key(layer)] = value if isinstance(value, bool) else None
+    return flags
+
+
+def relationship_records(layers: Any) -> dict[str, list[dict[str, Any]]]:
+    """Probed layer -> the relationship classes it declares; layers with none
+    are left out."""
+    found: dict[str, list[dict[str, Any]]] = {}
+    for layer in layers:
+        declared = getattr(layer, "relationships", None)
+        records = []
+        for rel in declared if isinstance(declared, list) else []:
+            related = getattr(rel, "related_layer_id", None)
+            rel_id = getattr(rel, "id", None)
+            if isinstance(related, int | str):
+                records.append(
+                    {
+                        "id": rel_id
+                        if isinstance(rel_id, int) and not isinstance(rel_id, bool)
+                        else None,
+                        "name": _text(getattr(rel, "name", None)),
+                        "related": str(related),
+                        "cardinality": _text(getattr(rel, "cardinality", None)),
+                        "role": _text(getattr(rel, "role", None)),
+                    }
+                )
+        if records:
+            found[_layer_key(layer)] = records
+    return found
+
+
+def _text(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def importable_layers(probe: Any) -> tuple[list[Any], list[str], list[str]]:
+    """The probed layers to import, a note for each one left out, and those of
+    the notes that are data left behind: every left-out layer but a group
+    layer, which holds no data of its own."""
+    layers = list(probe.layers)
+    selected = probe.selected_layer_id
+    if isinstance(selected, int | str):
+        layers = [layer for layer in layers if str(layer.layer_id) == str(selected)]
+    reasons = [(layer, _importable(layer)) for layer in layers]
+    notes = [reason for _layer, reason in reasons if reason]
+    lost = [
+        reason
+        for layer, reason in reasons
+        if reason and getattr(layer, "source_layer_type", None) != GROUP_LAYER
+    ]
+    return [layer for layer, reason in reasons if reason is None], notes, lost
+
+
+def _titles(base: str, layers: list[tuple[str, str | None]]) -> list[str]:
+    """The dataset title for each (label, layer id) of a service's layers, in
+    order.
+
+    Layers that would share a title get their layer id added, checked
+    against the final titles: a layer already named like another layer's
+    tagged title is tagged too, so every layer ends up told apart (layer
+    ids are unique within a service). A layer with no id is tagged with its
+    1-based position, as ``#2``, which no numeric layer id can match.
+    """
+    labels = [label if len(layers) > 1 else None for label, _layer in layers]
+    titles = [_title(base, label) for label in labels]
+    tagged = [False] * len(layers)
+    while True:
+        shared = {title for title in titles if titles.count(title) > 1}
+        if not shared:
+            return titles
+        moved = False
+        for i, (label, layer_id) in enumerate(layers):
+            if titles[i] in shared and not tagged[i]:
+                titles[i] = _title(base, label, layer_id or f"#{i + 1}")
+                tagged[i] = True
+                moved = True
+        if not moved:
+            return titles
+
+
 def _importable(layer: Any) -> str | None:
     """Why *layer* is not imported, or None."""
+    if getattr(layer, "importable", True) is not False:
+        return None
     kind = getattr(layer, "source_layer_type", None)
-    if not isinstance(kind, str):
-        kind = None
-    if getattr(layer, "importable", True) is False or (
-        kind is not None and kind not in IMPORTABLE_LAYER_TYPES
-    ):
-        return f"{_layer_label(layer)}: {kind or 'this kind of'} layer, not imported"
-    return None
+    kind = kind if isinstance(kind, str) else "this kind of"
+    return f"{_layer_label(layer)}: {kind} layer, not imported"
 
 
 class _JobEnded(ItemFailed):
@@ -233,7 +327,7 @@ def _import_layer(
         del entry.layer_jobs[key]
         if dataset is not None:
             # The commit that made it may predate an edit of the plan.
-            _apply_target(ctx, dataset, title_visibility)
+            _apply_target(ctx, entry, dataset, title_visibility)
             entry.layer_datasets[key] = dataset
             return False
         ctx.save()
@@ -247,6 +341,7 @@ def _import_layer(
         object_id_field=layer.object_id_field
         if isinstance(layer.object_id_field, str)
         else None,
+        **_item_link(ctx, row["id"]),
     )
     try:
         with long_request_timeout(ctx.geolens.client):
@@ -255,7 +350,9 @@ def _import_layer(
         existing = _existing_dataset(exc)
         if existing is None:
             raise ItemFailed(f"{title}: preview failed, {exc}") from None
-        _apply_target(ctx, existing, title_visibility)
+        if existing not in entry.reused:
+            entry.reused.append(existing)
+        _apply_target(ctx, entry, existing, title_visibility)
         entry.layer_datasets[key] = existing
         return True
     # Recorded before the commit is sent: if its answer is lost, a rerun
@@ -275,19 +372,43 @@ def _commit_body(title: str, visibility: str) -> Any:
     return CommitRequest(title=title, visibility=visibility)
 
 
-def _apply_target(ctx: MigrationContext, dataset: str, target: Any) -> None:
+def _item_link(ctx: MigrationContext, item_id: str) -> dict[str, str]:
+    """The fields a dataset links back to its portal item with."""
+    return {"item_id": item_id, "portal_url": ctx.portal_root}
+
+
+def _apply_target(
+    ctx: MigrationContext, entry: ItemState, dataset: str, target: Any
+) -> None:
     """Give a dataset GeoLens already held the plan's title and visibility,
-    which a fresh import would have received at commit."""
+    which a fresh import would have received at commit. A dataset an earlier
+    attempt handed to its owner, which has a recorded last update, is left.
+
+    One this command imported is refused when somebody else wrote it last, so
+    this write doesn't make their edit the operator's. A reused dataset
+    predates the migration, and its owner's edits are taken as they are.
+    """
+    if dataset in entry.last_update:
+        return
+    from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get as get
     from geolens.api.datasets import (
         update_dataset_metadata_datasets_dataset_id_patch as patch_dataset,
     )
     from geolens.models.dataset_meta import DatasetMeta
 
     try:
-        ctx.geolens.call(
+        read = ctx.geolens.call(get.sync_detailed, dataset_id=UUID(dataset))
+        if dataset not in entry.reused and not operator_or_nobody_wrote_last(ctx, read):
+            raise changed_before_handover(dataset)
+        ctx.geolens.write(
             patch_dataset.sync_detailed,
+            during=f"the plan's title and visibility were written to dataset {dataset}",
             dataset_id=UUID(dataset),
-            body=DatasetMeta(title=target.title, visibility=target.visibility),
+            body=DatasetMeta(
+                title=target.title,
+                visibility=target.visibility,
+                expected_updated_at=read.updated_at,
+            ),
         )
     except GeoLensError as exc:
         raise ItemFailed(
@@ -349,6 +470,49 @@ def _finish_job(
         raise ItemFailed(f"{body.title}: {exc}") from None
 
 
+def _redacted(ctx: MigrationContext, notes: list[str]) -> list[str]:
+    """The notes with the run's secrets replaced, so the persisted import pass
+    holds none. The redactor only: no truncation, unlike the item notes' clean."""
+    return [ctx.redact(note) for note in notes]
+
+
+def _import_recorded(entry: ItemState | None, url: str | None) -> bool:
+    """Whether *entry* records a finished import pass for the service at *url*,
+    which a rerun resumes without reading the source again. The startup
+    credential check shares this predicate, so a rerun it spares never asks for
+    an ArcGIS credential."""
+    return (
+        bool(url)
+        and entry is not None
+        and entry.import_pass is not None
+        and entry.service_url == url
+    )
+
+
+def _resume_import(
+    ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
+) -> ItemResult:
+    """The import answer for a rerun of a pass the state recorded: give every
+    recorded dataset the plan's current title and visibility, exactly as a
+    fresh rerun would, without reading the source. The item-metadata, keyword
+    and ownership-transfer steps follow in `_migrate_one` against the recorded
+    dataset ids.
+    """
+    recorded = entry.import_pass["layers"]
+    base = item["target"]["title"] or item["title"]
+    visibility = item["target"]["visibility"]
+    if not recorded:
+        return ItemResult(notes=[*entry.import_pass["notes"], _NO_LAYER_NOTE])
+    titles = _titles(
+        base, [(rec["label"], rec["layer_id"]) for rec in recorded.values()]
+    )
+    for (key, _rec), title in zip(recorded.items(), titles):
+        _apply_target(
+            ctx, entry, entry.layer_datasets[key], _commit_body(title, visibility)
+        )
+    return ItemResult(notes=entry.import_pass["notes"])
+
+
 def import_layers(
     ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
 ) -> ItemResult:
@@ -356,12 +520,16 @@ def import_layers(
 
     Layers a previous run imported are not imported again. A layer GeoLens
     already holds for the operator (409 ``duplicate_source``) is reused. The
-    item is ``exists`` when GeoLens already held every layer.
+    item is ``exists`` when GeoLens already held every layer. A rerun of an
+    item whose import stage finished resumes from the recorded datasets
+    without probing the service again.
     """
     from geolens.api.datasets import probe_service_url_services_probe_post as probe_api
     from geolens.models.probe_request import ProbeRequest
 
     row = _row(ctx, item)
+    if _import_recorded(entry, row["url"]):
+        return _resume_import(ctx, item, entry)
     try:
         with long_request_timeout(ctx.geolens.client):
             probe = _send(
@@ -373,6 +541,9 @@ def import_layers(
             )
     except GeoLensError as exc:
         raise ItemFailed(f"probe failed, {exc}") from None
+    # A fresh pass replaces anything a previous one recorded, so a pass that
+    # stops part way leaves nothing to resume from.
+    entry.import_pass = None
     if entry.service_url not in (None, row["url"]):
         # Only once the new service answered: a typo'd URL must not drop the
         # pins of the service the item still belongs to. A layer id from the
@@ -381,30 +552,40 @@ def import_layers(
         entry.layer_jobs.clear()
         entry.dataset_ids.clear()
     entry.service_url = row["url"]
-    layers = list(probe.layers)
-    selected = probe.selected_layer_id
-    if isinstance(selected, int | str):
-        layers = [layer for layer in layers if str(layer.layer_id) == str(selected)]
-    reasons = [(layer, _importable(layer)) for layer in layers]
-    notes = [reason for _layer, reason in reasons if reason]
-    wanted = [layer for layer, reason in reasons if reason is None]
+    wanted, notes, entry.left_behind = importable_layers(probe)
+    entry.attachments = attachment_flags(wanted)
+    entry.relationships = relationship_records(wanted)
     if not wanted:
-        # Done rather than skipped, so a rerun doesn't probe it again.
-        return ItemResult(notes=[*notes, "the service has no layer to import"])
+        entry.import_pass = {"notes": _redacted(ctx, notes), "layers": {}}
+        # Done rather than skipped: the refresh pass probes a finished item on
+        # a later run, and that probe reports a layer added later.
+        return ItemResult(notes=[*notes, _NO_LAYER_NOTE])
 
     base = item["target"]["title"] or item["title"]
+    titles = _titles(
+        base, [(_layer_label(layer), _layer_id(layer)) for layer in wanted]
+    )
     found = 0
-    for layer in wanted:
-        title = _title(base, _layer_label(layer) if len(wanted) > 1 else None)
+    for layer, title in zip(wanted, titles):
         pinned = entry.layer_datasets.get(_layer_key(layer))
         if pinned:
             # The plan may have been edited since that layer was imported.
             target = _commit_body(title, item["target"]["visibility"])
-            _apply_target(ctx, pinned, target)
+            _apply_target(ctx, entry, pinned, target)
             continue
         found += _import_layer(
             ctx, row, probe, layer, title, item["target"]["visibility"], entry
         )
         entry.dataset_ids = list(dict.fromkeys(entry.layer_datasets.values()))
         ctx.save()
+    entry.import_pass = {
+        "notes": _redacted(ctx, notes),
+        "layers": {
+            _layer_key(layer): {
+                "label": _layer_label(layer),
+                "layer_id": _layer_id(layer),
+            }
+            for layer in wanted
+        },
+    }
     return ItemResult(status=EXISTS if found == len(wanted) else DONE, notes=notes)

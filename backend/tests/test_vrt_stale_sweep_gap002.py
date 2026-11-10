@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
+from app.processing.raster.vrt import overview_keys_for
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
@@ -288,18 +289,19 @@ async def test_fail_stale_jobs_detailed_outcome_counts_every_cleanup_surface(
     assert result.terminal_jobs_purged == 2
     assert result.staged_paths_considered == 2
     assert result.local_files_reaped == 1
-    # One retention key and the dead generation's three keys, all reaped
+    # One retention key and the dead generation's four keys, all reaped
     # after the commit landed.
-    assert result.storage_objects_reaped == 4
+    assert result.storage_objects_reaped == 4 + len(overview_keys_for("source.vrt"))
     assert result.staged_paths_skipped == 0
     assert result.staged_cleanup_failures == 0
     assert result.total_cleaned == 2
-    assert result.total_affected == 11
+    assert result.total_affected == 11 + len(overview_keys_for("source.vrt"))
     assert not local_file.exists()
     generation_base = f"rasters/{stale_gen.vrt_dataset_id}/generations/{stale_gen.id}"
     assert {call.args[0] for call in storage.delete.await_args_list} == {
         storage_key,
         f"{generation_base}/source.vrt",
+        *(f"{generation_base}/{k}" for k in overview_keys_for("source.vrt")),
         f"{generation_base}/quicklook_256.png",
         f"{generation_base}/quicklook_512.png",
     }
@@ -766,6 +768,7 @@ async def test_sweep_stale_vrt_assets_resolves_but_never_deletes_storage():
         1,
         (
             f"{base}/source.vrt",
+            *(f"{base}/{k}" for k in overview_keys_for("source.vrt")),
             f"{base}/quicklook_256.png",
             f"{base}/quicklook_512.png",
         ),
@@ -796,7 +799,7 @@ async def test_sweep_stale_vrt_assets_storage_failure_never_masks_reconciliation
 
     assert result[0] == 1
     assert result[1] == 1
-    assert len(result[2]) == 3
+    assert len(result[2]) == 3 + len(overview_keys_for("source.vrt"))
 
 
 # ---------------------------------------------------------------------------
@@ -1706,10 +1709,10 @@ async def test_sweep_stale_vrt_assets_cannot_mutate_another_tenant(
         async with ctx.tenant_session(ctx.tenant_a) as session:
             # 3rd element is resolved-not-deleted storage
             # keys, tenant-prefixed since ctx.tenant_session binds
-            # current_tenant_var for the block — one swept generation, 3 keys.
+            # current_tenant_var for the block — one swept generation, 4 keys.
             sweep_result = await sweep_stale_vrt_assets(session, cutoff)
             assert sweep_result[:2] == (1, 1)
-            assert len(sweep_result[2]) == 3
+            assert len(sweep_result[2]) == 3 + len(overview_keys_for("source.vrt"))
 
         async with engine.connect() as conn:
             generations = dict(

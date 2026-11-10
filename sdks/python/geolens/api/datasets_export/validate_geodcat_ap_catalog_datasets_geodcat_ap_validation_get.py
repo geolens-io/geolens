@@ -78,7 +78,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
-    """Validate Geodcat Ap Catalog
+    """Validate the GeoDCAT-AP catalog
 
      Validate the visible GeoDCAT-AP 2.0.0 catalog feed.
 
@@ -103,7 +103,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
-    """Validate Geodcat Ap Catalog
+    """Validate the GeoDCAT-AP catalog
 
      Validate the visible GeoDCAT-AP 2.0.0 catalog feed.
 
@@ -124,7 +124,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
-    """Validate Geodcat Ap Catalog
+    """Validate the GeoDCAT-AP catalog
 
      Validate the visible GeoDCAT-AP 2.0.0 catalog feed.
 
@@ -147,7 +147,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
-    """Validate Geodcat Ap Catalog
+    """Validate the GeoDCAT-AP catalog
 
      Validate the visible GeoDCAT-AP 2.0.0 catalog feed.
 

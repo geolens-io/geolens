@@ -24,7 +24,10 @@ from app.modules.auth.schemas import (
     DatasetApiKeyListItem,
     DatasetApiKeyListResponse,
 )
-from app.modules.auth.service import create_api_key_for_user
+from app.modules.auth.service import (
+    create_api_key_for_user,
+    lock_current_session_owner,
+)
 from app.modules.catalog.authorization import (
     check_dataset_access,
     check_dataset_write_access,
@@ -60,6 +63,7 @@ async def _found_dataset(db: AsyncSession, dataset_id: uuid.UUID):
     "/{dataset_id}/api-keys",
     response_model=ApiKeyCreateResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Create a dataset API key",
 )
 @limiter.limit("30/minute")
 async def create_dataset_api_key(
@@ -86,6 +90,7 @@ async def create_dataset_api_key(
     that aren't revoked, expired ones included; minting past that gets 409
     until one is revoked. The raw key is returned only in this response.
     """
+    await lock_current_session_owner(db, user)
     dataset = await _found_dataset(db, dataset_id)
     await check_dataset_write_access(db, dataset, dataset_id, user)
     # The feature write handlers refuse these two cases, so a key minted for
@@ -154,7 +159,11 @@ async def create_dataset_api_key(
     )
 
 
-@router.get("/{dataset_id}/api-keys", response_model=DatasetApiKeyListResponse)
+@router.get(
+    "/{dataset_id}/api-keys",
+    response_model=DatasetApiKeyListResponse,
+    summary="List a dataset's API keys",
+)
 async def list_dataset_api_keys(
     dataset_id: uuid.UUID,
     skip: int = Query(0, ge=0),
@@ -215,6 +224,7 @@ async def list_dataset_api_keys(
     "/{dataset_id}/api-keys/{key_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
+    summary="Revoke a dataset API key",
 )
 async def revoke_dataset_api_key(
     dataset_id: uuid.UUID,

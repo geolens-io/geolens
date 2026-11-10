@@ -37,6 +37,7 @@ from app.platform.jobs.models import (
     STAGING_REAPED_FINAL_MARKER,
     IngestJob,
 )
+import app.platform.jobs.orphan_scan as orphan_scan
 from app.platform.jobs.staging_reconcile import (
     STAGING_PREFIX,
     _job_id_from_key,
@@ -180,13 +181,12 @@ def _front_of_the_prefix(monkeypatch):
     LocalStorageProvider, for the end-to-end case); only the setting the gate
     reads is moved.
     """
-    import app.platform.jobs.staging_reconcile as module
 
     monkeypatch.setattr(settings, "storage_provider", "s3")
-    module._scan_cursors.clear()
-    module._scan_cursors[STAGING_PREFIX] = None
+    orphan_scan._scan_cursors.clear()
+    orphan_scan._scan_cursors[STAGING_PREFIX] = None
     yield
-    module._scan_cursors.clear()
+    orphan_scan._scan_cursors.clear()
 
 
 async def _run(session: AsyncSession, storage: FakeStorage):
@@ -732,7 +732,7 @@ class TestScanCursor:
         in_key_order = sorted(keys)
         assert storage.resumed_from == [None, in_key_order[1]]
         assert first.objects_listed == 2 and second.objects_listed == 2
-        assert module._scan_cursors[STAGING_PREFIX] == in_key_order[3]
+        assert orphan_scan._scan_cursors[STAGING_PREFIX] == in_key_order[3]
 
     async def test_a_pass_that_starts_mid_prefix_wraps_to_the_front(
         self, test_db_session: AsyncSession
@@ -745,13 +745,12 @@ class TestScanCursor:
         restart. With the wrap, one unbudgeted pass covers everything and the
         cursor only decides where it starts.
         """
-        import app.platform.jobs.staging_reconcile as module
 
         # Real uuids with a pinned leading hex digit, so they straddle the
         # cursor AND still parse as the job segment of a staging key.
         low = f"staging/{_uuid_starting('0')}/f.geojson"
         high = f"staging/{_uuid_starting('f')}/f.geojson"
-        module._scan_cursors[STAGING_PREFIX] = f"staging/8{'0' * 8}"
+        orphan_scan._scan_cursors[STAGING_PREFIX] = f"staging/8{'0' * 8}"
         storage = FakeStorage({low: _old(), high: _old()})
 
         outcome = await _run(test_db_session, storage)
@@ -762,16 +761,15 @@ class TestScanCursor:
         assert sorted(storage.deleted) == [low, high]
         assert outcome.orphans_deleted == 2
         # It got all the way round, so the next pass may start at the front.
-        assert module._scan_cursors[STAGING_PREFIX] is None
+        assert orphan_scan._scan_cursors[STAGING_PREFIX] is None
 
     async def test_the_wrap_leg_stops_where_the_pass_started(
         self, test_db_session: AsyncSession
     ) -> None:
         """Otherwise it re-walks the keys the first leg already covered."""
-        import app.platform.jobs.staging_reconcile as module
 
         cursor = f"staging/8{'0' * 8}"
-        module._scan_cursors[STAGING_PREFIX] = cursor
+        orphan_scan._scan_cursors[STAGING_PREFIX] = cursor
         after_cursor = f"staging/{_uuid_starting('9')}/f.geojson"
         storage = FakeStorage({after_cursor: _young()})
 
@@ -795,7 +793,7 @@ class TestScanCursor:
         await _run(test_db_session, storage)
 
         assert storage.deleted == [keys[0]]
-        assert module._scan_cursors[STAGING_PREFIX] == keys[0], (
+        assert orphan_scan._scan_cursors[STAGING_PREFIX] == keys[0], (
             "resuming past the unprocessed candidates would skip them until the wrap"
         )
 
@@ -803,13 +801,12 @@ class TestScanCursor:
         """A worker recycled more often than a full walk completes must not
         keep restarting at the front — that is the starvation the cursor
         exists to remove, reintroduced by the restart."""
-        import app.platform.jobs.staging_reconcile as module
 
-        module._scan_cursors.clear()
+        orphan_scan._scan_cursors.clear()
         seeds = set()
         for _ in range(3):
-            module._scan_cursors.clear()
-            seed = module._resume_point("staging/")
+            orphan_scan._scan_cursors.clear()
+            seed = orphan_scan.resume_point("staging/")
             assert seed is not None and seed.startswith("staging/")
             seeds.add(seed)
 

@@ -27,10 +27,14 @@ name groups, and roles stay permission tiers. Maps gain `restricted`.
 - Only the owner and admins see which groups an item is shared with. Group
   names never appear in Records, STAC or DCAT output.
 - An owner who leaves a group keeps their items shared with it. Deleting a
-  group removes its grants and changes no item's visibility. An item shared
-  only with that group is then visible to its owner and admins.
+  group removes its grants, so its members lose any access that came only
+  through it. A dataset shared only with that group stays restricted and is
+  visible to its owner and admins. A restricted map left with no group
+  becomes private, since a restricted map needs a group.
 - Sharing a map lists the layers the group can't see and offers to share the
-  owner's datasets too. Nothing is shared without that confirmation.
+  owner's datasets too. Nothing is shared without that confirmation. The
+  confirmation tells an owner that some member of a group they named can't
+  read a dataset they can read, and it discloses nothing else.
 - An ArcGIS migration run by an admin creates a GeoLens group for each mapped
   portal group and adds the members who resolve to GeoLens users. Its report
   lists members who don't resolve yet, and a rerun adds them once they do. A

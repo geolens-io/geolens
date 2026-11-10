@@ -41,13 +41,16 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { usePublishMap, useCreateShareToken, useRevokeShareToken, useMapShareToken, useUpdateShareToken } from '@/hooks/use-maps';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { usePublishMap, useMapAudienceBusy, useCreateShareToken, useRevokeShareToken, useMapShareToken, useUpdateShareToken, useLayersHiddenFromMapGroups } from '@/hooks/use-maps';
 import { checkMapVisibility, nonPublicDatasetsFromError } from '@/api/maps';
 import { useCreateEmbedToken, useMapEmbedTokens, useUpdateEmbedToken, useRevokeEmbedToken } from '@/components/builder/hooks/use-embed-tokens';
 import { normalizeOrigin, WildcardOriginError } from '@/lib/builder/url-normalize';
 // Reuse the same audience-visibility check as the layer-stack badge.
 import { isLayerHiddenFromMapAudience } from '@/components/builder/map-stack';
-import type { MapLayerResponse, MapVisibility } from '@/types/api';
+import { LiveAnnouncement } from '@/components/ui/live-announcement';
+import { MapGroupShare } from '@/components/builder/MapGroupShare';
+import type { GroupRef, MapLayerResponse, MapVisibility } from '@/types/api';
 import { Textarea } from '@/components/ui/textarea';
 
 /**
@@ -74,14 +77,19 @@ export function buildEmbedSrc({
   shareToken,
   embedTokenRaw,
   origin,
+  dashboardCollapsed = false,
 }: {
   shareToken: string;
   embedTokenRaw: string;
   origin: string;
+  dashboardCollapsed?: boolean;
 }): string {
   const params = new URLSearchParams({ embed: 'true' });
   if (embedTokenRaw) {
     params.set('et', embedTokenRaw);
+  }
+  if (dashboardCollapsed) {
+    params.set('dashboard', 'collapsed');
   }
   return `${origin}/m/${shareToken}?${params.toString()}`;
 }
@@ -108,10 +116,9 @@ function escapeHtmlAttribute(value: string): string {
  * strips its own sandbox by reaching `parent.document`, which requires being
  * same-origin with its EMBEDDER. A third-party page embedding a GeoLens map
  * never is, so the pair cannot be used to escape from there; the warning
- * belongs to a FIRST-PARTY frame of your own origin. (FeaturePopup.tsx ships
- * the same pair for YouTube.) An iframe with no `sandbox` attribute, which most
- * embed snippets ship, additionally permits forms, popups, top-level
- * navigation, downloads and pointer lock.
+ * belongs to a FIRST-PARTY frame of your own origin. An iframe with no
+ * `sandbox` attribute, which most embed snippets ship, additionally permits
+ * forms, popups, top-level navigation, downloads and pointer lock.
  *
  * The cost: the frame regains the GeoLens origin, and with it the viewer's
  * persisted session. So embed mode is deliberately anonymous: `isEmbedViewer`
@@ -129,15 +136,17 @@ export function generateEmbedCode({
   embedTokenRaw,
   origin,
   title,
+  dashboardCollapsed,
 }: {
   shareToken: string;
   embedTokenRaw: string;
   origin: string;
   /** Accessible name for the frame (WCAG 4.1.2); escaped for the attribute. */
   title: string;
+  dashboardCollapsed?: boolean;
 }): string {
   if (!shareToken) return '';
-  const url = buildEmbedSrc({ shareToken, embedTokenRaw, origin });
+  const url = buildEmbedSrc({ shareToken, embedTokenRaw, origin, dashboardCollapsed });
   return `<iframe src="${url}" title="${escapeHtmlAttribute(title)}" width="100%" height="600" sandbox="allow-scripts allow-same-origin" style="border:none;"></iframe>`;
 }
 
@@ -154,6 +163,13 @@ const VISIBILITY_OPTIONS: Array<{
     iconClass: 'text-muted-foreground',
     titleKey: 'share.privateTitle',
     descKey: 'share.privateDescription',
+  },
+  {
+    value: 'restricted',
+    icon: Users,
+    iconClass: 'text-primary',
+    titleKey: 'share.restrictedTitle',
+    descKey: 'share.restrictedDescription',
   },
   {
     value: 'internal',
@@ -611,22 +627,15 @@ interface EmbedPreviewPaneProps {
   shareToken: string;
   embedTokenRaw: string;
   origin: string;
+  dashboardCollapsed: boolean;
 }
 
-function EmbedPreviewPane({ shareToken, embedTokenRaw, origin }: EmbedPreviewPaneProps) {
+function EmbedPreviewPane({ shareToken, embedTokenRaw, origin, dashboardCollapsed }: EmbedPreviewPaneProps) {
   const { t } = useTranslation('builder');
   const [expanded, setExpanded] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [errored, setErrored] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
-
-  // 8-second onLoad timeout fallback — if the iframe never fires onLoad
-  // (e.g. viewer error page), transition to error state with Reload affordance.
-  useEffect(() => {
-    if (!expanded || loaded || errored) return;
-    const timer = setTimeout(() => setErrored(true), 8000);
-    return () => clearTimeout(timer);
-  }, [expanded, loaded, errored, reloadKey]);
 
   // Share URL construction with generateEmbedCode via buildEmbedSrc so the
   // preview and the copyable snippet can't diverge on path or query params. The
@@ -634,7 +643,22 @@ function EmbedPreviewPane({ shareToken, embedTokenRaw, origin }: EmbedPreviewPan
   // snippet is opened by a customer and names the public host; the preview is
   // opened by this browser and names the host this browser reached. Path,
   // params and sandbox stay identical.
-  const src = buildEmbedSrc({ shareToken, embedTokenRaw, origin });
+  const src = buildEmbedSrc({ shareToken, embedTokenRaw, origin, dashboardCollapsed });
+  // A new URL navigates the iframe again, so it waits on a fresh load and timeout.
+  const [shownSrc, setShownSrc] = useState(src);
+  if (shownSrc !== src) {
+    setShownSrc(src);
+    setLoaded(false);
+    setErrored(false);
+  }
+
+  // 8-second onLoad timeout fallback — if the iframe never fires onLoad
+  // (e.g. viewer error page), transition to error state with Reload affordance.
+  useEffect(() => {
+    if (!expanded || loaded || errored) return;
+    const timer = setTimeout(() => setErrored(true), 8000);
+    return () => clearTimeout(timer);
+  }, [expanded, loaded, errored, reloadKey, src]);
 
   return (
     <div className="space-y-2 border-t pt-3">
@@ -719,6 +743,10 @@ interface ShareDialogProps {
   layers?: MapLayerResponse[];
   /** Names the embed snippet's iframe; a generic label is used when absent. */
   mapName?: string;
+  /** The groups the map is shared with. The server sends them to the owner and admins only. */
+  groups?: GroupRef[] | null;
+  /** Whether the saved map has a dashboard; only then can an embed start with it collapsed. */
+  hasDashboard?: boolean;
 }
 
 /**
@@ -727,7 +755,16 @@ interface ShareDialogProps {
  * ONE place instead of being copied across the get/regenerate handlers.
  * ShareDialog consumes it for presentation only.
  */
-function useShareTokens({ mapId, open }: { mapId: string; open: boolean }) {
+function useShareTokens({
+  mapId,
+  open,
+  probeEmbedTokens = false,
+}: {
+  mapId: string;
+  open: boolean;
+  /** Loads the embed tokens although no share link exists. */
+  probeEmbedTokens?: boolean;
+}) {
   const { t } = useTranslation('builder');
   const createShareToken = useCreateShareToken();
   const revokeShareToken = useRevokeShareToken();
@@ -749,7 +786,7 @@ function useShareTokens({ mapId, open }: { mapId: string; open: boolean }) {
   const shareExpires = shareTokenQuery.data?.expires_at ?? null;
   const isExpired = shareExpires ? new Date(shareExpires) < new Date() : false;
 
-  const embedTokensQuery = useMapEmbedTokens(open && hasShareToken ? mapId : undefined);
+  const embedTokensQuery = useMapEmbedTokens(open && (hasShareToken || probeEmbedTokens) ? mapId : undefined);
   const activeEmbedToken = embedTokensQuery.data?.tokens?.find(
     token => token.is_active && new Date(token.expires_at) > new Date()
   );
@@ -907,10 +944,17 @@ export function ShareDialog({
   saveStatus = hasUnsavedChanges ? 'unsaved' : 'saved',
   layers = [],
   mapName,
+  groups = null,
+  hasDashboard = false,
 }: ShareDialogProps) {
   const { t } = useTranslation('builder');
+  const [collapseRequested, setCollapseRequested] = useState(false);
+  const dashboardCollapsed = hasDashboard && collapseRequested;
   const { isEnterprise } = useEdition();
-  const publishMap = usePublishMap();
+  const publishMap = usePublishMap(mapId);
+  const audienceBusy = useMapAudienceBusy();
+  // While the group picker's list is open, Escape closes the list, not the dialog.
+  const [groupPickerOpen, setGroupPickerOpen] = useState(false);
   // The restrict_public_visibility instance setting caps
   // non-admins at non-public; the server enforces it with a 403, this only
   // disables the Public choice.
@@ -958,7 +1002,46 @@ export function ShareDialog({
     [layers, visibility],
   );
 
-  const tokens = useShareTokens({ mapId, open });
+  // Only the owner and admins receive the group list, and only they may change it.
+  const canManageGroups = groups !== null;
+  // Layers the predicate above already lists are left to its stronger warning.
+  const groupHiddenIds = useLayersHiddenFromMapGroups(mapId, visibility as MapVisibility, groups);
+  const groupHiddenLayers = useMemo(
+    () =>
+      layers
+        .filter((layer) => groupHiddenIds.has(layer.id) && !isLayerHiddenFromMapAudience(layer, visibility as MapVisibility))
+        .map((layer) => layer.display_name ?? layer.dataset_name),
+    [layers, groupHiddenIds, visibility],
+  );
+  const groupCount = groups?.length ?? 0;
+  // The level the owner picked but the server has not confirmed. "Specific
+  // groups" on a private map stays here until groups are saved; any change of
+  // the visibility prop discards it.
+  const [choice, setChoice] = useState<{ from: MapVisibility; level: MapVisibility } | null>(null);
+  // A visibility change settles the pending choice, so it cannot come back
+  // if the map later returns to the level it was picked from.
+  if (choice && choice.from !== visibility) setChoice(null);
+  const selectedLevel = choice?.from === visibility ? choice.level : (visibility as MapVisibility);
+  const radioGroupRef = useRef<HTMLDivElement>(null);
+  const [savedNote, setSavedNote] = useState({ text: '', n: 0 });
+  // The level to focus once the audience controls are enabled again: they are
+  // still disabled while the save that cleared the last group settles.
+  const [levelToFocus, setLevelToFocus] = useState<MapVisibility | null>(null);
+  useEffect(() => {
+    if (!levelToFocus || audienceBusy) return;
+    radioGroupRef.current?.querySelector<HTMLElement>(`[data-level="${levelToFocus}"]`)?.focus();
+    setLevelToFocus(null);
+  }, [levelToFocus, audienceBusy]);
+  const groupEditorOpen = canManageGroups && (visibility !== 'private' || selectedLevel === 'restricted');
+  const openedFromChoice = choice?.from === visibility && choice.level === 'restricted';
+
+  // Sharing with groups revokes share links and embed tokens, so the warning
+  // needs the token list even when the map has no share link yet.
+  const tokens = useShareTokens({
+    mapId,
+    open,
+    probeEmbedTokens: groupEditorOpen && visibility === 'private',
+  });
   const {
     hasNonPublic,
     embedTokenRaw,
@@ -1099,7 +1182,32 @@ export function ShareDialog({
       });
   }
 
+  // Restricted is reached by saving groups; from internal or public it needs
+  // groups already on file, and only the owner or an admin can change them.
+  const restrictedBlocked = !canManageGroups || (visibility !== 'private' && groupCount === 0);
+
+  function optionDescription(opt: (typeof VISIBILITY_OPTIONS)[number], publicBlocked: boolean): string {
+    if (publicBlocked) return t('common:visibilityPublicAdminOnly');
+    if (opt.value === 'restricted' && restrictedBlocked && canManageGroups) {
+      return t('share.restrictedNeedsGroups');
+    }
+    if (opt.value === 'private' && visibility === 'restricted') {
+      return t('share.privateDescriptionRestricted');
+    }
+    return t(opt.descKey);
+  }
+
+  // Clearing the last group leaves the map private and closes the editor, so
+  // the result is read out here and focus moves to the level that is now checked.
+  function handleGroupsSaved(saved: string) {
+    if (saved !== 'private') return;
+    setChoice(null);
+    setSavedNote((prev) => ({ text: t('share.groups.savedPrivate'), n: prev.n + 1 }));
+    setLevelToFocus('private');
+  }
+
   function handleVisibilitySelect(newVisibility: MapVisibility) {
+    setChoice(newVisibility === 'restricted' && visibility === 'private' ? { from: 'private', level: 'restricted' } : null);
     if (newVisibility === visibility) return;
     // A fresh attempt clears any stale refusal from a previous one.
     setPublishBlocked(null);
@@ -1112,6 +1220,8 @@ export function ShareDialog({
       if (newVisibility === 'public') checkPublicEligibility();
       return;
     }
+    // From private, the group editor does the work: saving groups restricts the map.
+    if (newVisibility === 'restricted' && visibility === 'private') return;
     void handleVisibilityChange(newVisibility);
   }
 
@@ -1128,16 +1238,21 @@ export function ShareDialog({
     // stale once it lands (a mapId change instead remounts the dialog).
     const requestId = ++publishRequestId.current;
     try {
-      await publishMap.mutateAsync({ id: mapId, visibility: newVisibility });
+      const { clearedGroups, visibility: effective } = await publishMap.mutateAsync({ id: mapId, visibility: newVisibility });
       if (!isMountedRef.current || publishRequestId.current !== requestId) return;
-      if (newVisibility === 'public') {
+      if (effective === 'public') {
         toast.success(t('toasts.mapNowPublic'));
-      } else if (newVisibility === 'internal') {
+      } else if (effective === 'internal') {
         toast.success(t('toasts.mapNowInternal'));
+      } else if (effective === 'restricted' && newVisibility === 'restricted') {
+        toast.success(t('toasts.mapNowRestricted'));
+      } else if (effective === 'restricted') {
+        // A map still shared with groups stays restricted when Private is picked.
+        toast.warning(t('toasts.mapStillRestricted'));
       } else {
-        toast.success(t('toasts.mapNowPrivate'));
+        toast.success(t(clearedGroups ? 'toasts.mapNowPrivateGroupsCleared' : 'toasts.mapNowPrivate'));
       }
-      if (newVisibility !== 'public') {
+      if (effective !== 'public') {
         tokens.clearSharedState();
       }
     } catch (err) {
@@ -1184,6 +1299,7 @@ export function ShareDialog({
       embedTokenRaw: embedTokenRaw || '',
       origin: embedBaseUrl,
       title: mapName || t('share.embedTitleFallback'),
+      dashboardCollapsed,
     });
   }
 
@@ -1215,9 +1331,89 @@ export function ShareDialog({
     }
   }
 
+  const visibilityDialog = (() => {
+    if (pendingVisibility !== 'public') {
+      return {
+        title: t('share.leavePublicConfirmTitle'),
+        description: t('share.leavePublicConfirmDescription'),
+        confirm: {
+          label: t('share.leavePublicConfirmAction'),
+          onClick: handleConfirmVisibilityChange,
+          variant: 'destructive' as const,
+        },
+      };
+    }
+    if (isPublicBlocked) {
+      return {
+        title: t('share.makePublicBlockedTitle'),
+        description: t('share.makePublicBlockedIntro'),
+        body: (
+          <div className="space-y-2">
+            {/* Up to 200 titles of up to 500 characters each — bounded
+                independently of the dialog's own height. */}
+            <ul
+              data-testid="share-blocked-datasets-list"
+              aria-label={t('share.makePublicBlockedIntro')}
+              className="max-h-40 list-disc space-y-1 overflow-y-auto rounded-md border border-border bg-muted/20 py-2 ps-8 pe-3 text-xs text-foreground"
+            >
+              {blockedDatasets.map((name) => (
+                <li key={name} className="break-words">
+                  {name}
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-muted-foreground">
+              {t('share.makePublicBlockedRemedy')}
+            </p>
+          </div>
+        ),
+      };
+    }
+    if (publicEligibilityFailed) {
+      return {
+        title: t('share.makePublicConfirmTitle'),
+        description: t('share.makePublicCheckFailed'),
+        footerExtra: (
+          <Button type="button" variant="outline" onClick={checkPublicEligibility}>
+            {t('share.makePublicCheckRetry')}
+          </Button>
+        ),
+      };
+    }
+    return {
+      title: t('share.makePublicConfirmTitle'),
+      description: t('share.makePublicConfirmDescription'),
+      body:
+        isPublicEligible && pendingAudienceHiddenLayers.length > 0 ? (
+          <div
+            data-testid="share-confirm-audience-hidden-warning"
+            className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-foreground"
+          >
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
+            <p>
+              {t('share.audienceHiddenWarning', {
+                count: pendingAudienceHiddenLayers.length,
+                layers: pendingAudienceHiddenLayers.join(', '),
+              })}
+            </p>
+          </div>
+        ) : undefined,
+      confirm: {
+        label: t('share.makePublicConfirmAction'),
+        onClick: handleConfirmVisibilityChange,
+        pending: isCheckingPublicEligibility,
+      },
+    };
+  })();
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto">
+      <DialogContent
+        className="sm:max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto"
+        onEscapeKeyDown={(event) => {
+          if (groupPickerOpen) event.preventDefault();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{t('share.title')}</DialogTitle>
           <DialogDescription>{t('share.dialogDescription')}</DialogDescription>
@@ -1273,40 +1469,56 @@ export function ShareDialog({
               </p>
             </div>
           )}
+          {groupHiddenLayers.length > 0 && (
+            <div
+              data-testid="share-group-hidden-warning"
+              className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-foreground"
+            >
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
+              <p>{t('share.groupHiddenWarning', { layers: groupHiddenLayers.join(', ') })}</p>
+            </div>
+          )}
 
           {/* Visibility selector */}
           <div className="space-y-2">
             <p className="text-sm font-semibold">{t('share.visibilityTitle')}</p>
-            <div className="space-y-1.5" role="radiogroup" aria-label={t('share.visibilityTitle')}>
-              {VISIBILITY_OPTIONS.map((opt) => {
+            <div
+              ref={radioGroupRef}
+              className="space-y-1.5"
+              role="radiogroup"
+              aria-label={t('share.visibilityTitle')}
+            >
+              {VISIBILITY_OPTIONS.filter(
+                (opt) => opt.value !== 'restricted' || canManageGroups || visibility === 'restricted',
+              ).map((opt) => {
                 const Icon = opt.icon;
-                const isActive = visibility === opt.value;
+                const isActive = selectedLevel === opt.value;
                 // A non-admin cannot move a map TO public while
                 // the instance restricts public visibility to admins.
                 const publicBlocked = opt.value === 'public' && !canSetPublic;
+                const blocked = publicBlocked || (opt.value === 'restricted' && !isActive && restrictedBlocked);
                 return (
                   <button
                     key={opt.value}
                     type="button"
                     role="radio"
+                    data-level={opt.value}
                     aria-checked={isActive}
                     className={cn(
                       'cursor-pointer w-full flex items-start gap-3 rounded-lg border px-3 py-2.5 text-start transition-colors',
                       isActive
                         ? 'ring-2 ring-ring border-primary bg-primary/5'
                         : 'border-border hover:border-muted-foreground/30 hover:bg-accent/50',
-                      publicBlocked && 'cursor-not-allowed opacity-60',
+                      blocked && 'cursor-not-allowed opacity-60',
                     )}
                     onClick={() => handleVisibilitySelect(opt.value)}
-                    disabled={publishMap.isPending || publicBlocked}
+                    disabled={audienceBusy || blocked}
                   >
                     <Icon className={cn('h-4 w-4 mt-0.5 shrink-0', opt.iconClass)} />
                     <div className="min-w-0">
                       <p className="text-sm font-semibold">{t(opt.titleKey)}</p>
                       <p className="text-xs text-muted-foreground">
-                        {publicBlocked
-                          ? t('common:visibilityPublicAdminOnly')
-                          : t(opt.descKey)}
+                        {optionDescription(opt, publicBlocked)}
                       </p>
                     </div>
                   </button>
@@ -1333,112 +1545,39 @@ export function ShareDialog({
 
           {/* Crossing the public boundary is confirmed before the mutation
               runs: going public exposes the map and leaving public kills
-              existing share links. Same AlertDialog structure as the revoke
-              confirm above; only the leave-public action is destructive-styled. */}
-          <AlertDialog
+              existing share links. */}
+          <ConfirmDialog
             open={pendingVisibility !== null}
             onOpenChange={(dialogOpen) => {
               if (!dialogOpen) setPendingVisibility(null);
             }}
+            title={visibilityDialog.title}
+            description={visibilityDialog.description}
+            footerExtra={visibilityDialog.footerExtra}
+            confirm={visibilityDialog.confirm}
           >
-            {/* Bounded independently of the list below — a short viewport
-                (phone landscape, high zoom) can otherwise push Cancel past
-                the screen while the modal blocks page scroll. */}
-            <AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
-              {pendingVisibility === 'public' ? (
-                <>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>
-                      {isPublicBlocked
-                        ? t('share.makePublicBlockedTitle')
-                        : t('share.makePublicConfirmTitle')}
-                    </AlertDialogTitle>
-                    <AlertDialogDescription>
-                      {isPublicBlocked
-                        ? t('share.makePublicBlockedIntro')
-                        : publicEligibilityFailed
-                          ? t('share.makePublicCheckFailed')
-                          : t('share.makePublicConfirmDescription')}
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  {isPublicBlocked && (
-                    <div className="space-y-2">
-                      {/* Up to 200 titles of up to 500 characters each — bounded
-                          independently of the dialog's own height. */}
-                      <ul
-                        data-testid="share-blocked-datasets-list"
-                        aria-label={t('share.makePublicBlockedIntro')}
-                        className="max-h-40 list-disc space-y-1 overflow-y-auto rounded-md border border-border bg-muted/20 py-2 ps-8 pe-3 text-xs text-foreground"
-                      >
-                        {blockedDatasets.map((name) => (
-                          <li key={name} className="break-words">
-                            {name}
-                          </li>
-                        ))}
-                      </ul>
-                      <p className="text-xs text-muted-foreground">
-                        {t('share.makePublicBlockedRemedy')}
-                      </p>
-                    </div>
-                  )}
-                  {isPublicEligible && pendingAudienceHiddenLayers.length > 0 && (
-                    <div
-                      data-testid="share-confirm-audience-hidden-warning"
-                      className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-foreground"
-                    >
-                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
-                      <p>
-                        {t('share.audienceHiddenWarning', {
-                          count: pendingAudienceHiddenLayers.length,
-                          layers: pendingAudienceHiddenLayers.join(', '),
-                        })}
-                      </p>
-                    </div>
-                  )}
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>{t('share.visibilityConfirmCancel')}</AlertDialogCancel>
-                    {publicEligibilityFailed && (
-                      <Button type="button" variant="outline" onClick={checkPublicEligibility}>
-                        {t('share.makePublicCheckRetry')}
-                      </Button>
-                    )}
-                    {!isPublicBlocked && !publicEligibilityFailed && (
-                      <AlertDialogAction
-                        onClick={handleConfirmVisibilityChange}
-                        disabled={isCheckingPublicEligibility}
-                      >
-                        {isCheckingPublicEligibility && (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin me-1.5" aria-hidden="true" />
-                        )}
-                        {t('share.makePublicConfirmAction')}
-                      </AlertDialogAction>
-                    )}
-                  </AlertDialogFooter>
-                </>
-              ) : (
-                <>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>{t('share.leavePublicConfirmTitle')}</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      {t('share.leavePublicConfirmDescription')}
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>{t('share.visibilityConfirmCancel')}</AlertDialogCancel>
-                    <AlertDialogAction variant="destructive" onClick={handleConfirmVisibilityChange}>
-                      {t('share.leavePublicConfirmAction')}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </>
-              )}
-            </AlertDialogContent>
-          </AlertDialog>
+            {visibilityDialog.body}
+          </ConfirmDialog>
 
           {publishMap.isPending && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" />
               {t('share.updatingVisibility')}
             </div>
+          )}
+
+          <LiveAnnouncement text={savedNote.text} trigger={String(savedNote.n)} />
+
+          {groups && groupEditorOpen && (
+            <MapGroupShare
+              mapId={mapId}
+              visibility={visibility}
+              groups={groups}
+              hasLinks={hasShareToken || Boolean(activeEmbedToken)}
+              focusOnOpen={openedFromChoice}
+              onSaved={handleGroupsSaved}
+              onPickerOpenChange={setGroupPickerOpen}
+            />
           )}
 
           {/* Share link section (only for public maps) */}
@@ -1591,6 +1730,18 @@ export function ShareDialog({
                       </Button>
                     </div>
                   )}
+                  {hasDashboard && (
+                    <div className="flex items-center justify-between gap-2">
+                      <label htmlFor="embed-dashboard-collapsed" className="text-xs font-medium">
+                        {t('share.dashboardCollapsed')}
+                      </label>
+                      <Switch
+                        id="embed-dashboard-collapsed"
+                        checked={collapseRequested}
+                        onCheckedChange={setCollapseRequested}
+                      />
+                    </div>
+                  )}
                   {hasNonPublic && (
                     <div className="flex items-start gap-2 rounded-md border border-info/30 bg-info/5 px-3 py-2">
                       <Info className="h-3.5 w-3.5 text-info mt-0.5 flex-shrink-0" />
@@ -1685,6 +1836,7 @@ export function ShareDialog({
                       shareToken={rawShareToken}
                       embedTokenRaw={embedTokenRaw}
                       origin={previewBaseUrl}
+                      dashboardCollapsed={dashboardCollapsed}
                     />
                   )}
                   {embedTokenRaw && !previewBaseUrl && (

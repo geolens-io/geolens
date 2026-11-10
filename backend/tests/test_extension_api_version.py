@@ -130,11 +130,32 @@ class TestExtensionApiVersionConstant:
         that replaces the ``processing_port`` key without it fails every
         raster tile token.
 
+        v19 lets members of a sharing group granted on a ``restricted``
+        dataset read it. The ``permission`` methods keep their signatures, so
+        an overlay replacing that key must add the group branch itself.
+
+        v20 adds the required ``compare_and_set`` and ``compare_and_delete``
+        methods to ``CacheProvider``. An overlay that replaces the cache
+        provider without them fails on its first token-conditional health-alert
+        claim.
+
+        v21 makes ``ProcessingPort.build_gdal_source`` take the optional
+        ``return_z`` keyword. An overlay that replaces the ``processing_port``
+        key without it gets a TypeError on ArcGIS imports.
+
+        v22 adds the required ``get_reader_theme`` method to
+        ``BrandingExtension``. An overlay that replaces the ``branding`` key
+        without it serves story and dashboard pages no reader theme.
+
+        v23 adds the required ``queue_ingest_job`` and ``refresh_database_task``
+        methods to ``CatalogPort``. An overlay that replaces the ``catalog_port``
+        key without them fails every database import and refresh.
+
         Update this pin, and the note above it, whenever the constant moves.
         """
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
-        assert EXTENSION_API_VERSION == 18
+        assert EXTENSION_API_VERSION == 23
 
 
 class TestCheckExtensionApiVersion:

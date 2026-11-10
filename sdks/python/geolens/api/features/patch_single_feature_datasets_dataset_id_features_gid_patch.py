@@ -139,7 +139,7 @@ def sync_detailed(
 ) -> Response[
     PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeature | ProblemDetail
 ]:
-    """Patch Single Feature
+    """Update a feature
 
      Partial update of a feature (PATCH semantics).
 
@@ -185,7 +185,7 @@ def sync(
     | ProblemDetail
     | None
 ):
-    """Patch Single Feature
+    """Update a feature
 
      Partial update of a feature (PATCH semantics).
 
@@ -224,7 +224,7 @@ async def asyncio_detailed(
 ) -> Response[
     PatchSingleFeatureDatasetsDatasetIdFeaturesGidPatchGeoJSONFeature | ProblemDetail
 ]:
-    """Patch Single Feature
+    """Update a feature
 
      Partial update of a feature (PATCH semantics).
 
@@ -268,7 +268,7 @@ async def asyncio(
     | ProblemDetail
     | None
 ):
-    """Patch Single Feature
+    """Update a feature
 
      Partial update of a feature (PATCH semantics).
 

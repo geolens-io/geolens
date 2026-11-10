@@ -48,7 +48,7 @@ from app.modules.catalog.sources.origin_probe import (
     UNAUTHORIZED,
     OriginProbeResult,
 )
-from app.platform.dataset_origin import set_dataset_origin
+from app.platform.dataset_origin import KEEP, SourceBinding, restamp
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh import credentials as creds
 from app.platform.refresh.models import DatasetRefreshRun
@@ -172,16 +172,17 @@ async def _service_dataset(
     )
     enriched = f"{base_url}/{layer_id}"
     dataset.source_url = enriched
-    set_dataset_origin(
+    restamp(
         dataset,
-        "service",
-        uri=enriched,
-        service_type=source_format,
-        url=base_url,
-        layer_id=str(layer_id),
-        # True or None, never False — the worker writes it this
-        # way at the swap and the key is simply absent for a public origin.
-        auth_required=True if auth_required else None,
+        SourceBinding.service(
+            source_format,
+            url=base_url,
+            layer_id=str(layer_id),
+            enriched_uri=enriched,
+            auth_required=auth_required,
+        ),
+        contacted_at=None,
+        refreshed_at=KEEP,
     )
     await session.commit()
     await session.refresh(dataset)
@@ -225,12 +226,13 @@ async def _run_for(session, dataset_id: uuid.UUID) -> DatasetRefreshRun | None:
 
 class TestRequestCarriesNoPointer:
     def test_the_request_model_has_no_source_fields(self) -> None:
-        """The request accepts credentials and verification, never a source pointer."""
+        """The request takes credentials, verification and a revision, never a source."""
         assert set(DatasetRefreshRequest.model_fields) == {
             "token",
             "auth",
             "accept_blocked_run_id",
             "verification_policy",
+            "expected_data_revision",
         }
 
     def test_unknown_source_fields_are_not_silently_accepted(self) -> None:
@@ -1128,13 +1130,13 @@ class TestRefreshRefusals:
         real_create_pending_run = router_refresh.create_pending_run
 
         async def _rebind_then_reserve(*args, **kwargs):
-            set_dataset_origin(
+            restamp(
                 dataset,
-                "service",
-                uri=new_base,
-                service_type="wfs",
-                url=new_base,
-                layer_id="topp:moved",
+                SourceBinding.service(
+                    "wfs", url=new_base, layer_id="topp:moved", enriched_uri=new_base
+                ),
+                contacted_at=None,
+                refreshed_at=KEEP,
             )
             await test_db_session.commit()
             return await real_create_pending_run(*args, **kwargs)
@@ -1256,14 +1258,14 @@ class TestRefreshRefusals:
         real_create_pending_run = router_refresh.create_pending_run
 
         async def _rebind_then_reserve(*args, **kwargs):
-            set_dataset_origin(
+            restamp(
                 dataset,
-                "upload",
-                uri=None,
-                filename="replacement.gpkg",
-                file_hash="abc123",
+                SourceBinding.upload(
+                    "gpkg", filename="replacement.gpkg", file_hash="abc123"
+                ),
+                contacted_at=None,
+                refreshed_at=KEEP,
             )
-            dataset.source_format = "gpkg"
             await test_db_session.commit()
             return await real_create_pending_run(*args, **kwargs)
 

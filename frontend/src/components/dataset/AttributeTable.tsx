@@ -29,6 +29,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
+import { LiveAnnouncement } from '@/components/ui/live-announcement';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import {
@@ -41,6 +42,9 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip
 import { formatNumber } from '@/lib/format';
 import { formatMutationError } from '@/lib/error-map';
 import { coerceAttributeValue } from '@/lib/attribute-values';
+import { valueLabelFor, type ValueLabels } from '@/lib/value-labels';
+import type { Bbox } from '@/lib/bbox';
+import { cn } from '@/lib/utils';
 import { Loader2, ArrowDown, ArrowUp, ArrowUpDown, Settings2, Pencil, Trash2 } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth-store';
 
@@ -88,14 +92,90 @@ interface EditingCell {
   column: string;
 }
 
-interface AttributeTableProps {
+/** One entry of AttributeTable's `columns` prop. */
+interface AttributeTableColumn {
+  name: string;
+  /** Header text; defaults to the column name. */
+  title?: string;
+  valueLabels?: ValueLabels;
+  /** Starts out of view; the Columns menu can add it. */
+  hidden?: boolean;
+}
+
+export interface AttributeTableProps {
   datasetId: string;
   canEdit?: boolean;
   compact?: boolean;
+  /** CQL2-JSON filter expression sent as the rows request's `filter` param. */
+  cql2Filter?: string;
+  /** Narrows the rows to this one feature, on top of every other filter. */
+  onlyGid?: number;
+  /**
+   * Row activation (Enter/click), e.g. the builder drawer finding a row on the
+   * map. With `rowsRequest.withBbox`, it also receives the row's EPSG:4326
+   * bounding box, null for a row without geometry.
+   */
+  onRowClick?: (gid: number, bbox?: Bbox | null) => void;
+  /** Rows request options: each row's bbox for `onRowClick`, and an embed token sent as `X-Embed-Token`. */
+  rowsRequest?: { withBbox?: boolean; embedToken?: string };
+  /** Replace the text of an empty filtered page, the load failure, and the first-load spinner. */
+  slots?: {
+    empty?: string;
+    error?: (error: unknown) => ReactNode;
+    loading?: ReactNode;
+  };
+  /** Reader-facing presentation: no SQL types in headers, no per-column filters, the count announced. */
+  display?: {
+    hideColumnTypes?: boolean;
+    hideColumnFilters?: boolean;
+    announceCount?: boolean;
+    /** Text for a read-only cell; keep it stable, since a new function rebuilds every cell. Default: the stored value. */
+    formatValue?: (column: string, value: unknown) => string;
+  };
+  /**
+   * The highlighted row's gid (the builder drawer's map highlight). Set, every
+   * rendered row carries aria-selected — the match "true" with the inset
+   * primary marker, the others "false" — and the marker follows the prop.
+   * Omitted, no selection is rendered (the dataset page).
+   */
+  selectedGid?: number | null;
   /** Leading toolbar content, shown on the row that holds the Columns menu. */
   heading?: ReactNode;
   /** Trailing toolbar controls, after the Columns menu. */
   actions?: ReactNode;
+  /**
+   * When set, renders the caller's node as the table's header row, receiving
+   * the row count and the Columns control; the count then no longer renders
+   * in the pagination bar, and the rows-per-page select is omitted (the
+   * caller's header owns the table's combobox — the builder drawer's layer
+   * picker). Unset, the toolbar and pagination bar render exactly as before.
+   */
+  renderHeader?: (parts: {
+    count: ReactNode;
+    columns: ReactNode;
+    /** `selectedGid` is set but its row is not among the loaded rows. */
+    selectedMissing: boolean;
+  }) => ReactNode;
+  /** Code labels per column; a labelled cell shows its label and keeps the code reachable. */
+  valueLabels?: ReadonlyMap<string, ValueLabels>;
+  /**
+   * The columns the table offers, in order, with display titles and value
+   * labels; `hidden` ones wait in the Columns menu. Response columns not
+   * listed are never shown. Omitted, every column shows as the API returns
+   * them. Pass a stable array: a new one rebuilds the column definitions and
+   * remounts the cells.
+   */
+  columns?: readonly AttributeTableColumn[];
+}
+
+/** The listed columns the response carries, in the listed order; every column when no list is given. */
+function orderColumns<T extends { name: string }>(
+  columns: readonly T[],
+  spec: readonly AttributeTableColumn[] | undefined,
+): readonly T[] {
+  if (!spec) return columns;
+  const byName = new Map(columns.map((col) => [col.name, col]));
+  return spec.flatMap((col) => byName.get(col.name) ?? []);
 }
 
 /** Postgres numeric types get a decimal input mode on touch keyboards. */
@@ -190,8 +270,18 @@ export function AttributeTable({
   datasetId,
   canEdit = false,
   compact = false,
+  cql2Filter,
+  onlyGid,
+  onRowClick,
+  selectedGid,
   heading,
   actions,
+  renderHeader,
+  valueLabels: valueLabelsProp,
+  columns: columnSpec,
+  rowsRequest,
+  slots,
+  display,
 }: AttributeTableProps) {
   const { t } = useTranslation('dataset');
   const [cursorHistory, setCursorHistory] = useState<number[]>([0]);
@@ -203,6 +293,8 @@ export function AttributeTable({
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [pageSize, setPageSize] = useState(DEFAULT_ROWS_PAGE_SIZE);
   const [sorting, setSorting] = useState<SortingState>([]);
+  // The user's Columns-menu choices only; columns the `columns` prop leaves
+  // out start hidden underneath them.
   const [columnVisibility, setColumnVisibility] = useState<ColumnVisibilityState>({});
   const updateFeature = useUpdateFeature();
   const deleteFeatures = useDeleteFeatures();
@@ -239,7 +331,7 @@ export function AttributeTable({
   // A cursor is a position within one filter + sort order. Reset paging during
   // render, not in an effect, so no request goes out with the new order and
   // the old cursor.
-  const pagingScope = JSON.stringify([activeFilters ?? null, sort ?? null]);
+  const pagingScope = JSON.stringify([activeFilters ?? null, sort ?? null, cql2Filter ?? null, onlyGid ?? null]);
   const [pagedScope, setPagedScope] = useState(pagingScope);
   if (pagedScope !== pagingScope) {
     setPagedScope(pagingScope);
@@ -254,7 +346,7 @@ export function AttributeTable({
     setEditingCell(null);
     setEditError(null);
     if (parentRef.current) parentRef.current.scrollTop = 0;
-  }, [datasetId, cursor, activeFilters, sort, pageSize]);
+  }, [datasetId, cursor, activeFilters, sort, pageSize, cql2Filter, onlyGid]);
 
   const { data, error, isLoading, isFetching, isError, isPlaceholderData } = useDatasetRows(
     datasetId,
@@ -262,6 +354,9 @@ export function AttributeTable({
     cursor,
     activeFilters,
     sort,
+    cql2Filter,
+    onlyGid,
+    rowsRequest,
   );
   // A schema edit, in GeoLens or on a live table, can drop or retype the sorted
   // column, and the server reports that as a 400 whose text depends on where it
@@ -383,10 +478,10 @@ export function AttributeTable({
   }, [datasetId, updateFeature, t]);
 
   // Everything the cell renderer needs that changes render to render, read
-  // through one ref so `columns` below never has to list it.
+  // through one ref so `columnDefs` below never has to list it.
   //
   // TanStack's `<table.FlexRender cell={cell} />` renders `columnDef.cell` as
-  // the React component TYPE, so a new `columns` array is a new element type at
+  // the React component TYPE, so a new `columnDefs` array is a new element type at
   // every cell position and React remounts the cell subtree, resetting
   // InlineCellEditor's `value` to the stored value. Depending on
   // `handleCellSave` would do exactly that: its deps carry the object
@@ -397,12 +492,26 @@ export function AttributeTable({
   //
   // The ref is written in this render pass, before FlexRender renders the
   // cells that read it, as for `editingCell`.
+  // What the `columns` prop adds: header titles, and its value labels merged
+  // over the `valueLabels` prop.
+  const { titleByName, valueLabels: effectiveValueLabels } = useMemo(() => {
+    const titles = new Map<string, string>();
+    let labels = valueLabelsProp;
+    for (const col of columnSpec ?? []) {
+      if (col.title) titles.set(col.name, col.title);
+      if (col.valueLabels) {
+        labels = new Map(labels).set(col.name, col.valueLabels);
+      }
+    }
+    return { titleByName: titles, valueLabels: labels };
+  }, [valueLabelsProp, columnSpec]);
   const cellRenderState = {
     editingCell,
     editError,
     isSaving: updateFeature.isPending,
     canEdit,
     compact,
+    valueLabels: effectiveValueLabels,
     onSave: handleCellSave,
   };
   const cellRenderRef = useRef(cellRenderState);
@@ -418,18 +527,27 @@ export function AttributeTable({
     setCursorHistory((prev) => (prev.length <= 1 ? prev : prev.slice(0, -1)));
   }, []);
 
-  const columns = useMemo<ColumnDef<typeof features, Record<string, unknown>>[]>(() => {
-    if (!data?.columns) return [];
+  const dataColumns = useMemo(
+    () => (data?.columns ? orderColumns(data.columns, columnSpec) : undefined),
+    [data?.columns, columnSpec],
+  );
+  const hideColumnTypes = !!display?.hideColumnTypes;
+  const formatValue = display?.formatValue;
+
+  const columnDefs = useMemo<ColumnDef<typeof features, Record<string, unknown>>[]>(() => {
+    if (!dataColumns) return [];
     // An API without the field offers no sorting rather than a failing one.
-    const sortable = new Set(data.sortable_columns ?? []);
-    return data.columns.map((col) => ({
+    const sortable = new Set(data?.sortable_columns ?? []);
+    return dataColumns.map((col) => ({
       accessorKey: col.name,
       header: () => (
         <>
-          {col.name}
-          <span className="font-normal text-muted-foreground" title={col.type}>
-            {shortType(col.type)}
-          </span>
+          {titleByName.get(col.name) ?? col.name}
+          {!hideColumnTypes && (
+            <span className="font-normal text-muted-foreground" title={col.type}>
+              {shortType(col.type)}
+            </span>
+          )}
         </>
       ),
       enableSorting: sortable.has(col.name),
@@ -440,6 +558,7 @@ export function AttributeTable({
           isSaving,
           canEdit: cellsEditable,
           compact: isCompact,
+          valueLabels: labelsByColumn,
           onSave,
         } = cellRenderRef.current;
         const rowData = info.row.original;
@@ -469,18 +588,45 @@ export function AttributeTable({
           );
         }
 
-        const cellValue = String(info.getValue() ?? '');
-
+        const rawValue = info.getValue();
+        const storedValue = String(rawValue ?? '');
+        const cellValue = formatValue ? formatValue(col.name, rawValue) : storedValue;
+        const codeLabel = valueLabelFor(labelsByColumn?.get(col.name), rawValue);
         if (cellsEditable && !NON_EDITABLE_COLUMNS.has(col.name)) {
+          // The code shows beside its label on hover and focus, and screen
+          // readers always read it.
+          const shown = codeLabel === undefined ? cellValue : (
+            <>
+              {codeLabel}{' '}
+              <span className="text-muted-foreground opacity-0 group-hover/cell:opacity-100 group-focus-visible/cell:opacity-100">
+                ({storedValue})
+              </span>
+            </>
+          );
           return (
             <button
               type="button"
               className="group/cell flex items-center gap-1 rounded-sm px-0.5 -mx-0.5 text-start hover:bg-muted/50 w-full"
               onClick={() => setEditingCell({ rowGid: gid, column: col.name })}
             >
-              <span className="truncate">{cellValue}</span>
+              <span className="truncate">{shown}</span>
               <Pencil className="h-2.5 w-2.5 shrink-0 text-muted-foreground/0 group-hover/cell:text-muted-foreground/50" />
             </button>
+          );
+        }
+
+        if (codeLabel !== undefined) {
+          return (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button type="button" className="block max-w-full truncate rounded-sm text-start">
+                  {codeLabel}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-sm break-all">
+                {storedValue}
+              </TooltipContent>
+            </Tooltip>
           );
         }
 
@@ -504,14 +650,24 @@ export function AttributeTable({
     // cell, and with it any open editor, whenever it changes. `t` is safe
     // because react-i18next caches its useSyncExternalStore snapshot and hands
     // back a new `t` only on a language change, a legitimate reason to rebuild.
-  }, [data?.columns, data?.sortable_columns, t]);
+  }, [dataColumns, data?.sortable_columns, titleByName, hideColumnTypes, formatValue, t]);
+
+  const defaultHidden = useMemo<ColumnVisibilityState>(
+    () => Object.fromEntries((columnSpec ?? []).filter((col) => col.hidden).map((col) => [col.name, false])),
+    [columnSpec],
+  );
+
+  const visibility = useMemo(
+    () => ({ ...defaultHidden, ...columnVisibility }),
+    [defaultHidden, columnVisibility],
+  );
 
   const table = useTable(
     {
       features,
       data: data?.rows ?? [],
-      columns,
-      state: { sorting, columnVisibility },
+      columns: columnDefs,
+      state: { sorting, columnVisibility: visibility },
       onSortingChange: setSorting,
       onColumnVisibilityChange: setColumnVisibility,
       manualSorting: true,
@@ -547,6 +703,24 @@ export function AttributeTable({
   });
   const virtualItems = virtualizer.getVirtualItems();
 
+  // A selection made elsewhere (a map click) may sit outside the scrolled
+  // view. Rows have a fixed pitch below the sticky header, which the
+  // virtualizer's own offsets leave out, so the row is placed from those.
+  const selectedIndex = selectedGid == null
+    ? -1
+    : rows.findIndex((row) => row.original.gid === selectedGid);
+  useEffect(() => {
+    const scroller = parentRef.current;
+    if (selectedIndex < 0 || !scroller) return;
+    const headerHeight = scroller.querySelector('thead')?.offsetHeight ?? 0;
+    const top = headerHeight + selectedIndex * rowHeight;
+    if (top - headerHeight < scroller.scrollTop) {
+      scroller.scrollTop = top - headerHeight;
+    } else if (top + rowHeight > scroller.scrollTop + scroller.clientHeight) {
+      scroller.scrollTop = top + rowHeight - scroller.clientHeight;
+    }
+  }, [selectedIndex, rowHeight]);
+
   // TanStack Virtual (virtual-core 3.17.x) leaves estimateSize out of its
   // measurement-cache deps (getMeasurementOptions covers count/padding/
   // scrollMargin/getItemKey/enabled/lanes/gap only), so when the density toggle
@@ -561,19 +735,48 @@ export function AttributeTable({
     }
   }, [compact, virtualizer]);
 
+  // `bboxes` runs parallel to `rows`; absent unless `withBbox` asked for it.
+  const rowBbox = (index: number): Bbox | null | undefined => {
+    if (!rowsRequest?.withBbox) return undefined;
+    const bbox = data?.bboxes?.[index];
+    return bbox && bbox.length === 4 && bbox.every(Number.isFinite) ? (bbox as Bbox) : null;
+  };
+
   const approximateTotal = data?.approximate_total ?? 0;
+  const totalKind = data?.total_kind ?? 'estimate';
   const rowCount = data?.rows?.length ?? 0;
-  const effectiveTotal = approximateTotal > 0 ? approximateTotal : rowCount;
-  const isExact = approximateTotal === 0 && rowCount > 0;
+  // A filtered page's total is counted, so zero means no match rather than no statistics.
+  const counted = totalKind !== 'estimate';
+  const effectiveTotal = counted || approximateTotal > 0 ? approximateTotal : rowCount;
+  const isExact = totalKind === 'exact' || (!counted && approximateTotal === 0 && rowCount > 0);
   const rangeStart = rowCount > 0 ? (cursorHistory.length - 1) * pageSize + 1 : 0;
   const rangeEnd = rangeStart > 0 ? rangeStart + rowCount - 1 : 0;
 
-  const columnsMenu = columns.length > 0 ? (
+  // The row count text: the pagination bar renders it by default, a
+  // renderHeader caller embeds it in its own header instead.
+  const countText = t(
+    totalKind === 'at_least'
+      ? 'attributes.showingAtLeast'
+      : isExact
+        ? 'attributes.showingExact'
+        : 'attributes.showing',
+    { start: formatNumber(rangeStart), end: formatNumber(rangeEnd), total: formatNumber(effectiveTotal) },
+  );
+  const countNode = (
+    <span className="whitespace-nowrap text-muted-foreground">
+      {countText}
+      {isFetching && (
+        <Loader2 className="inline h-3 w-3 animate-spin ms-2" />
+      )}
+    </span>
+  );
+
+  const columnsMenu = columnDefs.length > 0 ? (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5">
-          <Settings2 className="h-3.5 w-3.5" />
-          {t('attributes.columns')}
+        <Button variant="outline" size="sm" className="h-7 pointer-coarse:min-h-11 text-xs gap-1.5" title={t('attributes.columns')}>
+          <Settings2 className="h-3.5 w-3.5" aria-hidden="true" />
+          <span className="max-[399px]:sr-only">{t('attributes.columns')}</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="max-h-64 overflow-y-auto">
@@ -586,7 +789,7 @@ export function AttributeTable({
               checked={col.getIsVisible()}
               onCheckedChange={(value) => col.toggleVisibility(!!value)}
             >
-              {col.id}
+              {titleByName.get(col.id) ?? col.id}
             </DropdownMenuCheckboxItem>
           ))}
       </DropdownMenuContent>
@@ -611,34 +814,56 @@ export function AttributeTable({
 
   // The root is a shrinkable flex column: inside a height-bounded parent
   // (DataTab) the scroll region absorbs the overflow, so the toolbar and the
-  // pagination bar stay on screen.
+  // pagination bar stay on screen. A renderHeader caller owns the header row,
+  // so the shell drops the inter-row gap (the caller's header borders the
+  // table directly).
   const shell = (body: ReactNode) => (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
-      {heading || actions || columnsMenu ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          {heading}
-          <div className="ms-auto flex items-center gap-1">
-            {deleteRowsAction}
-            {columnsMenu}
-            {actions}
+    <div className={cn('flex min-h-0 flex-1 flex-col', !renderHeader && 'gap-3')}>
+      {renderHeader ? (
+        renderHeader({
+          count: countNode,
+          columns: columnsMenu,
+          selectedMissing: data !== undefined && !isPlaceholderData && selectedIndex < 0 && selectedGid != null,
+        })
+      ) : (
+        heading || actions || columnsMenu ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {heading}
+            <div className="ms-auto flex items-center gap-1">
+              {deleteRowsAction}
+              {columnsMenu}
+              {actions}
+            </div>
           </div>
-        </div>
-      ) : null}
+        ) : null
+      )}
+      {/* Paging, filters and a moving map refetch; the delay announces only where the count settles. */}
+      {display?.announceCount && data && <LiveAnnouncement text={countText} delayMs={1000} />}
       {body}
     </div>
   );
 
   if (isLoading) {
     return shell(
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>,
+      slots?.loading ?? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ),
     );
   }
 
-  if (isError) return shell(<div className="p-4 text-sm text-destructive">{t('attributes.loadFailed', { defaultValue: 'Failed to load data. Please try again.' })}</div>);
+  if (isError) {
+    return shell(
+      slots?.error?.(error) ?? (
+        <div className="p-4 text-sm text-destructive">{t('attributes.loadFailed', { defaultValue: 'Failed to load data. Please try again.' })}</div>
+      ),
+    );
+  }
 
-  if (effectiveTotal === 0 && !activeFilters && (!data?.rows || data.rows.length === 0)) {
+  // A CQL2 filter that matched nothing is a filter result, not an empty
+  // dataset: it flows through the normal path (header, toolbar, noResults).
+  if (effectiveTotal === 0 && !activeFilters && !cql2Filter && (!data?.rows || data.rows.length === 0)) {
     return shell(
       <div className="text-center py-12 text-muted-foreground">
         {t('attributes.noData')}
@@ -684,7 +909,7 @@ export function AttributeTable({
         tabIndex={0} // eslint-disable-line jsx-a11y/no-noninteractive-tabindex -- scrollable region must be keyboard-focusable
         className="relative min-h-0 overflow-auto rounded-md border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       >
-        <table data-slot="table" className="w-max caption-bottom text-sm">
+        <table data-slot="table" className="w-max min-w-full caption-bottom text-sm">
           <TableHeader className="sticky top-0 z-10 bg-muted">
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
@@ -736,29 +961,34 @@ export function AttributeTable({
                 })}
               </TableRow>
             ))}
-            {/* Filter row */}
-            <TableRow>
-              {selectable ? <TableHead className="py-1" /> : null}
+            {/* Filter row: input cells, so none of the header's mono caps. */}
+            {!display?.hideColumnFilters && (
+            <TableRow className="[&_th]:h-8 [&_th]:py-1 [&_th]:font-sans [&_th]:normal-case [&_th]:tracking-normal">
+              {selectable ? <TableHead /> : null}
               {table.getHeaderGroups()[0]?.headers.map((header) => (
-                <TableHead key={`filter-${header.id}`} className="py-1">
+                <TableHead key={`filter-${header.id}`}>
                   {!NON_FILTERABLE_COLUMNS.has(header.column.id) ? (
                     <Input
                       aria-label={t('attributes.filterColumn', { column: header.column.id })}
                       value={columnFilters[header.column.id] ?? ''}
                       onChange={(e) => handleFilterChange(header.column.id, e.target.value)}
                       placeholder={t('attributes.filter')}
-                      className="bg-transparent border-0 border-b rounded-none text-xs h-7 focus-visible:ring-0 focus-visible:border-primary"
+                      // size={1} drops the input's 20-character intrinsic width,
+                      // so the header text and cell values size the column.
+                      size={1}
+                      className="h-6 min-w-24 rounded-none border-0 border-b px-1 text-xs md:text-xs focus-visible:border-primary focus-visible:ring-0"
                     />
                   ) : null}
                 </TableHead>
               ))}
             </TableRow>
+            )}
           </TableHeader>
           <TableBody>
             {rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={visibleColumnCount} className="text-center text-muted-foreground py-8">
-                  {t('attributes.noResults')}
+                  {slots?.empty ?? t('attributes.noResults')}
                 </TableCell>
               </TableRow>
             ) : (
@@ -771,11 +1001,27 @@ export function AttributeTable({
                 {virtualItems.map((virtualRow) => {
                   const row = rows[virtualRow.index];
                   const gid = row.original.gid as number;
+                  const activatable = onRowClick && Number.isSafeInteger(gid);
+                  const selected = selectedGid !== undefined && gid === selectedGid;
                   return (
                     <TableRow
                       key={row.id}
                       data-index={virtualRow.index}
-                      className={virtualRow.index % 2 === 1 ? 'bg-muted/30' : ''}
+                      aria-selected={selectedGid === undefined ? undefined : selected ? 'true' : 'false'}
+                      className={cn(
+                        virtualRow.index % 2 === 1 ? 'bg-muted/30' : '',
+                        activatable && 'cursor-pointer hover:bg-primary-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+                        selected && 'selection-inset',
+                      )}
+                      tabIndex={activatable ? 0 : undefined}
+                      aria-label={activatable ? t('attributes.rowActionLabel', { gid, defaultValue: 'Show row {{gid}} on the map' }) : undefined}
+                      onClick={activatable ? () => onRowClick(gid, rowBbox(row.index)) : undefined}
+                      onKeyDown={activatable ? (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onRowClick(gid, rowBbox(row.index));
+                        }
+                      } : undefined}
                     >
                       {selectable ? (
                         <TableCell className={`w-10 ${cellClass}`}>
@@ -843,40 +1089,36 @@ export function AttributeTable({
       </AlertDialog>
 
       {/* Pagination */}
-      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+      {/* A floating launcher publishes the width it covers, so the buttons stop short of it. */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pe-[var(--floating-dock-reach,0px)] text-sm">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <span className="text-muted-foreground">
-            {isExact
-              ? t('attributes.showingExact', { start: formatNumber(rangeStart), end: formatNumber(rangeEnd), total: formatNumber(effectiveTotal) })
-              : t('attributes.showing', { start: formatNumber(rangeStart), end: formatNumber(rangeEnd), total: formatNumber(effectiveTotal) })}
-            {isFetching && (
-              <Loader2 className="inline h-3 w-3 animate-spin ms-2" />
-            )}
-          </span>
-          <div className="flex items-center gap-1.5">
-            <span className="text-muted-foreground text-xs">{t('attributes.rowsPerPage')}</span>
-            <Select
-              value={String(pageSize)}
-              onValueChange={(val) => {
-                setPageSize(Number(val));
-                setCursorHistory([0]);
-              }}
-            >
-              <SelectTrigger
-                className="h-7 w-[70px] text-xs"
-                aria-label={t('attributes.rowsPerPage')}
+          {!renderHeader && countNode}
+          {!renderHeader && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-muted-foreground text-xs">{t('attributes.rowsPerPage')}</span>
+              <Select
+                value={String(pageSize)}
+                onValueChange={(val) => {
+                  setPageSize(Number(val));
+                  setCursorHistory([0]);
+                }}
               >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PAGE_SIZE_OPTIONS.map((opt) => (
-                  <SelectItem key={opt} value={String(opt)}>
-                    {opt}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+                <SelectTrigger
+                  className="h-7 w-[70px] text-xs"
+                  aria-label={t('attributes.rowsPerPage')}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAGE_SIZE_OPTIONS.map((opt) => (
+                    <SelectItem key={opt} value={String(opt)}>
+                      {opt}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Button

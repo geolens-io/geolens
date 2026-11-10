@@ -106,7 +106,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: BodyUploadMapIconEndpointMapsIconsPost,
 ) -> Response[MapIconResponse | ProblemDetail]:
-    """Upload Map Icon Endpoint
+    """Upload a map icon
 
      Upload a reusable SVG or PNG icon for symbol layers.
 
@@ -137,7 +137,7 @@ def sync(
     client: AuthenticatedClient,
     body: BodyUploadMapIconEndpointMapsIconsPost,
 ) -> MapIconResponse | ProblemDetail | None:
-    """Upload Map Icon Endpoint
+    """Upload a map icon
 
      Upload a reusable SVG or PNG icon for symbol layers.
 
@@ -163,7 +163,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: BodyUploadMapIconEndpointMapsIconsPost,
 ) -> Response[MapIconResponse | ProblemDetail]:
-    """Upload Map Icon Endpoint
+    """Upload a map icon
 
      Upload a reusable SVG or PNG icon for symbol layers.
 
@@ -192,7 +192,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: BodyUploadMapIconEndpointMapsIconsPost,
 ) -> MapIconResponse | ProblemDetail | None:
-    """Upload Map Icon Endpoint
+    """Upload a map icon
 
      Upload a reusable SVG or PNG icon for symbol layers.
 

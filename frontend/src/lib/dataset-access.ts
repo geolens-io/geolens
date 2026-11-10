@@ -5,7 +5,7 @@ import type { DatasetResponse, DistributionResponse } from '@/types/api';
 
 const ABSOLUTE_URL_RE = /^[a-zA-Z][a-zA-Z\d+.-]*:/;
 
-function stripTrailingSlashes(value: string): string {
+export function stripTrailingSlashes(value: string): string {
   return value.replace(/\/+$/, '');
 }
 

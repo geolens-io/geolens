@@ -101,9 +101,12 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     body: ResendVerificationRequest,
 ) -> Response[ProblemDetail | RegisterResponse]:
-    """Resend Verification
+    """Resend the verification email
 
      Re-issue and re-send a verification email.
+
+    Sends nothing unless self-registration is on and requires email
+    verification, since only then can the link activate an account.
 
     Enumeration-safe: ALWAYS returns the same 200 body
     regardless of whether the email exists, is unknown, or is already verified.
@@ -136,9 +139,12 @@ def sync(
     client: AuthenticatedClient | Client,
     body: ResendVerificationRequest,
 ) -> ProblemDetail | RegisterResponse | None:
-    """Resend Verification
+    """Resend the verification email
 
      Re-issue and re-send a verification email.
+
+    Sends nothing unless self-registration is on and requires email
+    verification, since only then can the link activate an account.
 
     Enumeration-safe: ALWAYS returns the same 200 body
     regardless of whether the email exists, is unknown, or is already verified.
@@ -166,9 +172,12 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     body: ResendVerificationRequest,
 ) -> Response[ProblemDetail | RegisterResponse]:
-    """Resend Verification
+    """Resend the verification email
 
      Re-issue and re-send a verification email.
+
+    Sends nothing unless self-registration is on and requires email
+    verification, since only then can the link activate an account.
 
     Enumeration-safe: ALWAYS returns the same 200 body
     regardless of whether the email exists, is unknown, or is already verified.
@@ -199,9 +208,12 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     body: ResendVerificationRequest,
 ) -> ProblemDetail | RegisterResponse | None:
-    """Resend Verification
+    """Resend the verification email
 
      Re-issue and re-send a verification email.
+
+    Sends nothing unless self-registration is on and requires email
+    verification, since only then can the link activate an account.
 
     Enumeration-safe: ALWAYS returns the same 200 body
     regardless of whether the email exists, is unknown, or is already verified.

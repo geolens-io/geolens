@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/tooltip';
 import { formatDate } from '@/lib/format';
 import { getVisibilityLabel } from '@/i18n/labels';
-import type { MapCardProps } from './MapCard';
+import { DashboardBadge, type MapCardProps } from './MapCard';
 import { VisibilityIcon } from './VisibilityIcon';
 
 export const MapCardGrid = memo(function MapCardGrid({ map, onDelete }: MapCardProps) {
@@ -78,6 +78,7 @@ export const MapCardGrid = memo(function MapCardGrid({ map, onDelete }: MapCardP
             <Layers className="h-3 w-3" />
             {t('maps.layerCount', { count: map.layer_count })}
           </Badge>
+          {map.has_dashboard && <DashboardBadge />}
           {map.created_by_username && (
             <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
               <User className="h-3 w-3" />

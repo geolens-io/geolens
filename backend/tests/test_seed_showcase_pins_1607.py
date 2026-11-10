@@ -75,9 +75,9 @@ def test_pinned_map_names_are_the_four_the_examples_address_by_id():
         # /m/NDuwpSJc3yx4Exic5Na48xO-8bpjWiaIofJefpjqfbU (embed/iframe.html)
         "Restless Earth",
         # the three the gallery deep-links by UUID from index.html
-        "Manhattan - A Century of Skyline",
+        "Manhattan: A Century of Skyline",
         "The Matterhorn in 3D",
-        "New York From Orbit - Sentinel-2, by Reference",
+        "New York From Orbit: Sentinel-2 by Reference",
     )
 
 
@@ -301,7 +301,7 @@ def test_prune_userdata_hard_keeps_a_pinned_map_whoever_owns_it():
             {"id": "m1", "name": PINNED, "created_by_username": "admin"},
             {
                 "id": "m2",
-                "name": "Manhattan - A Century of Skyline",
+                "name": "Manhattan: A Century of Skyline",
                 "created_by_username": "visitor",
             },
             {"id": "m3", "name": "A visitor's map", "created_by_username": "visitor"},
@@ -312,6 +312,20 @@ def test_prune_userdata_hard_keeps_a_pinned_map_whoever_owns_it():
     assert [m["id"] for m in buckets["pinned_map_impostors"]] == ["m2"]
     # The delete set is the only bucket that matters for safety.
     assert [m["id"] for m in buckets["foreign_maps"]] == ["m3"]
+
+
+def test_prune_userdata_keeps_a_pinned_map_still_under_its_old_name():
+    old = "Manhattan - A Century of Skyline"
+    buckets = _classify(
+        [
+            {"id": "m1", "name": old, "created_by_username": "admin"},
+            {"id": "m2", "name": old, "created_by_username": "other-admin"},
+        ],
+        [],
+    )
+    assert [m["id"] for m in buckets["pinned_maps"]] == ["m1"]
+    assert [m["id"] for m in buckets["pinned_map_impostors"]] == ["m2"]
+    assert buckets["foreign_maps"] == []
 
 
 def test_prune_userdata_keeps_the_meteorites_dataset():
@@ -725,7 +739,7 @@ def test_pinned_summary_flags_only_the_token_embedded_map(capsys, monkeypatch):
     monkeypatch.setattr(
         seeder,
         "PINNED_MAP_NAMES",
-        ("Restless Earth", "Manhattan - A Century of Skyline"),
+        ("Restless Earth", "Manhattan: A Century of Skyline"),
     )
     monkeypatch.setattr(seeder, "PINNED_MAP_EMBEDDED_BY_TOKEN", "Restless Earth")
     monkeypatch.setattr(
@@ -734,7 +748,7 @@ def test_pinned_summary_flags_only_the_token_embedded_map(capsys, monkeypatch):
     api = _SummaryApi(
         maps={
             "Restless Earth": "m-restless",
-            "Manhattan - A Century of Skyline": "m-manhattan",
+            "Manhattan: A Century of Skyline": "m-manhattan",
         },
         datasets={},  # the pinned dataset is missing this run
         share_tokens={},  # neither map has an active link
@@ -1049,8 +1063,9 @@ def test_sentinel2_accepts_a_title_match_whose_origin_names_the_pinned_scene(
     }
 
 
-def test_sentinel2_layers_on_one_date_are_named_by_tile(monkeypatch):
-    """Two tiles imaged on the same pass must not share a layer name."""
+def test_sentinel2_layers_on_one_date_are_named_by_where_they_lie(monkeypatch):
+    """Two tiles imaged on the same pass must not share a layer name, and a New
+    York tile is named by where it lies rather than by its MGRS code."""
     other = _fake_sentinel_feature(
         "S2A_T19TCH_20260829T155705_L2A", datetime="2026-08-29T15:57:05Z"
     )
@@ -1069,14 +1084,14 @@ def test_sentinel2_layers_on_one_date_are_named_by_tile(monkeypatch):
     seeder.build_sentinel2(api)
 
     assert sorted(layer["display_name"] for layer in api.added_layers) == [
-        "Sentinel-2 - 2026-08-29 (T18TWL)",
         "Sentinel-2 - 2026-08-29 (T19TCH)",
+        "Sentinel-2 - 2026-08-29 (north-west)",
     ]
 
 
 def test_manhattan_buildings_start_at_zoom_12():
     """Below z12 the building tiles are large and the footprints unreadable."""
-    body = _function_node(SOURCE, "build_manhattan")
+    body = _function_node(SOURCE, "manhattan_buildings_layer")
     buildings = next(
         node
         for node in ast.walk(body)

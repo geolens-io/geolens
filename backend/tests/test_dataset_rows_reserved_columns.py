@@ -67,7 +67,7 @@ async def test_reserved_word_columns_are_projected(test_db_session) -> None:
     """The page renders instead of raising a 42601 syntax error."""
     table = await _make_table(test_db_session)
     try:
-        rows, _total, _cols, _cursor = await get_dataset_rows(
+        rows, _total, _kind, _cols, _cursor = await get_dataset_rows(
             test_db_session, table, column_info=_column_info()
         )
     finally:
@@ -83,13 +83,13 @@ async def test_reserved_word_column_filter_matches(test_db_session) -> None:
     """`filter[desc]=...` composes into the ILIKE clause without a syntax error."""
     table = await _make_table(test_db_session)
     try:
-        matched, _total, _cols, _cursor = await get_dataset_rows(
+        matched, _total, _kind, _cols, _cursor = await get_dataset_rows(
             test_db_session,
             table,
             column_info=_column_info(),
             filters={"desc": "value-desc"},
         )
-        missed, _total, _cols, _cursor = await get_dataset_rows(
+        missed, _total, _kind, _cols, _cursor = await get_dataset_rows(
             test_db_session,
             table,
             column_info=_column_info(),

@@ -27,6 +27,7 @@
 [![Estado de CI](https://img.shields.io/github/actions/workflow/status/geolens-io/geolens/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/geolens-io/geolens/actions/workflows/ci.yml)
 [![Licencia: Apache-2.0](https://img.shields.io/badge/licencia-Apache--2.0-2563eb?style=flat-square)](LICENSE)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/geolens-io/geolens/badge)](https://securityscorecards.dev/viewer/?uri=github.com/geolens-io/geolens)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15857/badge)](https://www.bestpractices.dev/projects/15857)
 
 </div>
 
@@ -149,7 +150,7 @@ flowchart LR
     end
     subgraph GL ["GeoLens"]
       CAT["Catálogo<br/>búsqueda · metadatos · procedencia"]
-      MB["Constructor de mapas<br/>estilos · 3D · análisis · compartir"]
+      MB["Constructor de mapas<br/>estilos · 3D · análisis · historias · paneles · compartir"]
       STD["APIs abiertas<br/>OGC API · STAC · DCAT · teselas"]
     end
     subgraph OUT ["Úsalos donde quieras"]
@@ -202,8 +203,12 @@ origen antes de que lleguen a tus mapas. Si un servicio desaparece, la copia imp
 - Zona de influencia, centroide, recorte, disolución, unión espacial, selección por ubicación,
   medición e intersección. La mayoría de las operaciones se previsualizan en el mapa, y cada
   resultado se guarda como un conjunto de datos nuevo, desde el constructor o desde la CLI.
-- Los enlaces públicos muestran el título y la imagen del mapa al pegarse en Slack, Teams o
-  redes sociales, y los mapas se incrustan en otros sitios con tokens privados.
+- Los mapas narrativos guían al lector por un mapa escena a escena, con texto en Markdown,
+  imágenes, botones y separadores. Los paneles de control ponen indicadores, gráficos, filtros y
+  notas en Markdown junto a un mapa. Un panel de datos del mapa muestra las filas de cada capa,
+  como tabla o como lista.
+- Los mapas públicos y las historias publicadas muestran su título y su imagen al pegarse en
+  Slack, Teams o redes sociales, y los mapas se incrustan en otros sitios con tokens privados.
 - La interfaz está en inglés, español, francés, alemán y chino simplificado.
 
 ## Usa los datos desde cualquier lugar
@@ -358,7 +363,7 @@ Python 3.10+ y `httpx`, y descarga datos públicos de una docena de fuentes;
 ## Cómo contribuir
 
 Se agradecen los informes de errores, las correcciones, las traducciones y la documentación.
-[CONTRIBUTING](.github/CONTRIBUTING.md) cubre la configuración, las pruebas y la firma DCO, y
+[CONTRIBUTING](.github/CONTRIBUTING.md) cubre la configuración y las pruebas, y
 [ARCHITECTURE](.github/ARCHITECTURE.md) describe el código. Los repositorios del
 [complemento de QGIS](https://github.com/geolens-io/qgis-geolens-plugin), de los
 [ejemplos](https://github.com/geolens-io/geolens-examples) y de los

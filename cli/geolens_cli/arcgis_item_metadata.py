@@ -12,7 +12,7 @@ from __future__ import annotations
 import hashlib
 import re
 import unicodedata
-from collections.abc import Mapping
+from collections.abc import Container, Mapping
 from html.parser import HTMLParser
 from typing import Any
 from uuid import UUID
@@ -194,9 +194,13 @@ def _decide(
 
 
 def apply_item_metadata(
-    ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
+    ctx: MigrationContext,
+    item: Mapping[str, Any],
+    entry: ItemState,
+    datasets: Container[str] | None = None,
 ) -> None:
-    """Write the item's metadata onto each of its datasets, as the operator.
+    """Write the item's metadata onto each of its datasets, or only those in
+    *datasets*, as the operator.
 
     A field someone edited in GeoLens since the last run is kept and listed in
     the item's notes: a field is written only while it still holds what this
@@ -209,23 +213,31 @@ def apply_item_metadata(
     from geolens.models.dataset_meta import DatasetMeta
 
     row = ctx.inventory.get(item["id"])
-    if row is None or not entry.dataset_ids:
+    ids = [d for d in entry.dataset_ids if datasets is None or d in datasets]
+    if row is None or not ids:
         return
     fields = item_metadata(row, item["target"], ctx.portal_info)
     keywords = fields.pop("keywords")
     record_ids: list[str] = []
     try:
-        for dataset_id in entry.dataset_ids:
+        for dataset_id in ids:
             current = ctx.geolens.call(get.sync_detailed, dataset_id=UUID(dataset_id))
             base = entry.metadata_baseline.get(dataset_id)
             meta: dict[str, Any] = {}
             baseline = dict(base or {})
-            for name, value in fields.items():
+            # A field this command wrote that the portal has since emptied is
+            # emptied too, by the same rule as any other change.
+            cleared = {
+                name: ""
+                for name, written in (base or {}).items()
+                if name != "keywords" and written and name not in fields
+            }
+            for name, value in {**fields, **cleared}.items():
                 action, claim = _decide(
                     name, _current(current, name), value, base, entry.metadata_hash
                 )
                 if action == "write":
-                    meta[name] = value
+                    meta[name] = value or None
                 elif action == "keep":
                     entry.notes.append(
                         f"kept the {name.replace('_', ' ')} edited in GeoLens on "
@@ -235,8 +247,10 @@ def apply_item_metadata(
                     baseline[name] = value
             baseline.setdefault("keywords", [])
             if meta:
-                ctx.geolens.call(
+                meta["expected_updated_at"] = current.updated_at.isoformat()
+                ctx.geolens.write(
                     patch.sync_detailed,
+                    during="its metadata was written",
                     dataset_id=UUID(dataset_id),
                     body=DatasetMeta.from_dict(meta),
                 )
@@ -244,9 +258,10 @@ def apply_item_metadata(
             entry.metadata_baseline[dataset_id] = baseline
         # Saved once every dataset is written and before the keywords, which
         # can fail: a rerun must still tell its own fields from an edit.
-        entry.record_ids = record_ids
+        if len(ids) == len(entry.dataset_ids):
+            entry.record_ids = record_ids
         ctx.save()
-        for dataset_id, record_id in zip(entry.dataset_ids, record_ids, strict=True):
+        for dataset_id, record_id in zip(ids, record_ids, strict=True):
             kept = _add_keywords(
                 ctx,
                 record_id,

@@ -33,7 +33,7 @@ from app.core.service_tokens import (
 )
 from app.core.db.tenant_session import defer_async_with_tenant
 from app.platform.request_credential import refuse_publish_key
-from app.platform.dataset_origin import set_postgis_origin
+from app.platform.dataset_origin import KEEP, SourceBinding, restamp
 from app.platform.extensions import get_processing_port
 from app.processing.ingest.metadata import (
     GID_UNUSABLE_SQL,
@@ -67,6 +67,8 @@ from app.platform.jobs.heartbeat import (
 from app.platform.jobs import ledger
 from app.platform.jobs.models import (
     COMMIT_ATTEMPTED_METADATA_KEY,
+    PUBLISHED_FOR_METADATA_KEY,
+    DATABASE_SOURCE_METADATA_KEY,
     IngestJob,
     commit_attempted_marker,
 )
@@ -248,8 +250,11 @@ async def admit_import_commit(
     job: IngestJob,
     attempt_id: uuid.UUID | None,
     commit_metadata: dict,
+    publisher: uuid.UUID,
 ) -> None:
     """Commit an import commit's metadata onto its job, or raise 400 when another writer took it.
+
+    ``publisher`` is the committing account, which the dataset will belong to.
 
     The row lock orders concurrent commits of one upload, and the dispatch
     marker rides this commit, so a later one finds the job taken. It also
@@ -271,6 +276,7 @@ async def admit_import_commit(
         **(job.user_metadata or {}),
         **commit_metadata,
         **commit_attempted_marker(),
+        PUBLISHED_FOR_METADATA_KEY: str(publisher),
     }
     await db.commit()
 
@@ -998,7 +1004,12 @@ async def register_existing_table(
     # metadata in, not one read from dataset.tenant_id: the INSERT sends
     # tenant_id NULL and a trigger fills it in the database, so the ORM
     # attribute never sees the real value.
-    set_postgis_origin(dataset, table_name, schema=_schema, managed=managed)
+    restamp(
+        dataset,
+        SourceBinding.postgis(table_name, schema=_schema, managed=managed),
+        contacted_at=None,
+        refreshed_at=KEEP,
+    )
 
     return dataset
 
@@ -1372,6 +1383,16 @@ def _assert_commit_credential_dispatchable(
         refuse_without_credential_store(door="import", operation="import")
 
 
+def _local_file_size(file_path: str) -> int:
+    """The size of a local staged file, or 0 for a storage key or an unreadable one."""
+    if not file_path.startswith("/"):
+        return 0
+    try:
+        return os.path.getsize(file_path) if Path(file_path).exists() else 0
+    except OSError:
+        return 0
+
+
 async def queue_ingest_job(
     job: IngestJob,
     user_id: str,
@@ -1382,7 +1403,8 @@ async def queue_ingest_job(
 ) -> None:
     """Route a committed ingest job to the right Procrastinate task.
 
-    Chooses between ``ingest_service`` (source_url set), ``ingest_raster``
+    Chooses between ``ingest_database`` (a ``database_source`` in the job's
+    metadata), ``ingest_service`` (source_url set), ``ingest_raster``
     (file_type=raster), ``ingest_tileset`` (file_type=tiles3d),
     ``ingest_pointcloud`` (file_type=pointcloud) and ``ingest_file`` (default
     vector path), and sends small vector files to the priority queue.
@@ -1406,8 +1428,6 @@ async def queue_ingest_job(
     ArcGIS that means only a username/password or a named API key, since
     that transport has room for a token and nothing else.
     """
-    import os
-
     from app.platform.service_auth import (
         bearer_credential,
         wire_credential,
@@ -1421,12 +1441,32 @@ async def queue_ingest_job(
     )
     from app.processing.ingest.constants import PRIORITY_QUEUE_THRESHOLD_BYTES
     from app.processing.ingest.tasks import (
+        ingest_database,
         ingest_file,
         ingest_pointcloud,
         ingest_raster,
         ingest_service,
         ingest_tileset,
     )
+
+    database_source = (job.user_metadata or {}).get(DATABASE_SOURCE_METADATA_KEY)
+    if database_source is not None:
+
+        async def _defer_database() -> None:
+            await defer_async_with_tenant(
+                ingest_database,
+                job_id=str(job.id),
+                attempt_id=str(job.attempt_id),
+                user_id=user_id,
+            )
+
+        await defer_with_orphan_guard(
+            _defer_database,
+            rollback=make_ingest_job_failed_rollback(job),
+            db=db,
+            job=job,
+        )
+        return
 
     if job.source_url and not job.file_path:
         # Capture source_url into a local so mypy preserves the ``str``
@@ -1529,15 +1569,7 @@ async def queue_ingest_job(
         return
 
     # Vector file — route small files to the priority queue.
-    file_size = 0
-    if file_path.startswith("/"):
-        try:
-            if Path(file_path).exists():
-                file_size = os.path.getsize(file_path)
-        except OSError:
-            pass  # If we can't stat, use default queue
-
-    use_priority = 0 < file_size <= PRIORITY_QUEUE_THRESHOLD_BYTES
+    use_priority = 0 < _local_file_size(file_path) <= PRIORITY_QUEUE_THRESHOLD_BYTES
 
     async def _defer_vector() -> None:
         task = ingest_file

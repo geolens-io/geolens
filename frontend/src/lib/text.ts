@@ -22,3 +22,9 @@ export function truncateGraphemes(value: string, maxLength: number, ellipsis = '
 
   return `${graphemes.slice(0, maxLength).join('')}${ellipsis}`;
 }
+
+/** A record's description, or undefined when it is blank or repeats the title. */
+export function distinctDescription(title: string | null | undefined, description: string | null | undefined): string | undefined {
+  const text = description?.trim();
+  return text && text !== title?.trim() ? text : undefined;
+}

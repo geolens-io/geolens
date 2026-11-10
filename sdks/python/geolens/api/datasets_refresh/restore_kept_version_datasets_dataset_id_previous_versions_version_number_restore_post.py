@@ -105,7 +105,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | RestorePreviousVersionResponse]:
-    """Restore Kept Version
+    """Restore a kept version
 
      Publish one of the dataset's kept previous versions as its live data again.
 
@@ -151,7 +151,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | RestorePreviousVersionResponse | None:
-    """Restore Kept Version
+    """Restore a kept version
 
      Publish one of the dataset's kept previous versions as its live data again.
 
@@ -192,7 +192,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | RestorePreviousVersionResponse]:
-    """Restore Kept Version
+    """Restore a kept version
 
      Publish one of the dataset's kept previous versions as its live data again.
 
@@ -236,7 +236,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | RestorePreviousVersionResponse | None:
-    """Restore Kept Version
+    """Restore a kept version
 
      Publish one of the dataset's kept previous versions as its live data again.
 

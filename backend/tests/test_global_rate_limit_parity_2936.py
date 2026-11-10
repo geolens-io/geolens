@@ -117,6 +117,13 @@ def _assert_same_headers(expected, actual) -> None:
             assert got == want, name
 
 
+@pytest.fixture(autouse=True)
+def _one_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Storage keys carry the minute window, so both limiters read one clock."""
+    now = time.time()
+    monkeypatch.setattr(time, "time", lambda: now)
+
+
 async def _drive(app: FastAPI, calls: list[tuple[str, str]]):
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     async with AsyncClient(transport=transport, base_url="http://test") as http:

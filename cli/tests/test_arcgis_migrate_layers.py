@@ -15,7 +15,15 @@ from geolens_cli import arcgis_migrate_session as session
 from geolens_cli import arcgis_plan as plan_mod
 from geolens_cli.main import app
 
-from .arcgis_fake import PORTAL, A1, A2, FakePortal, inventory_report, portal_routes
+from .arcgis_fake import (
+    PORTAL,
+    A1,
+    A2,
+    FakePortal,
+    inventory_report,
+    load,
+    portal_routes,
+)
 from .conftest import GEOLENS_INSTANCE
 
 OPERATOR = "00000000-0000-0000-0000-0000000000a0"
@@ -90,7 +98,9 @@ class FakeImport:
         self.previews += 1
         job = _uuid("0b", f"{name}{self.previews:02d}")
         error = self.job_errors.get(name)
-        self.fake.routes[f"POST /ingest/commit/{job}"] = self.commit
+        self.fake.routes[f"POST /ingest/commit/{job}"] = (
+            lambda seen, n=name: self.commit(seen, n)
+        )
         self.fake.routes[f"GET /jobs/{job}"] = (
             lambda _seen, n=name, j=job, e=error: self.job(j, n, e)
         )
@@ -111,7 +121,13 @@ class FakeImport:
             if "summary" in body:
                 self.summaries[dataset] = body["summary"]
             self.fields.setdefault(dataset, {}).update(
-                {k: v for k, v in body.items() if k != "summary"}
+                {
+                    k: v
+                    for k, v in body.items()
+                    if k not in ("summary", "expected_updated_at")
+                },
+                # GeoLens stamps the writer.
+                updated_by=OPERATOR,
             )
             return self.dataset(dataset, body.get("owner_id", OPERATOR))
 
@@ -159,7 +175,7 @@ class FakeImport:
             **self.fields.get(dataset, {}),
         }
 
-    def commit(self, seen):
+    def commit(self, seen, name: str):
         refused = self._refused(seen)
         if refused:
             return refused
@@ -167,6 +183,10 @@ class FakeImport:
         if job in self.committed:
             return (400, _problem(400, "Job already processed"))
         self.committed.add(job)
+        # The dataset the job makes takes the commit's visibility.
+        self.fields.setdefault(dataset_id(name), {})["visibility"] = seen.json()[
+            "visibility"
+        ]
         return (202, {"job_id": job, "status": "pending", "message": "queued"})
 
     def job(self, job_id: str, name: str, error: str | None) -> dict:
@@ -214,6 +234,8 @@ def _dataset(dataset: str, owner: str) -> dict:
         "created_by_display": None,
         "created_at": NOW,
         "updated_at": NOW,
+        "updated_by": OPERATOR,
+        "data_revision": 0,
     }
 
 
@@ -239,6 +261,9 @@ def geolens(fake_geolens):
             "GET /auth/me/": operator,
             "GET /admin/users/": {"users": [operator], "total": 1},
             "GET /settings/all/": (403, _problem(403, "no")),
+            "GET /settings/feature-flags/": {"restrict_public_visibility": False},
+            "GET /datasets/": {"datasets": [], "total": 0},
+            "GET /catalog/collections/": {"collections": [], "total": 0},
         }
     )
     return fake_geolens
@@ -308,6 +333,48 @@ def test_a_two_layer_service_becomes_two_datasets(runner, plan_file, geolens):
     assert payload["items"][0]["status"] == "done"
 
 
+def test_two_layers_with_the_same_name_get_their_layer_ids_in_the_title(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(3, "Parcels")])
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert [c["title"] for c in service.bodies("POST /ingest/commit/")] == [
+        "Parcels (public view) - Parcels (0)",
+        "Parcels (public view) - Parcels (3)",
+    ]
+
+
+def test_a_layer_named_like_a_tagged_title_is_tagged_too(runner, plan_file, geolens):
+    service = FakeImport(
+        geolens,
+        [_layer(0, "Parcels"), _layer(3, "Parcels"), _layer(5, "Parcels (0)")],
+    )
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert [c["title"] for c in service.bodies("POST /ingest/commit/")] == [
+        "Parcels (public view) - Parcels (0)",
+        "Parcels (public view) - Parcels (3)",
+        "Parcels (public view) - Parcels (0) (5)",
+    ]
+
+
+def test_each_layer_preview_names_the_item_and_its_portal(runner, plan_file, geolens):
+    service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "Owners", "Table")])
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert [(b["item_id"], b["portal_url"]) for b in service.bodies(PREVIEW)] == [
+        (A2, PORTAL),
+        (A2, PORTAL),
+    ]
+
+
 def test_a_public_item_sends_no_credential(runner, plan_file, geolens):
     service = FakeImport(geolens, [_layer(0, "Parcels")])
     token = secrets.token_urlsafe(16)
@@ -370,7 +437,21 @@ def test_group_and_raster_layers_are_skipped_with_a_note(runner, plan_file, geol
     assert payload["items"][0]["notes"] == notes
 
 
-def test_a_service_with_nothing_to_import_is_done_and_not_probed_again(
+def test_a_layer_the_probe_can_import_is_imported_whatever_its_type(
+    runner, plan_file, geolens
+):
+    service = FakeImport(
+        geolens, [_layer(0, "Cameras", "Oriented Imagery Layer", importable=True)]
+    )
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert [b["layer_name"] for b in service.bodies(PREVIEW)] == ["Cameras"]
+    assert _state(plan_file)["items"][A2]["dataset_ids"] == [dataset_id("Cameras")]
+
+
+def test_a_service_with_nothing_to_import_is_done_and_imports_nothing_on_a_rerun(
     runner, plan_file, geolens
 ):
     service = FakeImport(geolens, [_layer(0, "Imagery", "Raster Layer")])
@@ -380,8 +461,10 @@ def test_a_service_with_nothing_to_import_is_done_and_not_probed_again(
     assert entry["status"] == "done" and entry["dataset_ids"] == []
     assert "the service has no layer to import" in entry["notes"]
 
-    _migrate(runner, plan_file, "--only", A2)
-    assert len(service.bodies(PROBE)) == 1
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+    assert result.exit_code == 0, result.output
+    assert payload["not_up_to_date"] == {}
+    assert service.bodies(PREVIEW) == []
 
 
 def test_layers_geolens_already_holds_make_the_item_exist(runner, plan_file, geolens):
@@ -396,7 +479,51 @@ def test_layers_geolens_already_holds_make_the_item_exist(runner, plan_file, geo
     assert entry["dataset_ids"] == [dataset_id("earlier")]
     assert service.bodies("POST /ingest/commit/") == []
     patches = [s.json() for s in geolens.seen if s.method == "PATCH"]
-    assert patches[0] == {"title": "Parcels (public view)", "visibility": "public"}
+    assert patches[0] == {
+        "title": "Parcels (public view)",
+        "visibility": "public",
+        "expected_updated_at": "2026-10-01T00:00:00+00:00",
+    }
+
+
+def test_a_reused_dataset_its_owner_edited_is_still_reused(runner, plan_file, geolens):
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    earlier = dataset_id("earlier")
+    service.duplicates["Parcels"] = earlier
+    service.fields[earlier] = {"updated_by": "00000000-0000-0000-0000-0000000000a1"}
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    entry = _state(plan_file)["items"][A2]
+    assert entry["status"] == "exists" and entry["reused"] == [earlier]
+
+
+def test_a_target_write_geolens_refuses_as_stale_fails_the_item(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    service.duplicates["Parcels"] = dataset_id("earlier")
+    serve = service._serve_dataset
+
+    def serve_stale(dataset: str) -> None:
+        serve(dataset)
+        geolens.routes[f"PATCH /datasets/{dataset}"] = (
+            409,
+            _problem(409, {"code": "stale_write", "message": "changed"}),
+        )
+
+    service._serve_dataset = serve_stale
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    entry = _state(plan_file)["items"][A2]
+    assert entry["status"] == "failed"
+    assert entry["error"] == (
+        "changed in GeoLens while the plan's title and visibility were written to "
+        f"dataset {dataset_id('earlier')}; it was left as it is"
+    )
 
 
 def test_a_failed_job_fails_the_item_with_its_error(runner, plan_file, geolens):
@@ -501,6 +628,32 @@ def test_a_password_token_is_renewed_once_after_a_rejection(
     }
     raw = (plan_file.parent / "arcgis-migration-state.json").read_text()
     assert password not in raw and password not in result.output
+
+
+@pytest.mark.parametrize(("accepted", "code"), [(True, 0), (False, 3)])
+def test_a_dry_run_signs_in_once_as_the_run_does(
+    runner, plan_file, geolens, monkeypatch, accepted, code
+):
+    routes = {} if accepted else {"generateToken": load("generate_token_fail.json")}
+    portal = FakePortal(portal_routes(routes))
+    monkeypatch.setattr(migrate, "build_opener", lambda: portal)
+    password = secrets.token_urlsafe(16)
+
+    result, _ = _migrate(
+        runner,
+        plan_file,
+        "--only",
+        A1,
+        "--dry-run",
+        "--username",
+        "gis_admin",
+        env={"ARCGIS_PASSWORD": password},
+    )
+
+    assert result.exit_code == code, result.output
+    assert [s.path for s in portal.seen] == ["generateToken"]
+    assert password not in result.output
+    assert not (plan_file.parent / "arcgis-migration-state.json").exists()
 
 
 class _Clock:
@@ -624,6 +777,26 @@ def test_the_token_does_not_follow_a_probe_url_to_another_host(
         "not one of the organization's servers"
         in (_state(plan_file)["items"][A1]["error"])
     )
+
+
+def test_an_inventory_of_another_organization_is_refused(runner, plan_file, geolens):
+    plan = json.loads(plan_file.read_text())
+    plan["inventory"]["scope"]["org_id"] = "AnotherOrg000"
+    plan_file.write_text(json.dumps(plan))
+
+    result, _ = _migrate(
+        runner,
+        plan_file,
+        "--only",
+        A1,
+        "--username",
+        "gis_admin",
+        env={"ARCGIS_PASSWORD": secrets.token_urlsafe(16)},
+    )
+
+    assert result.exit_code == 2
+    assert "ArcGIS organization" in result.output
+    assert geolens.seen == []
 
 
 def test_a_plan_for_another_portal_than_its_inventory_is_refused(
@@ -889,7 +1062,7 @@ def test_a_commit_whose_answer_was_lost_is_not_repeated(runner, plan_file, geole
     commit = service.commit
 
     def commit_then_time_out(seen):
-        commit(seen)
+        commit(seen, "Parcels")
         raise httpx.ReadTimeout("no answer")
 
     preview = service.preview
@@ -905,7 +1078,7 @@ def test_a_commit_whose_answer_was_lost_is_not_repeated(runner, plan_file, geole
     [job] = _state(plan_file)["items"][A2]["layer_jobs"].values()
 
     geolens.routes[PREVIEW] = preview
-    geolens.routes[f"POST /ingest/commit/{job}"] = commit
+    geolens.routes[f"POST /ingest/commit/{job}"] = lambda seen: commit(seen, "Parcels")
     result, _ = _migrate(runner, plan_file, "--only", A2)
 
     assert result.exit_code == 0, result.output
@@ -913,9 +1086,66 @@ def test_a_commit_whose_answer_was_lost_is_not_repeated(runner, plan_file, geole
     entry = _state(plan_file)["items"][A2]
     assert entry["layer_datasets"] == {"0": dataset_id("Parcels")}
     assert entry["layer_jobs"] == {}
-    assert {"title": "Parcels (public view)", "visibility": "public"} in [
-        s.json() for s in geolens.seen if s.method == "PATCH"
+    assert {
+        "title": "Parcels (public view)",
+        "visibility": "public",
+        "expected_updated_at": "2026-10-01T00:00:00+00:00",
+    } in [s.json() for s in geolens.seen if s.method == "PATCH"]
+
+
+@pytest.mark.parametrize("edited", [True, False])
+def test_a_resumed_job_whose_dataset_was_edited_is_not_written(
+    runner, plan_file, geolens, edited
+):
+    import httpx
+
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    commit = service.commit
+
+    def commit_then_time_out(seen):
+        commit(seen, "Parcels")
+        raise httpx.ReadTimeout("no answer")
+
+    preview = service.preview
+
+    def preview_with_a_lost_commit(seen):
+        reply = preview(seen)
+        geolens.routes[f"POST /ingest/commit/{reply['job_id']}"] = commit_then_time_out
+        return reply
+
+    geolens.routes[PREVIEW] = preview_with_a_lost_commit
+    _migrate(runner, plan_file, "--only", A2)
+    parcels = dataset_id("Parcels")
+    # A fresh import leaves no writer; an admin's feature edit stamps theirs.
+    service.fields.setdefault(parcels, {}).update(
+        {"updated_by": "00000000-0000-0000-0000-0000000000a1", "data_revision": 1}
+        if edited
+        else {"updated_by": None}
+    )
+    [job] = _state(plan_file)["items"][A2]["layer_jobs"].values()
+    geolens.routes[PREVIEW] = preview
+    geolens.routes[f"POST /ingest/commit/{job}"] = lambda seen: commit(seen, "Parcels")
+    before = len(geolens.seen)
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    entry = _state(plan_file)["items"][A2]
+    written = [
+        s
+        for s in geolens.seen[before:]
+        if s.method in ("PATCH", "POST") and parcels in s.url
     ]
+    if edited:
+        assert result.exit_code == 1
+        assert entry["error"] == (
+            f"dataset {parcels} changed in GeoLens before its owner was handed "
+            "over; it was left as it is"
+        )
+        assert written == [] and entry["last_update"] == {}
+    else:
+        assert result.exit_code == 0, result.output
+        assert entry["status"] == "done"
+        assert written
 
 
 def test_a_recorded_job_geolens_no_longer_has_is_replaced(runner, plan_file, geolens):
@@ -1113,7 +1343,11 @@ def test_a_rerun_gives_layers_imported_earlier_the_edited_target(
     assert patches == [
         (
             dataset_id("Parcels"),
-            {"title": "Parcels (public view) - Parcels", "visibility": "private"},
+            {
+                "title": "Parcels (public view) - Parcels",
+                "visibility": "private",
+                "expected_updated_at": "2026-10-01T00:00:00+00:00",
+            },
         )
     ]
     # The failed job is committed again (refused as already processed), then
@@ -1122,6 +1356,298 @@ def test_a_rerun_gives_layers_imported_earlier_the_edited_target(
         "private",
         "private",
     ]
+
+
+def test_a_rerun_of_an_item_whose_import_finished_skips_the_probe(
+    runner, tmp_path, geolens
+):
+    """A rerun of an item whose import finished reads the source never, and still writes the item metadata and transfers its dataset."""
+    plan_file = _write_plan(tmp_path, rows={A1: ITEM_TEXT})
+    service = FakeImport(geolens, [_layer(0, "Parcels")], needs_auth=True)
+    keyword = f"POST /records/{dataset_id('Parcels')}/keywords/"
+    preview = service.preview
+
+    def preview_then_break_keywords(seen):
+        reply = preview(seen)
+        geolens.routes[keyword] = (500, _problem(500, "database unavailable"))
+        return reply
+
+    geolens.routes[PREVIEW] = preview_then_break_keywords
+    result, _ = _migrate(
+        runner, plan_file, "--only", A1, "--token", secrets.token_urlsafe(16)
+    )
+    assert result.exit_code == 1
+    assert _state(plan_file)["items"][A1]["status"] == "failed"
+
+    service._serve_dataset(dataset_id("Parcels"))
+    geolens.routes[PROBE] = (503, _problem(503, "the service is unavailable"))
+    geolens.seen.clear()
+
+    result, _ = _migrate(
+        runner, plan_file, "--only", A1, "--token", secrets.token_urlsafe(16)
+    )
+
+    assert result.exit_code == 0, result.output
+    assert not [
+        s
+        for s in geolens.seen
+        if "/services/" in s.url or "/ingest/" in s.url or "/jobs/" in s.url
+    ]
+    entry = _state(plan_file)["items"][A1]
+    assert entry["status"] == "done"
+    assert entry["owner_id"] == OPERATOR
+    assert list(entry["last_update"]) == [dataset_id("Parcels")]
+    assert [s for s in geolens.seen if s.method == "POST" and "/keywords/" in s.url]
+
+
+def test_a_plan_edit_reaches_the_recorded_datasets_without_a_probe(
+    runner, tmp_path, geolens
+):
+    """A plan title and visibility edit reaches the recorded datasets on a rerun, which probes the source never."""
+    plan_file = _write_plan(tmp_path, rows={A2: ITEM_TEXT})
+    service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "Owners", "Table")])
+    keyword = f"POST /records/{dataset_id('Parcels')}/keywords/"
+    preview = service.preview
+    previews: list[str] = []
+
+    def preview_then_break_keywords(seen):
+        reply = preview(seen)
+        previews.append(seen.json()["layer_name"])
+        if previews == ["Parcels", "Owners"]:
+            geolens.routes[keyword] = (500, _problem(500, "database unavailable"))
+        return reply
+
+    geolens.routes[PREVIEW] = preview_then_break_keywords
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+    assert result.exit_code == 1
+
+    plan = json.loads(plan_file.read_text())
+    for item_ in plan["items"]:
+        if item_["id"] == A2:
+            item_["target"]["title"] = "Renamed"
+            item_["target"]["visibility"] = "private"
+    plan_file.write_text(json.dumps(plan))
+    service._serve_dataset(dataset_id("Parcels"))
+    geolens.routes[PROBE] = (503, _problem(503, "the service is unavailable"))
+    geolens.seen.clear()
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert not [
+        s
+        for s in geolens.seen
+        if "/services/" in s.url or "/ingest/" in s.url or "/jobs/" in s.url
+    ]
+    patches = [
+        (s.url.rsplit("/", 1)[-1], s.json())
+        for s in geolens.seen
+        if s.method == "PATCH" and "visibility" in s.json()
+    ]
+    assert patches == [
+        (
+            dataset_id("Parcels"),
+            {
+                "title": "Renamed - Parcels",
+                "visibility": "private",
+                "expected_updated_at": "2026-10-01T00:00:00+00:00",
+            },
+        ),
+        (
+            dataset_id("Owners"),
+            {
+                "title": "Renamed - Owners",
+                "visibility": "private",
+                "expected_updated_at": "2026-10-01T00:00:00+00:00",
+            },
+        ),
+    ]
+    entry = _state(plan_file)["items"][A2]
+    assert entry["status"] == "done"
+    assert list(entry["last_update"]) == [dataset_id("Parcels"), dataset_id("Owners")]
+
+
+def test_a_rerun_after_a_partly_failed_import_probes_again(runner, plan_file, geolens):
+    """A rerun after a layer import failed part way probes the source again and imports the layer that failed."""
+    service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "Owners")])
+    service.job_errors["Owners"] = "boom"
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+    assert result.exit_code == 1
+    assert _state(plan_file)["items"][A2]["layer_datasets"] == {
+        "0": dataset_id("Parcels")
+    }
+    del service.job_errors["Owners"]
+    geolens.seen.clear()
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert len(service.bodies(PROBE)) == 1
+    assert [b["layer_name"] for b in service.bodies(PREVIEW)] == ["Owners"]
+    entry = _state(plan_file)["items"][A2]
+    assert entry["status"] == "done"
+    assert entry["dataset_ids"] == [dataset_id("Parcels"), dataset_id("Owners")]
+
+
+def test_a_rerun_reports_the_left_out_layers_the_import_recorded(
+    runner, tmp_path, geolens
+):
+    """A rerun of an item whose import finished reports the same left-out layer notes, which it takes from the state file."""
+    plan_file = _write_plan(tmp_path, rows={A2: ITEM_TEXT})
+    service = FakeImport(
+        geolens,
+        [
+            _layer(0, "Districts", "Group Layer"),
+            _layer(1, "Parcels", parent_layer_id=0),
+        ],
+    )
+    keyword = f"POST /records/{dataset_id('Parcels')}/keywords/"
+    preview = service.preview
+
+    def preview_then_break_keywords(seen):
+        reply = preview(seen)
+        geolens.routes[keyword] = (500, _problem(500, "database unavailable"))
+        return reply
+
+    geolens.routes[PREVIEW] = preview_then_break_keywords
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+    assert result.exit_code == 1
+
+    service._serve_dataset(dataset_id("Parcels"))
+    geolens.routes[PROBE] = (503, _problem(503, "the service is unavailable"))
+    geolens.seen.clear()
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert not [
+        s
+        for s in geolens.seen
+        if "/services/" in s.url or "/ingest/" in s.url or "/jobs/" in s.url
+    ]
+    notes = _state(plan_file)["items"][A2]["notes"]
+    assert notes == ["Districts: Group Layer layer, not imported"]
+
+
+def test_a_rerun_of_a_private_item_whose_import_finished_needs_no_credential(
+    runner, tmp_path, geolens
+):
+    """A rerun of a private item whose import finished starts without an ArcGIS credential and still transfers its dataset."""
+    plan_file = _write_plan(tmp_path, rows={A1: ITEM_TEXT})
+    service = FakeImport(geolens, [_layer(0, "Parcels")], needs_auth=True)
+    keyword = f"POST /records/{dataset_id('Parcels')}/keywords/"
+    preview = service.preview
+
+    def preview_then_break_keywords(seen):
+        reply = preview(seen)
+        geolens.routes[keyword] = (500, _problem(500, "database unavailable"))
+        return reply
+
+    geolens.routes[PREVIEW] = preview_then_break_keywords
+    result, _ = _migrate(
+        runner, plan_file, "--only", A1, "--token", secrets.token_urlsafe(16)
+    )
+    assert result.exit_code == 1
+    assert _state(plan_file)["items"][A1]["status"] == "failed"
+
+    service._serve_dataset(dataset_id("Parcels"))
+    geolens.routes[PROBE] = (503, _problem(503, "the service is unavailable"))
+    geolens.seen.clear()
+
+    result, _ = _migrate(runner, plan_file, "--only", A1)
+
+    assert result.exit_code == 0, result.output
+    assert not [
+        s
+        for s in geolens.seen
+        if "/services/" in s.url or "/ingest/" in s.url or "/jobs/" in s.url
+    ]
+    entry = _state(plan_file)["items"][A1]
+    assert entry["status"] == "done"
+    assert list(entry["last_update"]) == [dataset_id("Parcels")]
+    assert entry["owner_id"] == OPERATOR
+
+
+def test_a_rerun_with_a_password_signs_no_portal_in(
+    runner, tmp_path, geolens, monkeypatch
+):
+    """A rerun of a private item whose import finished signs no portal in, even with a password at hand."""
+    plan_file = _write_plan(tmp_path, rows={A1: ITEM_TEXT})
+    portal = FakePortal(portal_routes())
+    monkeypatch.setattr(migrate, "build_opener", lambda: portal)
+    service = FakeImport(geolens, [_layer(0, "Parcels")], needs_auth=True)
+    keyword = f"POST /records/{dataset_id('Parcels')}/keywords/"
+    preview = service.preview
+
+    def preview_then_break_keywords(seen):
+        reply = preview(seen)
+        geolens.routes[keyword] = (500, _problem(500, "database unavailable"))
+        return reply
+
+    geolens.routes[PREVIEW] = preview_then_break_keywords
+    result, _ = _migrate(
+        runner,
+        plan_file,
+        "--only",
+        A1,
+        "--username",
+        "gis_admin",
+        env={"ARCGIS_PASSWORD": secrets.token_urlsafe(16)},
+    )
+    assert result.exit_code == 1
+    assert _state(plan_file)["items"][A1]["status"] == "failed"
+
+    service._serve_dataset(dataset_id("Parcels"))
+    geolens.routes[PROBE] = (503, _problem(503, "the service is unavailable"))
+    geolens.seen.clear()
+    before = len(portal.seen)
+
+    result, _ = _migrate(
+        runner,
+        plan_file,
+        "--only",
+        A1,
+        "--username",
+        "gis_admin",
+        env={"ARCGIS_PASSWORD": secrets.token_urlsafe(22)},
+    )
+
+    assert result.exit_code == 0, result.output
+    assert portal.seen[before:] == []
+    assert not [
+        s
+        for s in geolens.seen
+        if "/services/" in s.url or "/ingest/" in s.url or "/jobs/" in s.url
+    ]
+    entry = _state(plan_file)["items"][A1]
+    assert entry["status"] == "done"
+    assert list(entry["last_update"]) == [dataset_id("Parcels")]
+
+
+def test_a_state_file_without_the_recorded_import_resumes_the_full_import(
+    runner, plan_file, geolens
+):
+    """A state file written without the recorded import loads, and a rerun probes the service and imports as before."""
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+    assert result.exit_code == 0, result.output
+    state_path = plan_file.parent / "arcgis-migration-state.json"
+    state = json.loads(state_path.read_text())
+    assert state["items"][A2].get("import_pass") == {
+        "notes": [],
+        "layers": {"0": {"label": "Parcels", "layer_id": "0"}},
+    }
+    del state["items"][A2]["import_pass"]
+    state["items"][A2]["status"] = "pending"
+    state["items"][A2]["last_update"] = {}
+    state_path.write_text(json.dumps(state))
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert len(service.bodies(PROBE)) == 2
+    assert len(service.bodies(PREVIEW)) == 1
+    assert _state(plan_file)["items"][A2]["status"] == "done"
 
 
 ITEM_TEXT = {
@@ -1150,6 +1676,7 @@ def test_item_metadata_is_written_onto_the_datasets(runner, tmp_path, geolens):
         "attribution": "Example County GIS",
         "license": "CC BY 4.0",
         "source_organization": "Example County",
+        "expected_updated_at": "2026-10-01T00:00:00+00:00",
     }
     assert service.keywords[dataset_id("Parcels")] == ["parcels", "cadastre"]
     entry = _state(plan_file)["items"][A2]
@@ -1209,10 +1736,65 @@ def test_a_failed_metadata_write_fails_the_item_and_a_rerun_redoes_only_it(
     assert service.keywords[dataset_id("Parcels")] == ["parcels", "cadastre"]
 
 
+def test_a_transfer_that_landed_before_a_later_one_failed_is_kept(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "Owners", "Table")])
+    parcels, owners = dataset_id("Parcels"), dataset_id("Owners")
+    serve = service._serve_dataset
+    refuse = {"owners": True}
+
+    def serve_refusing_the_second_transfer(dataset: str) -> None:
+        serve(dataset)
+        patch = geolens.routes[f"PATCH /datasets/{dataset}"]
+
+        def patch_or_refuse(seen):
+            if dataset == owners and "owner_id" in seen.json() and refuse["owners"]:
+                return (503, _problem(503, "Transfer unavailable"))
+            return patch(seen)
+
+        geolens.routes[f"PATCH /datasets/{dataset}"] = patch_or_refuse
+
+    service._serve_dataset = serve_refusing_the_second_transfer
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    entry = _state(plan_file)["items"][A2]
+    assert entry["status"] == "failed" and "Transfer unavailable" in entry["error"]
+    transferred = entry["last_update"][parcels]
+    assert list(entry["last_update"]) == [parcels]
+
+    # The new owner edits the handed-over dataset before the retry.
+    service.fields[parcels].update(
+        {
+            "updated_at": "2026-10-02T00:00:00Z",
+            "updated_by": "someone",
+            "data_revision": 1,
+        }
+    )
+    refuse["owners"] = False
+    before = len(geolens.seen)
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert not [
+        s
+        for s in geolens.seen[before:]
+        if s.method in ("PATCH", "POST") and parcels in s.url
+    ]
+    entry = _state(plan_file)["items"][A2]
+    assert entry["last_update"][parcels] == transferred
+    assert owners in entry["last_update"]
+
+
 def _rerun_as_pending(runner, plan_file):
     state_path = plan_file.parent / "arcgis-migration-state.json"
     state = json.loads(state_path.read_text())
     state["items"][A2]["status"] = "pending"
+    # A recorded last update would mark the dataset as already handed over.
+    state["items"][A2]["last_update"] = {}
     state_path.write_text(json.dumps(state))
     return _migrate(runner, plan_file, "--only", A2)
 
@@ -1398,3 +1980,26 @@ def test_a_keyword_written_before_a_failure_is_remembered(runner, tmp_path, geol
     assert result.exit_code == 0, result.output
     assert service.keywords[parcels] == ["cadastre"]
     assert any("'parcels'" in n for n in _state(plan_file)["items"][A2]["notes"])
+
+
+def test_same_named_layers_without_ids_are_told_apart_by_position():
+    from geolens_cli.arcgis_migrate_layers import _titles
+
+    assert _titles("Base", [("Parcels", None), ("Parcels", None)]) == [
+        "Base - Parcels (#1)",
+        "Base - Parcels (#2)",
+    ]
+
+
+def test_same_named_layers_mixing_missing_and_real_ids_stay_distinct():
+    from geolens_cli.arcgis_migrate_layers import _titles
+
+    titles = _titles("Base", [("Parcels", None), ("Parcels", "7")])
+    assert titles == ["Base - Parcels (#1)", "Base - Parcels (7)"]
+
+
+def test_a_position_tag_never_matches_a_numeric_layer_id():
+    from geolens_cli.arcgis_migrate_layers import _titles
+
+    titles = _titles("Base", [("Parcels", None), ("Parcels", "1")])
+    assert titles == ["Base - Parcels (#1)", "Base - Parcels (1)"]

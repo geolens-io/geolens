@@ -11,7 +11,7 @@ never runs implicitly or on a dashboard poll; it needs an explicit
 
 import structlog
 
-from app.core.ai_credentials import anthropic_configured
+from app.core.ai_credentials import builtin_providers_configured
 from app.core.config import settings
 from app.processing.ai.schemas import AIProbeCheck, AIProbeReport
 
@@ -66,10 +66,7 @@ async def _probe_chat(db) -> AIProbeCheck:  # type: ignore[no-untyped-def]
     # Same configured-predicate as the chat route (_check_ai_available).
     # Overlay providers aren't in this map: a selected one counts as configured
     # and the probe call itself surfaces any auth failure.
-    keys = {
-        "anthropic": anthropic_configured(),
-        "openai_compatible": settings.openai_api_key,
-    }
+    keys = builtin_providers_configured()
     if (provider in keys and not keys[provider]) or not model:
         return AIProbeCheck(configured=False)
 

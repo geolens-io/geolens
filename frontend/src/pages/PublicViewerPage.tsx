@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useState } from 'react';
+import { lazy, Suspense, useCallback, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { useSharedMap } from '@/hooks/use-maps';
 import { useViewerLayers } from '@/components/viewer/hooks/use-viewer-layers';
@@ -7,7 +7,9 @@ const ViewerMap = lazy(() =>
   import('@/components/viewer/ViewerMap').then((m) => ({ default: m.ViewerMap }))
 );
 import { LayerLegend } from '@/components/viewer/LayerLegend';
-import type { DrawnLayer } from '@/components/map/legend-facts';
+import { ViewerWithDashboard } from '@/components/viewer/ViewerWithDashboard';
+import { createViewerLayerEntries } from '@/components/viewer/layer-identity';
+import { legendFacts, type DrawnLayer } from '@/components/map/legend-facts';
 import { MapTitlePill } from '@/components/map/MapTitlePill';
 import { BasemapToggle } from '@/components/map/BasemapToggle';
 import { Clock, MapPinOff } from 'lucide-react';
@@ -53,18 +55,44 @@ function PublicViewer() {
   const zoomParam = searchParams.get('zoom');
   const centerParam = searchParams.get('center');
   const legendParam = searchParams.get('legend');
+  // An embed can open with its dashboard collapsed; the reader can still open it.
+  const startDashboardCollapsed = searchParams.get('dashboard') === 'collapsed';
 
   const { data, isLoading, isError, error } = useSharedMap(token, embedToken);
   useDocumentTitle(data?.name || t('common:pageTitle.sharedMap'));
 
-  const effectiveShowLegend = legendParam !== null ? legendParam === 'true' : !isEmbed;
+  const [drawnLayers, setDrawnLayers] = useState<ReadonlyMap<string, DrawnLayer>>();
 
-  const { visibleLayers, handleToggleVisibility, isLegendOpen, setIsLegendOpen } =
+  // An embed keeps colour classes readable without a host opt-in: it opens
+  // the legend by default when a shown layer is styled by class. It waits for
+  // what the map drew, since a failed cluster fetch falls back to plain points.
+  const layers = data?.layers;
+  const embedNeedsLegend = useMemo(() => {
+    if (!isEmbed || !drawnLayers?.size) return false;
+    return createViewerLayerEntries(layers).some(({ layer, key }) => {
+      if (!layer.visible || layer.show_in_legend === false) return false;
+      const facts = legendFacts(layer, drawnLayers.get(key));
+      const classes = [...(facts?.classes ?? []), ...(facts?.cluster?.steps ? [facts.cluster.steps.classes] : [])];
+      return classes.some((c) => c.target === 'color');
+    });
+  }, [isEmbed, layers, drawnLayers]);
+  const effectiveShowLegend = legendParam !== null ? legendParam === 'true' : !isEmbed || embedNeedsLegend;
+
+  const { visibleLayers, hiddenByReader, handleToggleVisibility, isLegendOpen, setIsLegendOpen } =
     useViewerLayers(data?.layers, { showLegend: effectiveShowLegend, mapKey: token });
 
   const [basemapId, setBasemapId] = useState<string | null>(null);
-  const [drawnLayers, setDrawnLayers] = useState<ReadonlyMap<string, DrawnLayer>>();
   const handleLegendToggle = useCallback(() => setIsLegendOpen((prev) => !prev), [setIsLegendOpen]);
+  // Memoized so the memoized ViewerMap doesn't re-render with the page.
+  const savedBasemap = data?.basemap_style;
+  const mapOverlays = useMemo(() => (isEmbed || savedBasemap === undefined ? null : (
+    <BasemapToggle
+      value={basemapId ?? savedBasemap}
+      onChange={setBasemapId}
+      title={t('viewer.changeBasemap')}
+      className="absolute bottom-8 start-3 z-10"
+    />
+  )), [isEmbed, savedBasemap, basemapId, t]);
 
   // Every branch except embeds shows the site banner, expired and invalid
   // share links included, so maintenance notices reach those visitors.
@@ -141,6 +169,9 @@ function PublicViewer() {
 
   const parsedCenter = parseCenter(centerParam);
   const parsedZoom = parseZoom(zoomParam);
+  // A map with no saved view opens fitted to its visible layers, as the Builder
+  // does, unless the URL picks the view.
+  const fitLayers = data.has_saved_view === false && !parsedCenter && parsedZoom === null;
 
   const viewState = {
     center_lng: parsedCenter?.lng ?? data.center_lng,
@@ -155,51 +186,60 @@ function PublicViewer() {
     // pushing it below the fold; embeds never show the host banner.
     <div className="relative flex h-dvh flex-col">
       {!isEmbed && <SiteBanner />}
-      <main id="map-viewport" className="w-full min-h-0 flex-1 relative overflow-hidden">
-      {/* Full-viewport map */}
-      <MapErrorBoundary>
-        <Suspense fallback={<LoadingState message={t('viewer.loading')} />}>
-          <ViewerMap
-            layers={data.layers}
-            basemapStyle={basemapId ?? data.basemap_style}
-            basemapConfig={data.basemap_config ?? null}
-            showBasemapLabels={data.show_basemap_labels ?? true}
-            terrainConfig={data.terrain_config ?? null}
-            initialViewState={viewState}
-            visibleLayers={visibleLayers}
-            embedToken={embedToken}
-            onDrawnChange={setDrawnLayers}
-          />
-        </Suspense>
-      </MapErrorBoundary>
+      <ViewerWithDashboard
+        config={data.dashboard_config}
+        readerTheme={data.reader_theme}
+        layers={data.layers}
+        hiddenLayers={hiddenByReader}
+        embedToken={embedToken}
+        startCollapsed={startDashboardCollapsed}
+        mapName={data.name}
+        mapDescription={data.description}
+        mainLandmark
+      >
+        {({ onMapReady, mapLayers }) => (
+          <main id="map-viewport" className="w-full min-w-0 min-h-0 flex-1 relative overflow-hidden">
+            {/* Full-viewport map */}
+            <MapErrorBoundary>
+              <Suspense fallback={<LoadingState message={t('viewer.loading')} />}>
+                <ViewerMap
+                  layers={mapLayers}
+                  basemapStyle={basemapId ?? data.basemap_style}
+                  basemapConfig={data.basemap_config ?? null}
+                  showBasemapLabels={data.show_basemap_labels ?? true}
+                  terrainConfig={data.terrain_config ?? null}
+                  initialViewState={viewState}
+                  fitLayers={fitLayers}
+                  visibleLayers={visibleLayers}
+                  embedToken={embedToken}
+                  onMapReady={onMapReady}
+                  onDrawnChange={setDrawnLayers}
+                  datasetLinksAllowed={!data.has_non_public_layers}
+                  showAttributeTable={data.show_attribute_table}
+                  overlays={mapOverlays}
+                />
+              </Suspense>
+            </MapErrorBoundary>
 
-      <MapTitlePill name={data.name} description={data.description} />
+            <MapTitlePill name={data.name} description={data.description} />
 
-      {/* Legend overlay */}
-      {effectiveShowLegend && (
-        <LayerLegend
-          layers={data.layers}
-          visibleLayers={visibleLayers}
-          onToggleVisibility={handleToggleVisibility}
-          isOpen={isLegendOpen}
-          onToggle={handleLegendToggle}
-          terrainConfig={data.terrain_config ?? null}
-          legendTitle={data.legend_title ?? null}
-          drawn={drawnLayers}
-        />
-      )}
+            {/* Legend overlay */}
+            {effectiveShowLegend && (
+              <LayerLegend
+                layers={data.layers}
+                visibleLayers={visibleLayers}
+                onToggleVisibility={handleToggleVisibility}
+                isOpen={isLegendOpen}
+                onToggle={handleLegendToggle}
+                terrainConfig={data.terrain_config ?? null}
+                legendTitle={data.legend_title ?? null}
+                drawn={drawnLayers}
+              />
+            )}
 
-      {/* Basemap switcher */}
-      {!isEmbed && (
-        <BasemapToggle
-          value={basemapId ?? data.basemap_style}
-          onChange={setBasemapId}
-          title={t('viewer.changeBasemap')}
-          className="absolute bottom-8 start-3 z-10"
-        />
-      )}
-
-      </main>
+          </main>
+        )}
+      </ViewerWithDashboard>
 
     </div>
   );

@@ -43,6 +43,7 @@ export const REFRESHABLE_ORIGINS: ReadonlySet<DatasetOrigin> = new Set([
   'service',
   'postgis',
   'stac',
+  'database',
 ]);
 
 interface SourceRefreshActionProps {
@@ -220,6 +221,11 @@ export function SourceRefreshAction({
         const body = err.body as { code?: string } | undefined;
         if (body?.code === 'service_token_required') {
           setServiceTokenRequired(true);
+          return;
+        }
+        // The shared copy points at a URL field this dialog doesn't have.
+        if (body?.code === 'credential_over_http') {
+          setError(t('common:errors.credentialOverHttpRefresh'));
           return;
         }
       }

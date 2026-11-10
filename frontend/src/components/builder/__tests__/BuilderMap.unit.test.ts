@@ -78,11 +78,11 @@ describe('getExpressionSafeOpacity', () => {
     expect(getExpressionSafeOpacity({ 'line-opacity': 0.5 }, 'line', 0.4)).toBe(0.2);
   });
 
-  it('multiplies expression-valued opacity by the master slider', () => {
-    const opacityExpression = ['step', ['zoom'], 0.25, 10, 0.75];
+  it('scales expression-valued opacity by the master slider', () => {
+    const opacityExpression = ['step', ['zoom'], 0.5, 10, 1];
 
     expect(getExpressionSafeOpacity({ 'circle-opacity': opacityExpression }, 'circle', 0.4))
-      .toEqual(['*', opacityExpression, 0.4]);
+      .toEqual(['step', ['zoom'], 0.2, 10, 0.4]);
     // Master at 1 keeps the expression identity (no pointless wrapper churn).
     expect(getExpressionSafeOpacity({ 'circle-opacity': opacityExpression }, 'circle', 1)).toEqual(opacityExpression);
   });
@@ -292,6 +292,13 @@ describe('getVisibleLayerBounds across the antimeridian (fix #903)', () => {
       [178.5, -20],
       [181.5, -15],
     ]);
+  });
+
+  // MapLibre's globe fit returns no camera for a zero-size box.
+  it('fits a single-point layer with a box that has width and height', () => {
+    const [[west, south], [east, north]] = getVisibleLayerBounds([layer([12.5, 48.1, 12.5, 48.1])])!;
+    expect(east - west).toBeGreaterThan(0);
+    expect(north - south).toBeGreaterThan(0);
   });
 
   it('merges a crossing layer with a neighbour on the far side of the seam', () => {

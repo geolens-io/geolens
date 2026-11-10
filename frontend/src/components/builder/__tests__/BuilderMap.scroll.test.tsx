@@ -29,9 +29,11 @@ describe('MAP-19 — BuilderMap scroll containment', () => {
   });
 
   it('MapBuilderPage map column has min-h-0 + min-w-0 (no overflow setter)', () => {
-    // The wrapper around <BuilderMap> should be `relative min-h-0 min-w-0`
-    // — NOT `overflow-auto` / `overflow-scroll`.
-    expect(mapBuilderPageSrc).toMatch(/relative\s+min-h-0\s+min-w-0/);
+    // The docked column is a vertical flex `relative flex min-h-0 min-w-0
+    // flex-col`; its map wrapper (the MapErrorBoundary div) carries
+    // `relative min-h-0 flex-1` — still no overflow setter anywhere on the
+    // ancestor chain.
+    expect(mapBuilderPageSrc).toMatch(/relative\s+flex\s+min-h-0\s+min-w-0\s+flex-col/);
   });
 
   it('BuilderMap MapGL element fills the wrapper without explicit overflow', () => {

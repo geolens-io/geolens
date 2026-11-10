@@ -1,0 +1,497 @@
+{
+  "features": [
+    {
+      "attributes": {
+        "GlobalID": "ae7636eb-20cf-4258-b4d1-f29197db57ba",
+        "OBJECTID": 1,
+        "big_id": 1099511627776,
+        "capacity": 0,
+        "count_": 0,
+        "depth": 0,
+        "h\u00f6he": 300.25,
+        "kind": 1,
+        "measured": 1767225599000,
+        "name": "Site 00",
+        "open_time": "08:00:00",
+        "opened": "2026-01-01",
+        "ratio": 0,
+        "site_guid": "00000000-0000-4000-8000-000000000000",
+        "stamp": "2026-05-01T09:30:00-04:00",
+        "status": 1
+      },
+      "geometry": {
+        "m": 0,
+        "x": -8318287.005040128,
+        "y": 4984334.898494009,
+        "z": 600
+      }
+    },
+    {
+      "attributes": {
+        "GlobalID": "a241537a-614c-4f84-8b28-470794f07606",
+        "OBJECTID": 2,
+        "big_id": 1099511627777,
+        "capacity": 80,
+        "count_": 1,
+        "depth": null,
+        "h\u00f6he": 301.25,
+        "kind": 2,
+        "measured": 1767225599000,
+        "name": "Site 01",
+        "open_time": "08:04:00",
+        "opened": "2026-02-02",
+        "ratio": 0.1428571,
+        "site_guid": "00000001-0000-4000-8000-000000000000",
+        "stamp": "2026-05-01T09:30:00-04:00",
+        "status": 2
+      },
+      "geometry": {
+        "m": 1,
+        "x": -8314678.077547996,
+        "y": 4989189.358287798,
+        "z": 601
+      }
+    },
+    {
+      "attributes": {
+        "GlobalID": "9505fba5-5654-40d1-90af-3e866ac5d43c",
+        "OBJECTID": 3,
+        "big_id": 1099511627778,
+        "capacity": 160,
+        "count_": 2,
+        "depth": 21,
+        "h\u00f6he": 302.25,
+        "kind": 1,
+        "measured": 1767225599000,
+        "name": "Site 02",
+        "open_time": "08:08:00",
+        "opened": "2026-03-03",
+        "ratio": 0.2857143,
+        "site_guid": "00000002-0000-4000-8000-000000000000",
+        "stamp": "2026-05-01T09:30:00-04:00",
+        "status": 3
+      },
+      "geometry": {
+        "m": 2,
+        "x": -8311065.5722054215,
+        "y": 4994044.875599233,
+        "z": 602
+      }
+    },
+    {
+      "attributes": {
+        "GlobalID": "528296e2-7952-4edd-a360-f1090ba6c300",
+        "OBJECTID": 4,
+        "big_id": 1099511627779,
+        "capacity": 240,
+        "count_": 3,
+        "depth": null,
+        "h\u00f6he": 303.25,
+        "kind": 2,
+        "measured": 1767225599000,
+        "name": "Site 03",
+        "open_time": "08:12:00",
+        "opened": "2026-04-04",
+        "ratio": 0.4285714,
+        "site_guid": "00000003-0000-4000-8000-000000000000",
+        "stamp": null,
+        "status": 1
+      },
+      "geometry": {
+        "m": 3,
+        "x": -8307449.481487949,
+        "y": 4998901.4478773335,
+        "z": 603
+      }
+    },
+    {
+      "attributes": {
+        "GlobalID": "5f69be5c-a2b3-44dd-9f50-68365176a384",
+        "OBJECTID": 5,
+        "big_id": 1099511627780,
+        "capacity": 320,
+        "count_": 4,
+        "depth": 42,
+        "h\u00f6he": 304.25,
+        "kind": 1,
+        "measured": 1767225599000,
+        "name": "Site 04",
+        "open_time": "08:16:00",
+        "opened": "2026-05-05",
+        "ratio": 0.5714286,
+        "site_guid": "00000004-0000-4000-8000-000000000000",
+        "stamp": "2026-05-01T09:30:00-04:00",
+        "status": 2
+      },
+      "geometry": {
+        "m": 4,
+        "x": -8303808.945564131,
+        "y": 4984361.32723615,
+        "z": 604
+      }
+    },
+    {
+      "attributes": {
+        "GlobalID": "a5e08c2a-09b0-4ea6-85c5-a3247db69b2e",
+        "OBJECTID": 6,
+        "big_id": 1099511627781,
+        "capacity": 400,
+        "count_": 5,
+        "depth": null,
+        "h\u00f6he": 305.25,
+        "kind": 2,
+        "measured": 1767225599000,
+        "name": null,
+        "open_time": "08:20:00",
+        "opened": "2026-06-06",
+        "ratio": 0.7142857,
+        "site_guid": "00000005-0000-4000-8000-000000000000",
+        "stamp": "2026-05-01T09:30:00-04:00",
+        "status": 3
+      },
+      "geometry": {
+        "m": 5,
+        "x": -8300192.823255385,
+        "y": 4989210.431426021,
+        "z": 605
+      }
+    },
+    {
+      "attributes": {
+        "GlobalID": "276dc077-91c9-4b07-b459-456b6c5de88c",
+        "OBJECTID": 7,
+        "big_id": 1099511627782,
+        "capacity": 480,
+        "count_": 6,
+        "depth": 63,
+        "h\u00f6he": 306.25,
+        "kind": 1,
+        "measured": 1767225599000,
+        "name": "Site 06",
+        "open_time": "08:24:00",
+        "opened": "2026-07-07",
+        "ratio": 0.8571429,
+        "site_guid": "00000006-0000-4000-8000-000000000000",
+        "stamp": "2026-05-01T09:30:00-04:00",
+        "status": 1
+      },
+      "geometry": {
+        "m": 6,
+        "x": -8296573.117673211,
+        "y": 4994060.575329804,
+        "z": 606
+      }
+    },
+    {
+      "attributes": {
+        "GlobalID": "0f258461-4491-441a-b27c-37bfd3986d28",
+        "OBJECTID": 8,
+        "big_id": 1099511627783,
+        "capacity": 560,
+        "count_": 7,
+        "depth": null,
+        "h\u00f6he": 307.25,
+        "kind": 2,
+        "measured": 1767225599000,
+        "name": "Site 07",
+        "open_time": "08:28:00",
+        "opened": "2026-08-08",
+        "ratio": 1,
+        "site_guid": "00000007-0000-4000-8000-000000000000",
+        "stamp": "2026-05-01T09:30:00-04:00",
+        "status": 2
+      },
+      "geometry": {
+        "m": 7,
+        "x": -8292949.821572127,
+        "y": 4998911.756355081,
+        "z": 607
+      }
+    },
+    {
+      "attributes": {
+        "GlobalID": "065ec59e-5a38-4400-8d66-90d254f0b28e",
+        "OBJECTID": 9,
+        "big_id": 1099511627784,
+        "capacity": 640,
+        "count_": 8,
+        "depth": 84,
+        "h\u00f6he": 308.25,
+        "kind": 1,
+        "measured": 1767225599000,
+        "name": "Site 08",
+        "open_time": "08:32:00",
+        "opened": "2026-09-09",
+        "ratio": 1.142857,
+        "site_guid": "00000008-0000-4000-8000-000000000000",
+        "stamp": "2026-05-01T09:30:00-04:00",
+        "status": 3
+      },
+      "geometry": {
+        "m": 8,
+        "x": -8289330.808570756,
+        "y": 4984366.194311337,
+        "z": 608
+      }
+    },
+    {
+      "attributes": {
+        "GlobalID": "dc438895-4022-47a7-b769-040333d68145",
+        "OBJECTID": 10,
+        "big_id": 1099511627785,
+        "capacity": 720,
+        "count_": 9,
+        "depth": null,
+        "h\u00f6he": 309.25,
+        "kind": 2,
+        "measured": 1767225599000,
+        "name": "Site 09",
+        "open_time": "08:36:00",
+        "opened": "2026-10-10",
+        "ratio": 1.285714,
+        "site_guid": "00000009-0000-4000-8000-000000000000",
+        "stamp": "2026-05-01T09:30:00-04:00",
+        "status": 1
+      },
+      "geometry": {
+        "m": 9,
+        "x": -8285707.518007585,
+        "y": 4989209.907174833,
+        "z": 609
+      }
+    },
+    {
+      "attributes": {
+        "GlobalID": "5e1945d6-f045-4180-b5f1-062f9f7e676c",
+        "OBJECTID": 11,
+        "big_id": 1099511627786,
+        "capacity": 800,
+        "count_": 10,
+        "depth": 105,
+        "h\u00f6he": 310.25,
+        "kind": 1,
+        "measured": 1767225599000,
+        "name": "Site 10",
+        "open_time": "08:40:00",
+        "opened": "2026-11-11",
+        "ratio": 1.428571,
+        "site_guid": "00000010-0000-4000-8000-000000000000",
+        "stamp": "2026-05-01T09:30:00-04:00",
+        "status": 2
+      },
+      "geometry": {
+        "m": 10,
+        "x": -8282080.639112465,
+        "y": 4994054.64191885,
+        "z": 610
+      }
+    },
+    {
+      "attributes": {
+        "GlobalID": "0caa203b-1383-492a-8104-7c367388dc7e",
+        "OBJECTID": 12,
+        "big_id": 1099511627787,
+        "capacity": 880,
+        "count_": 11,
+        "depth": null,
+        "h\u00f6he": 311.25,
+        "kind": 2,
+        "measured": 1767225599000,
+        "name": "Site 11",
+        "open_time": "08:44:00",
+        "opened": "2026-12-12",
+        "ratio": 1.571429,
+        "site_guid": "00000011-0000-4000-8000-000000000000",
+        "stamp": "2026-05-01T09:30:00-04:00",
+        "status": 3
+      },
+      "geometry": {
+        "m": 11,
+        "x": -8278450.1643910445,
+        "y": 4998900.395909917,
+        "z": 611
+      }
+    }
+  ],
+  "fields": [
+    {
+      "alias": "OBJECTID",
+      "defaultValue": null,
+      "domain": null,
+      "name": "OBJECTID",
+      "required": true,
+      "sqlType": "sqlTypeOther",
+      "type": "esriFieldTypeOID"
+    },
+    {
+      "alias": "Site name",
+      "defaultValue": null,
+      "domain": null,
+      "length": 80,
+      "name": "name",
+      "sqlType": "sqlTypeOther",
+      "type": "esriFieldTypeString"
+    },
+    {
+      "alias": "Kind",
+      "defaultValue": 1,
+      "domain": null,
+      "name": "kind",
+      "sqlType": "sqlTypeOther",
+      "type": "esriFieldTypeSmallInteger"
+    },
+    {
+      "alias": "Status",
+      "defaultValue": 3,
+      "domain": {
+        "codedValues": [
+          {
+            "code": 1,
+            "name": "Active"
+          },
+          {
+            "code": 2,
+            "name": "Inactive"
+          },
+          {
+            "code": 3,
+            "name": "Planned"
+          }
+        ],
+        "description": "Site status",
+        "mergePolicy": "esriMPTDefaultValue",
+        "name": "SiteStatus",
+        "splitPolicy": "esriSPTDefaultValue",
+        "type": "codedValue"
+      },
+      "name": "status",
+      "sqlType": "sqlTypeOther",
+      "type": "esriFieldTypeSmallInteger"
+    },
+    {
+      "alias": "Capacity",
+      "defaultValue": null,
+      "domain": {
+        "description": "Capacity range",
+        "mergePolicy": "esriMPTDefaultValue",
+        "name": "Capacity",
+        "range": [
+          0,
+          1000
+        ],
+        "splitPolicy": "esriSPTDefaultValue",
+        "type": "range"
+      },
+      "name": "capacity",
+      "sqlType": "sqlTypeOther",
+      "type": "esriFieldTypeInteger"
+    },
+    {
+      "alias": "Big ID",
+      "defaultValue": null,
+      "domain": null,
+      "name": "big_id",
+      "sqlType": "sqlTypeOther",
+      "type": "esriFieldTypeBigInteger"
+    },
+    {
+      "alias": "Opened on",
+      "defaultValue": null,
+      "domain": null,
+      "name": "opened",
+      "sqlType": "sqlTypeOther",
+      "type": "esriFieldTypeDateOnly"
+    },
+    {
+      "alias": "Opens at",
+      "defaultValue": null,
+      "domain": null,
+      "name": "open_time",
+      "sqlType": "sqlTypeOther",
+      "type": "esriFieldTypeTimeOnly"
+    },
+    {
+      "alias": "Inspected (with offset)",
+      "defaultValue": null,
+      "domain": null,
+      "name": "stamp",
+      "sqlType": "sqlTypeOther",
+      "type": "esriFieldTypeTimestampOffset"
+    },
+    {
+      "alias": "Measured",
+      "defaultValue": null,
+      "domain": null,
+      "length": 8,
+      "name": "measured",
+      "sqlType": "sqlTypeOther",
+      "type": "esriFieldTypeDate"
+    },
+    {
+      "alias": "Depth (ft)",
+      "defaultValue": null,
+      "domain": null,
+      "name": "depth",
+      "sqlType": "sqlTypeOther",
+      "type": "esriFieldTypeDouble"
+    },
+    {
+      "alias": "Ratio",
+      "defaultValue": null,
+      "domain": null,
+      "name": "ratio",
+      "sqlType": "sqlTypeOther",
+      "type": "esriFieldTypeSingle"
+    },
+    {
+      "alias": "Site GUID",
+      "defaultValue": null,
+      "domain": null,
+      "length": 38,
+      "name": "site_guid",
+      "sqlType": "sqlTypeOther",
+      "type": "esriFieldTypeGUID"
+    },
+    {
+      "alias": "H\u00f6he \u00fcber NN",
+      "defaultValue": null,
+      "domain": null,
+      "name": "h\u00f6he",
+      "sqlType": "sqlTypeOther",
+      "type": "esriFieldTypeDouble"
+    },
+    {
+      "alias": "Count",
+      "defaultValue": null,
+      "domain": null,
+      "name": "count_",
+      "sqlType": "sqlTypeOther",
+      "type": "esriFieldTypeInteger"
+    },
+    {
+      "alias": "GlobalID",
+      "defaultValue": null,
+      "domain": null,
+      "length": 38,
+      "name": "GlobalID",
+      "required": true,
+      "sqlType": "sqlTypeOther",
+      "type": "esriFieldTypeGlobalID"
+    }
+  ],
+  "geometryType": "esriGeometryPoint",
+  "globalIdFieldName": "GlobalID",
+  "hasM": true,
+  "hasZ": true,
+  "objectIdFieldName": "OBJECTID",
+  "spatialReference": {
+    "latestVcsWkid": 3855,
+    "latestWkid": 3857,
+    "vcsWkid": 105790,
+    "wkid": 102100
+  },
+  "uniqueIdField": {
+    "isSystemMaintained": true,
+    "name": "OBJECTID"
+  }
+}

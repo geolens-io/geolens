@@ -112,7 +112,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: FanOutCommitRequest,
 ) -> Response[FanOutCommitResponse | ProblemDetail]:
-    """Commit Fan Out
+    """Commit a staged file as one import per layer
 
      Convert a single pending IngestJob into N independent per-layer ingest tasks.
 
@@ -164,7 +164,7 @@ def sync(
     client: AuthenticatedClient,
     body: FanOutCommitRequest,
 ) -> FanOutCommitResponse | ProblemDetail | None:
-    """Commit Fan Out
+    """Commit a staged file as one import per layer
 
      Convert a single pending IngestJob into N independent per-layer ingest tasks.
 
@@ -211,7 +211,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: FanOutCommitRequest,
 ) -> Response[FanOutCommitResponse | ProblemDetail]:
-    """Commit Fan Out
+    """Commit a staged file as one import per layer
 
      Convert a single pending IngestJob into N independent per-layer ingest tasks.
 
@@ -261,7 +261,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: FanOutCommitRequest,
 ) -> FanOutCommitResponse | ProblemDetail | None:
-    """Commit Fan Out
+    """Commit a staged file as one import per layer
 
      Convert a single pending IngestJob into N independent per-layer ingest tasks.
 

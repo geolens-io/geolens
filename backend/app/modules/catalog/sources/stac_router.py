@@ -37,7 +37,7 @@ from app.modules.catalog.datasets.domain.models import (
     RecordKeyword,
 )
 from app.core.dependencies import get_db
-from app.platform.dataset_origin import set_dataset_origin
+from app.platform.dataset_origin import KEEP, SourceBinding, restamp
 from app.platform.extensions import get_catalog_port
 from app.modules.catalog.sources.adapters.stac import (
     MAX_ASSET_KEY_CHARS,
@@ -46,6 +46,7 @@ from app.modules.catalog.sources.adapters.stac import (
     list_stac_collections,
     search_stac_items,
 )
+from app.modules.catalog.sources.stac_resolve_asset_gate import _MAX_STORED_URI_CHARS
 from app.modules.catalog.sources.stac_next_page import (
     StacNextPage,
     issue_cursor,
@@ -66,7 +67,7 @@ from app.modules.catalog.sources.schemas import (
 )
 from app.core.service_tokens import STAC_SERVICE_FORMAT, ServiceCredential
 from app.platform.security import SSRFError, same_origin, validate_url_for_ssrf
-from app.platform.service_auth import credential_or_422
+from app.platform.service_auth import credential_or_422, credential_over_http_or_422
 
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -135,6 +136,14 @@ router = APIRouter(
     responses=ERROR_RESPONSES_WRITE,
 )
 
+
+# A code, not prose: the 200 response bypasses the client's error localization,
+# so the wizard translates it.
+_ITEM_IMPORT_FAILED_CODE = "import_failed"
+_ITEM_TOO_LONG_CODE = "too_long"
+
+# datasets.source_filename holds the item id.
+_MAX_STORED_ITEM_ID_CHARS = 500
 
 # Names the rule, never the href: this reaches a per-item result body.
 _OFF_ORIGIN_ITEM_HREF_MESSAGE = (
@@ -468,16 +477,21 @@ def _stac_credential(
 
     One door helper for all three STAC endpoints, so they cannot judge the
     same credential three ways. ``credential_or_422`` binds the STAC service
-    format and raises the coded 422 for an input the rules refuse; the
-    header itself is composed later, at each write site.
+    format and raises the coded 422 for an input the rules refuse, as does a
+    credential bound for a plain http catalog; the header itself is composed
+    later, at each write site.
     """
-    return credential_or_422(
+    credential = credential_or_422(
         service_credential_from_request(request.auth, request.token),
         service_format=STAC_SERVICE_FORMAT,
     )
+    credential_over_http_or_422(request.url, credential)
+    return credential
 
 
-@router.post("/connect", response_model=StacConnectResponse)
+@router.post(
+    "/connect", response_model=StacConnectResponse, summary="Connect to a STAC API"
+)
 async def stac_connect(
     request: StacConnectRequest,
     user: Identity = Depends(require_permission("create_layers")),
@@ -547,6 +561,7 @@ def _conformance_classes(value: object) -> list[str]:
     "/collections",
     response_model=StacCollectionsResponse,
     responses={502: BAD_GATEWAY_RESPONSE},
+    summary="List collections in a STAC API",
 )
 async def stac_collections(
     request: StacConnectRequest,
@@ -613,6 +628,7 @@ async def _validate_next_page_href(catalog_url: str, href: str) -> None:
     "/search",
     response_model=StacSearchResponse,
     responses={502: BAD_GATEWAY_RESPONSE},
+    summary="Search items in a STAC API",
 )
 async def stac_search(
     request: StacSearchRequest,
@@ -686,7 +702,11 @@ def _parse_date(iso_str: str | None) -> date | None:
         return None
 
 
-@router.post("/import", response_model=StacImportResponse)
+@router.post(
+    "/import",
+    response_model=StacImportResponse,
+    summary="Import STAC items as datasets",
+)
 async def stac_import(
     request: StacImportRequest,
     user: Identity = Depends(require_permission("create_layers")),
@@ -745,6 +765,17 @@ async def stac_import(
             )
             skipped += 1
             continue
+        if (
+            len(item.id) > _MAX_STORED_ITEM_ID_CHARS
+            or len(item.data_asset_href) > _MAX_STORED_URI_CHARS
+        ):
+            results.append(
+                StacImportResult(
+                    item_id=item.id, status="error", error=_ITEM_TOO_LONG_CODE
+                )
+            )
+            errors += 1
+            continue
         # The item pointer becomes the origin a later credentialed refresh
         # anchors on, so it may not name a host other than the catalog the
         # caller submitted. Search already drops such a link; this refuses it
@@ -795,7 +826,10 @@ async def stac_import(
     # STAC import inserts Record rows directly, beside the datasets façade,
     # raster and VRT creators, so it takes part in the atomic count-cap
     # reservation too.
-    from app.modules.quota.service import reserve_dataset_slot
+    from app.modules.quota.service import (
+        DatasetQuotaExceededError,
+        reserve_dataset_slot,
+    )
 
     for item in importable:
         refusal = import_refusal(cog_info_map.get(item.data_asset_href))
@@ -838,7 +872,6 @@ async def stac_import(
                 dataset = Dataset(
                     record_id=record.id,
                     table_name=table_name,
-                    source_format="stac",
                     source_url=item.data_asset_href,
                     source_filename=item.id,
                     srid=item.epsg,
@@ -847,33 +880,28 @@ async def stac_import(
                     # lazy-loading.
                     last_refreshed_at=datetime.now(timezone.utc),
                 )
-                # asset_href is also what the duplicate-source guard keys on
-                # (origin_ref.asset_href), so writing it here keeps both in
-                # agreement. item_href is the only stored value that can
-                # answer "was this item withdrawn?"; a 200 on the asset href
-                # says nothing about that.
-                set_dataset_origin(
-                    dataset,
-                    "stac",
-                    uri=item.data_asset_href,
-                    url=request.url,
-                    asset_href=item.data_asset_href,
-                    item_href=item.item_href,
-                    item_id=item.id,
-                    collection_id=item.collection,
-                    asset_key=item.data_asset_key,
-                    # True or None, never False: the allowlist drops a None,
-                    # which is how "no credential" is spelled on both origin
-                    # kinds.
-                    auth_required=True if request.catalog_auth_required else None,
-                )
-                # Info in hand means Titiler reached the COG. Every failure
-                # shape stays NULL, since a Titiler error is indistinguishable
-                # from local pre-fetch rejections without parsing its error
-                # bodies (see fetch_cog_info).
                 ci = cog_info_map.get(item.data_asset_href)
-                if ci is not None:
-                    dataset.last_checked_at = datetime.now(timezone.utc)
+                # item_href is the only stored value that can answer "was
+                # this item withdrawn?"; a 200 on the asset href says nothing
+                # about that. Info in hand means Titiler reached the COG, the
+                # one contact this import dates. Every failure shape stays
+                # NULL, since a Titiler error is indistinguishable from local
+                # pre-fetch rejections without parsing its error bodies (see
+                # fetch_cog_info).
+                restamp(
+                    dataset,
+                    SourceBinding.stac(
+                        asset_href=item.data_asset_href,
+                        item_href=item.item_href,
+                        item_id=item.id,
+                        collection_id=item.collection,
+                        asset_key=item.data_asset_key,
+                        url=request.url,
+                        auth_required=request.catalog_auth_required,
+                    ),
+                    contacted_at=None if ci is None else datetime.now(timezone.utc),
+                    refreshed_at=KEEP,
+                )
                 ci = ci or {}
                 # Mirrors the raster row's EPSG preference below: both come
                 # from the same probe and must agree, or OGC Records would
@@ -945,10 +973,17 @@ async def stac_import(
             )
             created += 1
 
-        except Exception as exc:  # broad: per-item STAC import is isolated; any failure is recorded per-item without aborting the batch
-            logger.warning("STAC item import failed", item_id=item.id, error=str(exc))
+        except DatasetQuotaExceededError as exc:
             results.append(
                 StacImportResult(item_id=item.id, status="error", error=str(exc))
+            )
+            errors += 1
+        except Exception:  # broad: per-item STAC import is isolated; any failure is recorded per-item without aborting the batch
+            logger.exception("STAC item import failed", item_id=item.id)
+            results.append(
+                StacImportResult(
+                    item_id=item.id, status="error", error=_ITEM_IMPORT_FAILED_CODE
+                )
             )
             errors += 1
 

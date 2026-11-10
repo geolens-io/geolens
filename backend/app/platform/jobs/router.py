@@ -31,6 +31,7 @@ from app.platform.request_credential import is_publish_key, refuse_publish_key
 from app.platform.extensions import get_permission_extension
 from app.platform.jobs.ledger import Outcome, cancel, retry
 from app.platform.jobs.models import (
+    DATABASE_SOURCE_METADATA_KEY,
     EMBEDDING_BACKFILL_METADATA_KEY,
     FAN_OUT_INTERRUPTED_METADATA_KEY,
     PUBLISH_OBLIGATIONS_FIELD,
@@ -38,6 +39,7 @@ from app.platform.jobs.models import (
     TERMINAL_STATUSES,
     URL_DOWNLOAD_IN_FLIGHT_METADATA_KEY,
     IngestJob,
+    publication_owner,
 )
 from app.platform.jobs.schemas import (
     DbfTruncationCollisionWarning,
@@ -52,6 +54,7 @@ from app.platform.jobs.schemas import (
     StaleCleanupResponse,
 )
 from app.platform.refresh.job_runs import latest_runs_for_jobs, stored_review_reasons
+from app.platform.source_copies import retry_conflict
 from app.platform.jobs.originals_reconcile import reconcile_orphaned_originals
 from app.platform.jobs.quicklook_reconcile import reconcile_orphaned_quicklooks
 from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objects
@@ -193,7 +196,11 @@ async def _settle_stale(db: AsyncSession, jobs: Sequence[IngestJob]) -> None:
         await db.refresh(job)
 
 
-@router.post("/cleanup/stale/", response_model=StaleCleanupResponse)
+@router.post(
+    "/cleanup/stale/",
+    response_model=StaleCleanupResponse,
+    summary="Fail stale ingest jobs",
+)
 async def cleanup_stale_jobs(
     request: Request,
     user: Identity = Depends(
@@ -360,8 +367,17 @@ async def cleanup_stale_jobs(
     return StaleCleanupResponse(**details)
 
 
-@router.post("/status", response_model=JobStatusBatchResponse, include_in_schema=False)
-@router.post("/status/", response_model=JobStatusBatchResponse)
+@router.post(
+    "/status",
+    response_model=JobStatusBatchResponse,
+    include_in_schema=False,
+    summary="Get the status of several ingest jobs",
+)
+@router.post(
+    "/status/",
+    response_model=JobStatusBatchResponse,
+    summary="Get the status of several ingest jobs",
+)
 async def get_job_statuses(
     body: JobStatusBatchRequest,
     request: Request,
@@ -415,7 +431,9 @@ async def get_job_statuses(
     return JobStatusBatchResponse(jobs=entries)
 
 
-@router.get("/{job_id}", response_model=JobStatusResponse)
+@router.get(
+    "/{job_id}", response_model=JobStatusResponse, summary="Get an ingest job's status"
+)
 async def get_job_status(
     job_id: uuid.UUID,
     request: Request,
@@ -435,12 +453,18 @@ async def get_job_status(
             detail="Job not found",
         )
 
-    if job.created_by != user.id:
-        refuse_publish_key(db, "A publish key can read only its owner's jobs")
+    # A job publishes for the account that committed it, which an admin may
+    # have done for the user who previewed it.
+    owner = publication_owner(job)
+    if owner != user.id and is_publish_key(db):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
     if not await _may_read_job(request, db, user, job):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to view this job",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
         )
 
     await _settle_stale(db, [job])
@@ -519,6 +543,9 @@ async def _retry_capability(job: IngestJob) -> tuple[bool, str | None]:
         if metadata.get(marker):
             return False, reason
     if job.source_url and not job.file_path:
+        return True, None
+    # The connection is read from settings again, by name, when the job runs.
+    if metadata.get(DATABASE_SOURCE_METADATA_KEY) is not None:
         return True, None
     if not job.file_path:
         return False, "The source is no longer available. Start the import again."
@@ -729,7 +756,11 @@ async def _job_to_status_response(
     )
 
 
-@router.get("/by-dataset/{dataset_id}", response_model=JobStatusResponse | None)
+@router.get(
+    "/by-dataset/{dataset_id}",
+    response_model=JobStatusResponse | None,
+    summary="Get a dataset's latest ingest job",
+)
 async def get_job_status_by_dataset(
     dataset_id: uuid.UUID,
     user: Identity = Depends(get_current_active_user),
@@ -822,6 +853,7 @@ async def get_job_status_by_dataset(
     response_model=UploadResponse,
     status_code=status.HTTP_202_ACCEPTED,
     responses={409: CONFLICT_RESPONSE},
+    summary="Retry a failed ingest job",
 )
 async def retry_job(
     job_id: uuid.UUID,
@@ -846,8 +878,14 @@ async def retry_job(
             detail="Job not found",
         )
 
-    if job.created_by != user.id:
-        refuse_publish_key(db, "A publish key can retry only its owner's jobs")
+    # A job publishes for the account that committed it, which an admin may
+    # have done for the user who previewed it.
+    owner = publication_owner(job)
+    if owner != user.id and is_publish_key(db):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
     metadata = job.user_metadata or {}
     # Asked for by another credential: a publish key's own jobs never make
     # anything public or change an existing dataset's visibility. A job aimed
@@ -860,12 +898,12 @@ async def retry_job(
         refuse_publish_key(db, "A publish key can't retry a job that sets visibility")
     # Owners always retain access. Cross-user retries additionally require the
     # effective manage_users capability through PermissionExtension.
-    if job.created_by != user.id and not await _can_access_another_users_job(
+    if owner != user.id and not await _can_access_another_users_job(
         request, db, user, job
     ):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to retry this job",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
         )
 
     if job.status != "failed":
@@ -885,6 +923,10 @@ async def retry_job(
             status_code=status_code,
             detail=retry_reason or "This job cannot be retried.",
         )
+
+    conflict = await retry_conflict(db, user, job)
+    if conflict is not None:
+        raise conflict
 
     # Reset the job to pending and commit before re-queueing so the
     # orphan guard in queue_ingest_job can flip it back to failed if
@@ -913,7 +955,7 @@ async def retry_job(
                     else None
                 ),
                 "next_attempt_id": str(job.attempt_id),
-                "cross_user": job.created_by != user.id,
+                "cross_user": owner != user.id,
             },
             ip_address=get_client_ip(request),
         ),
@@ -921,7 +963,7 @@ async def retry_job(
     await db.commit()
     await db.refresh(job)
 
-    await queue_ingest_job(job, str(job.created_by), db=db)
+    await queue_ingest_job(job, str(publication_owner(job)), db=db)
 
     return UploadResponse(
         job_id=job.id,
@@ -961,7 +1003,7 @@ async def _may_cancel_job(
     Arm 1: owners always retain access. Arm 2: the effective cross-user
     capability policy (same as view/retry). Arm 3: dataset write access —
     ``check_dataset_write_access`` raises 404 (not visible) or 403 (visible,
-    not owner/admin); the caller's generic 403 avoids leaking visibility.
+    not owner/admin); the caller's generic 404 avoids leaking visibility.
 
     Arm 2 runs as a SILENT probe: a losing arm is not a denial when a later
     arm grants (arm 3, for a dataset owner
@@ -1005,6 +1047,7 @@ async def _may_cancel_job(
     "/{job_id}/cancel",
     response_model=JobCancelResponse,
     responses={409: CONFLICT_RESPONSE},
+    summary="Cancel an ingest job",
 )
 async def cancel_job(
     job_id: uuid.UUID,
@@ -1033,12 +1076,18 @@ async def cancel_job(
             detail="Job not found",
         )
 
-    if job.created_by != user.id:
-        refuse_publish_key(db, "A publish key can cancel only its owner's jobs")
+    # A job publishes for the account that committed it, which an admin may
+    # have done for the user who previewed it.
+    owner = publication_owner(job)
+    if owner != user.id and is_publish_key(db):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
     if not await _may_cancel_job(request, db, user, job):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to cancel this job",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
         )
 
     if job.status == "cancelled":

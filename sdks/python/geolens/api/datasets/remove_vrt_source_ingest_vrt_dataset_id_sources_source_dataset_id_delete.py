@@ -105,7 +105,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | VrtMutationResponse]:
-    """Remove Vrt Source
+    """Remove a source from a VRT dataset
 
      Remove a COG source from an existing VRT and trigger async regeneration.
 
@@ -144,7 +144,7 @@ def sync(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | VrtMutationResponse | None:
-    """Remove Vrt Source
+    """Remove a source from a VRT dataset
 
      Remove a COG source from an existing VRT and trigger async regeneration.
 
@@ -178,7 +178,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
 ) -> Response[ProblemDetail | VrtMutationResponse]:
-    """Remove Vrt Source
+    """Remove a source from a VRT dataset
 
      Remove a COG source from an existing VRT and trigger async regeneration.
 
@@ -215,7 +215,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
 ) -> ProblemDetail | VrtMutationResponse | None:
-    """Remove Vrt Source
+    """Remove a source from a VRT dataset
 
      Remove a COG source from an existing VRT and trigger async regeneration.
 

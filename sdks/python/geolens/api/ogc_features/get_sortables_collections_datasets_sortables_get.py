@@ -73,7 +73,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
-    """Get Sortables
+    """Get the datasets collection sortables
 
      Sortable properties for the datasets collection (OGC API Records).
 
@@ -98,7 +98,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
-    """Get Sortables
+    """Get the datasets collection sortables
 
      Sortable properties for the datasets collection (OGC API Records).
 
@@ -119,7 +119,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any | ProblemDetail]:
-    """Get Sortables
+    """Get the datasets collection sortables
 
      Sortable properties for the datasets collection (OGC API Records).
 
@@ -142,7 +142,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> Any | ProblemDetail | None:
-    """Get Sortables
+    """Get the datasets collection sortables
 
      Sortable properties for the datasets collection (OGC API Records).
 

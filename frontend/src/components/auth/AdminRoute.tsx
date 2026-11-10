@@ -3,6 +3,7 @@ import { LoadingState } from '@/components/layout/LoadingState';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useEdition } from '@/hooks/use-edition';
 import { useSettingsAdmin } from '@/hooks/use-settings-admin';
+import { useGroupAdmin } from '@/hooks/use-admin-groups';
 import type { Capability } from '@/lib/capabilities';
 
 export function AdminRoute() {
@@ -36,9 +37,19 @@ export function AdminCapabilityRoute({ capability }: { capability: Capability })
 // gate must switch the same way: a plain manage_settings gate would admit
 // multi-tenant per-tenant admins whose every settings request 403s.
 export function AdminSettingsRoute() {
+  return <AdminModeGatedRoute useAllowed={useSettingsAdmin} />;
+}
+
+// The groups API switches the same way (manage_users, or manage_tenants in
+// multi-tenant mode).
+export function AdminGroupsRoute() {
+  return <AdminModeGatedRoute useAllowed={useGroupAdmin} />;
+}
+
+function AdminModeGatedRoute({ useAllowed }: { useAllowed: () => boolean }) {
   const { isLoading: permissionsLoading } = usePermissions();
   const { isLoading: editionLoading } = useEdition();
-  const allowed = useSettingsAdmin();
+  const allowed = useAllowed();
 
   if (permissionsLoading || editionLoading) return <LoadingState />;
   if (!allowed) return <Navigate to="/admin" replace />;

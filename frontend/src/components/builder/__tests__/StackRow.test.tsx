@@ -1081,3 +1081,11 @@ describe('categorical subtitle (ux #840)', () => {
     }
   });
 });
+
+describe('StackRow full name', () => {
+  it('exposes the full layer name as a title so a truncated name stays discoverable', () => {
+    const name = 'Emergency Facilities Statewide Inventory';
+    render(<StackRow {...defaultProps({ layer: makeLayer({ display_name: name }) })} />);
+    expect(screen.getByText(name)).toHaveAttribute('title', name);
+  });
+});

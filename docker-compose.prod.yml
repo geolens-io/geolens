@@ -193,6 +193,10 @@ services:
     # over-commit an 8 GB host; there, set DB_MEM_LIMIT=1.5g API_MEM_LIMIT=1g
     # WORKER_MEM_LIMIT=2g.
     mem_limit: "${DB_MEM_LIMIT:-2g}"
+    # Parallel queries allocate in /dev/shm, and Docker's 64 MB default runs out
+    # under concurrent dashboard load. The tmpfs counts toward mem_limit, so keep
+    # it plus shared_buffers inside DB_MEM_LIMIT.
+    shm_size: "${DB_SHM_SIZE:-512m}"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -298,7 +302,7 @@ services:
       REDIS_URL:
       CDN_BASE_URL:
       PRESIGNED_MULTIPART_THRESHOLD_MB: "${PRESIGNED_MULTIPART_THRESHOLD_MB:-100}"
-      TILE_CACHE_TTL: "${TILE_CACHE_TTL:-300}"
+      TILE_CACHE_TTL: "${TILE_CACHE_TTL:-3600}"
       TILE_SIGNING_SECRET:
       UPLOAD_MAX_SIZE_MB: "${UPLOAD_MAX_SIZE_MB:-500}"
       MAX_TILESET_UNPACKED_MB: "${MAX_TILESET_UNPACKED_MB:-20480}"
@@ -314,9 +318,13 @@ services:
       ALLOWED_EMAIL_DOMAINS:
       TILE_POOL_MIN_SIZE: "${TILE_POOL_MIN_SIZE:-2}"
       TILE_POOL_MAX_SIZE: "${TILE_POOL_MAX_SIZE:-10}"
+      RASTER_TIMEOUT_SLOT_GRACE_SECONDS: "${RASTER_TIMEOUT_SLOT_GRACE_SECONDS:-5}"
       ENV_ONLY_CONFIG: "${ENV_ONLY_CONFIG:-false}"
       CORS_ALLOWED_ORIGINS:
       INGEST_HTTP_TIMEOUT_SECONDS: "${INGEST_HTTP_TIMEOUT_SECONDS:-300}"
+      SERVICE_CREDENTIALS_ALLOW_HTTP_HOSTS:
+      # SQL Server connections, as JSON; read by the listing and the import.
+      DATABASE_SOURCES:
       # 0 keeps terminal ingest_jobs history forever.
       INGEST_JOBS_RETENTION_DAYS: "${INGEST_JOBS_RETENTION_DAYS:-30}"
       PROCRASTINATE_SCHEMA: "${PROCRASTINATE_SCHEMA:-catalog}"
@@ -363,6 +371,9 @@ services:
       # subscribe workers before the API defers to a new queue.
       WORKER_QUEUES: "${WORKER_QUEUES:-priority,ingest,raster,download,ingest-auth-v2}"
       INGEST_HTTP_TIMEOUT_SECONDS: "${INGEST_HTTP_TIMEOUT_SECONDS:-300}"
+      SERVICE_CREDENTIALS_ALLOW_HTTP_HOSTS:
+      # SQL Server connections, as JSON; read by the listing and the import.
+      DATABASE_SOURCES:
       # The URL-import fetch clock runs in this container.
       URL_IMPORT_FETCH_MAX_SECONDS: "${URL_IMPORT_FETCH_MAX_SECONDS:-1800}"
       # The tileset worker rechecks these caps before its first put.
@@ -438,7 +449,11 @@ services:
           [ -n "$$ep" ] && export AWS_S3_ENDPOINT="$$ep"
         fi
         [ "$${S3_ADDRESSING_STYLE:-auto}" = "path" ] && export AWS_VIRTUAL_HOSTING="$${AWS_VIRTUAL_HOSTING:-FALSE}"
-        exec uvicorn titiler.application.main:app --host 0.0.0.0 --port 8000 --workers $${TITILER_WORKERS:-1}
+        # Past this many connections or running requests a worker answers a bare 503
+        # and the proxy sheds it as 429. Default: the raster slots of all API processes split
+        # across TiTiler workers (rounded up) plus 2 of headroom per worker.
+        limit="$${TITILER_LIMIT_CONCURRENCY:-$$(( ($${TILE_POOL_MAX_SIZE:-10} * $${UVICORN_WORKERS:-1} + $${TITILER_WORKERS:-1} - 1) / $${TITILER_WORKERS:-1} + 2 ))}"
+        exec uvicorn titiler.application.main:app --host 0.0.0.0 --port 8000 --workers $${TITILER_WORKERS:-1} --limit-concurrency "$$limit"
     environment:
       # Inputs for the AWS endpoint derivation in the command.
       S3_ENDPOINT: "${S3_ENDPOINT:-}"
@@ -448,6 +463,10 @@ services:
       # is per process, so raise TITILER_MEM_LIMIT with workers: about
       # N x (GDAL_CACHEMAX + 250 MB).
       TITILER_WORKERS: "${TITILER_WORKERS:-1}"
+      TITILER_LIMIT_CONCURRENCY: "${TITILER_LIMIT_CONCURRENCY:-}"
+      # Sizes the default concurrency cap to the API's raster render slots.
+      TILE_POOL_MAX_SIZE: "${TILE_POOL_MAX_SIZE:-10}"
+      UVICORN_WORKERS: "${UVICORN_WORKERS:-2}"
       # Capping glibc arenas slows TiTiler's RSS ratchet under concurrent reads but
       # does not stop it; size TITILER_MEM_LIMIT for the catalog.
       MALLOC_ARENA_MAX: "${TITILER_MALLOC_ARENA_MAX:-2}"
@@ -662,7 +681,7 @@ services:
 
   valkey:
     logging: *bounded-logs
-    image: valkey/valkey:9.1.2-alpine
+    image: valkey/valkey:9.1.3-alpine
     profiles: ["cache", "cloud-dev"]
     restart: unless-stopped
     # cap_drop ALL breaks the entrypoint's setpriv; a non-root user skips it.

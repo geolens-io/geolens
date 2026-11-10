@@ -22,10 +22,25 @@ describe('API error localization boundary', () => {
     expect(translateApiErrorDetail(detail, 422)).toContain(text);
   });
 
+  it.each([
+    ['unsupported_layer_type', 'errors.serviceLayerNoFeatures', 'holds no features'],
+    ['unsupported_geometry', 'errors.serviceGeometryUnsupported', 'multipatch'],
+  ])('maps the service preview refusal %s to its own message', (code, key, text) => {
+    const detail = { code, message: 'English diagnostic' };
+    expect(classifyApiError(detail, 422).key).toBe(key);
+    expect(translateApiErrorDetail(detail, 422)).toContain(text);
+  });
+
   it('maps known backend details to stable keys', () => {
     expect(classifyApiError('Dataset not found', 404)).toEqual({
       key: 'errors.datasetNotFound',
     });
+  });
+
+  it('maps the value label budget refusal to a translated message', () => {
+    const detail = 'Value labels for this dataset are over the 1 MB limit.';
+    expect(classifyApiError(detail, 422)).toEqual({ key: 'errors.valueLabelsTooLarge' });
+    expect(translateApiErrorDetail(detail, 422)).toContain('1 MB');
   });
 
   it('tells an owner at the dataset key limit to revoke one first', () => {
@@ -155,6 +170,19 @@ describe('API error localization boundary', () => {
     );
   });
 
+  it('describes a duplicate still being imported by its job, not a dataset', () => {
+    const detail = {
+      code: 'duplicate_source',
+      message: 'This source is already being imported.',
+      existing_job_id: '6f1c2c55-0e64-4c0e-9b8b-2d4f5b0e1a11',
+    };
+
+    expect(classifyApiError(detail, 409)).toEqual({ key: 'errors.duplicateSourceImporting' });
+    expect(translateApiErrorDetail(detail, 409)).toBe(
+      'This source is already being imported. Wait for that import to finish, then refresh the dataset it creates.',
+    );
+  });
+
   it('collapses the refresh door refusal taxonomy to one key per code, regardless of call site', () => {
     // Two different resolvers (service vs. postgis) word refresh_not_applicable
     // differently; both must land on the same user-facing message.
@@ -196,6 +224,20 @@ describe('API error localization boundary', () => {
         409,
       ),
     ).toEqual({ key: 'errors.refreshReviewSuperseded' });
+  });
+
+  it('maps a refresh through a removed database connection, naming it', () => {
+    expect(
+      classifyApiError(
+        {
+          code: 'database_connection_missing',
+          message: 'The database connection \'warehouse\' is no longer configured.',
+          origin_kind: 'database',
+          connection: 'warehouse',
+        },
+        409,
+      ),
+    ).toEqual({ key: 'errors.databaseConnectionMissing', values: { connection: 'warehouse' } });
   });
 
   // The re-upload commit door returns the SAME `origin_changed`
@@ -343,6 +385,15 @@ describe('API error localization boundary', () => {
     ).toEqual({ key: 'errors.couldNotReachService' });
   });
 
+  it('maps the unrecognized-service probe refusal to its own key', () => {
+    expect(
+      classifyApiError(
+        "Couldn't detect service type. Supported: WFS, ArcGIS Feature Service, and OGC API Features",
+        400,
+      ),
+    ).toEqual({ key: 'errors.serviceNotRecognized' });
+  });
+
   it('falls back the ArcGIS sign-in rate limit to the generic 429 key, unmapped by code', () => {
     // rate_limited carries no dedicated entry: the object branch falls
     // through to its message, which in turn falls through to the generic
@@ -406,6 +457,19 @@ describe('API error localization boundary', () => {
         422,
       ),
     ).toEqual({ key: 'errors.arcgisPortalNotHttps' });
+  });
+
+  it('maps credential_over_http to its own key', () => {
+    expect(
+      classifyApiError(
+        {
+          code: 'credential_over_http',
+          message: 'This service address uses plain HTTP.',
+          field: 'url',
+        },
+        422,
+      ),
+    ).toEqual({ key: 'errors.credentialOverHttp' });
   });
 
   // The sixth and
@@ -651,6 +715,19 @@ describe('API error localization boundary', () => {
     });
   });
 
+  it('maps the refresh hint on an unknown write column and leaves the plain refusal generic', () => {
+    const hint =
+      "Unknown property columns: notes, tag. notes, tag exists in the table but not in GeoLens's column list; refresh the dataset to pick it up.";
+    expect(classifyApiError(hint, 400)).toEqual({
+      key: 'errors.columnsNeedRefresh',
+      values: { columns: 'notes, tag' },
+    });
+    expect(translateApiErrorDetail(hint, 400)).toContain('notes, tag');
+    expect(classifyApiError('Unknown property columns: notes, tag', 400).key).not.toBe(
+      'errors.columnsNeedRefresh',
+    );
+  });
+
   // The sandbox advisory lock is shared between analysis previews
   // and AI chat data queries. Unmapped, this 429 collapses to the generic
   // rate-limit fallback, so a busy chat query refuses an analysis preview
@@ -688,6 +765,24 @@ describe('API error localization boundary', () => {
     expect(
       translateApiErrorDetail(
         'Cannot restrict visibility: dataset is used in shared maps: Flood Risk',
+        422,
+      ),
+    ).toContain('Flood Risk');
+  });
+
+  it('surfaces the maps an unpublish would strand', () => {
+    expect(
+      classifyApiError(
+        'Cannot unpublish: dataset is used in shared maps: Flood Risk, Parcels 2026',
+        422,
+      ),
+    ).toEqual({
+      key: 'errors.datasetUnpublishBlockedByMaps',
+      values: { maps: 'Flood Risk, Parcels 2026' },
+    });
+    expect(
+      translateApiErrorDetail(
+        'Cannot unpublish: dataset is used in shared maps: Flood Risk',
         422,
       ),
     ).toContain('Flood Risk');
@@ -831,5 +926,37 @@ describe('describeUploadRefusal', () => {
     };
 
     expect(translateApiErrorDetail(detail, 413)).not.toContain('{{');
+  });
+
+  it.each([
+    [
+      "This VRT would reach people who cannot see all of its source datasets. Narrow the VRT's visibility or use sources its audience can see.",
+      422,
+      'A VRT dataset would reach people',
+    ],
+    ["A group named 'Planning' already exists", 409, 'A group named "Planning" already exists'],
+    ['Group not found', 404, 'Group not found'],
+  ])('gives the group refusal %j a readable message', (detail, status, text) => {
+    expect(translateApiErrorDetail(detail, status)).toContain(text);
+  });
+});
+
+describe('story write refusals', () => {
+  it.each([
+    [{ code: 'scenes_unreadable', message: 'x' }, 409, "Some scenes were saved by a newer version of GeoLens and can't be published here."],
+    [{ code: 'visibility_unsupported', message: "Stories can't be published as restricted yet." }, 409, "Stories can't be published with this visibility yet."],
+    ['Another change to this story is in progress. Retry shortly.', 409, 'Another change to this story is in progress. Try again in a moment.'],
+    ["This story was saved by a newer version of GeoLens and can't be changed here.", 409, "This story was saved by a newer version of GeoLens and can't be changed here."],
+    ['Story not found', 404, 'Story not found.'],
+    [{ code: 'story_image_too_large', message: 'JPEG images can be at most 15,000 pixels on a side.' }, 413, 'This image is too large. Upload a file under 50 MB with fewer pixels.'],
+    [{ code: 'story_image_unsupported', message: 'x' }, 415, 'Only PNG, JPEG and WebP images can be uploaded.'],
+    [{ code: 'story_image_unreadable', message: 'x' }, 400, "The file isn't a readable image."],
+    [{ code: 'story_image_busy', message: 'x' }, 503, 'Other images are being processed. Try again in a moment.'],
+    [{ code: 'story_image_missing', message: 'x' }, 422, 'No image was sent. Choose a file and try again.'],
+    [{ code: 'story_asset_limit', message: 'x' }, 409, 'This story already holds its most images: 200, or 250 MB of them.'],
+    [{ code: 'story_asset_owner_limit', message: 'x' }, 409, 'Your stories already hold the most image storage an admin allows. Remove images from your stories, or ask an admin to raise the limit.'],
+    [{ code: 'story_assets_not_found', message: 'x', asset_ids: [] }, 422, "Some images in this story weren't found. Remove those image blocks and save again."],
+  ])('localizes %j', (detail, status, expected) => {
+    expect(translateApiErrorDetail(detail, status)).toBe(expected);
   });
 });

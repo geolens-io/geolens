@@ -117,7 +117,7 @@ def sync_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[DatasetApiKeyListResponse | ProblemDetail]:
-    """List Dataset Api Keys
+    """List a dataset's API keys
 
      List the active keys bound to this dataset, newest first.
 
@@ -158,7 +158,7 @@ def sync(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> DatasetApiKeyListResponse | ProblemDetail | None:
-    """List Dataset Api Keys
+    """List a dataset's API keys
 
      List the active keys bound to this dataset, newest first.
 
@@ -194,7 +194,7 @@ async def asyncio_detailed(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> Response[DatasetApiKeyListResponse | ProblemDetail]:
-    """List Dataset Api Keys
+    """List a dataset's API keys
 
      List the active keys bound to this dataset, newest first.
 
@@ -233,7 +233,7 @@ async def asyncio(
     skip: int | Unset = 0,
     limit: int | Unset = 50,
 ) -> DatasetApiKeyListResponse | ProblemDetail | None:
-    """List Dataset Api Keys
+    """List a dataset's API keys
 
      List the active keys bound to this dataset, newest first.
 

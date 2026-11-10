@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState, useMemo, memo } from 'react';
+import { useEffect, useId, useRef, useCallback, useState, useMemo, memo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Map as MapGL, NavigationControl, ScaleControl, FullscreenControl, AttributionControl, TerrainControl } from '@vis.gl/react-maplibre';
@@ -13,15 +13,20 @@ import {
   BLANK_BASEMAP_ID,
   FALLBACK_BASEMAP_STYLE_URL,
 } from '@/lib/basemap-utils';
-import { buildTileTransformRequest, isMvtSourceLayerConfigReady, isThirdPartyTileUrl, refreshRasterTileSources, resolveTileBaseUrl } from '@/lib/tile-utils';
+import { buildTileTransformRequest, featureGid, isMvtSourceLayerConfigReady, isThirdPartyTileUrl, refreshRasterTileSources, resolveTileBaseUrl } from '@/lib/tile-utils';
+import { useMapSelectionStore } from '@/stores/map-selection-store';
+import { TableProperties } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { useRemoteBasemapStyle } from '@/components/map/hooks/use-remote-basemap-style';
 import { isRasterTileAuthError, isRefreshableRasterAuthError, logUnhandledMapError } from '@/lib/map-error-log';
+import { keepCompactAttributionFolded } from '@/lib/compact-attribution';
 import { reportTileTokenRemint } from '@/lib/report';
 import { useWebGLRecovery } from '@/hooks/use-webgl-recovery';
 import { useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { isSessionRenewalPending, useTileAuthRecovery, useVisibleTileTokenRefresh } from '@/hooks/use-tile-auth-recovery';
 import { useViewerTokens } from '@/components/viewer/hooks/use-viewer-tokens';
 import { isViewerTerrainExpected, useViewerTerrain } from '@/components/viewer/hooks/use-viewer-terrain';
+import { useSampledTileSources } from '@/components/viewer/hooks/use-sampled-tile-sources';
 import { FeaturePopup, type FeatureInfo } from '@/components/map/FeaturePopup';
 import {
   activateClusterFeature,
@@ -38,7 +43,12 @@ import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
-import { adapterInputFor, describeLayers } from '@/components/builder/layer-description';
+import { resolveCirclePaint } from '@/components/builder/layer-adapters/circle-adapter';
+import { getBuilderStyleConfig, resolveAdapterType, scaleOpacity } from '@/components/builder/layer-adapters/shared';
+import { LAYER_FADE_MS, LayerFades } from '@/lib/layer-fade';
+import { motionDuration } from '@/lib/reduced-motion';
+import { clampMinZoomAfterFit, FIT_BOUNDS_OPTIONS, getVisibleLayerBounds } from '@/components/builder/builder-bounds';
+import { adapterInputFor, describeLayers, getSourceIdForLayer } from '@/components/builder/layer-description';
 import { prefixed, isDemTerrainVisualSuppressed, registerBasemapStyleGeneration, syncRenderContext } from '@/components/builder/map-sync';
 import { applyMapBasemapAppearance, syncMapComposition } from '@/components/builder/map-composition-sync';
 import type { SyncLayerInput } from '@/components/builder/map-sync';
@@ -50,7 +60,8 @@ import {
   isTerrainBackingLiveVisible,
 } from '@/components/viewer/layer-identity';
 import { getClusterSourceEligibility, getClusterSourceStrategy, shouldFetchClusterGeoJson } from '@/components/builder/cluster-source';
-import { AccessibleMapDataPanel } from '@/components/viewer/AccessibleMapDataPanel';
+import { MapDataPanel } from '@/components/viewer/MapDataPanel';
+import { offersTable } from '@/components/viewer/map-data-table';
 import {
   toAccessibleMapFeatures,
   type AccessibleMapFeatureResult,
@@ -85,6 +96,8 @@ interface ViewerMapProps {
     bearing: number;
     pitch: number;
   };
+  /** Open fitted to the visible layers instead of the center and zoom. Read once, at mount. */
+  fitLayers?: boolean;
   visibleLayers: Set<string>;
   onMapReady?: (map: MaplibreMap) => void;
   embedToken?: string;
@@ -93,6 +106,20 @@ interface ViewerMapProps {
   terrainConfig?: MapTerrainConfig | null;
   /** Receives what the map draws each layer as, by layer key, once any bounded cluster GeoJSON has settled. */
   onDrawnChange?: (drawn: ReadonlyMap<string, DrawnLayer>) => void;
+  /** True when every layer's dataset is public; lets the data panel link to dataset pages. */
+  datasetLinksAllowed?: boolean;
+  /** The map's `show_attribute_table`: the Map data panel offers a Table view. */
+  showAttributeTable?: boolean;
+  /** Page controls laid over the map area, which the Map data panel pushes up rather than covers. */
+  overlays?: ReactNode;
+  /** Layers a visibility change turns on or off fade over a moment instead of switching at once. */
+  fadeLayerChanges?: boolean;
+  /** Follows the `data-map-ready` signal: style, tiles, layers and terrain all settled. */
+  onReadyChange?: (ready: boolean) => void;
+  /** Which top corner the coordinate readout takes; 'start' clears a panel floating on the right, 'past-legend' a legend toggle on the end. */
+  coordReadoutSide?: 'start' | 'end' | 'past-legend';
+  /** Told the docked Map data panel's height, 0 while it is closed, so a panel floating over the map can end above it. */
+  onDataPanelHeightChange?: (height: number) => void;
 }
 
 /** Convert a SharedLayerResponse to the normalized SyncLayerInput.
@@ -101,18 +128,39 @@ export function toViewerSyncInput(
   layer: SharedLayerResponse,
   layerKey: string,
   visibleLayers: Set<string>,
+  fades?: ReadonlyMap<string, { factor: number }>,
 ): SyncLayerInput {
+  // A layer mid-fade is drawn visible, its opacity scaled.
+  const factor = fades?.get(layerKey)?.factor ?? 1;
+  const labelOpacity = factor !== 1 && layer.label_config ? scaleOpacity(layer.label_config.textOpacity ?? 1, factor) : undefined;
+  // The adapters fold the opacity into a circle's fill and a polygon's flat fill only: a ring and a configured extrusion opacity fade through their own keys.
+  // Circle keys go in only for a layer already drawn as points, since paint prefixes can decide the type of a layer with no geometry.
+  const drawsPoints = ['circle', 'cluster', 'mixed'].includes(
+    resolveAdapterType(layer.geometry_type, layer.style_config, layer.paint ?? {}),
+  );
+  const resolvedCircle = resolveCirclePaint(layer.paint ?? {});
+  const fadedPaint =
+    factor !== 1 && drawsPoints
+      ? { ...layer.paint, ...resolvedCircle, 'circle-stroke-opacity': scaleOpacity(resolvedCircle['circle-stroke-opacity'] ?? 1, factor) }
+      : (layer.paint ?? {});
+  // A DEM's elevation tint has a fixed opacity of its own.
+  const paint = factor !== 1 && layer.is_dem ? { ...fadedPaint, '_hypso-fade': factor } : fadedPaint;
+  const extrusionOpacity = getBuilderStyleConfig(layer).extrusionOpacity;
+  const styleConfig =
+    factor !== 1 && typeof extrusionOpacity === 'number'
+      ? { ...layer.style_config, builder: { ...layer.style_config?.builder, extrusionOpacity: extrusionOpacity * factor } }
+      : layer.style_config;
   return {
     id: layerKey,
     dataset_table_name: layer.table_name,
     dataset_geometry_type: layer.geometry_type,
-    opacity: layer.opacity ?? 1,
-    visible: visibleLayers.has(layerKey),
-    paint: layer.paint ?? {},
+    opacity: (layer.opacity ?? 1) * factor,
+    visible: visibleLayers.has(layerKey) || !!fades?.has(layerKey),
+    paint,
     layout: layer.layout ?? {},
     filter: layer.filter ?? null,
-    label_config: layer.label_config,
-    style_config: layer.style_config,
+    label_config: labelOpacity === undefined ? layer.label_config : { ...layer.label_config!, textOpacity: labelOpacity as never },
+    style_config: styleConfig,
     // Carry popup_config so the initial source build requests popup
     // visible_fields / title-template cols=; without it a viewer opened at z<10
     // strips those fields until a token refresh rebuilds the URL.
@@ -129,6 +177,8 @@ export function toViewerSyncInput(
     // `_v=` cache-buster as the builder.
     tile_version: layer.tile_version,
     bounds: layer.dataset_extent_bbox ?? null,
+    // The cluster tile route refuses a filter on a column outside the allowlist, so such a filter stays off its URL.
+    dataset_tile_columns: layer.dataset_tile_columns,
   };
 }
 
@@ -136,6 +186,7 @@ export const ViewerMap = memo(function ViewerMap({
   layers,
   basemapStyle,
   initialViewState,
+  fitLayers = false,
   visibleLayers,
   onMapReady,
   embedToken,
@@ -143,6 +194,13 @@ export const ViewerMap = memo(function ViewerMap({
   showBasemapLabels = true,
   terrainConfig = null,
   onDrawnChange,
+  datasetLinksAllowed = false,
+  showAttributeTable = false,
+  overlays,
+  fadeLayerChanges = false,
+  onReadyChange,
+  coordReadoutSide,
+  onDataPanelHeightChange,
 }: ViewerMapProps) {
   const { t } = useTranslation('common');
   const mapLocale = useMapLocale();
@@ -152,12 +210,19 @@ export const ViewerMap = memo(function ViewerMap({
   // can opt out, so Enterprise also waits for branding to avoid flashing the credit.
   const showBranding = isResolved && (!isEnterprise || (branding !== undefined && branding.show_badge !== false));
   const mapRef = useRef<MaplibreMap | null>(null);
+  // The selection belongs to this map; the next one starts with none.
+  useEffect(() => () => useMapSelectionStore.getState().clear(), []);
+  // Watched from mount: the attribution control is keyed on its credits, and
+  // each remount opens it again.
+  const shellRef = useRef<HTMLDivElement>(null);
+  useEffect(() => (shellRef.current ? keepCompactAttributionFolded(shellRef.current) : undefined), []);
   const managedSourcesRef = useRef<Set<string>>(new Set());
   const prevOrderKeyRef = useRef('');
   const [mapReady, setMapReady] = useState(false);
   // Mount-time projection for the MapGL prop; see the comment at
   // the <MapGL projection> site for why it must never change after mount.
   const [initialProjection] = useState(() => basemapConfig?.projection ?? 'mercator');
+  const [initialBounds] = useState(() => (fitLayers ? getVisibleLayerBounds(layers) : null));
   const layerEntries = useMemo(() => createViewerLayerEntries(layers), [layers]);
   // The visible layers' required credit lines for the attribution control below.
   const layerAttributions = useMemo(
@@ -173,6 +238,9 @@ export const ViewerMap = memo(function ViewerMap({
       : layerAttributions,
     [layerAttributions, showBranding],
   );
+
+  // The rows endpoint refuses an embed whose map hides its attribute table, so its tiles keep every column.
+  const colsOnly = !embedToken || showAttributeTable;
 
   // Tile token management (fetch, auto-refresh, error toast)
   const { tokenMap, refreshTokens } = useViewerTokens({ layers, embedToken });
@@ -242,10 +310,18 @@ export const ViewerMap = memo(function ViewerMap({
     () => layerEntries.filter(({ layer }) => shouldFetchClusterGeoJson(layer)),
     [layerEntries],
   );
+  const boundedGeoJsonLayersRef = useRef(boundedGeoJsonLayers);
+  boundedGeoJsonLayersRef.current = boundedGeoJsonLayers;
+  // What the fetch reads: which layers, their datasets and their data
+  // versions. A filter change, such as a dashboard pick, makes new layer
+  // objects but fetches nothing new; the source filters the fetched points itself.
+  const boundedGeoJsonKey = boundedGeoJsonLayers
+    .map(({ layer, key }) => `${key}|${layer.dataset_id}|${layer.tile_version ?? ''}`)
+    .join(',');
   const boundedGeoJsonRequest = useMemo(() => ({
-    layers: boundedGeoJsonLayers,
+    boundedGeoJsonKey,
     embedToken,
-  }), [boundedGeoJsonLayers, embedToken]);
+  }), [boundedGeoJsonKey, embedToken]);
   const completedBoundedGeoJsonRequestRef = useRef<object | null>(null);
   const [geojsonVersion, setGeojsonVersion] = useState(0);
 
@@ -266,6 +342,13 @@ export const ViewerMap = memo(function ViewerMap({
     features: FeatureInfo[];
   } | null>(null);
   const [dataPanelOpen, setDataPanelOpen] = useState(false);
+  const [dataListShown, setDataListShown] = useState(false);
+  const dataPanelId = useId();
+  const dataLauncherRef = useRef<HTMLButtonElement | null>(null);
+  const closeDataPanel = useCallback(() => {
+    setDataPanelOpen(false);
+    dataLauncherRef.current?.focus();
+  }, []);
   const [accessibleFeatures, setAccessibleFeatures] = useState<AccessibleMapFeatureResult>({
     features: [],
     total: 0,
@@ -346,6 +429,7 @@ export const ViewerMap = memo(function ViewerMap({
 
   // Fetch is independent of map readiness — data lands in a ref, repaint is separate.
   useEffect(() => {
+    const boundedGeoJsonLayers = boundedGeoJsonLayersRef.current;
     if (boundedGeoJsonLayers.length === 0) {
       if (geojsonDataRef.current.size > 0) {
         geojsonDataRef.current = new Map();
@@ -384,13 +468,24 @@ export const ViewerMap = memo(function ViewerMap({
       cancelled = true;
       controller.abort();
     };
-  }, [boundedGeoJsonLayers, boundedGeoJsonRequest, embedToken, t]);
+    // The layers are read through boundedGeoJsonLayersRef; boundedGeoJsonKey covers what changes the fetch.
+  }, [boundedGeoJsonRequest, embedToken, t]);
 
   useEffect(() => {
     if (geojsonVersion === 0) return;
     const map = mapRef.current;
     if (map && mapReady) map.triggerRepaint();
   }, [geojsonVersion, mapReady]);
+
+  // A string key, so a visibility toggle that keeps the same sources doesn't resubscribe the hook.
+  const layerSourceIdKey = layerEntries
+    .map(({ layer, key }) => getSourceIdForLayer(toViewerSyncInput(layer, key, visibleLayers), VIEWER_PREFIX))
+    .join('\n');
+  const layerSourceIds = useMemo(
+    () => new Set(layerSourceIdKey.split('\n').filter(Boolean)),
+    [layerSourceIdKey],
+  );
+  const sampledSources = useSampledTileSources(mapRef, mapReady, layerSourceIds);
 
   // A cluster draws single points while its GeoJSON loads, so reporting waits
   // for the fetch to settle and reports a fallback only when it stays.
@@ -411,11 +506,14 @@ export const ViewerMap = memo(function ViewerMap({
     const drawn = new Map<string, DrawnLayer>();
     for (const { layer, key } of layerEntries) {
       const [described] = describeLayers([toViewerSyncInput(layer, key, visibleLayers)], context).layers;
-      if (described) drawn.set(key, { drawsAs: described.drawsAs });
+      if (!described) continue;
+      drawn.set(key, sampledSources.has(described.sourceId)
+        ? { drawsAs: described.drawsAs, sampled: true }
+        : { drawsAs: described.drawsAs });
     }
     onDrawnChangeRef.current?.(drawn);
     hasReportedRef.current = drawn.size > 0;
-  }, [layerEntries, visibleLayers, geojsonVersion, tileConfigReady, boundedGeoJsonReady, tileConfig?.mvt_source_layer_prefix]);
+  }, [layerEntries, visibleLayers, geojsonVersion, tileConfigReady, boundedGeoJsonReady, tileConfig?.mvt_source_layer_prefix, sampledSources]);
 
   const handleLoad = useCallback(
     (e: MapLibreEvent) => {
@@ -517,10 +615,18 @@ export const ViewerMap = memo(function ViewerMap({
       map.on('dataloading', tilesLoadingHandlerRef.current);
       map.on('idle', tilesIdleHandlerRef.current);
 
+      if (initialBounds) clampMinZoomAfterFit(map);
       setMapReady(true);
       onMapReady?.(map);
     },
-    [onMapReady, embedToken, t, recoverTileAuth, markMapLoading],
+    [onMapReady, embedToken, t, recoverTileAuth, markMapLoading, initialBounds],
+  );
+
+  const tableEntries = useMemo(
+    () => (showAttributeTable
+      ? layerEntries.filter(({ layer, key }) => visibleLayers.has(key) && offersTable(layer))
+      : []),
+    [showAttributeTable, layerEntries, visibleLayers],
   );
 
   // Stable list of interactive (non-heatmap, visible) layer IDs for query operations
@@ -556,13 +662,13 @@ export const ViewerMap = memo(function ViewerMap({
   );
 
   // O(1) lookup: feature.layer.id (with `viewer-layer-` prefix) → layer/source metadata.
-  const layerByMapIdRef = useRef<Map<string, { layer: SharedLayerResponse; sourceId: string }>>(new Map());
+  const layerByMapIdRef = useRef<Map<string, { layer: SharedLayerResponse; sourceId: string; key: string }>>(new Map());
   useEffect(() => {
-    const m = new Map<string, { layer: SharedLayerResponse; sourceId: string }>();
+    const m = new Map<string, { layer: SharedLayerResponse; sourceId: string; key: string }>();
     for (const { layer, key } of layerEntries) {
       const sourceId = prefixed('source', key, VIEWER_PREFIX);
       const ids = viewerManagedLayerIds(layer, key);
-      for (const id of ids) m.set(id, { layer, sourceId });
+      for (const id of ids) m.set(id, { layer, sourceId, key });
     }
     layerByMapIdRef.current = m;
   }, [layerEntries]);
@@ -599,16 +705,18 @@ export const ViewerMap = memo(function ViewerMap({
       setAccessibleFeatures(toAccessibleMapFeatures(
         rendered,
         (mapLayerId) => lookupHitLayer(mapLayerId, true)?.layer ?? null,
+        undefined,
+        colsOnly,
       ));
     } catch {
       // Style transitions can briefly invalidate a layer between getLayer()
       // and queryRenderedFeatures(). The next idle event refreshes safely.
       setAccessibleFeatures({ features: [], total: 0, truncated: false });
     }
-  }, [lookupHitLayer]);
+  }, [lookupHitLayer, colsOnly]);
 
   useEffect(() => {
-    if (!dataPanelOpen) return;
+    if (!dataPanelOpen || !dataListShown) return;
     const map = mapRef.current;
     if (!map) return;
 
@@ -617,7 +725,7 @@ export const ViewerMap = memo(function ViewerMap({
     return () => {
       map.off('idle', refreshAccessibleFeatures);
     };
-  }, [dataPanelOpen, mapReady, visibleLayers, refreshAccessibleFeatures]);
+  }, [dataPanelOpen, dataListShown, mapReady, visibleLayers, refreshAccessibleFeatures]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -678,9 +786,20 @@ export const ViewerMap = memo(function ViewerMap({
           title: cfg?.expression ? substitutePopupTemplate(cfg.expression, props) : null,
           visibleFields: cfg?.visible_fields ?? null,
           zoomAtClick: map.getZoom(),
+          layerId: hit.key,
+          featureId: featureGid(feature),
+          // Bounded cluster GeoJSON has no source layer and already carries every property.
+          fetchRow: colsOnly && cfg?.visible_fields == null && feature.sourceLayer !== undefined && featureGid(feature) !== undefined,
+          embedToken,
         });
       }
       return mapped;
+    };
+
+    // The Map data table selects the first hit's row; a cluster selects none.
+    const selectFirst = (features: FeatureInfo[]) => {
+      const { layerId, featureId } = features[0];
+      if (layerId && featureId !== undefined) useMapSelectionStore.getState().select(layerId, featureId);
     };
 
     const handleClick = (e: MapMouseEvent) => {
@@ -704,6 +823,7 @@ export const ViewerMap = memo(function ViewerMap({
           latitude: e.lngLat.lat,
           features: mapped,
         });
+        selectFirst(mapped);
       } else {
         setPopupInfo(null);
       }
@@ -741,6 +861,7 @@ export const ViewerMap = memo(function ViewerMap({
         latitude: lngLat.lat,
         features: mapped,
       });
+      selectFirst(mapped);
     };
 
     let canvasForKeyboard: HTMLCanvasElement | null = null;
@@ -767,7 +888,7 @@ export const ViewerMap = memo(function ViewerMap({
       map.off('click', handleClick);
       canvasForKeyboard?.removeEventListener?.('keydown', handleKeyDown);
     };
-  }, [mapReady, t, queryInteractiveFeatures, lookupHitLayer]);
+  }, [mapReady, t, queryInteractiveFeatures, lookupHitLayer, colsOnly, embedToken]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -825,8 +946,8 @@ export const ViewerMap = memo(function ViewerMap({
   }, [visibleLayers]);
 
   // Ref to hold current sync inputs so the style.load callback can access them
-  const syncInputsRef = useRef({ layers, visibleLayers, tokenMap, tileConfig, tileConfigReady, showBasemapLabels, basemapConfig });
-  syncInputsRef.current = { layers, visibleLayers, tokenMap, tileConfig, tileConfigReady, showBasemapLabels, basemapConfig };
+  const syncInputsRef = useRef({ layers, visibleLayers, tokenMap, tileConfig, tileConfigReady, showBasemapLabels, basemapConfig, colsOnly });
+  syncInputsRef.current = { layers, visibleLayers, tokenMap, tileConfig, tileConfigReady, showBasemapLabels, basemapConfig, colsOnly };
 
   const applyViewerBasemapConfig = useCallback((map: MaplibreMap) => {
     applyMapBasemapAppearance({
@@ -836,6 +957,8 @@ export const ViewerMap = memo(function ViewerMap({
       idPrefix: VIEWER_PREFIX,
     });
   }, [basemapConfig, showBasemapLabels]);
+
+  const [fades] = useState(() => new LayerFades());
 
   /** Wrapper: convert viewer state to normalized inputs and run shared composition sync. */
   const runSync = useCallback((map: MaplibreMap) => {
@@ -847,12 +970,13 @@ export const ViewerMap = memo(function ViewerMap({
       tileConfigReady: tcReady,
       showBasemapLabels: sbl,
       basemapConfig: bc,
+      colsOnly: lean,
     } = syncInputsRef.current;
     if (!tcReady) return;
     markMapLoading();
     const tileBaseUrl = resolveTileBaseUrl(tc);
     const syncInputs: SyncLayerInput[] = createViewerLayerEntries(ls).map(({ layer, key }) => (
-      toViewerSyncInput(layer, key, vl)
+      toViewerSyncInput(layer, key, vl, fades.entries)
     ));
     syncMapComposition({
       map,
@@ -867,6 +991,7 @@ export const ViewerMap = memo(function ViewerMap({
         showBasemapLabels: sbl,
         basemapPosition: bc?.basemap_position ?? undefined,
         mvtSourceLayerPrefix: tc?.mvt_source_layer_prefix,
+        colsOnly: lean,
       },
       basemapConfig: bc,
       showBasemapLabels: sbl,
@@ -887,7 +1012,79 @@ export const ViewerMap = memo(function ViewerMap({
     appliedCompositionRef.current = hasOnlySuppressedTerrain || (hasViewerSources && hasViewerLayers)
       ? compositionRequestRef.current
       : null;
-  }, [markMapLoading]);
+  }, [markMapLoading, fades]);
+
+  // Toggle visibility when visibleLayers set changes.
+  // Note: runSync also calls syncVisibility via syncLayersToMap, but this
+  // dedicated effect is needed for *visibility-only* changes where other
+  // sync inputs (layers, tokenMap) haven't changed. It runs before the sync
+  // effect so a layer that starts fading is already known to that pass, which
+  // would otherwise hide it at once.
+  // Null until the opening state is drawn, which has nothing to fade from.
+  const prevVisibleRef = useRef<Set<string> | null>(null);
+  useEffect(() => () => fades.cancelAll(), [fades]);
+  // A fade's later steps read the layer as it is when they run, not as it was when the fade began.
+  const latestRef = useRef({ layerEntries, visibleLayers, mvtSourceLayerPrefix: tileConfig?.mvt_source_layer_prefix });
+  latestRef.current = { layerEntries, visibleLayers, mvtSourceLayerPrefix: tileConfig?.mvt_source_layer_prefix };
+  const applyLayer = useCallback((key: string, target: MaplibreMap, parts: { paint: boolean; visibility: boolean }) => {
+    const { layerEntries: entries, visibleLayers: visible, mvtSourceLayerPrefix } = latestRef.current;
+    const entry = entries.find((candidate) => candidate.key === key);
+    if (!entry) return;
+    try {
+      // A toggle reads ids and adapters, never sources, so it needs no tokens.
+      const context = syncRenderContext(new Map(), undefined, geojsonDataRef.current, {
+        idPrefix: VIEWER_PREFIX,
+        mvtSourceLayerPrefix,
+      });
+      const input = toViewerSyncInput(entry.layer, key, visible, fades.entries);
+      const [described] = describeLayers([input], context).layers;
+      if (!described) return;
+      const adapter = getAdapter(described.drawsAs);
+      const adapterInput = adapterInputFor(input, described);
+      if (parts.paint) adapter.syncPaint(target, adapterInput);
+      // Carries the label companion's visibility too, per its own spec.
+      if (parts.visibility) adapter.syncVisibility(target, adapterInput);
+    } catch (e) {
+      // An adapter can throw on a saved style it cannot read; the sync pass never drew that layer.
+      if (import.meta.env.DEV) console.warn(`[viewer] setting the visibility of ${key} failed:`, e);
+    }
+  }, [fades]);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !tileConfigReady) return;
+
+    const applyVisibilityDiff = () => {
+      const prev = prevVisibleRef.current ?? new Set<string>();
+      const fadeMs = prevVisibleRef.current && fadeLayerChanges ? motionDuration(LAYER_FADE_MS) : 0;
+      for (const { key } of layerEntries) {
+        const wasVisible = prev.has(key);
+        const isVisible = visibleLayers.has(key);
+        if (wasVisible === isVisible) continue;
+
+        if (fadeMs <= 0) {
+          // An instant toggle ends a fade the layer was in, and writes its current paint with it.
+          const wasFading = fades.release(map, key);
+          applyLayer(key, map, { paint: wasFading, visibility: true });
+        } else {
+          const write = (target: MaplibreMap, visibility: boolean) => applyLayer(key, target, { paint: true, visibility });
+          if (isVisible) fades.show(map, key, fadeMs, write);
+          else fades.hide(map, key, fadeMs, write);
+        }
+      }
+      prevVisibleRef.current = new Set(visibleLayers);
+    };
+
+    // A plain early return on !isStyleLoaded() would drop the toggle for good:
+    // prevVisibleRef isn't advanced and nothing in the deps changes when the
+    // style settles, so the checkbox and map stay out of sync. Mirror the
+    // BuilderMap idle retry: re-apply the diff once the map settles.
+    // A fade can't wait: the sync pass in the same commit leaves the style unsettled until idle.
+    if (!map.isStyleLoaded() && !(fadeLayerChanges && prevVisibleRef.current)) {
+      map.once('idle', applyVisibilityDiff);
+      return () => { map.off('idle', applyVisibilityDiff); };
+    }
+    applyVisibilityDiff();
+  }, [visibleLayers, layerEntries, mapReady, tileConfigReady, tileConfig?.mvt_source_layer_prefix, fadeLayerChanges, fades, applyLayer]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -914,52 +1111,8 @@ export const ViewerMap = memo(function ViewerMap({
     }
     runSync(map);
   // Note: visibleLayers intentionally excluded — the dedicated visibility effect below handles it
-  }, [layers, mapReady, tileConfigReady, tileConfig?.cdn_base_url, tileConfig?.mvt_source_layer_prefix, tokenMap, showBasemapLabels, runSync, embedToken, geojsonVersion]);
+  }, [layers, mapReady, tileConfigReady, tileConfig?.cdn_base_url, tileConfig?.mvt_source_layer_prefix, tokenMap, showBasemapLabels, runSync, embedToken, colsOnly, geojsonVersion]);
 
-  // Toggle visibility when visibleLayers set changes.
-  // Note: runSync also calls syncVisibility via syncLayersToMap, but this
-  // dedicated effect is needed for *visibility-only* changes where other
-  // sync inputs (layers, tokenMap) haven't changed.
-  const prevVisibleRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !tileConfigReady) return;
-
-    const applyVisibilityDiff = () => {
-      const prev = prevVisibleRef.current;
-      // A toggle reads ids and adapters, never sources, so it needs no tokens.
-      const context = syncRenderContext(new Map(), undefined, geojsonDataRef.current, {
-        idPrefix: VIEWER_PREFIX,
-        mvtSourceLayerPrefix: tileConfig?.mvt_source_layer_prefix,
-      });
-      for (const { layer, key } of layerEntries) {
-        const wasVisible = prev.has(key);
-        const isVisible = visibleLayers.has(key);
-        if (wasVisible === isVisible) continue;
-
-        const input = toViewerSyncInput(layer, key, visibleLayers);
-        const [described] = describeLayers([input], context).layers;
-        try {
-          // Carries the label companion's visibility too, per its own spec.
-          if (described) getAdapter(described.drawsAs).syncVisibility(map, adapterInputFor(input, described));
-        } catch (e) {
-          // An adapter can throw on a saved style it cannot read; the sync pass never drew that layer.
-          if (import.meta.env.DEV) console.warn(`[viewer] setting the visibility of ${described?.id} failed:`, e);
-        }
-      }
-      prevVisibleRef.current = new Set(visibleLayers);
-    };
-
-    // A plain early return on !isStyleLoaded() would drop the toggle for good:
-    // prevVisibleRef isn't advanced and nothing in the deps changes when the
-    // style settles, so the checkbox and map stay out of sync. Mirror the
-    // BuilderMap idle retry: re-apply the diff once the map settles.
-    if (!map.isStyleLoaded()) {
-      map.once('idle', applyVisibilityDiff);
-      return () => { map.off('idle', applyVisibilityDiff); };
-    }
-    applyVisibilityDiff();
-  }, [visibleLayers, layerEntries, mapReady, tileConfigReady, tileConfig?.mvt_source_layer_prefix]);
 
   // Re-add data layers after any basemap/style change. <MapGL
   // styleDiffing={false}> calls map.setStyle() when mapStyle changes, which
@@ -1022,7 +1175,9 @@ export const ViewerMap = memo(function ViewerMap({
     zoom: initialViewState.zoom,
     bearing: initialViewState.bearing,
     pitch: initialViewState.pitch,
-  }), [initialViewState.center_lng, initialViewState.center_lat, initialViewState.zoom, initialViewState.bearing, initialViewState.pitch]);
+    // MapLibre fits these at construction, overriding longitude, latitude and zoom.
+    ...(initialBounds && { bounds: initialBounds, fitBoundsOptions: FIT_BOUNDS_OPTIONS }),
+  }), [initialViewState.center_lng, initialViewState.center_lat, initialViewState.zoom, initialViewState.bearing, initialViewState.pitch, initialBounds]);
 
     const invalidateTileTokens = useInvalidateTileTokens();
   const { contextLost, reload } = useWebGLRecovery(mapRef, mapReady, invalidateTileTokens);
@@ -1039,10 +1194,14 @@ export const ViewerMap = memo(function ViewerMap({
     && compositionPrerequisitesReady
     && compositionSettled
     && (!terrainExpected || terrainReady);
+  useEffect(() => {
+    onReadyChange?.(viewerReady);
+  }, [viewerReady, onReadyChange]);
 
   return (
     <div
-      className={`relative h-full w-full [&_.maplibregl-ctrl-bottom-right]:max-w-[calc(50%-4.5rem)] max-[399px]:[&_.maplibregl-ctrl-bottom-right]:max-w-[calc(50%-1.75rem)] [&_.maplibregl-ctrl-attrib-inner]:[overflow-wrap:break-word] ${!mapReady ? 'bg-muted animate-pulse' : ''}`}
+      ref={shellRef}
+      className={`relative flex h-full w-full flex-col [&_.maplibregl-ctrl-bottom-right]:max-w-[calc(50%-4.5rem)] max-[399px]:[&_.maplibregl-ctrl-bottom-right]:max-w-[calc(50%-1.75rem)] [&_.maplibregl-ctrl-attrib-inner]:[overflow-wrap:break-word] ${!mapReady ? 'bg-muted animate-pulse' : ''}`}
       // aria-label on <MapGL> is silently dropped (react-maplibre v8 forwards
       // only id/ref/style; MapLibre labels its canvas "Map"), so the wrapper
       // region is labelled instead, as in DatasetMap's shell.
@@ -1052,82 +1211,108 @@ export const ViewerMap = memo(function ViewerMap({
       data-map-ready={viewerReady ? 'true' : 'false'}
       data-terrain-ready={terrainReady ? 'true' : 'false'}
     >
-      <MapGL
-        initialViewState={defaultView}
-        mapStyle={mapStyle}
-        styleDiffing={false}
-        locale={mapLocale}
-        // Covers the cold-mount window: react-maplibre applies it on the initial
-        // style.load, before our onLoad-captured appearance sync can run. Frozen
-        // at mount because a CHANGED projection prop goes through
-        // react-maplibre's unguarded _updateSettings setter, which throws
-        // mid style-swap. Runtime changes and basemap switches go through
-        // applyMapBasemapAppearance instead.
-        projection={initialProjection}
-        style={{ width: '100%', height: '100%' }}
-        attributionControl={false}
-        minZoom={1}
-        onLoad={handleLoad}
-        // Claim the wrapper's `error` fallback so a handled tile-auth 401/403
-        // (re-mint / embed-expired toast in handleLoad) doesn't double-log a
-        // red AJAXError console row.
-        onError={logUnhandledMapError}
-      >
-        <NavigationControl position="top-right" />
-        <FullscreenControl position="top-right" />
-        {terrainReady && (
-          <TerrainControl source="terrain-dem" position="top-right" />
-        )}
-        <ScaleControl position="bottom-left" maxWidth={100} unit="metric" />
-        {/* The `key` is load-bearing, not cosmetic. react-maplibre's
-            useControl builds the control once with `useMemo(…, [])`, so a
-            changed `customAttribution` prop never reaches MapLibre. Keying on
-            the credit set remounts the control (removeControl + addControl)
-            exactly when that set changes, and not on any other render.
-            attributionControlKey owns the derivation so its injectivity can be
-            tested directly — see the note there. */}
-        <AttributionControl
-          key={attributionControlKey(attributionCredits)}
-          position="bottom-right"
-          compact={true}
-          customAttribution={
-            attributionCredits.length > 0 ? attributionCredits : undefined
-          }
-        />
-        {popupInfo && (
-          <FeaturePopup
-            longitude={popupInfo.longitude}
-            latitude={popupInfo.latitude}
-            features={popupInfo.features}
-            onClose={() => setPopupInfo(null)}
+      <div className="relative min-h-0 flex-1">
+        <MapGL
+          initialViewState={defaultView}
+          mapStyle={mapStyle}
+          styleDiffing={false}
+          locale={mapLocale}
+          // Covers the cold-mount window: react-maplibre applies it on the initial
+          // style.load, before our onLoad-captured appearance sync can run. Frozen
+          // at mount because a CHANGED projection prop goes through
+          // react-maplibre's unguarded _updateSettings setter, which throws
+          // mid style-swap. Runtime changes and basemap switches go through
+          // applyMapBasemapAppearance instead.
+          projection={initialProjection}
+          style={{ width: '100%', height: '100%' }}
+          attributionControl={false}
+          minZoom={1}
+          onLoad={handleLoad}
+          // Claim the wrapper's `error` fallback so a handled tile-auth 401/403
+          // (re-mint / embed-expired toast in handleLoad) doesn't double-log a
+          // red AJAXError console row.
+          onError={logUnhandledMapError}
+        >
+          <NavigationControl position="top-right" />
+          <FullscreenControl position="top-right" />
+          {terrainReady && (
+            <TerrainControl source="terrain-dem" position="top-right" />
+          )}
+          <ScaleControl position="bottom-left" maxWidth={100} unit="metric" />
+          {/* The `key` is load-bearing, not cosmetic. react-maplibre's
+              useControl builds the control once with `useMemo(…, [])`, so a
+              changed `customAttribution` prop never reaches MapLibre. Keying on
+              the credit set remounts the control (removeControl + addControl)
+              exactly when that set changes, and not on any other render.
+              attributionControlKey owns the derivation so its injectivity can be
+              tested directly — see the note there. */}
+          <AttributionControl
+            key={attributionControlKey(attributionCredits)}
+            position="bottom-right"
+            compact={true}
+            customAttribution={
+              attributionCredits.length > 0 ? attributionCredits : undefined
+            }
           />
-        )}
-      </MapGL>
-      <MapCoordReadout map={mapRef.current} />
-      <AccessibleMapDataPanel
-        layers={layers}
-        visibleLayers={visibleLayers}
-        featureResult={accessibleFeatures}
-        open={dataPanelOpen}
-        onOpenChange={setDataPanelOpen}
-        onRefresh={refreshAccessibleFeatures}
-        disabled={!mapReady}
-      />
-      {/* Loading veil over the pre-terrain flat-DEM frame — fades
-          out once the saved-camera 3D view is ready to show (or immediately
-          for non-terrain maps). */}
-      <div
-        aria-hidden="true"
-        data-testid="viewer-entry-veil"
-        className={`pointer-events-none absolute inset-0 z-20 bg-muted transition-opacity duration-500 ${revealed ? 'opacity-0' : 'opacity-100'}`}
-      />
-      {contextLost && (
-        <div role="alert" className="absolute inset-0 z-50 flex items-center justify-center bg-background/80">
-          <div className="text-center space-y-2">
-            <p className="text-sm text-muted-foreground">{t('errorBoundary.mapMessage')}</p>
-            <button type="button" onClick={reload} className="text-sm underline text-primary hover:text-primary/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring rounded-sm px-1">{t('reload')}</button>
+          {popupInfo && (
+            <FeaturePopup
+              longitude={popupInfo.longitude}
+              latitude={popupInfo.latitude}
+              features={popupInfo.features}
+              onClose={() => setPopupInfo(null)}
+            />
+          )}
+        </MapGL>
+        <MapCoordReadout map={mapRef.current} side={coordReadoutSide} />
+        {overlays}
+        <Button
+          ref={dataLauncherRef}
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={!mapReady}
+          title={t('viewer.data.launch')}
+          aria-expanded={dataPanelOpen}
+          aria-controls={dataPanelOpen ? dataPanelId : undefined}
+          onClick={() => setDataPanelOpen((open) => !open)}
+          className="absolute bottom-0 left-1/2 z-30 h-[calc(2rem+env(safe-area-inset-bottom))] max-w-[calc(100%-13rem)] -translate-x-1/2 rounded-b-none border-b-0 bg-background/95 pb-[env(safe-area-inset-bottom)] shadow-md backdrop-blur-sm focus-visible:ring-inset"
+        >
+          <TableProperties aria-hidden="true" />
+          <span className="truncate max-[399px]:sr-only">{t('viewer.data.launch')}</span>
+        </Button>
+        {/* Loading veil over the pre-terrain flat-DEM frame — fades
+            out once the saved-camera 3D view is ready to show (or immediately
+            for non-terrain maps). */}
+        <div
+          aria-hidden="true"
+          data-testid="viewer-entry-veil"
+          className={`pointer-events-none absolute inset-0 z-20 bg-muted transition-opacity duration-500 ${revealed ? 'opacity-0' : 'opacity-100'}`}
+        />
+        {contextLost && (
+          <div role="alert" className="absolute inset-0 z-50 flex items-center justify-center bg-background/80">
+            <div className="text-center space-y-2">
+              <p className="text-sm text-muted-foreground">{t('errorBoundary.mapMessage')}</p>
+              <button type="button" onClick={reload} className="text-sm underline text-primary hover:text-primary/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring rounded-sm px-1">{t('reload')}</button>
+            </div>
           </div>
-        </div>
+        )}
+      </div>
+      {dataPanelOpen && (
+        <MapDataPanel
+          id={dataPanelId}
+          layers={layers}
+          visibleLayers={visibleLayers}
+          mapRef={mapRef}
+          paneRef={shellRef}
+          featureResult={accessibleFeatures}
+          onRefresh={refreshAccessibleFeatures}
+          datasetLinksAllowed={datasetLinksAllowed}
+          tableEntries={tableEntries}
+          embedToken={embedToken}
+          onClose={closeDataPanel}
+          onListShownChange={setDataListShown}
+          onHeightChange={onDataPanelHeightChange}
+        />
       )}
     </div>
   );

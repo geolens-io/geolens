@@ -16,6 +16,7 @@ import {
   MoreVertical,
   Pencil,
   Plus,
+  Table2,
   Trash2,
   Type,
 } from 'lucide-react';
@@ -34,7 +35,7 @@ import {
 import { LayerTypeIcon } from '@/components/map/layer-icons';
 import { legendFacts } from '@/components/map/legend-facts';
 import { isAnalysableLayer } from '@/components/builder/analysis-eligibility';
-import { getLayerCapabilities } from '@/lib/layer-capabilities';
+import { canOpenAttributeTable, getLayerCapabilities } from '@/lib/layer-capabilities';
 import { cn } from '@/lib/utils';
 import { semanticBadgeColors } from '@/lib/status-colors';
 import {
@@ -65,6 +66,9 @@ interface StackRowProps {
   /** Opens the Analysis panel prefilled with this layer. Rendered
    *  only for analysable (vector dataset) layers. */
   onAnalyzeLayer?: (id: string) => void;
+  /** Opens the read-only attribute-table drawer for this layer. Rendered
+   *  only for layers whose dataset carries a data table. */
+  onOpenAttributeTable?: (id: string) => void;
   /** Stashes this layer's geometry-compatible style in the session clipboard. */
   onCopyStyle?: (id: string) => void;
   /** Applies the clipboard style to this layer; disabled when !canPasteStyle. */
@@ -107,10 +111,9 @@ interface StackRowProps {
    * "Move out of group" gains a confirm.
    */
   dissolvesGroupName?: string | null;
-  // True when this layer's dataset would be silently filtered out
-  // for the map's audience (private/unpublished dataset on a public/shared
-  // map) — computed per-layer by UnifiedStackPanel via
-  // isLayerHiddenFromMapAudience.
+  // True when this layer's dataset would be silently filtered out for some of
+  // the map's audience. UnifiedStackPanel computes it from
+  // isLayerHiddenFromMapAudience and, on a restricted map, the server's answer.
   audienceHidden?: boolean;
   // True when this DEM has its 2D relief overlay turned off
   // (render_mode 'terrain') and is NOT the active 3D terrain source, so it
@@ -136,6 +139,7 @@ export const StackRow = memo(function StackRow({
   onDuplicate,
   onZoomToLayer,
   onAnalyzeLayer,
+  onOpenAttributeTable,
   onCopyStyle,
   onPasteStyle,
   canPasteStyle = false,
@@ -409,6 +413,7 @@ export const StackRow = memo(function StackRow({
         ) : (
           <div className="min-w-0 flex items-center gap-1">
             <span
+              title={displayName}
               className="truncate text-sm min-w-0"
               onDoubleClick={(e) => {
                 e.stopPropagation();
@@ -427,13 +432,13 @@ export const StackRow = memo(function StackRow({
                 <span className="sr-only">{t('stackRow.labelsIndicator', { column: layer.label_config!.column, defaultValue: 'Labels on: {{column}}' })}</span>
               </span>
             )}
-            {/* Categorical subtitle — inline like the badges so the
-                row height never changes; max-w-[45%] per the cap. */}
+            {/* Categorical subtitle, inline like the badges so the row
+                height never changes. It gives up its width before the name. */}
             {categoricalSummary && (
               <span
                 title={categoricalSummary}
                 data-testid="stack-row-categories"
-                className="min-w-0 max-w-[45%] truncate text-2xs text-muted-foreground"
+                className="min-w-0 max-w-[45%] shrink-[1000] truncate text-2xs text-muted-foreground"
               >
                 {categoricalSummary}
               </span>
@@ -641,6 +646,19 @@ export const StackRow = memo(function StackRow({
               >
                 <FlaskConical className="h-3.5 w-3.5 me-2" aria-hidden="true" />
                 {t('stackRow.kebabAnalyzeLayer', { defaultValue: 'Analyze this layer' })}
+              </DropdownMenuItem>
+            )}
+            {/* Read-only data inspection, like Analyze: offered only where a
+                table makes sense (vector dataset with a data table), so a
+                raster, DEM or tileset row never opens a drawer the rows
+                endpoint would refuse. */}
+            {onOpenAttributeTable && canOpenAttributeTable(layer) && (
+              <DropdownMenuItem
+                data-testid="kebab-open-attribute-table"
+                onSelect={() => onOpenAttributeTable(layer.id)}
+              >
+                <Table2 className="h-3.5 w-3.5 me-2" aria-hidden="true" />
+                {t('stackRow.kebabAttributeTable', { defaultValue: 'Open attribute table' })}
               </DropdownMenuItem>
             )}
             <DropdownMenuItem

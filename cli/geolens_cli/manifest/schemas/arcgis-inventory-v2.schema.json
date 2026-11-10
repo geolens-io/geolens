@@ -26,6 +26,16 @@
   "properties": {
     "schema_version": {"const": "2"},
     "generated_at": {"type": "string", "format": "date-time"},
+    "started_at": {
+      "description": "When the inventory started reading the portal, by the portal's clock (the Date header of its first answer). Items changed after it may be missing or out of date. Absent when the portal gave no time, and in reports written before it was recorded.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "started_at_local": {
+      "description": "The same moment by the clock of the machine that ran the inventory, for display.",
+      "type": "string",
+      "format": "date-time"
+    },
     "tool_version": {"type": "string"},
     "complete": {
       "type": "boolean",
@@ -61,7 +71,11 @@
       "required": ["mode", "user"],
       "properties": {
         "mode": {"enum": ["token", "generateToken", "anonymous"]},
-        "user": {"type": ["string", "null"]}
+        "user": {"type": ["string", "null"]},
+        "role": {
+          "description": "The signed-in account's portal role, such as org_admin; null when anonymous or not reported. Only an org_admin sees every group an item is shared with.",
+          "type": ["string", "null"]
+        }
       }
     },
     "scope": {
@@ -117,7 +131,12 @@
     },
     "items": {"type": "array", "items": {"$ref": "#/$defs/item"}},
     "dependencies": {"type": "array", "items": {"$ref": "#/$defs/dependency"}},
-    "errors": {"type": "array", "items": {"$ref": "#/$defs/error"}}
+    "errors": {"type": "array", "items": {"$ref": "#/$defs/error"}},
+    "groups": {
+      "description": "Every group an item is shared with, with its members. Absent when groups weren't read (--no-groups, an anonymous run) or from an inventory written before members were read.",
+      "type": "array",
+      "items": {"$ref": "#/$defs/group_members"}
+    }
   },
   "$defs": {
     "quarter": {
@@ -207,6 +226,16 @@
           ]
         },
         "hosted": {"type": ["boolean", "null"]},
+        "map_widgets": {
+          "description": "For a dashboard, how many map widgets it places, counting each widget even when several show the same web map; null when its configuration lists no widgets.",
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "map_widget_maps": {
+          "description": "For a dashboard, the web map item ids its map widgets show; present with map_widgets.",
+          "type": "array",
+          "items": {"type": "string"}
+        },
         "dependencies_status": {
           "enum": ["parsed", "unparsed", "error", "not_fetched", "not_applicable"]
         },
@@ -354,16 +383,35 @@
         "access": {"type": ["string", "null"]}
       }
     },
+    "group_members": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "access", "members", "members_unread"],
+      "properties": {
+        "id": {"type": "string"},
+        "title": {"type": "string"},
+        "access": {"type": ["string", "null"]},
+        "members": {
+          "description": "ArcGIS usernames of the group's owner, managers and members; null when they couldn't all be read.",
+          "type": ["array", "null"],
+          "items": {"type": "string"}
+        },
+        "members_unread": {
+          "description": "Why members is null: the group hides its members from the inventory's account, or the portal didn't list them.",
+          "type": ["string", "null"]
+        }
+      }
+    },
     "error": {
       "type": "object",
       "additionalProperties": false,
       "required": ["item_id", "phase", "http_status", "message"],
       "properties": {
         "item_id": {
-          "description": "The item's id; for the owner and folders phases, the owner's username; for external, the referenced item's id.",
+          "description": "The item's id; for the owner and folders phases, the owner's username; for external, the referenced item's id; for group_members, the group's id.",
           "type": "string"
         },
-        "phase": {"enum": ["item_data", "item_details", "item_groups", "related", "external", "owner", "folders"]},
+        "phase": {"enum": ["item_data", "item_details", "item_groups", "related", "external", "owner", "folders", "group_members"]},
         "http_status": {"type": ["integer", "null"]},
         "message": {"type": "string"}
       }

@@ -1,13 +1,31 @@
 """Map sharing, public viewer, and dataset-in-use helpers."""
 
 import hashlib
+import math
 import secrets
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import func, nulls_last, or_, select
+from sqlalchemy import (
+    ColumnElement,
+    Text,
+    and_,
+    any_,
+    bindparam,
+    cast,
+    column,
+    exists,
+    func,
+    literal,
+    nulls_last,
+    or_,
+    select,
+)
+from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.geo import extent_to_bbox
@@ -17,9 +35,15 @@ from app.core.tile_scope import tile_template_query
 from app.core.text import escape_ilike
 from app.modules.auth.models import User
 from app.modules.catalog.authorization import (
+    ANONYMOUS_MAP_VISIBILITIES,
+    RESTRICTED_MAP_VISIBILITY,
+    SIGNED_IN_MAP_VISIBILITIES,
+    map_group_member,
     answers_audience_questions,
+    apply_map_visibility_filter,
     apply_visibility_filter,
     audience_admits,
+    readable_columns,
     visible_extent_column,
 )
 from app.modules.catalog.datasets.domain.models import (
@@ -28,21 +52,27 @@ from app.modules.catalog.datasets.domain.models import (
     DatasetGrant,
     Record,
 )
-from app.modules.catalog.maps.models import Map, MapLayer, MapShareToken
+from app.modules.catalog.maps.models import (
+    Map,
+    MapLayer,
+    MapShareToken,
+)
+from app.modules.catalog.maps.sharing import readable_thumbnail_urls
 from app.modules.catalog.maps.sharing_policy import (
     ShareExpirationPresetDays,
     resolve_share_expiration as _resolve_share_expiration,
 )
-from app.modules.catalog.maps.service_crud import get_map
+from app.modules.catalog.maps.service_crud import get_map, maps_with_dashboards
 from app.modules.catalog.maps.service_layers import (
     lock_map_layers,
     lock_maps_for_admin_write,
 )
 from app.modules.catalog.maps.service_shared import (
-    _apply_map_visibility_filter,
+    LayerRow,
     _extract_dem_vertical_units,
     readable_dataset_ids,
 )
+from app.modules.catalog.maps.dashboard import render_dashboard
 from app.modules.catalog.maps.style_json import project_terrain_config
 from app.modules.embed_tokens.service import resolve_embed_scope_for_map
 from app.modules.embed_tokens.sharing import (
@@ -74,28 +104,23 @@ async def validate_public_visibility(
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
         .join(Record, Dataset.record_id == Record.id)
         .where(MapLayer.map_id == map_id)
-        .where(Record.visibility != "public")
+        .where(or_(Record.visibility != "public", Record.record_status != "published"))
     )
     rows = (await session.execute(stmt)).all()
     readable = await readable_dataset_ids(session, {row[1] for row in rows}, reader)
     return [row[0] for row in rows if row[1] in readable]
 
 
-# The two shared audiences. A private map has no audience beyond
-# owner/grantees, so it can never be stranded. Who a map reaches is core's own
-# rule, not the permission seam's, so an overlay can't narrow this.
-_SHARED_MAP_AUDIENCES = ("public", "internal")
-
-
-async def _stranded_viewer_exists(
+async def _lost_readers(
     session: AsyncSession,
     before: RecordAudience,
     after: RecordAudience,
-) -> bool:
-    """Does a real account sit in the audience this change removes?
+    regrant: Callable[[], Awaitable[object]] | None = None,
+) -> ColumnElement[bool]:
+    """A predicate over ``User``: an active account this change cuts out.
 
-    A narrower audience isn't someone losing access, so this asks whether
-    anyone stands in the cut part (both narrowing directions need that).
+    A narrower audience isn't someone losing access, so this names who stands
+    in the cut part (both narrowing directions need that).
 
     The before/after difference, not a hand-excluded named slice, makes
     exclusions follow the authority's policy rather than a hardcoded "admin"
@@ -107,16 +132,23 @@ async def _stranded_viewer_exists(
 
     ``IS NOT false``/``IS NOT true``: a NULL in a WHERE would silently drop
     accounts the authority can't classify.
+
+    ``regrant`` changes the dataset's grants between the two reads, so the
+    readers before it are kept by id.
     """
-    stmt = (
-        select(User.id)
-        .where(User.is_active.is_(True))
-        .where(User.status == "active")
-        .where(before.users.is_not(False))
-        .where(after.users.is_not(True))
-        .limit(1)
-    )
-    return (await session.execute(stmt)).scalar_one_or_none() is not None
+    active = and_(User.is_active.is_(True), User.status == "active")
+    if regrant is None:
+        kept = before.users.is_not(False)
+    else:
+        readers = list(
+            await session.scalars(
+                select(User.id).where(active).where(before.users.is_not(False))
+            )
+        )
+        await regrant()
+        ids = bindparam("readers", readers, type_=ARRAY(PG_UUID(as_uuid=True)))
+        kept = User.id == any_(ids)
+    return and_(active, kept, after.users.is_not(True))
 
 
 async def find_maps_broken_by_dataset_visibility(
@@ -126,11 +158,15 @@ async def find_maps_broken_by_dataset_visibility(
     old_visibility: str,
     new_visibility: str,
     record_status: str,
+    new_record_status: str | None = None,
     record_id: uuid.UUID,
     owner_id: uuid.UUID | None,
+    regrant: Callable[[], Awaitable[object]] | None = None,
 ) -> list[str]:
     """Names of the owner's shared maps that work at ``old_visibility`` and
-    would not at ``new_visibility``.
+    ``record_status`` and would not at ``new_visibility`` and
+    ``new_record_status`` (default: unchanged). A restricted map counts when a
+    member of one of its groups would lose the layer.
 
     Only maps the dataset's owner (``owner_id``) created count, and only while
     the owner can read the dataset. Other users' maps lose the layer instead,
@@ -138,23 +174,41 @@ async def find_maps_broken_by_dataset_visibility(
 
     The audiences come from the permission authority, so an overlay's own
     policy decides who would be stranded. An authority that can't answer
-    (:func:`answers_audience_questions`) gets all of the owner's shared maps. An
-    unpublished record needs no special case: a draft's audience is owner and
-    admins both before and after, so nobody is stranded.
+    (:func:`answers_audience_questions`) gets all of the owner's shared maps,
+    unless only the status of an unpublished record changes.
+
+    ``regrant``, when given, changes the dataset's grants as well. It runs at
+    most once, between reading who could read before and after; a caller
+    runs it if this didn't.
     """
-    # A no-op change strands nobody for any authority, and a round-tripped
-    # record resubmits the same visibility.
-    if old_visibility == new_visibility or owner_id is None:
-        return []
     stmt = (
         select(Map.name)
         .select_from(MapLayer)
         .join(Map, MapLayer.map_id == Map.id)
         .where(MapLayer.dataset_id == dataset_id)
         .where(Map.created_by == owner_id)
+        .where(
+            Map.visibility.in_((*SIGNED_IN_MAP_VISIBILITIES, RESTRICTED_MAP_VISIBILITY))
+        )
     )
+    new_record_status = new_record_status or record_status
     permission = get_permission_extension()
-    if answers_audience_questions(permission):
+    answers = answers_audience_questions(permission)
+    # A no-op change strands nobody for any authority, and a round-tripped
+    # record resubmits the same visibility. Without an answer, only a status
+    # change that leaves published is taken to narrow.
+    same_grants = old_visibility == new_visibility and regrant is None
+    strands_nobody = same_grants and (
+        record_status == new_record_status
+        or (not answers and record_status != "published")
+    )
+    if (
+        strands_nobody
+        or owner_id is None
+        or (await session.execute(stmt.limit(1))).first() is None
+    ):
+        return []
+    if answers:
         query = RecordAudienceQuery(
             dataset_id=dataset_id,
             record_id=record_id,
@@ -164,23 +218,31 @@ async def find_maps_broken_by_dataset_visibility(
         )
         before = await permission.record_audience(query, User, grant_cls=DatasetGrant)
         after = await permission.record_audience(
-            replace(query, visibility=new_visibility), User, grant_cls=DatasetGrant
+            replace(query, visibility=new_visibility, record_status=new_record_status),
+            User,
+            grant_cls=DatasetGrant,
         )
         # Asked per audience: a public map losing a public dataset strands
         # anonymous visitors even when an internal map's viewers all hold grants.
-        signed_in_stranded = await _stranded_viewer_exists(session, before, after)
+        lost = await _lost_readers(session, before, after, regrant)
+        signed_in_stranded = await session.scalar(select(exists().where(lost)))
         anonymous_stranded = before.includes_anonymous and not after.includes_anonymous
-        audiences = [
-            visibility
-            for visibility in _SHARED_MAP_AUDIENCES
-            if signed_in_stranded or (visibility == "public" and anonymous_stranded)
-        ]
-        if not audiences:
+        # Who a map reaches is core's rule, not the permission seam's, and a
+        # private map reaches nobody beyond its owner, so it is never stranded.
+        if signed_in_stranded:
+            member_lost = (
+                select(User.id).where(lost).where(map_group_member(Map.id, User.id))
+            ).exists()
+            reached = or_(
+                Map.visibility.in_(SIGNED_IN_MAP_VISIBILITIES),
+                and_(Map.visibility == RESTRICTED_MAP_VISIBILITY, member_lost),
+            )
+        elif anonymous_stranded:
+            reached = Map.visibility.in_(ANONYMOUS_MAP_VISIBILITIES)
+        else:
             return []
-        stmt = stmt.where(audience_admits(before, owner_id))
-    else:
-        audiences = list(_SHARED_MAP_AUDIENCES)
-    result = await session.execute(stmt.where(Map.visibility.in_(audiences)))
+        stmt = stmt.where(audience_admits(before, owner_id)).where(reached)
+    result = await session.execute(stmt)
     return [row[0] for row in result.all()]
 
 
@@ -202,7 +264,7 @@ async def create_share_token(
     )
     if visibility is None or visible_creator_id is None:
         raise ValueError("Map not found")
-    if visibility != "public":
+    if visibility not in ANONYMOUS_MAP_VISIBILITIES:
         raise ValueError("Map must be public before sharing")
 
     existing = await session.execute(
@@ -304,42 +366,169 @@ async def _validate_share_token(
     return token_obj
 
 
-async def _attribute_titles_by_dataset(
-    session: AsyncSession, dataset_ids: set[uuid.UUID]
-) -> dict[uuid.UUID, dict[str, str]]:
-    """Current attribute titles for datasets whose layers already passed authorization."""
-    if not dataset_ids:
+# Per dataset, the most value-label JSON (as PostgreSQL writes it) a shared map
+# carries. A dataset whose exposed columns hold more than this gets none, so a
+# very wide coded domain cannot inflate every embed load; the popup then shows
+# the raw codes.
+SHARED_VALUE_LABELS_MAX_BYTES = 64 * 1024
+
+
+def _exposed_pairs(pairs: list[tuple[uuid.UUID, str]]):
+    """The (dataset, field) pairs as one relation, from two array parameters.
+
+    Two bind parameters whatever the number of pairs, so a map with many wide
+    layers stays under the driver's parameter limit.
+    """
+    return (
+        func.unnest(
+            literal([dataset_id for dataset_id, _ in pairs], ARRAY(PG_UUID)),
+            literal([name for _, name in pairs], ARRAY(Text)),
+        )
+        .table_valued(column("dataset_id", PG_UUID), column("field_name", Text))
+        .render_derived()
+    )
+
+
+async def _attribute_display_by_dataset(
+    session: AsyncSession, exposed: dict[uuid.UUID, set[str]]
+) -> dict[uuid.UUID, dict[str, dict]]:
+    """Current titles, roles and value labels of the exposed columns, by dataset.
+
+    ``exposed`` holds the column names each authorized dataset's layers show.
+    The labels' size is measured in SQL first, and only a dataset within
+    ``SHARED_VALUE_LABELS_MAX_BYTES`` has its labels read; an oversized one
+    keeps its titles.
+    """
+    pairs = [
+        (dataset_id, name) for dataset_id, names in exposed.items() for name in names
+    ]
+    if not pairs:
         return {}
+    exposed_pairs = _exposed_pairs(pairs)
+    in_scope = (
+        AttributeMetadata.dataset_id == exposed_pairs.c.dataset_id,
+        AttributeMetadata.field_name == exposed_pairs.c.field_name,
+        AttributeMetadata.is_current.is_(True),
+    )
     rows = await session.execute(
         select(
             AttributeMetadata.dataset_id,
             AttributeMetadata.field_name,
             AttributeMetadata.title,
+            AttributeMetadata.semantic_role,
+            func.coalesce(
+                func.octet_length(cast(AttributeMetadata.value_labels, Text)), 0
+            ),
         ).where(
-            AttributeMetadata.dataset_id.in_(dataset_ids),
-            AttributeMetadata.is_current.is_(True),
-            AttributeMetadata.title.is_not(None),
-            AttributeMetadata.title != "",
+            *in_scope,
+            or_(
+                and_(
+                    AttributeMetadata.title.is_not(None),
+                    AttributeMetadata.title != "",
+                ),
+                AttributeMetadata.semantic_role.is_not(None),
+                AttributeMetadata.value_labels.is_not(None),
+            ),
         )
     )
-    titles: dict[uuid.UUID, dict[str, str]] = {}
-    for dataset_id, field_name, title in rows.all():
-        titles.setdefault(dataset_id, {})[field_name] = title
-    return titles
+    display: dict[uuid.UUID, dict[str, dict]] = {}
+    label_bytes: dict[uuid.UUID, int] = {}
+    labelled: set[tuple[uuid.UUID, str]] = set()
+    for dataset_id, field_name, title, role, size in rows.all():
+        if title:
+            display.setdefault(dataset_id, {}).setdefault(field_name, {})["title"] = (
+                title
+            )
+        if role:
+            # The popup reads a year or an id without digit grouping.
+            display.setdefault(dataset_id, {}).setdefault(field_name, {})[
+                "semantic_role"
+            ] = role
+        if size:
+            labelled.add((dataset_id, field_name))
+            label_bytes[dataset_id] = label_bytes.get(dataset_id, 0) + size
+    within_budget = [
+        pair
+        for pair in labelled
+        if label_bytes[pair[0]] <= SHARED_VALUE_LABELS_MAX_BYTES
+    ]
+    if within_budget:
+        readable = _exposed_pairs(within_budget)
+        label_rows = await session.execute(
+            select(
+                AttributeMetadata.dataset_id,
+                AttributeMetadata.field_name,
+                AttributeMetadata.value_labels,
+            ).where(
+                AttributeMetadata.dataset_id == readable.c.dataset_id,
+                AttributeMetadata.field_name == readable.c.field_name,
+                AttributeMetadata.is_current.is_(True),
+                AttributeMetadata.value_labels.is_not(None),
+            )
+        )
+        for dataset_id, field_name, value_labels in label_rows.all():
+            if value_labels:
+                display.setdefault(dataset_id, {}).setdefault(field_name, {})[
+                    "value_labels"
+                ] = value_labels
+    return display
 
 
-def _column_info_with_titles(
-    column_info: list | None, titles: dict[str, str] | None
+def _column_info_with_display(
+    column_info: list | None, display: dict[str, dict] | None
 ) -> list | None:
-    """Attach each exposed column's attribute title; columns outside ``column_info`` add nothing."""
-    if not column_info or not titles:
+    """Attach each exposed column's title, role and labels; others add nothing."""
+    if not column_info or not display:
         return column_info
     return [
-        {**col, "title": titles[col["name"]]}
-        if isinstance(col, dict) and col.get("name") in titles
+        {**col, **display[col["name"]]}
+        if isinstance(col, dict) and col.get("name") in display
         else col
         for col in column_info
     ]
+
+
+async def with_attribute_display(
+    session: AsyncSession, layer_rows: list[LayerRow]
+) -> list[LayerRow]:
+    """``layer_rows`` with each column's current attribute title, role and
+    value labels, as a shared map's layers carry them."""
+    exposed: dict[uuid.UUID, set[str]] = {}
+    for row in layer_rows:
+        exposed.setdefault(row.layer.dataset_id, set()).update(
+            col["name"]
+            for col in row.column_info or []
+            if isinstance(col, dict) and isinstance(col.get("name"), str)
+        )
+    display = await _attribute_display_by_dataset(session, exposed)
+    return [
+        row._replace(
+            column_info=_column_info_with_display(
+                row.column_info, display.get(row.layer.dataset_id)
+            )
+        )
+        for row in layer_rows
+    ]
+
+
+def _shared_camera(map_obj: Map) -> dict[str, Any]:
+    """The stored center and zoom, or world defaults for a map without them.
+
+    A stored 0 is a real view (the equator, zoom 0), so only None or a
+    non-finite center falls back.
+    """
+    center_ok = (
+        map_obj.center_lng is not None
+        and map_obj.center_lat is not None
+        and math.isfinite(map_obj.center_lng)
+        and math.isfinite(map_obj.center_lat)
+    )
+    return {
+        "center_lng": map_obj.center_lng if center_ok else 0.0,
+        "center_lat": map_obj.center_lat if center_ok else 0.0,
+        "zoom": 2.0 if map_obj.zoom is None else map_obj.zoom,
+        "has_saved_view": center_ok and map_obj.zoom is not None,
+    }
 
 
 def _build_shared_layer_dict(
@@ -358,6 +547,7 @@ def _build_shared_layer_dict(
     ds_publication_version: int | None,
     ds_attribution: str | None,
     ds_extent: object | None,
+    ds_tile_columns: list[str] | None = None,
 ) -> tuple[dict, bool]:
     """Build a shared-layer response dict from a joined layer row.
 
@@ -412,6 +602,7 @@ def _build_shared_layer_dict(
         "dataset_attribution": ds_attribution,
         # Not gated on `is_public`, for the same reason as dataset_attribution.
         "dataset_extent_bbox": extent_to_bbox(ds_extent),
+        "dataset_tile_columns": ds_tile_columns,
     }, not is_public
 
 
@@ -485,18 +676,21 @@ async def get_shared_map(
             Dataset.publication_version,
             Record.attribution,
             visible_extent_column(user, user_roles),
+            Dataset.tile_columns,
         )
         .join(Map, Map.id == MapLayer.map_id)
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
         .join(Record, Dataset.record_id == Record.id)
         .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
-        .where(MapLayer.map_id == token_obj.map_id, Map.visibility == "public")
+        .where(MapLayer.map_id == token_obj.map_id)
         .order_by(MapLayer.sort_order, MapLayer.id)  # Deterministic tie-break
     )
+    base_stmt = apply_map_visibility_filter(base_stmt, None, False)
     stmt = apply_visibility_filter(base_stmt, user, user_roles, Record, DatasetGrant)
     layer_result = await session.execute(stmt)
     layer_rows = list(layer_result.all())
 
+    embed_only_layer_ids: set[uuid.UUID] = set()
     if embed_scope:
         # Union in embed-scoped layers the visibility filter excluded. The
         # join above still requires current map membership/publicity, so this
@@ -505,6 +699,7 @@ async def get_shared_map(
         embed_stmt = base_stmt.where(Dataset.id.in_(embed_scope))
         embed_rows = (await session.execute(embed_stmt)).all()
         extra_rows = [row for row in embed_rows if row[1].id not in seen_layer_ids]
+        embed_only_layer_ids = {row[1].id for row in extra_rows}
         if extra_rows:
             layer_rows = sorted(
                 [*layer_rows, *extra_rows], key=lambda row: row[1].sort_order
@@ -514,7 +709,7 @@ async def get_shared_map(
         # Missing, not public, or no visible layers: a map-only check tells
         # "not found" from "empty".
         map_obj = await get_map(session, token_obj.map_id)
-        if map_obj is None or map_obj.visibility != "public":
+        if map_obj is None or map_obj.visibility not in ANONYMOUS_MAP_VISIBILITIES:
             return None
         # No visible layers means no dataset id is authorized, so the terrain
         # binding goes too.
@@ -522,13 +717,12 @@ async def get_shared_map(
         map_data = {
             "name": map_obj.name,
             "description": map_obj.description,
-            "center_lng": map_obj.center_lng or 0.0,
-            "center_lat": map_obj.center_lat or 0.0,
-            "zoom": map_obj.zoom or 2.0,
+            **_shared_camera(map_obj),
             "bearing": map_obj.bearing,
             "pitch": map_obj.pitch,
             "basemap_style": map_obj.basemap_style,
             "show_basemap_labels": map_obj.show_basemap_labels,
+            "show_attribute_table": map_obj.show_attribute_table,
             "basemap_config": map_obj.basemap_config,
             "terrain_config": terrain_config,
             "has_non_public_layers": False,
@@ -539,16 +733,34 @@ async def get_shared_map(
     has_non_public = False
     layers = []
     visible_dataset_ids: set[str] = set()
-    attribute_titles = await _attribute_titles_by_dataset(
-        session, {row[1].dataset_id for row in layer_rows}
-    )
+    column_info_by_layer: dict[uuid.UUID, list | None] = {}
+    exposed: dict[uuid.UUID, set[str]] = {}
+    for row in layer_rows:
+        columns = row[5]
+        allowed = readable_columns(
+            row, embed_authorized=row[1].id in embed_only_layer_ids
+        )
+        if allowed is not None:
+            names = set(allowed)
+            columns = [
+                c
+                for c in columns or []
+                if isinstance(c, dict) and c.get("name") in names
+            ]
+        column_info_by_layer[row[1].id] = columns
+        exposed.setdefault(row[1].dataset_id, set()).update(
+            col["name"]
+            for col in columns or []
+            if isinstance(col, dict) and isinstance(col.get("name"), str)
+        )
+    attribute_display = await _attribute_display_by_dataset(session, exposed)
     for (
         _map_obj,
         layer,
         ds_name,
         ds_geom_type,
         ds_table_name,
-        ds_column_info,
+        _ds_column_info,
         ds_visibility,
         ds_record_type,
         ds_is_3d,
@@ -559,14 +771,16 @@ async def get_shared_map(
         ds_publication_version,
         ds_attribution,
         ds_extent,
+        ds_tile_columns,
     ) in layer_rows:
         layer_dict, is_non_public = _build_shared_layer_dict(
             layer,
             ds_name,
             ds_geom_type,
             ds_table_name,
-            _column_info_with_titles(
-                ds_column_info, attribute_titles.get(layer.dataset_id)
+            _column_info_with_display(
+                column_info_by_layer[layer.id],
+                attribute_display.get(layer.dataset_id),
             ),
             ds_visibility,
             ds_record_type,
@@ -578,6 +792,7 @@ async def get_shared_map(
             ds_publication_version,
             ds_attribution,
             ds_extent,
+            ds_tile_columns,
         )
         if is_non_public:
             has_non_public = True
@@ -592,15 +807,17 @@ async def get_shared_map(
     map_data = {
         "name": map_row.name,
         "description": map_row.description,
-        "center_lng": map_row.center_lng or 0.0,
-        "center_lat": map_row.center_lat or 0.0,
-        "zoom": map_row.zoom or 2.0,
+        **_shared_camera(map_row),
         "bearing": map_row.bearing,
         "pitch": map_row.pitch,
         "basemap_style": map_row.basemap_style,
         "show_basemap_labels": map_row.show_basemap_labels,
+        "show_attribute_table": map_row.show_attribute_table,
         "basemap_config": map_row.basemap_config,
         "terrain_config": terrain_config,
+        "dashboard_config": render_dashboard(
+            map_row.dashboard_config, [layer["id"] for layer in layers]
+        ),
         "has_non_public_layers": has_non_public,
         "legend_title": map_row.legend_title,
     }
@@ -701,7 +918,9 @@ async def list_share_tokens(
 
     # Scope to published maps; the status filter narrows on the joined
     # share-link state.
-    conditions: list[ColumnElement[bool]] = [Map.visibility == "public"]
+    conditions: list[ColumnElement[bool]] = [
+        Map.visibility.in_(ANONYMOUS_MAP_VISIBILITIES)
+    ]
     if search:
         # lower() column + pattern to hit ix_maps_name_trgm (on lower(name)).
         conditions.append(
@@ -801,7 +1020,7 @@ async def revoke_share_token(
 async def get_maps_for_dataset(
     session: AsyncSession,
     dataset_id: uuid.UUID,
-    user_id: uuid.UUID | None = None,
+    user: Identity | None = None,
     user_roles: set[str] | None = None,
     skip: int = 0,
     limit: int = 50,
@@ -809,15 +1028,15 @@ async def get_maps_for_dataset(
     """Return maps containing a given dataset, filtered by RBAC visibility.
 
     - Admins see all maps.
-    - Authenticated users see own maps + internal + public.
-    - Anonymous (user_id is None) see public only.
+    - Authenticated users see own + internal + public + restricted to their groups.
+    - Anonymous (user is None) see public only.
     """
+    user_id = user.id if user is not None else None
     if user_roles is None:
         user_roles = set()
 
     is_admin = "admin" in user_roles
 
-    # Subquery for layer count per map
     layer_count_sq = (
         select(
             MapLayer.map_id,
@@ -842,7 +1061,7 @@ async def get_maps_for_dataset(
     )
 
     # Same RBAC filter as list_maps.
-    stmt = _apply_map_visibility_filter(stmt, user_id, is_admin)
+    stmt = apply_map_visibility_filter(stmt, user_id, is_admin)
 
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total = (await session.execute(count_stmt)).scalar() or 0
@@ -850,6 +1069,9 @@ async def get_maps_for_dataset(
     stmt = stmt.offset(skip).limit(limit)
     result = await session.execute(stmt)
     rows = result.all()
+    page = [row[0] for row in rows]
+    thumbnail_urls = await readable_thumbnail_urls(session, page, user)
+    dashboards = await maps_with_dashboards(session, page, user, user_roles)
 
     maps = []
     for row in rows:
@@ -860,11 +1082,10 @@ async def get_maps_for_dataset(
                 "name": map_obj.name,
                 "description": map_obj.description,
                 "visibility": map_obj.visibility,
-                "thumbnail_url": f"/maps/{map_obj.id}/thumbnail/"
-                if map_obj.thumbnail_uri
-                else None,
+                "thumbnail_url": thumbnail_urls.get(map_obj.id),
                 "thumbnail_updated_at": map_obj.thumbnail_updated_at,
                 "layer_count": row[1],
+                "has_dashboard": map_obj.id in dashboards,
                 "created_by_username": row[2],
                 "created_at": map_obj.created_at,
                 "updated_at": map_obj.updated_at,

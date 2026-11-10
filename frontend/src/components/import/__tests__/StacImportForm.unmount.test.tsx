@@ -438,4 +438,23 @@ describe('StacImportForm unmount survival', () => {
     expect(mockImportStacItems).toHaveBeenCalledTimes(1);
     expect(peekStacImport()).toBeNull();
   });
+
+  test.each([
+    ['import_failed', 'stac.itemErrorImportFailed'],
+    ['too_long', 'stac.itemErrorTooLong'],
+  ])('the per-item failure code %s renders as its translated text', async (code, key) => {
+    mockImportStacItems.mockResolvedValue({
+      created: 0,
+      skipped: 0,
+      errors: 1,
+      results: [{ item_id: 'flow-item-1', dataset_id: null, status: 'error', error: code }],
+    });
+
+    const { user } = await driveToConfirmStep();
+    await user.click(screen.getByRole('button', { name: /stac\.confirm\.confirmImport/i }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(key));
+    expect(await screen.findByText(key)).toBeInTheDocument();
+    expect(screen.queryByText(code)).not.toBeInTheDocument();
+  });
 });

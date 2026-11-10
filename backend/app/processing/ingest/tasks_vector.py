@@ -12,8 +12,9 @@ from sqlalchemy.exc import DBAPIError
 from app.core.db.tenant_session import tenant_task
 from app.core.failure_reason import FixedReason
 from app.core.url_redaction import scrub_secret_from_exception
-from app.platform.dataset_origin import service_layer_identity
+from app.platform.dataset_origin import portal_link_fields, service_layer_identity
 from app.platform.jobs import ledger
+from app.platform.source_copies import refuse_second_copy
 from app.platform.jobs.heartbeat import (
     JOB_ERROR_WRITE_TIMEOUT_MS,
     attempt_scoped_staging_table,
@@ -23,6 +24,8 @@ from app.platform.jobs.heartbeat import (
     resolve_ingest_attempt_or_skip,
     stop_ingest_job_heartbeat,
 )
+from app.platform.arcgis_native_types import column_casts_from_meta
+from app.processing.ingest.arcgis_column_types import apply_arcgis_column_casts
 from app.processing.ingest.metadata import _qtable
 from app.processing.ingest.publish_followups import run_publish_followups
 from app.processing.ingest.source_format import derive_source_format
@@ -47,6 +50,7 @@ from app.processing.ingest.tasks_staging import (
     _archive_original_file,
     _cleanup_staging_on_failure,
     _validate_upload_file_safety,
+    layer_to_load,
     source_columns_for,
 )
 from app.platform.jobs.models import IngestJob, owned_presigned_staging_key
@@ -341,7 +345,7 @@ async def _fetch_arcgis_import_page_info(
         fetch_arcgis_pagination_info,
     )
     from app.core.url_redaction import redact_exception_text
-    from app.platform.security import make_safe_client
+    from app.platform.security import CredentialRedirectError, make_safe_client
 
     # A failed count must not discard what the layer metadata already said.
     max_record_count, supports_pagination = None, False
@@ -363,7 +367,8 @@ async def _fetch_arcgis_import_page_info(
                 source_url, layer_id, client, token=token
             )
             return feature_count, max_record_count, supports_pagination, order_field
-    except ArcGISTokenError:
+    except (ArcGISTokenError, CredentialRedirectError):
+        # GDAL would follow the same redirect with the token in its URL.
         raise
     except Exception as exc:  # broad: count is an optimization; import can fall back
         structlog.get_logger().warning(
@@ -373,6 +378,82 @@ async def _fetch_arcgis_import_page_info(
             error=redact_exception_text(exc),
         )
         return None, max_record_count, supports_pagination, order_field
+
+
+async def _fetch_arcgis_field_labels(
+    source_url: str, layer_id: int | str | None, token: str | None
+) -> dict | None:
+    """The layer's current field labels, or None when they can't be read.
+
+    None leaves the stored labels alone: a refresh must neither fail nor drop
+    them because this read did.
+    """
+    if layer_id is None:
+        return None
+    from app.modules.catalog.sources.adapters.arcgis import fetch_arcgis_field_labels
+    from app.core.url_redaction import redact_exception_text
+    from app.platform.security import make_safe_client
+
+    try:
+        async with make_safe_client(timeout=30.0) as client:
+            return await fetch_arcgis_field_labels(source_url, layer_id, client, token)
+    except (
+        Exception
+    ) as exc:  # broad: labels are optional; the refresh must not fail on them
+        structlog.get_logger().warning(
+            "arcgis_field_labels_fetch_failed",
+            source_url=source_url,
+            layer_id=str(layer_id),
+            error=redact_exception_text(exc),
+        )
+        return None
+
+
+async def _fetch_arcgis_layer_meta_or_none(
+    source_url: str, layer_id: int | str | None, token: str | None
+) -> dict | None:
+    """The ArcGIS layer JSON, or None when unreadable.
+
+    Column casts and the Z flag are optional enrichments: None leaves text
+    columns as text and imports 2D, so a failed metadata read must not fail
+    the import.
+    """
+    if layer_id is None:
+        return None
+    from app.modules.catalog.sources.adapters.arcgis import (
+        ArcGISTokenError,
+        fetch_arcgis_layer_meta,
+    )
+    from app.core.url_redaction import redact_exception_text
+    from app.platform.security import CredentialRedirectError, make_safe_client
+
+    try:
+        async with make_safe_client(timeout=30.0) as client:
+            return await fetch_arcgis_layer_meta(
+                source_url.rstrip("/"), str(layer_id).strip("/"), client, token
+            )
+    except (ArcGISTokenError, CredentialRedirectError):
+        # GDAL would follow the same redirect with the token in its URL.
+        raise
+    except (
+        Exception
+    ) as exc:  # broad: casts and Z are optional; the import falls back to text and 2D
+        structlog.get_logger().warning(
+            "arcgis_column_casts_fetch_failed",
+            source_url=source_url,
+            layer_id=str(layer_id),
+            error=redact_exception_text(exc),
+        )
+        return None
+
+
+def arcgis_meta_import_facts(
+    meta: dict | None,
+) -> tuple[dict[str, str] | None, bool]:
+    """Column casts and whether the fetch must ask for Z, from the layer JSON."""
+    if meta is None:
+        return None, False
+    return column_casts_from_meta(meta), meta.get("hasZ") is True
 
 
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.ingest_file"])
@@ -462,6 +543,7 @@ async def ingest_file(
             info = await run_ogrinfo(
                 file_path, layer_name=layer_name, original_filename=source_filename
             )
+            layer_name = layer_to_load(info, layer_name)
             srid = info.get("srid")
             geometry_type = info.get("geometry_type")
             has_geometry = geometry_type is not None
@@ -654,7 +736,10 @@ async def ingest_file(
                     attempt_id=attempt_uuid,
                     # No file_hash: only the re-upload path computes it, and the
                     # allowlist omits absent keys.
-                    origin_ref={"filename": source_filename},
+                    origin_ref={
+                        "filename": source_filename,
+                        **portal_link_fields(um),
+                    },
                     archive_from=file_path,
                     source_columns=source_columns_for(info, layer_name),
                 )
@@ -891,6 +976,11 @@ async def ingest_service(
                 await _progress_session.commit()
 
         arcgis_order_field: str | None = None
+        column_casts, return_z = None, False
+        if service_type == "arcgis_featureserver":
+            column_casts, return_z = arcgis_meta_import_facts(
+                await _fetch_arcgis_layer_meta_or_none(source_url, layer_id, token)
+            )
 
         # Retry WFS namespaces through the shared helper.
         async def _do_import(layer_name: str) -> None:
@@ -950,6 +1040,7 @@ async def ingest_service(
                     order_field=pagination_order_field,
                     is_non_spatial=is_non_spatial,
                     on_page=_publish_page_progress,
+                    return_z=return_z,
                 )
                 return
 
@@ -967,6 +1058,7 @@ async def ingest_service(
                 layer_id,
                 token=token,
                 order_field=pagination_order_field,
+                return_z=return_z,
             )
             await run_ogr2ogr_service(
                 _src,
@@ -977,6 +1069,7 @@ async def ingest_service(
                 token=token,
                 is_non_spatial=is_non_spatial,
                 schema=_current_tenant_schema(),
+                keep_z=return_z,
             )
 
         service_progress_task = asyncio.create_task(
@@ -999,7 +1092,9 @@ async def ingest_service(
             attempt_id=attempt_uuid,
             require_status="running",
         ) as (session, job):
-            if job is None:
+            if job is None or await refuse_second_copy(
+                session, job, attempt_uuid, uuid.UUID(user_id)
+            ):
                 return
 
             # Finalization owns the transaction, including this progress write.
@@ -1021,6 +1116,13 @@ async def ingest_service(
                 )
 
                 _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
+
+            await apply_arcgis_column_casts(
+                session,
+                staging_table_name,
+                column_casts,
+                schema=_current_tenant_schema(),
+            )
 
             # 5-8. Shared post-ogr2ogr pipeline
             dataset_source_url = (
@@ -1062,6 +1164,7 @@ async def ingest_service(
                         # requires authentication; refresh probes without a
                         # token before refusing.
                         "auth_required": True if token else None,
+                        **portal_link_fields(um),
                     },
                 )
             )

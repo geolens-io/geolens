@@ -322,7 +322,7 @@ def sync_detailed(
     keywords: list[str] | None | Unset = UNSET,
     filter_lang: str | Unset = "cql2-text",
 ) -> Response[OGCFeatureCollectionResponse | ProblemDetail]:
-    """Collection Items
+    """List catalog records
 
      OGC API Records items endpoint -- mirrors /search/datasets.
 
@@ -436,7 +436,7 @@ def sync(
     keywords: list[str] | None | Unset = UNSET,
     filter_lang: str | Unset = "cql2-text",
 ) -> OGCFeatureCollectionResponse | ProblemDetail | None:
-    """Collection Items
+    """List catalog records
 
      OGC API Records items endpoint -- mirrors /search/datasets.
 
@@ -545,7 +545,7 @@ async def asyncio_detailed(
     keywords: list[str] | None | Unset = UNSET,
     filter_lang: str | Unset = "cql2-text",
 ) -> Response[OGCFeatureCollectionResponse | ProblemDetail]:
-    """Collection Items
+    """List catalog records
 
      OGC API Records items endpoint -- mirrors /search/datasets.
 
@@ -657,7 +657,7 @@ async def asyncio(
     keywords: list[str] | None | Unset = UNSET,
     filter_lang: str | Unset = "cql2-text",
 ) -> OGCFeatureCollectionResponse | ProblemDetail | None:
-    """Collection Items
+    """List catalog records
 
      OGC API Records items endpoint -- mirrors /search/datasets.
 

@@ -10,6 +10,8 @@ Start the Playwright MCP server with `--isolated --storage-state playwright/.aut
 
 The session belongs to the origin it was created on, `E2E_BASE_URL` (default `http://localhost:8080`). For a Vite server on another port, run `E2E_BASE_URL=http://localhost:5174 make smoke-auth`.
 
+To sign in through the form instead, copy the locators in `e2e/auth.setup.ts`. The password field is `#password`, since `getByLabel(/password/i)` also matches the show-password toggle.
+
 The e2e suite keeps its own session in `playwright/.auth/user.json`, so the two don't collide. Signing out still revokes the smoke session. To test sign-out or roles, create a throwaway user through the admin API. Give each parallel browser agent its own user.
 
 ## Locators
@@ -25,7 +27,7 @@ Copy locators from the spec for the area you're checking (`e2e/<area>.spec.ts`),
 
 ## Screenshots
 
-Take viewport screenshots. Full-page captures of long pages exceed the image size limit. The server writes only under the working directory and its `--output-dir`, so save screenshots there and not to a temp path.
+Take viewport screenshots. Full-page captures of long pages exceed the image size limit. When one panel or dialog is what you're checking, screenshot just that element (`browser_take_screenshot` with its `ref`, or `locator.screenshot()`): a smaller image costs fewer tokens to read. The server writes only under the working directory and its `--output-dir`, so save screenshots there and not to a temp path.
 
 Map tiles paint only in a visible browser. A blank map in a hidden Chrome tab proves nothing, so verify map rendering in Playwright.
 
@@ -37,6 +39,8 @@ The dev catalog is demo content, so a check that imports, re-uploads or edits wo
 - A service import is `POST /api/services/preview/` with `{url, service_type, layer_name, layer_title, layer_id}` where `service_type` is the display string (`ArcGIS FeatureServer`), then `POST /api/ingest/commit/{job_id}` with `{"title": ...}`. A URL that is already registered is refused with `duplicate_source`, so pick a layer the catalog does not have (the Esri `P3ePLMYs2RVChkJx` samples such as `World_Cities` work).
 - A service re-upload is `POST /api/datasets/{id}/reupload/service/preview` with the same body, then `POST /api/datasets/{id}/reupload/{job_id}/commit`; pass the preview's `review_fingerprint` to accept its review reasons, omit it to leave a held run.
 - The builder is `/maps/{id}` for the map's owner; `/maps/{id}/edit` is not a route. Copy a demo map with `POST /api/maps/{id}/duplicate/` and delete the copy afterwards.
+- Map sharing: `GET /api/maps/{id}/share/` returns a token hint, not the raw token. To obtain a new raw token, first call `DELETE /api/maps/{id}/share/` to revoke the existing token, then call `POST /api/maps/{id}/share/`. The DELETE also revokes the map's embed tokens, so embeds of that map stop working until new ones are created.
+- A story reads at `/stories/{id}` and edits at `/stories/{id}/edit`. Copy one with `POST /api/stories/{id}/duplicate` and delete the copy afterwards.
 - A relationship reports `broken` from the dataset's stored `column_info`, not the live table.
 
 ## Cleaning up
@@ -46,3 +50,4 @@ Delete what the smoke check created through the API:
 - `DELETE /api/datasets/{id}` requires a JSON body `{"confirm_title": "<the dataset's title>"}`.
 - `GET /api/admin/users/` returns `{"users": [...]}`; delete each user with `DELETE /api/admin/users/{id}`.
 - `DELETE /api/maps/{id}` removes a map.
+- `DELETE /api/stories/{id}` removes a story. Images uploaded to it go with the story or the periodic story image sweep.
