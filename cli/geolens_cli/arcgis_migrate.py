@@ -1868,6 +1868,21 @@ def _portal_base(url: str) -> str:
         return url.rstrip("/")
 
 
+def _sign_in(
+    fmt: _output.Formatter, portal: tuple[PortalClient, Callable[[], None] | None]
+) -> PortalAuth | int:
+    """Sign the portal client in; its auth, or the exit code of a refused
+    sign-in."""
+    client, sign_in = portal
+    try:
+        if sign_in is not None:
+            sign_in()
+    except PortalError as exc:
+        fmt.error(str(exc))
+        return _PORTAL_EXIT.get(exc.kind, EXIT_GENERIC)
+    return PortalAuth(client, renewable=sign_in is not None)
+
+
 def _run(
     fmt: _output.Formatter,
     opts: MigrateOptions,
@@ -1907,6 +1922,13 @@ def _run(
         fmt.error(str(exc))
         return EXIT_USAGE
 
+    auth = None
+    # The cutover preflight searches the portal before any group is made.
+    if portal is not None and opts.cutover and not opts.dry_run:
+        auth = _sign_in(fmt, portal)
+        if isinstance(auth, int):
+            return auth
+
     sdk = sdk_factory()
     geolens = GeoLens(sdk, instance, redact)
     try:
@@ -1942,6 +1964,29 @@ def _run(
         )
         if refusal:
             raise UsageError(refusal)
+        # Before any group is made or changed, so a refused cutover changes nothing.
+        if opts.cutover and not opts.dry_run:
+            early = refused_before_run(
+                plan,
+                owners.unresolved,
+                inventory_changes(
+                    auth.client if auth else None, plan, datetime.now(tz=UTC)
+                ),
+                opts.accept,
+            )
+            if early is not None:
+                return _report(
+                    fmt,
+                    opts,
+                    plan,
+                    state,
+                    [],
+                    owners,
+                    RunSummary(),
+                    redact,
+                    early,
+                    before_run=True,
+                )
         if editor:
             groups = my_groups_plan(
                 geolens, plan, inventory_groups, state, touched, dry_run=opts.dry_run
@@ -1978,40 +2023,10 @@ def _run(
             return EXIT_AUTH
         return EXIT_SERVER if exc.status >= 500 else EXIT_GENERIC
 
-    auth = None
-    if portal is not None:
-        client, sign_in = portal
-        try:
-            if sign_in is not None:
-                sign_in()
-        except PortalError as exc:
-            fmt.error(str(exc))
-            return _PORTAL_EXIT.get(exc.kind, EXIT_GENERIC)
-        auth = PortalAuth(client, renewable=sign_in is not None)
-
-    if opts.cutover and not opts.dry_run:
-        early = refused_before_run(
-            plan,
-            owners.unresolved,
-            inventory_changes(
-                auth.client if auth else None, plan, datetime.now(tz=UTC)
-            ),
-            opts.accept,
-        )
-        if early is not None:
-            return _report(
-                fmt,
-                opts,
-                plan,
-                state,
-                [],
-                owners,
-                RunSummary(),
-                redact,
-                early,
-                groups,
-                before_run=True,
-            )
+    if portal is not None and auth is None:
+        auth = _sign_in(fmt, portal)
+        if isinstance(auth, int):
+            return auth
 
     if opts.dry_run:
         # As the run does first, so the dry run shows the status it will leave.

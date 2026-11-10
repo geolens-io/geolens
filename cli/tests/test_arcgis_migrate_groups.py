@@ -525,6 +525,29 @@ def test_cutover_counts_groups_a_non_admin_inventory_may_have_missed(
     assert payload["cutover"]["refused"] == []
 
 
+def test_a_cutover_refused_before_the_run_makes_or_changes_no_group(
+    runner, tmp_path, team, monkeypatch
+):
+    service = _service(team)
+    GroupsApi(team, service, existing=[])
+    plan_file = _write(tmp_path, members=["agol_bob"])
+    monkeypatch.setattr(migrate, "inventory_changes", lambda *a: "portal items changed")
+
+    result, payload = _migrate(
+        runner, plan_file, "--cutover", "--token", secrets.token_urlsafe(16)
+    )
+
+    assert result.exit_code == 1, result.output
+    assert payload["cutover"]["refused"] == ["incomplete-inventory"]
+    writes = [
+        f"{s.method} {s.url}"
+        for s in team.seen
+        if s.method != "GET" and "/admin/groups/" in s.url
+    ]
+    assert writes == []
+    assert not (plan_file.parent / "arcgis-migration-state.json").exists()
+
+
 def test_unread_members_and_pending_members_reach_the_cutover_checks(
     runner, tmp_path, team
 ):
