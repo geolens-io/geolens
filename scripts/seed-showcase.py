@@ -761,9 +761,10 @@ PINNED_DATASET_TITLES = (
 
 # Maps the examples address by an id THIS seeder minted, so the row itself
 # has to survive - a map of the same name built beside it is not the same
-# map. geolens-examples deep-links three from its gallery and embeds the
-# fourth by share token. Their ids change on every reseed; a seed run that
-# builds or keeps these maps prints the current ones at the end.
+# map. geolens-examples deep-links seven from its gallery (the Matterhorn, the
+# New York orbit map, Manhattan and the four dashboard maps) and embeds
+# Restless Earth by share token. Their ids change on a from-empty reseed; a
+# seed run that builds or keeps these maps prints the current ones at the end.
 #
 # Building one of these again mints a fresh uuid and leaves the share tokens on
 # the row they were minted against, so every such link keeps resolving to the
@@ -786,6 +787,15 @@ PINNED_MAP_NAMES = (
     "Manhattan: A Century of Skyline",
     "The Matterhorn in 3D",
     "New York From Orbit: Sentinel-2 by Reference",
+    # The dashboard builders find their map by name and update it in place, so
+    # they never reach _keep_existing_map; the pin keeps --prune and
+    # --prune-userdata off these rows.
+    DASHBOARD_MAP,
+    SKYLINE_DASHBOARD_MAP,
+    # Named in seed_showcase_cambridge (TREE_DASHBOARD, LAND_DASHBOARD), which
+    # may be absent from a checkout; a test keeps the literals equal.
+    "Cambridge Open Data: Land and Zoning in Numbers",
+    "Cambridge Open Data: Street Tree Operations",
 )
 # Prune runs before any rename, possibly from another account, so a pinned map
 # still under an old name has to be recognised by that name too.
@@ -797,6 +807,20 @@ PINNED_MAP_ALIASES = frozenset(PINNED_MAP_NAMES) | {
 # deep-linking by id; the other three normally have no share link at all, so
 # only this one's is worth reading and flagging in the end-of-run summary.
 PINNED_MAP_EMBEDDED_BY_TOKEN = "Restless Earth"
+
+# Stories the examples link by id, one of them framed through
+# /stories/{id}/embed. Each seed function finds its story by title and updates
+# it in place, and nothing in this file deletes a story, so --force, --prune and
+# --prune-userdata already leave the row and its id alone. The tuple states that
+# as a contract (a test fails if a story delete appears), and the end-of-run
+# summary prints the current ids. Only a from-empty reseed mints new ones.
+# Cambridge's title is also seed_showcase_cambridge.STORY_TITLE.
+PINNED_STORY_TITLES = (
+    SKYLINE_STORY_TITLE,
+    NYC_STORY_TITLE,
+    STORY_TITLE,
+    "Cambridge's Open Data in GeoLens",
+)
 
 # --- globe projection ---------------------------------------------------------
 # The showcase maps whose story is GLOBAL, where Mercator actively misleads:
@@ -9559,6 +9583,18 @@ def _print_pinned_summary(base_url: str, username: str, password: str) -> None:
                 print(f"  ! map {name!r} not found this run")
                 continue
             print(f"  map     {name}: {map_id}")
+
+        try:
+            stories_by_title = api.list_stories()
+        except httpx.HTTPError as e:
+            print(f"  ! stories not listed: {e}")
+        else:
+            for title in PINNED_STORY_TITLES:
+                story_id = stories_by_title.get(title)
+                if story_id is None:
+                    print(f"  ! story {title!r} not found this run")
+                    continue
+                print(f"  story   {title}: {story_id}")
 
         embedded_id = maps_by_name.get(PINNED_MAP_EMBEDDED_BY_TOKEN)
         if embedded_id is not None and api.map_share_token(embedded_id) is None:
