@@ -216,7 +216,7 @@ describe('syncLayersToMap cluster rendering', () => {
     );
   });
 
-  it('keeps the saved filter and a dashboard pick of a value and no value in the server-cluster filter', () => {
+  it('keeps the saved filter and a dashboard pick of a value and no value (null or empty text) in the server-cluster filter', () => {
     const map = makeMockMap();
     const saved = ['any', ['==', ['get', 'zone'], 'A'], ['==', ['get', 'zone'], 'B']];
     const [linked] = linkMapLayers(
@@ -237,7 +237,13 @@ describe('syncLayersToMap cluster rendering', () => {
       op: 'and',
       args: [
         { op: 'or', args: [{ op: '=', args: [property('zone'), 'A'] }, { op: '=', args: [property('zone'), 'B'] }] },
-        { op: 'or', args: [{ op: 'in', args: [property('kind'), ['park']] }, { op: 'isNull', args: [property('kind')] }] },
+        {
+          op: 'or',
+          args: [
+            { op: 'in', args: [property('kind'), ['park']] },
+            { op: 'or', args: [{ op: 'isNull', args: [property('kind')] }, { op: '=', args: [property('kind'), ''] }] },
+          ],
+        },
       ],
     });
   });
