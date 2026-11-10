@@ -9584,13 +9584,17 @@ def _print_pinned_summary(base_url: str, username: str, password: str) -> None:
                 continue
             print(f"  map     {name}: {map_id}")
 
-        stories_by_title = api.list_stories()
-        for title in PINNED_STORY_TITLES:
-            story_id = stories_by_title.get(title)
-            if story_id is None:
-                print(f"  ! story {title!r} not found this run")
-                continue
-            print(f"  story   {title}: {story_id}")
+        try:
+            stories_by_title = api.list_stories()
+        except httpx.HTTPError as e:
+            print(f"  ! stories not listed: {e}")
+        else:
+            for title in PINNED_STORY_TITLES:
+                story_id = stories_by_title.get(title)
+                if story_id is None:
+                    print(f"  ! story {title!r} not found this run")
+                    continue
+                print(f"  story   {title}: {story_id}")
 
         embedded_id = maps_by_name.get(PINNED_MAP_EMBEDDED_BY_TOKEN)
         if embedded_id is not None and api.map_share_token(embedded_id) is None:

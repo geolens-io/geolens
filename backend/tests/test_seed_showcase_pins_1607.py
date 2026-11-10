@@ -845,6 +845,24 @@ def test_pinned_summary_prints_story_ids_and_flags_a_missing_one(capsys, monkeyp
     assert "! story 'Missing' not found this run" in out
 
 
+class _StoriesDownApi(_SummaryApi):
+    def list_stories(self):
+        raise httpx.ConnectError("stories down")
+
+
+def test_a_story_listing_failure_keeps_the_rest_of_the_summary(capsys, monkeypatch):
+    monkeypatch.setattr(seeder, "PINNED_DATASET_TITLES", ("Pinned",))
+    api = _StoriesDownApi(maps={}, datasets={"Pinned": "d-1"}, share_tokens={})
+    monkeypatch.setattr(seeder.Api, "login", lambda *a, **k: api)
+
+    seeder._print_pinned_summary("http://x", "admin", "pw")
+
+    out = capsys.readouterr().out
+    assert "! stories not listed: stories down" in out
+    assert "dataset Pinned: d-1" in out
+    assert "gh api repos/geolens-io/geolens-examples/dispatches" in out
+
+
 def test_pinned_summary_never_prints_the_share_token_itself(capsys, monkeypatch):
     """Keep this even though the real endpoint returns only a token hint."""
     monkeypatch.setattr(seeder, "PINNED_MAP_NAMES", ("Restless Earth",))
