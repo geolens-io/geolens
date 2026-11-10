@@ -27,7 +27,7 @@ serving while it runs. SQL Server import stays off until an operator sets
 - The viewer legend describes a clustered layer as "Grouped into clusters as you zoom out" or "Shown as individual points" instead of "Server cluster", "Bounded cluster" and "Point fallback".
 
 ### Fixed
-- Dashboards: an indicator's difference shows no more decimals than its value, so a value of 1,408 against a reference of 1,239 reads 169, not 169.38.
+- Dashboards: an indicator's difference no longer shows decimals that the rounding of its value hides, so a value of 1,408 against a reference of 1,239 reads 169, not 169.38.
 - Map viewer: with an AI provider configured, the "Ask AI" button no longer covers the expanded attribution; the attribution sits above it.
 - A DEM dataset whose extent the reader cannot see now frames its preview to the bounds in its tile token instead of opening at world zoom and timing out; with no bounds either it shows "Preview unavailable" at once.
 - Visiting `/stories` opens the Stories tab of the Maps page instead of a 404.
