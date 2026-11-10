@@ -11274,6 +11274,12 @@
             "minimum": 1.0,
             "title": "Limit",
             "type": "integer"
+          },
+          "blank_text_as_null": {
+            "default": false,
+            "description": "Count a text column's empty strings with its NULLs, as one `null` key, before the groups are limited. Whitespace-only text keeps its own key.",
+            "title": "Blank Text As Null",
+            "type": "boolean"
           }
         },
         "required": [
@@ -26420,6 +26426,12 @@
             "minimum": 1.0,
             "title": "Limit",
             "type": "integer"
+          },
+          "blank_text_as_null": {
+            "default": false,
+            "description": "Count a text column's empty strings with its NULLs, as one `null` key, before the groups are limited. Whitespace-only text keeps its own key.",
+            "title": "Blank Text As Null",
+            "type": "boolean"
           }
         },
         "required": [

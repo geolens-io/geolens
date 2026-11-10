@@ -11617,6 +11617,12 @@ export interface components {
              * @default 10
              */
             limit: number;
+            /**
+             * Blank Text As Null
+             * @description Count a text column's empty strings with its NULLs, as one `null` key, before the groups are limited. Whitespace-only text keeps its own key.
+             * @default false
+             */
+            blank_text_as_null: boolean;
         };
         /** GroupByResponse */
         GroupByResponse: {
@@ -18263,6 +18269,12 @@ export interface components {
              * @default 10
              */
             limit: number;
+            /**
+             * Blank Text As Null
+             * @description Count a text column's empty strings with its NULLs, as one `null` key, before the groups are limited. Whitespace-only text keeps its own key.
+             * @default false
+             */
+            blank_text_as_null: boolean;
         };
         /** ValueCountsResponse */
         ValueCountsResponse: {

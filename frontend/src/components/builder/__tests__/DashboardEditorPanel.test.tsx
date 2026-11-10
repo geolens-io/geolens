@@ -216,7 +216,7 @@ describe('DashboardEditorPanel', () => {
     await waitFor(() =>
       expect(fetchMock).toHaveBeenLastCalledWith(
         'dataset-1',
-        { op: 'value_counts', column: 'land_use', limit: 25 },
+        { op: 'value_counts', column: 'land_use', limit: 25, blank_text_as_null: true },
         expect.anything(),
       ),
     );

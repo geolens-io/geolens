@@ -6601,6 +6601,12 @@ export type GroupByRequest = {
      * Limit
      */
     limit?: number;
+    /**
+     * Blank Text As Null
+     *
+     * Count a text column's empty strings with its NULLs, as one `null` key, before the groups are limited. Whitespace-only text keeps its own key.
+     */
+    blank_text_as_null?: boolean;
 };
 
 /**
@@ -15360,6 +15366,12 @@ export type ValueCountsRequest = {
      * Limit
      */
     limit?: number;
+    /**
+     * Blank Text As Null
+     *
+     * Count a text column's empty strings with its NULLs, as one `null` key, before the groups are limited. Whitespace-only text keeps its own key.
+     */
+    blank_text_as_null?: boolean;
 };
 
 /**

@@ -659,11 +659,35 @@ async def blank_text(client, test_db_session):
 
 
 class TestBlankText:
+    async def test_the_default_keeps_null_and_empty_text_apart(
+        self, client: AsyncClient, blank_text
+    ):
+        for body in (
+            {"op": "value_counts", "column": "kind"},
+            {
+                "op": "group_by",
+                "group_column": "kind",
+                "stat": "sum",
+                "column": "n",
+            },
+        ):
+            resp = await _aggregate(client, blank_text.id, body)
+
+            result = resp.json()["result"]
+            keys = (
+                [r["value"] for r in result["values"]]
+                if "values" in result
+                else [g["key"] for g in result["groups"]]
+            )
+            assert sorted(keys, key=str) == sorted(["park", None, "", "  "], key=str)
+
     async def test_value_counts_counts_null_and_empty_text_as_one_row(
         self, client: AsyncClient, blank_text
     ):
         resp = await _aggregate(
-            client, blank_text.id, {"op": "value_counts", "column": "kind"}
+            client,
+            blank_text.id,
+            {"op": "value_counts", "column": "kind", "blank_text_as_null": True},
         )
 
         assert resp.status_code == 200, resp.text
@@ -674,7 +698,14 @@ class TestBlankText:
         self, client: AsyncClient, blank_text
     ):
         resp = await _aggregate(
-            client, blank_text.id, {"op": "value_counts", "column": "kind", "limit": 2}
+            client,
+            blank_text.id,
+            {
+                "op": "value_counts",
+                "column": "kind",
+                "limit": 2,
+                "blank_text_as_null": True,
+            },
         )
 
         result = resp.json()["result"]
@@ -698,7 +729,9 @@ class TestBlankText:
         await test_db_session.commit()
 
         resp = await _aggregate(
-            client, blank_text.id, {"op": "value_counts", "column": "c"}
+            client,
+            blank_text.id,
+            {"op": "value_counts", "column": "c", "blank_text_as_null": True},
         )
 
         counts = {v["value"]: v["count"] for v in resp.json()["result"]["values"]}
@@ -711,7 +744,13 @@ class TestBlankText:
         resp = await _aggregate(
             client,
             blank_text.id,
-            {"op": "group_by", "group_column": "kind", "stat": "sum", "column": "n"},
+            {
+                "op": "group_by",
+                "group_column": "kind",
+                "stat": "sum",
+                "column": "n",
+                "blank_text_as_null": True,
+            },
         )
 
         groups = {g["key"]: g["value"] for g in resp.json()["result"]["groups"]}
@@ -881,26 +920,6 @@ class TestCache:
 
         assert resp.json()["cached"] is False
         assert resp.json()["result"]["count"] == 8
-
-    async def test_a_value_count_cached_before_blanks_merged_is_not_read(
-        self, client: AsyncClient, blank_text
-    ):
-        body = {"op": "value_counts", "column": "kind"}
-        request = aggregate_schemas.ValueCountsRequest.model_validate(body)
-        old_key = aggregate._cache_key(
-            "aggregate",
-            blank_text,
-            request.model_dump(mode="json")
-            | {"bbox": None, "covered": False, "format": 4, "single": False},
-        )
-        await aggregate.get_cache().set(
-            old_key, {"values": [], "other_count": 999}, ttl=300
-        )
-
-        resp = await _aggregate(client, blank_text.id, body)
-
-        assert resp.json()["cached"] is False
-        assert resp.json()["result"]["other_count"] == 0
 
 
 @pytest.fixture

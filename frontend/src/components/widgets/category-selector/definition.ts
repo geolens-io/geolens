@@ -43,7 +43,7 @@ export const categorySelectorWidget = defineWidget<CategorySelectorConfig>({
   parseConfig: parseCategorySelectorConfig,
   heading: (config, t, columnLabel) =>
     t('types.category_selector.summary', { column: columnLabel(config.column) }),
-  dataRequest: (config) => ({ op: 'value_counts', column: config.column, limit: SELECTOR_OPTIONS }),
+  dataRequest: (config) => ({ op: 'value_counts', column: config.column, limit: SELECTOR_OPTIONS, blank_text_as_null: true }),
   picksColumn: (config) => config.column,
   readsColumns: (config) => [{ name: config.column, numeric: false }],
   loadRenderer: () => import('./CategorySelectorRenderer'),

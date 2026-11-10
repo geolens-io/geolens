@@ -72,13 +72,14 @@ export const pieChartWidget = defineWidget<PieChartConfig>({
     }),
   dataRequest: (config) =>
     config.stat === 'count' || config.stat_column === null
-      ? { op: 'value_counts', column: config.column, limit: config.limit }
+      ? { op: 'value_counts', column: config.column, limit: config.limit, blank_text_as_null: true }
       : {
           op: 'group_by',
           group_column: config.column,
           stat: aggregateStat(config.stat),
           column: config.stat_column,
           limit: config.limit,
+          blank_text_as_null: true,
         },
   picksColumn: (config) => config.column,
   readsColumns: (config) => [

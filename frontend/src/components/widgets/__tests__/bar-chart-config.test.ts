@@ -81,13 +81,14 @@ describe('bar chart requests', () => {
   const request = (raw: unknown) => barChartWidget.dataRequest!(parse(raw)!);
 
   it('counts values of the column, or groups a statistic by it', () => {
-    expect(request(category)).toEqual({ op: 'value_counts', column: 'kind', limit: 10 });
+    expect(request(category)).toEqual({ op: 'value_counts', column: 'kind', limit: 10, blank_text_as_null: true });
     expect(request({ ...category, stat: 'mean', stat_column: 'area' })).toEqual({
       op: 'group_by',
       group_column: 'kind',
       stat: 'avg',
       column: 'area',
       limit: 10,
+      blank_text_as_null: true,
     });
   });
 
@@ -114,6 +115,7 @@ describe('bar chart requests', () => {
       date_bucket: 'month',
       stat: 'count',
       limit: 12,
+      blank_text_as_null: false,
     });
     expect(request({ ...byDate, date_bucket: 'week', stat: 'sum', stat_column: 'value' })).toEqual({
       op: 'group_by',
@@ -122,6 +124,7 @@ describe('bar chart requests', () => {
       stat: 'sum',
       column: 'value',
       limit: 12,
+      blank_text_as_null: false,
     });
   });
 
