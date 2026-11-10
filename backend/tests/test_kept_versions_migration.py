@@ -211,7 +211,7 @@ async def test_the_downgrade_refuses_while_a_dataset_keeps_several_versions(
     session = test_db_session
     dataset_id, _, tables = await _seed(session, versions=[1, 2])
     try:
-        down = run_alembic("downgrade", _BEFORE, normalize=False)
+        down = run_alembic("downgrade", _BEFORE, keep_guard="0088")
         assert down.returncode != 0
         assert "more than one previous version" in down.stderr
         kept = await fresh_query(

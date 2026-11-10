@@ -47,7 +47,7 @@ async def test_the_downgrade_refuses_while_a_database_dataset_exists(
     )
     await test_db_session.commit()
     try:
-        down = run_alembic("downgrade", _BEFORE, normalize=False)
+        down = run_alembic("downgrade", _BEFORE, keep_guard="0103")
         assert down.returncode != 0
         assert (
             "RaiseError'>: Datasets or refresh runs with the database origin exist"

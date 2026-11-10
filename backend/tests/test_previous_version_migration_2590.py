@@ -10,8 +10,6 @@ from sqlalchemy import text
 from tests.alembic_helpers import (
     enterprise_migrations_present,
     fresh_query,
-    normalize_database_origins,
-    normalize_kept_versions,
     run_alembic,
 )
 from tests.factories import create_dataset, get_user_id
@@ -196,10 +194,8 @@ async def test_the_downgrade_refuses_while_restore_runs_exist(test_db_session) -
     )
     run_id = run.id
     await session.commit()
-    normalize_kept_versions()
-    normalize_database_origins()
     try:
-        down = run_alembic("downgrade", "0076_feature_create_keys", normalize=False)
+        down = run_alembic("downgrade", "0076_feature_create_keys", keep_guard="0077")
         assert down.returncode != 0
         assert "origin_kind restore" in down.stderr
         definition = await fresh_query(
@@ -226,21 +222,12 @@ async def test_a_downgrade_refused_further_down_keeps_the_restore_check(
     test_db_session,
 ) -> None:
     """When an older revision refuses the downgrade, 0077's wider check is still in place."""
-    from tests.alembic_helpers import (
-        normalize_api_key_state,
-        normalize_kept_versions,
-        normalize_restore_runs,
-        normalize_seam_extents,
-    )
+    from tests.alembic_helpers import normalize_api_key_state
     from tests.test_alembic_helpers import _PRE_API_KEY_HARDENING, _seed_expiring_key
 
     await _seed_expiring_key(test_db_session, epoch_bump=True)
-    normalize_seam_extents()
-    normalize_restore_runs()
-    normalize_kept_versions()
-    normalize_database_origins()
     try:
-        down = run_alembic("downgrade", _PRE_API_KEY_HARDENING, normalize=False)
+        down = run_alembic("downgrade", _PRE_API_KEY_HARDENING, keep_guard="0029")
         assert down.returncode != 0, "precondition: 0029 refuses the downgrade"
         definition = await fresh_query(
             "SELECT pg_get_constraintdef(oid) FROM pg_constraint "
