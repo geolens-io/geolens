@@ -23,8 +23,13 @@ from app.core.service_tokens import CredentialMethod, ServiceCredential
 from app.modules.catalog.sources.adapters.ogcapi import probe_ogcapi
 from app.platform import security
 from app.platform.security import make_safe_client
-from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+from app.platform.service_endpoints import (
+    EndpointCheckFailedError,
+    assert_endpoints_stay_on_origin,
+)
 from app.platform.service_items import (
+    SERVICE_AUTH_REFUSED_CODE,
+    SERVICE_ERROR_CODE,
     materialise_oapif_items,
 )
 
@@ -172,3 +177,32 @@ class TestDescriptionDocumentsAskForJson:
             "OGCFeatureServer",
             "collections",
         }
+
+
+class TestErrorEnvelopesAreReportedAsErrors:
+    """ArcGIS answers token and parameter errors with HTTP 200 and a JSON
+    ``error`` object instead of the document asked for."""
+
+    async def test_a_token_error_on_the_collection_document(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        _serve(monkeypatch, _esri(collection=_fixture("error-token-required.json")))
+
+        with pytest.raises(EndpointCheckFailedError) as caught:
+            await _materialise(tmp_path)
+
+        assert caught.value.code == SERVICE_AUTH_REFUSED_CODE
+        assert "499" in caught.value.policy
+        assert "Token Required" not in str(caught.value)
+
+    async def test_a_parameter_error_on_an_items_page(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        _serve(monkeypatch, _esri({0: _fixture("error-invalid-parameter.json")}))
+
+        with pytest.raises(EndpointCheckFailedError) as caught:
+            await _materialise(tmp_path)
+
+        assert caught.value.code == SERVICE_ERROR_CODE
+        assert "400" in caught.value.policy
+        assert list(tmp_path.iterdir()) == []

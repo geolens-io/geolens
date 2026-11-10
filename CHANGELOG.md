@@ -25,6 +25,7 @@ and releases use semantic versioning.
 ### Fixed
 - Terrain-RGB tiles of a DEM are read with bilinear resampling for both overview reads and reprojection, where Titiler's nearest default repeated rows and columns and drew stripes under a hillshade. Categorical and photographic rasters are unchanged. Tiles already cached for a DEM are replaced within an hour.
 - OGC API Features: the service probe, the credentialed endpoint check and the protected-collection read ask for `application/json` when they read a landing page, conformance or collection document, and keep `application/geo+json` for items. ArcGIS Online's OGC feature services answered the GeoJSON request with HTTP 400, so the probe reported "Couldn't detect service type".
+- A token-protected OGC API Features import or preview that gets an ArcGIS error envelope (HTTP 200 with `{"error": {...}}`) in place of a collection document or items page now fails with `service_auth_refused` for token codes 498 and 499, or `service_error` otherwise, naming the service's error code, instead of reporting a description GeoLens couldn't read.
 
 ## [1.31.0] - 2026-11-10
 

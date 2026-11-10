@@ -112,6 +112,33 @@ class ItemFetchFailedError(EndpointCheckFailedError):
     """
 
 
+SERVICE_AUTH_REFUSED_CODE = "service_auth_refused"
+SERVICE_AUTH_REFUSED_POLICY = (
+    "The service refused the credential when GeoLens read this collection. "
+    "Check that the token is valid and has not expired, then try again."
+)
+SERVICE_ERROR_CODE = "service_error"
+SERVICE_ERROR_POLICY = (
+    "The service answered with an error instead of this collection's "
+    "features. Check the collection and the request, then try again."
+)
+
+
+class ServiceErrorResponseError(ItemFetchFailedError):
+    """An ArcGIS error envelope, HTTP 200 with ``{"error": {...}}``, in place
+    of a document. Reports the numeric code only, never the service's text."""
+
+    def __init__(self, service_code: object) -> None:
+        super().__init__("service error envelope")
+        # ArcGIS token codes: 499 token required, 498 invalid or expired.
+        auth = service_code in (498, 499)
+        self.code = SERVICE_AUTH_REFUSED_CODE if auth else SERVICE_ERROR_CODE
+        self.policy = SERVICE_AUTH_REFUSED_POLICY if auth else SERVICE_ERROR_POLICY
+        if type(service_code) is int and 0 <= service_code < 10_000:
+            self.policy += f" (Service error {service_code}.)"
+        self.args = (self.policy,)
+
+
 def _discard(path: str) -> None:
     try:
         os.unlink(path)
@@ -135,6 +162,9 @@ def _require_object(document: object, what: str) -> dict:
     """
     if not isinstance(document, dict):
         raise ItemFetchFailedError(f"malformed {what}")
+    error = document.get("error")
+    if isinstance(error, dict) and "features" not in document:
+        raise ServiceErrorResponseError(error.get("code"))
     return document
 
 
