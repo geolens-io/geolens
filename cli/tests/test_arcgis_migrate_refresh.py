@@ -249,17 +249,21 @@ def test_the_token_is_not_sent_to_a_stored_source_on_another_host(
 
 
 @pytest.mark.parametrize(
-    "edit",
+    ("edit", "named"),
     [
-        {"updated_at": EDITED, "updated_by": ALICE},
+        (
+            {"updated_at": EDITED, "updated_by": ALICE},
+            "its title, description, sharing or other details were edited; "
+            "last changed at 2026-10-03T00:00:00+00:00",
+        ),
         # A feature added by the operator's own account moves only the count.
-        {"feature_count": 5},
+        ({"feature_count": 5}, "its data was edited, 0 features then, 5 now"),
         # An attribute edit by the operator's own account moves only the revision.
-        {"data_revision": 1},
+        ({"data_revision": 1}, "its data was edited; last changed"),
     ],
 )
 def test_a_dataset_changed_in_geolens_since_the_last_run_is_left_alone(
-    runner, plan_file, geolens, edit
+    runner, plan_file, geolens, edit, named
 ):
     service = _migrated(runner, plan_file, geolens)
     refresh = FakeRefresh(geolens, service).allow(PARCELS)
@@ -272,7 +276,12 @@ def test_a_dataset_changed_in_geolens_since_the_last_run_is_left_alone(
     assert refresh.bodies == []
     assert [s for s in geolens.seen[before:] if s.method not in ("GET", "POST")] == []
     [reason] = payload["not_up_to_date"][A2]
-    assert "changed in GeoLens since the last run" in reason
+    assert f"changed in GeoLens since the last run ({named}" in reason
+    assert "Its portal item was last modified at 2026-" in reason
+    assert reason.endswith(
+        "To keep the GeoLens version, set the item's action to skip in the plan, "
+        "or accept it at cutover with --accept-unfinished-items"
+    )
     entry = _state(plan_file)["items"][A2]
     assert entry["last_update"][PARCELS] == {
         "updated_at": "2026-10-01T00:00:00+00:00",
