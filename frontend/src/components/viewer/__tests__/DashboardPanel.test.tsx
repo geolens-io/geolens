@@ -159,7 +159,7 @@ describe('DashboardPanel', () => {
     );
     expect(fetchMock).toHaveBeenCalledWith(
       datasetId,
-      { op: 'value_counts', column: 'land_use', limit: 5, filter },
+      { op: 'value_counts', column: 'land_use', limit: 5, blank_text_as_null: true, filter },
       expect.objectContaining({ embedToken: 'embed-abc' }),
     );
     expect(screen.queryByText(/layer's filter can't be applied/)).not.toBeInTheDocument();
@@ -369,7 +369,7 @@ describe('DashboardPanel', () => {
 
     // A widget that covers the whole layer doesn't follow the view.
     expect(requestedBodies().filter((body) => body.op === 'value_counts')).toEqual([
-      { op: 'value_counts', column: 'land_use', limit: 5 },
+      { op: 'value_counts', column: 'land_use', limit: 5, blank_text_as_null: true },
     ]);
   });
 

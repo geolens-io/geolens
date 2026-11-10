@@ -179,13 +179,24 @@ def _view_predicates(bbox: Sequence[float] | None, *, covered: bool) -> list[str
     return []
 
 
-def _key_sql(column: str, data_type: str, bucket: str | None = None) -> tuple[str, str]:
+# char(n) is left out: it pads an empty string, which the map filter can not match.
+_UNPADDED_TEXT_TYPES = frozenset({"text", "character varying"})
+
+
+def _key_sql(
+    column: str,
+    data_type: str,
+    bucket: str | None = None,
+    *,
+    blank_as_null: bool = False,
+) -> tuple[str, str]:
     """What a category groups on, and its returned key over the grouped ``_g._k``.
 
     A timestamptz groups on its value and is written afterwards in UTC text
     with the full year, since the tile text folds every year past 9999 into
     ``infinity``. Other types group on their JSON-ready form. A ``bucket``
-    groups a date column by its UTC day, week, month or year.
+    groups a date column by its UTC day, week, month or year. With
+    ``blank_as_null``, a text column's empty strings group with its NULLs.
     """
     quoted = _sql_quote_ident(column)
     if bucket is not None:
@@ -194,6 +205,8 @@ def _key_sql(column: str, data_type: str, bucket: str | None = None) -> tuple[st
                 "invalid_column", f"Column {column!r} is not a date ({data_type})"
             )
         return bucket_sql(quoted, data_type, bucket)
+    if blank_as_null and data_type in _UNPADDED_TEXT_TYPES:
+        return f"NULLIF({quoted}, '')", "_g._k"
     if data_type != "timestamp with time zone":
         return value_expr(quoted, data_type), "_g._k"
     return quoted, _full_year_utc_text("_g._k")
@@ -264,7 +277,9 @@ def build_aggregate_sql(
         return f"SELECT {selects}{from_where()}"
     if request.op == "value_counts":
         group, key = _key_sql(
-            request.column, _column_type(columns, request.column, numeric=False)
+            request.column,
+            _column_type(columns, request.column, numeric=False),
+            blank_as_null=request.blank_text_as_null,
         )
         return (
             f"SELECT {key} AS _k, _g._n, _g._total FROM ("
@@ -318,6 +333,7 @@ def _group_by_sql(request: GroupByRequest, columns: dict, from_where: str) -> st
         request.group_column,
         _column_type(columns, request.group_column, numeric=False),
         request.date_bucket,
+        blank_as_null=request.blank_text_as_null,
     )
     values = [_stat_sql(s.stat, s.column, columns) for s in request.stats]
     names = [f"_v{i}" for i in range(len(values))]

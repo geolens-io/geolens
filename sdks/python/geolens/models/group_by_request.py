@@ -44,6 +44,8 @@ class GroupByRequest:
             `stat`) or by `group`. Defaults to the first statistic, or to the group with `date_bucket`.
         sort (GroupByRequestSortType0 | None | Unset): Defaults to `desc`, or `asc` with `date_bucket`.
         limit (int | Unset):  Default: 10.
+        blank_text_as_null (bool | Unset): Count a text column's empty strings with its NULLs, as one `null` key, before
+            the groups are limited. Whitespace-only text keeps its own key. Default: False.
     """
 
     op: Literal["group_by"]
@@ -57,6 +59,7 @@ class GroupByRequest:
     sort_by: int | Literal["group"] | None | Unset = UNSET
     sort: GroupByRequestSortType0 | None | Unset = UNSET
     limit: int | Unset = 10
+    blank_text_as_null: bool | Unset = False
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.group_by_request_filter_type_0 import GroupByRequestFilterType0
@@ -132,6 +135,8 @@ class GroupByRequest:
 
         limit = self.limit
 
+        blank_text_as_null = self.blank_text_as_null
+
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
@@ -158,6 +163,8 @@ class GroupByRequest:
             field_dict["sort"] = sort
         if limit is not UNSET:
             field_dict["limit"] = limit
+        if blank_text_as_null is not UNSET:
+            field_dict["blank_text_as_null"] = blank_text_as_null
 
         return field_dict
 
@@ -308,6 +315,8 @@ class GroupByRequest:
 
         limit = d.pop("limit", UNSET)
 
+        blank_text_as_null = d.pop("blank_text_as_null", UNSET)
+
         group_by_request = cls(
             op=op,
             group_column=group_column,
@@ -320,6 +329,7 @@ class GroupByRequest:
             sort_by=sort_by,
             sort=sort,
             limit=limit,
+            blank_text_as_null=blank_text_as_null,
         )
 
         return group_by_request

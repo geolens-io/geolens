@@ -97,6 +97,7 @@ export const tableWidget = defineWidget<TableConfig>({
   dataRequest: (config) => ({
     op: 'group_by',
     group_column: config.group_column,
+    blank_text_as_null: true,
     stats: config.stats.map(({ stat, column }) => ({
       stat: aggregateStat(stat),
       ...(column === null ? {} : { column }),

@@ -39,6 +39,8 @@ def _restrict_public_visibility(monkeypatch):
         async def get(self, _db):
             return True
 
+        get_uncached = get
+
     stub = _AlwaysOn()
     monkeypatch.setattr(pc, "RESTRICT_PUBLIC_VISIBILITY", stub)
     # router_public binds the name at import time (module-level `from` import),

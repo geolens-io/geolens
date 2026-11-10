@@ -85,6 +85,7 @@ describe('table widget', () => {
       sort_by: 1,
       sort: 'desc',
       limit: 2,
+      blank_text_as_null: true,
     });
     expect(tableWidget.dataRequest!({ ...config, sort_by: null, sort: 'asc' })).toMatchObject({
       sort_by: 'group',

@@ -49,6 +49,12 @@ class _AggregateBase(BaseModel):
         return None if value is None else parse_bbox(value)
 
 
+_BLANK_TEXT_AS_NULL = (
+    "Count a text column's empty strings with its NULLs, as one `null` key,"
+    " before the groups are limited. Whitespace-only text keeps its own key."
+)
+
+
 class CountRequest(_AggregateBase):
     op: Literal["count"]
 
@@ -68,6 +74,7 @@ class ValueCountsRequest(_AggregateBase):
     op: Literal["value_counts"]
     column: ColumnName
     limit: int = Field(10, ge=1, le=_MAX_ITEMS)
+    blank_text_as_null: bool = Field(False, description=_BLANK_TEXT_AS_NULL)
 
 
 class HistogramRequest(_AggregateBase):
@@ -128,6 +135,7 @@ class GroupByRequest(_AggregateBase):
         description="Defaults to `desc`, or `asc` with `date_bucket`.",
     )
     limit: int = Field(10, ge=1, le=_MAX_ITEMS)
+    blank_text_as_null: bool = Field(False, description=_BLANK_TEXT_AS_NULL)
 
     # The single-statistic form, whose groups carry no `values`.
     _single: bool = PrivateAttr(False)

@@ -1749,7 +1749,7 @@ class TestServiceImportAuthRequiredMarker:
 
         job = IngestJob(
             source_filename="Roads",
-            source_url="https://services.example.com/svc/FeatureServer",
+            source_url=f"https://services.example.com/{uuid.uuid4().hex[:8]}/FeatureServer",
             source_layer="0",
             created_by=admin_id,
             status="pending",
@@ -1855,7 +1855,7 @@ class TestServiceImportAuthRequiredMarker:
                 await tasks_vector.ingest_service.func(
                     job_id=str(job.id),
                     attempt_id=str(attempt_id),
-                    source_url="https://services.example.com/svc/FeatureServer",
+                    source_url=job.source_url,
                     source_layer="0",
                     user_id=str(admin_id),
                     token=worker_token,

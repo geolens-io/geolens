@@ -257,11 +257,18 @@ export const barChartWidget = defineWidget<BarChartConfig>({
           date_bucket: config.date_bucket,
           ...groupStat(config),
           limit: config.limit,
+          blank_text_as_null: false,
         };
       default:
         return config.stat === 'count' || config.stat_column === null
-          ? { op: 'value_counts', column: config.column, limit: config.limit }
-          : { op: 'group_by', group_column: config.column, ...groupStat(config), limit: config.limit };
+          ? { op: 'value_counts', column: config.column, limit: config.limit, blank_text_as_null: true }
+          : {
+              op: 'group_by',
+              group_column: config.column,
+              ...groupStat(config),
+              limit: config.limit,
+              blank_text_as_null: true,
+            };
     }
   },
   // Bars that aren't values of one column name none, so the host passes no onSelect.

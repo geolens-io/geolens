@@ -128,9 +128,10 @@ async def test_arcgis_service_import_lands_every_attribute_column(
     admin_id = await get_user_id(test_db_session, "admin")
     table_name = f"tbl_quakes_{_uuid.uuid4().hex[:8]}"
 
+    source_url = f"https://services.example.com/{_uuid.uuid4().hex[:8]}/FeatureServer"
     job = IngestJob(
         source_filename="USGS Earthquakes",
-        source_url="https://services.example.com/svc/FeatureServer",
+        source_url=source_url,
         source_layer="0",
         created_by=admin_id,
         status="pending",
@@ -230,7 +231,7 @@ async def test_arcgis_service_import_lands_every_attribute_column(
         await tasks_vector.ingest_service.func(
             job_id=str(job_id),
             attempt_id=str(attempt_id),
-            source_url="https://services.example.com/svc/FeatureServer",
+            source_url=source_url,
             source_layer="0",
             user_id=str(admin_id),
         )
