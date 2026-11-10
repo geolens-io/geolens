@@ -46,7 +46,11 @@ from app.core.service_tokens import (
 )
 from app.core.upload_errors import IngestCeilingError
 from app.core.url_redaction import redact_url_credentials, scrub_secret_value
-from app.platform.arcgis_wfs import fetch_arcgis_wfs_hits, is_arcgis_wfs
+from app.platform.arcgis_wfs import (
+    arcgis_wfs_pages_by_count,
+    fetch_arcgis_wfs_hits,
+    is_arcgis_wfs,
+)
 from app.platform.egress_proxy import (
     gdal_source_url,
     pinned_origin,
@@ -1647,25 +1651,25 @@ async def _arcgis_wfs_expected_features(
     token: str | None,
     arm_origin_contact: "Callable[[], None] | None",
 ) -> int | None:
-    """For an ArcGIS WFS, turn GDAL's paging off and read the layer's total.
-
-    ArcGIS reads ``COUNT`` as an end index, so GDAL's second page comes back
-    empty and the import would stop at the first. None for any other WFS,
-    or when the service doesn't give a total.
-    """
+    """For an ArcGIS WFS, read the layer's total, and turn GDAL's paging off
+    unless ``COUNT`` is a page size there. None for any other WFS, or when
+    the service doesn't give a total."""
     url = gdal_source_url(gdal_source)
     if url is None or not is_arcgis_wfs(url):
         return None
-    cmd.extend(["--config", "OGR_WFS_PAGING_ALLOWED", "OFF"])
+    credential_line = (
+        _sanitize_authorization_token(token, service_format="wfs") if token else None
+    )
     if arm_origin_contact is not None:
         arm_origin_contact()
-    return await fetch_arcgis_wfs_hits(
-        url,
-        layer_name,
-        credential_line=_sanitize_authorization_token(token, service_format="wfs")
-        if token
-        else None,
+    expected = await fetch_arcgis_wfs_hits(
+        url, layer_name, credential_line=credential_line
     )
+    if not await arcgis_wfs_pages_by_count(
+        url, layer_name, credential_line=credential_line
+    ):
+        cmd.extend(["--config", "OGR_WFS_PAGING_ALLOWED", "OFF"])
+    return expected
 
 
 async def _staged_row_count(table_name: str, schema: str) -> int:
@@ -1682,10 +1686,16 @@ async def _staged_row_count(table_name: str, schema: str) -> int:
 
 
 def refuse_short_arcgis_wfs(imported: int, expected: int) -> None:
-    """Fail an ArcGIS WFS import that got fewer features than the layer's
-    ``resultType=hits`` total, which a server-side cap produces silently."""
+    """Fail an ArcGIS WFS import whose feature count differs from the
+    layer's ``resultType=hits`` total: fewer under a server-side cap, more
+    when the server repeated a page."""
+    advice = "Import the layer's FeatureServer or OGC API Features URL instead."
     if imported < expected:
         raise IngestionError(
-            f"The ArcGIS WFS returned {imported} of {expected} features. Import "
-            "the layer's FeatureServer or OGC API Features URL instead."
+            f"The ArcGIS WFS returned {imported} of {expected} features. {advice}"
+        )
+    if imported > expected:
+        raise IngestionError(
+            f"The ArcGIS WFS repeated features: it returned {imported} for a "
+            f"layer of {expected}. {advice}"
         )

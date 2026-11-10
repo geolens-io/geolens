@@ -512,15 +512,23 @@ def _paging_off(argv) -> bool:
 
 
 class TestArcGISWFSIsReadUnpagedAndCounted:
-    """ArcGIS WFS reads COUNT as an end index, so GDAL's second page comes
-    back empty. Its imports run unpaged and are checked against the
-    ``resultType=hits`` total."""
+    """Some ArcGIS WFS services read COUNT as an end index, so GDAL's second
+    page comes back empty. Those imports run unpaged, and every ArcGIS WFS
+    import is checked against the ``resultType=hits`` total."""
 
     @pytest.fixture
     def hits(self, monkeypatch):
         fetch = AsyncMock(return_value=None)
         monkeypatch.setattr("app.processing.ingest.ogr.fetch_arcgis_wfs_hits", fetch)
         return fetch
+
+    @pytest.fixture
+    def pages(self, monkeypatch):
+        probe = AsyncMock(return_value=False)
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr.arcgis_wfs_pages_by_count", probe
+        )
+        return probe
 
     @pytest.fixture
     def rows(self, monkeypatch):
@@ -535,31 +543,30 @@ class TestArcGISWFSIsReadUnpagedAndCounted:
             f"WFS:{url}", "glTrial2Ogc:pts", "t", "PG:dbname=x", "wfs", schema="data"
         )
 
-    @pytest.mark.parametrize(("url", "off"), [(_ARCGIS_WFS, True), (_OTHER_WFS, False)])
-    async def test_paging_is_off_for_arcgis_only(
-        self, monkeypatch, hits, rows, url, off
+    @pytest.mark.parametrize(("pages_by_count", "off"), [(False, True), (True, False)])
+    async def test_paging_follows_the_probe(
+        self, monkeypatch, hits, pages, rows, pages_by_count, off
+    ) -> None:
+        seen = _spawn_reading_the_source(monkeypatch)
+        pages.return_value = pages_by_count
+
+        await self._import(_ARCGIS_WFS)
+
+        assert _paging_off(seen[0]["argv"]) is off
+        assert hits.await_count == 1
+
+    async def test_another_wfs_is_read_as_before(
+        self, monkeypatch, hits, pages, rows
     ) -> None:
         seen = _spawn_reading_the_source(monkeypatch)
 
-        await self._import(url)
+        await self._import(_OTHER_WFS)
 
-        assert _paging_off(seen[0]["argv"]) is off
-        assert hits.await_count == int(off)
-
-    @pytest.mark.parametrize(("url", "off"), [(_ARCGIS_WFS, True), (_OTHER_WFS, False)])
-    async def test_the_preview_reads_unpaged_for_arcgis_only(
-        self, monkeypatch, url, off
-    ) -> None:
-        from app.modules.catalog.sources.preview import run_service_preview
-
-        seen = _spawn_reading_the_source(monkeypatch, stdout=b"{}")
-
-        await run_service_preview(f"WFS:{url}", "glTrial2Ogc:pts")
-
-        assert _paging_off(seen[0]["argv"]) is off
+        assert not _paging_off(seen[0]["argv"])
+        assert (hits.await_count, pages.await_count) == (0, 0)
 
     async def test_fewer_features_than_the_total_fails_the_import(
-        self, monkeypatch, hits, rows
+        self, monkeypatch, hits, pages, rows
     ) -> None:
         from app.processing.ingest.ogr import IngestionError
 
@@ -569,13 +576,24 @@ class TestArcGISWFSIsReadUnpagedAndCounted:
         with pytest.raises(IngestionError, match="returned 1000 of 3000 features"):
             await self._import(_ARCGIS_WFS)
 
-    async def test_the_whole_layer_passes(self, monkeypatch, hits, rows) -> None:
+    async def test_more_features_than_the_total_fails_the_import(
+        self, monkeypatch, hits, pages, rows
+    ) -> None:
+        from app.processing.ingest.ogr import IngestionError
+
+        _spawn_reading_the_source(monkeypatch)
+        hits.return_value, rows.return_value = 1429, 2429
+
+        with pytest.raises(IngestionError, match="repeated features"):
+            await self._import(_ARCGIS_WFS)
+
+    async def test_the_whole_layer_passes(self, monkeypatch, hits, pages, rows) -> None:
         _spawn_reading_the_source(monkeypatch)
         hits.return_value, rows.return_value = 25, 25
 
         await self._import(_ARCGIS_WFS)
 
-    async def test_no_total_is_no_check(self, monkeypatch, hits, rows) -> None:
+    async def test_no_total_is_no_check(self, monkeypatch, hits, pages, rows) -> None:
         _spawn_reading_the_source(monkeypatch)
         rows.return_value = 1
 
@@ -643,3 +661,53 @@ class TestARefreshRefusedForItsTokenIsACredentialFailure:
         assert _service_refresh_error_code(ServiceErrorResponseError(400)) == (
             "service_refresh_failed"
         )
+
+
+_GML = b'<wfs:FeatureCollection xmlns:wfs="http://www.opengis.net/wfs/2.0">%s</wfs:FeatureCollection>'
+_MEMBER = b"<wfs:member><pts/></wfs:member>"
+
+
+class TestThePagingProbe:
+    """``STARTINDEX=1&COUNT=1`` returns one feature where COUNT is a page
+    size and none where it is an end index."""
+
+    def _serve_probe(self, monkeypatch, response: httpx.Response):
+        monkeypatch.setattr(
+            "app.platform.arcgis_wfs.validate_url_for_ssrf", AsyncMock()
+        )
+        return _serve(monkeypatch, lambda r: response)
+
+    async def _probe(self) -> bool:
+        from app.platform.arcgis_wfs import arcgis_wfs_pages_by_count
+
+        return await arcgis_wfs_pages_by_count(
+            _ARCGIS_WFS, "glTrial2Ogc:pts", credential_line=_credential_line()
+        )
+
+    async def test_one_feature_means_count_is_a_page_size(self, monkeypatch) -> None:
+        recorded = self._serve_probe(
+            monkeypatch, _streamed(200, _GML % _MEMBER, "application/xml")
+        )
+
+        assert await self._probe() is True
+        (request,) = recorded
+        assert (request.url.params["STARTINDEX"], request.url.params["COUNT"]) == (
+            "1",
+            "1",
+        )
+        assert request.headers["Accept-Encoding"] == "identity"
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            _streamed(200, _GML % b"", "application/xml"),
+            _streamed(200, _GML % (_MEMBER * 3), "application/xml"),
+            _streamed(500, b"oops", "text/plain"),
+            _streamed(200, b"<not xml", "application/xml"),
+        ],
+        ids=["end-index", "count-ignored", "error", "unparsable"],
+    )
+    async def test_anything_else_turns_paging_off(self, monkeypatch, response) -> None:
+        self._serve_probe(monkeypatch, response)
+
+        assert await self._probe() is False

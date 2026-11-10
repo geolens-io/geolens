@@ -1,9 +1,10 @@
-"""How many features an ArcGIS WFS layer holds, asked before an import.
+"""What an ArcGIS WFS layer holds and how it pages, asked before an import.
 
-ArcGIS WFS reads ``COUNT`` as an end index rather than a page size, so
-GDAL's paged reads stop after the first page. Imports read it unpaged
-instead, and compare what arrived with the ``resultType=hits`` total so a
-server-side cap can't pass for the whole layer.
+Some ArcGIS WFS services read ``COUNT`` as an end index rather than a page
+size, so GDAL's paged reads stop after the first page. A one-feature probe
+tells the two apart, and those imports read unpaged. Every import is
+compared with the ``resultType=hits`` total, so neither a server-side cap
+nor a repeated page can pass for the whole layer.
 """
 
 import asyncio
@@ -53,7 +54,9 @@ def is_arcgis_wfs(url: str | None) -> bool:
     return bool(url) and urlsplit(url).path.lower().endswith("/wfsserver")
 
 
-def hits_url(url: str, layer: str) -> str:
+def wfs_url(url: str, layer: str, **params: str) -> str:
+    """A GetFeature request for ``layer`` on the caller's URL, keeping its
+    other parameters (such as a ``token``)."""
     parts = urlsplit(url)
     query = [
         (key, value)
@@ -65,31 +68,38 @@ def hits_url(url: str, layer: str) -> str:
         ("VERSION", "2.0.0"),
         ("REQUEST", "GetFeature"),
         ("TYPENAMES", layer),
-        ("RESULTTYPE", "hits"),
+        *params.items(),
     ]
     return urlunsplit(parts._replace(query=urlencode(query)))
 
 
+def _root(body: bytes):
+    try:
+        return ET.fromstring(body)
+    except Exception:  # broad: defusedxml raises parse and policy errors alike
+        return None
+
+
 def number_matched(body: bytes) -> int | None:
     """The response's ``numberMatched``, or None when it is absent or not a count."""
-    try:
-        value = ET.fromstring(body).get("numberMatched", "")
-    except (
-        Exception
-    ):  # broad: defusedxml raises parse and policy errors alike; no count
-        return None
+    root = _root(body)
+    value = "" if root is None else root.get("numberMatched", "")
     return int(value) if value.isdigit() else None
 
 
-async def fetch_arcgis_wfs_hits(
-    url: str, layer: str, *, credential_line: str | None
-) -> int | None:
-    """The layer's total from a ``resultType=hits`` read, or None when the
-    service doesn't say. Never raises for the service's answer: the import
-    goes ahead without a count to check."""
+def features_returned(body: bytes) -> int | None:
+    """How many ``member`` features a WFS 2.0 response carries, or None
+    when it can't be read."""
+    root = _root(body)
+    if root is None:
+        return None
+    return sum(1 for child in root if str(child.tag).rsplit("}", 1)[-1] == "member")
+
+
+async def _read(target: str, credential_line: str | None) -> bytes | None:
+    """One bounded, identity-encoded read, or None when it fails."""
     headers = credential_headers(credential_line) if credential_line else {}
     try:
-        target = hits_url(url, layer)
         await validate_url_for_ssrf(target)
         async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
             async with make_safe_client(
@@ -105,6 +115,34 @@ async def fetch_arcgis_wfs_hits(
         EndpointCheckFailedError,
         ValueError,
     ) as exc:
-        logger.warning("arcgis_wfs_hits_unavailable", error_class=type(exc).__name__)
+        logger.warning("arcgis_wfs_read_failed", error_class=type(exc).__name__)
         return None
-    return number_matched(body)
+    return body
+
+
+async def fetch_arcgis_wfs_hits(
+    url: str, layer: str, *, credential_line: str | None
+) -> int | None:
+    """The layer's total from a ``resultType=hits`` read, or None when the
+    service doesn't say. Never raises for the service's answer: the import
+    goes ahead without a count to check."""
+    try:
+        target = wfs_url(url, layer, RESULTTYPE="hits")
+    except ValueError:
+        return None
+    body = await _read(target, credential_line)
+    return None if body is None else number_matched(body)
+
+
+async def arcgis_wfs_pages_by_count(
+    url: str, layer: str, *, credential_line: str | None
+) -> bool:
+    """Whether ``COUNT`` is a page size here: ``STARTINDEX=1&COUNT=1``
+    returns exactly one feature. A server that reads it as an end index
+    returns none; any failure also answers False, so paging goes off."""
+    try:
+        target = wfs_url(url, layer, STARTINDEX="1", COUNT="1")
+    except ValueError:
+        return False
+    body = await _read(target, credential_line)
+    return body is not None and features_returned(body) == 1
