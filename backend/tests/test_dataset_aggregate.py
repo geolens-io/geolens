@@ -620,6 +620,83 @@ class TestOperations:
         assert resp.json()["detail"]["code"] == code
 
 
+@pytest.fixture
+async def blank_text(client, test_db_session):
+    """``kind`` holds park x60, NULL x30, '' x20 and '  ' x10."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    table = f"agg_{uuid.uuid4().hex[:10]}"
+    await test_db_session.execute(
+        text(
+            f"CREATE TABLE data.{table} (gid SERIAL PRIMARY KEY, kind TEXT, n INTEGER)"
+        )
+    )
+    await test_db_session.execute(
+        text(f"GRANT SELECT ON data.{table} TO geolens_reader")
+    )
+    await test_db_session.execute(
+        text(
+            f"INSERT INTO data.{table} (kind, n)"  # noqa: S608
+            " SELECT CASE WHEN i <= 60 THEN 'park' WHEN i <= 90 THEN NULL"
+            " WHEN i <= 110 THEN '' ELSE '  ' END, 1"
+            " FROM generate_series(1, 120) AS i"
+        )
+    )
+    await test_db_session.commit()
+    dataset = await create_dataset(
+        test_db_session,
+        created_by=admin_id,
+        table_name=table,
+        visibility="public",
+        feature_count=120,
+        column_info=[
+            {"name": "kind", "type": "text"},
+            {"name": "n", "type": "integer"},
+        ],
+    )
+    yield dataset
+    await test_db_session.execute(text(f"DROP TABLE data.{table}"))
+    await test_db_session.commit()
+
+
+class TestBlankText:
+    async def test_value_counts_counts_null_and_empty_text_as_one_row(
+        self, client: AsyncClient, blank_text
+    ):
+        resp = await _aggregate(
+            client, blank_text.id, {"op": "value_counts", "column": "kind"}
+        )
+
+        assert resp.status_code == 200, resp.text
+        counts = {v["value"]: v["count"] for v in resp.json()["result"]["values"]}
+        assert counts == {"park": 60, None: 50, "  ": 10}
+
+    async def test_value_counts_limits_after_the_blanks_merge(
+        self, client: AsyncClient, blank_text
+    ):
+        resp = await _aggregate(
+            client, blank_text.id, {"op": "value_counts", "column": "kind", "limit": 2}
+        )
+
+        result = resp.json()["result"]
+        assert result["values"] == [
+            {"value": "park", "count": 60},
+            {"value": None, "count": 50},
+        ]
+        assert result["other_count"] == 10
+
+    async def test_group_by_counts_null_and_empty_text_as_one_group(
+        self, client: AsyncClient, blank_text
+    ):
+        resp = await _aggregate(
+            client,
+            blank_text.id,
+            {"op": "group_by", "group_column": "kind", "stat": "sum", "column": "n"},
+        )
+
+        groups = {g["key"]: g["value"] for g in resp.json()["result"]["groups"]}
+        assert groups == {"park": 60.0, None: 50.0, "  ": 10.0}
+
+
 class TestViewThreshold:
     @pytest.fixture(autouse=True)
     def planned(self, monkeypatch) -> list[str]:

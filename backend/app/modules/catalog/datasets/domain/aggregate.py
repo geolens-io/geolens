@@ -179,13 +179,17 @@ def _view_predicates(bbox: Sequence[float] | None, *, covered: bool) -> list[str
     return []
 
 
+_TEXT_TYPES = frozenset({"text", "character varying", "character"})
+
+
 def _key_sql(column: str, data_type: str, bucket: str | None = None) -> tuple[str, str]:
     """What a category groups on, and its returned key over the grouped ``_g._k``.
 
     A timestamptz groups on its value and is written afterwards in UTC text
     with the full year, since the tile text folds every year past 9999 into
     ``infinity``. Other types group on their JSON-ready form. A ``bucket``
-    groups a date column by its UTC day, week, month or year.
+    groups a date column by its UTC day, week, month or year. A text column's
+    empty strings group with its NULLs.
     """
     quoted = _sql_quote_ident(column)
     if bucket is not None:
@@ -194,6 +198,9 @@ def _key_sql(column: str, data_type: str, bucket: str | None = None) -> tuple[st
                 "invalid_column", f"Column {column!r} is not a date ({data_type})"
             )
         return bucket_sql(quoted, data_type, bucket)
+    if data_type in _TEXT_TYPES:
+        # An empty string counts with NULL, so both read as one missing value.
+        return f"NULLIF({quoted}, '')", "_g._k"
     if data_type != "timestamp with time zone":
         return value_expr(quoted, data_type), "_g._k"
     return quoted, _full_year_utc_text("_g._k")
