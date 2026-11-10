@@ -70,7 +70,7 @@ def test_pinned_dataset_titles_name_every_externally_referenced_dataset():
     )
 
 
-def test_pinned_map_names_are_the_four_the_examples_address_by_id():
+def test_pinned_map_names_are_the_ones_the_examples_address_by_id():
     assert seeder.PINNED_MAP_NAMES == (
         # /m/NDuwpSJc3yx4Exic5Na48xO-8bpjWiaIofJefpjqfbU (embed/iframe.html)
         "Restless Earth",
@@ -78,7 +78,50 @@ def test_pinned_map_names_are_the_four_the_examples_address_by_id():
         "Manhattan: A Century of Skyline",
         "The Matterhorn in 3D",
         "New York From Orbit: Sentinel-2 by Reference",
+        # the four dashboard maps the gallery links
+        "Earthquake Dashboard: USGS M2.5+ Snapshot",
+        "Manhattan Skyline Dashboard",
+        "Cambridge Open Data: Land and Zoning in Numbers",
+        "Cambridge Open Data: Street Tree Operations",
     )
+
+
+def test_the_cambridge_dashboard_pins_match_the_cambridge_module():
+    cambridge = seeder.cambridge
+    assert cambridge is not None
+    assert {cambridge.TREE_DASHBOARD, cambridge.LAND_DASHBOARD} <= set(
+        seeder.PINNED_MAP_NAMES
+    )
+
+
+def test_pinned_story_titles_are_the_published_showcase_stories():
+    assert seeder.PINNED_STORY_TITLES == (
+        "A Century of Manhattan's Skyline",
+        "New York, From Orbit to the Street Tree",
+        "Where the Atlantic's Major Hurricanes Go",
+        "Cambridge's Open Data in GeoLens",
+    )
+    assert seeder.cambridge.STORY_TITLE in seeder.PINNED_STORY_TITLES
+
+
+def test_no_code_path_deletes_a_story():
+    """A pinned story keeps its id only while nothing deletes the row."""
+    cambridge_source = (SCRIPT_PATH.parent / "seed_showcase_cambridge.py").read_text(
+        encoding="utf-8"
+    )
+    for source in (SOURCE, cambridge_source):
+        assert "delete_story" not in source
+        assert "/api/stories/{" not in "".join(
+            line for line in source.splitlines() if "delete(" in line
+        )
+
+
+def test_every_pinned_story_is_found_by_title_before_it_is_created():
+    cambridge_source = (SCRIPT_PATH.parent / "seed_showcase_cambridge.py").read_text(
+        encoding="utf-8"
+    )
+    assert SOURCE.count("api.list_stories()") >= 3
+    assert "api.list_stories()" in cambridge_source
 
 
 def test_a_pinned_name_is_never_also_a_retired_one():
@@ -326,6 +369,24 @@ def test_prune_userdata_keeps_a_pinned_map_still_under_its_old_name():
     assert [m["id"] for m in buckets["pinned_maps"]] == ["m1"]
     assert [m["id"] for m in buckets["pinned_map_impostors"]] == ["m2"]
     assert buckets["foreign_maps"] == []
+
+
+def test_prune_userdata_keeps_the_dashboard_maps_even_under_a_legacy_name():
+    names = [
+        seeder.DASHBOARD_MAP,
+        seeder.SKYLINE_DASHBOARD_MAP,
+        "Cambridge Open Data: Street Tree Operations",
+        "Earthquake Dashboard - USGS M2.5+ Snapshot",
+    ]
+    buckets = _classify(
+        [
+            {"id": f"m{i}", "name": n, "created_by_username": "admin"}
+            for i, n in enumerate(names)
+        ],
+        [],
+    )
+    assert len(buckets["pinned_maps"]) == len(names)
+    assert buckets["stray_maps"] == []
 
 
 def test_prune_userdata_keeps_the_meteorites_dataset():
@@ -715,10 +776,14 @@ def test_a_map_id_reports_nothing_and_counts_as_built():
 class _SummaryApi:
     """Just the surface _print_pinned_summary reads."""
 
-    def __init__(self, maps, datasets, share_tokens):
+    def __init__(self, maps, datasets, share_tokens, stories=None):
         self._maps = maps
         self._datasets = datasets
         self._share_tokens = share_tokens
+        self._stories = stories or {}
+
+    def list_stories(self):
+        return self._stories
 
     def list_maps(self):
         return self._maps
@@ -764,6 +829,20 @@ def test_pinned_summary_flags_only_the_token_embedded_map(capsys, monkeypatch):
     assert out.count("no active share link") == 1
     assert "! dataset 'Meteorite Landings (Meteoritical Society)' not found" in out
     assert "gh api repos/geolens-io/geolens-examples/dispatches" in out
+
+
+def test_pinned_summary_prints_story_ids_and_flags_a_missing_one(capsys, monkeypatch):
+    monkeypatch.setattr(seeder, "PINNED_MAP_NAMES", ())
+    monkeypatch.setattr(seeder, "PINNED_DATASET_TITLES", ())
+    monkeypatch.setattr(seeder, "PINNED_STORY_TITLES", ("Found", "Missing"))
+    api = _SummaryApi(maps={}, datasets={}, share_tokens={}, stories={"Found": "s-1"})
+    monkeypatch.setattr(seeder.Api, "login", lambda *a, **k: api)
+
+    seeder._print_pinned_summary("http://x", "admin", "pw")
+
+    out = capsys.readouterr().out
+    assert "story   Found: s-1" in out
+    assert "! story 'Missing' not found this run" in out
 
 
 def test_pinned_summary_never_prints_the_share_token_itself(capsys, monkeypatch):
