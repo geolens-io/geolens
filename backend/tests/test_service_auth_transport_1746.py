@@ -6690,7 +6690,7 @@ class TestAServiceThatServesHtmlToAnyoneWhoAsks:
         one of them refuse what the others accepted.
         """
         from app.modules.catalog.sources.adapters import ogcapi as adapter
-        from app.platform.service_endpoints import OGC_JSON_ACCEPT
+        from app.platform.service_endpoints import OGC_DOCUMENT_ACCEPT
 
         # `probe_ogcapi` is now a thin deadline
         # wrapper (see the class docstring on the split); the Accept header
@@ -6700,9 +6700,9 @@ class TestAServiceThatServesHtmlToAnyoneWhoAsks:
             inspect.getsource(adapter._probe_ogcapi_within_deadline),
         )
         assert probe_accept is not None, "probe_ogcapi no longer sets Accept"
-        # The shared value is a superset of the probe's, so a service that
-        # answers the probe answers the other two.
-        assert probe_accept.group(1) in OGC_JSON_ACCEPT
+        # The probe's landing-page read asks for what the check and the walk
+        # ask for when they read the same documents.
+        assert probe_accept.group(1) == OGC_DOCUMENT_ACCEPT
 
 
 class TestEveryReadStatesWhatItWants:
@@ -7132,7 +7132,7 @@ class TestEachDocumentKindGetsItsOwnBound:
 
         from app.platform import service_endpoints, service_items
 
-        known = {"OGC_JSON_ACCEPT", "WFS_XML_ACCEPT"}
+        known = {"OGC_JSON_ACCEPT", "OGC_DOCUMENT_ACCEPT", "WFS_XML_ACCEPT"}
         seen: list[str] = []
         for module in (service_endpoints, service_items):
             tree = ast.parse(_inspect.getsource(module))
@@ -7162,10 +7162,12 @@ class TestEachDocumentKindGetsItsOwnBound:
         endpoints_default = (
             _inspect.signature(service_endpoints._fetch).parameters["accept"].default
         )
-        assert endpoints_default == service_endpoints.OGC_JSON_ACCEPT
+        assert endpoints_default == service_endpoints.OGC_DOCUMENT_ACCEPT
 
-        items_source = _inspect.getsource(service_items._fetch_page)
-        assert "accept=OGC_JSON_ACCEPT" in items_source
+        items_default = (
+            _inspect.signature(service_items._fetch_page).parameters["accept"].default
+        )
+        assert items_default == service_endpoints.OGC_JSON_ACCEPT
 
 
 class TestAnOrphanedExtractIsReclaimed:

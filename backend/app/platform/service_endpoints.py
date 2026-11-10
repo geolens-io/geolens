@@ -150,6 +150,10 @@ DEFAULT_CHECK_TIMEOUT = 30.0
 # may forget — a service serving HTML for `*/*` answers the probe with a
 # document and the check with a web page.
 OGC_JSON_ACCEPT = "application/geo+json, application/json"
+# The landing page, conformance and collection documents are JSON, not
+# GeoJSON, and ArcGIS Online answers them with HTTP 400 when the Accept
+# header leads with `application/geo+json`. Items pages keep the value above.
+OGC_DOCUMENT_ACCEPT = "application/json"
 
 # WFS negotiates by query, not header, so this states the expectation rather
 # than driving it. No `*/*` term: that's exactly what lets HTML back.
@@ -707,12 +711,13 @@ async def _fetch(
     headers: dict[str, str],
     on_first_request: "Callable[[], None] | None" = None,
     *,
-    accept: str = OGC_JSON_ACCEPT,
+    accept: str = OGC_DOCUMENT_ACCEPT,
 ) -> tuple[bytes, str]:
     """This module's reads, with its own caps and exception.
 
-    Defaults to the OGC value since four of the five reads here are OGC API
-    documents; the capabilities read passes `WFS_XML_ACCEPT` explicitly.
+    Defaults to the OGC document value since every OGC API read here is a
+    landing, collection or listing document; the WFS reads pass
+    `WFS_XML_ACCEPT` explicitly.
     """
     return await fetch_document(
         client, url, headers, accept=accept, on_first_request=on_first_request

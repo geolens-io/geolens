@@ -89,7 +89,7 @@ from app.platform.service_auth import (
 from app.platform.probe_bounds import bounded_probe_read
 from app.platform.service_endpoints import (
     DEFAULT_CHECK_TIMEOUT,
-    OGC_JSON_ACCEPT,
+    OGC_DOCUMENT_ACCEPT,
     CrossOriginEndpointError,
     EndpointCheckFailedError,
     HrefTooLongError,
@@ -595,7 +595,7 @@ async def _fetch_ogcapi_collection_srid(
                 credential_header=custom_credential_header_name(credential),
             ) as client:
                 body, _ = await bounded_probe_read(
-                    client, collection_url, headers=headers, accept=OGC_JSON_ACCEPT
+                    client, collection_url, headers=headers, accept=OGC_DOCUMENT_ACCEPT
                 )
                 data = json.loads(body)
     except (

@@ -27,7 +27,7 @@ from app.platform.probe_bounds import bounded_probe_read
 from app.platform.service_endpoints import (
     DEFAULT_CHECK_TIMEOUT,
     MAX_SERVICE_HREF_BYTES,
-    OGC_JSON_ACCEPT,
+    OGC_DOCUMENT_ACCEPT,
     EndpointCheckFailedError,
     bounded_service_url,
 )
@@ -121,7 +121,7 @@ async def _resolve_conformance(
         # the actual sink is the `stream` call inside `bounded_probe_read`
         # (`platform/probe_bounds.py`), one hop away from here.
         conf_body, _ = await bounded_probe_read(
-            client, abs_href, headers=headers, accept=OGC_JSON_ACCEPT
+            client, abs_href, headers=headers, accept=OGC_DOCUMENT_ACCEPT
         )
         conf_data = json.loads(conf_body)
         conforms_to = conf_data.get("conformsTo", [])
@@ -197,7 +197,7 @@ async def _probe_ogcapi_within_deadline(
 
     try:
         body, _ = await bounded_probe_read(
-            client, url, headers=headers, accept=OGC_JSON_ACCEPT
+            client, url, headers=headers, accept=OGC_DOCUMENT_ACCEPT
         )
     except (
         httpx.HTTPStatusError,
@@ -246,7 +246,7 @@ async def _probe_ogcapi_within_deadline(
     try:
         await validate_url_for_ssrf(collections_url)
         col_body, _ = await bounded_probe_read(
-            client, collections_url, headers=headers, accept=OGC_JSON_ACCEPT
+            client, collections_url, headers=headers, accept=OGC_DOCUMENT_ACCEPT
         )
         col_data = json.loads(col_body)
     except SSRFError:

@@ -53,6 +53,7 @@ from app.platform.service_endpoints import (
     MAX_DOCUMENT_TOKENS,
     EndpointCheckFailedError,
     HrefTooLongError,
+    OGC_DOCUMENT_ACCEPT,
     OGC_JSON_ACCEPT,
     bounded_parse_qsl,
     bounded_service_url,
@@ -336,6 +337,7 @@ async def _fetch_page(
     *,
     budget: int,
     token_budget: int | None = None,
+    accept: str = OGC_JSON_ACCEPT,
     on_first_request: "Callable[[], None] | None" = None,
 ) -> tuple[object, int, str]:
     """One items page, its wire size and its URL, or a refusal.
@@ -349,9 +351,9 @@ async def _fetch_page(
         client,
         url,
         headers,
-        # The same Accept the probe and endpoint check send, so
-        # HTML-for-`*/*` can't answer one of the three reads differently.
-        accept=OGC_JSON_ACCEPT,
+        # Never `*/*`, so a service that serves HTML for it can't answer
+        # this read differently from the probe and the endpoint check.
+        accept=accept,
         budget=budget,
         # Read at call time, like `fetch_document` does: a default argument
         # would freeze the constant at definition.
@@ -393,8 +395,9 @@ async def _resolve_items_url(
         headers,
         budget=MAX_DOCUMENT_BYTES,
         # A collection document is a description, so it gets the
-        # description budget rather than an items page's.
+        # description budget and Accept rather than an items page's.
         token_budget=MAX_DOCUMENT_TOKENS,
+        accept=OGC_DOCUMENT_ACCEPT,
         on_first_request=on_first_request,
     )
     href = _advertised_items_href(

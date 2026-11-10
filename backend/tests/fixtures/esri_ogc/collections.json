@@ -1,0 +1,80 @@
+{
+  "links": [
+    {
+      "href": "https://services8.arcgis.com/<redacted>/arcgis/rest/services/glTrial2Ogc/OGCFeatureServer/collections/?f=application/json",
+      "rel": "self",
+      "type": "application/json",
+      "title": "This document"
+    },
+    {
+      "href": "https://services8.arcgis.com/<redacted>/arcgis/rest/services/glTrial2Ogc/OGCFeatureServer/collections/?f=application/x-yaml",
+      "rel": "alternate",
+      "type": "application/x-yaml",
+      "title": "This document as application/x-yaml"
+    },
+    {
+      "href": "https://services8.arcgis.com/<redacted>/arcgis/rest/services/glTrial2Ogc/OGCFeatureServer/collections/?f=text/html",
+      "rel": "alternate",
+      "type": "text/html",
+      "title": "This document as text/html"
+    }
+  ],
+  "collections": [
+    {
+      "id": "0",
+      "title": "pts",
+      "extent": {
+        "spatial": {
+          "bbox": [
+            [
+              -75.0,
+              39.0,
+              -73.0,
+              41.0
+            ]
+          ],
+          "crs": "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
+        }
+      },
+      "links": [
+        {
+          "href": "https://services8.arcgis.com/<redacted>/arcgis/rest/services/glTrial2Ogc/OGCFeatureServer/collections/0/items/?f=application/geo+json",
+          "rel": "items",
+          "type": "application/geo+json",
+          "title": "This document as type application/geo+json"
+        },
+        {
+          "href": "https://services8.arcgis.com/<redacted>/arcgis/rest/services/glTrial2Ogc/OGCFeatureServer/collections/0/items/?f=text/html",
+          "rel": "items",
+          "type": "text/html",
+          "title": "This document as text/html"
+        },
+        {
+          "href": "https://services8.arcgis.com/<redacted>/arcgis/rest/services/glTrial2Ogc/OGCFeatureServer/collections/0/items/?f=application/vnd.mapbox-vector-tile",
+          "rel": "items",
+          "type": "application/vnd.mapbox-vector-tile",
+          "title": "This document as application/vnd.mapbox-vector-tile"
+        }
+      ],
+      "crs": [
+        "#/crs"
+      ],
+      "storageCrs": "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
+    }
+  ],
+  "crs": [
+    "http://www.opengis.net/def/crs/OGC/1.3/CRS84",
+    "http://www.opengis.net/def/crs/EPSG/0/2000",
+    "http://www.opengis.net/def/crs/EPSG/0/2001",
+    "http://www.opengis.net/def/crs/EPSG/0/2002",
+    "http://www.opengis.net/def/crs/EPSG/0/2003",
+    "http://www.opengis.net/def/crs/EPSG/0/2004",
+    "http://www.opengis.net/def/crs/EPSG/0/2005",
+    "http://www.opengis.net/def/crs/EPSG/0/2006",
+    "http://www.opengis.net/def/crs/EPSG/0/2007",
+    "http://www.opengis.net/def/crs/EPSG/0/2008",
+    "http://www.opengis.net/def/crs/EPSG/0/2009",
+    "http://www.opengis.net/def/crs/EPSG/0/2010",
+    "... truncated; full list had 40305 entries"
+  ]
+}
