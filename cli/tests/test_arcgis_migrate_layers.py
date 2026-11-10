@@ -726,6 +726,29 @@ def test_a_password_token_is_renewed_before_it_expires():
     assert renewals == [1]
 
 
+def test_a_short_lived_token_is_renewed_at_half_its_lifetime():
+    renewals: list[int] = []
+
+    class Client:
+        token = "first"
+        token_lifetime = 60.0
+
+        def renew_token(self) -> bool:
+            renewals.append(1)
+            self.token = f"renewed-{len(renewals)}"
+            return True
+
+    clock = _Clock()
+    auth = session.PortalAuth(Client(), renewable=True, clock=clock)
+    clock.now = 20
+    assert auth.service_auth().token == "first"
+    clock.now = 31
+    assert auth.service_auth().token == "renewed-1"
+    clock.now = 40
+    assert auth.service_auth().token == "renewed-1"
+    assert renewals == [1]
+
+
 def test_a_pasted_token_is_never_renewed():
     class Client:
         token = "pasted"

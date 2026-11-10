@@ -37,19 +37,24 @@ from .arcgis_portal import PortalClient, PortalError, Redactor
 CALLBACK_PATH = "/callback"
 SIGN_IN_TIMEOUT = 300.0
 # The token endpoint's default when an answer omits expires_in.
-DEFAULT_LIFETIME = 1800
+_DEFAULT_LIFETIME = 1800
 # The longest one connection may take, however slowly it sends.
 _REQUEST_TIMEOUT = 10.0
 _POLL = 0.5
 _ERROR_TEXT_LIMIT = 300
 
-_DONE_PAGE = (
-    b"<!doctype html><meta charset=utf-8><title>GeoLens</title>"
-    b"<p>Signed in to ArcGIS. You can close this tab and return to the terminal.</p>"
+
+def _page(message: str) -> bytes:
+    return (
+        f"<!doctype html><meta charset=utf-8><title>GeoLens</title><p>{message}</p>"
+    ).encode()
+
+
+_DONE_PAGE = _page(
+    "Signed in to ArcGIS. You can close this tab and return to the terminal."
 )
-_REFUSED_PAGE = (
-    b"<!doctype html><meta charset=utf-8><title>GeoLens</title>"
-    b"<p>The sign-in was not completed. Return to the terminal for details.</p>"
+_REFUSED_PAGE = _page(
+    "The sign-in was not completed. Return to the terminal for details."
 )
 
 
@@ -85,10 +90,11 @@ def sign_in(
     ``auth`` when the sign-in fails, ``usage`` when the listener can't start.
     """
     account = _account(client.root, client_id)
+    session = _Session(client, client_id, account, redact, notify)
     saved = _auth.load_secrets(account)
     for backend, stored in saved:
         redact.add(stored)
-        session = _Session(client, client_id, account, redact, stored, notify)
+        session.refresh_token = stored
         try:
             session.refresh()
             return
@@ -118,7 +124,7 @@ def sign_in(
             "code_verifier": verifier,
         }
     )
-    session = _Session(client, client_id, account, redact, None, notify)
+    session.refresh_token = ""
     session.adopt(data)
 
 
@@ -131,15 +137,14 @@ class _Session:
         client_id: str,
         account: str,
         redact: Redactor,
-        refresh_token: str | None,
         notify: Callable[[str], None],
     ) -> None:
         self._client = client
         self._client_id = client_id
         self._account = account
         self._redact = redact
-        self._refresh_token = refresh_token
         self._notify = notify
+        self.refresh_token = ""
 
     def refresh(self) -> None:
         self.adopt(
@@ -147,7 +152,7 @@ class _Session:
                 {
                     "client_id": self._client_id,
                     "grant_type": "refresh_token",
-                    "refresh_token": self._refresh_token or "",
+                    "refresh_token": self.refresh_token,
                 }
             )
         )
@@ -156,13 +161,14 @@ class _Session:
         refresh = data.get("refresh_token")
         if isinstance(refresh, str) and refresh:
             self._redact.add(refresh)
-        lifetime = data.get("expires_in")
-        if not isinstance(lifetime, int) or isinstance(lifetime, bool) or lifetime <= 0:
-            lifetime = DEFAULT_LIFETIME
-        if isinstance(refresh, str) and refresh and refresh != self._refresh_token:
-            self._refresh_token = refresh
-            self._save(refresh)
-        renew = self.refresh if self._refresh_token else None
+            if refresh != self.refresh_token:
+                self.refresh_token = refresh
+                self._save(refresh)
+        expires_in = data.get("expires_in")
+        # bool is an int subclass; True is no lifetime.
+        valid = isinstance(expires_in, int) and not isinstance(expires_in, bool)
+        lifetime = expires_in if valid and expires_in > 0 else _DEFAULT_LIFETIME
+        renew = self.refresh if self.refresh_token else None
         self._client.use_token(data.get("access_token"), lifetime, renew)
 
     def _save(self, refresh: str) -> None:
@@ -187,13 +193,14 @@ def forget(root: str, client_id: str) -> tuple[list[str], list[str]]:
 
 class _Listener(socketserver.TCPServer):
     allow_reuse_address = False
+    # Set when the connection being handled was cut off at its time limit.
+    cut: threading.Event
 
-    def __init__(self, port: int, state: str) -> None:
+    def __init__(self, port: int, state: str, deadline: float) -> None:
         super().__init__(("127.0.0.1", port), _Callback)
         self.state = state
+        self.deadline = deadline
         self.outcome: tuple[str | None, str | None] | None = None
-        self.deadline = float("inf")
-        self.cut = threading.Event()
 
     def finish_request(self, request: Any, client_address: Any) -> None:
         # The handler's socket timeout bounds each read, not the whole request,
@@ -231,10 +238,11 @@ class _Callback(BaseHTTPRequestHandler):
         if parts.path != CALLBACK_PATH or self.server.outcome is not None:
             self.send_error(404)
             return
-        self.server.outcome = _read_callback(parse_qs(parts.query), self.server.state)
-        code, _problem = self.server.outcome
-        page = _DONE_PAGE if code else _REFUSED_PAGE
-        self.send_response(200 if code else 400)
+        outcome = _read_callback(parse_qs(parts.query), self.server.state)
+        self.server.outcome = outcome
+        signed_in = outcome[0] is not None
+        page = _DONE_PAGE if signed_in else _REFUSED_PAGE
+        self.send_response(200 if signed_in else 400)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(page)))
         self.send_header("Cache-Control", "no-store")
@@ -286,7 +294,9 @@ def _authorize(
     """Run the browser leg and return (code, redirect_uri)."""
     state = secrets.token_urlsafe(32)
     try:
-        listener = _Listener(redirect_port or 0, state)
+        listener = _Listener(
+            redirect_port or 0, state, time.monotonic() + SIGN_IN_TIMEOUT
+        )
     except OSError as exc:
         raise PortalError(
             f"can't listen on 127.0.0.1 port {redirect_port or 0} for the "
@@ -307,12 +317,11 @@ def _authorize(
             }
         )
         notify(f"Sign in to ArcGIS in your browser. If it doesn't open, visit:\n{url}")
-        listener.deadline = time.monotonic() + SIGN_IN_TIMEOUT
         # A browser command run in the foreground returns only when it exits.
         threading.Thread(
             target=_open_quietly, args=(open_browser, url), daemon=True
         ).start()
-        code, problem = _wait(listener, SIGN_IN_TIMEOUT)
+        code, problem = _wait(listener)
     if code is None:
         raise PortalError(redact(problem or "the sign-in did not finish"), kind="auth")
     redact.add(code)
@@ -326,12 +335,12 @@ def _open_quietly(open_browser: Callable[[str], Any], url: str) -> None:
         pass
 
 
-def _wait(listener: _Listener, timeout: float) -> tuple[str | None, str | None]:
+def _wait(listener: _Listener) -> tuple[str | None, str | None]:
     while listener.outcome is None:
         remaining = listener.deadline - time.monotonic()
         if remaining <= 0:
             return None, (
-                f"no sign-in arrived within {timeout:g} seconds; run the command again"
+                f"no sign-in arrived within {SIGN_IN_TIMEOUT:g} seconds; run the command again"
             )
         listener.timeout = min(remaining, _POLL)
         listener.handle_request()

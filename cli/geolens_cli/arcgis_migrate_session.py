@@ -184,7 +184,9 @@ class PortalAuth:
 
         if self._minted_at is not None:
             age = self._clock() - self._minted_at
-            if age > self._client.token_lifetime - TOKEN_RENEW_MARGIN:
+            lifetime = self._client.token_lifetime
+            # A lifetime under twice the margin would renew on every call.
+            if age > lifetime - min(TOKEN_RENEW_MARGIN, lifetime / 2):
                 self.renew()
         return ServiceAuthRequest(method="bearer", token=self._client.token)
 

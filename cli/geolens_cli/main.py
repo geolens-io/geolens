@@ -1993,6 +1993,33 @@ def analysis_materialize(
         raise typer.Exit(materialize_exit_code)
 
 
+ClientIdOpt = Annotated[
+    Optional[str],
+    typer.Option(
+        "--client-id",
+        envvar="GEOLENS_ARCGIS_CLIENT_ID",
+        show_envvar=True,
+        help="Sign in through the browser with OAuth, which also works for "
+        "accounts that use SAML or OpenID Connect. The client ID of an OAuth 2.0 "
+        "credentials item registered in your organization. Register "
+        "http://127.0.0.1 (not localhost) as a redirect URL, which matches "
+        "any port, or the exact http://127.0.0.1:<port>/callback with "
+        "--redirect-port. The sign-in is saved in the OS keyring for the "
+        "next run",
+    ),
+]
+RedirectPortOpt = Annotated[
+    Optional[int],
+    typer.Option(
+        "--redirect-port",
+        min=1,
+        max=65535,
+        help="With --client-id, receive the browser sign-in on this port "
+        "of 127.0.0.1 instead of a free one",
+    ),
+]
+
+
 @arcgis_app.command("inventory")
 def arcgis_inventory(
     ctx: typer.Context,
@@ -2027,31 +2054,8 @@ def arcgis_inventory(
         bool,
         typer.Option("--password-stdin", help="Read the ArcGIS password from stdin"),
     ] = False,
-    client_id: Annotated[
-        Optional[str],
-        typer.Option(
-            "--client-id",
-            envvar="GEOLENS_ARCGIS_CLIENT_ID",
-            show_envvar=True,
-            help="Sign in through the browser with OAuth, which also works for "
-            "accounts that use SAML or OpenID Connect. The client ID of an OAuth 2.0 "
-            "credentials item registered in your organization. Register "
-            "http://127.0.0.1 (not localhost) as a redirect URL, which matches "
-            "any port, or the exact http://127.0.0.1:<port>/callback with "
-            "--redirect-port. The sign-in is saved in the OS keyring for the "
-            "next run",
-        ),
-    ] = None,
-    redirect_port: Annotated[
-        Optional[int],
-        typer.Option(
-            "--redirect-port",
-            min=1,
-            max=65535,
-            help="With --client-id, receive the browser sign-in on this port "
-            "of 127.0.0.1 instead of a free one",
-        ),
-    ] = None,
+    client_id: ClientIdOpt = None,
+    redirect_port: RedirectPortOpt = None,
     scope: Annotated[
         _arcgis_inventory.InventoryScope,
         typer.Option(
@@ -2251,31 +2255,8 @@ def arcgis_migrate(
         bool,
         typer.Option("--password-stdin", help="Read the ArcGIS password from stdin"),
     ] = False,
-    client_id: Annotated[
-        Optional[str],
-        typer.Option(
-            "--client-id",
-            envvar="GEOLENS_ARCGIS_CLIENT_ID",
-            show_envvar=True,
-            help="Sign in through the browser with OAuth, which also works for "
-            "accounts that use SAML or OpenID Connect. The client ID of an OAuth 2.0 "
-            "credentials item registered in your organization. Register "
-            "http://127.0.0.1 (not localhost) as a redirect URL, which matches "
-            "any port, or the exact http://127.0.0.1:<port>/callback with "
-            "--redirect-port. The sign-in is saved in the OS keyring for the "
-            "next run",
-        ),
-    ] = None,
-    redirect_port: Annotated[
-        Optional[int],
-        typer.Option(
-            "--redirect-port",
-            min=1,
-            max=65535,
-            help="With --client-id, receive the browser sign-in on this port "
-            "of 127.0.0.1 instead of a free one",
-        ),
-    ] = None,
+    client_id: ClientIdOpt = None,
+    redirect_port: RedirectPortOpt = None,
     allow_insecure_http: Annotated[
         bool,
         typer.Option(
@@ -2408,15 +2389,7 @@ def arcgis_logout(
             "or in the plan's portal.url",
         ),
     ] = _arcgis_inventory.DEFAULT_PORTAL_URL,
-    client_id: Annotated[
-        Optional[str],
-        typer.Option(
-            "--client-id",
-            envvar="GEOLENS_ARCGIS_CLIENT_ID",
-            show_envvar=True,
-            help="The client ID the sign-in used",
-        ),
-    ] = None,
+    client_id: ClientIdOpt = None,
 ) -> None:
     """Forget the ArcGIS browser sign-in saved for a portal and client ID.
 
