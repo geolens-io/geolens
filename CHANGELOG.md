@@ -7,6 +7,13 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.31.0] - 2026-11-10
+
+An instance on 1.30.1 moves to 1.31.0 with one additive migration (0103,
+which allows the `database` source format), and releases back to 1.29.2 keep
+serving while it runs. SQL Server import stays off until an operator sets
+`DATABASE_SOURCES`. Overlays must declare `EXTENSION_API_VERSION` 23.
+
 ### Added
 - The aggregate endpoint takes `blank_text_as_null` for `value_counts` and `group_by`, counting a text column's empty strings with its NULLs. Dashboard widgets use it, so a category stored as both reads as one "(no value)" row. Whitespace-only text keeps its own key.
 - Database connections: an operator lists SQL Server databases in `DATABASE_SOURCES`, `GET /services/databases/{connection}/tables/` lists a connection's spatial tables and views with their geometry column, type and SRID for users who can create datasets, and `/capabilities/` names each connection and its database for those users. The API image now includes the FreeTDS ODBC driver (`tdsodbc`). The setting is refused in `multi_tenant` mode.
@@ -20,6 +27,7 @@ and releases use semantic versioning.
 - The viewer legend describes a clustered layer as "Grouped into clusters as you zoom out" or "Shown as individual points" instead of "Server cluster", "Bounded cluster" and "Point fallback".
 
 ### Fixed
+- Dashboards: an indicator's difference no longer shows decimals that the rounding of its value hides, so a value of 1,408 against a reference of 1,239 reads 169, not 169.38.
 - Map viewer: with an AI provider configured, the "Ask AI" button no longer covers the expanded attribution; the attribution sits above it.
 - A DEM dataset whose extent the reader cannot see now frames its preview to the bounds in its tile token instead of opening at world zoom and timing out; with no bounds either it shows "Preview unavailable" at once.
 - Visiting `/stories` opens the Stories tab of the Maps page instead of a 404.
@@ -7389,7 +7397,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.30.1...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.31.0...HEAD
+[1.31.0]: https://github.com/geolens-io/geolens/compare/v1.30.1...v1.31.0
 [1.30.1]: https://github.com/geolens-io/geolens/compare/v1.30.0...v1.30.1
 [1.30.0]: https://github.com/geolens-io/geolens/compare/v1.29.2...v1.30.0
 [1.29.2]: https://github.com/geolens-io/geolens/compare/v1.29.1...v1.29.2
