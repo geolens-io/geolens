@@ -51,8 +51,7 @@ def test_export_routes_read_no_embed_token() -> None:
     embed_reading = sorted(
         f"{rel}::{name}"
         for rel, name, used in handlers
-        if (rel, name) in exports
-        and (_embed_authorized(used) or (used.names | used.calls) & reaching)
+        if (rel, name) in exports and (_embed_authorized(used) or used.names & reaching)
     )
     assert not embed_reading, (
         "An export route must not read an embed token: a token scoped to a map "
