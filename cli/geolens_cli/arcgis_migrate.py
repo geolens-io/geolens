@@ -27,6 +27,7 @@ from uuid import UUID
 import click
 import typer
 
+from . import arcgis_oauth
 from . import arcgis_plan as _plan
 from . import output as _output
 from ._sdk_helpers import (
@@ -144,6 +145,7 @@ _PORTAL_EXIT = {
     "network": EXIT_NETWORK,
     "server": EXIT_SERVER,
     "redirect": EXIT_USAGE,
+    "usage": EXIT_USAGE,
 }
 EXIT_INTERRUPTED = 130
 CUTOVER_LINES = 10
@@ -200,6 +202,8 @@ class MigrateOptions:
     token_stdin: bool = False
     username: str | None = None
     password_stdin: bool = False
+    client_id: str | None = None
+    redirect_port: int | None = None
     allow_insecure_http: bool = False
     trusted_hosts: list[str] = field(default_factory=list)
     export_cap_mb: int = DEFAULT_CAP_MB
@@ -1738,8 +1742,9 @@ def _portal_client(
     rows: Mapping[str, Mapping[str, Any]],
     state: MigrationState,
     redact: Redactor,
-) -> tuple[PortalClient, str | None] | None:
-    """A client for the plan's portal holding the run's token or password.
+) -> tuple[PortalClient, Callable[[], None] | None] | None:
+    """A client for the plan's portal holding the run's token, and the
+    sign-in that gives it a renewable one (a password or OAuth), if any.
 
     None when no item to import or bring up to date needs one; a
     ``UsageError`` when one does and no credential was given.
@@ -1778,7 +1783,7 @@ def _portal_client(
         )
     )
     files = any(i["action"] != _plan.IMPORT_LAYERS for i in wanted)
-    supplied = bool(opts.token or opts.token_stdin or opts.username)
+    supplied = bool(opts.token or opts.token_stdin or opts.username or opts.client_id)
     # The cutover searches the organization, which takes a credential.
     if not private and not ((files or opts.cutover) and supplied):
         # A public data file is still downloaded from the portal, anonymously
@@ -1797,12 +1802,16 @@ def _portal_client(
         return None
     try:
         token, password = read_credentials(
-            opts.token, opts.token_stdin, opts.username, opts.password_stdin
+            opts.token,
+            opts.token_stdin,
+            opts.username,
+            opts.password_stdin,
+            opts.client_id,
         )
-        if token is None and password is None:
+        if token is None and password is None and not opts.client_id:
             raise UsageError(
                 f"{private} item(s) to import or bring up to date are not public: pass --token, "
-                "ARCGIS_TOKEN, --token-stdin or --username"
+                "ARCGIS_TOKEN, --token-stdin, --username or --client-id"
             )
         root = portal_root(
             plan["portal"]["url"],
@@ -1813,9 +1822,15 @@ def _portal_client(
         raise UsageError(str(exc)) from None
     redact.add(token)
     redact.add(password)
-    return PortalClient(
-        root, opener=build_opener(), redact=redact, token=token
-    ), password
+    client = PortalClient(root, opener=build_opener(), redact=redact, token=token)
+    username, client_id = opts.username, opts.client_id
+    if password is not None and username:
+        return client, lambda: client.generate_token(username, password)
+    if client_id:
+        return client, lambda: arcgis_oauth.sign_in(
+            client, client_id, redact, redirect_port=opts.redirect_port
+        )
+    return client, None
 
 
 def _check_hosts(hosts: list[str]) -> None:
@@ -1860,10 +1875,10 @@ def _run(
         rows, portal_info, inventory_groups = _inventory_rows(
             plan, opts.plan_path, touched
         )
-        # A dry run makes only the password sign-in the run starts with.
+        # A dry run makes only the sign-in the run starts with.
         portal = (
             None
-            if opts.dry_run and not opts.username
+            if opts.dry_run and not (opts.username or opts.client_id)
             else _portal_client(opts, plan, touched, rows, state, redact)
         )
     except (_plan.PlanError, StateError, UsageError) as exc:
@@ -1943,14 +1958,14 @@ def _run(
 
     auth = None
     if portal is not None:
-        client, password = portal
+        client, sign_in = portal
         try:
-            if password is not None and opts.username:
-                client.generate_token(opts.username, password)
+            if sign_in is not None:
+                sign_in()
         except PortalError as exc:
             fmt.error(str(exc))
             return _PORTAL_EXIT.get(exc.kind, EXIT_GENERIC)
-        auth = PortalAuth(client, renewable=password is not None)
+        auth = PortalAuth(client, renewable=sign_in is not None)
 
     if opts.dry_run:
         # As the run does first, so the dry run shows the status it will leave.

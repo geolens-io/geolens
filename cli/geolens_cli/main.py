@@ -2025,6 +2025,30 @@ def arcgis_inventory(
         bool,
         typer.Option("--password-stdin", help="Read the ArcGIS password from stdin"),
     ] = False,
+    client_id: Annotated[
+        Optional[str],
+        typer.Option(
+            "--client-id",
+            envvar="GEOLENS_ARCGIS_CLIENT_ID",
+            show_envvar=True,
+            help="Sign in through the browser with OAuth, which also works for "
+            "accounts that use SAML or OpenID Connect. The client ID of an OAuth 2.0 "
+            "credentials item registered in your organization, whose redirect "
+            "URLs include http://127.0.0.1 (or http://127.0.0.1:<port>/callback "
+            "with --redirect-port). The sign-in is saved in the OS keyring for "
+            "the next run",
+        ),
+    ] = None,
+    redirect_port: Annotated[
+        Optional[int],
+        typer.Option(
+            "--redirect-port",
+            min=1,
+            max=65535,
+            help="With --client-id, receive the browser sign-in on this port "
+            "of 127.0.0.1 instead of a free one",
+        ),
+    ] = None,
     scope: Annotated[
         _arcgis_inventory.InventoryScope,
         typer.Option(
@@ -2089,6 +2113,8 @@ def arcgis_inventory(
         token_stdin=token_stdin,
         username=username,
         password_stdin=password_stdin,
+        client_id=client_id,
+        redirect_port=redirect_port,
         scope=scope.value,
         max_items=max_items,
         concurrency=concurrency,
@@ -2222,6 +2248,30 @@ def arcgis_migrate(
         bool,
         typer.Option("--password-stdin", help="Read the ArcGIS password from stdin"),
     ] = False,
+    client_id: Annotated[
+        Optional[str],
+        typer.Option(
+            "--client-id",
+            envvar="GEOLENS_ARCGIS_CLIENT_ID",
+            show_envvar=True,
+            help="Sign in through the browser with OAuth, which also works for "
+            "accounts that use SAML or OpenID Connect. The client ID of an OAuth 2.0 "
+            "credentials item registered in your organization, whose redirect "
+            "URLs include http://127.0.0.1 (or http://127.0.0.1:<port>/callback "
+            "with --redirect-port). The sign-in is saved in the OS keyring for "
+            "the next run",
+        ),
+    ] = None,
+    redirect_port: Annotated[
+        Optional[int],
+        typer.Option(
+            "--redirect-port",
+            min=1,
+            max=65535,
+            help="With --client-id, receive the browser sign-in on this port "
+            "of 127.0.0.1 instead of a free one",
+        ),
+    ] = None,
     allow_insecure_http: Annotated[
         bool,
         typer.Option(
@@ -2297,8 +2347,8 @@ def arcgis_migrate(
     you: an editor then migrates their own content, with nothing transferred.
     Items are imported as you, in depends_on order, then transferred to the
     owner the plan maps them to. A rerun also brings the items migrated before
-    up to date. Items that aren't public need an ArcGIS token or a built-in
-    account.
+    up to date. Items that aren't public need an ArcGIS token, a built-in
+    account or a browser sign-in with --client-id.
 
     As an editor, a public item under restrict_public_visibility becomes
     internal, collections are skipped without manage_collections, and an item
@@ -2325,6 +2375,8 @@ def arcgis_migrate(
         token_stdin=token_stdin,
         username=username,
         password_stdin=password_stdin,
+        client_id=client_id,
+        redirect_port=redirect_port,
         allow_insecure_http=allow_insecure_http,
         trusted_hosts=trust_service_host or [],
         export_cap_mb=export_cap_mb,

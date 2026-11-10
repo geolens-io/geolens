@@ -75,6 +75,15 @@ def fake_geolens(monkeypatch, tmp_xdg_home) -> FakeGeoLens:
 
 
 @pytest.fixture(autouse=True)
+def arcgis_browser_sign_in(monkeypatch):
+    """A client ID in the developer's shell would turn every ArcGIS sign-in
+    test into a browser sign-in, and a browser sign-in nobody completes
+    fails in seconds rather than minutes."""
+    monkeypatch.delenv("GEOLENS_ARCGIS_CLIENT_ID", raising=False)
+    monkeypatch.setattr("geolens_cli.arcgis_oauth.SIGN_IN_TIMEOUT", 5.0)
+
+
+@pytest.fixture(autouse=True)
 def portal_unchanged_since_inventory(monkeypatch):
     """Cutover finds nothing changed in the portal unless a test says otherwise."""
     monkeypatch.setattr(

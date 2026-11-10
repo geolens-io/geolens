@@ -7,6 +7,9 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Added
+- `geolens arcgis inventory` and `geolens arcgis migrate` sign in through the browser with OAuth 2.0 (authorization code with PKCE) when you pass `--client-id` or set `GEOLENS_ARCGIS_CLIENT_ID` to the client ID of an OAuth 2.0 credentials item registered in your organization. Accounts that sign in with SAML or OpenID Connect, which can't use `--username`, can run an inventory and a migration this way. The portal sends the browser back to a listener on `127.0.0.1`, on a free port or the one `--redirect-port` names. The CLI renews the access token during the run and keeps the refresh token in the OS keyring (`credentials.toml` when there is no keyring), so the next run skips the browser. An inventory signed in this way records `auth.mode` as `oauth`.
+
 ### Changed
 - Map thumbnails no longer carry the basemap and data credit line, which was
   unreadable at gallery size. The social card image and the PNG export still

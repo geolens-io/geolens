@@ -471,6 +471,58 @@ def _discard_unpaired_refresh_token(instance: str) -> None:
         log.warning("stale_refresh_token_file_cleanup_failed", error=str(exc))
 
 
+# ---------- Secrets outside a GeoLens instance ----------
+# An ArcGIS refresh token belongs to a portal, not a GeoLens instance. It
+# follows the same keyring-then-file rule under its own account name, which
+# no instance URL can equal.
+
+_SECRET_FIELD = "secret"
+
+
+def store_secret(account: str, value: str) -> str:
+    """Store *value* for *account*. Returns 'keyring' or 'file'; a file write
+    may raise ``CredentialsFileCorrupt`` or ``OSError``."""
+    try:
+        keyring.set_password(SERVICE, account, value)
+    except KeyringError as exc:
+        log.warning("keyring_unavailable_falling_back_to_file", error=str(exc))
+        _set_credential_field(account, _SECRET_FIELD, value)
+        return "file"
+    # A copy written while the keyring was unavailable would be read first.
+    _delete_file_secret(account)
+    return "keyring"
+
+
+def load_secret(account: str) -> Optional[str]:
+    """The stored value for *account*, or None when there is none or neither
+    backend can be read."""
+    value = _read_credentials_section_tolerant(account).get(_SECRET_FIELD)
+    if value:
+        return value
+    try:
+        return keyring.get_password(SERVICE, account)
+    except KeyringError:
+        return None
+
+
+def delete_secret(account: str) -> None:
+    """Best-effort delete of *account*'s value from both backends."""
+    try:
+        keyring.delete_password(SERVICE, account)
+    except (KeyringError, OSError):
+        pass
+    _delete_file_secret(account)
+
+
+def _delete_file_secret(account: str) -> None:
+    if not _read_credentials_section_tolerant(account):
+        return
+    try:
+        _clear_credential_section(account)
+    except (CredentialsFileCorrupt, OSError) as exc:
+        log.warning("secret_file_cleanup_failed", error=str(exc))
+
+
 #: Field name for the "active credential kind" marker in credentials.toml; see
 #: load_active_credential_kind().
 _ACTIVE_KIND_FIELD = "active_kind"

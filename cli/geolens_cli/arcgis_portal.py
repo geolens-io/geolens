@@ -64,6 +64,7 @@ _RETRYABLE_STATUSES = frozenset({429, 502, 503, 504})
 _TOKEN_REQUIRED = 499
 _TOKEN_INVALID = 498
 TOKEN_CHARS = re.compile(r"[\x21-\x7e]+")
+CLIENT_ID_CHARS = re.compile(r"[A-Za-z0-9._-]{1,128}")
 _CREDENTIAL_PARAM = re.compile(r"((?:token|password)=)[^&;#\s]+", re.IGNORECASE)
 
 # One matcher names a credential in a JSON key and in a URL parameter. Names
@@ -405,7 +406,9 @@ class PortalClient:
         self._form_token = False
         self._download_end = 0.0
         self._referer: str | None = None
-        self._sign_in: tuple[str, str] | None = None
+        # Mints a replacement token, or None when the token can't be renewed.
+        self._sign_in: Callable[[], None] | None = None
+        self.token_lifetime = float(TOKEN_EXPIRATION_MINUTES * 60)
         self._lock = threading.Lock()
         self._renew_lock = threading.Lock()
         self._next_slot = 0.0
@@ -433,8 +436,8 @@ class PortalClient:
         required", as an envelope or an HTTP status, with the header present
         means a pre-10.5.1 server ignored it; from then on the token goes in a
         POST form field, never the URL. When the portal rejects a token minted
-        from a password with 498 or 499, a new one is minted and the read is
-        retried once with it.
+        from a password or an OAuth sign-in with 498 or 499, a new one is
+        minted and the read is retried once with it.
         """
         query = {**(params or {}), "f": "json"}
         url = f"{self.root}/sharing/rest/{path}"
@@ -507,9 +510,8 @@ class PortalClient:
                 return True
             if self._sign_in is None:
                 return False
-            username, password = self._sign_in
             try:
-                self.generate_token(username, password)
+                self._sign_in()
             except PortalError:
                 self._sign_in = None
                 return False
@@ -574,20 +576,53 @@ class PortalClient:
             detail = _envelope_message(data, self._redact) or "no token in the response"
             raise self._error(
                 f"sign-in failed: {detail}. Accounts that sign in through SAML "
-                "or OpenID Connect cannot use a password here; pass a token "
-                "with --token, ARCGIS_TOKEN or --token-stdin instead.",
+                "or OpenID Connect cannot use a password here; sign in through "
+                "the browser with --client-id and the client ID of an OAuth app "
+                "registered in your organization, or pass a token with --token, "
+                "ARCGIS_TOKEN or --token-stdin.",
                 kind="auth",
             )
-        if not TOKEN_CHARS.fullmatch(token):
+        self.use_token(
+            token,
+            TOKEN_EXPIRATION_MINUTES * 60,
+            renew=lambda: self.generate_token(username, password),
+        )
+        self._referer = referer
+        return token
+
+    def use_token(
+        self, token: Any, lifetime: float, renew: Callable[[], None] | None
+    ) -> None:
+        """Send *token* from now on; it lasts *lifetime* seconds and *renew*,
+        when given, replaces it."""
+        if not isinstance(token, str) or not TOKEN_CHARS.fullmatch(token):
             raise self._error(
                 "the portal returned a token with unexpected characters",
                 kind="auth",
             )
         self._redact.add(token)
         self.token = token
-        self._referer = referer
-        self._sign_in = (username, password)
-        return token
+        self.token_lifetime = float(lifetime)
+        self._sign_in = renew
+
+    def oauth_token(self, fields: Mapping[str, str]) -> Mapping[str, Any]:
+        """POST *fields* to ``oauth2/token`` once and return the answer.
+
+        Never retried, since an authorization code is spent on first use. A
+        refusal raises ``PortalError`` of kind ``auth``; a network or server
+        failure keeps its own kind.
+        """
+        url = f"{self.root}/sharing/rest/oauth2/token"
+        try:
+            data = self._exchange("POST", url, {**fields, "f": "json"}, {}, attempts=1)
+        except PortalError as exc:
+            if exc.kind not in ("auth", "refused"):
+                raise
+            raise self._error(f"the portal refused the sign-in: {exc}", kind="auth")
+        if _envelope_code(data) is not None or "access_token" not in data:
+            detail = _envelope_message(data, self._redact) or "no token in the response"
+            raise self._error(f"the portal refused the sign-in: {detail}", kind="auth")
+        return data
 
     def download(self, path: str, dest: Path, max_bytes: int | None) -> int:
         """GET ``/sharing/rest/<path>`` into the file *dest*, returning its size.
@@ -1133,10 +1168,15 @@ def portal_root(
 
 
 def read_credentials(
-    token: str | None, token_stdin: bool, username: str | None, password_stdin: bool
+    token: str | None,
+    token_stdin: bool,
+    username: str | None,
+    password_stdin: bool,
+    client_id: str | None = None,
 ) -> tuple[str | None, str | None]:
     """(token, password) from the options, stdin, ``ARCGIS_PASSWORD`` or a
-    prompt; both None for an anonymous run. ``ValueError`` on a bad mix."""
+    prompt; both None for an anonymous run or a browser sign-in with
+    *client_id*. ``ValueError`` on a bad mix."""
     token = token or None
     if token_stdin and token:
         raise ValueError("pass the token once: --token/ARCGIS_TOKEN or --token-stdin")
@@ -1144,6 +1184,15 @@ def read_credentials(
         raise ValueError("use either a token or --username, not both")
     if password_stdin and not username:
         raise ValueError("--password-stdin needs --username")
+    if client_id:
+        if token or token_stdin or username:
+            raise ValueError(
+                "use one of a token, --username or --client-id "
+                "(GEOLENS_ARCGIS_CLIENT_ID), not several"
+            )
+        if not CLIENT_ID_CHARS.fullmatch(client_id):
+            raise ValueError("--client-id is not an ArcGIS client ID")
+        return None, None
     if token_stdin:
         token = sys.stdin.readline().strip()
         if not token:
