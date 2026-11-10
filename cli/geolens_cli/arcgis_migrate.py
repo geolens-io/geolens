@@ -468,7 +468,8 @@ def _earlier_copies(
         f"{len(found)} dataset(s) migrated from {len({i for i, _ in found})} of "
         f"the plan's items ({shown}{f' and {more} more' if more > 0 else ''}), "
         "which this run would import again; pass --state with the state file "
-        "of the earlier run, or --start-fresh to migrate them again anyway"
+        "of the earlier run, or --start-fresh to run anyway, which reuses the "
+        "service layers you hold and imports data files and web maps again"
     )
 
 

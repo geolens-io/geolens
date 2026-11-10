@@ -2221,7 +2221,8 @@ def arcgis_migrate(
         typer.Option(
             "--start-fresh",
             help="Run without a state file even though GeoLens already holds "
-            "datasets migrated from the plan's items, importing them again",
+            "datasets migrated from the plan's items: service layers you already "
+            "hold are reused, and data files and web maps are imported again",
         ),
     ] = False,
     unmapped_owner: Annotated[
