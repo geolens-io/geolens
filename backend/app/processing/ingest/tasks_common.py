@@ -225,7 +225,7 @@ task_app = App(
         "app.processing.ingest.tasks_reupload",
         "app.processing.embeddings.tasks",
         "app.processing.analysis.tasks",
-        # The embedding backfill, dataset retention and story image sweep.
+        # The embedding backfill, dataset retention and image sweeps.
         # They live under modules/admin/: processing/ may not import the
         # audit or catalog code they run. This list is how the worker finds them.
         "app.modules.admin.backfill_jobs",
