@@ -30,6 +30,7 @@ from app.platform.service_endpoints import (
 from app.platform.service_items import (
     SERVICE_AUTH_REFUSED_CODE,
     SERVICE_ERROR_CODE,
+    ItemFetchFailedError,
     materialise_oapif_items,
 )
 
@@ -177,6 +178,74 @@ class TestDescriptionDocumentsAskForJson:
             "OGCFeatureServer",
             "collections",
         }
+
+
+class TestTheArcGISPageChainEnds:
+    """The last page carries no links, and its ``numberMatched`` counts from
+    its own offset rather than across the query."""
+
+    async def test_a_chain_ending_on_a_short_page(self, monkeypatch, tmp_path) -> None:
+        _serve(
+            monkeypatch,
+            _esri(
+                {
+                    0: _page("items-page-with-next.json", next_offset=4),
+                    4: _fixture("items-last-partial-page.json"),
+                }
+            ),
+        )
+
+        extract = await _materialise(tmp_path)
+
+        assert extract.features == 5
+        assert extract.total == 5
+        assert len(_object_ids(extract.path)) == 5
+
+    async def test_a_chain_ending_on_an_empty_page_after_a_full_one(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        _serve(
+            monkeypatch,
+            _esri(
+                {
+                    0: _page("items-page-with-next.json", next_offset=4),
+                    4: _page("items-page-with-next.json", next_offset=8),
+                    8: _fixture("items-empty-after-full-page.json"),
+                }
+            ),
+        )
+
+        extract = await _materialise(tmp_path)
+
+        assert extract.features == 8
+        assert extract.total == 8
+
+    async def test_a_later_page_without_links_or_a_count_is_still_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        cut_off = _fixture("items-last-partial-page.json")
+        del cut_off["numberMatched"]
+        _serve(
+            monkeypatch,
+            _esri({0: _page("items-page-with-next.json", next_offset=4), 4: cut_off}),
+        )
+
+        with pytest.raises(ItemFetchFailedError):
+            await _materialise(tmp_path)
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_a_whole_query_count_that_disagrees_is_still_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        first = _page("items-page-with-next.json", next_offset=4)
+        first["numberMatched"] = 9
+        _serve(
+            monkeypatch,
+            _esri({0: first, 4: _fixture("items-last-partial-page.json")}),
+        )
+
+        with pytest.raises(ItemFetchFailedError):
+            await _materialise(tmp_path)
 
 
 class TestErrorEnvelopesAreReportedAsErrors:

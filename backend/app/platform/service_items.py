@@ -185,7 +185,9 @@ def _require_feature_page(document: object, *, first_page: bool) -> list:
     * ``links`` missing entirely on a page that is NOT the first — reaching
       it means following a link, so no links is a truncated response.
       Tolerated on the first page, where a single-page collection commonly
-      omits them.
+      omits them, and on a later page whose ``numberMatched`` equals the
+      features it carries: ArcGIS Online ends its chain that way, counting
+      the matches from the page's own offset rather than the whole query.
     * ``numberMatched`` present and not a non-negative integer — the number
       a preview reports as the collection's size.
     * ``numberReturned`` present and not equal to ``len(features)`` — the
@@ -202,19 +204,26 @@ def _require_feature_page(document: object, *, first_page: bool) -> list:
     features = page.get("features")
     if not isinstance(features, list):
         raise ItemFetchFailedError("malformed items page")
-    _require_links(page, first_page=first_page)
     _require_counts(page, features)
+    _require_links(page, first_page=first_page)
     return features
+
+
+def _counts_its_own_remainder(page: dict) -> bool:
+    """Whether a page without ``links`` says it holds every match left: its
+    ``numberMatched`` equals the features it carries."""
+    return "links" not in page and page.get("numberMatched") == len(page["features"])
 
 
 def _require_links(page: dict, *, first_page: bool) -> None:
     """Refuse a ``links`` member the pagination walk could misread."""
     links = page.get("links")
     if links is None:
-        if "links" in page or not first_page:
+        if "links" in page or not (first_page or _counts_its_own_remainder(page)):
             # An explicit null is malformed either way; absence is
-            # tolerated only on the first page. Whether that absence proves
-            # the collection complete is `_walk_pages`'s question, not this.
+            # tolerated on the first page and on a page that counts its own
+            # remainder. Whether that absence proves the collection complete
+            # is `_walk_pages`'s question, not this.
             raise ItemFetchFailedError("malformed items page")
         return
     if not isinstance(links, list):
@@ -646,6 +655,10 @@ async def _walk_pages(
             # page — two pages giving different answers describe two
             # different queries.
             reported = document["numberMatched"]
+            if number_matched is None and _counts_its_own_remainder(document):
+                # ArcGIS counts from the page's own offset, so the whole
+                # query matched everything read so far.
+                reported = observed
             if number_matched is None:
                 number_matched = reported
             elif reported != number_matched:
