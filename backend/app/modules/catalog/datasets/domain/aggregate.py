@@ -630,8 +630,9 @@ def _check_filter_depth(cql2: Any) -> None:
 
 
 # Part of each result's cache key, so a server never reads an answer cached in
-# another result format; at 4, a group_by says whether it left groups out.
-_RESULT_FORMAT = 4
+# another result format. At 4 a group_by says whether it left groups out; at 5
+# a text column's empty strings count with its NULLs.
+_RESULT_FORMAT = 5
 
 
 def _cache_key(prefix: str, dataset: Dataset, body: dict) -> str | None:

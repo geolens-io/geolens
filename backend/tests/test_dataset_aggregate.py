@@ -882,6 +882,26 @@ class TestCache:
         assert resp.json()["cached"] is False
         assert resp.json()["result"]["count"] == 8
 
+    async def test_a_value_count_cached_before_blanks_merged_is_not_read(
+        self, client: AsyncClient, blank_text
+    ):
+        body = {"op": "value_counts", "column": "kind"}
+        request = aggregate_schemas.ValueCountsRequest.model_validate(body)
+        old_key = aggregate._cache_key(
+            "aggregate",
+            blank_text,
+            request.model_dump(mode="json")
+            | {"bbox": None, "covered": False, "format": 4, "single": False},
+        )
+        await aggregate.get_cache().set(
+            old_key, {"values": [], "other_count": 999}, ttl=300
+        )
+
+        resp = await _aggregate(client, blank_text.id, body)
+
+        assert resp.json()["cached"] is False
+        assert resp.json()["result"]["other_count"] == 0
+
 
 @pytest.fixture
 def stored_ttls(monkeypatch) -> list[int]:
