@@ -789,7 +789,8 @@ async def check_public_visibility_allowed(
     # Local import to avoid an import cycle, as above.
     from app.core.persistent_config import RESTRICT_PUBLIC_VISIBILITY
 
-    if not await RESTRICT_PUBLIC_VISIBILITY.get(db):
+    # Uncached: a cached read can hold the value from before a change committed.
+    if not await RESTRICT_PUBLIC_VISIBILITY.get_uncached(db):
         return user_roles
 
     if user_roles is None:

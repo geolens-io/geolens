@@ -377,6 +377,8 @@ async def test_a_public_replacement_rechecks_that_its_admin_still_is_one(
         async def get(self, _db):
             return restricted
 
+        get_uncached = get
+
     monkeypatch.setattr(persistent_config, "RESTRICT_PUBLIC_VISIBILITY", _Restriction())
     editor_role = select(Role.id).where(Role.name == "editor").scalar_subquery()
 
@@ -427,6 +429,8 @@ async def test_a_public_manifest_update_keeps_the_admission_its_gate_made(
     class _Restriction:
         async def get(self, _db):
             return restricted
+
+        get_uncached = get
 
     gate = authorization.check_public_visibility_allowed
 
