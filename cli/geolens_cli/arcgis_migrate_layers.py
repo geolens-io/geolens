@@ -366,6 +366,10 @@ def _import_layer(
     return False
 
 
+# GeoLens's refusal to narrow a dataset that its owner's shared maps show.
+_SHARED_MAPS = "dataset is used in shared maps: "
+
+
 def _commit_body(title: str, visibility: str) -> Any:
     from geolens.models.commit_request import CommitRequest
 
@@ -411,6 +415,16 @@ def _apply_target(
             ),
         )
     except GeoLensError as exc:
+        detail = exc.detail if isinstance(exc.detail, str) else ""
+        if exc.status == 422 and _SHARED_MAPS in detail:
+            maps = detail.split(_SHARED_MAPS, 1)[1]
+            current = getattr(read.visibility, "value", read.visibility)
+            raise ItemFailed(
+                f"{target.title}: GeoLens won't make dataset {dataset} "
+                f"{target.visibility} while shared maps show it: {maps}. Unshare "
+                "those maps, or set the item's target.visibility in the plan to "
+                f"{current}"
+            ) from None
         raise ItemFailed(
             f"{target.title}: updating the existing dataset failed, {exc}"
         ) from None
