@@ -30,7 +30,7 @@ and releases use semantic versioning.
   `CORS_ALLOWED_ORIGINS` allowlist, and the write routes on the same paths get
   no wildcard. This changes the CORS contract: these routes used to send no
   CORS headers to an origin outside the allowlist.
-- `geolens arcgis migrate --cutover` checks the inventory's freshness and unresolved plan owners before the run, and stops without importing or refreshing anything when either fails without its `--accept-*` flag. The freshness check ignores portal items the plan skips and names the items that changed.
+- `geolens arcgis migrate --cutover` checks the inventory's freshness and unresolved plan owners before the run, and stops without importing or refreshing anything, printing only the refusal, when either fails without its `--accept-*` flag. The freshness check ignores portal items the plan skips and names the items that changed, apart from those created since the inventory.
 
 ### Fixed
 - The import wizard now says what to change when a service URL carries a credential in its query: remove it from the URL and paste it into the token field (the STAC form asks for a URL without one). It showed the generic "submitted values are invalid" message before.
@@ -47,6 +47,7 @@ and releases use semantic versioning.
 - An item `geolens arcgis migrate` can't bring up to date because it changed in GeoLens is reported with what changed (its data, with feature counts, or its details), when, and when its portal item last changed, and how to keep the GeoLens version. A web map changed on both sides names both times.
 - A refused `--cutover` run's report keeps the earlier marked cutover, with when it was made and the losses it accepted.
 - `geolens arcgis inventory` records a notebook whose data ArcGIS Online refuses (HTTP 403) as unparsed instead of counting a failed read on every run.
+- An item whose reused dataset GeoLens won't narrow, because its owner's shared maps show it, fails naming those maps and saying to unshare them or set the plan's `target.visibility` to the dataset's current one.
 - `--start-fresh` help and the refusal that suggests it say that service layers the operator already holds are reused, while data files and web maps are imported again.
 - An ArcGIS group member whom `owner_map` maps to a GeoLens name nobody has is no longer told to run `geolens admin users import --from-inventory`, which creates the ArcGIS name; the warning names the mapped user to create or the entry to change.
 
