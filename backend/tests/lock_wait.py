@@ -12,7 +12,10 @@ async def await_lock_wait_query(blocked_by: int | None = None) -> str:
     another test's or a pooled backend's wait is never read.
 
     Each poll uses its own session: a rollback on the test's session would
-    expire the ORM objects the test still holds.
+    expire the ORM objects the test still holds. ``query`` and ``state`` come
+    from a snapshot while ``wait_event_type`` is read live, so a backend that
+    began waiting after the snapshot shows its previous statement; requiring
+    ``active`` skips that row until a later poll sees the waiting statement.
     """
     import app.core.db as db_module
 
@@ -22,6 +25,7 @@ async def await_lock_wait_query(blocked_by: int | None = None) -> str:
                 text(
                     "SELECT query FROM pg_stat_activity "
                     "WHERE datname = current_database() "
+                    "AND state = 'active' "
                     "AND wait_event_type = 'Lock' "
                     "AND (CAST(:blocker AS int) IS NULL "
                     "OR CAST(:blocker AS int) = ANY (pg_blocking_pids(pid))) "
