@@ -23,8 +23,6 @@ from sqlalchemy import text
 
 from tests.alembic_helpers import (
     enterprise_migrations_present,
-    normalize_kept_versions,
-    normalize_seam_extents,
     run_alembic,
 )
 from tests.factories import create_dataset, get_user_id
@@ -121,18 +119,13 @@ async def _seed_expiring_key(session, *, epoch_bump: bool) -> None:
 async def test_downgrade_past_0029_refuses_while_key_state_exists(test_db_session):
     """The guard fires, and its message is actionable.
 
-    ``normalize=False`` deliberately bypasses the runner's cleanup so the
-    refusal itself is what is under test.
+    ``keep_guard="0029"`` keeps this guard's state, so the refusal itself is
+    what is under test.
     """
     await _seed_expiring_key(test_db_session, epoch_bump=True)
-    # 0030 is crossed on the way to 0029, so clear ITS state explicitly —
-    # otherwise a seam extent left by a sibling test in this worker would fire
-    # the wrong guard and the assertions below would test nothing.
-    normalize_seam_extents()
-    normalize_kept_versions()
 
     try:
-        down = run_alembic("downgrade", _PRE_API_KEY_HARDENING, normalize=False)
+        down = run_alembic("downgrade", _PRE_API_KEY_HARDENING, keep_guard="0029")
         assert down.returncode != 0, (
             "0029 downgraded with expiry and epoch state present — expired keys "
             "would come back permanent and epoch-revoked keys would come back "
@@ -187,9 +180,9 @@ async def test_key_state_no_longer_breaks_downgrade_past_0029(test_db_session):
 async def test_clean_database_still_downgrades_past_0029(test_db_session):
     """The guard is state-dependent, not a blanket refusal.
 
-    Runs with ``normalize=False`` so nothing clears state on the way through —
-    a database that never held an expiry or an epoch bump downgrades on its
-    own, which is what makes the refusal above meaningful.
+    Runs with ``keep_guard="0029"`` so nothing clears this guard's state on the
+    way through: a database that never held an expiry or an epoch bump
+    downgrades on its own, which is what makes the refusal above meaningful.
     """
     await test_db_session.execute(
         text(
@@ -200,11 +193,9 @@ async def test_clean_database_still_downgrades_past_0029(test_db_session):
         text("UPDATE catalog.users SET key_epoch = 1 WHERE key_epoch <> 1")
     )
     await test_db_session.commit()
-    normalize_seam_extents()  # see the note in the refusal test above
-    normalize_kept_versions()
 
     try:
-        down = run_alembic("downgrade", _PRE_API_KEY_HARDENING, normalize=False)
+        down = run_alembic("downgrade", _PRE_API_KEY_HARDENING, keep_guard="0029")
         assert down.returncode == 0, (
             "a database with no key expiry or epoch state was still refused:\n"
             f"stdout:\n{down.stdout}\nstderr:\n{down.stderr}"

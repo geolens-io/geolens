@@ -262,8 +262,19 @@ def normalize_database_origins() -> None:
     _execute_normalization(_DATABASE_ORIGIN_NORMALIZATION)
 
 
+# Each refuse-to-coerce guard a downgrade can meet, by the revision that adds
+# it, and the normalization that clears its state.
+_NORMALIZATIONS = {
+    "0029": normalize_api_key_state,
+    "0030": normalize_seam_extents,
+    "0077": normalize_restore_runs,
+    "0088": normalize_kept_versions,
+    "0103": normalize_database_origins,
+}
+
+
 def run_alembic(
-    *args: str, extra_env: dict | None = None, normalize: bool = True
+    *args: str, extra_env: dict | None = None, keep_guard: str | None = None
 ) -> subprocess.CompletedProcess:
     """Run an alembic command via subprocess against the per-worker TEST DB.
 
@@ -274,24 +285,25 @@ def run_alembic(
     SHARED main DB (``postgres`` on CI), which would corrupt sibling workers
     and the drift check.
 
-    Every ``downgrade`` is preceded by ``normalize_seam_extents()`` and
-    ``normalize_api_key_state()`` — with the current head at/above 0030, even a
-    plain ``downgrade -1`` crosses a refuse-to-coerce guard on its first step,
-    so the normalizations run unconditionally rather than parsing the revision
-    graph (both are idempotent and free when the state they clear is absent).
+    Every ``downgrade`` is preceded by every normalization in
+    ``_NORMALIZATIONS``: with the current head above the guards, even a plain
+    ``downgrade -1`` can cross one, so they run unconditionally rather than
+    parsing the revision graph (each is idempotent and free when the state it
+    clears is absent).
 
-    ``normalize=False`` skips them. It exists for the tests that assert a guard
-    actually FIRES; nothing else should pass it, because skipping the
-    normalization is how the cross-file failures in #933 happened.
+    ``keep_guard`` names the one guard whose state stays, for a test that
+    asserts that guard fires or that it passes on clean state. Every other guard
+    is still cleared, so state a sibling test left on this worker never fires
+    the wrong one.
     """
     from app.core.config import settings
 
-    if normalize and args and args[0] == "downgrade":
-        normalize_seam_extents()
-        normalize_api_key_state()
-        normalize_restore_runs()
-        normalize_kept_versions()
-        normalize_database_origins()
+    if keep_guard is not None and keep_guard not in _NORMALIZATIONS:
+        raise ValueError(f"no normalization for guard {keep_guard!r}")
+    if args and args[0] == "downgrade":
+        for guard, normalize in _NORMALIZATIONS.items():
+            if guard != keep_guard:
+                normalize()
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(_BACKEND_DIR)
