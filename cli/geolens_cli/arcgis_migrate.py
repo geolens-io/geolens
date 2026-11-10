@@ -1534,7 +1534,8 @@ def _print_owners(fmt: _output.Formatter, owners: Owners, summary: RunSummary) -
     for change in owners.changed:
         fmt.warn(
             f"{change['item']} was migrated before its owner changed to "
-            f"{change['owner']}; it was not imported again. Transfer it by hand."
+            f"{change['owner']}, and this run didn't hand it over; transfer it "
+            "in GeoLens by hand."
         )
     for conflict in owners.conflicts:
         fmt.warn(
@@ -1571,12 +1572,19 @@ def _print_members_left_out(fmt: _output.Formatter, groups: GroupPlan) -> None:
             reasons.add(left["reason"])
     no_account = []
     for member, (names, reasons) in sorted(by_member.items()):
-        if all(r.endswith(NOT_A_USER) for r in reasons):
+        # An inventory import creates the ArcGIS name, not one owner_map gives.
+        if reasons == {f"{member}{NOT_A_USER}"}:
             no_account.append(member)
             continue
+        mapped = all(r.endswith(NOT_A_USER) for r in reasons)
         fmt.warn(
             f"{member}: {'; '.join(sorted(reasons))} "
             f"(not in GeoLens group {', '.join(sorted(names))})"
+            + (
+                "; owner_map names that user, so create it or change owner_map"
+                if mapped
+                else ""
+            )
         )
     if no_account:
         shown = ", ".join(no_account[:_LISTED_MEMBERS])

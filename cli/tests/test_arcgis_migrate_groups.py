@@ -2025,7 +2025,11 @@ def test_members_without_an_account_print_as_one_line_however_many_groups():
                 "name": "Three",
                 "created": True,
                 "added": [],
-                "pending": [{"member": "d", "reason": "d has another email"}],
+                "pending": [
+                    {"member": "d", "reason": "d has another email"},
+                    # owner_map gives e a GeoLens name nobody has.
+                    {"member": "e", "reason": "renamed is not a GeoLens user yet"},
+                ],
             },
         }
     )
@@ -2036,10 +2040,12 @@ def test_members_without_an_account_print_as_one_line_however_many_groups():
     [summary] = [w for w in say.warn_lines if "aren't GeoLens users" in w]
     assert summary.startswith("3 ArcGIS member(s)") and ": a, b, c." in summary
     assert "admin users import --from-inventory" in summary
-    assert [w for w in say.warn_lines if w.startswith("d:")] == [
-        "d: d has another email (not in GeoLens group Three)"
+    assert [w for w in say.warn_lines if w.startswith(("d:", "e:"))] == [
+        "d: d has another email (not in GeoLens group Three)",
+        "e: renamed is not a GeoLens user yet (not in GeoLens group Three); "
+        "owner_map names that user, so create it or change owner_map",
     ]
-    assert len(say.warn_lines) == 2
+    assert len(say.warn_lines) == 3
 
 
 def test_a_rerun_prints_and_reports_the_groups_it_shared_and_removed(
