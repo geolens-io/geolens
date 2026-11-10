@@ -30,6 +30,7 @@ and releases use semantic versioning.
   `CORS_ALLOWED_ORIGINS` allowlist, and the write routes on the same paths get
   no wildcard. This changes the CORS contract: these routes used to send no
   CORS headers to an origin outside the allowlist.
+- `geolens arcgis migrate --cutover` checks the inventory's freshness and unresolved plan owners before the run, and stops without importing or refreshing anything when either fails without its `--accept-*` flag. The freshness check ignores portal items the plan skips and names the items that changed.
 
 ### Fixed
 - The import wizard now says what to change when a service URL carries a credential in its query: remove it from the URL and paste it into the token field (the STAC form asks for a URL without one). It showed the generic "submitted values are invalid" message before.
@@ -42,6 +43,12 @@ and releases use semantic versioning.
 - ArcGIS `WFSServer` imports no longer stop silently at 1,000 features. Some ArcGIS WFS services read `COUNT` as an end index, so GDAL's second page came back empty and the job reported success. Before an import GeoLens now sends one `STARTINDEX=1&COUNT=1` probe and turns GDAL's paging off unless it returns exactly one feature. Every ArcGIS WFS import is then checked against the service's `resultType=hits` total and fails when the counts differ: "The ArcGIS WFS returned N of M features" under a server-side cap, or "repeated features" when it returned more. The total is read in the WFS version the URL names or the service's capabilities settle on (`numberMatched`, or `numberOfFeatures` in 1.1). When the service won't give its total, the import fails and asks for a retry rather than importing an unchecked read. Other WFS servers are unchanged.
 - A dataset refresh whose token is refused while GeoLens reads an OGC API Features collection page by page, by an ArcGIS error 498/499 or an HTTP 401/403, now fails with `service_auth_refused` and is recorded as `credential_expired`, like the other token refusals, instead of `service_refresh_failed`.
 - An import or refresh that fails on an ArcGIS WFS count (`arcgis_wfs_count_unavailable`, `arcgis_wfs_short`, `arcgis_wfs_repeated`) or on an OGC API Features page read (`service_auth_refused`, `service_error`, `service_empty_page`) stores that code with its reason, so the job and refresh views show the failure in the reader's language.
+- `geolens arcgis migrate` reruns retitle a dataset after its portal item is renamed, unless its title was edited in GeoLens, which is kept and noted like an edited summary.
+- An item `geolens arcgis migrate` can't bring up to date because it changed in GeoLens is reported with what changed (its data, with feature counts, or its details), when, and when its portal item last changed, and how to keep the GeoLens version. A web map changed on both sides names both times.
+- A refused `--cutover` run's report keeps the earlier marked cutover, with when it was made and the losses it accepted.
+- `geolens arcgis inventory` records a notebook whose data ArcGIS Online refuses (HTTP 403) as unparsed instead of counting a failed read on every run.
+- `--start-fresh` help and the refusal that suggests it say that service layers the operator already holds are reused, while data files and web maps are imported again.
+- An ArcGIS group member whom `owner_map` maps to a GeoLens name nobody has is no longer told to run `geolens admin users import --from-inventory`, which creates the ArcGIS name; the warning names the mapped user to create or the entry to change.
 
 ## [1.31.0] - 2026-11-10
 
