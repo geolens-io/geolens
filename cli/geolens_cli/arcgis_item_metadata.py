@@ -231,7 +231,7 @@ def apply_item_metadata(
             # emptied too, by the same rule as any other change.
             wanted = dict(fields)
             if titles and dataset_id in titles:
-                wanted["title"] = titles[dataset_id]
+                wanted["title"] = unicodedata.normalize("NFC", titles[dataset_id])
             cleared = {
                 name: ""
                 for name, written in (base or {}).items()

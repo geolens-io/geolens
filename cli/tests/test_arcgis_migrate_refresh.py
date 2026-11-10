@@ -778,6 +778,24 @@ def test_a_portal_rename_retitles_the_dataset_unless_edited_in_geolens(
         assert entry["metadata_baseline"][PARCELS]["title"] == "Parcels renamed"
 
 
+def test_a_decomposed_portal_title_is_recorded_as_geolens_stores_it(
+    runner, plan_file, geolens
+):
+    service = _migrated(runner, plan_file, geolens)
+    FakeRefresh(geolens, service).allow(PARCELS)
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    _set_title(plan_file, A2, "Cafe\u0301 parcels")
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    # GeoLens stores titles NFC-normalized.
+    service.fields[PARCELS]["title"] = "Caf\u00e9 parcels"
+    _set_title(plan_file, A2, "Parcels renamed")
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert service.fields[PARCELS]["title"] == "Parcels renamed"
+
+
 def _set_visibility(plan_file: Path, item_id: str, visibility: str) -> None:
     plan = json.loads(plan_file.read_text())
     for item in plan["items"]:
