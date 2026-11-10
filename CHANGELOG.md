@@ -10,8 +10,9 @@ and releases use semantic versioning.
 ### Changed
 - A web page on another site can now read the public stories, maps and
   dataset rows without credentials: `GET /stories/`, `/stories/{id}`,
-  `/maps/{id}`, `/maps/{id}/style.json`, `/datasets/{id}/rows/` and
-  `/capabilities/` answer an anonymous request with
+  `/maps/{id}`, `/maps/{id}/style.json`, `/datasets/{id}/rows/`,
+  `/capabilities/` and the `/maps/sprites/geolens` sprite sheet that exported
+  styles load answer an anonymous request with
   `Access-Control-Allow-Origin: *`, as the standards routes and search do, and
   the anonymous preflight for `POST /datasets/{id}/aggregate/` is answered
   instead of refused with `405`. These routes still return only what an

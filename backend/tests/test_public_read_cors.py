@@ -117,16 +117,22 @@ _READS = [
     "/maps/{map}",
     "/maps/{map}/style.json",
     "/datasets/{dataset}/rows/",
+    "/datasets/{dataset}/rows",
+    # What an exported style's "sprite" entry makes MapLibre fetch.
+    "/maps/sprites/geolens.json",
+    "/maps/sprites/geolens.png",
+    "/maps/sprites/geolens@2x.json",
+    "/maps/sprites/geolens@2x.png",
 ]
 
 
 async def _call(client: AsyncClient, path: str, headers: dict):
-    if path.endswith("/aggregate/"):
+    if path.rstrip("/").endswith("/aggregate"):
         return await client.post(path, json=_COUNT, headers=headers)
     return await client.get(path, headers=headers)
 
 
-_ALL = [*_READS, "/datasets/{dataset}/aggregate/"]
+_ALL = [*_READS, "/datasets/{dataset}/aggregate/", "/datasets/{dataset}/aggregate"]
 
 
 def _listed(value: str | None) -> set[str]:
@@ -198,12 +204,14 @@ def _preflight(method: str, headers: str | None = None) -> dict[str, str]:
     return preflight
 
 
+@pytest.mark.parametrize("suffix", ["aggregate/", "aggregate"])
 async def test_the_aggregate_preflight_is_answered_anonymously(
     client: AsyncClient,
     points,  # noqa: F811
+    suffix,
 ):
     """The reported 405: a JSON POST from another origin needs this preflight."""
-    path = f"/datasets/{points.id}/aggregate/"
+    path = f"/datasets/{points.id}/{suffix}"
 
     preflight = await client.options(path, headers=_preflight("POST", "content-type"))
     posted = await client.post(
@@ -269,6 +277,7 @@ async def test_an_allowed_origin_aggregate_preflight_keeps_the_credentialed_poli
         ("/stories/{story}", "DELETE"),
         ("/stories/", "POST"),
         ("/datasets/{dataset}/rows/", "POST"),
+        ("/datasets/{dataset}/rows", "POST"),
         ("/datasets/{dataset}/aggregate/", "GET"),
         ("/maps/{map}", "HEAD"),
     ],
@@ -314,7 +323,7 @@ async def test_a_private_id_answers_as_an_unknown_one(
         "dataset": str(private_points.id),
     }
     unknown = {key: str(uuid.uuid4()) for key in private}
-    for template in _ALL[2:]:
+    for template in [t for t in _ALL if "{" in t]:
         answers = []
         for ids in (private, unknown):
             resp = await _call(
