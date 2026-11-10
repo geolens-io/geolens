@@ -37,7 +37,7 @@ from tests.test_publish_followups import (
 from tests.test_replacement_post_commit import _archived, _upload_left
 from tests.test_replacement_post_commit import replace as replace
 from tests.test_replacement_post_commit import storage as storage
-from tests.test_service_reupload_3d import _BASE, _source
+from tests.test_service_reupload_3d import _fresh_base, _source
 from tests.test_vector_archive_dataset_delete import _Import
 from tests.test_vector_archive_dataset_delete import store as store
 
@@ -915,7 +915,7 @@ async def _vector_import(
     else:
         job = IngestJob(
             source_filename="Wells",
-            source_url=_BASE,
+            source_url=_fresh_base(),
             source_layer="0",
             created_by=admin_id,
             status="pending",
@@ -954,7 +954,7 @@ async def _vector_import(
             await tasks_vector.ingest_service.func(
                 job_id=str(job.id),
                 attempt_id=str(job.attempt_id),
-                source_url=_BASE,
+                source_url=job.source_url,
                 source_layer="0",
                 user_id=str(admin_id),
             )
