@@ -13,6 +13,7 @@ and releases use semantic versioning.
 - Add Data has a Database source when a connection is configured: pick a connection and a table, give a table without an SRID its CRS, and import. Each listed table now carries `importable`, and a name GeoLens can't import is shown but disabled. A database dataset's Source tab shows its connection and table, refreshes it, and can accept a refresh held for review. `geolens replace` refuses a database dataset, and the MCP client reports the `database` origin.
 
 ### Changed
+- The backend image no longer installs the FastAPI CLI extras (`fastapi[standard]`): the `fastapi` command, Jinja2 and `pydantic-extra-types` are gone, and Uvicorn is a direct dependency. Operators building their own images should start the API with `uvicorn`, as the bundled Compose files do.
 - Overlay authors: `EXTENSION_API_VERSION` is now 23. `CatalogPort` gains the
   required `queue_ingest_job()` and `refresh_database_task()`.
 - The viewer legend describes a clustered layer as "Grouped into clusters as you zoom out" or "Shown as individual points" instead of "Server cluster", "Bounded cluster" and "Point fallback".

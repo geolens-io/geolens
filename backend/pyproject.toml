@@ -7,7 +7,8 @@ requires-python = ">=3.13"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 dependencies = [
-    "fastapi[standard]>=0.141.1",
+    "fastapi>=0.141.1",
+    "uvicorn[standard]>=0.42.0",
     "sqlalchemy[asyncio]>=2.0.52",
     "asyncpg>=0.29.0",
     "alembic>=1.19.1",
@@ -88,6 +89,8 @@ dev = [
     "moto[s3]>=5.2.2",
     "fakeredis[lua]>=2.37.0",
     "pystac>=1.15.2",
+    # test_cli_round_trip drives the CLI through typer's CliRunner.
+    "typer>=0.25.0,<0.26.0",
 ]
 # CI's pre-commit job installs only this group.
 pre-commit = ["pre-commit"]
