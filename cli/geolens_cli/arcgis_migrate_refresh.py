@@ -681,9 +681,11 @@ def _bring_one(
         )
     record(entry, dataset_id, published)
     base = entry.metadata_baseline.get(dataset_id)
-    if base is not None and "title" not in base and isinstance(dataset.title, str):
+    if base is not None and not base.get("title") and isinstance(dataset.title, str):
         # Unchanged in GeoLens since this command last left it, so the title is
-        # this command's; a state from before titles were recorded adopts it.
+        # this command's. A state from before titles were recorded has none,
+        # and an older CLI's metadata pass records "" while GeoLens keeps the
+        # title.
         base["title"] = dataset.title
     ctx.save()
     apply_item_metadata(ctx, item, entry, [dataset_id], _dataset_titles(item, entry))

@@ -796,6 +796,25 @@ def test_a_decomposed_portal_title_is_recorded_as_geolens_stores_it(
     assert service.fields[PARCELS]["title"] == "Parcels renamed"
 
 
+def test_an_empty_title_baseline_an_older_cli_recorded_is_adopted(
+    runner, plan_file, geolens
+):
+    service = _migrated(runner, plan_file, geolens)
+    FakeRefresh(geolens, service).allow(PARCELS)
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    # An older CLI empties fields the portal no longer gives; GeoLens ignores a
+    # null title, so only the baseline changes.
+    baseline = _state(plan_file)["items"][A2]["metadata_baseline"]
+    baseline[PARCELS]["title"] = ""
+    _edit_state(plan_file, A2, metadata_baseline=baseline)
+    _set_title(plan_file, A2, "Parcels renamed")
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert service.fields[PARCELS]["title"] == "Parcels renamed"
+
+
 def _set_visibility(plan_file: Path, item_id: str, visibility: str) -> None:
     plan = json.loads(plan_file.read_text())
     for item in plan["items"]:
