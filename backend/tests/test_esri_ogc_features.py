@@ -651,6 +651,66 @@ class TestTheHitsRead:
 
 
 class TestARefreshRefusedForItsTokenIsACredentialFailure:
+    """A refresh reads an ArcGIS collection through the walk, and a refused
+    token there is recorded as the run's credential failure."""
+
+    @pytest.fixture(autouse=True)
+    def _staging_dir(self, tmp_path, monkeypatch):
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path / "staging"))
+
+    async def _refresh_fetch(self, monkeypatch, refusal, *, token: bool) -> Exception:
+        from app.processing.ingest.ogr import run_ogr2ogr_service
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.rstrip("/") == _ITEMS_PATH:
+                return refusal()
+            return _esri()(request)
+
+        _serve(monkeypatch, handle)
+        _spawn_reading_the_source(monkeypatch)
+        with pytest.raises(Exception) as caught:
+            await run_ogr2ogr_service(
+                f"OAPIF:{_SERVICE}",
+                "0",
+                "t",
+                "PG:dbname=x",
+                "ogcapi_features",
+                token=_credential_line() if token else None,
+                schema="data",
+            )
+        return caught.value
+
+    @pytest.mark.parametrize(
+        "refusal",
+        [
+            lambda: _streamed(401, b"", "text/plain"),
+            lambda: _streamed(403, b"", "text/plain"),
+            lambda: _json(_fixture("error-token-required.json")),
+        ],
+        ids=["401", "403", "499-envelope"],
+    )
+    async def test_a_refused_token_is_credential_expired(
+        self, monkeypatch, refusal
+    ) -> None:
+        from app.processing.ingest.tasks_reupload import _service_refresh_error_code
+
+        exc = await self._refresh_fetch(monkeypatch, refusal, token=True)
+
+        assert _service_refresh_error_code(exc) == "credential_expired"
+
+    async def test_an_anonymous_401_is_not_a_refused_credential(
+        self, monkeypatch
+    ) -> None:
+        from app.processing.ingest.tasks_reupload import _service_refresh_error_code
+
+        exc = await self._refresh_fetch(
+            monkeypatch, lambda: _streamed(401, b"", "text/plain"), token=False
+        )
+
+        assert _service_refresh_error_code(exc) == "service_refresh_failed"
+
     def test_the_run_is_recorded_as_credential_expired(self) -> None:
         from app.platform.service_items import ServiceErrorResponseError
         from app.processing.ingest.tasks_reupload import _service_refresh_error_code

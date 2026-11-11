@@ -138,12 +138,13 @@ SERVICE_ERROR_POLICY = (
 
 class ServiceErrorResponseError(ItemFetchFailedError):
     """An ArcGIS error envelope, HTTP 200 with ``{"error": {...}}``, in place
-    of a document. Reports the numeric code only, never the service's text."""
+    of a document, or an HTTP 401/403 to a credentialed read. Reports the
+    numeric code only, never the service's text."""
 
     def __init__(self, service_code: object) -> None:
         super().__init__("service error envelope")
         # ArcGIS token codes: 499 token required, 498 invalid or expired.
-        auth = service_code in (498, 499)
+        auth = service_code in (401, 403, 498, 499)
         self.code = SERVICE_AUTH_REFUSED_CODE if auth else SERVICE_ERROR_CODE
         self.policy = SERVICE_AUTH_REFUSED_POLICY if auth else SERVICE_ERROR_POLICY
         if type(service_code) is int and 0 <= service_code < 10_000:
@@ -430,6 +431,8 @@ async def _fetch_page(
         error=ItemFetchFailedError,
         on_first_request=on_first_request,
         gzip=gzip,
+        # Only a read that carries a credential had one refused.
+        refused=ServiceErrorResponseError if headers else None,
     )
     if not body:
         raise EmptyPageError()

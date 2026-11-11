@@ -698,6 +698,7 @@ async def fetch_document(
     error: type[EndpointCheckFailedError] = EndpointCheckFailedError,
     on_first_request: "Callable[[], None] | None" = None,
     gzip: bool = False,
+    refused: "Callable[[int], EndpointCheckFailedError] | None" = None,
 ) -> tuple[bytes, str]:
     """One document from an untrusted service, and the URL it came from.
 
@@ -714,6 +715,8 @@ async def fetch_document(
     only. ``accept`` has no default — a default would guess wrong for one
     of the callers. ``gzip`` asks for and accepts a gzip body, inflated
     under the same budget; otherwise the read is identity-only.
+    ``refused`` builds the error for an HTTP 401 or 403, for a caller that
+    reports a refused credential differently from an unreadable document.
     """
     # Resolved here, not as default arguments: a default binds the module
     # constant once at definition time, so a caller/test that changes the
@@ -737,6 +740,8 @@ async def fetch_document(
         # Marker must stay directly above the call (pinned by test).
         # codeql[py/full-ssrf] Rule 2 posture — validated above; make_safe_client re-resolves/pins/revalidates per hop
         async with client.stream("GET", url, headers=headers) as response:
+            if refused is not None and response.status_code in (401, 403):
+                raise refused(response.status_code)
             if response.status_code >= 400:
                 # Read nothing: an error body from a service these modules
                 # exist to distrust is not worth the bytes.
