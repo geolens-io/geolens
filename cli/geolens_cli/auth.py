@@ -500,17 +500,29 @@ def store_secret(account: str, value: str) -> str:
 def load_secrets(account: str) -> list[tuple[str, str]]:
     """Each distinct stored value for *account* as (backend, value), the file
     copy first; a backend that can't be read is skipped."""
+    return probe_secrets(account)[0]
+
+
+def probe_secrets(account: str) -> tuple[list[tuple[str, str]], list[str]]:
+    """``load_secrets``' values, and the backends ('file', 'keyring') that
+    could not be read, so may hold one too."""
     found: list[tuple[str, str]] = []
-    value = _read_credentials_section_tolerant(account).get(_SECRET_FIELD)
+    unreadable: list[str] = []
+    try:
+        value = _read_credentials_file().get(account, {}).get(_SECRET_FIELD)
+    except CredentialsFileCorrupt:
+        unreadable.append("file")
+        value = None
     if value:
         found.append(("file", value))
     try:
         value = keyring.get_password(SERVICE, account)
     except KeyringError:
+        unreadable.append("keyring")
         value = None
     if value and all(value != v for _, v in found):
         found.append(("keyring", value))
-    return found
+    return found, unreadable
 
 
 def delete_secret(account: str, backend: Optional[str] = None) -> None:

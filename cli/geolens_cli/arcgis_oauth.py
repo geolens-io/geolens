@@ -181,14 +181,16 @@ class _Session:
             )
 
 
-def forget(root: str, client_id: str) -> tuple[list[str], list[str]]:
+def forget(root: str, client_id: str) -> tuple[list[str], list[str], list[str]]:
     """Delete the saved sign-in for *client_id* at the portal *root*; returns
-    (backends it was removed from, backends still holding it)."""
+    (backends it was removed from, backends still holding it, backends that
+    could not be read, so may still hold it)."""
     account = _account(root, client_id)
     before = [backend for backend, _ in _auth.load_secrets(account)]
     _auth.delete_secret(account)
-    after = [backend for backend, _ in _auth.load_secrets(account)]
-    return [b for b in before if b not in after], after
+    found, unreadable = _auth.probe_secrets(account)
+    after = [backend for backend, _ in found]
+    return [b for b in before if b not in after], after, unreadable
 
 
 class _Listener(socketserver.TCPServer):

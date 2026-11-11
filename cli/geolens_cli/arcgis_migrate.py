@@ -118,6 +118,7 @@ from .arcgis_portal import (
     PortalError,
     Redactor,
     build_opener,
+    check_client_id,
     portal_root,
     read_credentials,
 )
@@ -1859,6 +1860,10 @@ def _run(
 ) -> int:
     try:
         _check_hosts(opts.trusted_hosts)
+        try:
+            check_client_id(opts.client_id)
+        except ValueError as exc:
+            raise UsageError(str(exc)) from None
         _check_cutover(opts)
         plan = _plan.load_plan(opts.plan_path)
         state_path = opts.state_path or opts.plan_path.parent / STATE_FILENAME

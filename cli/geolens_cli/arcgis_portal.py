@@ -1185,6 +1185,13 @@ def portal_root(
     return f"{parts.scheme}://{parts.netloc}{path}"
 
 
+def check_client_id(client_id: str | None) -> None:
+    """``ValueError`` when *client_id* is given but is not an ArcGIS client ID;
+    an empty ``--client-id`` is one."""
+    if client_id is not None and not CLIENT_ID_CHARS.fullmatch(client_id):
+        raise ValueError("--client-id is not an ArcGIS client ID")
+
+
 def read_credentials(
     token: str | None,
     token_stdin: bool,
@@ -1202,14 +1209,13 @@ def read_credentials(
         raise ValueError("use either a token or --username, not both")
     if password_stdin and not username:
         raise ValueError("--password-stdin needs --username")
-    if client_id:
+    if client_id is not None:
         if token or token_stdin or username:
             raise ValueError(
                 "use one of a token, --username or --client-id "
                 "(GEOLENS_ARCGIS_CLIENT_ID), not several"
             )
-        if not CLIENT_ID_CHARS.fullmatch(client_id):
-            raise ValueError("--client-id is not an ArcGIS client ID")
+        check_client_id(client_id)
         return None, None
     if token_stdin:
         token = sys.stdin.readline().strip()

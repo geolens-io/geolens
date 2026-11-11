@@ -2406,17 +2406,23 @@ def arcgis_logout(
     except ValueError as exc:
         state.output.error(str(exc))
         raise typer.Exit(EXIT_USAGE) from None
-    removed, left = _arcgis_oauth.forget(root, client_id)
-    if left:
+    removed, left, unreadable = _arcgis_oauth.forget(root, client_id)
+    places = {"keyring": "the OS keyring", "file": "credentials.toml"}
+    if left or unreadable:
+        problems = []
+        if left:
+            problems.append(f"still saved in {', '.join(places[b] for b in left)}")
+        if unreadable:
+            problems.append(
+                f"{', '.join(places[b] for b in unreadable)} could not be read, "
+                "so removal is not confirmed"
+            )
         state.output.error(
-            f"the saved ArcGIS sign-in for {client_id} at {root} could not be "
-            f"removed from: {', '.join(left)}"
+            f"the ArcGIS sign-in for {client_id} at {root}: {'; '.join(problems)}"
         )
         raise typer.Exit(EXIT_GENERIC)
     if removed:
-        where = " and ".join(
-            "the OS keyring" if b == "keyring" else "credentials.toml" for b in removed
-        )
+        where = " and ".join(places[b] for b in removed)
         state.output.success(
             f"Removed the saved ArcGIS sign-in for {client_id} at {root} from {where}"
         )

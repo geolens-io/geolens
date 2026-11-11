@@ -16,9 +16,11 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
 import pytest
+from keyring.errors import KeyringError
 
 from geolens_cli import arcgis_inventory as inventory
 from geolens_cli import auth as _auth
+from geolens_cli import config as _config
 from geolens_cli import arcgis_migrate_session as session
 from geolens_cli import arcgis_oauth as oauth
 from geolens_cli import arcgis_portal
@@ -552,3 +554,45 @@ def test_arcgis_logout_forgets_the_saved_sign_in(runner, mock_keyring, tmp_xdg_h
     assert again.exit_code == 0
     assert "No ArcGIS sign-in was saved" in again.stdout
     assert runner.invoke(app, ["arcgis", "logout"]).exit_code == 2
+
+
+def _unreadable_keyring(monkeypatch) -> None:
+    def locked(*args: object) -> None:
+        raise KeyringError("keyring locked")
+
+    monkeypatch.setattr("keyring.get_password", locked)
+    monkeypatch.setattr("keyring.delete_password", locked)
+
+
+@pytest.mark.parametrize("backend", ["keyring", "file"])
+def test_arcgis_logout_does_not_claim_success_when_it_cannot_check(
+    backend, runner, monkeypatch, mock_keyring, tmp_xdg_home
+):
+    if backend == "keyring":
+        mock_keyring[ACCOUNT] = REFRESH
+        _unreadable_keyring(monkeypatch)
+        place = "the OS keyring"
+    else:
+        path = _config.credentials_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("not = [toml")
+        place = "credentials.toml"
+    args = ["arcgis", "logout", "--portal-url", PORTAL, "--client-id", CLIENT_ID]
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1, result.output
+    assert f"{place} could not be read" in result.output
+    assert "No ArcGIS sign-in was saved" not in result.output
+    _assert_no_secret(result.output)
+
+
+def test_an_empty_client_id_is_refused_not_ignored(invoke):
+    portal = FakePortal(portal_routes())
+
+    result, _, out = invoke(portal, _never_opened, "--client-id", "", "--scope", "org")
+
+    assert result.exit_code == 2, result.output
+    assert "--client-id" in result.stderr
+    assert portal.seen == []
+    assert not out.exists()

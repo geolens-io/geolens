@@ -630,6 +630,14 @@ def test_a_password_token_is_renewed_once_after_a_rejection(
     assert password not in raw and password not in result.output
 
 
+def test_an_empty_client_id_is_refused(runner, plan_file, geolens):
+    result, _ = _migrate(runner, plan_file, "--only", A2, "--client-id", "")
+
+    assert result.exit_code == 2, result.output
+    assert "--client-id" in result.output
+    assert geolens.seen == []
+
+
 def test_an_oauth_token_is_refreshed_once_after_a_rejection(
     runner, plan_file, geolens, monkeypatch, mock_keyring
 ):
