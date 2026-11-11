@@ -475,6 +475,8 @@
     "validationLessThanOrEqual": "{{field}} must be at most {{limit}}.",
     "validationInvalidChoice": "Choose a valid value for {{field}}.",
     "validationUrlSchemeInvalid": "{{field}} must be an http or https address.",
+    "validationUrlCredentialToken": "Remove the credential from the URL and paste it into the token field instead.",
+    "validationUrlCredentialStac": "Remove the credential from the URL; this source can't be imported from a URL that carries one.",
     "loadFailed": "Failed to load",
     "mapMessage": "Map error — some layers may not display correctly.",
     "datasetNotFound": "Dataset not found",

@@ -318,6 +318,8 @@
     "validationLessThanOrEqual": "{{field}} debe ser como máximo {{limit}}.",
     "validationInvalidChoice": "Elige un valor válido para {{field}}.",
     "validationUrlSchemeInvalid": "{{field}} debe ser una dirección http o https.",
+    "validationUrlCredentialToken": "Quita la credencial de la URL y pégala en el campo de token.",
+    "validationUrlCredentialStac": "Quita la credencial de la URL; este origen no se puede importar desde una URL que la incluya.",
     "datasetNotFound": "Conjunto de datos no encontrado",
     "collectionNotFound": "Colección no encontrada",
     "mapNotFound": "Mapa no encontrado",

@@ -318,6 +318,8 @@
     "validationLessThanOrEqual": "Le champ {{field}} doit être inférieur ou égal à {{limit}}.",
     "validationInvalidChoice": "Choisissez une valeur valide pour le champ {{field}}.",
     "validationUrlSchemeInvalid": "Le champ {{field}} doit être une adresse http ou https.",
+    "validationUrlCredentialToken": "Retirez l'identifiant de l'URL et collez-le dans le champ du jeton.",
+    "validationUrlCredentialStac": "Retirez l'identifiant de l'URL ; cette source ne peut pas être importée depuis une URL qui en contient un.",
     "datasetNotFound": "Jeu de données introuvable",
     "collectionNotFound": "Collection introuvable",
     "mapNotFound": "Carte introuvable",

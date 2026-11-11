@@ -630,6 +630,21 @@ describe('API error localization boundary', () => {
     expect(rendered).not.toBe('The submitted values are invalid.');
   });
 
+  it('tells the user to move a URL credential into the token field', () => {
+    const detail =
+      'body.url: Value error, url must not include credential query parameters; use the token field instead';
+    expect(classifyApiError(detail, 422)).toEqual({ key: 'errors.validationUrlCredentialToken' });
+    expect(translateApiErrorDetail(detail, 422)).toBe(
+      'Remove the credential from the URL and paste it into the token field instead.',
+    );
+  });
+
+  it('finds the credential message among several joined validation errors', () => {
+    const detail =
+      'body.name: Field required; body.url: Value error, url must not include credential query parameters; use a non-secret URL';
+    expect(classifyApiError(detail, 422)).toEqual({ key: 'errors.validationUrlCredentialStac' });
+  });
+
   it('localizes validation constraints with their numeric limit', () => {
     const detail = [
       {

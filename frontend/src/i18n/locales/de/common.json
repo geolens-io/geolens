@@ -318,6 +318,8 @@
     "validationLessThanOrEqual": "{{field}} darf höchstens {{limit}} sein.",
     "validationInvalidChoice": "Wählen Sie einen gültigen Wert für {{field}}.",
     "validationUrlSchemeInvalid": "{{field}} muss eine http- oder https-Adresse sein.",
+    "validationUrlCredentialToken": "Entfernen Sie die Zugangsdaten aus der URL und fügen Sie sie stattdessen in das Token-Feld ein.",
+    "validationUrlCredentialStac": "Entfernen Sie die Zugangsdaten aus der URL; diese Quelle kann nicht über eine URL mit Zugangsdaten importiert werden.",
     "datasetNotFound": "Datensatz nicht gefunden",
     "collectionNotFound": "Sammlung nicht gefunden",
     "mapNotFound": "Karte nicht gefunden",
