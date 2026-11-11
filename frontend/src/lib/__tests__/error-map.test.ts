@@ -25,6 +25,9 @@ describe('API error localization boundary', () => {
   it.each([
     ['unsupported_layer_type', 'errors.serviceLayerNoFeatures', 'holds no features'],
     ['unsupported_geometry', 'errors.serviceGeometryUnsupported', 'multipatch'],
+    ['service_auth_refused', 'errors.serviceAuthRefused', "the token is valid and hasn't expired"],
+    ['service_error', 'errors.serviceAnsweredError', 'answered with an error'],
+    ['service_empty_page', 'errors.serviceEmptyPage', 'Retry in a few minutes'],
   ])('maps the service preview refusal %s to its own message', (code, key, text) => {
     const detail = { code, message: 'English diagnostic' };
     expect(classifyApiError(detail, 422).key).toBe(key);
