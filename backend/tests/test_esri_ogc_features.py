@@ -1262,3 +1262,40 @@ class TestTheWorkerRefusalsKeepTheirCodes:
         assert failure_code(redact_failure_reason(caught.value)) == (
             "arcgis_wfs_count_unavailable"
         )
+
+
+class TestAWFSAnswerWithADoctypeIsRefused:
+    """The hits and probe reads parse untrusted WFS documents as the rest of
+    the WFS code does, which refuses a DOCTYPE."""
+
+    _DOCTYPE = b'<?xml version="1.0"?><!DOCTYPE FeatureCollection SYSTEM "x.dtd">'
+
+    @pytest.mark.parametrize(
+        ("body", "read"),
+        [
+            (
+                b'<wfs:FeatureCollection xmlns:wfs="http://www.opengis.net/wfs/2.0" '
+                b'numberMatched="25"/>',
+                "hits",
+            ),
+            (_GML % _MEMBER, "probe"),
+        ],
+    )
+    async def test_the_read_gets_nothing(self, monkeypatch, body, read) -> None:
+        from app.platform.arcgis_wfs import (
+            arcgis_wfs_pages_by_count,
+            fetch_arcgis_wfs_hits,
+        )
+
+        monkeypatch.setattr(
+            "app.platform.arcgis_wfs.validate_url_for_ssrf", AsyncMock()
+        )
+        _serve(
+            monkeypatch,
+            lambda r: _streamed(200, self._DOCTYPE + body, "application/xml"),
+        )
+        reader = fetch_arcgis_wfs_hits if read == "hits" else arcgis_wfs_pages_by_count
+
+        answer = await reader(_ARCGIS_WFS, "glTrial2Ogc:pts", credential_line=None)
+
+        assert answer in (None, False)

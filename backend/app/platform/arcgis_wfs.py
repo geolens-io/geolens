@@ -12,7 +12,6 @@ import re
 from collections.abc import Callable
 from urllib.parse import urlsplit
 
-import defusedxml.ElementTree as ET
 import httpx
 import structlog
 
@@ -30,6 +29,7 @@ from app.platform.service_endpoints import (
     EndpointCheckFailedError,
     _capabilities_url,
     _url_add_kvp,
+    _wfs_root,
     bounded_parse_qsl,
     credential_headers,
 )
@@ -71,7 +71,7 @@ def wfs_url(url: str, layer: str, *, version: str, **params: str) -> str:
 
 def _root(body: bytes):
     try:
-        return ET.fromstring(body)
+        return _wfs_root(body)
     except Exception:  # broad: defusedxml raises parse and policy errors alike
         return None
 
