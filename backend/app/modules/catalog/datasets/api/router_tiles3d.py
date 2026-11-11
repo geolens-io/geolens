@@ -117,6 +117,7 @@ async def _chained(first: bytes, rest: AsyncIterator[bytes]) -> AsyncIterator[by
             yield chunk
 
 
+@router.head("/{dataset_id}/tiles3d/{path:path}", include_in_schema=False)
 @router.get(
     "/{dataset_id}/tiles3d/{path:path}",
     response_class=Response,
@@ -182,10 +183,12 @@ async def get_tileset_file(
     await db.rollback()
     etag = _etag(attempt)
     storage = get_storage()
-    if "if-none-match" in request.headers or "if-match" in request.headers:
+    head = request.method == "HEAD"
+    if head or "if-none-match" in request.headers or "if-match" in request.headers:
         # The ETag names the attempt, not this file, so the file is opened first
         # and a missing one answers as a plain read would. Local storage's
-        # exists() is true for a directory, which a read answers 404.
+        # exists() is true for a directory, which a read answers 404. A HEAD
+        # answers from this one-byte probe and never opens the whole file.
         with _storage_errors(dataset_id):
             async with aclosing(storage.get_range_stream(key, 0, 1)) as probe:
                 await anext(probe, b"")
@@ -195,15 +198,19 @@ async def get_tileset_file(
         if not_modified is not None:
             not_modified.headers["Cache-Control"] = _CACHE_CONTROL
             return not_modified
+    content_type = _CONTENT_TYPES.get(
+        posixpath.splitext(relative)[1].lower(), _OCTET_STREAM
+    )
+    headers = {"Cache-Control": _CACHE_CONTROL, "ETag": etag}
+    if head:
+        response = Response(media_type=content_type, headers=headers)
+        # GET streams without a length, and the empty body's 0 would misstate it.
+        del response.headers["content-length"]
+        return response
     stream = storage.get_stream(key)
     with _storage_errors(dataset_id):
         first = await anext(stream, b"")
 
-    content_type = _CONTENT_TYPES.get(
-        posixpath.splitext(relative)[1].lower(), _OCTET_STREAM
-    )
     return StreamingResponse(
-        _chained(first, stream),
-        media_type=content_type,
-        headers={"Cache-Control": _CACHE_CONTROL, "ETag": etag},
+        _chained(first, stream), media_type=content_type, headers=headers
     )

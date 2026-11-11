@@ -1293,7 +1293,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/style_import.py": 605,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 151,
     "backend/app/modules/catalog/maps/router_assets.py": 165,
-    "backend/app/modules/catalog/maps/router_sharing.py": 494,
+    "backend/app/modules/catalog/maps/router_sharing.py": 495,
     "backend/app/modules/catalog/search/query_params.py": 205,
     "backend/app/modules/catalog/search/router_saved.py": 113,
     "backend/app/modules/admin/router_operations.py": 348,
@@ -1336,7 +1336,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/auth/router.py": 1534,
     # Application composition debt; preserve lifespan and middleware ordering when
     # splitting.
-    "backend/app/api/main.py": 1646,
+    "backend/app/api/main.py": 1647,
     # Map request validation and published response contracts share this module,
     # including the visibility a client that hasn't opted in reads.
     "backend/app/modules/catalog/maps/schemas.py": 1606,

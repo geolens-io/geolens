@@ -1597,6 +1597,7 @@ async def health_live(request: Request):
 # provider exception strings (`check_health(include_errors=False)`) so
 # anonymous callers never see DB/S3/cache internals. Kept as a comment,
 # not a docstring, so this stays out of the public OpenAPI description.
+@app.head("/health", include_in_schema=False)
 @app.get(
     "/health",
     response_model=HealthResponse,
