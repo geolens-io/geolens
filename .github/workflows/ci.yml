@@ -245,6 +245,8 @@ jobs:
               # links by UUID survive --force. A seeder-only PR that skipped
               # Backend Tests would drop the pin with the gate showing green.
               - 'scripts/seed-showcase.py'
+              # test_prepare_showcase_tiles3d.py imports this script.
+              - 'scripts/prepare-showcase-tiles3d.py'
               - '.gitignore'
               # Frontend files that backend parity/drift tests read by literal
               # path (fe-sdk type drift, basemap/capability/paint-key drift,

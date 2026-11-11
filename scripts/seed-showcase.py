@@ -98,7 +98,7 @@ CITY_SHADE_WINDOW_RING = [
 COPC_TITLE = "Autzen Stadium Classified Point Cloud (COPC)"
 COPC_SHA256 = "db2d56cdfa058bffccdc5d6019dae2fc9c6a551df10a5523c06c76a3e25a27fa"
 TILES3D_TITLE = "Amsterdam Canal Buildings (3DBAG 3D Tiles)"
-TILES3D_SHA256 = "28b6ccf9ed89cb378bd34019f3194a92e16c9bad27684166aa9d9c4639a01bb4"
+TILES3D_SHA256 = "1a28963acccdd764cae8f3fd0553df68971c9255bdbfe58efb5e7a68792b779b"
 MATTERHORN_ROUTES_SHA256 = "fb331860d35ceb0c5a10520a64369b7e961205a4caa92099df6f8490d9b42a79"
 MATTERHORN_PEAKS_SHA256 = "5ab03d3304e46bf1c6db649a9164c8324fcb1de49781ad012917682d5b02c3c0"
 
@@ -4643,12 +4643,14 @@ def build_client_sample(
     expected_type = "pointcloud_dataset" if kind == "pointcloud" else "tiles3d_dataset"
     asset_key = "pointcloud" if kind == "pointcloud" else "tileset"
     asset = detail.get(asset_key) or {}
-    expected_size = 81_123_042 if kind == "pointcloud" else 2_822_533
+    # The archive seeded before its root geometric error was raised differs
+    # only in tileset.json, and an instance that has it keeps it.
+    expected_sizes = {81_123_042} if kind == "pointcloud" else {2_822_535, 2_822_533}
     if (
         detail.get("record_type") != expected_type
         or detail.get("visibility") != "public"
         or not asset.get("url")
-        or asset.get("size_bytes") != expected_size
+        or asset.get("size_bytes") not in expected_sizes
     ):
         raise RuntimeError(f"{title} is not public or lacks its published {kind} asset")
     return dataset_id
