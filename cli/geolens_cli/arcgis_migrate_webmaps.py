@@ -18,6 +18,7 @@ import json
 import re
 import tempfile
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlsplit
@@ -30,6 +31,7 @@ from ._sdk_helpers import EXIT_NETWORK, long_request_timeout
 from .arcgis_migrate_export import _modified, _safe_relative, _stop_if_token_refused
 from .arcgis_migrate_files import JOB_KEY
 from .arcgis_migrate_layers import _trusted
+from .arcgis_migrate_refresh import KEEP_GEOLENS
 from .arcgis_migrate_session import (
     GeoLens,
     GeoLensError,
@@ -543,9 +545,11 @@ def _translate_again(
             "this command left its GeoLens map; update the map by hand"
         )
     if map_state(found) != seen:
+        changed = datetime.fromtimestamp(modified / 1000, UTC).isoformat()
         return (
-            "the web map changed in the portal, and its GeoLens map was changed "
-            "in GeoLens since the last run; it was left as it is"
+            f"the web map changed in the portal (modified at {changed}), and its "
+            "GeoLens map was changed in GeoLens since the last run (updated at "
+            f"{found.updated_at.isoformat()}); it was left as it is. {KEEP_GEOLENS}"
         )
     try:
         webmap = _fetch(ctx, item["id"])

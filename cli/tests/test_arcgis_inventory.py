@@ -1273,6 +1273,20 @@ def test_a_notebook_data_redirect_on_the_portal_host_is_followed(run):
     assert len(hop) == 1
 
 
+def test_a_notebook_whose_data_the_portal_refuses_is_unparsed_not_an_error(run):
+    item = "7f" * 16
+    target = f"{PORTAL}/sharing/rest/content/items/{item}/data/notebook"
+    routes = _one_item(item, "Notebook", data=(302, {}, {"Location": target}))
+    routes[f"content/items/{item}/data/notebook"] = (403, {"error": "forbidden"})
+
+    result, _ = run(FakePortal(routes), "--scope", "org", "--strict")
+
+    assert result.exit_code == 0, result.output
+    report = _report(result)
+    assert report["errors"] == []
+    assert _rows(report)[item]["dependencies_status"] == "unparsed"
+
+
 def test_a_notebook_data_redirect_chain_stops_after_one_hop(run):
     item = "7f" * 16
     hop = f"{PORTAL}/sharing/rest/content/items/{item}/data/notebook"

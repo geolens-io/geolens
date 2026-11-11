@@ -30,9 +30,17 @@ and releases use semantic versioning.
   `CORS_ALLOWED_ORIGINS` allowlist, and the write routes on the same paths get
   no wildcard. This changes the CORS contract: these routes used to send no
   CORS headers to an origin outside the allowlist.
+- `geolens arcgis migrate --cutover` checks the inventory's freshness and unresolved plan owners before the run, and stops without importing or refreshing anything, printing only the refusal, when either fails without its `--accept-*` flag. The freshness check ignores portal items the plan skips and names the items that changed, apart from those created since the inventory.
 
 ### Fixed
 - The import wizard now says what to change when a service URL carries a credential in its query: remove it from the URL and paste it into the token field (the STAC form asks for a URL without one). It showed the generic "submitted values are invalid" message before.
+- `geolens arcgis migrate` reruns retitle a dataset after its portal item is renamed, unless its title was edited in GeoLens, which is kept and noted like an edited summary.
+- An item `geolens arcgis migrate` can't bring up to date because it changed in GeoLens is reported with what changed (its data, with feature counts, or its details), when, and when its portal item last changed, and how to keep the GeoLens version. A web map changed on both sides names both times.
+- A refused `--cutover` run's report keeps the earlier marked cutover, with when it was made and the losses it accepted.
+- `geolens arcgis inventory` records a notebook whose data ArcGIS Online refuses (HTTP 403) as unparsed instead of counting a failed read on every run.
+- An item whose reused dataset GeoLens won't narrow, because its owner's shared maps show it, fails naming those maps and saying to unshare them or set the plan's `target.visibility` to the dataset's current one.
+- `--start-fresh` help and the refusal that suggests it say that service layers the operator already holds are reused, while data files and web maps are imported again.
+- An ArcGIS group member whom `owner_map` maps to a GeoLens name nobody has is no longer told to run `geolens admin users import --from-inventory`, which creates the ArcGIS name; the warning names the mapped user to create or the entry to change.
 - Terrain-RGB tiles of a DEM are read with bilinear resampling for both overview reads and reprojection, where Titiler's nearest default repeated rows and columns and drew stripes under a hillshade. Categorical and photographic rasters are unchanged. Tiles already cached for a DEM are replaced within an hour.
 - OGC API Features: the service probe, the credentialed endpoint check and the protected-collection read ask for `application/json` when they read a landing page, conformance or collection document, and keep `application/geo+json` for items. ArcGIS Online's OGC feature services answered the GeoJSON request with HTTP 400, so the probe reported "Couldn't detect service type".
 - A token-protected OGC API Features import or preview that gets an ArcGIS error envelope (HTTP 200 with `{"error": {...}}`) in place of a collection document or items page now fails with `service_auth_refused` for token codes 498 and 499, or `service_error` otherwise, naming the service's error code, instead of reporting a description GeoLens couldn't read.

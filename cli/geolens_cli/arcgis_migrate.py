@@ -57,7 +57,12 @@ from .arcgis_migrate_export import (
     refresh_export,
     write_index,
 )
-from .arcgis_migrate_cutover import current, failing_checks, inventory_changes
+from .arcgis_migrate_cutover import (
+    current,
+    failing_checks,
+    inventory_changes,
+    refused_before_run,
+)
 from .arcgis_migrate_groups import (
     GroupPlan,
     NO_GROUP,
@@ -463,7 +468,8 @@ def _earlier_copies(
         f"{len(found)} dataset(s) migrated from {len({i for i, _ in found})} of "
         f"the plan's items ({shown}{f' and {more} more' if more > 0 else ''}), "
         "which this run would import again; pass --state with the state file "
-        "of the earlier run, or --start-fresh to migrate them again anyway"
+        "of the earlier run, or --start-fresh to run anyway, which reuses the "
+        "service layers you hold and imports data files and web maps again"
     )
 
 
@@ -855,6 +861,42 @@ def _check_cutover(opts: MigrateOptions) -> None:
         raise UsageError("--cutover is the final run of the whole plan; drop --only")
 
 
+def owner_blockers(owners: Owners) -> list[dict[str, str]]:
+    """The owner problems no run fixes, which refuse a cutover: a plan owner
+    that names no single GeoLens user, and a plan owner changed after the
+    item was migrated, which stays with the old one."""
+    return [
+        *owners.unresolved,
+        *(
+            {
+                "item": change["item"],
+                "reason": f"its plan owner is now {change['owner']}, who hasn't "
+                "been given it",
+            }
+            for change in owners.changed
+        ),
+    ]
+
+
+def _held_after_run(
+    plan: Mapping[str, Any], state: MigrationState, owners: Owners
+) -> list[dict[str, str]]:
+    """The items the cutover's owner check will find held after this run: those
+    held for an owner who can't take them yet, and a hold the state records on
+    an item this run neither imports nor hands over."""
+    held = [{"item": i, "reason": r} for i, r in owners.pending.items()]
+    settled = {*owners.pending, *owners.waiting, *owners.by_item}
+    held += [
+        {"item": item["id"], "reason": entry.owner_pending}
+        for item in plan["items"]
+        if not item.get("removed")
+        and item["id"] not in settled
+        and (entry := state.items.get(item["id"])) is not None
+        and entry.owner_pending
+    ]
+    return held
+
+
 def mark_cutover(
     opts: MigrateOptions,
     plan: Mapping[str, Any],
@@ -873,17 +915,9 @@ def mark_cutover(
     changed = (
         None if opts.dry_run else inventory_changes(portal, plan, datetime.now(tz=UTC))
     )
-    # An item whose plan now names another owner stays with the old one.
+    blocked = owner_blockers(owners)
+    listed = {row["item"] for row in blocked}
     moved = [
-        {
-            "item": change["item"],
-            "reason": f"its plan owner is now {change['owner']}, who hasn't "
-            "been given it",
-        }
-        for change in owners.changed
-    ]
-    listed = {row["item"] for row in [*owners.unresolved, *moved]}
-    moved += [
         {
             "item": item["id"],
             "reason": "a handover stopped part way, so its objects may have "
@@ -897,7 +931,7 @@ def mark_cutover(
     failing = failing_checks(
         plan,
         state,
-        [*owners.unresolved, *moved],
+        [*blocked, *moved],
         changed,
         groups.groups if groups else None,
     )
@@ -1355,6 +1389,7 @@ def _report(
     cutover: Mapping[str, Any] | None = None,
     groups: GroupPlan | None = None,
     notes: Mapping[str, list[str]] | None = None,
+    before_run: bool = False,
 ) -> int:
     groups = groups or GroupPlan()
     notes = notes or {}
@@ -1441,57 +1476,60 @@ def _report(
     if fmt.json_mode:
         fmt.json(payload)
     else:
-        verb = "Would run" if opts.dry_run else "Ran"
-        fmt.info(f"{verb} {len(rows)} item(s).")
-        for row in rows:
-            owner = f" as {row['owner']}" if row["owner"] else ""
-            fmt.info(f"  {row['id']} {row['action']}{owner}: {row['status']}")
-            for note in row["notes"]:
-                fmt.info(f"    {note}")
-            if row["error"]:
-                # An error, not a warning: --quiet must not hide a failed item.
-                fmt.error(f"{row['id']}: {row['error']}")
-        for item_id in failed:
-            if item_id not in ran:
-                # Failed before, left out of this run: the exit code counts it.
-                fmt.error(f"{item_id}: {state.item(item_id).error or 'failed'}")
-        _print_owners(fmt, owners, summary)
-        if opts.dry_run:
-            for planned in _planned_handovers(owners, opts.only):
-                fmt.info(f"{planned['item']} would be handed to {planned['owner']}")
-        _print_groups(fmt, groups, opts.dry_run)
-        verb = "Would bring" if opts.dry_run else "Brought"
-        brought = len(summary.refreshed)
-        # A dry run counts every item it would try; its stale reasons are old.
-        if not opts.dry_run:
-            brought -= len([i for i in stale if i in summary.refreshed])
-        fmt.info(f"{verb} {brought} migrated item(s) up to date.")
-        for item_id, reasons in stale.items():
-            for reason in reasons:
-                fmt.error(f"{item_id} is not up to date: {reason}")
-        if summary.unavailable:
-            fmt.warn(
-                f"{len(summary.unavailable)} item(s) use an action this version "
-                "can't run yet and were left pending."
-            )
-        if summary.unlisted:
-            fmt.warn(
-                f"{len(summary.unlisted)} item(s) are missing from the inventory the "
-                "plan was last merged from and were left pending; merge a complete "
-                "inventory to run them: " + ", ".join(summary.unlisted[:5])
-            )
-        for wait in summary.waiting:
-            fmt.warn(f"{wait['item']} waits on {', '.join(wait['waiting_on'])}")
-        if summary.stopped:
-            fmt.error(f"stopped: {summary.stopped}")
+        # A cutover refused before the run ran nothing, so only the refusal shows.
+        if not before_run:
+            verb = "Would run" if opts.dry_run else "Ran"
+            fmt.info(f"{verb} {len(rows)} item(s).")
+            for row in rows:
+                owner = f" as {row['owner']}" if row["owner"] else ""
+                fmt.info(f"  {row['id']} {row['action']}{owner}: {row['status']}")
+                for note in row["notes"]:
+                    fmt.info(f"    {note}")
+                if row["error"]:
+                    # An error, not a warning: --quiet must not hide a failed item.
+                    fmt.error(f"{row['id']}: {row['error']}")
+            for item_id in failed:
+                if item_id not in ran:
+                    # Failed before, left out of this run: the exit code counts it.
+                    fmt.error(f"{item_id}: {state.item(item_id).error or 'failed'}")
+            _print_owners(fmt, owners, summary)
+            if opts.dry_run:
+                for planned in _planned_handovers(owners, opts.only):
+                    fmt.info(f"{planned['item']} would be handed to {planned['owner']}")
+            _print_groups(fmt, groups, opts.dry_run)
+            verb = "Would bring" if opts.dry_run else "Brought"
+            brought = len(summary.refreshed)
+            # A dry run counts every item it would try; its stale reasons are old.
+            if not opts.dry_run:
+                brought -= len([i for i in stale if i in summary.refreshed])
+            fmt.info(f"{verb} {brought} migrated item(s) up to date.")
+            for item_id, reasons in stale.items():
+                for reason in reasons:
+                    fmt.error(f"{item_id} is not up to date: {reason}")
+            if summary.unavailable:
+                fmt.warn(
+                    f"{len(summary.unavailable)} item(s) use an action this version "
+                    "can't run yet and were left pending."
+                )
+            if summary.unlisted:
+                fmt.warn(
+                    f"{len(summary.unlisted)} item(s) are missing from the inventory the "
+                    "plan was last merged from and were left pending; merge a complete "
+                    "inventory to run them: " + ", ".join(summary.unlisted[:5])
+                )
+            for wait in summary.waiting:
+                fmt.warn(f"{wait['item']} waits on {', '.join(wait['waiting_on'])}")
+            if summary.stopped:
+                fmt.error(f"stopped: {summary.stopped}")
         _print_cutover(fmt, cutover, opts.dry_run)
         if state.cutover and not opts.cutover:
             fmt.warn(f"this migration was cut over at {state.cutover['at']}")
         if not opts.dry_run:
-            fmt.info(f"State: {state.path}")
+            if not before_run:
+                fmt.info(f"State: {state.path}")
             if report_files:
                 fmt.info(f"Report: {report_files[1]}")
-            if failed:
+            if failed and not before_run:
                 fmt.error(
                     f"{len(failed)} item(s) failed; see {report_files[1] if report_files else state.path}"
                 )
@@ -1528,7 +1566,8 @@ def _print_owners(fmt: _output.Formatter, owners: Owners, summary: RunSummary) -
     for change in owners.changed:
         fmt.warn(
             f"{change['item']} was migrated before its owner changed to "
-            f"{change['owner']}; it was not imported again. Transfer it by hand."
+            f"{change['owner']}, and this run didn't hand it over; transfer it "
+            "in GeoLens by hand."
         )
     for conflict in owners.conflicts:
         fmt.warn(
@@ -1565,12 +1604,19 @@ def _print_members_left_out(fmt: _output.Formatter, groups: GroupPlan) -> None:
             reasons.add(left["reason"])
     no_account = []
     for member, (names, reasons) in sorted(by_member.items()):
-        if all(r.endswith(NOT_A_USER) for r in reasons):
+        # An inventory import creates the ArcGIS name, not one owner_map gives.
+        if reasons == {f"{member}{NOT_A_USER}"}:
             no_account.append(member)
             continue
+        mapped = all(r.endswith(NOT_A_USER) for r in reasons)
         fmt.warn(
             f"{member}: {'; '.join(sorted(reasons))} "
             f"(not in GeoLens group {', '.join(sorted(names))})"
+            + (
+                "; owner_map names that user, so create it or change owner_map"
+                if mapped
+                else ""
+            )
         )
     if no_account:
         shown = ", ".join(no_account[:_LISTED_MEMBERS])
@@ -1851,6 +1897,21 @@ def _portal_base(url: str) -> str:
         return url.rstrip("/")
 
 
+def _sign_in(
+    fmt: _output.Formatter, portal: tuple[PortalClient, Callable[[], None] | None]
+) -> PortalAuth | int:
+    """Sign the portal client in; its auth, or the exit code of a refused
+    sign-in."""
+    client, sign_in = portal
+    try:
+        if sign_in is not None:
+            sign_in()
+    except PortalError as exc:
+        fmt.error(str(exc))
+        return _PORTAL_EXIT.get(exc.kind, EXIT_GENERIC)
+    return PortalAuth(client, renewable=sign_in is not None)
+
+
 def _run(
     fmt: _output.Formatter,
     opts: MigrateOptions,
@@ -1890,6 +1951,13 @@ def _run(
         fmt.error(str(exc))
         return EXIT_USAGE
 
+    auth = None
+    # The cutover preflight searches the portal before any group is made.
+    if portal is not None and opts.cutover and not opts.dry_run:
+        auth = _sign_in(fmt, portal)
+        if isinstance(auth, int):
+            return auth
+
     sdk = sdk_factory()
     geolens = GeoLens(sdk, instance, redact)
     try:
@@ -1925,6 +1993,29 @@ def _run(
         )
         if refusal:
             raise UsageError(refusal)
+        # Before any group is made or changed, so a refused cutover changes nothing.
+        if opts.cutover and not opts.dry_run:
+            early = refused_before_run(
+                plan,
+                [*owner_blockers(owners), *_held_after_run(plan, state, owners)],
+                inventory_changes(
+                    auth.client if auth else None, plan, datetime.now(tz=UTC)
+                ),
+                opts.accept,
+            )
+            if early is not None:
+                return _report(
+                    fmt,
+                    opts,
+                    plan,
+                    state,
+                    [],
+                    owners,
+                    RunSummary(),
+                    redact,
+                    early,
+                    before_run=True,
+                )
         if editor:
             groups = my_groups_plan(
                 geolens, plan, inventory_groups, state, touched, dry_run=opts.dry_run
@@ -1961,16 +2052,10 @@ def _run(
             return EXIT_AUTH
         return EXIT_SERVER if exc.status >= 500 else EXIT_GENERIC
 
-    auth = None
-    if portal is not None:
-        client, sign_in = portal
-        try:
-            if sign_in is not None:
-                sign_in()
-        except PortalError as exc:
-            fmt.error(str(exc))
-            return _PORTAL_EXIT.get(exc.kind, EXIT_GENERIC)
-        auth = PortalAuth(client, renewable=sign_in is not None)
+    if portal is not None and auth is None:
+        auth = _sign_in(fmt, portal)
+        if isinstance(auth, int):
+            return auth
 
     if opts.dry_run:
         # As the run does first, so the dry run shows the status it will leave.

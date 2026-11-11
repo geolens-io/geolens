@@ -179,9 +179,9 @@ class ItemState:
     # Hash of the summary a file written before the baseline wrote; read only
     # when a dataset has no baseline.
     metadata_hash: str | None = None
-    # Dataset -> the item metadata this command last wrote there (summary,
-    # attribution, license, source_organization, keywords), so a rerun can tell
-    # a field it wrote from one someone edited in GeoLens.
+    # Dataset -> the item metadata this command last wrote there (title,
+    # summary, attribution, license, source_organization, keywords), so a rerun
+    # can tell a field it wrote from one someone edited in GeoLens.
     metadata_baseline: dict[str, dict[str, Any]] = field(default_factory=dict)
     # Dataset -> its GeoLens updated_at, feature count and data revision when
     # this command last left it, so a rerun can tell a change made since.

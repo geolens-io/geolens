@@ -1242,6 +1242,8 @@ def test_each_accept_flag_lifts_only_its_own_check(runner, tmp_path, geolens, ha
         runner,
         tmp_path,
         plan,
+        "--unmapped-owner",
+        "operator",
         "--cutover",
         "--accept-incomplete-inventory",
         "--accept-unfinished-items",
@@ -1302,7 +1304,13 @@ def test_cutover_refuses_an_item_still_waiting_for_its_owner(
     plan = _plan([_item(L1)], owner_map={"agol_alice": "newbie"})
 
     result, payload = _run(
-        runner, tmp_path, plan, "--unmapped-owner", "operator", "--cutover"
+        runner,
+        tmp_path,
+        plan,
+        "--unmapped-owner",
+        "operator",
+        "--cutover",
+        "--accept-incomplete-inventory",
     )
 
     assert result.exit_code == 1
@@ -1313,6 +1321,41 @@ def test_cutover_refuses_an_item_still_waiting_for_its_owner(
     assert check["items"] == [
         {"item": L1, "reason": "newbie is not a GeoLens user yet"}
     ]
+    # No run makes newbie a GeoLens user, so the cutover refuses before it.
+    assert handled == []
+
+
+def test_a_cutover_refuses_a_hold_left_on_a_skipped_item_before_the_run(
+    runner, tmp_path, geolens, handled
+):
+    _allow_transfers(geolens, _created_id(L2))
+    _write_state(
+        tmp_path,
+        {
+            L1: {
+                "status": "done",
+                "dataset_ids": [_created_id(L1)],
+                "owner_id": OPERATOR,
+                "owner_pending": "newbie is not a GeoLens user yet",
+            }
+        },
+    )
+    plan = _plan([_item(L1, "skip"), _item(L2)])
+
+    result, payload = _run(
+        runner, tmp_path, plan, "--cutover", "--accept-incomplete-inventory"
+    )
+
+    assert result.exit_code == 1
+    assert "unresolved-users" in payload["cutover"]["refused"]
+    [users] = [
+        c for c in payload["cutover"]["checks"] if c["check"] == "unresolved-users"
+    ]
+    assert users["items"] == [
+        {"item": L1, "reason": "newbie is not a GeoLens user yet"}
+    ]
+    # No run settles that hold, so the cutover refuses before importing L2.
+    assert handled == []
 
 
 def test_an_unusable_unmapped_owner_is_refused(runner, tmp_path, geolens, handled):
@@ -1727,7 +1770,11 @@ def test_an_object_transferred_in_geolens_keeps_its_owner_after_an_arcgis_change
     objects[object_id] = {"created_by": VIC, "updated_at": "2026-10-08T00:00:00Z"}
 
     result, payload = _run(
-        runner, tmp_path, _plan([_moved_to_bob(item)], BOB_OWNERS), "--cutover"
+        runner,
+        tmp_path,
+        _plan([_moved_to_bob(item)], BOB_OWNERS),
+        "--cutover",
+        "--accept-incomplete-inventory",
     )
 
     assert result.exit_code == 1
@@ -1917,6 +1964,30 @@ def test_an_owner_map_edit_after_migration_is_reported_not_applied(
     assert result.exit_code == 0, result.output
     assert _owner_patches(geolens) == [ALICE]
     assert payload["owner_changed"] == [{"item": L1, "owner": "newbie"}]
+
+
+def test_a_cutover_refuses_an_owner_map_edit_after_migration_before_the_run(
+    runner, tmp_path, geolens, handled, refreshed
+):
+    _owned(geolens, datasets=(_created_id(L1),))
+    _users(geolens, _user(NEW, "newbie", ["editor"]))
+    assert _run(runner, tmp_path, _plan([_item(L1)]))[0].exit_code == 0
+
+    result, payload = _run(
+        runner,
+        tmp_path,
+        _plan([_item(L1)], owner_map={"agol_alice": "newbie"}),
+        "--cutover",
+        "--accept-incomplete-inventory",
+    )
+
+    assert result.exit_code == 1
+    assert payload["cutover"]["refused"] == ["unresolved-users"]
+    [users] = [
+        c for c in payload["cutover"]["checks"] if c["check"] == "unresolved-users"
+    ]
+    assert "its plan owner is now newbie" in users["items"][0]["reason"]
+    assert refreshed == [] and payload["refreshed"] == []
 
 
 def test_an_arcgis_owner_change_to_an_inactive_user_is_reported(

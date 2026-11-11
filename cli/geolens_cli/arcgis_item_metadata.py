@@ -198,13 +198,15 @@ def apply_item_metadata(
     item: Mapping[str, Any],
     entry: ItemState,
     datasets: Container[str] | None = None,
+    titles: Mapping[str, str] | None = None,
 ) -> None:
     """Write the item's metadata onto each of its datasets, or only those in
-    *datasets*, as the operator.
+    *datasets*, as the operator, and the title *titles* gives a dataset.
 
     A field someone edited in GeoLens since the last run is kept and listed in
     the item's notes: a field is written only while it still holds what this
-    command wrote (``entry.metadata_baseline``), or is empty.
+    command wrote (``entry.metadata_baseline``), or is empty. A title is never
+    emptied.
     """
     from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get as get
     from geolens.api.datasets import (
@@ -227,12 +229,15 @@ def apply_item_metadata(
             baseline = dict(base or {})
             # A field this command wrote that the portal has since emptied is
             # emptied too, by the same rule as any other change.
+            wanted = dict(fields)
+            if titles and dataset_id in titles:
+                wanted["title"] = unicodedata.normalize("NFC", titles[dataset_id])
             cleared = {
                 name: ""
                 for name, written in (base or {}).items()
-                if name != "keywords" and written and name not in fields
+                if name not in ("keywords", "title") and written and name not in wanted
             }
-            for name, value in {**fields, **cleared}.items():
+            for name, value in {**wanted, **cleared}.items():
                 action, claim = _decide(
                     name, _current(current, name), value, base, entry.metadata_hash
                 )

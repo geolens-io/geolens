@@ -993,6 +993,10 @@ def _collect_dependencies(
                 )
                 or (not_json_ok and exc.kind == "not_json")
                 or (lenient and exc.kind == "invalid")
+                # ArcGIS Online's item data host refuses a notebook's file to
+                # a token the portal accepts, so it stays unread like other
+                # data that can't be parsed.
+                or (non_json and exc.http_status == 403)
             )
             if not is_map and tolerated:
                 return "unparsed"

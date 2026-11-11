@@ -16,6 +16,7 @@ GeoLens stops the publication for review if the data changes after that.
 from __future__ import annotations
 
 import tempfile
+from contextlib import suppress
 from collections.abc import Callable, Mapping
 from functools import partial
 from pathlib import Path
@@ -41,12 +42,15 @@ from .arcgis_migrate_layers import (
     _layer_key,
     _layer_label,
     _send,
+    _title,
+    _titles,
     attachment_flags,
     importable_layers,
     relationship_records,
 )
 from .arcgis_migrate_session import GeoLensError, ItemFailed, MigrationContext
 from .arcgis_migrate_state import ItemState, aware_time, whole_number
+from .arcgis_plan import IMPORT_FILE
 from .refresh import (
     RefreshPollResult,
     _value,
@@ -56,6 +60,12 @@ from .refresh import (
 
 _ENDED = frozenset({"succeeded", "failed", "cancelled", "blocked"})
 RUN_PAGE = 50
+CHANGED = "changed in GeoLens since"
+# What an operator can do now about an item changed on both sides.
+KEEP_GEOLENS = (
+    "To keep the GeoLens version, set the item's action to skip in the plan, "
+    "or accept it at cutover with --accept-unfinished-items"
+)
 
 # Starts one dataset's refresh or replacement and records its marker: the
 # dataset id, its GeoLens record and the data revision to send. Returns why it
@@ -294,10 +304,23 @@ def changed_in_geolens(
             and dataset.updated_at <= finished
         ):
             return None
-        return "changed in GeoLens since it was migrated"
-    if snapshot(dataset) != seen:
-        return "changed in GeoLens since the last run"
+        return f"{CHANGED} it was migrated"
+    now = snapshot(dataset)
+    if now != seen:
+        return f"{CHANGED} the last run ({_what_changed(seen, now)})"
     return None
+
+
+def _what_changed(seen: Mapping[str, Any], now: Mapping[str, Any]) -> str:
+    """What moved between two snapshots, for an operator to look at."""
+    before, after = seen.get("feature_count"), now["feature_count"]
+    if before != after:
+        what = f"its data was edited, {before} features then, {after} now"
+    elif seen.get("data_revision") != now["data_revision"]:
+        what = "its data was edited"
+    else:
+        what = "its title, description, sharing or other details were edited"
+    return f"{what}; last changed at {now['updated_at']}"
 
 
 def _wait_for_run(
@@ -627,6 +650,12 @@ def _bring_one(
             "up to date safely"
         )
     reason = changed_in_geolens(ctx, entry, dataset_id, dataset)
+    if reason and reason.startswith(CHANGED):
+        modified = (ctx.inventory.get(item["id"]) or {}).get("modified")
+        portal = (
+            f" Its portal item was last modified at {modified}." if modified else ""
+        )
+        return f"{reason}; it was left as it is.{portal} {KEEP_GEOLENS}"
     if reason:
         return f"{reason}; it was left as it is"
     problem, dataset = _apply_visibility(ctx, item, entry, dataset_id, dataset)
@@ -652,14 +681,57 @@ def _bring_one(
             "changed in GeoLens while its refresh ran; it was left as it is",
         )
     record(entry, dataset_id, published)
+    base = entry.metadata_baseline.get(dataset_id)
+    if base is not None and not base.get("title") and isinstance(dataset.title, str):
+        # Unchanged in GeoLens since this command last left it, so the title is
+        # this command's. A state from before titles were recorded has none,
+        # and an older CLI's metadata pass records "" while GeoLens keeps the
+        # title.
+        base["title"] = dataset.title
     ctx.save()
-    apply_item_metadata(ctx, item, entry, [dataset_id])
+    try:
+        apply_item_metadata(
+            ctx, item, entry, [dataset_id], _dataset_titles(item, entry)
+        )
+    except ItemFailed:
+        # A metadata write can land before a later step fails; it is this
+        # command's own, so the next run mustn't take it for a GeoLens edit.
+        with suppress(GeoLensError):
+            _record_own_write(ctx, entry, dataset_id, marker)
+        raise
+    if not _record_own_write(ctx, entry, dataset_id, marker):
+        return "changed in GeoLens while its metadata was written; it was left as it is"
+    return None
+
+
+def _record_own_write(
+    ctx: MigrationContext, entry: ItemState, dataset_id: str, marker: Mapping[str, Any]
+) -> bool:
+    """Record the dataset as it is now when this command's run still accounts
+    for it; whether it did."""
     after = get_dataset(ctx, dataset_id)
     if not _published_unchanged(ctx, after, marker):
-        return "changed in GeoLens while its metadata was written; it was left as it is"
+        return False
     record(entry, dataset_id, after)
     ctx.save()
-    return None
+    return True
+
+
+def _dataset_titles(item: Mapping[str, Any], entry: ItemState) -> dict[str, str]:
+    """Dataset -> the title an import of the item would give it now, for the
+    datasets the state records the layer of."""
+    base = item["target"]["title"] or item["title"]
+    if item["action"] == IMPORT_FILE:
+        many = JOB_KEY not in entry.layer_datasets
+        return {
+            dataset: _title(base, _layer_name(key) if many else None)
+            for key, dataset in entry.layer_datasets.items()
+        }
+    recorded = (entry.import_pass or {}).get("layers") or {}
+    if not recorded or set(recorded) != set(entry.layer_datasets):
+        return {}
+    titles = _titles(base, [(r["label"], r["layer_id"]) for r in recorded.values()])
+    return {entry.layer_datasets[key]: t for key, t in zip(recorded, titles)}
 
 
 def _apply_visibility(

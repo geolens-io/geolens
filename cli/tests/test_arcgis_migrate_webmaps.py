@@ -1581,10 +1581,13 @@ def test_a_changed_web_map_whose_geolens_map_was_edited_is_reported_not_written(
     assert len(_sent(geolens)) == 1
     [reason] = payload["not_up_to_date"][B1]
     assert (
-        "changed in GeoLens since the last run"
+        "changed in GeoLens since the last run (updated at 2026-10-03T00:00:00+00:00)"
         if edit == "updated_at"
         else "doesn't record how this command left"
     ) in reason
+    if edit == "updated_at":
+        assert "the web map changed in the portal (modified at 20" in reason
+        assert "set the item's action to skip in the plan" in reason
 
 
 def test_a_web_map_save_geolens_refuses_as_stale_is_reported_not_recorded(
