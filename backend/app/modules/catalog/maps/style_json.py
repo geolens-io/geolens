@@ -52,6 +52,7 @@ from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 __all__ = ["ImportedStyleMap", "build_maplibre_style", "parse_maplibre_style_import"]
 
 SPRITE_URL = "/maps/sprites/geolens"
+PREFIXED_SPRITE_URL = "/maps/sprites/geolens-prefixed"
 GLYPHS_PATH = "/fonts/{fontstack}/{range}.pbf"
 # GeoLens default palette and arrow/extrusion constants, re-exported so
 # `generate_default_style` shares them rather than hardcoding literals that
@@ -1468,8 +1469,12 @@ def build_maplibre_style(
     terrain_dataset_ids: Iterable[Any] | None = None,
     app_url: str | None = None,
     api_url: str | None = None,
+    plain_sprite: bool = False,
 ) -> dict[str, Any]:
     """Build a complete MapLibre style document from saved map data.
+
+    ``plain_sprite`` writes ``sprite`` as a URL string naming a sprite whose
+    entries carry the ``geolens:`` prefix, so every image name stays as is.
 
     The terrain binding is kept only when its DEM is in ``terrain_dataset_ids``,
     which defaults to the layers' datasets. Vector tile and sprite URLs are on
@@ -1599,7 +1604,11 @@ def build_maplibre_style(
                 "terrain_config": tc,
             }
         },
-        "sprite": [{"id": GEOLENS_SPRITE_ID, "url": _absolute(api_url, SPRITE_URL)}],
+        "sprite": (
+            _absolute(api_url, PREFIXED_SPRITE_URL)
+            if plain_sprite
+            else [{"id": GEOLENS_SPRITE_ID, "url": _absolute(api_url, SPRITE_URL)}]
+        ),
         "glyphs": _absolute(app_url, GLYPHS_PATH),
         "sources": sources,
         "layers": style_layers,

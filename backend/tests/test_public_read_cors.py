@@ -123,6 +123,11 @@ _READS = [
     "/maps/sprites/geolens.png",
     "/maps/sprites/geolens@2x.json",
     "/maps/sprites/geolens@2x.png",
+    # What a `style.json?sprite=url` export's string "sprite" makes a client fetch.
+    "/maps/sprites/geolens-prefixed.json",
+    "/maps/sprites/geolens-prefixed.png",
+    "/maps/sprites/geolens-prefixed@2x.json",
+    "/maps/sprites/geolens-prefixed@2x.png",
 ]
 
 

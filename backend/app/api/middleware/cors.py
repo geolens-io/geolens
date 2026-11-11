@@ -46,8 +46,8 @@ _SEARCH_PUBLIC_METHODS = "GET, OPTIONS"
 # them on. Each handler runs its Rule 1 read guard with anonymous as no roles
 # (public maps and stories, public published datasets), and the map and story
 # reads drop layers, scenes and DEMs the caller can't read, so the wildcard
-# returns only what the anonymous answer already holds. The sprite sheet that
-# every exported style references is served to anyone. Enumerated by exact
+# returns only what the anonymous answer already holds. The sprite sheets that
+# exported styles reference are served to anyone. Enumerated by exact
 # path, ids as canonical UUIDs, so the write routes that share these paths
 # (``PUT /maps/{id}``, ``PATCH /stories/{id}``) and the other routes under
 # ``/maps``, ``/stories`` and ``/datasets`` stay outside it. A trailing-slash
@@ -61,7 +61,10 @@ _PUBLIC_READ_PATHS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(rf"/stories/{_UUID}"), "GET, OPTIONS"),
     (re.compile(rf"/maps/{_UUID}"), "GET, OPTIONS"),
     (re.compile(rf"/maps/{_UUID}/style\.json"), "GET, HEAD, OPTIONS"),
-    (re.compile(r"/maps/sprites/geolens(?:@2x)?\.(?:json|png)"), "GET, OPTIONS"),
+    (
+        re.compile(r"/maps/sprites/geolens(?:-prefixed)?(?:@2x)?\.(?:json|png)"),
+        "GET, OPTIONS",
+    ),
     (re.compile(rf"/datasets/{_UUID}/rows/?"), "GET, OPTIONS"),
     (re.compile(rf"/datasets/{_UUID}/aggregate/?"), "POST, OPTIONS"),
 )

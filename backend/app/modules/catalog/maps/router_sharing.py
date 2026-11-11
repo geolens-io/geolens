@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import uuid
 from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import (
     APIRouter,
@@ -12,6 +13,7 @@ from fastapi import (
     Depends,
     Header,
     HTTPException,
+    Query,
     Request,
     Response,
     status,
@@ -236,17 +238,20 @@ async def visibility_check_endpoint(
     "/{map_id}/style.json",
     responses={
         # The 200 schema stays open, since a hand-typed mirror drifts. One
-        # shape is pinned: sprite is always the array form, as /maps/import
-        # accepts.
+        # shape is pinned: the sprite form, both of which /maps/import accepts.
         200: {
             "description": (
                 "A complete MapLibre style document for the saved map. Its "
                 "shape is governed by the MapLibre Style Specification "
                 "(https://maplibre.org/maplibre-style-spec/) and is not "
                 "mirrored field-by-field in this contract. One guarantee "
-                "beyond the spec: `sprite` is always emitted in the array "
-                "form `[{id, url}]`, which POST /maps/import also accepts, "
-                "so exported documents round-trip."
+                "beyond the spec: `sprite` is emitted in the array form "
+                "`[{id, url}]` and GeoLens icon names carry the `geolens:` "
+                "prefix. "
+                "With `sprite=url`, `sprite` is instead the URL string of "
+                "/maps/sprites/geolens-prefixed, whose entries carry the same "
+                "prefix, and nothing else changes. POST /maps/import accepts "
+                "both, so exported documents round-trip."
             ),
             "content": {
                 "application/json": {
@@ -270,6 +275,15 @@ async def visibility_check_endpoint(
 async def export_map_style_endpoint(
     map_id: uuid.UUID,
     request: Request,
+    sprite: Literal["url"] | None = Query(
+        None,
+        description=(
+            "`url` writes `sprite` as a plain URL string naming a sprite whose "
+            "entries keep the `geolens:` prefix, for clients that read only the "
+            "Mapbox style spec's string form, such as Esri's vector tile "
+            "layer. Omit it for the MapLibre array form."
+        ),
+    ),
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
@@ -295,6 +309,7 @@ async def export_map_style_endpoint(
         ),
         app_url=await get_browser_reachable_app_url(db, request=request),
         api_url=await get_browser_reachable_api_url(db, request=request),
+        plain_sprite=sprite == "url",
     )
     return JSONResponse(
         content=style,

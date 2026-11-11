@@ -22,6 +22,7 @@ from app.modules.catalog.maps.sprites import (
     list_icons,
 )
 from app.modules.catalog.maps.service import map_asset_publication
+from app.modules.catalog.maps.style_import import GEOLENS_SPRITE_ID
 from app.platform.binary_response import binary_response
 from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC, FORBIDDEN_RESPONSE
 
@@ -137,10 +138,33 @@ async def get_geolens_sprite_index_2x_endpoint(
 
 
 @sprites_router.get(
+    "/sprites/geolens-prefixed.json",
+    summary="Get the GeoLens sprite index with prefixed names",
+)
+@sprites_router.get("/sprites/geolens-prefixed@2x.json", include_in_schema=False)
+async def get_prefixed_sprite_index_endpoint(
+    db: AsyncSession = Depends(get_db),
+) -> SpriteIndex:
+    """Serve the GeoLens sprite index with each name prefixed ``geolens:``.
+
+    A ``style.json?sprite=url`` export names this sprite as a plain string, so
+    its image names keep the prefix the array form's sprite id gives them.
+    """
+    index = await build_sprite_index(db)
+    return {f"{GEOLENS_SPRITE_ID}:{name}": entry for name, entry in index.items()}
+
+
+@sprites_router.get(
     "/sprites/geolens.png",
     response_class=Response,
     responses={200: binary_response("The sprite sheet", "image/png")},
     summary="Get the GeoLens sprite sheet",
+)
+@sprites_router.get(
+    "/sprites/geolens-prefixed.png",
+    response_class=Response,
+    responses={200: binary_response("The sprite sheet", "image/png")},
+    summary="Get the GeoLens sprite sheet for the prefixed index",
 )
 async def get_geolens_sprite_png_endpoint(
     db: AsyncSession = Depends(get_db),
@@ -154,6 +178,7 @@ async def get_geolens_sprite_png_endpoint(
 
 
 @sprites_router.get("/sprites/geolens@2x.png", include_in_schema=False)
+@sprites_router.get("/sprites/geolens-prefixed@2x.png", include_in_schema=False)
 async def get_geolens_sprite_png_2x_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
