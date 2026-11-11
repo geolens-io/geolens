@@ -955,6 +955,17 @@ class TestTheStagedCountIsReadAfterTheGrant:
 
         self._granted_then_counted(statements)
 
+    async def test_the_replacement_and_database_copy_count(self, monkeypatch) -> None:
+        """A file replacement or database refresh compares its staging table
+        with the live one before the staging pipeline grants the reader."""
+        from app.processing.ingest.tasks_reupload import _table_row_count
+
+        statements = self._record(monkeypatch, 7)
+
+        assert await _table_row_count("staged_t", schema="data") == 7
+
+        self._granted_then_counted(statements)
+
     async def test_the_featureserver_page_guard(self, monkeypatch) -> None:
         from app.processing.ingest import ogr
         from app.processing.ingest.tasks_common import (

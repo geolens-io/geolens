@@ -383,16 +383,12 @@ async def _live_content_digest(
 
 
 async def _table_row_count(table_name: str, *, schema: str) -> int | None:
-    """The table's row count, read on a connection of its own; None when unreadable."""
-    from app.core.db import async_session
-    from app.processing.ingest.metadata import _qtable
+    """A staging table's row count, read on a connection of its own after
+    granting the tenant reader; None when unreadable."""
+    from app.processing.ingest.ogr import staged_row_count
 
     try:
-        async with async_session() as session:
-            return await session.scalar(
-                # codeql[py/sql-injection] identifiers validated by _qtable (metadata_sql.py)
-                text(f"SELECT count(*) FROM {_qtable(table_name, schema=schema)}")
-            )
+        return await staged_row_count(table_name, schema)
     except Exception:  # broad: an unread count only means the replacement publishes
         structlog.get_logger().warning(
             "reupload_row_count_failed", table=table_name, exc_info=True
