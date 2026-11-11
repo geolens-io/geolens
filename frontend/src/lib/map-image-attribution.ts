@@ -1,12 +1,13 @@
 /**
  * Attribution for the images the builder renders.
  *
- * The PNG export, the 400x250 thumbnail and the 1200x630 OG card all leave the
- * application showing basemap tiles whose licence requires visible credit, and
- * dataset tiles whose source terms may too. All three composite from
- * `map.getCanvas()`, a flat WebGL fill, while MapLibre's attribution control is
- * a DOM overlay that no capture path sees. A credit only reaches an image if it
- * is drawn into the canvas, which the two draw helpers here do.
+ * The PNG export and the 1200x630 OG card leave the application showing basemap
+ * tiles whose licence requires visible credit, and dataset tiles whose source
+ * terms may too. Both composite from `map.getCanvas()`, a flat WebGL fill,
+ * while MapLibre's attribution control is a DOM overlay that no capture path
+ * sees. A credit only reaches an image if it is drawn into the canvas, which
+ * the two draw helpers here do. The 400x250 thumbnail is an in-app preview and
+ * carries none.
  *
  * The text comes from the style's own per-source `attribution` values, as a
  * LIST (see `readRenderedAttribution`). Composing `BasemapEntry.attribution`
@@ -300,7 +301,7 @@ function dedupe(entries: string[]): string[] {
  *
  * Within (1), shown sources come first. Once outputs have a capacity limit and
  * prefix-fit, an unused credit displaces a required one: a hidden source
- * sorting first could eat all 18 lines of a thumbnail and reduce the visible
+ * sorting first could eat every line of a bounded image and reduce the visible
  * provider to "+1 more credit". The builder leaves attribution on hidden
  * sources (map-sync.ts: MapLibre recomputes its control from the live `used`
  * flag), so the reader sees credits the screen does not. This orders rather
@@ -509,18 +510,16 @@ export function readRenderedAttribution(map: AttributionMapLike): string[] {
  * No output drops a credit silently, and none shrinks below its documented
  * size. An ellipsis credits nobody, and a truncated line reads as a complete
  * statement of provenance, so there is no elision path: text wraps to as many
- * lines as it needs, the export canvas grows, and the two fixed-size crops spend
+ * lines as it needs, the export canvas grows, and the fixed-size OG card spends
  * map pixels instead of provider names.
  *
  * Every output renders at one documented size and never below it:
  *
  *   PNG export   12px on white         (no scrim needed, not over imagery)
  *   OG card      16px over a scrim     (1200x630 JPEG, quality 0.85)
- *   Thumbnail    10px over a scrim     (400x250 JPEG, quality 0.7)
  *
- * There is no shrink ladder: 10px over a scrim is legible at 1:1, while 9px
- * under JPEG chroma subsampling is where small text turns to mush. The gallery
- * shows the thumbnail at 176x112, but that is a display-size decision.
+ * There is no shrink ladder: small text under JPEG chroma subsampling turns to
+ * mush, so the size is fixed rather than fitted.
  *
  * How much of each image the band can eat. The line counts and ceilings are
  * asserted in lib/__tests__/map-image-attribution.test.ts, and
@@ -529,19 +528,17 @@ export function readRenderedAttribution(map: AttributionMapLike): string[] {
  *
  *               line    usable    chars/   real 5-credit    ceiling
  *               height  width     line     load             (band runs out)
- *   Thumbnail   13px    378px     ~75      6 lines, 33.6%   18 lines, ~1350 chars
  *   OG card     20px    1160px    ~145     4 lines, 14.3%   30 lines, ~4350 chars
  *   PNG export  16px    1016px*   ~169     4 lines, 88px    951 lines, ~161k chars
  *
  *   * the measured 1056px-wide export at dpr 1, less 20px of pad a side.
  *
- * The crops run out where the scrim reaches the top edge. The export's canvas is
- * sized after the band is measured, so it runs out at the largest canvas a
- * browser will hand back a blob for; see EXPORT_CANVAS_MAX_DIMENSION.
+ * The OG card runs out where the scrim reaches the top edge. The export's
+ * canvas is sized after the band is measured, so it runs out at the largest
+ * canvas a browser will hand back a blob for; see EXPORT_CANVAS_MAX_DIMENSION.
  *
- * The ceilings are well clear of the measured real-world load (~3.3x for the
- * thumbnail, ~10x for the OG card, ~400x for the export), but the supported
- * input is far larger: `attribution` is `max_length=5000` on the dataset schema
+ * The ceilings are well clear of the measured real-world load (~10x for the
+ * OG card, ~400x for the export), but the supported input is far larger: `attribution` is `max_length=5000` on the dataset schema
  * and `NonEmptyString5000` on the manifest, and a map may carry 200 layers.
  * Past its ceiling each output renders the credits that fit and appends a
  * visible, counted marker naming how many did not (`export.moreCredits`), with
@@ -708,7 +705,7 @@ export function fitAttributionText(
   };
 }
 
-/* ── Overlay: the two fixed-size crops ─────────────────────────────────── */
+/* ── Overlay: the fixed-size OG crop ─────────────────────────────────── */
 
 interface AttributionOverlaySpec {
   fontPx: number;
@@ -720,18 +717,6 @@ interface AttributionOverlaySpec {
   paddingY: number;
   radius: number;
 }
-
-/** 400x250. It carries the credit because `get_share_card_image_url` falls back
- *  to the thumbnail as the og:image for maps without a dedicated OG image, and
- *  that surface has no adjacent text. */
-export const THUMBNAIL_ATTRIBUTION: AttributionOverlaySpec = {
-  fontPx: 10,
-  lineHeight: 13,
-  inset: 6,
-  paddingX: 5,
-  paddingY: 3,
-  radius: 3,
-};
 
 /** 1200x630. An overlay rather than a band, which would change the 1.91:1 ratio
  *  social platforms crop against. */
@@ -746,7 +731,7 @@ export const OG_ATTRIBUTION: AttributionOverlaySpec = {
 
 /**
  * How many lines of `spec` a `canvasHeight`-tall frame can hold before the
- * scrim reaches the top edge. The crops' only real ceiling; the export band has
+ * scrim reaches the top edge. The OG card's only real ceiling; the export band has
  * no equivalent because its canvas is sized after the band is measured.
  */
 export function overlayLineCapacity(
@@ -860,7 +845,7 @@ export function drawAttributionOverlay(
 
   // `boxY` clamps at 0, so a band taller than the frame would draw below the
   // canvas. The supported input (5,000 characters per credit, dataset
-  // schemas.py and manifest_schemas.py) is ~77 lines in a 250px thumbnail, so
+  // schemas.py and manifest_schemas.py) is ~77 lines in a 250px frame, so
   // render what fits and add a counted marker, itself charged against the line
   // budget.
   let lines = fitted.lines;
@@ -1017,7 +1002,7 @@ export function measureAttributionBand(
   });
   if (fitted.lines.length === 0) return fallback;
 
-  // Past the budget, the same counted marker the two crops use.
+  // Past the budget, the same counted marker the OG card uses.
   let lines = fitted.lines;
   if (lines.length > capacity) {
     // No room for even a marker; see `attributionBandHeightBudget`.

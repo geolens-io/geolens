@@ -103,8 +103,8 @@ export const MAP_COLORS = {
     /** "Powered by GeoLens". Real map attribution uses `mutedText` instead:
      *  #999999 on white is about 2.8:1, too low for a licence-required credit. */
     branding: '#999999',
-    /** Ground for the credit line drawn over map imagery in the thumbnail and OG
-     *  crops. 0.78 alpha gives one light-scrim/dark-text pair that stays
+    /** Ground for the credit line drawn over map imagery in the OG crop.
+     *  0.78 alpha gives one light-scrim/dark-text pair that stays
      *  legible over light and dark tiles and the globe's space backdrop. */
     attributionScrim: 'rgba(255,255,255,0.78)',
     /** Fill for the map region when the globe's space backdrop is active: the

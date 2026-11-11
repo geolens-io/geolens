@@ -20,9 +20,20 @@ import {
   EXPORT_CANVAS_MAX_AREA,
   EXPORT_CANVAS_MAX_DIMENSION,
   OG_ATTRIBUTION,
-  THUMBNAIL_ATTRIBUTION,
 } from '../map-image-attribution';
 import { MAP_COLORS } from '../map-colors';
+
+/** A small-frame spec for the generic overlay algorithm: its wrap, overflow and
+ *  frame-bounds behaviour is asserted at 400x250, where limits are easy to
+ *  reach. No shipped image uses it. */
+const SMALL_FRAME_SPEC: typeof OG_ATTRIBUTION = {
+  fontPx: 10,
+  lineHeight: 13,
+  inset: 6,
+  paddingX: 5,
+  paddingY: 3,
+  radius: 3,
+};
 
 function fontPxOf(font: string): number {
   const match = /(\d+(?:\.\d+)?)px/.exec(font);
@@ -981,7 +992,7 @@ describe('readRenderedAttribution', () => {
     drawAttributionOverlay(
       makeCanvas(400, 250, ctx),
       readRenderedAttribution(map),
-      THUMBNAIL_ATTRIBUTION,
+      SMALL_FRAME_SPEC,
     );
     const drawn = ctx.fillText.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(drawn.join(' ')).toContain('© swisstopo swissALTI3D');
@@ -990,7 +1001,7 @@ describe('readRenderedAttribution', () => {
 
   it('does not let a hidden credit crowd a visible one out of a bounded output', () => {
     // The whole point, asserted at an output rather than at the reader: a
-    // 5,000-character hidden credit against a 250px thumbnail.
+    // 5,000-character hidden credit against the 250px small-frame spec.
     const hidden = `© Hidden Provider ${'licensing statement '.repeat(300)}`.slice(0, 5000);
     const map = layeredMap({ hiddenSrc: hidden, shownSrc: '© Visible Provider' }, [
       { source: 'hiddenSrc', hidden: true },
@@ -1000,7 +1011,7 @@ describe('readRenderedAttribution', () => {
     drawAttributionOverlay(
       makeCanvas(400, 250, ctx),
       readRenderedAttribution(map),
-      THUMBNAIL_ATTRIBUTION,
+      SMALL_FRAME_SPEC,
     );
     const drawn = ctx.fillText.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(drawn.join(' ')).toContain('© Visible Provider');
@@ -1211,14 +1222,14 @@ describe('drawAttributionOverlay', () => {
   it('draws a scrim under dark text in the bottom-right', () => {
     const ctx = makeCtx();
     const canvas = makeCanvas(400, 250, ctx);
-    expect(drawAttributionOverlay(canvas, ['© OpenStreetMap'], THUMBNAIL_ATTRIBUTION)).toBe(
+    expect(drawAttributionOverlay(canvas, ['© OpenStreetMap'], SMALL_FRAME_SPEC)).toBe(
       true,
     );
 
     expect(ctx.fillRect).toHaveBeenCalledTimes(1);
     const [x, y, w, h] = ctx.fillRect.mock.calls[0] as unknown as number[];
-    expect(x + w).toBe(400 - THUMBNAIL_ATTRIBUTION.inset);
-    expect(y + h).toBe(250 - THUMBNAIL_ATTRIBUTION.inset);
+    expect(x + w).toBe(400 - SMALL_FRAME_SPEC.inset);
+    expect(y + h).toBe(250 - SMALL_FRAME_SPEC.inset);
     expect(x).toBeGreaterThan(0);
     expect(y).toBeGreaterThan(0);
 
@@ -1237,10 +1248,10 @@ describe('drawAttributionOverlay', () => {
   });
 
   // These crops cannot grow, so they spend map pixels.
-  it('wraps to multiple lines rather than dropping a credit on the thumbnail', () => {
+  it('wraps to multiple lines rather than dropping a credit in a small frame', () => {
     const ctx = makeCtx();
     const canvas = makeCanvas(400, 250, ctx);
-    expect(drawAttributionOverlay(canvas, REAL_CREDITS, THUMBNAIL_ATTRIBUTION)).toBe(true);
+    expect(drawAttributionOverlay(canvas, REAL_CREDITS, SMALL_FRAME_SPEC)).toBe(true);
 
     const drawn = ctx.fillText.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(drawn.length).toBeGreaterThan(1);
@@ -1248,7 +1259,7 @@ describe('drawAttributionOverlay', () => {
 
     // The scrim covers every line and still sits inside the frame.
     const [x, y, w, h] = ctx.fillRect.mock.calls[0] as unknown as number[];
-    expect(h).toBe(drawn.length * THUMBNAIL_ATTRIBUTION.lineHeight + THUMBNAIL_ATTRIBUTION.paddingY * 2);
+    expect(h).toBe(drawn.length * SMALL_FRAME_SPEC.lineHeight + SMALL_FRAME_SPEC.paddingY * 2);
     expect(x).toBeGreaterThanOrEqual(0);
     expect(y).toBeGreaterThanOrEqual(0);
     expect(x + w).toBeLessThanOrEqual(400);
@@ -1265,13 +1276,13 @@ describe('drawAttributionOverlay', () => {
 
   it('renders at the documented size and never smaller', () => {
     const ctx = makeCtx();
-    drawAttributionOverlay(makeCanvas(400, 250, ctx), REAL_CREDITS, THUMBNAIL_ATTRIBUTION);
-    expect(ctx.font).toContain(`${THUMBNAIL_ATTRIBUTION.fontPx}px`);
+    drawAttributionOverlay(makeCanvas(400, 250, ctx), REAL_CREDITS, SMALL_FRAME_SPEC);
+    expect(ctx.font).toContain(`${SMALL_FRAME_SPEC.fontPx}px`);
   });
 
   it('draws nothing when there is no credit to draw', () => {
     const ctx = makeCtx();
-    expect(drawAttributionOverlay(makeCanvas(400, 250, ctx), [], THUMBNAIL_ATTRIBUTION)).toBe(
+    expect(drawAttributionOverlay(makeCanvas(400, 250, ctx), [], SMALL_FRAME_SPEC)).toBe(
       false,
     );
     expect(ctx.fillText).not.toHaveBeenCalled();
@@ -1280,7 +1291,7 @@ describe('drawAttributionOverlay', () => {
 
   it('draws nothing when the canvas has no 2D context', () => {
     const canvas = { width: 400, height: 250, getContext: () => null } as unknown as HTMLCanvasElement;
-    expect(drawAttributionOverlay(canvas, ['© A'], THUMBNAIL_ATTRIBUTION)).toBe(false);
+    expect(drawAttributionOverlay(canvas, ['© A'], SMALL_FRAME_SPEC)).toBe(false);
   });
 });
 
@@ -1289,23 +1300,25 @@ describe('drawAttributionOverlay', () => {
  * to lose a credit — a band taller than the image it annotates — and these pin
  * both where that is and that it is loud when reached. */
 describe('overlayLineCapacity: the documented ceiling', () => {
-  it('matches the header table for both crops', () => {
-    // 250 - 6 inset - 3*2 padding = 238 usable / 13 line height.
-    expect(overlayLineCapacity(THUMBNAIL_ATTRIBUTION, 250)).toBe(18);
+  it('matches the header table for the OG card', () => {
     // 630 - 12 inset - 5*2 padding = 608 usable / 20 line height.
     expect(overlayLineCapacity(OG_ATTRIBUTION, 630)).toBe(30);
   });
 
+  it('divides the usable height by the line height', () => {
+    // 250 - 6 inset - 3*2 padding = 238 usable / 13 line height.
+    expect(overlayLineCapacity(SMALL_FRAME_SPEC, 250)).toBe(18);
+  });
+
   it('never returns a negative capacity for a frame smaller than its own inset', () => {
-    expect(overlayLineCapacity(THUMBNAIL_ATTRIBUTION, 4)).toBe(0);
+    expect(overlayLineCapacity(SMALL_FRAME_SPEC, 4)).toBe(0);
     expect(overlayLineCapacity(OG_ATTRIBUTION, 0)).toBe(0);
   });
 
   it('leaves the real credit load a long way clear of the ceiling', () => {
-    // The documented "real 5-credit load" column: 6 of 18 lines on the
-    // thumbnail (33.6% of a 250px frame), 4 of 30 on the OG card (14.3%).
+    // The documented "real 5-credit load" column: 4 of 30 lines on the OG
+    // card (14.3% of the frame).
     for (const [spec, w, h, lines, pct] of [
-      [THUMBNAIL_ATTRIBUTION, 400, 250, 6, 33.6],
       [OG_ATTRIBUTION, 1200, 630, 4, 14.3],
     ] as const) {
       const ctx = makeCtx();
@@ -1338,7 +1351,7 @@ describe('overlayLineCapacity: the documented ceiling', () => {
 
   /* The schema accepts 5,000 characters per
    * credit (datasets/domain/schemas.py, processing/ingest/manifest_schemas.py).
-   * That is ~77 lines in a 250px thumbnail — unrenderable at any legible size.
+   * That is ~77 lines in the 250px small-frame spec — unrenderable at any legible size.
    * So the invariant is asserted at the CONTRACT's maximum, not at the 411
    * characters real data happens to carry: nothing is painted outside the
    * canvas, and rendered credits plus marked credits equals the input. */
@@ -1346,7 +1359,7 @@ describe('overlayLineCapacity: the documented ceiling', () => {
   /** Every line lands inside the frame, and so does the scrim behind them. */
   function expectNothingOutsideFrame(
     ctx: ReturnType<typeof makeCtx>,
-    spec: typeof THUMBNAIL_ATTRIBUTION,
+    spec: typeof OG_ATTRIBUTION,
     w: number,
     h: number,
   ) {
@@ -1377,7 +1390,7 @@ describe('overlayLineCapacity: the documented ceiling', () => {
     for (const c of maxed) expect(c).toHaveLength(5000);
 
     for (const [spec, w, h] of [
-      [THUMBNAIL_ATTRIBUTION, 400, 250],
+      [SMALL_FRAME_SPEC, 400, 250],
       [OG_ATTRIBUTION, 1200, 630],
     ] as const) {
       const ctx = makeCtx();
@@ -1401,18 +1414,18 @@ describe('overlayLineCapacity: the documented ceiling', () => {
 
   it('renders what fits and marks the rest, rather than clipping', () => {
     const ctx = makeCtx();
-    // 40 medium credits: some fit the 18-line thumbnail, most do not.
+    // 40 medium credits: some fit the small frame's 18 lines, most do not.
     const flood = Array.from(
       { length: 40 },
       (_, i) => `© Data Provider Number ${i}, a licensing statement of some length`,
     );
-    expect(drawAttributionOverlay(makeCanvas(400, 250, ctx), flood, THUMBNAIL_ATTRIBUTION)).toBe(
+    expect(drawAttributionOverlay(makeCanvas(400, 250, ctx), flood, SMALL_FRAME_SPEC)).toBe(
       true,
     );
     const drawn = ctx.fillText.mock.calls.map((c: unknown[]) => String(c[0]));
 
-    expect(drawn.length).toBeLessThanOrEqual(overlayLineCapacity(THUMBNAIL_ATTRIBUTION, 250));
-    expectNothingOutsideFrame(ctx, THUMBNAIL_ATTRIBUTION, 400, 250);
+    expect(drawn.length).toBeLessThanOrEqual(overlayLineCapacity(SMALL_FRAME_SPEC, 250));
+    expectNothingOutsideFrame(ctx, SMALL_FRAME_SPEC, 400, 250);
 
     // Some real credits DID render — this is not a bare marker.
     const joined = drawn.join(' ');
@@ -1435,7 +1448,7 @@ describe('overlayLineCapacity: the documented ceiling', () => {
       { length: 24 },
       (_, i) => `© Provider ${i} | Division A | Division B, a licensing statement`,
     );
-    expect(drawAttributionOverlay(makeCanvas(400, 250, ctx), credits, THUMBNAIL_ATTRIBUTION))
+    expect(drawAttributionOverlay(makeCanvas(400, 250, ctx), credits, SMALL_FRAME_SPEC))
       .toBe(true);
     const drawn = ctx.fillText.mock.calls.map((c: unknown[]) => String(c[0]));
 
@@ -1444,13 +1457,13 @@ describe('overlayLineCapacity: the documented ceiling', () => {
     const renderedWhole = credits.filter((c) => joined.includes(c)).length;
     expect(renderedWhole).toBeGreaterThan(0);
     expect(markedCount(drawn)).toBe(credits.length - renderedWhole);
-    expectNothingOutsideFrame(ctx, THUMBNAIL_ATTRIBUTION, 400, 250);
+    expectNothingOutsideFrame(ctx, SMALL_FRAME_SPEC, 400, 250);
   });
 
   it('draws nothing at all rather than outside a frame too small for one line', () => {
     const ctx = makeCtx();
     // 12px tall: capacity 0. Painting here could only land off-frame.
-    expect(drawAttributionOverlay(makeCanvas(400, 12, ctx), REAL_CREDITS, THUMBNAIL_ATTRIBUTION))
+    expect(drawAttributionOverlay(makeCanvas(400, 12, ctx), REAL_CREDITS, SMALL_FRAME_SPEC))
       .toBe(false);
     expect(ctx.fillText).not.toHaveBeenCalled();
     expect(ctx.fillRect).not.toHaveBeenCalled();
@@ -1467,7 +1480,7 @@ describe('overlayLineCapacity: the documented ceiling', () => {
   it('stays quiet for a credit load that fits', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      drawAttributionOverlay(makeCanvas(400, 250, makeCtx()), REAL_CREDITS, THUMBNAIL_ATTRIBUTION);
+      drawAttributionOverlay(makeCanvas(400, 250, makeCtx()), REAL_CREDITS, SMALL_FRAME_SPEC);
       expect(warn).not.toHaveBeenCalled();
     } finally {
       warn.mockRestore();
@@ -1750,12 +1763,12 @@ describe('bounded layout (#1553)', () => {
     const credits = Array.from({ length: 30 }, (_, i) => `© Provider ${i} and licensors`);
     const ctx = makeCtx();
     expect(
-      drawAttributionOverlay(makeCanvas(400, 250, ctx), credits, THUMBNAIL_ATTRIBUTION),
+      drawAttributionOverlay(makeCanvas(400, 250, ctx), credits, SMALL_FRAME_SPEC),
     ).toBe(true);
     const drawn = ctx.fillText.mock.calls.map((call) => String(call[0]));
     expect(drawn.length).toBeGreaterThan(1);
     expect(drawn.length).toBeLessThanOrEqual(
-      overlayLineCapacity(THUMBNAIL_ATTRIBUTION, 250),
+      overlayLineCapacity(SMALL_FRAME_SPEC, 250),
     );
     expect(drawn[0]).toBe('© Provider 0 and licensors | © Provider 1 and licensors');
     // Nothing is lost without being counted: the marker names exactly the
