@@ -610,8 +610,9 @@ async def read_bounded_body(
     *,
     error: type[EndpointCheckFailedError] = EndpointCheckFailedError,
     gzip: bool = False,
-) -> bytes:
-    """The body, or a refusal once more than ``budget`` bytes have arrived.
+) -> tuple[bytes, int]:
+    """The body and the bytes read off the wire for it, or a refusal once
+    more than ``budget`` bytes have arrived.
 
     The read stops at the bound rather than the response's end, so a refusal
     costs one chunk past the budget, not however much the service sent.
@@ -645,7 +646,7 @@ async def read_bounded_body(
         if read > budget:
             raise error("document exceeds the cap")
         chunks.append(chunk)
-    return b"".join(chunks)
+    return b"".join(chunks), read
 
 
 async def _inflate_bounded(
@@ -653,7 +654,7 @@ async def _inflate_bounded(
     budget: int,
     *,
     error: type[EndpointCheckFailedError],
-) -> bytes:
+) -> tuple[bytes, int]:
     """A gzip body inflated chunk by chunk, refused past ``budget`` bytes
     either compressed or decoded. ``max_length`` stops each decode one byte
     past what the budget allows, so a bomb never inflates further."""
@@ -683,7 +684,7 @@ async def _inflate_bounded(
         raise error("unreadable compressed document") from None
     if wire and not decoder.eof:
         raise error("unreadable compressed document")
-    return b"".join(chunks)
+    return b"".join(chunks), wire
 
 
 async def fetch_document(
@@ -699,8 +700,10 @@ async def fetch_document(
     on_first_request: "Callable[[], None] | None" = None,
     gzip: bool = False,
     refused: "Callable[[int], EndpointCheckFailedError] | None" = None,
-) -> tuple[bytes, str]:
-    """One document from an untrusted service, and the URL it came from.
+) -> tuple[bytes, str, int]:
+    """One document from an untrusted service, the URL it came from, and
+    the bytes read off the wire for it (fewer than the body's for gzip,
+    possibly more).
 
     THE request site for BOTH this module and `service_items`, deliberately
     the only one: every contract the module docstring lists is applied here.
@@ -746,7 +749,9 @@ async def fetch_document(
                 # Read nothing: an error body from a service these modules
                 # exist to distrust is not worth the bytes.
                 raise error(f"HTTP {response.status_code}")
-            body = await read_bounded_body(response, budget, error=error, gzip=gzip)
+            body, wire = await read_bounded_body(
+                response, budget, error=error, gzip=gzip
+            )
             # The URL the representation actually came from — a
             # same-origin canonical redirect changes what a relative href
             # in the body is relative to.
@@ -758,7 +763,7 @@ async def fetch_document(
             element_budget=element_budget,
             error=error,
         )
-        return body, final_url
+        return body, final_url, wire
     except (httpx.HTTPError, SSRFError, ValueError) as exc:
         raise error(str(exc)) from None
 
@@ -777,9 +782,10 @@ async def _fetch(
     landing, collection or listing document; the WFS reads pass
     `WFS_XML_ACCEPT` explicitly.
     """
-    return await fetch_document(
+    body, final_url, _wire = await fetch_document(
         client, url, headers, accept=accept, on_first_request=on_first_request
     )
+    return body, final_url
 
 
 def _parsed_json(body: bytes) -> object:

@@ -404,6 +404,72 @@ class TestItemsPagesAcceptGzip:
             await read_bounded_body(_encoded(body, "gzip"), 1024 * 1024)
 
 
+def _padded_gzip(data: bytes, padding: int) -> bytes:
+    """A gzip member whose header comment adds ``padding`` wire bytes that
+    inflate to nothing, so its wire size exceeds what it decodes to."""
+    compressor = zlib.compressobj(9, zlib.DEFLATED, -zlib.MAX_WBITS)
+    deflated = compressor.compress(data) + compressor.flush()
+    header = b"\x1f\x8b\x08\x10\x00\x00\x00\x00\x00\xff" + b"c" * padding + b"\x00"
+    trailer = (zlib.crc32(data) & 0xFFFFFFFF).to_bytes(4, "little") + (
+        len(data) & 0xFFFFFFFF
+    ).to_bytes(4, "little")
+    return header + deflated + trailer
+
+
+class TestTheWireIsCappedApartFromTheDecodedBody:
+    async def test_a_page_over_the_budget_on_the_wire_is_refused(self) -> None:
+        body = _padded_gzip(b'{"type": "FeatureCollection", "features": []}', 4096)
+        assert gzip.decompress(body)
+
+        with pytest.raises(EndpointCheckFailedError):
+            await read_bounded_body(_encoded(body, "gzip"), 1024, gzip=True)
+
+    @pytest.mark.parametrize("encoding", ["identity", "gzip"])
+    async def test_a_declared_length_over_the_budget_is_refused_unread(
+        self, encoding
+    ) -> None:
+        read: list[int] = []
+
+        async def _chunks():
+            read.append(1)
+            yield b"{}"
+
+        response = httpx.Response(
+            200,
+            headers={"Content-Encoding": encoding, "Content-Length": "2048"},
+            content=_chunks(),
+        )
+
+        with pytest.raises(EndpointCheckFailedError):
+            await read_bounded_body(response, 1024, gzip=True)
+
+        assert read == []
+
+    async def test_the_chain_is_held_to_the_cap_on_the_wire(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Each page decodes well inside the collection cap, but the bytes
+        sent for them do not."""
+        from app.platform import service_items
+
+        monkeypatch.setattr(service_items, "MAX_BYTES", 6000)
+        pages = {
+            0: _page("items-page-with-next.json", next_offset=4),
+            4: _fixture("items-last-partial-page.json"),
+        }
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.rstrip("/") == _ITEMS_PATH:
+                page = pages[int(request.url.params.get("offset", 0))]
+                return _encoded(_padded_gzip(json.dumps(page).encode(), 3000), "gzip")
+            return _esri(collection={"id": "0", "links": []})(request)
+
+        _serve(monkeypatch, handle)
+
+        with pytest.raises(ItemFetchFailedError):
+            await _materialise(tmp_path)
+
+
 class TestAnEmptyPageSaysSo:
     @pytest.mark.parametrize("encoding", ["identity", "gzip"])
     async def test_a_zero_byte_page(self, monkeypatch, tmp_path, encoding) -> None:

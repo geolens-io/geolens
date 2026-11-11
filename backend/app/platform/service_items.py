@@ -403,8 +403,9 @@ async def _fetch_page(
     accept: str = OGC_JSON_ACCEPT,
     gzip: bool = False,
     on_first_request: "Callable[[], None] | None" = None,
-) -> tuple[object, int, str]:
-    """One items page, its decoded size and its URL, or a refusal.
+) -> tuple[object, int, int, str]:
+    """One items page, its decoded size, the bytes read off the wire for it
+    and its URL, or a refusal.
 
     The request itself is `fetch_document` in `service_endpoints`, shared
     with the description reads, so the protections the two paths need
@@ -412,7 +413,7 @@ async def _fetch_page(
     caps it's read under, gzip, and the decode. An empty body is refused
     with `EmptyPageError`, whatever the encoding.
     """
-    body, final_url = await fetch_document(
+    body, final_url, wire = await fetch_document(
         client,
         url,
         headers,
@@ -432,7 +433,7 @@ async def _fetch_page(
     if not body:
         raise EmptyPageError()
     try:
-        return json.loads(body), len(body), final_url
+        return json.loads(body), len(body), wire, final_url
     except (ValueError, RecursionError) as exc:
         # A JSON depth bomb is under both the byte cap and
         # MAX_STRUCTURAL_TOKENS (which counts brackets, not depth) and
@@ -459,7 +460,7 @@ async def _resolve_items_url(
     A document that advertises no items link falls back to the
     conventional layout.
     """
-    document, size, from_url = await _fetch_page(
+    document, size, _wire, from_url = await _fetch_page(
         client,
         f"{url.rstrip('/')}/collections/{quote(collection, safe='')}",
         headers,
@@ -665,21 +666,26 @@ async def _walk_pages(
     first_page, downloaded = await _resolve_items_url(
         client, url=url, collection=collection, headers=headers, on_first_request=arm
     )
+    # Counted apart: a gzip page's wire bytes can exceed what it decodes to,
+    # and each total is held to MAX_BYTES. The collection document is
+    # identity, so it seeds both.
+    wire_downloaded = downloaded
     out.write(b'{"type": "FeatureCollection", "features": [')
     page_url: str | None = first_page
     while page_url is not None and pages < MAX_PAGES:
         pages += 1
-        document, size, from_url = await _fetch_page(
+        document, size, wire, from_url = await _fetch_page(
             client,
             page_url,
             headers,
-            budget=min(MAX_PAGE_BYTES, MAX_BYTES - downloaded),
+            budget=min(MAX_PAGE_BYTES, MAX_BYTES - max(downloaded, wire_downloaded)),
             # ArcGIS Online answers a repeat of an identity request for the
             # same page with an empty 200 for minutes; gzip gets the page.
             gzip=True,
             on_first_request=arm,
         )
         downloaded += size
+        wire_downloaded += wire
         # One rule, one site, so a malformed page cannot mean different
         # things depending on where in the chain it arrived.
         features = _require_feature_page(document, first_page=pages == 1, arcgis=arcgis)
