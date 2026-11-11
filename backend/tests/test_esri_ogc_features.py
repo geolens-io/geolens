@@ -616,6 +616,12 @@ class TestArcGISWFSIsReadUnpagedAndCounted:
         monkeypatch.setattr("app.processing.ingest.ogr.fetch_arcgis_wfs_hits", fetch)
         return fetch
 
+    @pytest.fixture(autouse=True)
+    def version(self, monkeypatch):
+        settle = AsyncMock(return_value="2.0.0")
+        monkeypatch.setattr("app.processing.ingest.ogr.arcgis_wfs_version", settle)
+        return settle
+
     @pytest.fixture
     def pages(self, monkeypatch):
         probe = AsyncMock(return_value=False)
@@ -651,7 +657,7 @@ class TestArcGISWFSIsReadUnpagedAndCounted:
         assert hits.await_count == 1
 
     async def test_another_wfs_is_read_as_before(
-        self, monkeypatch, hits, pages, rows
+        self, monkeypatch, hits, pages, rows, version
     ) -> None:
         seen = _spawn_reading_the_source(monkeypatch)
 
@@ -659,6 +665,7 @@ class TestArcGISWFSIsReadUnpagedAndCounted:
 
         assert not _paging_off(seen[0]["argv"])
         assert (hits.await_count, pages.await_count) == (0, 0)
+        version.assert_not_awaited()
 
     async def test_fewer_features_than_the_total_fails_the_import(
         self, monkeypatch, hits, pages, rows
@@ -1020,3 +1027,172 @@ class TestOneClassifierNamesTheArcGISServices:
         assert re.search(
             r"wfsserver", (app / "platform" / "esri_services.py").read_text()
         )
+
+
+_CAPS_11 = (
+    b'<wfs:WFS_Capabilities xmlns:wfs="http://www.opengis.net/wfs" version="1.1.0"/>'
+)
+_HITS_11 = (
+    b'<wfs:FeatureCollection xmlns:wfs="http://www.opengis.net/wfs" '
+    b'numberOfFeatures="25"/>'
+)
+
+
+class TestTheWFSReadsSpeakTheEndpointsVersion:
+    def _serve(self, monkeypatch, handler):
+        monkeypatch.setattr(
+            "app.platform.arcgis_wfs.validate_url_for_ssrf", AsyncMock()
+        )
+        return _serve(monkeypatch, handler)
+
+    async def test_a_1_1_only_endpoint_is_counted_in_1_1(self, monkeypatch) -> None:
+        from app.platform.arcgis_wfs import arcgis_wfs_version, fetch_arcgis_wfs_hits
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            params = request.url.params
+            if params.get("REQUEST") == "GetCapabilities":
+                return _streamed(200, _CAPS_11, "application/xml")
+            if params.get("VERSION") == "1.1.0" and params.get("TYPENAME"):
+                return _streamed(200, _HITS_11, "application/xml")
+            return _streamed(400, b"unsupported version", "text/plain")
+
+        recorded = self._serve(monkeypatch, handle)
+
+        version = await arcgis_wfs_version(_ARCGIS_WFS, credential_line=None)
+        total = await fetch_arcgis_wfs_hits(
+            _ARCGIS_WFS, "glTrial2Ogc:pts", credential_line=None, version=version
+        )
+
+        assert (version, total) == ("1.1.0", 25)
+        assert "VERSION" not in recorded[0].url.params
+
+    async def test_the_urls_own_version_is_kept(self, monkeypatch) -> None:
+        from app.platform.arcgis_wfs import arcgis_wfs_version
+
+        recorded = self._serve(monkeypatch, lambda r: _streamed(500, b"", "text/plain"))
+
+        assert (
+            await arcgis_wfs_version(
+                f"{_ARCGIS_WFS}?service=WFS&version=1.1.0", credential_line=None
+            )
+            == "1.1.0"
+        )
+        assert recorded == []
+
+    async def test_a_1_1_endpoint_is_not_probed_for_paging(self, monkeypatch) -> None:
+        from app.platform.arcgis_wfs import arcgis_wfs_pages_by_count
+
+        recorded = self._serve(monkeypatch, lambda r: _streamed(500, b"", "text/plain"))
+
+        assert not await arcgis_wfs_pages_by_count(
+            _ARCGIS_WFS, "glTrial2Ogc:pts", credential_line=None, version="1.1.0"
+        )
+        assert recorded == []
+
+
+class TestTheWFSReadsAreBoundedLikeTheImport:
+    async def test_a_private_target_is_refused_unsent(self, monkeypatch) -> None:
+        from app.platform.arcgis_wfs import fetch_arcgis_wfs_hits
+
+        recorded = _serve(monkeypatch, lambda r: _streamed(200, _HITS_11, "text/xml"))
+        fired: list[int] = []
+
+        total = await fetch_arcgis_wfs_hits(
+            "http://127.0.0.1/arcgis/services/x/WFSServer",
+            "x:pts",
+            credential_line=None,
+            on_first_request=lambda: fired.append(1),
+        )
+
+        assert total is None
+        assert recorded == []
+        assert fired == []
+
+    async def test_a_token_in_the_query_holds_the_read_to_its_origin(
+        self, monkeypatch
+    ) -> None:
+        from app.platform.arcgis_wfs import fetch_arcgis_wfs_hits
+
+        monkeypatch.setattr(
+            "app.platform.arcgis_wfs.validate_url_for_ssrf", AsyncMock()
+        )
+        monkeypatch.setattr("app.platform.security.validate_url_for_ssrf", AsyncMock())
+        hits = (_FIXTURES / "wfs-hits.xml").read_bytes()
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "elsewhere.example":
+                return _streamed(200, hits, "application/xml")
+            return httpx.Response(
+                302, headers={"Location": "https://elsewhere.example/WFSServer"}
+            )
+
+        recorded = _serve(monkeypatch, handle)
+
+        total = await fetch_arcgis_wfs_hits(
+            f"{_ARCGIS_WFS}?token=abc", "glTrial2Ogc:pts", credential_line=None
+        )
+
+        assert total is None
+        assert {r.url.host for r in recorded} == {httpx.URL(_ARCGIS_WFS).host}
+
+    @pytest.mark.parametrize("value", ["\u00b2", "\u0662\u0665", "25.0", "-1"])
+    async def test_a_total_that_is_not_ascii_digits_is_no_total(
+        self, monkeypatch, value
+    ) -> None:
+        from app.platform.arcgis_wfs import fetch_arcgis_wfs_hits
+
+        monkeypatch.setattr(
+            "app.platform.arcgis_wfs.validate_url_for_ssrf", AsyncMock()
+        )
+        body = (
+            '<wfs:FeatureCollection xmlns:wfs="http://www.opengis.net/wfs/2.0" '
+            f'numberMatched="{value}"/>'
+        ).encode()
+        _serve(monkeypatch, lambda r: _streamed(200, body, "application/xml"))
+
+        assert (
+            await fetch_arcgis_wfs_hits(
+                _ARCGIS_WFS, "glTrial2Ogc:pts", credential_line=None
+            )
+            is None
+        )
+
+
+class TestAFailedRevalidationIsNoContact:
+    async def test_the_import_records_no_contact(self, monkeypatch) -> None:
+        """The contact callback dates `last_checked_at`; a read refused
+        before it is sent reached nothing."""
+        from app.platform.security import SSRFError
+        from app.processing.ingest.ogr import IngestionError, run_ogr2ogr_service
+
+        monkeypatch.setattr(
+            "app.platform.arcgis_wfs.validate_url_for_ssrf",
+            AsyncMock(side_effect=SSRFError("private address")),
+        )
+        recorded = _serve(monkeypatch, lambda r: _streamed(200, b"", "text/xml"))
+        seen = _spawn_reading_the_source(monkeypatch)
+        contacted: list[int] = []
+
+        with pytest.raises(IngestionError, match="Couldn't count"):
+            await run_ogr2ogr_service(
+                f"WFS:{_ARCGIS_WFS}",
+                "glTrial2Ogc:pts",
+                "t",
+                "PG:dbname=x",
+                "wfs",
+                schema="data",
+                on_spawn=lambda: contacted.append(1),
+            )
+
+        assert (contacted, recorded, seen) == ([], [], [])
+
+
+class TestAnErrorMemberBesideFeaturesIsNotAnEnvelope:
+    async def test_the_page_is_read(self, monkeypatch, tmp_path) -> None:
+        page = _fixture("items-last-partial-page.json")
+        page["error"] = {"code": 400, "message": "a property named error"}
+        _serve(monkeypatch, _esri({0: page}))
+
+        extract = await _materialise(tmp_path)
+
+        assert extract.features == 1

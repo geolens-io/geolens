@@ -49,6 +49,7 @@ from app.core.upload_errors import IngestCeilingError
 from app.core.url_redaction import redact_url_credentials, scrub_secret_value
 from app.platform.arcgis_wfs import (
     arcgis_wfs_pages_by_count,
+    arcgis_wfs_version,
     fetch_arcgis_wfs_hits,
 )
 from app.platform.egress_proxy import (
@@ -1666,19 +1667,16 @@ async def _arcgis_wfs_expected_features(
     credential_line = (
         _sanitize_authorization_token(token, service_format="wfs") if token else None
     )
-    if arm_origin_contact is not None:
-        arm_origin_contact()
-    expected = await fetch_arcgis_wfs_hits(
-        url, layer_name, credential_line=credential_line
-    )
+    # The contact is armed by the first read to pass SSRF validation.
+    reads = {"credential_line": credential_line, "on_first_request": arm_origin_contact}
+    version = await arcgis_wfs_version(url, **reads)
+    expected = await fetch_arcgis_wfs_hits(url, layer_name, version=version, **reads)
     if expected is None:
         raise IngestionError(
             "Couldn't count the features this ArcGIS WFS holds. Retry in a few "
             "minutes, or import the layer's FeatureServer or OGC API Features URL."
         )
-    if not await arcgis_wfs_pages_by_count(
-        url, layer_name, credential_line=credential_line
-    ):
+    if not await arcgis_wfs_pages_by_count(url, layer_name, version=version, **reads):
         cmd.extend(["--config", "OGR_WFS_PAGING_ALLOWED", "OFF"])
     return expected
 
