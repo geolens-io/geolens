@@ -116,7 +116,7 @@ def selection_key(
     """Identity of the requested bytes, as a storage path segment.
 
     Includes ``table_name`` (a replace swaps the physical table) and
-    ``dataset_title`` (becomes the GPKG layer name). ``tile_cache_version`` is
+    ``dataset_title`` (names the file ogr2ogr writes). ``tile_cache_version`` is
     keyed here rather than checked at freshness time: a missed bump then only
     costs bounded staleness, not a wrong download. ``exporter_version`` is
     the running app's version: an upgrade can write different bytes for the
