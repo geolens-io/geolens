@@ -1460,9 +1460,21 @@ async def raster_tile_proxy(
             detail="Tile service unavailable",
         )
 
+    # Private/restricted rasters must never be retained by the shared nginx
+    # cache, whose key carries no auth. `no-store` makes nginx skip caching
+    # (frontend/nginx.conf honors it); only public datasets are cacheable.
+    if cache_status == "public":
+        cache_control = public_cache_control(3600)
+    else:
+        cache_control = "private, no-store"
+
     if resp.status_code == 404:
-        # A tile outside the raster extent.
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
+        # A tile outside the raster extent; clients ask for each empty child
+        # of an empty parent, so the 204 is cacheable like a tile with data.
+        return Response(
+            status_code=status.HTTP_204_NO_CONTENT,
+            headers={"Cache-Control": cache_control},
+        )
     if resp.status_code != 200:
         # Logged so upstream titiler failures are diagnosable from logs alone.
         logger.warning(
@@ -1475,13 +1487,6 @@ async def raster_tile_proxy(
         )
         raise HTTPException(status_code=resp.status_code, detail="Tile fetch failed")
 
-    # Private/restricted rasters must never be retained by the shared nginx
-    # cache, whose key carries no auth. `no-store` makes nginx skip caching
-    # (frontend/nginx.conf honors it); only public datasets are cacheable.
-    if cache_status == "public":
-        cache_control = public_cache_control(3600)
-    else:
-        cache_control = "private, no-store"
     return Response(
         content=resp.content,
         media_type=resp.headers.get("content-type", "image/png"),
