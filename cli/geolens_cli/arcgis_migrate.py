@@ -1506,10 +1506,11 @@ def _report(
         if state.cutover and not opts.cutover:
             fmt.warn(f"this migration was cut over at {state.cutover['at']}")
         if not opts.dry_run:
-            fmt.info(f"State: {state.path}")
+            if not before_run:
+                fmt.info(f"State: {state.path}")
             if report_files:
                 fmt.info(f"Report: {report_files[1]}")
-            if failed:
+            if failed and not before_run:
                 fmt.error(
                     f"{len(failed)} item(s) failed; see {report_files[1] if report_files else state.path}"
                 )

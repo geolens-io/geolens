@@ -2044,8 +2044,10 @@ def test_a_cutover_refused_for_what_no_run_changes_runs_nothing(
     assert _state(plan_file)["cutover"] is None
     text = runner.invoke(app, ["arcgis", "migrate", str(plan_file), "--cutover"])
     assert text.exit_code == 1
-    assert "cutover refused" in text.output
+    assert "cutover refused" in text.output and "Report: " in text.output
     assert "up to date" not in text.output and "Ran 0" not in text.output
+    # Nothing ran, so no state was saved and no earlier failure is counted.
+    assert "State: " not in text.output and "item(s) failed" not in text.output
 
 
 def _set_row(plan_file: Path, item_id: str, **row) -> None:
