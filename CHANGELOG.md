@@ -7,6 +7,21 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+- A web page on another site can now read the public stories, maps and
+  dataset rows without credentials: `GET /stories/`, `/stories/{id}`,
+  `/maps/{id}`, `/maps/{id}/style.json`, `/datasets/{id}/rows/`,
+  `/capabilities/` and the `/maps/sprites/geolens` sprite sheet that exported
+  styles load answer an anonymous request with
+  `Access-Control-Allow-Origin: *`, as the standards routes and search do, and
+  the anonymous preflight for `POST /datasets/{id}/aggregate/` is answered
+  instead of refused with `405`. These routes still return only what an
+  anonymous caller could already read. A request that carries a cookie,
+  `Authorization`, an embed token, or `?api_key=` or `?embed_token=` keeps the
+  `CORS_ALLOWED_ORIGINS` allowlist, and the write routes on the same paths get
+  no wildcard. This changes the CORS contract: these routes used to send no
+  CORS headers to an origin outside the allowlist.
+
 ### Fixed
 - Terrain-RGB tiles of a DEM are read with bilinear resampling for both overview reads and reprojection, where Titiler's nearest default repeated rows and columns and drew stripes under a hillshade. Categorical and photographic rasters are unchanged. Tiles already cached for a DEM are replaced within an hour.
 
