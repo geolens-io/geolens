@@ -44,6 +44,7 @@ from app.core.runtime.staging import (
     OAPIF_ITEMS_SCRATCH_PREFIX,
     OAPIF_ITEMS_SCRATCH_SUFFIX,
 )
+from app.platform.esri_services import esri_service_kind
 from app.platform.security import (
     PROBE_TIMEOUT,
     make_safe_client,
@@ -186,7 +187,9 @@ def _require_object(document: object, what: str) -> dict:
     return document
 
 
-def _require_feature_page(document: object, *, first_page: bool) -> list:
+def _require_feature_page(
+    document: object, *, first_page: bool, arcgis: bool = False
+) -> list:
     """The features of one items page, or a refusal.
 
     MALFORMED MEANS REFUSE, NEVER END-OF-COLLECTION. `_has_next`/`_next_href`
@@ -203,9 +206,10 @@ def _require_feature_page(document: object, *, first_page: bool) -> list:
     * ``links`` missing entirely on a page that is NOT the first — reaching
       it means following a link, so no links is a truncated response.
       Tolerated on the first page, where a single-page collection commonly
-      omits them, and on a later page whose ``numberMatched`` equals the
-      features it carries: ArcGIS Online ends its chain that way, counting
-      the matches from the page's own offset rather than the whole query.
+      omits them, and, on an ArcGIS collection (``arcgis``), on a later
+      page whose ``numberMatched`` equals the features it carries: ArcGIS
+      Online ends its chain that way, counting the matches from the page's
+      own offset rather than the whole query.
     * ``numberMatched`` present and not a non-negative integer — the number
       a preview reports as the collection's size.
     * ``numberReturned`` present and not equal to ``len(features)`` — the
@@ -223,7 +227,7 @@ def _require_feature_page(document: object, *, first_page: bool) -> list:
     if not isinstance(features, list):
         raise ItemFetchFailedError("malformed items page")
     _require_counts(page, features)
-    _require_links(page, first_page=first_page)
+    _require_links(page, first_page=first_page, arcgis=arcgis)
     return features
 
 
@@ -233,11 +237,13 @@ def _counts_its_own_remainder(page: dict) -> bool:
     return "links" not in page and page.get("numberMatched") == len(page["features"])
 
 
-def _require_links(page: dict, *, first_page: bool) -> None:
+def _require_links(page: dict, *, first_page: bool, arcgis: bool) -> None:
     """Refuse a ``links`` member the pagination walk could misread."""
     links = page.get("links")
     if links is None:
-        if "links" in page or not (first_page or _counts_its_own_remainder(page)):
+        if "links" in page or not (
+            first_page or (arcgis and _counts_its_own_remainder(page))
+        ):
             # An explicit null is malformed either way; absence is
             # tolerated on the first page and on a page that counts its own
             # remainder. Whether that absence proves the collection complete
@@ -654,6 +660,8 @@ async def _walk_pages(
     # moment a caller dating origin contacts hears about. `fire_once`
     # means no loop tracks which pass it's on.
     arm = fire_once(on_first_request)
+    # Only an ArcGIS chain may end on a page that counts its own remainder.
+    arcgis = esri_service_kind(url) == "oapif"
     first_page, downloaded = await _resolve_items_url(
         client, url=url, collection=collection, headers=headers, on_first_request=arm
     )
@@ -674,7 +682,7 @@ async def _walk_pages(
         downloaded += size
         # One rule, one site, so a malformed page cannot mean different
         # things depending on where in the chain it arrived.
-        features = _require_feature_page(document, first_page=pages == 1)
+        features = _require_feature_page(document, first_page=pages == 1, arcgis=arcgis)
         # The page's own claim about its size, before the sample loop below
         # may stop partway through it.
         observed += len(features)
@@ -683,7 +691,11 @@ async def _walk_pages(
             # page — two pages giving different answers describe two
             # different queries.
             reported = document["numberMatched"]
-            if number_matched is None and _counts_its_own_remainder(document):
+            if (
+                arcgis
+                and number_matched is None
+                and _counts_its_own_remainder(document)
+            ):
                 # ArcGIS counts from the page's own offset, so the whole
                 # query matched everything read so far.
                 reported = observed

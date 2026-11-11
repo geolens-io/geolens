@@ -1313,7 +1313,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/service_endpoints.py": 1417,
     # Pagination and materialization keep credentials and remote page traversal out of
     # GDAL.
-    "backend/app/platform/service_items.py": 853,
+    "backend/app/platform/service_items.py": 865,
     # ArcGIS sign-in shares destination checks, abuse budgets and deadlines across its
     # protocol.
     "backend/app/modules/catalog/sources/arcgis_signin.py": 1130,

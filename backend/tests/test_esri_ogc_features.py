@@ -253,6 +253,33 @@ class TestTheArcGISPageChainEnds:
             await _materialise(tmp_path)
 
 
+class TestOnlyAnArcGISChainCountsItsOwnRemainder:
+    async def test_another_server_ending_that_way_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Before this rule, a later page with no links was a truncated
+        response on every server; it still is anywhere but ArcGIS."""
+        other = "https://ogc.example.test/features"
+        first = _fixture("items-page-with-next.json")
+        (link,) = [lnk for lnk in first["links"] if lnk["rel"] == "next"]
+        link["href"] = f"{other}/collections/0/items?offset=4&limit=4"
+        last = _fixture("items-last-partial-page.json")
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/items"):
+                offset = int(request.url.params.get("offset", 0))
+                return _json(first if offset == 0 else last)
+            return _json({"id": "0", "links": []})
+
+        _serve(monkeypatch, handle)
+
+        with pytest.raises(ItemFetchFailedError):
+            await materialise_oapif_items(
+                other, "0", credential_line=_credential_line(), staging_dir=tmp_path
+            )
+        assert list(tmp_path.iterdir()) == []
+
+
 class TestErrorEnvelopesAreReportedAsErrors:
     """ArcGIS answers token and parameter errors with HTTP 200 and a JSON
     ``error`` object instead of the document asked for."""
