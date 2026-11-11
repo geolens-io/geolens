@@ -101,15 +101,15 @@ async def get_share_card_image_url(
 ) -> str:
     """Resolve a card image against the correct public API or app root.
 
-    Crawlers are anonymous, so a stored image is used only when an anonymous
-    caller can read every dataset the map draws.
+    Crawlers are anonymous, so the OG image is used only when an anonymous
+    caller can read every dataset the map draws. The thumbnail is never a
+    card: it carries no basemap credit, and a card has no text beside it.
     """
-    if (map_obj.og_image_uri or map_obj.thumbnail_uri) and (
+    if map_obj.og_image_uri and (
         await can_read_every_map_dataset(session, map_obj, None)
     ):
         api_base = await get_public_api_url(session, request=request)
-        kind = "og-image" if map_obj.og_image_uri else "thumbnail"
-        return join_public_url(api_base, f"/maps/{map_obj.id}/{kind}/")
+        return join_public_url(api_base, f"/maps/{map_obj.id}/og-image/")
     return await site_card_image_url(session, request)
 
 

@@ -488,40 +488,40 @@ class TestCardRoute:
         )
         assert "/api/api/" not in image_url
 
-    async def test_card_route_uses_thumbnail_when_no_og_image(
+    async def test_card_route_ignores_thumbnail_when_no_og_image(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Card route og:image falls back to /thumbnail/ when only thumbnail_uri set."""
-        from app.modules.catalog.maps import sharing
+        """A map with only a thumbnail gets the site card, not the thumbnail."""
+        from app.modules.catalog import link_preview
 
-        async def _api_url(*_args, **_kwargs) -> str:
-            return "https://tenant.example.test/api"
+        async def _app_url(*_args, **_kwargs) -> str:
+            return "https://tenant.example.test"
 
-        monkeypatch.setattr(sharing, "get_public_api_url", _api_url)
+        monkeypatch.setattr(link_preview, "get_public_app_url", _app_url)
         map_data = await _create_map(
             client,
             admin_auth_header,
-            name="Thumbnail Fallback Map",
+            name="Thumbnail Only Map",
             visibility="public",
         )
         map_id = map_data["id"]
 
-        # Upload thumbnail only
-        await client.put(
+        resp = await client.put(
             f"/maps/{map_id}/thumbnail/",
             json={"data_uri": _valid_png_data_uri()},
             headers=admin_auth_header,
         )
+        assert resp.status_code in (200, 204)
 
         token = await _create_share_token(client, admin_auth_header, map_id)
         resp = await client.get(f"/maps/shared/{token}/card")
         assert resp.status_code == 200
 
         assert _extract_og_image_url(resp.text) == (
-            f"https://tenant.example.test/api/maps/{map_id}/thumbnail/"
+            "https://tenant.example.test/og-image.png"
         )
 
     async def test_card_route_uses_site_fallback_when_no_images(

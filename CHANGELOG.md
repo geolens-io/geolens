@@ -8,6 +8,12 @@ and releases use semantic versioning.
 ## [Unreleased]
 
 ### Changed
+- Map thumbnails no longer carry the basemap and data credit line, which was
+  unreadable at gallery size. The social card image and the PNG export still
+  carry it, and a thumbnail saved earlier keeps its credit until the map is
+  next saved.
+- The share card for a map with no social card image now shows the site card
+  instead of the map's thumbnail.
 - A web page on another site can now read the public stories, maps and
   dataset rows without credentials: `GET /stories/`, `/stories/{id}`,
   `/maps/{id}`, `/maps/{id}/style.json`, `/datasets/{id}/rows/`,
