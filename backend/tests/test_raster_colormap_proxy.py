@@ -46,13 +46,14 @@ def _make_auth_response(
     render_params: str = "bidx=1&rescale=0,65535",
     band_count: int = 1,
     data_range_default: bool = False,
+    cache_status: str = "public",
 ) -> httpx.Response:
     """Build a fake raster-auth-check response matching the real handler's shape."""
     return MagicMock(
         status_code=200,
         headers={
             "X-GeoLens-Asset-OpenPath": open_path,
-            "X-GeoLens-Cache-Status": "public",
+            "X-GeoLens-Cache-Status": cache_status,
             "X-GeoLens-Render-Params": render_params,
             "X-GeoLens-Band-Count": str(band_count),
             **({"X-GeoLens-Data-Range-Default": "1"} if data_range_default else {}),
@@ -135,6 +136,7 @@ class TestRasterColormapProxy:
         self._auth_open_path = "/app/staging/rasters/test.tif"
         self._auth_data_range_default = False
         self._auth_band_count = 1  # default single-band; override in multi-band tests
+        self._auth_cache_status = "public"
 
         async def _fake_auth_check(request, dataset_id, user=None, db=None):
             return _make_auth_response(
@@ -142,6 +144,7 @@ class TestRasterColormapProxy:
                 self._auth_render_params,
                 self._auth_band_count,
                 self._auth_data_range_default,
+                self._auth_cache_status,
             )
 
         from app.platform.storage import titiler_url
@@ -161,6 +164,7 @@ class TestRasterColormapProxy:
         self._titiler_calls: list[str] = []
         self._stats_payload: dict | None = None
         self._stats_status: int = 200
+        self._tile_status: int = 200
 
         async def _fake_get(url: str) -> MagicMock:
             self._titiler_calls.append(url)
@@ -170,6 +174,8 @@ class TestRasterColormapProxy:
                         status_code=self._stats_status, json=MagicMock(return_value={})
                     )
                 return _make_titiler_stats_response(self._stats_payload)
+            if self._tile_status != 200:
+                return MagicMock(status_code=self._tile_status, headers={})
             return _make_titiler_ok_response()
 
         from app.processing.tiles import router as tiles_router
@@ -330,6 +336,19 @@ class TestRasterColormapProxy:
         tile_url = self._tile_titiler_calls[0]
         assert "rescale=0,65535" in tile_url, tile_url  # original rescale preserved
         assert "no-store" in resp.headers["cache-control"]
+
+    async def test_empty_tile_of_a_public_raster_is_cacheable(self, client):
+        self._tile_status = 404
+        resp = await client.get(_TILE_PATH)
+        assert resp.status_code == 204
+        assert resp.headers["cache-control"].startswith("public, max-age=")
+
+    async def test_empty_tile_of_a_private_raster_is_not_stored(self, client):
+        self._tile_status = 404
+        self._auth_cache_status = "private"
+        resp = await client.get(_TILE_PATH)
+        assert resp.status_code == 204
+        assert resp.headers["cache-control"] == "private, no-store"
 
     async def test_float_default_stretch_uses_the_data_range(self, client):
         self._auth_render_params = "rescale=0,1.0"
