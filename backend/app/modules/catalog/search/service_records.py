@@ -101,12 +101,15 @@ def build_assets(
     storage_provider: "StorageProvider | None" = None,
     public_app_url: str | None = None,
     cog_download: bool = False,
+    raster_meta: Mapping | None = None,
 ) -> dict:
     """Build a modality-aware unified assets dict for a dataset.
 
     ``cog_download``: the caller may use the COG download route, so a
     raster's stored data-role assets are advertised: a signed URL on S3,
     the route on any other store.
+
+    ``raster_meta``: its quicklook pointers advertise quicklooks no row names.
 
     The raster/VRT ``raster_tiles`` asset uses ``public_app_url``
     (nginx-rewritten to the tile proxy), not ``/api``; every other
@@ -196,6 +199,7 @@ def build_assets(
             "roles": ["data"],
         }
 
+    proxy_routes = _proxied_raster_asset_routes(dataset, record_type, record_status)
     # Merge DatasetAsset rows -- takes precedence on key conflict
     stac_built = _build_stac_assets(
         stac_asset_rows,
@@ -203,12 +207,34 @@ def build_assets(
         storage_backend=storage_backend,
         public_api_url=public_api_url,
         storage_provider=storage_provider,
-        proxy_routes=_proxied_raster_asset_routes(dataset, record_type, record_status),
+        proxy_routes=proxy_routes,
         cog_download=cog_download,
     )
     assets.update(stac_built)
+    # A mosaic's quicklooks link only to the route, which refuses a mosaic
+    # that reaches past a member; a signed storage URL would not.
+    if record_type == "vrt_dataset":
+        assets.pop("thumbnail", None)
+        assets.pop("overview", None)
+    for key, column, title in _QUICKLOOK_ASSETS:
+        if proxy_routes and raster_meta and raster_meta.get(column):
+            assets.setdefault(
+                key,
+                {
+                    "href": build_url(proxy_routes[key], base_url=public_api_url),
+                    "type": "image/png",
+                    "roles": [key],
+                    "title": title,
+                },
+            )
 
     return assets
+
+
+_QUICKLOOK_ASSETS = (
+    ("thumbnail", "quicklook_256_uri", "Quicklook (256px)"),
+    ("overview", "quicklook_512_uri", "Quicklook (512px)"),
+)
 
 
 def _proxied_raster_asset_routes(
@@ -224,7 +250,7 @@ def _proxied_raster_asset_routes(
     cache-key params: that route is cached publicly, and a replaced raster
     must not show the old images.
     """
-    if not (record_status == "published" and record_type == "raster_dataset"):
+    if not (record_status == "published" and record_type in RASTER_FAMILY_RECORD_TYPES):
         return None
     version = tile_template_params(
         getattr(dataset, "tile_cache_version", None),
@@ -552,6 +578,7 @@ def dataset_to_ogc_record(
             record_status=record.record_status or "draft",
             storage_backend=settings.storage_provider,
             public_app_url=public_app_url,
+            raster_meta=raster_meta,
         ),
     }
 
