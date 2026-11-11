@@ -878,6 +878,25 @@ def owner_blockers(owners: Owners) -> list[dict[str, str]]:
     ]
 
 
+def _held_after_run(
+    plan: Mapping[str, Any], state: MigrationState, owners: Owners
+) -> list[dict[str, str]]:
+    """The items the cutover's owner check will find held after this run: those
+    held for an owner who can't take them yet, and a hold the state records on
+    an item this run neither imports nor hands over."""
+    held = [{"item": i, "reason": r} for i, r in owners.pending.items()]
+    settled = {*owners.pending, *owners.waiting, *owners.by_item}
+    held += [
+        {"item": item["id"], "reason": entry.owner_pending}
+        for item in plan["items"]
+        if not item.get("removed")
+        and item["id"] not in settled
+        and (entry := state.items.get(item["id"])) is not None
+        and entry.owner_pending
+    ]
+    return held
+
+
 def mark_cutover(
     opts: MigrateOptions,
     plan: Mapping[str, Any],
@@ -1978,12 +1997,7 @@ def _run(
         if opts.cutover and not opts.dry_run:
             early = refused_before_run(
                 plan,
-                # An item held for an owner who can't take it stays held, and
-                # the run records it as pending, which the cutover refuses.
-                [
-                    *owner_blockers(owners),
-                    *({"item": i, "reason": r} for i, r in owners.pending.items()),
-                ],
+                [*owner_blockers(owners), *_held_after_run(plan, state, owners)],
                 inventory_changes(
                     auth.client if auth else None, plan, datetime.now(tz=UTC)
                 ),

@@ -1325,6 +1325,39 @@ def test_cutover_refuses_an_item_still_waiting_for_its_owner(
     assert handled == []
 
 
+def test_a_cutover_refuses_a_hold_left_on_a_skipped_item_before_the_run(
+    runner, tmp_path, geolens, handled
+):
+    _allow_transfers(geolens, _created_id(L2))
+    _write_state(
+        tmp_path,
+        {
+            L1: {
+                "status": "done",
+                "dataset_ids": [_created_id(L1)],
+                "owner_id": OPERATOR,
+                "owner_pending": "newbie is not a GeoLens user yet",
+            }
+        },
+    )
+    plan = _plan([_item(L1, "skip"), _item(L2)])
+
+    result, payload = _run(
+        runner, tmp_path, plan, "--cutover", "--accept-incomplete-inventory"
+    )
+
+    assert result.exit_code == 1
+    assert "unresolved-users" in payload["cutover"]["refused"]
+    [users] = [
+        c for c in payload["cutover"]["checks"] if c["check"] == "unresolved-users"
+    ]
+    assert users["items"] == [
+        {"item": L1, "reason": "newbie is not a GeoLens user yet"}
+    ]
+    # No run settles that hold, so the cutover refuses before importing L2.
+    assert handled == []
+
+
 def test_an_unusable_unmapped_owner_is_refused(runner, tmp_path, geolens, handled):
     plan = _plan([_item(L1)], owner_map={"agol_alice": ""})
     result, _ = _run(runner, tmp_path, plan, "--unmapped-owner", "gone")
