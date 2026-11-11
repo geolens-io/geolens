@@ -5,25 +5,41 @@ from urllib.parse import quote
 import httpx
 
 from ...client import AuthenticatedClient, Client
-from ...types import Response
+from ...types import Response, UNSET
 from ... import errors
 
 from ...models.export_map_style_endpoint_maps_map_id_style_json_get_response_200 import (
     ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200,
 )
 from ...models.problem_detail import ProblemDetail
+from ...types import Unset
+from typing import Literal
 from uuid import UUID
 
 
 def _get_kwargs(
     map_id: UUID,
+    *,
+    sprite: Literal["url"] | None | Unset = UNSET,
 ) -> dict[str, Any]:
+
+    params: dict[str, Any] = {}
+
+    json_sprite: Literal["url"] | None | Unset
+    if isinstance(sprite, Unset):
+        json_sprite = UNSET
+    else:
+        json_sprite = sprite
+    params["sprite"] = json_sprite
+
+    params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
     _kwargs: dict[str, Any] = {
         "method": "get",
         "url": "/maps/{map_id}/style.json".format(
             map_id=quote(str(map_id), safe=""),
         ),
+        "params": params,
     }
 
     return _kwargs
@@ -105,6 +121,7 @@ def sync_detailed(
     map_id: UUID,
     *,
     client: AuthenticatedClient | Client,
+    sprite: Literal["url"] | None | Unset = UNSET,
 ) -> Response[ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200 | ProblemDetail]:
     """Export a map as a MapLibre style
 
@@ -112,6 +129,10 @@ def sync_detailed(
 
     Args:
         map_id (UUID):
+        sprite (Literal['url'] | None | Unset): `url` writes `sprite` as a plain URL string naming
+            a sprite whose entries keep the `geolens:` prefix, for clients that read only the Mapbox
+            style spec's string form, such as Esri's vector tile layer. Omit it for the MapLibre array
+            form.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -123,6 +144,7 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         map_id=map_id,
+        sprite=sprite,
     )
 
     response = client.get_httpx_client().request(
@@ -136,6 +158,7 @@ def sync(
     map_id: UUID,
     *,
     client: AuthenticatedClient | Client,
+    sprite: Literal["url"] | None | Unset = UNSET,
 ) -> ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200 | ProblemDetail | None:
     """Export a map as a MapLibre style
 
@@ -143,6 +166,10 @@ def sync(
 
     Args:
         map_id (UUID):
+        sprite (Literal['url'] | None | Unset): `url` writes `sprite` as a plain URL string naming
+            a sprite whose entries keep the `geolens:` prefix, for clients that read only the Mapbox
+            style spec's string form, such as Esri's vector tile layer. Omit it for the MapLibre array
+            form.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -155,6 +182,7 @@ def sync(
     return sync_detailed(
         map_id=map_id,
         client=client,
+        sprite=sprite,
     ).parsed
 
 
@@ -162,6 +190,7 @@ async def asyncio_detailed(
     map_id: UUID,
     *,
     client: AuthenticatedClient | Client,
+    sprite: Literal["url"] | None | Unset = UNSET,
 ) -> Response[ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200 | ProblemDetail]:
     """Export a map as a MapLibre style
 
@@ -169,6 +198,10 @@ async def asyncio_detailed(
 
     Args:
         map_id (UUID):
+        sprite (Literal['url'] | None | Unset): `url` writes `sprite` as a plain URL string naming
+            a sprite whose entries keep the `geolens:` prefix, for clients that read only the Mapbox
+            style spec's string form, such as Esri's vector tile layer. Omit it for the MapLibre array
+            form.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -180,6 +213,7 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         map_id=map_id,
+        sprite=sprite,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -191,6 +225,7 @@ async def asyncio(
     map_id: UUID,
     *,
     client: AuthenticatedClient | Client,
+    sprite: Literal["url"] | None | Unset = UNSET,
 ) -> ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200 | ProblemDetail | None:
     """Export a map as a MapLibre style
 
@@ -198,6 +233,10 @@ async def asyncio(
 
     Args:
         map_id (UUID):
+        sprite (Literal['url'] | None | Unset): `url` writes `sprite` as a plain URL string naming
+            a sprite whose entries keep the `geolens:` prefix, for clients that read only the Mapbox
+            style spec's string form, such as Esri's vector tile layer. Omit it for the MapLibre array
+            form.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -211,5 +250,6 @@ async def asyncio(
         await asyncio_detailed(
             map_id=map_id,
             client=client,
+            sprite=sprite,
         )
     ).parsed

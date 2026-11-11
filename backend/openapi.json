@@ -59403,6 +59403,206 @@
         ]
       }
     },
+    "/maps/sprites/geolens-prefixed.json": {
+      "get": {
+        "description": "Serve the GeoLens sprite index with each name prefixed ``geolens:``.\n\nA ``style.json?sprite=url`` export names this sprite as a plain string, so\nits image names keep the prefix the array form's sprite id gives them.",
+        "operationId": "get_prefixed_sprite_index_endpoint_maps_sprites_geolens_prefixed_json_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "boolean"
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  "title": "Response Get Prefixed Sprite Index Endpoint Maps Sprites Geolens Prefixed Json Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "summary": "Get the GeoLens sprite index with prefixed names",
+        "tags": [
+          "Maps"
+        ]
+      }
+    },
+    "/maps/sprites/geolens-prefixed.png": {
+      "get": {
+        "description": "Serve the generated GeoLens sprite sheet for stable icon IDs.",
+        "operationId": "get_geolens_sprite_png_endpoint_maps_sprites_geolens_prefixed_png_get",
+        "responses": {
+          "200": {
+            "content": {
+              "image/png": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The sprite sheet"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "summary": "Get the GeoLens sprite sheet for the prefixed index",
+        "tags": [
+          "Maps"
+        ]
+      }
+    },
     "/maps/sprites/geolens.json": {
       "get": {
         "description": "Serve the stable GeoLens sprite JSON index.",
@@ -63079,6 +63279,25 @@
               "title": "Map Id",
               "type": "string"
             }
+          },
+          {
+            "description": "`url` writes `sprite` as a plain URL string naming a sprite whose entries keep the `geolens:` prefix, for clients that read only the Mapbox style spec's string form, such as Esri's vector tile layer. Omit it for the MapLibre array form.",
+            "in": "query",
+            "name": "sprite",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "const": "url",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`url` writes `sprite` as a plain URL string naming a sprite whose entries keep the `geolens:` prefix, for clients that read only the Mapbox style spec's string form, such as Esri's vector tile layer. Omit it for the MapLibre array form.",
+              "title": "Sprite"
+            }
           }
         ],
         "responses": {
@@ -63092,7 +63311,7 @@
                 }
               }
             },
-            "description": "A complete MapLibre style document for the saved map. Its shape is governed by the MapLibre Style Specification (https://maplibre.org/maplibre-style-spec/) and is not mirrored field-by-field in this contract. One guarantee beyond the spec: `sprite` is always emitted in the array form `[{id, url}]`, which POST /maps/import also accepts, so exported documents round-trip."
+            "description": "A complete MapLibre style document for the saved map. Its shape is governed by the MapLibre Style Specification (https://maplibre.org/maplibre-style-spec/) and is not mirrored field-by-field in this contract. One guarantee beyond the spec: `sprite` is emitted in the array form `[{id, url}]` and GeoLens icon names carry the `geolens:` prefix. With `sprite=url`, `sprite` is instead the URL string of /maps/sprites/geolens-prefixed, whose entries carry the same prefix, and nothing else changes. POST /maps/import accepts both, so exported documents round-trip."
           },
           "400": {
             "content": {

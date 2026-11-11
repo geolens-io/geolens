@@ -4388,6 +4388,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/maps/sprites/geolens-prefixed.json": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the GeoLens sprite index with prefixed names
+         * @description Serve the GeoLens sprite index with each name prefixed ``geolens:``.
+         *
+         *     A ``style.json?sprite=url`` export names this sprite as a plain string, so
+         *     its image names keep the prefix the array form's sprite id gives them.
+         */
+        get: operations["get_prefixed_sprite_index_endpoint_maps_sprites_geolens_prefixed_json_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/maps/sprites/geolens-prefixed.png": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the GeoLens sprite sheet for the prefixed index
+         * @description Serve the generated GeoLens sprite sheet for stable icon IDs.
+         */
+        get: operations["get_geolens_sprite_png_endpoint_maps_sprites_geolens_prefixed_png_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/maps/sprites/geolens.json": {
         parameters: {
             query?: never;
@@ -39893,6 +39936,162 @@ export interface operations {
             };
         };
     };
+    get_prefixed_sprite_index_endpoint_maps_sprites_geolens_prefixed_json_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: {
+                            [key: string]: number | boolean;
+                        };
+                    };
+                };
+            };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    get_geolens_sprite_png_endpoint_maps_sprites_geolens_prefixed_png_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sprite sheet */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": string;
+                };
+            };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
     get_geolens_sprite_index_endpoint_maps_sprites_geolens_json_get: {
         parameters: {
             query?: never;
@@ -42518,7 +42717,10 @@ export interface operations {
     };
     export_map_style_endpoint_maps__map_id__style_json_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description `url` writes `sprite` as a plain URL string naming a sprite whose entries keep the `geolens:` prefix, for clients that read only the Mapbox style spec's string form, such as Esri's vector tile layer. Omit it for the MapLibre array form. */
+                sprite?: "url" | null;
+            };
             header?: never;
             path: {
                 map_id: string;
@@ -42527,7 +42729,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description A complete MapLibre style document for the saved map. Its shape is governed by the MapLibre Style Specification (https://maplibre.org/maplibre-style-spec/) and is not mirrored field-by-field in this contract. One guarantee beyond the spec: `sprite` is always emitted in the array form `[{id, url}]`, which POST /maps/import also accepts, so exported documents round-trip. */
+            /** @description A complete MapLibre style document for the saved map. Its shape is governed by the MapLibre Style Specification (https://maplibre.org/maplibre-style-spec/) and is not mirrored field-by-field in this contract. One guarantee beyond the spec: `sprite` is emitted in the array form `[{id, url}]` and GeoLens icon names carry the `geolens:` prefix. With `sprite=url`, `sprite` is instead the URL string of /maps/sprites/geolens-prefixed, whose entries carry the same prefix, and nothing else changes. POST /maps/import accepts both, so exported documents round-trip. */
             200: {
                 headers: {
                     [name: string]: unknown;

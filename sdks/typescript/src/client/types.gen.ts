@@ -29221,6 +29221,102 @@ export type GetSharedMapEndpointMapsSharedTokenGetResponses = {
 
 export type GetSharedMapEndpointMapsSharedTokenGetResponse = GetSharedMapEndpointMapsSharedTokenGetResponses[keyof GetSharedMapEndpointMapsSharedTokenGetResponses];
 
+export type GetPrefixedSpriteIndexEndpointMapsSpritesGeolensPrefixedJsonGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/maps/sprites/geolens-prefixed.json';
+};
+
+export type GetPrefixedSpriteIndexEndpointMapsSpritesGeolensPrefixedJsonGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type GetPrefixedSpriteIndexEndpointMapsSpritesGeolensPrefixedJsonGetError = GetPrefixedSpriteIndexEndpointMapsSpritesGeolensPrefixedJsonGetErrors[keyof GetPrefixedSpriteIndexEndpointMapsSpritesGeolensPrefixedJsonGetErrors];
+
+export type GetPrefixedSpriteIndexEndpointMapsSpritesGeolensPrefixedJsonGetResponses = {
+    /**
+     * Response Get Prefixed Sprite Index Endpoint Maps Sprites Geolens Prefixed Json Get
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: {
+            [key: string]: number | number | boolean;
+        };
+    };
+};
+
+export type GetPrefixedSpriteIndexEndpointMapsSpritesGeolensPrefixedJsonGetResponse = GetPrefixedSpriteIndexEndpointMapsSpritesGeolensPrefixedJsonGetResponses[keyof GetPrefixedSpriteIndexEndpointMapsSpritesGeolensPrefixedJsonGetResponses];
+
+export type GetGeolensSpritePngEndpointMapsSpritesGeolensPrefixedPngGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/maps/sprites/geolens-prefixed.png';
+};
+
+export type GetGeolensSpritePngEndpointMapsSpritesGeolensPrefixedPngGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type GetGeolensSpritePngEndpointMapsSpritesGeolensPrefixedPngGetError = GetGeolensSpritePngEndpointMapsSpritesGeolensPrefixedPngGetErrors[keyof GetGeolensSpritePngEndpointMapsSpritesGeolensPrefixedPngGetErrors];
+
+export type GetGeolensSpritePngEndpointMapsSpritesGeolensPrefixedPngGetResponses = {
+    /**
+     * The sprite sheet
+     */
+    200: Blob | File;
+};
+
+export type GetGeolensSpritePngEndpointMapsSpritesGeolensPrefixedPngGetResponse = GetGeolensSpritePngEndpointMapsSpritesGeolensPrefixedPngGetResponses[keyof GetGeolensSpritePngEndpointMapsSpritesGeolensPrefixedPngGetResponses];
+
 export type GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetData = {
     body?: never;
     path?: never;
@@ -30781,7 +30877,14 @@ export type ExportMapStyleEndpointMapsMapIdStyleJsonGetData = {
          */
         map_id: string;
     };
-    query?: never;
+    query?: {
+        /**
+         * Sprite
+         *
+         * `url` writes `sprite` as a plain URL string naming a sprite whose entries keep the `geolens:` prefix, for clients that read only the Mapbox style spec's string form, such as Esri's vector tile layer. Omit it for the MapLibre array form.
+         */
+        sprite?: 'url' | null;
+    };
     url: '/maps/{map_id}/style.json';
 };
 
