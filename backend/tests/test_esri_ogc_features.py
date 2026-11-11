@@ -804,3 +804,42 @@ class TestThePagingProbe:
         self._serve_probe(monkeypatch, response)
 
         assert await self._probe() is False
+
+
+class TestTheStagedCountIsReadAfterTheGrant:
+    async def test_the_reader_is_granted_before_it_counts(self, monkeypatch) -> None:
+        """A multi_tenant SELECT runs as the tenant reader, which can't read
+        the table ogr2ogr just created until it is granted."""
+        from app.processing.ingest import ogr
+
+        statements: list[str] = []
+
+        class _Result:
+            def scalar_one(self) -> int:
+                return 25
+
+        class _Session:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc) -> None:
+                return None
+
+            async def execute(self, statement, *args, **kwargs):
+                statements.append(" ".join(str(statement).split()))
+                return _Result()
+
+            async def commit(self) -> None:
+                statements.append("COMMIT")
+
+        monkeypatch.setattr("app.core.db.async_session", _Session)
+        monkeypatch.setattr(
+            "app.processing.ingest.tasks_common._current_tenant_role",
+            lambda: "tenant_reader_x",
+        )
+
+        assert await ogr._staged_row_count("staged_t", "data") == 25
+
+        assert statements[0] == 'GRANT SELECT ON "data"."staged_t" TO tenant_reader_x'
+        assert statements[1].startswith("SELECT COUNT(*)")
+        assert statements[2] == "COMMIT"

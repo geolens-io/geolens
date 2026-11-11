@@ -1684,16 +1684,28 @@ async def _arcgis_wfs_expected_features(
 
 
 async def _staged_row_count(table_name: str, schema: str) -> int:
+    """Rows in a table ogr2ogr just created as the tenant writer.
+
+    In ``multi_tenant`` mode a SELECT runs as the tenant reader, which can't
+    read the table until it is granted, so the grant the staging pipeline
+    makes later comes first here.
+    """
     from sqlalchemy import text
 
     from app.core.db import async_session
-    from app.processing.ingest.metadata import _qtable
+    from app.processing.ingest.metadata import _qtable, grant_reader_access
+    from app.processing.ingest.tasks_common import _current_tenant_role
 
     async with async_session() as session:
+        await grant_reader_access(
+            session, table_name, schema=schema, role=_current_tenant_role()
+        )
         result = await session.execute(
             text(f"SELECT COUNT(*) FROM {_qtable(table_name, schema=schema)}")
         )
-        return int(result.scalar_one())
+        count = int(result.scalar_one())
+        await session.commit()
+        return count
 
 
 def refuse_short_arcgis_wfs(imported: int, expected: int) -> None:
