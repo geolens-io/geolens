@@ -10,7 +10,7 @@ nor a repeated page can pass for the whole layer.
 import asyncio
 import re
 from collections.abc import Callable
-from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
 import defusedxml.ElementTree as ET
 import httpx
@@ -28,62 +28,45 @@ from app.platform.service_endpoints import (
     DEFAULT_CHECK_TIMEOUT,
     WFS_XML_ACCEPT,
     EndpointCheckFailedError,
+    _capabilities_url,
+    _url_add_kvp,
     bounded_parse_qsl,
     credential_headers,
 )
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# The request each read defines for itself; the caller's other parameters,
-# such as a `token`, stay on the URL.
-_OWN_PARAMETERS = frozenset(
-    {
-        "service",
-        "version",
-        "request",
-        "typename",
-        "typenames",
-        "resulttype",
-        "count",
-        "maxfeatures",
-        "startindex",
-        "outputformat",
-    }
+# The keys a read sets or must not carry; every other parameter of the
+# caller's URL, such as a `token`, stays as submitted.
+_READ_KEYS = (
+    "TYPENAME",
+    "TYPENAMES",
+    "RESULTTYPE",
+    "COUNT",
+    "MAXFEATURES",
+    "STARTINDEX",
+    "OUTPUTFORMAT",
 )
-
-
 _DEFAULT_VERSION = "2.0.0"
 _COUNT = re.compile("[0-9]+")
 
 
-def _own_query(url: str) -> tuple[list[tuple[str, str]], str | None]:
-    """The URL's parameters other than the ones a read sets, and the
-    ``version`` it names, if any."""
-    pairs = bounded_parse_qsl(urlsplit(url).query)
-    version = next((v for k, v in pairs if k.lower() == "version" and v), None)
-    return [(k, v) for k, v in pairs if k.lower() not in _OWN_PARAMETERS], version
-
-
-def _with_query(url: str, query: list[tuple[str, str]]) -> str:
-    return urlunsplit(urlsplit(url)._replace(query=urlencode(query)))
-
-
 def wfs_url(url: str, layer: str, *, version: str, **params: str) -> str:
     """A GetFeature request for ``layer`` in WFS ``version`` on the caller's
-    URL, keeping its other parameters (such as a ``token``)."""
-    kept, _ = _own_query(url)
+    URL, spelled as GDAL's WFS driver spells its own requests."""
+    request = url
+    for key in _READ_KEYS:
+        request = _url_add_kvp(request, key, None)
     type_names = "TYPENAMES" if version.startswith("2") else "TYPENAME"
-    return _with_query(
-        url,
-        kept
-        + [
-            ("SERVICE", "WFS"),
-            ("VERSION", version),
-            ("REQUEST", "GetFeature"),
-            (type_names, layer),
-            *params.items(),
-        ],
-    )
+    for key, value in (
+        ("SERVICE", "WFS"),
+        ("VERSION", version),
+        ("REQUEST", "GetFeature"),
+        (type_names, layer),
+        *params.items(),
+    ):
+        request = _url_add_kvp(request, key, value)
+    return request
 
 
 def _root(body: bytes):
@@ -166,15 +149,13 @@ async def arcgis_wfs_version(
     else the one GetCapabilities answers in, as GDAL settles on it, else
     2.0.0."""
     try:
-        kept, version = _own_query(url)
+        pairs = bounded_parse_qsl(urlsplit(url).query)
     except ValueError:
         return _DEFAULT_VERSION
+    version = next((v for k, v in pairs if k.lower() == "version" and v), None)
     if version is not None:
         return version
-    target = _with_query(
-        url, kept + [("SERVICE", "WFS"), ("REQUEST", "GetCapabilities")]
-    )
-    body = await _read(target, credential_line, on_first_request)
+    body = await _read(_capabilities_url(url), credential_line, on_first_request)
     root = None if body is None else _root(body)
     answered = None if root is None else root.get("version")
     return answered or _DEFAULT_VERSION
@@ -190,10 +171,7 @@ async def fetch_arcgis_wfs_hits(
 ) -> int | None:
     """The layer's total from a ``resultType=hits`` read, or None when the
     service doesn't say. Never raises for the service's answer."""
-    try:
-        target = wfs_url(url, layer, version=version, RESULTTYPE="hits")
-    except ValueError:
-        return None
+    target = wfs_url(url, layer, version=version, RESULTTYPE="hits")
     body = await _read(target, credential_line, on_first_request)
     return None if body is None else number_matched(body)
 
@@ -212,9 +190,6 @@ async def arcgis_wfs_pages_by_count(
     ``STARTINDEX``, also answer False, so paging goes off."""
     if not version.startswith("2"):
         return False
-    try:
-        target = wfs_url(url, layer, version=version, STARTINDEX="1", COUNT="1")
-    except ValueError:
-        return False
+    target = wfs_url(url, layer, version=version, STARTINDEX="1", COUNT="1")
     body = await _read(target, credential_line, on_first_request)
     return body is not None and features_returned(body) == 1
