@@ -471,6 +471,84 @@ def _discard_unpaired_refresh_token(instance: str) -> None:
         log.warning("stale_refresh_token_file_cleanup_failed", error=str(exc))
 
 
+# ---------- Secrets outside a GeoLens instance ----------
+# An ArcGIS refresh token belongs to a portal, not a GeoLens instance. It
+# follows the same keyring-then-file rule under its own account name, which
+# no instance URL can equal.
+
+_SECRET_FIELD = "secret"
+
+
+def store_secret(account: str, value: str) -> str:
+    """Store *value* for *account*. Returns 'keyring' or 'file'; a file write
+    may raise ``CredentialsFileCorrupt`` or ``OSError``."""
+    try:
+        keyring.set_password(SERVICE, account, value)
+    except KeyringError as exc:
+        log.warning("keyring_unavailable_falling_back_to_file", error=str(exc))
+        _set_credential_field(account, _SECRET_FIELD, value)
+        return "file"
+    # A file copy is read first, so one that can't be removed is overwritten.
+    if not _delete_file_secret(account):
+        try:
+            _set_credential_field(account, _SECRET_FIELD, value)
+        except (CredentialsFileCorrupt, OSError) as exc:
+            log.warning("secret_file_cleanup_failed", error=str(exc))
+    return "keyring"
+
+
+def load_secrets(account: str) -> list[tuple[str, str]]:
+    """Each distinct stored value for *account* as (backend, value), the file
+    copy first; a backend that can't be read is skipped."""
+    return probe_secrets(account)[0]
+
+
+def probe_secrets(account: str) -> tuple[list[tuple[str, str]], list[str]]:
+    """``load_secrets``' values, and the backends ('file', 'keyring') that
+    could not be read, so may hold one too."""
+    found: list[tuple[str, str]] = []
+    unreadable: list[str] = []
+    try:
+        value = _read_credentials_file().get(account, {}).get(_SECRET_FIELD)
+    except CredentialsFileCorrupt:
+        unreadable.append("file")
+        value = None
+    if value:
+        found.append(("file", value))
+    try:
+        value = keyring.get_password(SERVICE, account)
+    except KeyringError:
+        unreadable.append("keyring")
+        value = None
+    if value and all(value != v for _, v in found):
+        found.append(("keyring", value))
+    return found, unreadable
+
+
+def delete_secret(account: str, backend: Optional[str] = None) -> None:
+    """Best-effort delete of *account*'s value from *backend* ('file' or
+    'keyring'), or from both when it is None."""
+    if backend in (None, "keyring"):
+        try:
+            keyring.delete_password(SERVICE, account)
+        except (KeyringError, OSError):
+            pass
+    if backend in (None, "file"):
+        _delete_file_secret(account)
+
+
+def _delete_file_secret(account: str) -> bool:
+    """Remove *account*'s file section; False when one is left behind."""
+    if not _read_credentials_section_tolerant(account):
+        return True
+    try:
+        _clear_credential_section(account)
+    except (CredentialsFileCorrupt, OSError) as exc:
+        log.warning("secret_file_cleanup_failed", error=str(exc))
+        return False
+    return True
+
+
 #: Field name for the "active credential kind" marker in credentials.toml; see
 #: load_active_credential_kind().
 _ACTIVE_KIND_FIELD = "active_kind"

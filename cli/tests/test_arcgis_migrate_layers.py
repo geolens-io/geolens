@@ -630,6 +630,55 @@ def test_a_password_token_is_renewed_once_after_a_rejection(
     assert password not in raw and password not in result.output
 
 
+def test_an_empty_client_id_is_refused(runner, plan_file, geolens):
+    result, _ = _migrate(runner, plan_file, "--only", A2, "--client-id", "")
+
+    assert result.exit_code == 2, result.output
+    assert "--client-id" in result.output
+    assert geolens.seen == []
+
+
+def test_an_oauth_token_is_refreshed_once_after_a_rejection(
+    runner, plan_file, geolens, monkeypatch, mock_keyring
+):
+    stored = secrets.token_urlsafe(16)
+    issued = [secrets.token_urlsafe(16), secrets.token_urlsafe(16)]
+    mock_keyring[("geolens", f"arcgis-oauth:app01@{PORTAL}")] = stored
+    grants: list[dict] = []
+
+    def token(seen):
+        grants.append(seen.params)
+        return {"access_token": issued[len(grants) - 1], "expires_in": 1800}
+
+    def no_browser(url):
+        raise AssertionError("the stored sign-in must be used")
+
+    portal = FakePortal(portal_routes({"oauth2/token": token}))
+    monkeypatch.setattr(migrate, "build_opener", lambda: portal)
+    monkeypatch.setattr("webbrowser.open", no_browser)
+    service = FakeImport(geolens, [_layer(0, "Parcels")], needs_auth=True)
+    preview = service.preview
+    replies = [(403, _problem(403, TOKEN_REFUSED)), preview]
+    geolens.routes[PREVIEW] = lambda seen: (
+        replies.pop(0) if isinstance(replies[0], tuple) else replies[0](seen)
+    )
+
+    result, _ = _migrate(runner, plan_file, "--only", A1, "--client-id", "app01")
+
+    assert result.exit_code == 0, result.output
+    assert [g["grant_type"] for g in grants] == ["refresh_token", "refresh_token"]
+    assert all(g["refresh_token"] == stored for g in grants)
+    sent = [
+        s.json()["auth"]["token"]
+        for s in geolens.seen
+        if s.method == "POST" and urlsplit(s.url).path.endswith("/services/preview/")
+    ]
+    assert sent[:2] == issued
+    raw = (plan_file.parent / "arcgis-migration-state.json").read_text()
+    for secret in (stored, *issued):
+        assert secret not in raw and secret not in result.output
+
+
 @pytest.mark.parametrize(("accepted", "code"), [(True, 0), (False, 3)])
 def test_a_dry_run_signs_in_once_as_the_run_does(
     runner, plan_file, geolens, monkeypatch, accepted, code
@@ -669,6 +718,7 @@ def test_a_password_token_is_renewed_before_it_expires():
 
     class Client:
         token = "first"
+        token_lifetime = 3600.0
 
         def renew_token(self) -> bool:
             renewals.append(1)
@@ -681,6 +731,29 @@ def test_a_password_token_is_renewed_before_it_expires():
     assert auth.service_auth().token == "first"
     clock.now = 59 * 60
     assert auth.service_auth().token == "second"
+    assert renewals == [1]
+
+
+def test_a_short_lived_token_is_renewed_at_half_its_lifetime():
+    renewals: list[int] = []
+
+    class Client:
+        token = "first"
+        token_lifetime = 60.0
+
+        def renew_token(self) -> bool:
+            renewals.append(1)
+            self.token = f"renewed-{len(renewals)}"
+            return True
+
+    clock = _Clock()
+    auth = session.PortalAuth(Client(), renewable=True, clock=clock)
+    clock.now = 20
+    assert auth.service_auth().token == "first"
+    clock.now = 31
+    assert auth.service_auth().token == "renewed-1"
+    clock.now = 40
+    assert auth.service_auth().token == "renewed-1"
     assert renewals == [1]
 
 

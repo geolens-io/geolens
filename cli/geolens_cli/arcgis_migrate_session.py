@@ -17,7 +17,6 @@ from typing import Any
 from ._sdk_helpers import call_sdk_with_reauth, detail_text
 from .arcgis_migrate_state import DONE
 from .arcgis_portal import (
-    TOKEN_EXPIRATION_MINUTES,
     PortalClient,
     Redactor,
     _retry_after,
@@ -25,8 +24,8 @@ from .arcgis_portal import (
 
 RATE_LIMIT_ATTEMPTS = 3
 RATE_LIMIT_WAIT = 5.0
-# A token minted from a password is replaced this long before it expires, so
-# a preview never starts with a token about to lapse.
+# A renewable token is replaced this long before it expires, so a preview
+# never starts with a token about to lapse.
 TOKEN_RENEW_MARGIN = 120.0
 
 
@@ -158,10 +157,11 @@ class GeoLens:
 class PortalAuth:
     """The run's ArcGIS token, presented to GeoLens as a bearer credential.
 
-    A token minted from a password is renewed shortly before it expires, and
-    once after GeoLens reports it rejected; a pasted token can't be renewed.
-    The portal client keeps the password in memory and stops renewing after
-    one failed sign-in, since ArcGIS locks an account after five.
+    A token minted from a password or an OAuth sign-in is renewed shortly
+    before it expires, and once after GeoLens reports it rejected; a pasted
+    token can't be renewed. The portal client keeps the password or refresh
+    token in memory and stops renewing after one failed sign-in, since ArcGIS
+    locks an account after five.
     """
 
     def __init__(
@@ -184,7 +184,9 @@ class PortalAuth:
 
         if self._minted_at is not None:
             age = self._clock() - self._minted_at
-            if age > TOKEN_EXPIRATION_MINUTES * 60 - TOKEN_RENEW_MARGIN:
+            lifetime = self._client.token_lifetime
+            # A lifetime under twice the margin would renew on every call.
+            if age > lifetime - min(TOKEN_RENEW_MARGIN, lifetime / 2):
                 self.renew()
         return ServiceAuthRequest(method="bearer", token=self._client.token)
 
