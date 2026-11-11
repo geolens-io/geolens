@@ -1645,7 +1645,7 @@ async def run_ogr2ogr_service(
         )
     if expected_features is not None:
         refuse_short_arcgis_wfs(
-            await _staged_row_count(table_name, schema), expected_features
+            await staged_row_count(table_name, schema), expected_features
         )
 
 
@@ -1683,8 +1683,8 @@ async def _arcgis_wfs_expected_features(
     return expected
 
 
-async def _staged_row_count(table_name: str, schema: str) -> int:
-    """Rows in a table ogr2ogr just created as the tenant writer.
+async def staged_row_count(table_name: str, schema: str) -> int:
+    """Rows in a staging table ogr2ogr just created as the tenant writer.
 
     In ``multi_tenant`` mode a SELECT runs as the tenant reader, which can't
     read the table until it is granted, so the grant the staging pipeline

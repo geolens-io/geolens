@@ -533,7 +533,7 @@ class TestArcGISWFSIsReadUnpagedAndCounted:
     @pytest.fixture
     def rows(self, monkeypatch):
         count = AsyncMock(return_value=0)
-        monkeypatch.setattr("app.processing.ingest.ogr._staged_row_count", count)
+        monkeypatch.setattr("app.processing.ingest.ogr.staged_row_count", count)
         return count
 
     async def _import(self, url: str) -> None:
@@ -807,16 +807,16 @@ class TestThePagingProbe:
 
 
 class TestTheStagedCountIsReadAfterTheGrant:
-    async def test_the_reader_is_granted_before_it_counts(self, monkeypatch) -> None:
-        """A multi_tenant SELECT runs as the tenant reader, which can't read
-        the table ogr2ogr just created until it is granted."""
-        from app.processing.ingest import ogr
+    """A multi_tenant SELECT runs as the tenant reader, which can't read the
+    table ogr2ogr just created until it is granted. Both staged counts, the
+    ArcGIS WFS check and the FeatureServer page guard, grant first."""
 
+    def _record(self, monkeypatch, count: int) -> list[str]:
         statements: list[str] = []
 
         class _Result:
             def scalar_one(self) -> int:
-                return 25
+                return count
 
         class _Session:
             async def __aenter__(self):
@@ -837,9 +837,45 @@ class TestTheStagedCountIsReadAfterTheGrant:
             "app.processing.ingest.tasks_common._current_tenant_role",
             lambda: "tenant_reader_x",
         )
+        return statements
 
-        assert await ogr._staged_row_count("staged_t", "data") == 25
-
+    @staticmethod
+    def _granted_then_counted(statements: list[str]) -> None:
         assert statements[0] == 'GRANT SELECT ON "data"."staged_t" TO tenant_reader_x'
         assert statements[1].startswith("SELECT COUNT(*)")
         assert statements[2] == "COMMIT"
+
+    async def test_the_wfs_count(self, monkeypatch) -> None:
+        from app.processing.ingest import ogr
+
+        statements = self._record(monkeypatch, 25)
+
+        assert await ogr.staged_row_count("staged_t", "data") == 25
+
+        self._granted_then_counted(statements)
+
+    async def test_the_featureserver_page_guard(self, monkeypatch) -> None:
+        from app.processing.ingest import ogr
+        from app.processing.ingest.tasks_common import (
+            run_paged_arcgis_service_fetch,
+        )
+
+        statements = self._record(monkeypatch, 2)
+        monkeypatch.setattr(ogr, "run_ogr2ogr_service", AsyncMock())
+
+        await run_paged_arcgis_service_fetch(
+            service_type_raw="ArcGIS FeatureServer",
+            service_type="arcgis_featureserver",
+            source_url="https://services.arcgis.example/ORG/arcgis/rest/services/x/FeatureServer",
+            layer_name="x",
+            layer_id=0,
+            token=None,
+            staging_table="staged_t",
+            db_conn_str="PG:dbname=x",
+            schema="data",
+            feature_count=2,
+            page_size=2,
+            order_field="OBJECTID",
+        )
+
+        self._granted_then_counted(statements)

@@ -770,12 +770,8 @@ async def run_paged_arcgis_service_fetch(
     harmless). ``on_page`` (async, ``(imported_rows, feature_count)``) lets
     the import path publish per-page progress; pass None to skip.
     """
-    from sqlalchemy import text as _text
-
-    from app.core.db import async_session
     from app.platform.extensions import get_processing_port
     from app.processing.ingest import ogr
-    from app.processing.ingest.metadata import _qtable
 
     port = get_processing_port()
     imported_rows, append = 0, False
@@ -859,11 +855,7 @@ async def run_paged_arcgis_service_fetch(
             on_spawn=on_spawn,
             keep_z=return_z,
         )
-        async with async_session() as session:
-            result = await session.execute(
-                _text(f"SELECT COUNT(*) FROM {_qtable(staging_table, schema=schema)}")
-            )
-            next_imported_rows = int(result.scalar_one())
+        next_imported_rows = await ogr.staged_row_count(staging_table, schema)
         grew = next_imported_rows - imported_rows
         if grew <= 0:
             raise ogr.IngestionError(
