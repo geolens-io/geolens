@@ -1234,10 +1234,9 @@ def test_each_accept_flag_lifts_only_its_own_check(runner, tmp_path, geolens, ha
     )
 
     assert result.exit_code == 1
-    # A v1 plan records no inventory scope, which refuses before the run that
-    # leaves the item waiting for its owner.
+    assert payload["cutover"]["accepted"] == ["unresolved-users"]
+    # A v1 plan records no inventory scope.
     assert payload["cutover"]["refused"] == ["incomplete-inventory"]
-    assert payload["cutover"]["accepted"] == [] and handled == []
 
     result, payload = _run(
         runner,
@@ -1322,6 +1321,8 @@ def test_cutover_refuses_an_item_still_waiting_for_its_owner(
     assert check["items"] == [
         {"item": L1, "reason": "newbie is not a GeoLens user yet"}
     ]
+    # No run makes newbie a GeoLens user, so the cutover refuses before it.
+    assert handled == []
 
 
 def test_an_unusable_unmapped_owner_is_refused(runner, tmp_path, geolens, handled):
@@ -1930,6 +1931,30 @@ def test_an_owner_map_edit_after_migration_is_reported_not_applied(
     assert result.exit_code == 0, result.output
     assert _owner_patches(geolens) == [ALICE]
     assert payload["owner_changed"] == [{"item": L1, "owner": "newbie"}]
+
+
+def test_a_cutover_refuses_an_owner_map_edit_after_migration_before_the_run(
+    runner, tmp_path, geolens, handled, refreshed
+):
+    _owned(geolens, datasets=(_created_id(L1),))
+    _users(geolens, _user(NEW, "newbie", ["editor"]))
+    assert _run(runner, tmp_path, _plan([_item(L1)]))[0].exit_code == 0
+
+    result, payload = _run(
+        runner,
+        tmp_path,
+        _plan([_item(L1)], owner_map={"agol_alice": "newbie"}),
+        "--cutover",
+        "--accept-incomplete-inventory",
+    )
+
+    assert result.exit_code == 1
+    assert payload["cutover"]["refused"] == ["unresolved-users"]
+    [users] = [
+        c for c in payload["cutover"]["checks"] if c["check"] == "unresolved-users"
+    ]
+    assert "its plan owner is now newbie" in users["items"][0]["reason"]
+    assert refreshed == [] and payload["refreshed"] == []
 
 
 def test_an_arcgis_owner_change_to_an_inactive_user_is_reported(

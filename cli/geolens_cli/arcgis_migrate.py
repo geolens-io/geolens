@@ -861,6 +861,23 @@ def _check_cutover(opts: MigrateOptions) -> None:
         raise UsageError("--cutover is the final run of the whole plan; drop --only")
 
 
+def owner_blockers(owners: Owners) -> list[dict[str, str]]:
+    """The owner problems no run fixes, which refuse a cutover: a plan owner
+    that names no single GeoLens user, and a plan owner changed after the
+    item was migrated, which stays with the old one."""
+    return [
+        *owners.unresolved,
+        *(
+            {
+                "item": change["item"],
+                "reason": f"its plan owner is now {change['owner']}, who hasn't "
+                "been given it",
+            }
+            for change in owners.changed
+        ),
+    ]
+
+
 def mark_cutover(
     opts: MigrateOptions,
     plan: Mapping[str, Any],
@@ -879,17 +896,9 @@ def mark_cutover(
     changed = (
         None if opts.dry_run else inventory_changes(portal, plan, datetime.now(tz=UTC))
     )
-    # An item whose plan now names another owner stays with the old one.
+    blocked = owner_blockers(owners)
+    listed = {row["item"] for row in blocked}
     moved = [
-        {
-            "item": change["item"],
-            "reason": f"its plan owner is now {change['owner']}, who hasn't "
-            "been given it",
-        }
-        for change in owners.changed
-    ]
-    listed = {row["item"] for row in [*owners.unresolved, *moved]}
-    moved += [
         {
             "item": item["id"],
             "reason": "a handover stopped part way, so its objects may have "
@@ -903,7 +912,7 @@ def mark_cutover(
     failing = failing_checks(
         plan,
         state,
-        [*owners.unresolved, *moved],
+        [*blocked, *moved],
         changed,
         groups.groups if groups else None,
     )
@@ -1968,7 +1977,12 @@ def _run(
         if opts.cutover and not opts.dry_run:
             early = refused_before_run(
                 plan,
-                owners.unresolved,
+                # An item held for an owner who can't take it stays held, and
+                # the run records it as pending, which the cutover refuses.
+                [
+                    *owner_blockers(owners),
+                    *({"item": i, "reason": r} for i, r in owners.pending.items()),
+                ],
                 inventory_changes(
                     auth.client if auth else None, plan, datetime.now(tz=UTC)
                 ),
