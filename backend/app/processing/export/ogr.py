@@ -381,6 +381,11 @@ async def run_ogr2ogr_export(
     if where:
         cmd.extend(["-where", where])
 
+    if format_key == "gpkg":
+        # Without -nln the file keeps the "schema.table" source name, a table
+        # name with a dot that ArcGIS Pro cannot open.
+        cmd.extend(["-nln", table_name])
+
     if format_key == "csv":
         cmd.extend(["-lco", "GEOMETRY=AS_WKT"])
 
