@@ -136,15 +136,17 @@ class ServiceErrorResponseError(ItemFetchFailedError):
         super().__init__("service error envelope")
         # ArcGIS token codes: 499 token required, 498 invalid or expired.
         auth = service_code in (401, 403, 498, 499)
-        policy = SERVICE_AUTH_REFUSED_POLICY if auth else SERVICE_ERROR_POLICY
+        text = SERVICE_AUTH_REFUSED_POLICY if auth else SERVICE_ERROR_POLICY
         if type(service_code) is int and 0 <= service_code < 10_000:
-            policy += f" (Service error {service_code}.)"
-        self.code = SERVICE_AUTH_REFUSED_CODE if auth else SERVICE_ERROR_CODE
+            text += f" (Service error {service_code}.)"
+        # Two call sites, one per code: the failure-code gate reads each
+        # `code=` from the source.
         self.policy = (
-            FixedReason(policy, code=SERVICE_AUTH_REFUSED_CODE)
+            FixedReason(text, code=SERVICE_AUTH_REFUSED_CODE)
             if auth
-            else FixedReason(policy, code=SERVICE_ERROR_CODE)
+            else FixedReason(text, code=SERVICE_ERROR_CODE)
         )
+        self.code = self.policy.code
         self.args = (self.policy,)
 
 
@@ -159,8 +161,8 @@ class EmptyPageError(ItemFetchFailedError):
 
     def __init__(self) -> None:
         super().__init__("empty page")
-        self.code = EMPTY_PAGE_CODE
         self.policy = FixedReason(EMPTY_PAGE_POLICY, code=EMPTY_PAGE_CODE)
+        self.code = self.policy.code
         self.args = (self.policy,)
 
 
@@ -195,8 +197,9 @@ def _require_object(document: object, what: str) -> dict:
 
 def _require_feature_page(
     document: object, *, first_page: bool, arcgis: bool = False
-) -> list:
-    """The features of one items page, or a refusal.
+) -> tuple[list, bool]:
+    """The features of one items page, and whether it ends an ArcGIS chain
+    by counting its own remainder, or a refusal.
 
     MALFORMED MEANS REFUSE, NEVER END-OF-COLLECTION. `_has_next`/`_next_href`
     both answer None for a shape they can't read, indistinguishable from
@@ -233,8 +236,9 @@ def _require_feature_page(
     if not isinstance(features, list):
         raise ItemFetchFailedError("malformed items page")
     _require_counts(page, features)
-    _require_links(page, first_page=first_page, arcgis=arcgis)
-    return features
+    counts_remainder = arcgis and _counts_its_own_remainder(page)
+    _require_links(page, first_page=first_page, counts_remainder=counts_remainder)
+    return features, counts_remainder
 
 
 def _counts_its_own_remainder(page: dict) -> bool:
@@ -243,17 +247,11 @@ def _counts_its_own_remainder(page: dict) -> bool:
     return "links" not in page and page.get("numberMatched") == len(page["features"])
 
 
-def _require_links(page: dict, *, first_page: bool, arcgis: bool) -> None:
+def _require_links(page: dict, *, first_page: bool, counts_remainder: bool) -> None:
     """Refuse a ``links`` member the pagination walk could misread."""
     links = page.get("links")
     if links is None:
-        if "links" in page or not (
-            first_page or (arcgis and _counts_its_own_remainder(page))
-        ):
-            # An explicit null is malformed either way; absence is
-            # tolerated on the first page and on a page that counts its own
-            # remainder. Whether that absence proves the collection complete
-            # is `_walk_pages`'s question, not this.
+        if "links" in page or not (first_page or counts_remainder):
             raise ItemFetchFailedError("malformed items page")
         return
     if not isinstance(links, list):
@@ -694,7 +692,9 @@ async def _walk_pages(
         wire_downloaded += wire
         # One rule, one site, so a malformed page cannot mean different
         # things depending on where in the chain it arrived.
-        features = _require_feature_page(document, first_page=pages == 1, arcgis=arcgis)
+        features, counts_remainder = _require_feature_page(
+            document, first_page=pages == 1, arcgis=arcgis
+        )
         # The page's own claim about its size, before the sample loop below
         # may stop partway through it.
         observed += len(features)
@@ -703,11 +703,7 @@ async def _walk_pages(
             # page — two pages giving different answers describe two
             # different queries.
             reported = document["numberMatched"]
-            if (
-                arcgis
-                and number_matched is None
-                and _counts_its_own_remainder(document)
-            ):
+            if counts_remainder and number_matched is None:
                 # ArcGIS counts from the page's own offset, so the whole
                 # query matched everything read so far.
                 reported = observed

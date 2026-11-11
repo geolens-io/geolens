@@ -776,12 +776,7 @@ async def _fetch(
     *,
     accept: str = OGC_DOCUMENT_ACCEPT,
 ) -> tuple[bytes, str]:
-    """This module's reads, with its own caps and exception.
-
-    Defaults to the OGC document value since every OGC API read here is a
-    landing, collection or listing document; the WFS reads pass
-    `WFS_XML_ACCEPT` explicitly.
-    """
+    """This module's reads, with its caps and exception; OGC API documents by default."""
     body, final_url, _wire = await fetch_document(
         client, url, headers, accept=accept, on_first_request=on_first_request
     )

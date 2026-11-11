@@ -1715,19 +1715,19 @@ def refuse_short_arcgis_wfs(imported: int, expected: int) -> None:
     """Fail an ArcGIS WFS import whose feature count differs from the
     layer's ``resultType=hits`` total: fewer under a server-side cap, more
     when the server repeated a page."""
+    if imported == expected:
+        return
     advice = "Import the layer's FeatureServer or OGC API Features URL instead."
-    if imported < expected:
-        raise WfsCountMismatchError(
-            FixedReason(
-                f"The ArcGIS WFS returned {imported} of {expected} features. {advice}",
-                code="arcgis_wfs_short",
-            )
+    reason = (
+        FixedReason(
+            f"The ArcGIS WFS returned {imported} of {expected} features. {advice}",
+            code="arcgis_wfs_short",
         )
-    if imported > expected:
-        raise WfsCountMismatchError(
-            FixedReason(
-                f"The ArcGIS WFS repeated features: it returned {imported} for a "
-                f"layer of {expected}. {advice}",
-                code="arcgis_wfs_repeated",
-            )
+        if imported < expected
+        else FixedReason(
+            f"The ArcGIS WFS repeated features: it returned {imported} for a "
+            f"layer of {expected}. {advice}",
+            code="arcgis_wfs_repeated",
         )
+    )
+    raise WfsCountMismatchError(reason)
