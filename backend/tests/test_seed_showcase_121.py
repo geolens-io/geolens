@@ -133,6 +133,27 @@ def test_existing_client_sample_must_have_the_expected_published_asset():
         )
 
 
+@pytest.mark.parametrize("size_bytes", [2_822_533, 2_822_535])
+def test_a_tileset_seeded_from_either_pinned_archive_is_reused(size_bytes):
+    class SampleApi:
+        def list_own_datasets(self):
+            return [{"title": seed.TILES3D_TITLE, "id": "seeded-id"}]
+
+        def get_dataset(self, _):
+            return {
+                "record_type": "tiles3d_dataset",
+                "visibility": "public",
+                "tileset": {"url": "/api/tileset.json", "size_bytes": size_bytes},
+            }
+
+    assert (
+        seed.build_client_sample(
+            SampleApi(), None, seed.TILES3D_TITLE, seed.TILES3D_SHA256, "tiles3d", "s"
+        )
+        == "seeded-id"
+    )
+
+
 class EnrichApi:
     """The list still reports upload while the detail shows the committed conversion."""
 

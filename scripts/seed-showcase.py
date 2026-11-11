@@ -4643,12 +4643,14 @@ def build_client_sample(
     expected_type = "pointcloud_dataset" if kind == "pointcloud" else "tiles3d_dataset"
     asset_key = "pointcloud" if kind == "pointcloud" else "tileset"
     asset = detail.get(asset_key) or {}
-    expected_size = 81_123_042 if kind == "pointcloud" else 2_822_535
+    # The archive seeded before its root geometric error was raised differs
+    # only in tileset.json, and an instance that has it keeps it.
+    expected_sizes = {81_123_042} if kind == "pointcloud" else {2_822_535, 2_822_533}
     if (
         detail.get("record_type") != expected_type
         or detail.get("visibility") != "public"
         or not asset.get("url")
-        or asset.get("size_bytes") != expected_size
+        or asset.get("size_bytes") not in expected_sizes
     ):
         raise RuntimeError(f"{title} is not public or lacks its published {kind} asset")
     return dataset_id
