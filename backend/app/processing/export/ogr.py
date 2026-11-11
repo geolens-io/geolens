@@ -382,9 +382,13 @@ async def run_ogr2ogr_export(
         cmd.extend(["-where", where])
 
     if format_key == "gpkg":
+        # GeoPackage reserves the "gpkg" prefix and SQLite "sqlite_", so such a
+        # table name is rejected as a layer name.
+        reserved = table_name.lower().startswith(("gpkg", "sqlite_"))
+        layer_name = f"export_{table_name}" if reserved else table_name
         # Without -nln the file keeps the "schema.table" source name, a table
         # name with a dot that ArcGIS Pro cannot open.
-        cmd.extend(["-nln", table_name])
+        cmd.extend(["-nln", layer_name])
 
     if format_key == "csv":
         cmd.extend(["-lco", "GEOMETRY=AS_WKT"])

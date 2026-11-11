@@ -58,20 +58,44 @@ class TestGpkgLayerNameArgv:
         if expects_nln:
             assert cmd[cmd.index("-nln") + 1] == "roads"
 
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("table", "layer"),
+        [
+            ("gpkg_roads", "export_gpkg_roads"),
+            ("sqlite_roads", "export_sqlite_roads"),
+            ("roads_gpkg", "roads_gpkg"),
+        ],
+    )
+    async def test_reserved_prefixes_are_renamed(
+        self, captured, tmp_path, table, layer
+    ):
+        from app.processing.export.ogr import run_ogr2ogr_export
+
+        await run_ogr2ogr_export(
+            table, str(tmp_path / "out"), "GPKG", schema="data", format_key="gpkg"
+        )
+        cmd = captured[0]
+        assert cmd[cmd.index("-nln") + 1] == layer
+
 
 @pytest.mark.skipif(shutil.which("ogr2ogr") is None, reason="ogr2ogr not available")
 @pytest.mark.requires_ogr2ogr
 class TestGpkgLayerNameEndToEnd:
     @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("prefix", "expected_prefix"),
+        [("exp_gl_", ""), ("gpkg_", "export_"), ("sqlite_", "export_")],
+    )
     async def test_exported_table_has_no_schema_prefix(
-        self, test_db_session, monkeypatch, tmp_path
+        self, test_db_session, monkeypatch, tmp_path, prefix, expected_prefix
     ):
         from app.processing.export import service as export_service
 
         monkeypatch.setattr(
             export_service.settings, "upload_staging_dir", str(tmp_path)
         )
-        table = f"exp_gl_{uuid.uuid4().hex[:12]}"
+        table = f"{prefix}{uuid.uuid4().hex[:12]}"
         await test_db_session.execute(
             text(
                 f"CREATE TABLE data.{table} (gid serial PRIMARY KEY, name varchar, "
@@ -96,11 +120,14 @@ class TestGpkgLayerNameEndToEnd:
                     r[0] for r in con.execute("SELECT table_name FROM gpkg_contents")
                 ]
                 names = [r[0] for r in con.execute("SELECT name FROM sqlite_master")]
+                rows = con.execute(f'SELECT count(*) FROM "{expected_prefix}{table}"')
+                row_count = rows.fetchone()[0]
             finally:
                 con.close()
         finally:
             await test_db_session.rollback()
             await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table}"))
             await test_db_session.commit()
-        assert contents == [table]
+        assert contents == [f"{expected_prefix}{table}"]
+        assert row_count == 1
         assert not [n for n in names if "data." in n]
