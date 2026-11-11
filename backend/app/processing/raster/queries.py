@@ -33,6 +33,7 @@ def _row_to_meta(row: Any, *, include_vrt: bool, include_generation_id: bool) ->
         "nodata": row.nodata,
         "band_info": row.band_info,
         "quicklook_256_uri": row.quicklook_256_uri,
+        "quicklook_512_uri": row.quicklook_512_uri,
     }
     if include_vrt:
         meta["vrt_type"] = row.vrt_type
@@ -64,6 +65,7 @@ async def fetch_raster_meta_one(
         RasterAsset.nodata,
         RasterAsset.band_info,
         RasterAsset.quicklook_256_uri,
+        RasterAsset.quicklook_512_uri,
     ]
     if include_vrt:
         columns.extend([RasterAsset.vrt_type, RasterAsset.resolution_strategy])
@@ -105,6 +107,7 @@ async def fetch_raster_meta_bulk(
         RasterAsset.nodata,
         RasterAsset.band_info,
         RasterAsset.quicklook_256_uri,
+        RasterAsset.quicklook_512_uri,
     ]
     if include_vrt:
         columns.extend([RasterAsset.vrt_type, RasterAsset.resolution_strategy])

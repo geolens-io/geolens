@@ -286,9 +286,8 @@ async def test_vrt_item_on_s3_omits_the_vrt_file_even_with_export(
     assets = resp.json()["assets"]
     assert "vrt" not in assets
     assert not [a for a in assets.values() if "source.vrt" in a["href"]]
-    assert assets["overview"]["href"] == (
-        f"https://s3.example.com/rasters/{dataset_id}/abc/quicklook_512.png?sig=abc"
-    )
+    # A signed quicklook would skip the member check the quicklook route makes.
+    assert "s3.example.com" not in str(assets)
 
 
 @pytest.mark.parametrize("backend", ["local", "s3", "azure"])
