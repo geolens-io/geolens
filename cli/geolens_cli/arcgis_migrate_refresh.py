@@ -16,6 +16,7 @@ GeoLens stops the publication for review if the data changes after that.
 from __future__ import annotations
 
 import tempfile
+from contextlib import suppress
 from collections.abc import Callable, Mapping
 from functools import partial
 from pathlib import Path
@@ -688,13 +689,32 @@ def _bring_one(
         # title.
         base["title"] = dataset.title
     ctx.save()
-    apply_item_metadata(ctx, item, entry, [dataset_id], _dataset_titles(item, entry))
+    try:
+        apply_item_metadata(
+            ctx, item, entry, [dataset_id], _dataset_titles(item, entry)
+        )
+    except ItemFailed:
+        # A metadata write can land before a later step fails; it is this
+        # command's own, so the next run mustn't take it for a GeoLens edit.
+        with suppress(GeoLensError):
+            _record_own_write(ctx, entry, dataset_id, marker)
+        raise
+    if not _record_own_write(ctx, entry, dataset_id, marker):
+        return "changed in GeoLens while its metadata was written; it was left as it is"
+    return None
+
+
+def _record_own_write(
+    ctx: MigrationContext, entry: ItemState, dataset_id: str, marker: Mapping[str, Any]
+) -> bool:
+    """Record the dataset as it is now when this command's run still accounts
+    for it; whether it did."""
     after = get_dataset(ctx, dataset_id)
     if not _published_unchanged(ctx, after, marker):
-        return "changed in GeoLens while its metadata was written; it was left as it is"
+        return False
     record(entry, dataset_id, after)
     ctx.save()
-    return None
+    return True
 
 
 def _dataset_titles(item: Mapping[str, Any], entry: ItemState) -> dict[str, str]:

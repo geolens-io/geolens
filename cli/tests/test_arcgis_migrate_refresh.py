@@ -815,6 +815,41 @@ def test_an_empty_title_baseline_an_older_cli_recorded_is_adopted(
     assert service.fields[PARCELS]["title"] == "Parcels renamed"
 
 
+def test_a_metadata_write_whose_keywords_fail_is_still_recorded_as_this_commands(
+    runner, plan_file, geolens
+):
+    service = _migrated(runner, plan_file, geolens)
+    refresh = FakeRefresh(geolens, service).allow(PARCELS)
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    patch = geolens.routes[f"PATCH /datasets/{PARCELS}"]
+
+    def stamped(seen):
+        # GeoLens moves updated_at on every metadata write.
+        service.fields[PARCELS]["updated_at"] = EDITED
+        return patch(seen)
+
+    geolens.routes[f"PATCH /datasets/{PARCELS}"] = stamped
+    keywords = f"POST /records/{PARCELS}/keywords/"
+    add = geolens.routes[keywords]
+    geolens.routes[keywords] = (500, layers._problem(500, "boom"))
+    _set_title(plan_file, A2, "Parcels renamed")
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == A2:
+            item["target"]["tags"].append("renamed")
+    plan_file.write_text(json.dumps(plan))
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+    assert result.exit_code == 1
+    assert "writing the item metadata failed" in payload["not_up_to_date"][A2][0]
+    assert service.fields[PARCELS]["title"] == "Parcels renamed"
+    geolens.routes[keywords] = add
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, payload["not_up_to_date"]
+    assert len(refresh.bodies) == 3
+
+
 def _set_visibility(plan_file: Path, item_id: str, visibility: str) -> None:
     plan = json.loads(plan_file.read_text())
     for item in plan["items"]:
