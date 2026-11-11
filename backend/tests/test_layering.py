@@ -1358,7 +1358,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ArcGIS requests, lifecycle context, the quicklook draw that ingest and
     # replacement share, and the swap that keeps the replaced table as a previous
     # version and drops the oldest past the instance's limit.
-    "backend/app/processing/ingest/tasks_common.py": 1899,
+    "backend/app/processing/ingest/tasks_common.py": 1902,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, a service re-upload's
@@ -1401,7 +1401,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_vector.py": 1218,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
-    "backend/app/processing/ingest/ogr.py": 1701,
+    "backend/app/processing/ingest/ogr.py": 1712,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
     "backend/app/processing/ingest/validation.py": 1206,

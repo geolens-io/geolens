@@ -463,6 +463,11 @@ class IngestionError(Exception):
     """Raised when an ingestion subprocess fails."""
 
 
+class WfsCountMismatchError(IngestionError):
+    """An ArcGIS WFS import whose feature count differs from the layer's
+    total. Final: retrying under another layer name can't make it whole."""
+
+
 class MissingCrsError(IngestionError):
     """A spatial source declares no CRS and no override was given.
 
@@ -1652,8 +1657,9 @@ async def _arcgis_wfs_expected_features(
     arm_origin_contact: "Callable[[], None] | None",
 ) -> int | None:
     """For an ArcGIS WFS, read the layer's total, and turn GDAL's paging off
-    unless ``COUNT`` is a page size there. None for any other WFS, or when
-    the service doesn't give a total."""
+    unless ``COUNT`` is a page size there. None for any other WFS. Raises
+    when the total can't be read: without it a capped read would pass for
+    the whole layer."""
     url = gdal_source_url(gdal_source)
     if url is None or not is_arcgis_wfs(url):
         return None
@@ -1665,6 +1671,11 @@ async def _arcgis_wfs_expected_features(
     expected = await fetch_arcgis_wfs_hits(
         url, layer_name, credential_line=credential_line
     )
+    if expected is None:
+        raise IngestionError(
+            "Couldn't count the features this ArcGIS WFS holds. Retry in a few "
+            "minutes, or import the layer's FeatureServer or OGC API Features URL."
+        )
     if not await arcgis_wfs_pages_by_count(
         url, layer_name, credential_line=credential_line
     ):
@@ -1691,11 +1702,11 @@ def refuse_short_arcgis_wfs(imported: int, expected: int) -> None:
     when the server repeated a page."""
     advice = "Import the layer's FeatureServer or OGC API Features URL instead."
     if imported < expected:
-        raise IngestionError(
+        raise WfsCountMismatchError(
             f"The ArcGIS WFS returned {imported} of {expected} features. {advice}"
         )
     if imported > expected:
-        raise IngestionError(
+        raise WfsCountMismatchError(
             f"The ArcGIS WFS repeated features: it returned {imported} for a "
             f"layer of {expected}. {advice}"
         )

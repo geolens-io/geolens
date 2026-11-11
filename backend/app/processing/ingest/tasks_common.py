@@ -1525,7 +1525,8 @@ async def _run_service_import_with_wfs_fallback(
     Extracts the retry pattern that appears in both ingest_service and
     reupload_service. If the initial import raises
     ``IngestionError`` and the layer name has a ``ns:name`` prefix,
-    retries with the unqualified name. If ``auth_error_message`` is
+    retries with the unqualified name; a ``WfsCountMismatchError`` is
+    final and never retried. If ``auth_error_message`` is
     provided and the token is None and the error looks like an auth
     failure, re-raises with the custom message so users get a clear
     "you probably need a token" hint instead of the raw GDAL stderr.
@@ -1533,10 +1534,12 @@ async def _run_service_import_with_wfs_fallback(
     ``import_fn`` must be an async callable that accepts a single
     ``layer_name: str`` argument and does the actual ogr2ogr work.
     """
-    from app.processing.ingest.ogr import IngestionError
+    from app.processing.ingest.ogr import IngestionError, WfsCountMismatchError
 
     try:
         await import_fn(source_layer)
+    except WfsCountMismatchError:
+        raise
     except IngestionError as exc:
         if ":" in source_layer:
             unqualified = source_layer.split(":", 1)[1]

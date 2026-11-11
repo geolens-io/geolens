@@ -549,6 +549,7 @@ class TestArcGISWFSIsReadUnpagedAndCounted:
     ) -> None:
         seen = _spawn_reading_the_source(monkeypatch)
         pages.return_value = pages_by_count
+        hits.return_value, rows.return_value = 25, 25
 
         await self._import(_ARCGIS_WFS)
 
@@ -593,13 +594,45 @@ class TestArcGISWFSIsReadUnpagedAndCounted:
 
         await self._import(_ARCGIS_WFS)
 
-    async def test_no_total_is_no_check(self, monkeypatch, hits, pages, rows) -> None:
-        _spawn_reading_the_source(monkeypatch)
-        rows.return_value = 1
+    async def test_no_total_fails_before_anything_is_imported(
+        self, monkeypatch, hits, pages, rows
+    ) -> None:
+        from app.processing.ingest.ogr import IngestionError
 
-        await self._import(_ARCGIS_WFS)
+        seen = _spawn_reading_the_source(monkeypatch)
+        rows.return_value = 1000
 
+        with pytest.raises(IngestionError, match="Couldn't count the features"):
+            await self._import(_ARCGIS_WFS)
+
+        assert seen == []
         rows.assert_not_awaited()
+
+    async def test_a_namespaced_mismatch_is_not_retried_into_a_pass(
+        self, monkeypatch, hits, pages, rows
+    ) -> None:
+        from app.processing.ingest.ogr import WfsCountMismatchError
+        from app.processing.ingest.tasks_common import (
+            _run_service_import_with_wfs_fallback,
+        )
+
+        _spawn_reading_the_source(monkeypatch)
+        # The unqualified retry's hits read fails, the case that let a known
+        # truncation through.
+        hits.side_effect = [3000, None]
+        rows.return_value = 1000
+
+        async def _import(layer: str) -> None:
+            from app.processing.ingest.ogr import run_ogr2ogr_service
+
+            await run_ogr2ogr_service(
+                f"WFS:{_ARCGIS_WFS}", layer, "t", "PG:dbname=x", "wfs", schema="data"
+            )
+
+        with pytest.raises(WfsCountMismatchError, match="returned 1000 of 3000"):
+            await _run_service_import_with_wfs_fallback(_import, "glTrial2Ogc:pts")
+
+        assert hits.await_count == 1
 
 
 class TestTheHitsRead:
