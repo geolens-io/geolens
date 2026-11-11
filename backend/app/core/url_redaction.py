@@ -644,10 +644,15 @@ _MAX_EXCEPTION_CHAIN_DEPTH = 50
 
 
 def _scrub_one_exception(exc: BaseException, secret: str) -> None:
-    """Scrub the two places an exception carries text of its own."""
+    """Scrub the two places an exception carries text of its own. A
+    ``FixedReason`` is a literal written here, and keeps its code."""
+    from app.core.failure_reason import FixedReason
+
     if exc.args:
         exc.args = tuple(
-            scrub_secret_value(arg, secret) if isinstance(arg, str) else arg
+            scrub_secret_value(arg, secret)
+            if isinstance(arg, str) and not isinstance(arg, FixedReason)
+            else arg
             for arg in exc.args
         )
     # `add_note` text is rendered by the traceback machinery exactly like the

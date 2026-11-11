@@ -18,8 +18,9 @@ against the GetFeature endpoint ``service_endpoints`` already validates.
 
 What a collection may cost, since the whole chain is the service's to
 choose: ``MAX_PAGES`` requests, ``MAX_BYTES`` downloaded and the same
-again written to staging, ``MAX_PAGE_BYTES`` on the wire per page, and
-``MAX_STRUCTURAL_TOKENS`` values/containers per page once decoded.
+again written to staging, ``MAX_PAGE_BYTES`` per page on the wire and
+again inflated, and ``MAX_STRUCTURAL_TOKENS`` values/containers per page
+once decoded.
 Reaching any of them is a refusal, never a short answer — a caller can't
 tell a prefix from a collection, and the worker would import one over an
 existing dataset.
@@ -43,6 +44,8 @@ from app.core.runtime.staging import (
     OAPIF_ITEMS_SCRATCH_PREFIX,
     OAPIF_ITEMS_SCRATCH_SUFFIX,
 )
+from app.core.failure_reason import FixedReason
+from app.platform.esri_services import esri_service_kind
 from app.platform.security import (
     PROBE_TIMEOUT,
     make_safe_client,
@@ -53,6 +56,7 @@ from app.platform.service_endpoints import (
     MAX_DOCUMENT_TOKENS,
     EndpointCheckFailedError,
     HrefTooLongError,
+    OGC_DOCUMENT_ACCEPT,
     OGC_JSON_ACCEPT,
     bounded_parse_qsl,
     bounded_service_url,
@@ -111,6 +115,57 @@ class ItemFetchFailedError(EndpointCheckFailedError):
     """
 
 
+SERVICE_AUTH_REFUSED_CODE = "service_auth_refused"
+SERVICE_AUTH_REFUSED_POLICY = (
+    "The service refused the credential when GeoLens read this collection. "
+    "Check that the token is valid and has not expired, then try again."
+)
+SERVICE_ERROR_CODE = "service_error"
+SERVICE_ERROR_POLICY = (
+    "The service answered with an error instead of this collection's "
+    "features. Check the collection and the request, then try again."
+)
+
+
+class ServiceErrorResponseError(ItemFetchFailedError):
+    """An ArcGIS error envelope, HTTP 200 with ``{"error": {...}}``, in place
+    of a document, or an HTTP 401/403 to a credentialed read. Reports the
+    numeric code only, never the service's text."""
+
+    def __init__(self, service_code: object) -> None:
+        super().__init__("service error envelope")
+        # ArcGIS token codes: 499 token required, 498 invalid or expired.
+        auth = service_code in (401, 403, 498, 499)
+        text = SERVICE_AUTH_REFUSED_POLICY if auth else SERVICE_ERROR_POLICY
+        if type(service_code) is int and 0 <= service_code < 10_000:
+            text += f" (Service error {service_code}.)"
+        # Two call sites, one per code: the failure-code gate reads each
+        # `code=` from the source.
+        self.policy = (
+            FixedReason(text, code=SERVICE_AUTH_REFUSED_CODE)
+            if auth
+            else FixedReason(text, code=SERVICE_ERROR_CODE)
+        )
+        self.code = self.policy.code
+        self.args = (self.policy,)
+
+
+EMPTY_PAGE_CODE = "service_empty_page"
+EMPTY_PAGE_POLICY = (
+    "The service returned an empty page for this collection. Retry in a few minutes."
+)
+
+
+class EmptyPageError(ItemFetchFailedError):
+    """An HTTP 200 whose body is empty, which no document can be."""
+
+    def __init__(self) -> None:
+        super().__init__("empty page")
+        self.policy = FixedReason(EMPTY_PAGE_POLICY, code=EMPTY_PAGE_CODE)
+        self.code = self.policy.code
+        self.args = (self.policy,)
+
+
 def _discard(path: str) -> None:
     try:
         os.unlink(path)
@@ -134,11 +189,17 @@ def _require_object(document: object, what: str) -> dict:
     """
     if not isinstance(document, dict):
         raise ItemFetchFailedError(f"malformed {what}")
+    error = document.get("error")
+    if isinstance(error, dict) and "features" not in document:
+        raise ServiceErrorResponseError(error.get("code"))
     return document
 
 
-def _require_feature_page(document: object, *, first_page: bool) -> list:
-    """The features of one items page, or a refusal.
+def _require_feature_page(
+    document: object, *, first_page: bool, arcgis: bool = False
+) -> tuple[list, bool]:
+    """The features of one items page, and whether it ends an ArcGIS chain
+    by counting its own remainder, or a refusal.
 
     MALFORMED MEANS REFUSE, NEVER END-OF-COLLECTION. `_has_next`/`_next_href`
     both answer None for a shape they can't read, indistinguishable from
@@ -154,7 +215,10 @@ def _require_feature_page(document: object, *, first_page: bool) -> list:
     * ``links`` missing entirely on a page that is NOT the first — reaching
       it means following a link, so no links is a truncated response.
       Tolerated on the first page, where a single-page collection commonly
-      omits them.
+      omits them, and, on an ArcGIS collection (``arcgis``), on a later
+      page whose ``numberMatched`` equals the features it carries: ArcGIS
+      Online ends its chain that way, counting the matches from the page's
+      own offset rather than the whole query.
     * ``numberMatched`` present and not a non-negative integer — the number
       a preview reports as the collection's size.
     * ``numberReturned`` present and not equal to ``len(features)`` — the
@@ -171,19 +235,23 @@ def _require_feature_page(document: object, *, first_page: bool) -> list:
     features = page.get("features")
     if not isinstance(features, list):
         raise ItemFetchFailedError("malformed items page")
-    _require_links(page, first_page=first_page)
     _require_counts(page, features)
-    return features
+    counts_remainder = arcgis and _counts_its_own_remainder(page)
+    _require_links(page, first_page=first_page, counts_remainder=counts_remainder)
+    return features, counts_remainder
 
 
-def _require_links(page: dict, *, first_page: bool) -> None:
+def _counts_its_own_remainder(page: dict) -> bool:
+    """Whether a page without ``links`` says it holds every match left: its
+    ``numberMatched`` equals the features it carries."""
+    return "links" not in page and page.get("numberMatched") == len(page["features"])
+
+
+def _require_links(page: dict, *, first_page: bool, counts_remainder: bool) -> None:
     """Refuse a ``links`` member the pagination walk could misread."""
     links = page.get("links")
     if links is None:
-        if "links" in page or not first_page:
-            # An explicit null is malformed either way; absence is
-            # tolerated only on the first page. Whether that absence proves
-            # the collection complete is `_walk_pages`'s question, not this.
+        if "links" in page or not (first_page or counts_remainder):
             raise ItemFetchFailedError("malformed items page")
         return
     if not isinstance(links, list):
@@ -336,31 +404,40 @@ async def _fetch_page(
     *,
     budget: int,
     token_budget: int | None = None,
+    accept: str = OGC_JSON_ACCEPT,
+    gzip: bool = False,
     on_first_request: "Callable[[], None] | None" = None,
-) -> tuple[object, int, str]:
-    """One items page, its wire size and its URL, or a refusal.
+) -> tuple[object, int, int, str]:
+    """One items page, its decoded size, the bytes read off the wire for it
+    and its URL, or a refusal.
 
     The request itself is `fetch_document` in `service_endpoints`, shared
     with the description reads, so the protections the two paths need
     can't diverge. This adds only what's specific to an items page: the
-    caps it's read under, and the decode.
+    caps it's read under, gzip, and the decode. An empty body is refused
+    with `EmptyPageError`, whatever the encoding.
     """
-    body, final_url = await fetch_document(
+    body, final_url, wire = await fetch_document(
         client,
         url,
         headers,
-        # The same Accept the probe and endpoint check send, so
-        # HTML-for-`*/*` can't answer one of the three reads differently.
-        accept=OGC_JSON_ACCEPT,
+        # Never `*/*`, so a service that serves HTML for it can't answer
+        # this read differently from the probe and the endpoint check.
+        accept=accept,
         budget=budget,
         # Read at call time, like `fetch_document` does: a default argument
         # would freeze the constant at definition.
         token_budget=MAX_STRUCTURAL_TOKENS if token_budget is None else token_budget,
         error=ItemFetchFailedError,
         on_first_request=on_first_request,
+        gzip=gzip,
+        # Only a read that carries a credential had one refused.
+        refused=ServiceErrorResponseError if headers else None,
     )
+    if not body:
+        raise EmptyPageError()
     try:
-        return json.loads(body), len(body), final_url
+        return json.loads(body), len(body), wire, final_url
     except (ValueError, RecursionError) as exc:
         # A JSON depth bomb is under both the byte cap and
         # MAX_STRUCTURAL_TOKENS (which counts brackets, not depth) and
@@ -387,14 +464,15 @@ async def _resolve_items_url(
     A document that advertises no items link falls back to the
     conventional layout.
     """
-    document, size, from_url = await _fetch_page(
+    document, size, _wire, from_url = await _fetch_page(
         client,
         f"{url.rstrip('/')}/collections/{quote(collection, safe='')}",
         headers,
         budget=MAX_DOCUMENT_BYTES,
         # A collection document is a description, so it gets the
-        # description budget rather than an items page's.
+        # description budget and Accept rather than an items page's.
         token_budget=MAX_DOCUMENT_TOKENS,
+        accept=OGC_DOCUMENT_ACCEPT,
         on_first_request=on_first_request,
     )
     href = _advertised_items_href(
@@ -587,24 +665,36 @@ async def _walk_pages(
     # moment a caller dating origin contacts hears about. `fire_once`
     # means no loop tracks which pass it's on.
     arm = fire_once(on_first_request)
+    # Only an ArcGIS chain may end on a page that counts its own remainder.
+    arcgis = esri_service_kind(url) == "oapif"
     first_page, downloaded = await _resolve_items_url(
         client, url=url, collection=collection, headers=headers, on_first_request=arm
     )
+    # Counted apart: a gzip page's wire bytes can exceed what it decodes to,
+    # and each total is held to MAX_BYTES. The collection document is
+    # identity, so it seeds both.
+    wire_downloaded = downloaded
     out.write(b'{"type": "FeatureCollection", "features": [')
     page_url: str | None = first_page
     while page_url is not None and pages < MAX_PAGES:
         pages += 1
-        document, size, from_url = await _fetch_page(
+        document, size, wire, from_url = await _fetch_page(
             client,
             page_url,
             headers,
-            budget=min(MAX_PAGE_BYTES, MAX_BYTES - downloaded),
+            budget=min(MAX_PAGE_BYTES, MAX_BYTES - max(downloaded, wire_downloaded)),
+            # ArcGIS Online answers a repeat of an identity request for the
+            # same page with an empty 200 for minutes; gzip gets the page.
+            gzip=True,
             on_first_request=arm,
         )
         downloaded += size
+        wire_downloaded += wire
         # One rule, one site, so a malformed page cannot mean different
         # things depending on where in the chain it arrived.
-        features = _require_feature_page(document, first_page=pages == 1)
+        features, counts_remainder = _require_feature_page(
+            document, first_page=pages == 1, arcgis=arcgis
+        )
         # The page's own claim about its size, before the sample loop below
         # may stop partway through it.
         observed += len(features)
@@ -613,6 +703,10 @@ async def _walk_pages(
             # page — two pages giving different answers describe two
             # different queries.
             reported = document["numberMatched"]
+            if counts_remainder and number_matched is None:
+                # ArcGIS counts from the page's own offset, so the whole
+                # query matched everything read so far.
+                reported = observed
             if number_matched is None:
                 number_matched = reported
             elif reported != number_matched:
@@ -683,17 +777,19 @@ async def materialise_oapif_items(
     url: str,
     collection: str,
     *,
-    credential_line: str,
+    credential_line: str | None,
     staging_dir: str | Path,
     feature_limit: int | None = None,
     deadline: float | None = None,
     on_first_request: Callable[[], None] | None = None,
 ) -> MaterialisedCollection:
-    """Write a protected collection to a local GeoJSON file and describe it.
+    """Write a collection to a local GeoJSON file and describe it.
 
     The caller hands the returned path to GDAL INSTEAD of the OAPIF
     source, and writes no header file at all — that's what removes the
-    credential from everything GDAL does.
+    credential from everything GDAL does. ``credential_line`` is None for
+    an ArcGIS collection read anonymously (see `esri_service_kind`); the walk
+    and its bounds are the same.
 
     ``feature_limit`` stops early for a preview, which needs a handful of
     rows rather than the collection.
@@ -714,7 +810,7 @@ async def materialise_oapif_items(
     than stopping short, since the caller can't tell a prefix from a
     collection and the worker would import one over an existing dataset.
     """
-    headers = credential_headers(credential_line)
+    headers = credential_headers(credential_line) if credential_line else {}
     # prefix/suffix come from the module that sweeps them, so
     # a file this writes is one that sweep recognises.
     handle, path = tempfile.mkstemp(
@@ -739,7 +835,7 @@ async def materialise_oapif_items(
         # the same outer-deadline shape `url_fetch` uses for the same reason.
         async with asyncio.timeout(budget):
             async with make_safe_client(
-                timeout=PROBE_TIMEOUT, credential_header=next(iter(headers))
+                timeout=PROBE_TIMEOUT, credential_header=next(iter(headers), None)
             ) as client:
                 # Binary: the features are encoded once, so the count that
                 # bounds the file is the count that is written.

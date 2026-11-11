@@ -81,13 +81,16 @@ def redact_failure_reason(reason: str | BaseException) -> str:
     caller already flattened, so the raw-exception clause is enforced for
     both. A library exception becomes ``INTERNAL_FAILURE_REASON``; text
     keeps only its first line, which is where an exception's own summary
-    ends and its payload dump begins. A ``FixedReason`` is returned as is.
+    ends and its payload dump begins. A ``FixedReason`` is returned as is,
+    and so is one this codebase raised as an exception's only argument.
     """
     if isinstance(reason, FixedReason):
         return reason
     if isinstance(reason, BaseException):
         if not is_composed_exception(reason):
             return INTERNAL_FAILURE_REASON
+        if len(reason.args) == 1 and isinstance(reason.args[0], FixedReason):
+            return reason.args[0]
         reason = str(reason)
     lines = reason.splitlines()
     summary = _drop_subprocess_output(_scrub(lines[0] if lines else ""))

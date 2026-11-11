@@ -686,6 +686,17 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
     if (value.code === 'unsupported_geometry') {
       return { key: 'errors.serviceGeometryUnsupported' };
     }
+    // Refusals from reading an OGC API collection page by page
+    // (backend/app/platform/service_items.py); the message carries the advice.
+    if (value.code === 'service_auth_refused') {
+      return { key: 'errors.serviceAuthRefused' };
+    }
+    if (value.code === 'service_error') {
+      return { key: 'errors.serviceAnsweredError' };
+    }
+    if (value.code === 'service_empty_page') {
+      return { key: 'errors.serviceEmptyPage' };
+    }
 
     // service_token_required's body is an English diagnostic for API clients.
     // SourceRefreshAction.tsx intercepts the code first; this keeps the mapping

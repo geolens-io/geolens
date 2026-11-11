@@ -99,7 +99,7 @@ async def bounded_probe_exchange(
                 response.history = redirects
                 if raise_for_status:
                     response.raise_for_status()
-                body = await read_bounded_body(response, MAX_DOCUMENT_BYTES)
+                body, _wire = await read_bounded_body(response, MAX_DOCUMENT_BYTES)
                 break
             redirects.append(response)
             if len(redirects) > client.max_redirects:

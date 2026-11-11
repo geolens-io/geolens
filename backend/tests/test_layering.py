@@ -1310,10 +1310,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/manifest_service.py": 1291,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
-    "backend/app/platform/service_endpoints.py": 1354,
+    "backend/app/platform/service_endpoints.py": 1418,
     # Pagination and materialization keep credentials and remote page traversal out of
     # GDAL.
-    "backend/app/platform/service_items.py": 777,
+    "backend/app/platform/service_items.py": 873,
     # ArcGIS sign-in shares destination checks, abuse budgets and deadlines across its
     # protocol.
     "backend/app/modules/catalog/sources/arcgis_signin.py": 1130,
@@ -1358,13 +1358,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ArcGIS requests, lifecycle context, the quicklook draw that ingest and
     # replacement share, and the swap that keeps the replaced table as a previous
     # version and drops the oldest past the instance's limit.
-    "backend/app/processing/ingest/tasks_common.py": 1899,
+    "backend/app/processing/ingest/tasks_common.py": 1894,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, a service re-upload's
     # review of the changes its preview showed, and the live-table comparison
     # that lets a refresh or file re-upload of unchanged data publish nothing.
-    "backend/app/processing/ingest/tasks_reupload.py": 1909,
+    "backend/app/processing/ingest/tasks_reupload.py": 1906,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection and accepting a held run
     # by the door it came through, which records the capability it admitted under.
@@ -1401,7 +1401,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_vector.py": 1218,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
-    "backend/app/processing/ingest/ogr.py": 1627,
+    "backend/app/processing/ingest/ogr.py": 1733,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
     "backend/app/processing/ingest/validation.py": 1206,

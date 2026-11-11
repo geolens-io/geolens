@@ -1,0 +1,26 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": 26,
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -74.1,
+          40.1
+        ]
+      },
+      "properties": {
+        "OBJECTID": 26,
+        "name": "wh-add",
+        "kind": "w",
+        "val": 1,
+        "seen": null
+      }
+    }
+  ],
+  "numberMatched": 1,
+  "numberReturned": 1,
+  "timeStamp": "2026-11-10 23:02:52Z"
+}
