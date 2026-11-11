@@ -13,6 +13,7 @@ from typing import NoReturn, TypedDict
 import structlog
 
 from app.core.config import settings
+from app.core.failure_reason import FixedReason
 from app.core.crs_uri import parse_crs_uri
 from app.core.runtime.staging import (
     GDAL_HEADER_FILE_REDIRECT_ENV,
@@ -1673,8 +1674,12 @@ async def _arcgis_wfs_expected_features(
     expected = await fetch_arcgis_wfs_hits(url, layer_name, version=version, **reads)
     if expected is None:
         raise IngestionError(
-            "Couldn't count the features this ArcGIS WFS holds. Retry in a few "
-            "minutes, or import the layer's FeatureServer or OGC API Features URL."
+            FixedReason(
+                "Couldn't count the features this ArcGIS WFS holds. Retry in a "
+                "few minutes, or import the layer's FeatureServer or OGC API "
+                "Features URL.",
+                code="arcgis_wfs_count_unavailable",
+            )
         )
     if not await arcgis_wfs_pages_by_count(url, layer_name, version=version, **reads):
         cmd.extend(["--config", "OGR_WFS_PAGING_ALLOWED", "OFF"])
@@ -1713,10 +1718,16 @@ def refuse_short_arcgis_wfs(imported: int, expected: int) -> None:
     advice = "Import the layer's FeatureServer or OGC API Features URL instead."
     if imported < expected:
         raise WfsCountMismatchError(
-            f"The ArcGIS WFS returned {imported} of {expected} features. {advice}"
+            FixedReason(
+                f"The ArcGIS WFS returned {imported} of {expected} features. {advice}",
+                code="arcgis_wfs_short",
+            )
         )
     if imported > expected:
         raise WfsCountMismatchError(
-            f"The ArcGIS WFS repeated features: it returned {imported} for a "
-            f"layer of {expected}. {advice}"
+            FixedReason(
+                f"The ArcGIS WFS repeated features: it returned {imported} for a "
+                f"layer of {expected}. {advice}",
+                code="arcgis_wfs_repeated",
+            )
         )

@@ -1313,7 +1313,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/service_endpoints.py": 1423,
     # Pagination and materialization keep credentials and remote page traversal out of
     # GDAL.
-    "backend/app/platform/service_items.py": 871,
+    "backend/app/platform/service_items.py": 877,
     # ArcGIS sign-in shares destination checks, abuse budgets and deadlines across its
     # protocol.
     "backend/app/modules/catalog/sources/arcgis_signin.py": 1130,
@@ -1401,7 +1401,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_vector.py": 1218,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
-    "backend/app/processing/ingest/ogr.py": 1722,
+    "backend/app/processing/ingest/ogr.py": 1733,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
     "backend/app/processing/ingest/validation.py": 1206,

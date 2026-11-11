@@ -1196,3 +1196,69 @@ class TestAnErrorMemberBesideFeaturesIsNotAnEnvelope:
         extract = await _materialise(tmp_path)
 
         assert extract.features == 1
+
+
+class TestTheWorkerRefusalsKeepTheirCodes:
+    """A failed import stores a reason and, for a fixed sentence, its code,
+    which the frontend shows in the reader's language."""
+
+    @staticmethod
+    def _refusals():
+        from app.platform.service_items import EmptyPageError, ServiceErrorResponseError
+        from app.processing.ingest.ogr import refuse_short_arcgis_wfs
+
+        def _mismatch(imported: int, expected: int) -> Exception:
+            try:
+                refuse_short_arcgis_wfs(imported, expected)
+            except Exception as exc:  # broad: the refusal under test
+                return exc
+            raise AssertionError("no refusal")
+
+        return [
+            (_mismatch(3000, 3197), "arcgis_wfs_short"),
+            (_mismatch(2429, 1429), "arcgis_wfs_repeated"),
+            (ServiceErrorResponseError(498), "service_auth_refused"),
+            (ServiceErrorResponseError(400), "service_error"),
+            (EmptyPageError(), "service_empty_page"),
+        ]
+
+    def test_each_stores_its_code(self) -> None:
+        from app.core.failure_reason import failure_code, redact_failure_reason
+
+        for exc, code in self._refusals():
+            assert failure_code(redact_failure_reason(exc)) == code
+
+    def test_scrubbing_a_secret_keeps_the_code(self) -> None:
+        from app.core.failure_reason import failure_code, redact_failure_reason
+        from app.core.url_redaction import scrub_secret_from_exception
+
+        for exc, code in self._refusals():
+            scrub_secret_from_exception(exc, "s3cr3t-token-value")
+            assert failure_code(redact_failure_reason(exc)) == code
+
+    async def test_an_uncountable_wfs_stores_its_code(self, monkeypatch) -> None:
+        from app.core.failure_reason import failure_code, redact_failure_reason
+        from app.processing.ingest.ogr import IngestionError, run_ogr2ogr_service
+
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr.arcgis_wfs_version",
+            AsyncMock(return_value="2.0.0"),
+        )
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr.fetch_arcgis_wfs_hits",
+            AsyncMock(return_value=None),
+        )
+
+        with pytest.raises(IngestionError) as caught:
+            await run_ogr2ogr_service(
+                f"WFS:{_ARCGIS_WFS}",
+                "glTrial2Ogc:pts",
+                "t",
+                "PG:dbname=x",
+                "wfs",
+                schema="data",
+            )
+
+        assert failure_code(redact_failure_reason(caught.value)) == (
+            "arcgis_wfs_count_unavailable"
+        )

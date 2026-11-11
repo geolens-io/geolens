@@ -44,6 +44,7 @@ from app.core.runtime.staging import (
     OAPIF_ITEMS_SCRATCH_PREFIX,
     OAPIF_ITEMS_SCRATCH_SUFFIX,
 )
+from app.core.failure_reason import FixedReason
 from app.platform.esri_services import esri_service_kind
 from app.platform.security import (
     PROBE_TIMEOUT,
@@ -135,10 +136,15 @@ class ServiceErrorResponseError(ItemFetchFailedError):
         super().__init__("service error envelope")
         # ArcGIS token codes: 499 token required, 498 invalid or expired.
         auth = service_code in (401, 403, 498, 499)
-        self.code = SERVICE_AUTH_REFUSED_CODE if auth else SERVICE_ERROR_CODE
-        self.policy = SERVICE_AUTH_REFUSED_POLICY if auth else SERVICE_ERROR_POLICY
+        policy = SERVICE_AUTH_REFUSED_POLICY if auth else SERVICE_ERROR_POLICY
         if type(service_code) is int and 0 <= service_code < 10_000:
-            self.policy += f" (Service error {service_code}.)"
+            policy += f" (Service error {service_code}.)"
+        self.code = SERVICE_AUTH_REFUSED_CODE if auth else SERVICE_ERROR_CODE
+        self.policy = (
+            FixedReason(policy, code=SERVICE_AUTH_REFUSED_CODE)
+            if auth
+            else FixedReason(policy, code=SERVICE_ERROR_CODE)
+        )
         self.args = (self.policy,)
 
 
@@ -154,7 +160,7 @@ class EmptyPageError(ItemFetchFailedError):
     def __init__(self) -> None:
         super().__init__("empty page")
         self.code = EMPTY_PAGE_CODE
-        self.policy = EMPTY_PAGE_POLICY
+        self.policy = FixedReason(EMPTY_PAGE_POLICY, code=EMPTY_PAGE_CODE)
         self.args = (self.policy,)
 
 
