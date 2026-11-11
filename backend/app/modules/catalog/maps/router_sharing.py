@@ -231,6 +231,7 @@ async def visibility_check_endpoint(
     )
 
 
+@router.head("/{map_id}/style.json", include_in_schema=False)
 @router.get(
     "/{map_id}/style.json",
     responses={

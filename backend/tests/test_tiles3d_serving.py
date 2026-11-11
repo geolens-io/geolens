@@ -806,11 +806,110 @@ async def test_storage_errors_never_name_a_key_or_path(
         _assert_sandboxed(resp)
 
 
-@pytest.mark.parametrize("method", ["HEAD", "POST", "PUT", "PATCH", "DELETE"])
-async def test_the_route_answers_get_only(
+@pytest.mark.parametrize(("path", "body"), _FILES)
+async def test_a_head_answers_with_gets_headers_and_reads_no_file(
+    client: AsyncClient, make_tileset, storage, path, body
+) -> None:
+    """HEAD answers 200 with GET's type, validator and caching, no body, and only a one-byte probe of storage."""
+    dataset_id = await make_tileset()
+    await _publish(storage, dataset_id, "a1", path, body)
+
+    head = await client.head(_url(dataset_id, path))
+    assert storage.read == []
+    assert len(storage.probed) == 1
+    get = await client.get(_url(dataset_id, path))
+
+    assert head.status_code == get.status_code == 200
+    assert head.content == b""
+    assert get.content == body
+    for name in ("content-type", "content-length", "etag", "cache-control"):
+        assert head.headers.get(name) == get.headers.get(name), name
+    _assert_sandboxed(head)
+
+
+async def test_a_head_is_refused_exactly_as_a_get(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    viewer_auth_header: dict,
+    make_tileset,
+    storage,
+    owner,
+    tmp_path,
+) -> None:
+    """Each caller of a private tileset, and each missing or failing file, gets the GET status on HEAD."""
+    owner_headers, owner_id = owner
+    created = await client.post(
+        "/admin/api-keys/",
+        json={"user_id": str(owner_id), "name": "tileset head"},
+        headers=admin_auth_header,
+    )
+    assert created.status_code == 201
+    key = created.json()["key"]
+    private_id = await make_tileset(owner_id=owner_id, visibility="private")
+    public_id = await make_tileset()
+    await _publish(storage, private_id, "a1", "tileset.json", _ROOT)
+    await _publish(storage, public_id, "a1", "textures/a.png", b"png")
+    cases = [
+        (_url(private_id, "tileset.json"), {}, {}, 404),
+        (_url(private_id, "tileset.json"), viewer_auth_header, {}, 404),
+        (
+            _url(private_id, "tileset.json"),
+            {"Authorization": f"Bearer {uuid.uuid4().hex}"},
+            {},
+            401,
+        ),
+        (_url(private_id, "tileset.json"), {"X-Api-Key": uuid.uuid4().hex}, {}, 401),
+        (_url(private_id, "tileset.json"), owner_headers, {}, 200),
+        (_url(private_id, "tileset.json"), {"X-Api-Key": key}, {}, 200),
+        (_url(private_id, "tileset.json"), {}, {"api_key": key}, 200),
+        (_url(uuid.uuid4(), "tileset.json"), {}, {}, 404),
+        (_url(public_id, "tiles/0.glb"), {}, {}, 404),
+        (_url(public_id, "textures"), {}, {}, 404),
+        (_url(public_id, "tiles/a..b.glb"), {}, {}, 404),
+    ]
+
+    for url, headers, params, expected in cases:
+        head = await client.head(url, headers=headers, params=params)
+        get = await client.get(url, headers=headers, params=params)
+        assert head.status_code == get.status_code == expected, (url, headers)
+        assert head.content == b""
+        _assert_sandboxed(head)
+
+    async def unreadable(*_args):
+        raise OSError(f"{tmp_path} is unreadable")
+        yield  # an async generator, like every provider's streams
+
+    storage.inner.get_stream = unreadable
+    storage.inner.get_range_stream = unreadable
+    failed = await client.head(_url(public_id, "textures/a.png"))
+    assert failed.status_code == 502
+    assert str(tmp_path) not in failed.headers.values()
+
+
+async def test_a_head_revalidates_like_a_get(
+    client: AsyncClient, make_tileset, storage
+) -> None:
+    """A HEAD naming the current version is 304 and one naming another in If-Match is 412."""
+    dataset_id = await make_tileset()
+    await _publish(storage, dataset_id, "a1", "tileset.json", _ROOT)
+
+    current = await client.head(
+        _url(dataset_id, "tileset.json"), headers={"If-None-Match": '"a1"'}
+    )
+    other = await client.head(
+        _url(dataset_id, "tileset.json"), headers={"If-Match": '"a0"'}
+    )
+
+    assert current.status_code == 304
+    assert other.status_code == 412
+    assert storage.read == []
+
+
+@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
+async def test_the_route_answers_get_and_head_only(
     client: AsyncClient, make_tileset, storage, method
 ) -> None:
-    """Every method but GET is refused."""
+    """Every method but GET and HEAD is refused."""
     dataset_id = await make_tileset()
 
     resp = await client.request(method, _url(dataset_id, "tileset.json"))
@@ -855,6 +954,25 @@ async def test_each_store_streams_a_file_whole_and_misses_as_404(
     assert resp.status_code == 200
     assert resp.content == payload
     assert missing.status_code == 404
+
+
+async def test_each_store_answers_a_head_without_opening_the_file(
+    client: AsyncClient, make_tileset, any_storage
+) -> None:
+    """A HEAD on a multi-chunk file, an empty file or a missing one answers as GET does, with no full read."""
+    dataset_id = await make_tileset()
+    prefix = f"{tileset_prefix(dataset_id)}a1/tiles"
+    await any_storage.put(f"{prefix}/big.glb", bytes(range(256)) * (10 * 1024))
+    await any_storage.put(f"{prefix}/empty.glb", b"")
+
+    big = await client.head(_url(dataset_id, "tiles/big.glb"))
+    empty = await client.head(_url(dataset_id, "tiles/empty.glb"))
+    missing = await client.head(_url(dataset_id, "tiles/none.glb"))
+
+    assert big.status_code == empty.status_code == 200
+    assert missing.status_code == 404
+    assert big.content == empty.content == b""
+    assert any_storage.read == []
 
 
 async def test_an_empty_file_is_served_and_revalidated(

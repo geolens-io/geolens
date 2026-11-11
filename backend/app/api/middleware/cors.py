@@ -42,7 +42,7 @@ _PUBLIC_SEARCH_PATHS: tuple[str, ...] = (
 _STANDARDS_PUBLIC_METHODS = "GET, HEAD, POST, OPTIONS"
 _SEARCH_PUBLIC_METHODS = "GET, OPTIONS"
 
-# Native reads an anonymous caller may make, with the one method each answers
+# Native reads an anonymous caller may make, with the methods each answers
 # them on. Each handler runs its Rule 1 read guard with anonymous as no roles
 # (public maps and stories, public published datasets), and the map and story
 # reads drop layers, scenes and DEMs the caller can't read, so the wildcard
@@ -60,7 +60,7 @@ _PUBLIC_READ_PATHS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"/stories/?"), "GET, OPTIONS"),
     (re.compile(rf"/stories/{_UUID}"), "GET, OPTIONS"),
     (re.compile(rf"/maps/{_UUID}"), "GET, OPTIONS"),
-    (re.compile(rf"/maps/{_UUID}/style\.json"), "GET, OPTIONS"),
+    (re.compile(rf"/maps/{_UUID}/style\.json"), "GET, HEAD, OPTIONS"),
     (re.compile(r"/maps/sprites/geolens(?:@2x)?\.(?:json|png)"), "GET, OPTIONS"),
     (re.compile(rf"/datasets/{_UUID}/rows/?"), "GET, OPTIONS"),
     (re.compile(rf"/datasets/{_UUID}/aggregate/?"), "POST, OPTIONS"),
@@ -79,7 +79,7 @@ _PUBLIC_ASSET_PATHS: tuple[tuple[re.Pattern[str], str], ...] = (
         re.compile(r"/datasets/[^/]+/copc/[^/]+/[^/]+\.copc\.laz"),
         "GET, HEAD, OPTIONS",
     ),
-    (re.compile(r"/datasets/[^/]+/tiles3d/.+"), "GET, OPTIONS"),
+    (re.compile(r"/datasets/[^/]+/tiles3d/.+"), "GET, HEAD, OPTIONS"),
 )
 _ASSET_WILDCARD_STATUSES = frozenset({200, 206, 304, 412, 416, 429, 502})
 
@@ -434,7 +434,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         the explicit-origin policy or no CORS headers. Each surface
         advertises only the methods its routes answer: standards routes
         GET/HEAD, plus POST on ``/stac/search``; search GET; each public
-        read its one method; the asset files their own set, with the range
+        read its own methods; the asset files their own set, with the range
         and conditional request headers allowed in the preflight. Everything after the surface check is shared
         deliberately: the credential exclusion and safelisted-header
         check make a wildcard safe, and a new surface must not opt out.
