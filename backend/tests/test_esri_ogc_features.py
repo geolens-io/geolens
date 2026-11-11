@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import re
 import pathlib
 import secrets
 import zlib
@@ -879,3 +880,50 @@ class TestTheStagedCountIsReadAfterTheGrant:
         )
 
         self._granted_then_counted(statements)
+
+
+class TestOneClassifierNamesTheArcGISServices:
+    @pytest.mark.parametrize(
+        ("url", "kind"),
+        [
+            (_ARCGIS_WFS, "wfs"),
+            (f"{_ARCGIS_WFS}/", "wfs"),
+            (f"{_ARCGIS_WFS}//", "wfs"),
+            (_ARCGIS_WFS.replace("WFSServer", "WFS%53erver"), "wfs"),
+            (_ARCGIS_WFS.replace("WFSServer", "wfsSERVER"), "wfs"),
+            (f"{_ARCGIS_WFS}?service=WFS&typeName=ns:pts", "wfs"),
+            (f"{_ARCGIS_WFS}/extra", None),
+            ("https://host/arcgis/services/x/WFSServerX", None),
+            (_SERVICE, "oapif"),
+            (f"{_SERVICE}/", "oapif"),
+            (f"{_SERVICE}/collections/0", "oapif"),
+            (f"{_SERVICE}//collections//0?f=json", "oapif"),
+            (_SERVICE.replace("OGCFeatureServer", "OGC%46eatureServer"), "oapif"),
+            (_SERVICE.replace("OGCFeatureServer", "OGCFeatureServerX"), None),
+            (_OTHER_WFS, None),
+            ("https://ogc.example.test/features?x=OGCFeatureServer", None),
+            (None, None),
+            ("", None),
+        ],
+    )
+    def test_the_kind(self, url, kind) -> None:
+        from app.platform.esri_services import esri_service_kind
+
+        assert esri_service_kind(url) == kind
+
+    def test_no_other_module_names_the_services(self) -> None:
+        """Any other match on these names would be a second classifier, and
+        two classifiers disagree on some URL. Mentions count too: a comment
+        is where a copy of the rule starts."""
+        app = pathlib.Path(__file__).parents[1] / "app"
+        allowed = {app / "platform" / "esri_services.py"}
+        offenders = [
+            str(path.relative_to(app))
+            for path in app.rglob("*.py")
+            if path not in allowed
+            and re.search(r"wfsserver|ogcfeatureserver", path.read_text(), re.I)
+        ]
+        assert offenders == []
+        assert re.search(
+            r"wfsserver", (app / "platform" / "esri_services.py").read_text()
+        )

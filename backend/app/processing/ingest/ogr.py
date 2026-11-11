@@ -23,7 +23,8 @@ from app.processing.ingest.shapefile_source import (
     declares_dbf_encoding,
     zip_dataset_root,
 )
-from app.platform.service_items import is_arcgis_oapif, materialise_oapif_items
+from app.platform.esri_services import esri_service_kind
+from app.platform.service_items import materialise_oapif_items
 from app.platform.service_endpoints import (
     assert_endpoints_stay_on_origin,
     fire_once,
@@ -49,7 +50,6 @@ from app.core.url_redaction import redact_url_credentials, scrub_secret_value
 from app.platform.arcgis_wfs import (
     arcgis_wfs_pages_by_count,
     fetch_arcgis_wfs_hits,
-    is_arcgis_wfs,
 )
 from app.platform.egress_proxy import (
     gdal_source_url,
@@ -1400,7 +1400,7 @@ async def run_ogr2ogr_service(
     # that returns early or is stubbed cannot lose the contact date.
     arm_origin_contact = fire_once(on_spawn)
     if service_type == "ogcapi_features" and (
-        token or is_arcgis_oapif(gdal_source_url(gdal_source))
+        token or esri_service_kind(gdal_source_url(gdal_source)) == "oapif"
     ):
         items_path = (
             await materialise_oapif_items(
@@ -1661,7 +1661,7 @@ async def _arcgis_wfs_expected_features(
     when the total can't be read: without it a capped read would pass for
     the whole layer."""
     url = gdal_source_url(gdal_source)
-    if url is None or not is_arcgis_wfs(url):
+    if url is None or esri_service_kind(url) != "wfs":
         return None
     credential_line = (
         _sanitize_authorization_token(token, service_format="wfs") if token else None

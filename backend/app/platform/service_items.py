@@ -86,17 +86,6 @@ MAX_STRUCTURAL_TOKENS = 2_000_000
 PAGE_SIZE = 1000
 
 
-def is_arcgis_oapif(url: str | None) -> bool:
-    """Whether an OGC API Features URL is an ArcGIS ``OGCFeatureServer``.
-
-    GDAL 3.10.3 keeps only the last page of such a collection: every page
-    before it carries ``exceededTransferLimit``, and the GeoJSON driver
-    opens it as an ArcGIS paging dataset that can't fetch its own pages.
-    So these collections are always read by this module's walk.
-    """
-    return bool(url) and "/ogcfeatureserver" in urlsplit(url).path.lower()
-
-
 class MaterialisedCollection(NamedTuple):
     """A local extract, and what is known about the collection behind it.
 
@@ -779,7 +768,7 @@ async def materialise_oapif_items(
     The caller hands the returned path to GDAL INSTEAD of the OAPIF
     source, and writes no header file at all — that's what removes the
     credential from everything GDAL does. ``credential_line`` is None for
-    an ArcGIS collection read anonymously (see `is_arcgis_oapif`); the walk
+    an ArcGIS collection read anonymously (see `esri_service_kind`); the walk
     and its bounds are the same.
 
     ``feature_limit`` stops early for a preview, which needs a handful of

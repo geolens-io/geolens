@@ -49,11 +49,6 @@ _OWN_PARAMETERS = frozenset(
 )
 
 
-def is_arcgis_wfs(url: str | None) -> bool:
-    """Whether a WFS URL is an ArcGIS ``WFSServer`` endpoint."""
-    return bool(url) and urlsplit(url).path.lower().endswith("/wfsserver")
-
-
 def wfs_url(url: str, layer: str, **params: str) -> str:
     """A GetFeature request for ``layer`` on the caller's URL, keeping its
     other parameters (such as a ``token``)."""
