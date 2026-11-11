@@ -335,6 +335,15 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
   const exactKey = EXACT_ERROR_KEYS[message.trim()];
   if (exactKey) return { key: exactKey };
 
+  // The validation handler joins Pydantic messages into one string, and the URL
+  // validators raise a plain ValueError with no code, so the English text is the signal.
+  if (message.includes('url must not include credential query parameters; use the token field')) {
+    return { key: 'errors.validationUrlCredentialToken' };
+  }
+  if (message.includes('url must not include credential query parameters; use a non-secret URL')) {
+    return { key: 'errors.validationUrlCredentialStac' };
+  }
+
   const groupName = message.match(/^A group named '(.*)' already exists$/s);
   if (groupName) return { key: 'errors.groupNameTaken', values: { name: groupName[1] } };
 
