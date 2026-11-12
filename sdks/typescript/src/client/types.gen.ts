@@ -20885,6 +20885,12 @@ export type GetCollectionItemsCollectionsDatasetIdItemsGetData = {
          */
         offset?: number;
         /**
+         * Startindex
+         *
+         * Alias of `offset`, the name ArcGIS clients send. When both are given, a non-zero `offset` must equal it.
+         */
+        startindex?: number | null;
+        /**
          * After Gid
          *
          * Keyset cursor: returns features with gid > after_gid. The preferred pagination path; use the rel=next link for follow-up pages.

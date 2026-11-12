@@ -26829,6 +26829,8 @@ export interface operations {
                 limit?: number;
                 /** @description Legacy offset-based pagination. Prefer `after_gid` keyset cursor (via the `next` link) — offset is retained for backward compatibility but is O(N) at high values. */
                 offset?: number;
+                /** @description Alias of `offset`, the name ArcGIS clients send. When both are given, a non-zero `offset` must equal it. */
+                startindex?: number | null;
                 /** @description Keyset cursor: returns features with gid > after_gid. The preferred pagination path; use the rel=next link for follow-up pages. */
                 after_gid?: number | null;
                 /** @description Bounding box: minx,miny,maxx,maxy */
