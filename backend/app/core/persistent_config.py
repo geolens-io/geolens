@@ -68,9 +68,9 @@ _sync_rate_limit_cache: dict[str, tuple[Any, float]] = {}
 _DEFAULT_GLOBAL_RATE_LIMIT = 60
 _DEFAULT_SEMANTIC_SEARCH_RATE_LIMIT = 30
 _DEFAULT_BASEMAP_PROXY_RATE_LIMIT = 120
-# Ceiling for the OGC Features `limit` page size. Sized for clients such as
-# ArcGIS Online that request up to 5000 features per map tile and never follow
-# `next`; operators on small hosts can lower it.
+# Ceiling for the OGC Features `limit` page size, sized for clients that ask for
+# 5000 features per map tile and don't follow `next`. The items route's stored
+# geometry byte budget, not this ceiling, bounds the memory one page takes.
 _DEFAULT_OGC_ITEMS_MAX_PAGE_SIZE = 5000
 
 

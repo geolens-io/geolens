@@ -561,11 +561,15 @@ async def get_features(
     after_gid: int | None = None,
     cql2_where: str | None = None,
     cql2_binds: Sequence | None = None,
+    max_geometry_bytes: int | None = None,
 ) -> FeaturePage:
     """Fetch paginated features from a data table as GeoJSON-ready dicts.
 
     ``total_is_estimate`` is True past ``_FILTERED_COUNT_CAP``,
     and ``has_more`` (not ``total``) must drive pagination links.
+    ``max_geometry_bytes`` ends the page after the row whose stored geometry
+    brings the page's total to it, so a page may hold fewer than ``limit``
+    rows; the first row is always returned.
     ``cql2_where``/``cql2_binds`` must come from
     ``app.standards.ogc.filtering``, the only sanctioned
     producer of typed CQL2 binds. Raises ValueError (400) on a bad property
@@ -636,13 +640,29 @@ async def get_features(
         db, table_name, with_geometry=with_geometry, where_sql=where_sql
     )
 
-    data_sql = f"SELECT {select_cols} FROM {row_source} t ORDER BY gid LIMIT :limit"
+    page_sql = f"FROM {row_source} t ORDER BY gid LIMIT :limit"
     if not use_keyset:
-        data_sql += " OFFSET :offset"
+        page_sql += " OFFSET :offset"
         bind_values["offset"] = offset
     # One row past the page, so `has_more` is a fact about the
     # rows rather than a comparison against a count that may be estimated.
     bind_values["limit"] = limit + 1
+    budgeted = max_geometry_bytes is not None and with_geometry
+    if budgeted:
+        # The cut runs in SQL so rows past the budget are never serialized;
+        # page_rows tells a budget cut apart from a short last page.
+        data_sql = (
+            f"WITH page AS MATERIALIZED (SELECT * {page_sql}), "
+            "kept AS (SELECT gid FROM (SELECT gid, sum(n) OVER "
+            "(ORDER BY gid ROWS UNBOUNDED PRECEDING) - n AS bytes_before "
+            "FROM (SELECT gid, COALESCE(pg_column_size(geom_4326), 0) AS n FROM page) v"
+            ") w WHERE bytes_before < :max_geometry_bytes) "
+            f"SELECT {select_cols}, (SELECT count(*) FROM page) AS page_rows "
+            "FROM page t WHERE gid IN (SELECT gid FROM kept) ORDER BY gid"
+        )
+        bind_values["max_geometry_bytes"] = max_geometry_bytes
+    else:
+        data_sql = f"SELECT {select_cols} {page_sql}"
 
     # CQL2 and typed property binds are shared by the data and count queries.
     extra_binds = [*(cql2_binds or ()), *typed_binds]
@@ -654,8 +674,12 @@ async def get_features(
         _with_extra_binds(text(data_sql).bindparams(**bind_values))
     )
     rows = [dict(row._mapping) for row in result.all()]
-    has_more = len(rows) > limit
-    if has_more:
+    if budgeted:
+        fetched = max((row.pop("page_rows") for row in rows), default=0)
+        rows = rows[:limit]
+        has_more = fetched > len(rows)
+    else:
+        has_more = len(rows) > limit
         rows = rows[:limit]
 
     # The keyset cursor is excluded from the count (no LIMIT/OFFSET either),
@@ -671,7 +695,7 @@ async def get_features(
         count_bind = {
             k: v
             for k, v in bind_values.items()
-            if k not in ("limit", "offset", "after_gid")
+            if k not in ("limit", "offset", "after_gid", "max_geometry_bytes")
         }
         total, total_is_estimate = await _bounded_total(
             db, table_name, count_where_sql, count_bind, _with_extra_binds
