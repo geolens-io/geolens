@@ -39488,6 +39488,25 @@
             }
           },
           {
+            "description": "Alias of `offset`, the name ArcGIS clients send. When both are given, a non-zero `offset` must equal it.",
+            "in": "query",
+            "name": "startindex",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Alias of `offset`, the name ArcGIS clients send. When both are given, a non-zero `offset` must equal it.",
+              "title": "Startindex"
+            }
+          },
+          {
             "description": "Keyset cursor: returns features with gid > after_gid. The preferred pagination path; use the rel=next link for follow-up pages.",
             "in": "query",
             "name": "after_gid",
