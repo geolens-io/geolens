@@ -730,21 +730,17 @@ def _follow_portal_owner(
     permission: str,
     owners: Owners,
 ) -> None:
-    """Queue a handover to *user* when only the item's ArcGIS owner moved;
-    report a new owner from a ``target.owner`` or ``owner_map`` edit. An entry
-    without a recorded ArcGIS owner adopts the current one while *user* owns
-    the item. An item a handover left incomplete goes to *user*, whoever owns
-    each of its objects now."""
+    """Queue a handover to *user* when the plan now resolves the item to a
+    user other than the one it was migrated to, whether the ArcGIS owner moved
+    or ``target.owner`` / ``owner_map`` was edited. An entry without a recorded
+    ArcGIS owner adopts the current one while *user* owns the item. An item a
+    handover left incomplete goes to *user*, whoever owns each of its objects
+    now."""
     portal_owner = item["owner"]
-    moved = entry.portal_owner is not None and portal_owner != entry.portal_owner
-    pinned = item["target"]["owner"] is not None
     _note_portal_owner(item, entry, owners, str(user.id))
     if entry.handover_incomplete:
         pass
     elif str(user.id) == entry.owner_id:
-        return
-    elif not moved or pinned:
-        owners.changed.append({"item": item["id"], "owner": user.username})
         return
     inactive = directory.inactive(user)
     if inactive:

@@ -455,34 +455,6 @@ def test_a_failed_item_left_out_of_the_run_still_gives_exit_1(
     assert result.exit_code == 1
 
 
-def test_a_completed_run_reports_a_changed_owner(runner, tmp_path, geolens):
-    plan_file = _write_plan(tmp_path)
-    state_path = tmp_path / "arcgis-migration-state.json"
-    plan = json.loads(plan_file.read_text())
-    state_path.write_text(
-        json.dumps(
-            {
-                "schema_version": "1",
-                "portal_url": plan["portal"]["url"],
-                "geolens_instance": layers.GEOLENS_INSTANCE,
-                "items": {
-                    A1: {
-                        "status": "done",
-                        "owner_id": "00000000-0000-0000-0000-0000000000b1",
-                    }
-                },
-            }
-        )
-    )
-
-    result = runner.invoke(app, ["arcgis", "migrate", str(plan_file), "--only", A2])
-
-    report = json.loads((tmp_path / "arcgis-migration-report.json").read_text())
-    assert (A1, "owner_changed") in {
-        (f["item"], f["kind"]) for f in report["follow_ups"]
-    }, result.output
-
-
 def test_a_report_that_cannot_be_written_does_not_replace_the_exit_code(
     runner, tmp_path, geolens, monkeypatch
 ):

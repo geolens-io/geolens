@@ -1267,10 +1267,9 @@ def test_a_state_file_is_written_at_the_current_version_and_v1_still_loads(
     assert _state(tmp_path)["schema_version"] == "6"
 
 
-def test_cutover_counts_an_item_whose_plan_owner_moved_to_another_user(
+def test_cutover_counts_an_item_whose_plan_owner_moved_and_could_not_be_handed_over(
     runner, tmp_path, geolens, handled
 ):
-    _allow_transfers(geolens, _created_id(L1))
     _write_state(
         tmp_path,
         {L1: {"status": "done", "dataset_ids": [_created_id(L1)], "owner_id": ALICE}},
@@ -1471,18 +1470,23 @@ def test_a_failed_transfer_fails_the_item_and_keeps_its_datasets(
     assert entry["dataset_ids"] == [_created_id(L1)]
 
 
-def test_an_owner_changed_after_import_is_reported_not_reimported(
+def test_an_owner_map_edit_after_import_hands_over_without_reimporting(
     runner, tmp_path, geolens, handled
 ):
-    _write_state(tmp_path, {L1: {"status": "done", "owner_id": ALICE}})
+    _owned(geolens, datasets=(_created_id(L1),))
+    _write_state(
+        tmp_path,
+        {L1: {"status": "done", "dataset_ids": [_created_id(L1)], "owner_id": ALICE}},
+    )
     plan = _plan([_item(L1)], owner_map={"agol_alice": "operator"})
 
     result, payload = _run(runner, tmp_path, plan)
 
     assert result.exit_code == 0, result.output
     assert handled == []
-    assert payload["owner_changed"] == [{"item": L1, "owner": "operator"}]
-    assert [s for s in geolens.seen if s.method == "PATCH"] == []
+    assert payload["owner_changed"] == []
+    assert payload["handed_over"] == [{"item": L1, "owner": "operator"}]
+    assert _state(tmp_path)["items"][L1]["owner_id"] == OPERATOR
 
 
 # Following an ArcGIS owner change on a rerun
@@ -1863,12 +1867,14 @@ def test_a_waiting_item_whose_owner_it_already_has_follows_the_arcgis_owner(
     entry = _state(tmp_path)["items"][L1]
     assert (entry["portal_owner"], entry["owner_pending"]) == ("agol_bob", None)
 
-    # An owner_map edit isn't an ArcGIS change, so it isn't applied.
-    result, payload = _run(runner, tmp_path, _plan([moved], {"agol_bob": "alice"}))
+    result, payload = _run(
+        runner, tmp_path, _plan([moved], {"agol_bob": "alice"}), "--dry-run"
+    )
 
     assert result.exit_code == 0, result.output
     assert _owner_patches(geolens) == []
-    assert payload["owner_changed"] == [{"item": L1, "owner": "alice"}]
+    assert payload["handovers"] == [{"item": L1, "owner": "alice"}]
+    assert payload["owner_changed"] == []
 
 
 def test_an_unlisted_item_doesnt_follow_an_arcgis_owner_change(
@@ -1935,7 +1941,7 @@ def test_a_dry_run_lists_the_handovers_the_run_would_make(
     assert _owner_patches(geolens) == [ALICE, ALICE]
 
 
-def test_a_target_owner_set_after_migration_stays_unapplied_after_an_arcgis_change(
+def test_a_target_owner_set_after_migration_is_applied_after_an_arcgis_change(
     runner, tmp_path, geolens, handled
 ):
     _owned(geolens, datasets=(_created_id(L1),))
@@ -1946,11 +1952,11 @@ def test_a_target_owner_set_after_migration_stays_unapplied_after_an_arcgis_chan
     result, payload = _run(runner, tmp_path, _plan([item], BOB_OWNERS))
 
     assert result.exit_code == 0, result.output
-    assert _owner_patches(geolens) == [ALICE]
-    assert payload["owner_changed"] == [{"item": L1, "owner": "newbie"}]
+    assert _owner_patches(geolens) == [ALICE, NEW]
+    assert payload["owner_changed"] == []
 
 
-def test_an_owner_map_edit_after_migration_is_reported_not_applied(
+def test_an_owner_map_edit_after_migration_hands_the_item_over(
     runner, tmp_path, geolens, handled
 ):
     _owned(geolens, datasets=(_created_id(L1),))
@@ -1962,11 +1968,20 @@ def test_an_owner_map_edit_after_migration_is_reported_not_applied(
     )
 
     assert result.exit_code == 0, result.output
-    assert _owner_patches(geolens) == [ALICE]
-    assert payload["owner_changed"] == [{"item": L1, "owner": "newbie"}]
+    assert _owner_patches(geolens) == [ALICE, NEW]
+    assert payload["owner_changed"] == []
+    assert _state(tmp_path)["items"][L1]["owner_id"] == NEW
+
+    # A rerun with no further edit queues nothing.
+    result, payload = _run(
+        runner, tmp_path, _plan([_item(L1)], owner_map={"agol_alice": "newbie"})
+    )
+    assert result.exit_code == 0, result.output
+    assert _owner_patches(geolens) == [ALICE, NEW]
+    assert payload["handed_over"] == []
 
 
-def test_a_cutover_refuses_an_owner_map_edit_after_migration_before_the_run(
+def test_a_cutover_hands_over_an_owner_map_edit_before_checking_owners(
     runner, tmp_path, geolens, handled, refreshed
 ):
     _owned(geolens, datasets=(_created_id(L1),))
@@ -1981,13 +1996,8 @@ def test_a_cutover_refuses_an_owner_map_edit_after_migration_before_the_run(
         "--accept-incomplete-inventory",
     )
 
-    assert result.exit_code == 1
-    assert payload["cutover"]["refused"] == ["unresolved-users"]
-    [users] = [
-        c for c in payload["cutover"]["checks"] if c["check"] == "unresolved-users"
-    ]
-    assert "its plan owner is now newbie" in users["items"][0]["reason"]
-    assert refreshed == [] and payload["refreshed"] == []
+    assert "unresolved-users" not in payload["cutover"]["refused"]
+    assert _owner_patches(geolens) == [ALICE, NEW]
 
 
 def test_an_arcgis_owner_change_to_an_inactive_user_is_reported(
