@@ -636,7 +636,7 @@ async def get_collection_queryables(
 _FILTERED_ITEMS_RATE_LIMIT = "10/second"
 
 # An items page is built in memory at several times its response size, so a page
-# ends early, with a `next` link, once its geometries take this many stored bytes
+# ends early, with a `next` link, once its geometries take this many bytes
 # (about 250,000 2D vertices).
 _ITEMS_PAGE_MAX_GEOMETRY_BYTES = 4_000_000
 

@@ -567,7 +567,7 @@ async def get_features(
 
     ``total_is_estimate`` is True past ``_FILTERED_COUNT_CAP``,
     and ``has_more`` (not ``total``) must drive pagination links.
-    ``max_geometry_bytes`` ends the page after the row whose stored geometry
+    ``max_geometry_bytes`` ends the page after the row whose geometry
     brings the page's total to it, so a page may hold fewer than ``limit``
     rows; the first row is always returned.
     ``cql2_where``/``cql2_binds`` must come from
@@ -650,12 +650,16 @@ async def get_features(
     budgeted = max_geometry_bytes is not None and with_geometry
     if budgeted:
         # The cut runs in SQL so rows past the budget are never serialized;
-        # page_rows tells a budget cut apart from a short last page.
+        # page_rows tells a budget cut apart from a short last page. Only a
+        # compressed geometry is read to size it: any other is stored at the
+        # size it takes in memory.
         data_sql = (
             f"WITH page AS MATERIALIZED (SELECT * {page_sql}), "
             "kept AS (SELECT gid FROM (SELECT gid, sum(n) OVER "
             "(ORDER BY gid ROWS UNBOUNDED PRECEDING) - n AS bytes_before "
-            "FROM (SELECT gid, COALESCE(pg_column_size(geom_4326), 0) AS n FROM page) v"
+            "FROM (SELECT gid, CASE WHEN pg_column_compression(geom_4326) IS NULL "
+            "THEN COALESCE(pg_column_size(geom_4326), 0) "
+            "ELSE ST_MemSize(geom_4326) END AS n FROM page) v"
             ") w WHERE bytes_before < :max_geometry_bytes) "
             f"SELECT {select_cols}, (SELECT count(*) FROM page) AS page_rows "
             "FROM page t WHERE gid IN (SELECT gid FROM kept) ORDER BY gid"

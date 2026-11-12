@@ -1,4 +1,4 @@
-"""An OGC items page ends, with a keyset `next` link, once its geometries reach the stored-bytes budget."""
+"""An OGC items page ends, with a keyset `next` link, once its geometries reach the byte budget."""
 
 from urllib.parse import parse_qs, urlparse
 
@@ -12,14 +12,14 @@ from tests.test_ogc_features import _cleanup_table, _create_test_table_and_datas
 
 pytestmark = pytest.mark.anyio
 
-# Buffer quad_segs per row, so stored sizes differ; None stores a NULL geometry.
+# Buffer quad_segs per row, so sizes differ; None stores a NULL geometry.
 _ROWS = [1, None, 2, None, None, 3, 4, None, 5, 6, 7, 8]
 _BBOX = "-75,40,-73,42"
 
 
 @pytest.fixture
 async def polygons(test_db_session):
-    """A public dataset of buffered points with known stored sizes, in gid order."""
+    """A public dataset of buffered points with known sizes, in gid order."""
     admin_id = await get_user_id(test_db_session, "admin")
     dataset = await _create_test_table_and_dataset(
         test_db_session,
@@ -40,7 +40,7 @@ async def polygons(test_db_session):
         )
     counted = await test_db_session.execute(
         text(
-            f"SELECT gid, COALESCE(pg_column_size(geom_4326), 0) FROM {table} ORDER BY gid"
+            f"SELECT gid, COALESCE(ST_MemSize(geom_4326), 0) FROM {table} ORDER BY gid"
         )
     )
     sizes = [(gid, n) for gid, n in counted.all()]
@@ -186,3 +186,46 @@ async def test_a_page_under_the_budget_is_unchanged(
     assert with_budget == without_budget
     assert with_budget["numberReturned"] == 4
     assert _next(with_budget) is not None
+
+
+# A staircase ring: its repeating coordinates compress in storage.
+_STAIRCASE = (
+    "SELECT ST_SetSRID(ST_MakePolygon(ST_AddPoint(l, ST_StartPoint(l))), 4326), 'stairs' "
+    "FROM (SELECT ST_MakeLine(ARRAY(SELECT ST_MakePoint(-74 + ((i + 1) / 2) * 0.0001, "
+    "41 + (i / 2) * 0.0001) FROM generate_series(1, 2000) i)) AS l) s, "
+    "generate_series(1, 3)"
+)
+
+
+async def test_a_compressed_geometry_counts_at_its_full_size(
+    client: AsyncClient, test_db_session, monkeypatch
+) -> None:
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _create_test_table_and_dataset(
+        test_db_session, created_by=admin_id, geometry_type="POLYGON"
+    )
+    table = f"data.{dataset.table_name}"
+    try:
+        await test_db_session.execute(
+            text(f"INSERT INTO {table} (geom_4326, name) {_STAIRCASE}")
+        )
+        measured = await test_db_session.execute(
+            text(
+                f"SELECT sum(pg_column_size(geom_4326)), sum(ST_MemSize(geom_4326)) FROM {table}"
+            )
+        )
+        stored, full = measured.one()
+        await test_db_session.commit()
+        assert stored < 0.7 * full, "the fixture's geometries are not compressed"
+        # All three fit the budget as stored; in memory the third is past it.
+        monkeypatch.setattr(ogc_router, "_ITEMS_PAGE_MAX_GEOMETRY_BYTES", full // 2)
+
+        resp = await client.get(
+            f"/collections/{dataset.id}/items", params={"limit": 100}
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["numberReturned"] == 2
+        assert _next(resp.json()) is not None
+    finally:
+        await _cleanup_table(test_db_session, dataset.table_name)
