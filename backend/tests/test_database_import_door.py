@@ -227,6 +227,11 @@ async def test_second_import_by_the_same_user_is_a_duplicate(
     other = await client.post(URL, json=body, headers=admin_auth_header)
     assert other.status_code == 202, other.text
 
+    # The queued job outlives the test and would block the same source for admin.
+    for job in await _jobs(test_db_session, await _user_id(client, admin_auth_header)):
+        await test_db_session.delete(job)
+    await test_db_session.commit()
+
 
 async def test_unknown_connection_is_404(
     client: AsyncClient, editor_auth_header, configured, listing, deferred

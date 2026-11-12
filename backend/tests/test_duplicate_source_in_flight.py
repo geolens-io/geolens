@@ -465,6 +465,10 @@ async def test_a_database_job_refused_at_publication_leaves_no_table_or_dataset(
     assert await _datasets_of(test_db_session, owner) == before
     assert await _data_tables(test_db_session) == tables
 
+    # The dataset outlives the test and would make the same source a duplicate.
+    await test_db_session.delete(existing)
+    await test_db_session.commit()
+
 
 async def test_a_retry_is_refused_while_the_owner_holds_a_copy_and_allowed_after(
     client: AsyncClient,
