@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -676,7 +677,10 @@ def test_an_oauth_token_is_refreshed_once_after_a_rejection(
 ):
     stored = secrets.token_urlsafe(16)
     issued = [secrets.token_urlsafe(16), secrets.token_urlsafe(16)]
-    mock_keyring[("geolens", f"arcgis-oauth:app01@{PORTAL}")] = stored
+    now = time.time()
+    mock_keyring[("geolens", f"arcgis-oauth:app01@{PORTAL}")] = json.dumps(
+        {"refresh_token": stored, "issued_at": now, "expires_at": now + 1209599}
+    )
     grants: list[dict] = []
 
     def token(seen):

@@ -16,6 +16,11 @@ and releases use semantic versioning.
   unreadable at gallery size. The social card image and the PNG export still
   carry it, and a thumbnail saved earlier keeps its credit until the map is
   next saved.
+- A browser ArcGIS sign-in used by `geolens arcgis inventory` and
+  `geolens arcgis migrate` now renews itself. Once its refresh token is past
+  half of its lifetime, the next run exchanges it for a new one without the
+  browser, so the sign-in stays valid as long as the CLI runs at least once
+  within that lifetime (two weeks on ArcGIS Online's defaults).
 - The share card for a map with no social card image now shows the site card
   instead of the map's thumbnail.
 - A web page on another site can now read the public stories, maps and
