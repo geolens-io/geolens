@@ -21,7 +21,7 @@ function renderTab(overrides: Partial<Parameters<typeof SettingsNetworkTab>[0]> 
   const settings: SettingItem[] = [
     makeSetting('cors_allowed_origins', ''),
     makeSetting('global_rate_limit', 60),
-    makeSetting('ogc_items_max_page_size', 1000),
+    makeSetting('ogc_items_max_page_size', 5000),
     makeSetting('semantic_search_rate_limit', 30),
     makeSetting('basemap_proxy_rate_limit', 120),
   ];

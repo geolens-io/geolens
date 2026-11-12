@@ -68,10 +68,10 @@ _sync_rate_limit_cache: dict[str, tuple[Any, float]] = {}
 _DEFAULT_GLOBAL_RATE_LIMIT = 60
 _DEFAULT_SEMANTIC_SEARCH_RATE_LIMIT = 30
 _DEFAULT_BASEMAP_PROXY_RATE_LIMIT = 120
-# Ceiling for the OGC Features `limit` page size. Conservative by default:
-# the offset path is O(N) in memory on an anonymous endpoint, so a low default
-# protects resource-limited deployments; operators raise it for bulk export.
-_DEFAULT_OGC_ITEMS_MAX_PAGE_SIZE = 1000
+# Ceiling for the OGC Features `limit` page size, sized for clients that ask for
+# 5000 features per map tile and don't follow `next`. The items route's
+# geometry byte budget, not this ceiling, bounds the memory one page takes.
+_DEFAULT_OGC_ITEMS_MAX_PAGE_SIZE = 5000
 
 
 def _validate_or_fallback(cfg: PersistentConfig[T], raw: Any) -> tuple[T, bool]:

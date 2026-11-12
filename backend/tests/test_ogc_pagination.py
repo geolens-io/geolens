@@ -356,6 +356,25 @@ async def test_items_limit_at_default_ceiling_accepted(
 
 
 @pytest.mark.anyio
+async def test_items_default_ceiling_allows_5000_page(
+    client: AsyncClient, test_db_session
+):
+    """A default-configured instance serves limit=5000 without clamping it."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _create_test_table_and_dataset(
+        test_db_session, created_by=admin_id, visibility="public", with_features=3
+    )
+    try:
+        resp = await client.get(
+            f"/collections/{dataset.id}/items", params={"limit": 5000}
+        )
+        assert resp.status_code == 200
+        assert _self_limit(resp.json()) == 5000
+    finally:
+        await _cleanup_table(test_db_session, dataset.table_name)
+
+
+@pytest.mark.anyio
 async def test_items_limit_above_ceiling_clamped_not_rejected(
     client: AsyncClient, test_db_session
 ):
