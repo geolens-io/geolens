@@ -24,6 +24,7 @@ def _get_kwargs(
     *,
     limit: int | Unset = 10,
     offset: int | Unset = 0,
+    startindex: int | None | Unset = UNSET,
     after_gid: int | None | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     datetime_: None | str | Unset = UNSET,
@@ -41,6 +42,13 @@ def _get_kwargs(
     params["limit"] = limit
 
     params["offset"] = offset
+
+    json_startindex: int | None | Unset
+    if isinstance(startindex, Unset):
+        json_startindex = UNSET
+    else:
+        json_startindex = startindex
+    params["startindex"] = json_startindex
 
     json_after_gid: int | None | Unset
     if isinstance(after_gid, Unset):
@@ -196,6 +204,7 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     limit: int | Unset = 10,
     offset: int | Unset = 0,
+    startindex: int | None | Unset = UNSET,
     after_gid: int | None | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     datetime_: None | str | Unset = UNSET,
@@ -233,6 +242,8 @@ def sync_detailed(
         offset (int | Unset): Legacy offset-based pagination. Prefer `after_gid` keyset cursor
             (via the `next` link) — offset is retained for backward compatibility but is O(N) at high
             values. Default: 0.
+        startindex (int | None | Unset): Alias of `offset`, the name ArcGIS clients send. When
+            both are given, a non-zero `offset` must equal it.
         after_gid (int | None | Unset): Keyset cursor: returns features with gid > after_gid. The
             preferred pagination path; use the rel=next link for follow-up pages.
         bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy
@@ -265,6 +276,7 @@ def sync_detailed(
         dataset_id=dataset_id,
         limit=limit,
         offset=offset,
+        startindex=startindex,
         after_gid=after_gid,
         bbox=bbox,
         datetime_=datetime_,
@@ -290,6 +302,7 @@ def sync(
     client: AuthenticatedClient | Client,
     limit: int | Unset = 10,
     offset: int | Unset = 0,
+    startindex: int | None | Unset = UNSET,
     after_gid: int | None | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     datetime_: None | str | Unset = UNSET,
@@ -328,6 +341,8 @@ def sync(
         offset (int | Unset): Legacy offset-based pagination. Prefer `after_gid` keyset cursor
             (via the `next` link) — offset is retained for backward compatibility but is O(N) at high
             values. Default: 0.
+        startindex (int | None | Unset): Alias of `offset`, the name ArcGIS clients send. When
+            both are given, a non-zero `offset` must equal it.
         after_gid (int | None | Unset): Keyset cursor: returns features with gid > after_gid. The
             preferred pagination path; use the rel=next link for follow-up pages.
         bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy
@@ -361,6 +376,7 @@ def sync(
         client=client,
         limit=limit,
         offset=offset,
+        startindex=startindex,
         after_gid=after_gid,
         bbox=bbox,
         datetime_=datetime_,
@@ -380,6 +396,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     limit: int | Unset = 10,
     offset: int | Unset = 0,
+    startindex: int | None | Unset = UNSET,
     after_gid: int | None | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     datetime_: None | str | Unset = UNSET,
@@ -417,6 +434,8 @@ async def asyncio_detailed(
         offset (int | Unset): Legacy offset-based pagination. Prefer `after_gid` keyset cursor
             (via the `next` link) — offset is retained for backward compatibility but is O(N) at high
             values. Default: 0.
+        startindex (int | None | Unset): Alias of `offset`, the name ArcGIS clients send. When
+            both are given, a non-zero `offset` must equal it.
         after_gid (int | None | Unset): Keyset cursor: returns features with gid > after_gid. The
             preferred pagination path; use the rel=next link for follow-up pages.
         bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy
@@ -449,6 +468,7 @@ async def asyncio_detailed(
         dataset_id=dataset_id,
         limit=limit,
         offset=offset,
+        startindex=startindex,
         after_gid=after_gid,
         bbox=bbox,
         datetime_=datetime_,
@@ -472,6 +492,7 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     limit: int | Unset = 10,
     offset: int | Unset = 0,
+    startindex: int | None | Unset = UNSET,
     after_gid: int | None | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     datetime_: None | str | Unset = UNSET,
@@ -510,6 +531,8 @@ async def asyncio(
         offset (int | Unset): Legacy offset-based pagination. Prefer `after_gid` keyset cursor
             (via the `next` link) — offset is retained for backward compatibility but is O(N) at high
             values. Default: 0.
+        startindex (int | None | Unset): Alias of `offset`, the name ArcGIS clients send. When
+            both are given, a non-zero `offset` must equal it.
         after_gid (int | None | Unset): Keyset cursor: returns features with gid > after_gid. The
             preferred pagination path; use the rel=next link for follow-up pages.
         bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy
@@ -544,6 +567,7 @@ async def asyncio(
             client=client,
             limit=limit,
             offset=offset,
+            startindex=startindex,
             after_gid=after_gid,
             bbox=bbox,
             datetime_=datetime_,

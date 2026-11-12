@@ -745,6 +745,14 @@ async def get_collection_items(
             "compatibility but is O(N) at high values."
         ),
     ),
+    startindex: int | None = Query(
+        None,
+        ge=0,
+        description=(
+            "Alias of `offset`, the name ArcGIS clients send. When both are "
+            "given, a non-zero `offset` must equal it."
+        ),
+    ),
     after_gid: int | None = Query(
         None,
         ge=0,
@@ -811,6 +819,14 @@ async def get_collection_items(
     parameter SHALL be ignored" applies (OGC 17-069r4 §7.15.5).
     """
     _validate_f_param(f)
+    if startindex is not None:
+        # A generated client sends its offset default of 0 alongside startindex.
+        if offset and offset != startindex:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="offset must be 0 or equal startindex",
+            )
+        offset = startindex
     public_api_url = await get_public_api_url(db, request=request)
 
     # OGC Features Core requires over-limit requests to clamp, not fail.
@@ -854,6 +870,7 @@ async def get_collection_items(
     ogc_reserved = {
         "limit",
         "offset",
+        "startindex",
         "after_gid",
         "bbox",
         "f",
