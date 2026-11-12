@@ -192,9 +192,10 @@ def _unlock(fd: int) -> None:
 
 
 @contextmanager
-def _exchange_lock(account: str) -> Iterator[bool]:
-    """Hold *account*'s sign-in lock across processes; yields False when it
-    can't be had within ``_LOCK_WAIT`` seconds.
+def _exchange_lock(account: str) -> Iterator[bool | None]:
+    """Hold *account*'s sign-in lock across processes; yields False when
+    another process keeps it for ``_LOCK_WAIT`` seconds, None when the file
+    system can't lock.
 
     The operating system releases the lock when its holder exits, so a
     process that crashed holding it does not block later runs.
@@ -205,7 +206,7 @@ def _exchange_lock(account: str) -> Iterator[bool]:
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
     except OSError:
-        yield False
+        yield None
         return
     try:
         deadline = time.monotonic() + _LOCK_WAIT
@@ -214,7 +215,7 @@ def _exchange_lock(account: str) -> Iterator[bool]:
             time.sleep(_LOCK_POLL)
             locked = _try_lock(fd)
         if not locked:
-            yield False
+            yield locked
             return
         try:
             yield True
@@ -249,7 +250,7 @@ def sign_in(
         for backend, stored in saved:
             redact.add(stored.token)
             try:
-                session.resume(stored, exchange=locked)
+                session.resume(stored, exchange=bool(locked))
                 return
             except PortalError as exc:
                 if exc.kind != "auth":
@@ -443,10 +444,12 @@ def forget(root: str, client_id: str) -> tuple[list[str], list[str], list[str]]:
     could not be read, so may still hold it)."""
     account = _account(root, client_id)
     # Under the lock, an exchange in flight saves its token before this
-    # deletes it, not after.
-    with _exchange_lock(account):
+    # deletes it, not after. A holder that outlasts the wait could still save
+    # after a delete, so the sign-in is then left and reported as still saved.
+    with _exchange_lock(account) as locked:
         before = [backend for backend, _ in _auth.load_secrets(account)]
-        _auth.delete_secret(account)
+        if locked is not False:
+            _auth.delete_secret(account)
     found, unreadable = _auth.probe_secrets(account)
     after = [backend for backend, _ in found]
     return [b for b in before if b not in after], after, unreadable

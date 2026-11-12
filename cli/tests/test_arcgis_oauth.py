@@ -1088,6 +1088,21 @@ def test_a_logout_waits_for_an_exchange_in_flight(
     assert ACCOUNT not in mock_keyring
 
 
+def test_a_logout_that_cannot_get_the_lock_leaves_the_sign_in(
+    monkeypatch, mock_keyring, tmp_xdg_home
+):
+    mock_keyring[ACCOUNT] = _value(STORED)
+    monkeypatch.setattr(oauth, "_LOCK_WAIT", 0.2)
+
+    with oauth._exchange_lock(ACCOUNT[1]) as held:
+        assert held
+        thread, outcome = _in_thread(lambda: oauth.forget(PORTAL, CLIENT_ID))
+        thread.join(10)
+
+    assert outcome == [([], ["keyring"], [])]
+    assert json.loads(mock_keyring[ACCOUNT])["refresh_token"] == STORED
+
+
 _HOLD_LOCK = """
 import sys, time
 from geolens_cli import arcgis_oauth
