@@ -215,8 +215,11 @@ async def test_head_export_omits_content_length_and_advertises_ranges(
     """
     ds = await _public_dataset(test_db_session, "HeadExportHeaders")
 
-    head = await client.head(f"/datasets/{ds.id}/export?format=geojson")
-    get = await client.get(f"/datasets/{ds.id}/export?format=geojson")
+    identity = {"Accept-Encoding": "identity"}
+    head = await client.head(
+        f"/datasets/{ds.id}/export?format=geojson", headers=identity
+    )
+    get = await client.get(f"/datasets/{ds.id}/export?format=geojson", headers=identity)
 
     assert head.status_code == 200
     assert head.headers.get("accept-ranges") == "bytes", (

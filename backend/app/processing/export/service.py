@@ -356,6 +356,7 @@ async def export_dataset(
     column_info: list[dict] | None = None,
     pmtiles_maxzoom: int | None = None,
     deadline: float | None = None,
+    xy: bool = False,
 ) -> tuple[str, str, str]:
     """Export a dataset table to a file.
 
@@ -371,6 +372,7 @@ async def export_dataset(
         deadline: ``time.monotonic()`` stamp by which the whole request must
             be answered; passed to the ogr2ogr subprocess, which reads what
             is left of it at spawn time.
+        xy: CSV only; add WGS 84 ``longitude`` and ``latitude`` columns.
 
     Returns:
         Tuple of (file_path, download_filename, media_type).
@@ -446,6 +448,8 @@ async def export_dataset(
             # database calls numeric, so it needs types, not values. Empty for
             # other formats or missing column_info.
             numeric_columns=numeric_column_names(column_info),
+            layer_name=dataset_name,
+            xy=xy,
         )
         if format_key == "gpkg":
             # Off the event loop: a SQLite write over a file that can be

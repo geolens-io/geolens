@@ -15,50 +15,174 @@ already holds.
 
 import asyncio
 import os
+import zlib
 from typing import AsyncIterator
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
 from starlette.responses import Response
 
+from app.api.no_compress_paths import ORIGINAL_ACCEPT_ENCODING_KEY
 from app.platform.http.ranges import (
     RANGE_UNSATISFIABLE,
+    if_none_match_matches,
+    not_modified_response,
     parse_byte_range,
     range_bound_to_this_version,
 )
 from app.processing.export.artifact_cache import ExportArtifact
+from app.processing.export.ogr import FORMAT_MAP
 from app.processing.export.service import file_response_content_disposition
 
 _FILE_CHUNK_BYTES = 1024 * 1024
 
+# GeoJSON and CSV compress well and are the only exports sent gzipped, as a
+# second representation of the stored artifact under its own validator.
+_TEXT_MEDIA_TYPES = frozenset(FORMAT_MAP[key]["media"] for key in ("geojson", "csv"))
+_GZIP_LEVEL = 4
 
-def artifact_headers(artifact: ExportArtifact) -> dict[str, str]:
+
+def is_text_export(media_type: str) -> bool:
+    return media_type in _TEXT_MEDIA_TYPES
+
+
+def client_offers_gzip(request: Request, media_type: str) -> bool:
+    """Is this request answered with the gzip representation?
+
+    Only text exports, only when the client offers gzip with a nonzero
+    q-value, and never with ``Range`` or ``If-Range``: the gzip bytes have no
+    byte offsets a client could resume against, so those get the identity file.
+    """
+    if not is_text_export(media_type):
+        return False
+    if "range" in request.headers or "if-range" in request.headers:
+        return False
+    for member in request.scope.get(ORIGINAL_ACCEPT_ENCODING_KEY, "").split(","):
+        name, _, params = member.partition(";")
+        if name.strip().lower() not in ("gzip", "x-gzip"):
+            continue
+        quality = 1.0
+        for param in params.split(";"):
+            key, _, value = param.partition("=")
+            if key.strip().lower() == "q":
+                try:
+                    quality = float(value)
+                except ValueError:
+                    quality = 0.0
+        return quality > 0
+    return False
+
+
+def _gzip_strong_etag(etag: str) -> str:
+    return f'"{etag.strip(chr(34))}-gzip"'
+
+
+def gzip_etag(etag: str) -> str:
+    """The validator of the gzip representation of the artifact ``etag`` names.
+
+    Weak: the compressor is deterministic here, but a different zlib could
+    write other bytes for the same artifact, so it promises equivalence only.
+    """
+    return f"W/{_gzip_strong_etag(etag)}"
+
+
+def revalidates(if_none_match: str | None, etag: str | None, media_type: str) -> bool:
+    """Does ``If-None-Match`` name the artifact or, for a text export, its gzip form?"""
+    if if_none_match_matches(if_none_match, etag):
+        return True
+    return (
+        etag is not None
+        and is_text_export(media_type)
+        and if_none_match_matches(if_none_match, _gzip_strong_etag(etag))
+    )
+
+
+# GZipMiddleware is kept off this route, so a text export names the request
+# header its body depends on itself.
+VARY_ACCEPT_ENCODING = {"vary": "Accept-Encoding"}
+GZIP_REPRESENTATION_HEADERS = {"content-encoding": "gzip", "accept-ranges": "none"}
+
+
+def representation_headers(media_type: str, *, gzipped: bool = False) -> dict[str, str]:
+    """Headers that say which representation of a text export this is."""
+    if not is_text_export(media_type):
+        return {}
+    return {**VARY_ACCEPT_ENCODING, **(GZIP_REPRESENTATION_HEADERS if gzipped else {})}
+
+
+def not_modified(etag: str | None, *, gzipped: bool = False) -> Response:
+    """The 304 for the representation this request would have received."""
+    response = not_modified_response(
+        gzip_etag(etag) if gzipped and etag is not None else etag
+    )
+    response.headers["vary"] = VARY_ACCEPT_ENCODING["vary"]
+    if gzipped:
+        response.headers["accept-ranges"] = "none"
+    return response
+
+
+def artifact_headers(
+    artifact: ExportArtifact, *, gzipped: bool = False
+) -> dict[str, str]:
     """Headers every response describing a stored artifact carries.
 
     ``ETag`` is the artifact's digest, not a mtime-derived tag, which changed
     between conversions of unchanged data. Uses
     ``file_response_content_disposition``, not ``safe_content_disposition``,
-    so HEAD and GET agree byte for byte.
+    so HEAD and GET agree byte for byte. ``gzipped`` swaps in the gzip
+    representation's validator and drops the range advertisement.
     """
     return {
         "accept-ranges": "bytes",
         "content-disposition": file_response_content_disposition(artifact.filename),
-        "etag": artifact.etag,
+        "etag": gzip_etag(artifact.etag) if gzipped else artifact.etag,
+        **representation_headers(artifact.media_type, gzipped=gzipped),
     }
 
 
-def head_response(artifact: ExportArtifact) -> Response:
+def head_response(artifact: ExportArtifact, *, gzipped: bool = False) -> Response:
     """HEAD, answered from the artifact: a real Content-Length, no conversion.
 
     Without a real length, ``/vsicurl/`` retries with a ranged GET to learn
-    the size, costing a round trip.
+    the size, costing a round trip. The gzip representation's length is not
+    known without compressing, so it carries none (RFC 9110 9.3.2).
     """
+    if gzipped:
+        response = Response(
+            status_code=status.HTTP_200_OK,
+            media_type=artifact.media_type,
+            headers=artifact_headers(artifact, gzipped=True),
+        )
+        response.raw_headers = [
+            (key, value)
+            for key, value in response.raw_headers
+            if key != b"content-length"
+        ]
+        return response
     return Response(
         status_code=status.HTTP_200_OK,
         media_type=artifact.media_type,
         headers={**artifact_headers(artifact), "content-length": str(artifact.size)},
     )
+
+
+async def _gzip_chunks(source: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
+    """Compress a byte stream, deflating off the event loop.
+
+    The gzip header carries no timestamp, so equal input gives equal output.
+    """
+    compressor = zlib.compressobj(_GZIP_LEVEL, zlib.DEFLATED, 31)
+    try:
+        async for chunk in source:
+            packed = await asyncio.to_thread(compressor.compress, chunk)
+            if packed:
+                yield packed
+        yield compressor.flush()
+    finally:
+        close = getattr(source, "aclose", None)
+        if close is not None:
+            await close()
 
 
 def read_response(
@@ -69,15 +193,26 @@ def read_response(
     if_range: str | None = None,
     may_serve_range: bool,
     leading_slice_ok: bool = False,
+    gzipped: bool = False,
     background: BackgroundTask | None = None,
 ) -> Response:
     """The GET: a 206 slice, a 416, or the whole artifact.
+
+    ``gzipped`` answers the whole artifact compressed; the caller sets it only
+    for a request with no Range or If-Range.
 
     ``may_serve_range``: true only if these bytes were served before this
     request (gates the splice in the module docstring). ``leading_slice_ok``
     is the byte-0 exception, set only for a fresh build with no other live
     representation. ``background`` must run after the response.
     """
+    if gzipped:
+        return StreamingResponse(
+            _gzip_chunks(storage.get_stream(artifact.key)),
+            media_type=artifact.media_type,
+            headers=artifact_headers(artifact, gzipped=True),
+            background=background,
+        )
     headers = artifact_headers(artifact)
 
     # If-Range is evaluated before slicing: a client naming the previous
@@ -137,6 +272,7 @@ def temp_file_response(
     etag: str | None,
     range_header: str | None = None,
     if_range: str | None = None,
+    gzipped: bool = False,
     background: BackgroundTask | None = None,
 ) -> Response:
     """Serve a just-converted file that wasn't published.
@@ -152,10 +288,22 @@ def temp_file_response(
     the client took from an artifact of the same bytes, which gets a 206 from
     the local file; a bare or mismatched one gets the whole file.
     """
+    if gzipped:
+        return StreamingResponse(
+            _gzip_chunks(_iter_file(file_path)),
+            media_type=media_type,
+            headers={
+                "accept-ranges": "none",
+                "content-disposition": file_response_content_disposition(filename),
+                **representation_headers(media_type, gzipped=True),
+            },
+            background=background,
+        )
     size = os.path.getsize(file_path)
     headers = {
         "accept-ranges": "none",
         "content-disposition": file_response_content_disposition(filename),
+        **representation_headers(media_type),
     }
 
     proven = (

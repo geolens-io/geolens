@@ -30784,6 +30784,8 @@ export interface operations {
                 bbox?: string | null;
                 /** @description Attribute filter expression, e.g. pop > 1000 */
                 where?: string | null;
+                /** @description CSV only: add WGS 84 longitude and latitude columns after the geometry, filled for a point or a one-point multipoint and empty otherwise. Ignored for other formats, for layers that are not point or multipoint, and for a dataset that already has a longitude or latitude column. */
+                xy?: boolean;
             };
             header?: never;
             path: {
