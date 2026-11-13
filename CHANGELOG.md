@@ -16,6 +16,7 @@ and releases use semantic versioning.
   unreadable at gallery size. The social card image and the PNG export still
   carry it, and a thumbnail saved earlier keeps its credit until the map is
   next saved.
+- The dataset-page COPC viewer follows the hierarchy pages a file references, so large point clouds draw their deeper levels instead of stopping at the root page.
 - A browser ArcGIS sign-in used by `geolens arcgis inventory` and
   `geolens arcgis migrate` now renews itself. Once its refresh token is past
   half of its lifetime, the next run exchanges it for a new one without the

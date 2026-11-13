@@ -22,3 +22,8 @@ export const POINT_BUDGET = 2_000_000;
 /** Decoded bytes (points times record length) one node may occupy. */
 export const MAX_NODE_DECODED_BYTES = 128 * 1024 * 1024;
 export const MAX_WKT_LENGTH = 64 * 1024;
+
+/** Hierarchy pages one load may read beyond the root, and the bytes and nesting they may use. */
+export const MAX_HIERARCHY_PAGES = 40;
+export const MAX_HIERARCHY_BYTES = 16 * 1024 * 1024;
+export const MAX_HIERARCHY_PAGE_DEPTH = 8;
