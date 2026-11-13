@@ -49,6 +49,7 @@ from app.standards.ogc.utils import (
     link_header_value,
     parse_accept_languages,
 )
+from app.standards.ogc.desktop import desktop_entry_gate
 from app.standards.ogc.errors import BAD_REQUEST_RESPONSE, ERROR_RESPONSES_PUBLIC
 from app.core.geo import extent_to_bbox, rollup_bbox, rollup_bbox_columns, shown_extent
 from app.core.public_urls import get_public_api_url, get_public_app_url
@@ -620,6 +621,7 @@ async def search_datasets_endpoint(
 
 collections_router = APIRouter(
     prefix="/collections",
+    dependencies=[Depends(desktop_entry_gate)],
     tags=["OGC Features"],
     responses=ERROR_RESPONSES_PUBLIC,
 )

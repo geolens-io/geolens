@@ -205,7 +205,8 @@ def items_validator_headers(
             dataset.table_name,
             dataset.geometry_type,
             dataset.feature_count,
-            base_url,
+            # The links' own base, which carries the desktop entry's path there.
+            build_url("/", base_url=base_url),
             limit,
             offset,
             after_gid,
