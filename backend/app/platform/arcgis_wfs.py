@@ -28,6 +28,7 @@ from app.platform.probe_bounds import bounded_probe_exchange
 from app.platform.security import (
     PROBE_TIMEOUT,
     SSRFError,
+    SSRFResolutionError,
     make_safe_client,
     validate_url_for_ssrf,
 )
@@ -113,6 +114,8 @@ def features_returned(body: bytes) -> int | None:
 class _Answer(NamedTuple):
     body: bytes
     final_url: str
+    # HTTP 401/403: the service answered, refusing this caller.
+    refused: bool = False
 
 
 async def _read(
@@ -121,7 +124,7 @@ async def _read(
     on_first_request: Callable[[], None] | None,
 ) -> _Answer | None:
     """One bounded read that accepts gzip, and the URL it ended on, or None
-    when it fails.
+    when it fails. An HTTP 401 or 403 is an empty answer marked ``refused``.
 
     ``on_first_request`` fires once the target has passed SSRF validation,
     right before the request, as `fetch_document` does. A ``token`` in the
@@ -145,6 +148,11 @@ async def _read(
                     credential_in_query=pinned_origin(target, credential=False)
                     is not None,
                 )
+    except httpx.HTTPStatusError as exc:
+        logger.warning("arcgis_wfs_read_failed", error_class=type(exc).__name__)
+        if exc.response.status_code in (401, 403):
+            return _Answer(b"", str(exc.response.url), refused=True)
+        return None
     except (
         TimeoutError,
         httpx.HTTPError,
@@ -194,11 +202,13 @@ async def recognise_arcgis_wfs(
 
     A URL naming the service decides on its own. Otherwise GetCapabilities
     does: the URL it ended on after redirects, the operation endpoints it
-    advertises, or an output format only ArcGIS lists. A read that fails
-    or doesn't parse is retried after each of `RECOGNITION_RETRY_DELAYS`,
-    then raises `CapabilitiesUnreadableError`: unrecognised, an ArcGIS
-    layer would be imported unchecked. An address the SSRF check refuses
-    answers None, since GDAL's egress proxy refuses it too.
+    advertises, or an output format only ArcGIS lists. Anything that isn't
+    a capabilities document (a failed or unresolved read, a status error, a
+    body over its bound, an exception report) is retried after each of
+    `RECOGNITION_RETRY_DELAYS`, then raises `CapabilitiesUnreadableError`:
+    unrecognised, an ArcGIS layer would be imported unchecked. None is
+    returned only for another server's capabilities, an HTTP 401 or 403, or
+    an address the SSRF policy refuses: GDAL is refused the same way.
 
     The version is the URL's own, else the one GetCapabilities answers in,
     as GDAL settles on it, else 2.0.0; GetCapabilities isn't read when the
@@ -211,6 +221,9 @@ async def recognise_arcgis_wfs(
     if evidence is None:
         try:
             await validate_url_for_ssrf(_capabilities_url(url))
+        except SSRFResolutionError:
+            # A lookup that failed is no answer; each read below retries it.
+            pass
         except SSRFError as exc:
             logger.warning("arcgis_wfs_read_failed", error_class=type(exc).__name__)
             return None
@@ -218,6 +231,9 @@ async def recognise_arcgis_wfs(
         url, credential_line, on_first_request, retry=evidence is None
     )
     if evidence is None:
+        if answer is not None and answer.refused:
+            # GDAL is refused the same way and reports the credential hint.
+            return None
         if answer is None or root is None:
             raise CapabilitiesUnreadableError()
         evidence = esri_evidence(
@@ -250,7 +266,7 @@ async def _read_capabilities(
         answer = await _read(_capabilities_url(url), credential_line, on_first_request)
         root = None if answer is None else _root(answer.body)
         root = None if root is None else _wfs_capabilities_node(root)
-        if root is not None or pause is None:
+        if root is not None or pause is None or (answer and answer.refused):
             break
         await asyncio.sleep(pause)
     return answer, root

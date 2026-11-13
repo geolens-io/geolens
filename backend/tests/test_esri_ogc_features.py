@@ -2208,3 +2208,217 @@ class TestAnOgcExceptionIsNotAnItemsPage:
             await recognise_esri_oapif(_PROXY, "0")
 
         assert len(recorded) == 1
+
+
+def _not_an_answer(kind: str, monkeypatch, *, ssrf_modules: tuple[str, ...]):
+    """A handler, and any patches, for one way a read yields no answer."""
+    from app.platform.security import SSRFResolutionError
+
+    monkeypatch.setattr("app.platform.security.validate_url_for_ssrf", AsyncMock())
+    if kind == "dns":
+        for module in ssrf_modules:
+            monkeypatch.setattr(
+                f"{module}.validate_url_for_ssrf",
+                AsyncMock(side_effect=SSRFResolutionError("no such host")),
+            )
+        return lambda r: _streamed(200, b"", "text/plain")
+    if kind == "byte-bound":
+        for module in ("app.platform.service_items", "app.platform.probe_bounds"):
+            monkeypatch.setattr(f"{module}.MAX_DOCUMENT_BYTES", 64)
+        return lambda r: _streamed(200, b" " * 4096 + b"{}", "application/json")
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if kind == "timeout":
+            raise httpx.ReadTimeout("slow", request=request)
+        if kind == "connect":
+            raise httpx.ConnectError("refused", request=request)
+        if kind == "redirect-loop":
+            return httpx.Response(302, headers={"Location": str(request.url)})
+        if kind == "5xx":
+            return _streamed(503, b"busy", "text/plain")
+        if kind == "exception":
+            if "WFS" in str(request.url).upper():
+                return _streamed(200, _EXCEPTION_REPORT, "application/xml")
+            return _json(_OGC_EXCEPTION)
+        if kind == "truncated":
+            return _streamed(
+                200, b'{"type": "FeatureCollection", "feat', "application/json"
+            )
+        raise AssertionError(kind)
+
+    return handle
+
+
+_NOT_ANSWERS = [
+    "timeout",
+    "dns",
+    "connect",
+    "5xx",
+    "exception",
+    "truncated",
+    "redirect-loop",
+    "byte-bound",
+]
+
+
+class TestEveryNonAnswerEndsInARefusal:
+    """No way of failing to read the service may pass for "not ArcGIS"."""
+
+    @pytest.mark.parametrize("kind", _NOT_ANSWERS)
+    async def test_ogc_api(self, monkeypatch, kind) -> None:
+        from app.platform.service_items import (
+            RecognitionFailedError,
+            recognise_esri_oapif,
+        )
+
+        handler: dict = {}
+        recorded = _serve(monkeypatch, lambda r: handler["answer"](r))
+        handler["answer"] = _not_an_answer(
+            kind,
+            monkeypatch,
+            ssrf_modules=(
+                "app.platform.service_items",
+                "app.platform.service_endpoints",
+            ),
+        )
+
+        with pytest.raises(RecognitionFailedError):
+            await recognise_esri_oapif(_PROXY, "0")
+        if kind == "dns":
+            assert recorded == []
+        elif kind != "redirect-loop":
+            assert len(recorded) >= 3
+
+    @pytest.mark.parametrize("kind", _NOT_ANSWERS)
+    async def test_wfs(self, monkeypatch, kind) -> None:
+        from app.platform.arcgis_wfs import (
+            CapabilitiesUnreadableError,
+            recognise_arcgis_wfs,
+        )
+
+        monkeypatch.setattr(
+            "app.platform.arcgis_wfs.validate_url_for_ssrf", AsyncMock()
+        )
+        handler = _not_an_answer(
+            kind, monkeypatch, ssrf_modules=("app.platform.arcgis_wfs",)
+        )
+        recorded = _serve(monkeypatch, handler)
+
+        with pytest.raises(CapabilitiesUnreadableError):
+            await recognise_arcgis_wfs(_PROXIED_WFS, credential_line=None)
+        if kind not in ("dns", "redirect-loop"):
+            assert len(recorded) == 3
+
+    async def test_a_dns_failure_that_clears_is_recognised(self, monkeypatch) -> None:
+        from app.platform.arcgis_wfs import recognise_arcgis_wfs
+        from app.platform.security import SSRFResolutionError
+
+        lookups = AsyncMock(
+            side_effect=[SSRFResolutionError("no such host"), None, None]
+        )
+        monkeypatch.setattr("app.platform.arcgis_wfs.validate_url_for_ssrf", lookups)
+        _serve(monkeypatch, _wfs(_capabilities(_ARCGIS_WFS)))
+
+        found = await recognise_arcgis_wfs(_PROXIED_WFS, credential_line=None)
+
+        assert found is not None and found.evidence == "advertised"
+
+
+class TestAPolicyRefusalIsLeftToTheEgressProxy:
+    """An address the SSRF policy refuses is refused again when GDAL
+    connects, so recognition steps aside and the import fails as before."""
+
+    async def test_ogc_api(self, monkeypatch) -> None:
+        from app.platform.security import SSRFError
+        from app.platform.service_items import recognise_esri_oapif
+
+        recorded = _serve(monkeypatch, lambda r: _json({}))
+        monkeypatch.setattr(
+            "app.platform.service_items.validate_url_for_ssrf",
+            AsyncMock(side_effect=SSRFError("private address")),
+        )
+
+        assert await recognise_esri_oapif(_PROXY, "0") is None
+        assert recorded == []
+
+    async def test_wfs(self, monkeypatch) -> None:
+        from app.platform.arcgis_wfs import recognise_arcgis_wfs
+        from app.platform.security import SSRFError
+
+        recorded = _serve(monkeypatch, lambda r: _json({}))
+        monkeypatch.setattr(
+            "app.platform.arcgis_wfs.validate_url_for_ssrf",
+            AsyncMock(side_effect=SSRFError("private address")),
+        )
+
+        assert await recognise_arcgis_wfs(_PROXIED_WFS, credential_line=None) is None
+        assert recorded == []
+
+
+class TestTheRedirectOnTheLastPageCounts:
+    async def test_a_credentialed_walk_accepts_the_arcgis_end(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Only the redirect that brings the last page names the service."""
+        monkeypatch.setattr("app.platform.security.validate_url_for_ssrf", AsyncMock())
+        first = _fixture("items-page-with-next.json")
+        del first["properties"]
+        first["links"] = [
+            {"rel": "next", "href": "/parcels/collections/0/items?offset=4&limit=4"}
+        ]
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            if path == "/parcels/collections/0":
+                return _json({"id": "0", "links": []})
+            if path == "/parcels/collections/0/items":
+                if request.url.params.get("offset") == "4":
+                    target = request.url.copy_with(
+                        path=f"{_SERVICE_PATH}/collections/0/items"
+                    )
+                    return httpx.Response(302, headers={"Location": str(target)})
+                return _json(first)
+            if path == f"{_SERVICE_PATH}/collections/0/items":
+                return _json(_fixture("items-last-partial-page.json"))
+            return _streamed(404, b"", "text/plain")
+
+        _serve(monkeypatch, handle)
+
+        extract = await materialise_oapif_items(
+            "https://services.arcgis.example/parcels",
+            "0",
+            credential_line=_credential_line(),
+            staging_dir=tmp_path,
+        )
+
+        assert (extract.features, extract.total) == (5, 5)
+
+
+class TestARefusalIsAnAnswer:
+    """A 401 or 403 is the service refusing the caller, not a failed read."""
+
+    async def test_wfs_leaves_it_to_gdal(self, monkeypatch) -> None:
+        from app.platform.arcgis_wfs import recognise_arcgis_wfs
+
+        monkeypatch.setattr(
+            "app.platform.arcgis_wfs.validate_url_for_ssrf", AsyncMock()
+        )
+        recorded = _serve(monkeypatch, lambda r: _streamed(401, b"", "text/plain"))
+
+        assert await recognise_arcgis_wfs(_PROXIED_WFS, credential_line=None) is None
+        assert len(recorded) == 1
+
+    async def test_ogc_api_refuses_at_once(self, monkeypatch) -> None:
+        from app.platform.service_items import (
+            SERVICE_AUTH_REFUSED_CODE,
+            ServiceErrorResponseError,
+            recognise_esri_oapif,
+        )
+
+        recorded = _serve(monkeypatch, lambda r: _streamed(403, b"", "text/plain"))
+
+        with pytest.raises(ServiceErrorResponseError) as caught:
+            await recognise_esri_oapif(_PROXY, "0")
+
+        assert caught.value.code == SERVICE_AUTH_REFUSED_CODE
+        assert len(recorded) == 1

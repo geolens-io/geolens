@@ -39,6 +39,16 @@ from tests.test_service_egress_proxy import _exchange, needs_ogr, needs_preview_
 
 pytestmark = pytest.mark.anyio
 
+
+@pytest.fixture(autouse=True)
+def _wfs_is_not_arcgis(monkeypatch):
+    """These WFS doubles serve no GetCapabilities, which an import reads to
+    tell an ArcGIS WFS behind another URL."""
+    monkeypatch.setattr(
+        "app.processing.ingest.ogr.recognise_arcgis_wfs", AsyncMock(return_value=None)
+    )
+
+
 _ORIGIN = "arcgis.example.test"
 _OTHER = "other.example.test"
 _QUERY_PATH = "/arcgis/rest/services/Parcels/FeatureServer/0/query"

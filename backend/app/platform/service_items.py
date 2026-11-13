@@ -57,6 +57,7 @@ from app.platform.esri_services import (
 from app.platform.security import (
     PROBE_TIMEOUT,
     SSRFError,
+    SSRFResolutionError,
     make_safe_client,
     same_origin,
     validate_url_for_ssrf,
@@ -448,6 +449,7 @@ async def _fetch_page(
     accept: str = OGC_JSON_ACCEPT,
     gzip: bool = False,
     on_first_request: "Callable[[], None] | None" = None,
+    report_refusal: bool = False,
 ) -> tuple[object, int, int, str]:
     """One items page, its decoded size, the bytes read off the wire for it
     and its URL, or a refusal.
@@ -472,8 +474,9 @@ async def _fetch_page(
         error=ItemFetchFailedError,
         on_first_request=on_first_request,
         gzip=gzip,
-        # Only a read that carries a credential had one refused.
-        refused=ServiceErrorResponseError if headers else None,
+        # Only a read that carries a credential had one refused, unless the
+        # caller needs a 401/403 told apart from a failure.
+        refused=ServiceErrorResponseError if headers or report_refusal else None,
     )
     if not body:
         raise EmptyPageError()
@@ -495,6 +498,7 @@ async def _resolve_items_url(
     held: bool,
     page_size: int = PAGE_SIZE,
     on_first_request: "Callable[[], None] | None" = None,
+    report_refusal: bool = False,
 ) -> tuple[str, int, EsriEvidence | None]:
     """Where this collection actually keeps its items, what asking cost, and
     what the collection document shows about it being an ArcGIS service.
@@ -518,6 +522,7 @@ async def _resolve_items_url(
         token_budget=MAX_DOCUMENT_TOKENS,
         accept=OGC_DOCUMENT_ACCEPT,
         on_first_request=on_first_request,
+        report_refusal=report_refusal,
     )
     href = _advertised_items_href(
         _require_object(document, "collection document"), from_url
@@ -749,10 +754,12 @@ async def _walk_pages(
         wire_downloaded += wire
         # One rule, one site, so a malformed page cannot mean different
         # things depending on where in the chain it arrived.
+        # Before the page is judged: the redirect that names the service can
+        # arrive with the page that ends the chain.
+        arcgis = arcgis or _esri_evidence(url, document, from_url) is not None
         features, counts_remainder = _require_feature_page(
             document, first_page=pages == 1, arcgis=arcgis
         )
-        arcgis = arcgis or _esri_evidence(url, document, from_url) is not None
         # The page's own claim about its size, before the sample loop below
         # may stop partway through it.
         observed += len(features)
@@ -950,6 +957,7 @@ async def _recognise_once(
         held=held,
         page_size=1,
         on_first_request=on_first_request,
+        report_refusal=True,
     )
     if evidence is not None:
         return evidence
@@ -961,6 +969,7 @@ async def _recognise_once(
         token_budget=MAX_DOCUMENT_TOKENS,
         gzip=True,
         on_first_request=on_first_request,
+        report_refusal=True,
     )
     page = _require_object(document, "items page")
     if page.get("type") != "FeatureCollection":
@@ -985,26 +994,37 @@ async def recognise_esri_oapif(
     or next link naming it, or ArcGIS's ``exceededTransferLimit`` member
     recognises it.
 
-    A read that fails, or answers with anything but a collection document
-    and a feature collection, is retried after each of
-    `RECOGNITION_RETRY_DELAYS` within ``deadline``; a refused credential is
-    raised at once. Then an error envelope or empty page is raised as itself, and any other failure as `RecognitionFailedError`: without an
-    answer, GDAL could publish part of an ArcGIS collection. An address the
-    SSRF check refuses answers None, since GDAL's egress proxy refuses it too.
+    Anything that isn't an answer (a failed or unresolved read, a status
+    error, a body over its bound, or a document that isn't a collection and
+    a feature collection) is retried after each of
+    `RECOGNITION_RETRY_DELAYS` within ``deadline``, then raised: an error
+    envelope or empty page as itself, anything else as
+    `RecognitionFailedError`, since GDAL could publish part of an ArcGIS
+    collection. A refused credential or an HTTP 401/403 is raised at once
+    as `service_auth_refused`. None is returned
+    only for an answer from another server, or for an address the SSRF
+    policy refuses, which GDAL's egress proxy refuses too.
     """
     arm = fire_once(on_first_request)
     named = esri_evidence("oapif", url)
-    if named is not None or not collection:
+    if named is not None:
         return named
-    try:
-        await validate_url_for_ssrf(url)
-    except SSRFError as exc:
-        logger.warning("esri_oapif_recognition_failed", error_class=type(exc).__name__)
-        return None
+    if not collection:
+        raise RecognitionFailedError("no collection to inspect")
     failure: ItemFetchFailedError = RecognitionFailedError()
     try:
         budget = deadline_budget(deadline, error=RecognitionFailedError)
         async with asyncio.timeout(budget):
+            try:
+                await validate_url_for_ssrf(url)
+            except SSRFResolutionError:
+                # A lookup that failed is no answer; each read below retries it.
+                pass
+            except SSRFError as exc:
+                logger.warning(
+                    "esri_oapif_recognition_failed", error_class=type(exc).__name__
+                )
+                return None
             async with make_safe_client(timeout=PROBE_TIMEOUT) as client:
                 for pause in (*RECOGNITION_RETRY_DELAYS, None):
                     try:
