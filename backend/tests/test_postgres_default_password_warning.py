@@ -6,6 +6,8 @@ import asyncio
 import json
 from unittest.mock import patch
 
+from types import SimpleNamespace
+
 import pytest
 from pydantic import SecretStr
 
@@ -28,10 +30,11 @@ class _RecordingLogger:
         pass
 
 
-def _settings(password: str) -> Settings:
+def _settings(password: str, **overrides) -> Settings:
     return Settings(
         _env_file=None,
         postgres_password=password,
+        **overrides,
         jwt_secret_key="x" * 40,
         geolens_admin_username="admin",
         geolens_admin_password="test-admin-password-value",
@@ -68,6 +71,45 @@ def test_other_passwords_do_not_warn(monkeypatch, password):
     monkeypatch.setattr(bootstrap_module, "logger", recorder)
 
     bootstrap_module.warn_if_published_default_postgres_password(_settings(password))
+
+    assert _events(recorder) == []
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"database_url_override": "postgresql://geolens:geolens@db.example.test/gl"},
+        {"tile_database_url_override": "postgresql://tiles:geolens@db.example.test/gl"},
+        {
+            "database_url_override": "postgresql+asyncpg://u:%67eolens@db.example.test/gl"
+        },
+    ],
+)
+def test_url_override_with_published_default_warns_once(monkeypatch, overrides):
+    """A main or tile URL override that signs in with the default warns once, without the value."""
+    recorder = _RecordingLogger()
+    monkeypatch.setattr(bootstrap_module, "logger", recorder)
+
+    bootstrap_module.warn_if_published_default_postgres_password(
+        _settings("Aa0123456789abcdef_1", **overrides)
+    )
+
+    assert _events(recorder) == ["postgres_password_published_default"]
+    assert "geolens" not in json.dumps(recorder.warnings).lower()
+
+
+@pytest.mark.parametrize("url", ["not a url", "postgresql://u:p@h:notaport/db"])
+def test_unparsable_url_override_does_not_raise(monkeypatch, url):
+    """An override SQLAlchemy can't parse is skipped rather than failing startup."""
+    recorder = _RecordingLogger()
+    monkeypatch.setattr(bootstrap_module, "logger", recorder)
+    settings_obj = SimpleNamespace(
+        postgres_password=SecretStr("Aa0123456789abcdef_1"),
+        database_url_override=url,
+        tile_database_url_override=url,
+    )
+
+    bootstrap_module.warn_if_published_default_postgres_password(settings_obj)
 
     assert _events(recorder) == []
 

@@ -81,23 +81,35 @@ PUBLISHED_DEFAULT_POSTGRES_PASSWORD = "geolens"
 
 
 def warn_if_published_default_postgres_password(settings_obj) -> None:
-    """Log one warning when POSTGRES_PASSWORD is the published default.
+    """Log one warning when the process signs in with the published default.
 
-    The message never contains the password value.
+    Checks POSTGRES_PASSWORD and the passwords inside DATABASE_URL_OVERRIDE and
+    TILE_DATABASE_URL_OVERRIDE. The message never contains the password value.
     """
-    if (
-        settings_obj.postgres_password.get_secret_value()
-        != PUBLISHED_DEFAULT_POSTGRES_PASSWORD
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.exc import ArgumentError
+
+    passwords = [settings_obj.postgres_password.get_secret_value()]
+    for url in (
+        settings_obj.database_url_override,
+        settings_obj.tile_database_url_override,
     ):
+        if url:
+            try:
+                passwords.append(make_url(url.strip()).password or "")
+            except (ArgumentError, ValueError):
+                pass
+    if PUBLISHED_DEFAULT_POSTGRES_PASSWORD not in passwords:
         return
     logger.warning(
         "postgres_password_published_default",
         message=(
-            "POSTGRES_PASSWORD is a published default that anyone can look "
-            "up. Change the database role's password with ALTER ROLE ... PASSWORD "
-            "(or \\password in psql), set the new value as POSTGRES_PASSWORD "
-            "in .env and run `docker compose up -d`; UPGRADING.md lists the "
-            "steps. A later release will refuse to start with this value."
+            "The database password (POSTGRES_PASSWORD or a database URL "
+            "override) is a published default that anyone can look up. Change "
+            "the database role's password with ALTER ROLE ... PASSWORD (or "
+            "\\password in psql), put the new value in .env wherever the old "
+            "one appears and run `docker compose up -d`; UPGRADING.md lists "
+            "the steps. A later release will refuse to start with this value."
         ),
     )
 

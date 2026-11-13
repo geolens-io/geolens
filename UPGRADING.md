@@ -104,7 +104,9 @@ Earlier `.env.example` files set `POSTGRES_PASSWORD=geolens`. An install whose
 database was created from such a file, without `install.sh` generating a value,
 still uses that published password. Its API and worker log
 `postgres_password_published_default` at startup, and GeoLens 1.33.0 refuses to
-start with it. Check from your install directory:
+start with it. The value that matters is `POSTGRES_PASSWORD` in `.env`. This
+check from your install directory finds the line as earlier templates wrote it,
+bare or quoted, and not other spellings such as an `export` prefix:
 
 ```bash
 grep -Eqx "POSTGRES_PASSWORD=[\"']?geolens[\"']?" .env && echo "change it"
@@ -119,8 +121,10 @@ To change it on a running Compose install:
 docker compose exec db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 #    At the psql prompt run \password, enter the new value twice, then \q.
 
-# 2. Set POSTGRES_PASSWORD in .env to the same value. If .env also sets
-#    MIGRATION_DATABASE_URL_OVERRIDE, change the password inside it too.
+# 2. Set POSTGRES_PASSWORD in .env to the same value. Then change the password
+#    inside every URL override in .env that signs in as this role, such as
+#    DATABASE_URL_OVERRIDE, TILE_DATABASE_URL_OVERRIDE or
+#    MIGRATION_DATABASE_URL_OVERRIDE. Leave URLs of other roles alone.
 
 # 3. Recreate the services that read it: db, migrate, api, worker and backup.
 docker compose up -d

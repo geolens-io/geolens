@@ -323,12 +323,17 @@ publish-sdks-ts:
 cli-build: ## Build the geolens CLI wheel + sdist
 	cd cli && uv build
 
+# Sets pg_pw to the test database password: from .env.test, sourced as host
+# pytest sources it (`make env-test` writes it in shell quoting), else from .env
+# as Compose reads it.
+READ_TEST_DB_PASSWORD = . scripts/lib/common.sh; pg_pw=; \
+	if [ -f .env.test ]; then pg_pw="$$(. ./.env.test && printf '%sx' "$${POSTGRES_PASSWORD-}")"; pg_pw="$${pg_pw%x}"; fi; \
+	[ -n "$$pg_pw" ] || effective_env_value_into pg_pw POSTGRES_PASSWORD .env || :
+
 # `make cli-test` runs CLI unit tests + the round-trip integration test.
 cli-test: ## Run CLI unit tests + round-trip integration test
 	cd cli && uv run --extra dev python -m pytest -v
-	@. scripts/lib/common.sh; pg_pw=; \
-	env_value_into pg_pw POSTGRES_PASSWORD .env.test || :; \
-	[ -n "$$pg_pw" ] || effective_env_value_into pg_pw POSTGRES_PASSWORD .env || :; \
+	@$(READ_TEST_DB_PASSWORD); \
 	[ -n "$$pg_pw" ] || { echo "cli-test: no POSTGRES_PASSWORD in .env.test or .env; run make env-test" >&2; exit 1; }; \
 	cd backend && PYTHONPATH=. POSTGRES_HOST=localhost POSTGRES_PORT="$${DB_PORT:-5434}" POSTGRES_USER=geolens POSTGRES_PASSWORD="$$pg_pw" POSTGRES_DB=geolens JWT_SECRET_KEY=test-secret-key-for-ci-padding-32chars GEOLENS_ADMIN_USERNAME=admin GEOLENS_ADMIN_PASSWORD=geolens-ci-admin-password uv run --with-editable ../sdks/python --with-editable '../cli[dev]' pytest tests/test_cli_round_trip.py -v
 

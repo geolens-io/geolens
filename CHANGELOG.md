@@ -69,7 +69,7 @@ and releases use semantic versioning.
 - `HEAD` now answers on a map's `style.json`, a 3D Tiles dataset's files and `/api/health` with GET's status and headers; it returned 405.
 
 ### Security
-- `.env.example` and `.env.test.example` no longer set the database password to the published default `geolens`: `install.sh` and `make dev-init` generate one, and `make env-test` copies the dev stack's. The API and worker log `postgres_password_published_default` at startup while an instance still uses it.
+- `.env.example` and `.env.test.example` no longer set the database password to the published default `geolens`: `install.sh` and `make dev-init` generate one, also for a `.env` copied by hand before the database exists, and `make env-test` copies the dev stack's. The API and worker log `postgres_password_published_default` at startup while `POSTGRES_PASSWORD` or a database URL override still signs in with it.
 
 ## [1.31.0] - 2026-11-10
 
