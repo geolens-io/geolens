@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from app.processing.raster.vrt import overview_keys_for
+
+
+@pytest.fixture(autouse=True)
+def _wfs_is_not_arcgis(monkeypatch):
+    """These WFS doubles serve no GetCapabilities, which an import reads to
+    tell an ArcGIS WFS behind another URL."""
+    monkeypatch.setattr(
+        "app.processing.ingest.ogr.recognise_arcgis_wfs", AsyncMock(return_value=None)
+    )
 
 
 _SCHEMA_A = "data_t_00000000_0000_0000_0000_000000000001"
