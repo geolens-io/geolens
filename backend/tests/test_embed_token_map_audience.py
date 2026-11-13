@@ -11,8 +11,12 @@ from app.core.config import settings
 from app.modules.auth.models import Role, UserRole
 from app.modules.catalog.maps.models import Map
 from app.modules.catalog.write_recheck import PUBLIC_VISIBILITY_DENIED
+from app.modules.embed_tokens import service as embed_service
 from app.modules.embed_tokens.router import RESTRICTED_MAP_EMBED_REFUSED
-from app.modules.embed_tokens.service import validate_embed_token_access
+from app.modules.embed_tokens.service import (
+    resolve_embed_scope_for_map,
+    validate_embed_token_access,
+)
 from tests.conftest import _create_test_user
 from tests.factories import create_dataset, get_user_id
 
@@ -30,6 +34,27 @@ def _restrict_public_visibility(monkeypatch):
         get_uncached = get
 
     monkeypatch.setattr(pc, "RESTRICT_PUBLIC_VISIBILITY", _AlwaysOn())
+    monkeypatch.setattr(embed_service, "RESTRICT_PUBLIC_VISIBILITY", _AlwaysOn())
+
+
+class _Switch:
+    def __init__(self) -> None:
+        self.on = False
+
+    async def get(self, _db):
+        return self.on
+
+    get_uncached = get
+
+
+@pytest.fixture
+def public_visibility_switch(monkeypatch) -> _Switch:
+    import app.core.persistent_config as pc
+
+    switch = _Switch()
+    monkeypatch.setattr(pc, "RESTRICT_PUBLIC_VISIBILITY", switch)
+    monkeypatch.setattr(embed_service, "RESTRICT_PUBLIC_VISIBILITY", switch)
+    return switch
 
 
 @pytest.fixture
@@ -232,3 +257,62 @@ async def test_a_mint_waiting_on_its_owners_demotion_is_judged_on_the_new_role(
 
     assert refused.status_code == 403, refused.text
     assert refused.json()["detail"] == PUBLIC_VISIBILITY_DENIED
+
+
+async def test_a_non_admin_token_on_a_private_map_serves_only_while_public_visibility_is_open(
+    client: AsyncClient, test_db_session, editor, public_visibility_switch
+):
+    map_id, dataset_id = await _map_with_layer(
+        client, test_db_session, editor["headers"], editor["id"], "private"
+    )
+    minted = await _mint(client, map_id, editor["headers"])
+    assert minted.status_code == 201, minted.text
+    raw_token = minted.json()["raw_token"]
+    assert await validate_embed_token_access(raw_token, dataset_id, test_db_session)
+
+    public_visibility_switch.on = True
+    assert not await validate_embed_token_access(raw_token, dataset_id, test_db_session)
+    assert not await resolve_embed_scope_for_map(
+        test_db_session, raw_token, uuid.UUID(map_id)
+    )
+
+    public_visibility_switch.on = False
+    assert await validate_embed_token_access(raw_token, dataset_id, test_db_session)
+    assert await resolve_embed_scope_for_map(
+        test_db_session, raw_token, uuid.UUID(map_id)
+    ) == {dataset_id}
+
+
+async def test_restricted_public_visibility_keeps_admin_and_public_map_tokens(
+    client: AsyncClient,
+    admin_auth_header,
+    test_db_session,
+    editor,
+    public_visibility_switch,
+):
+    admin_id = await get_user_id(test_db_session, settings.geolens_admin_username)
+    admin_map, admin_dataset = await _map_with_layer(
+        client, test_db_session, admin_auth_header, admin_id, "private"
+    )
+    admin_token = (await _mint(client, admin_map, admin_auth_header)).json()[
+        "raw_token"
+    ]
+    public_map, public_dataset = await _map_with_layer(
+        client, test_db_session, editor["headers"], editor["id"], "public"
+    )
+    await _set_visibility(test_db_session, public_map, "public")
+    public_token = (await _mint(client, public_map, editor["headers"])).json()[
+        "raw_token"
+    ]
+
+    public_visibility_switch.on = True
+
+    assert await validate_embed_token_access(
+        admin_token, admin_dataset, test_db_session
+    )
+    assert await validate_embed_token_access(
+        public_token, public_dataset, test_db_session
+    )
+    assert await resolve_embed_scope_for_map(
+        test_db_session, admin_token, uuid.UUID(admin_map)
+    ) == {admin_dataset}
