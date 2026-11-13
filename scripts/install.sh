@@ -211,7 +211,7 @@ ensure_postgres_password() {
         fi
         return 0
         ;;
-      *) fail "Could not read the POSTGRES_PASSWORD line in .env; Docker Compose would refuse it too. Fix that line and run the installer again." ;;
+      *) fail "Could not read the POSTGRES_PASSWORD line in .env. Fix that line and run the installer again." ;;
     esac
   fi
   if [ -z "$existing_pg_pw" ]; then
