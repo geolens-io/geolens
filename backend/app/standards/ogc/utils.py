@@ -1,4 +1,6 @@
 from collections.abc import Iterable
+import hashlib
+import json
 import math
 import re
 
@@ -163,3 +165,57 @@ def link_header_value(links: Iterable[object]) -> str | None:
         values.append(value)
 
     return ", ".join(values) if values else None
+
+
+_ITEMS_ETAG_EXCLUDED_PARAMS = frozenset({"api_key", "limit", "offset", "startindex"})
+
+
+def items_validator_headers(
+    request: Request,
+    dataset,
+    *,
+    base_url: str,
+    limit: int,
+    offset: int,
+    after_gid: int | None,
+    carries_credentials: bool,
+) -> dict[str, str]:
+    """ETag, Cache-Control and Vary for an OGC items page.
+
+    The tag is weak because the gzip middleware re-encodes the body. It covers
+    the dataset's write counters and the row fields the page is built from, the
+    page window, every other query parameter and the base URL of the links. The
+    body does not vary by caller once access is granted, so no identity enters
+    the tag; ``Vary`` keeps a shared cache from replaying one credential's
+    response to another.
+    """
+    # Original order, so repeated parameters whose last value wins never
+    # collide two different pages.
+    params = [
+        (k, v)
+        for k, v in request.query_params.multi_items()
+        if k not in _ITEMS_ETAG_EXCLUDED_PARAMS
+    ]
+    material = json.dumps(
+        [
+            str(dataset.id),
+            dataset.current_version,
+            dataset.tile_cache_version,
+            dataset.data_revision,
+            dataset.table_name,
+            dataset.geometry_type,
+            dataset.feature_count,
+            base_url,
+            limit,
+            offset,
+            after_gid,
+            params,
+        ],
+        separators=(",", ":"),
+    )
+    digest = hashlib.sha256(material.encode()).hexdigest()[:32]
+    return {
+        "ETag": f'W/"{digest}"',
+        "Cache-Control": "private, no-cache" if carries_credentials else "no-cache",
+        "Vary": "Authorization, X-Api-Key",
+    }

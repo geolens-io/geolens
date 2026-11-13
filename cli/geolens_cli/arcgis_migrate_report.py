@@ -190,7 +190,12 @@ def _follow_ups(
             change["item"],
             "owner_changed",
             f"migrated before its owner changed to {change['owner']}; "
-            "it was not imported again, so transfer it by hand",
+            "it was not imported again, so "
+            + (
+                "rerun with it selected to hand it over, or transfer it by hand"
+                if change.get("unattempted")
+                else "transfer it by hand"
+            ),
         )
     for conflict in owner_conflicts:
         add(

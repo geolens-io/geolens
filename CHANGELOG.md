@@ -8,21 +8,28 @@ and releases use semantic versioning.
 ## [Unreleased]
 
 ### Added
+- `GET /collections/{id}/items` sends a weak `ETag` and `Cache-Control: no-cache` (`private, no-cache` when the request carries a credential), and answers a matching `If-None-Match` with 304 without running the feature query, so a client that re-reads an items URL on a timer, such as an ArcGIS Online GeoJSON layer with a refresh interval, stops downloading an unchanged page. The tag changes with the dataset's data, the query and the base URL of the links. A table registered in place, which its owner writes directly, gets no validator.
 - `geolens arcgis inventory` and `geolens arcgis migrate` sign in through the browser with OAuth 2.0 (authorization code with PKCE) when you pass `--client-id` or set `GEOLENS_ARCGIS_CLIENT_ID` to the client ID of an OAuth 2.0 credentials item registered in your organization. Accounts that sign in with SAML or OpenID Connect, which can't use `--username`, can run an inventory and a migration this way. The portal sends the browser back to a listener on `127.0.0.1`, on a free port or the one `--redirect-port` names. The CLI renews the access token during the run and keeps the refresh token in the OS keyring (`credentials.toml` when there is no keyring), so the next run skips the browser. An inventory signed in this way records `auth.mode` as `oauth`. `geolens arcgis logout --portal-url <url> --client-id <id>` forgets a saved sign-in.
 - `GET /maps/{map_id}/style.json?sprite=url` returns the style with `sprite` as a plain URL string, pointing at `/maps/sprites/geolens-prefixed`, a copy of the GeoLens sprite whose entries carry the `geolens:` prefix the style's icon names use, so clients that read only the string form, such as the ArcGIS vector tile layer in ArcGIS Online and the ArcGIS Maps SDK for JavaScript, can load it. Esri's layer drops a query string typed into the style URL, so pass it there as the layer's custom parameter (`customParameters: {sprite: "url"}`). Without the parameter the style is unchanged.
+- `GET /datasets/{id}/export?format=csv&xy=true` adds WGS 84 `longitude` and `latitude` columns after the geometry for a point layer, filled for a point or a one-point multipoint and empty for a real multipoint or a null geometry, so tools that place CSV rows by coordinate columns can read a point export. It is ignored for other formats, for other geometry types, and for a dataset that already has a `longitude` or `latitude` column.
 
 ### Changed
 - Map thumbnails no longer carry the basemap and data credit line, which was
   unreadable at gallery size. The social card image and the PNG export still
   carry it, and a thumbnail saved earlier keeps its credit until the map is
   next saved.
+- The dataset-page COPC viewer follows the hierarchy pages a file references, so large point clouds draw their deeper levels instead of stopping at the root page.
 - A browser ArcGIS sign-in used by `geolens arcgis inventory` and
   `geolens arcgis migrate` now renews itself. Once its refresh token is past
   half of its lifetime, the next run exchanges it for a new one without the
   browser, so the sign-in stays valid as long as the CLI runs at least once
   within that lifetime (two weeks on ArcGIS Online's defaults).
+- `geolens arcgis inventory` and `geolens arcgis migrate` now print
+  `Signed in to <portal> as <username>` on stderr after a browser sign-in and at
+  the start of a run that reuses a saved one.
 - The share card for a map with no social card image now shows the site card
   instead of the map's thumbnail.
+- GeoJSON and CSV exports are sent gzip-compressed when the client offers `Accept-Encoding: gzip` and sends no `Range` or `If-Range`. The compressed response carries its own weak `ETag` and `If-None-Match` is checked against the tag of the representation the request gets. A request with `Range`, `If-Range` or `If-Match` still gets the uncompressed file. A `HEAD` for a client that offers gzip omits `Content-Length`.
 - A web page on another site can now read the public stories, maps and
   dataset rows without credentials: `GET /stories/`, `/stories/{id}`,
   `/maps/{id}`, `/maps/{id}/style.json`, `/datasets/{id}/rows/`,
@@ -37,10 +44,12 @@ and releases use semantic versioning.
   no wildcard. This changes the CORS contract: these routes used to send no
   CORS headers to an origin outside the allowlist.
 - `geolens arcgis migrate --cutover` checks the inventory's freshness and unresolved plan owners before the run, and stops without importing or refreshing anything, printing only the refusal, when either fails without its `--accept-*` flag. The freshness check ignores portal items the plan skips and names the items that changed, apart from those created since the inventory.
+- `geolens arcgis migrate` hands a migrated dataset or map to the new owner when `owner_map` or an item's `target.owner` is edited after the item was migrated, the same way it follows an ArcGIS owner change; a handover GeoLens refuses is still reported to do by hand.
 - The default ceiling for the OGC API Features `limit` parameter is now 5,000 instead of 1,000. An instance where an admin already set `ogc_items_max_page_size` keeps its own value. Clients such as ArcGIS Online ask for up to 5,000 features per map tile and do not follow the `next` link, so the old ceiling drew only the first 1,000 features of a busy tile. The setting is on the admin Network tab. An items page now also ends early, with a `next` link, once its geometries hold about 4 MB (roughly 250,000 vertices), so a page of large polygons returns fewer features than `limit` instead of using several hundred MB of server memory.
 
 ### Fixed
 - The OGC API Features items endpoint accepts `startindex` as another name for `offset`. ArcGIS Online and the ArcGIS Maps SDK for JavaScript page a busy map tile with `startindex`, which the endpoint ignored, so every page repeated the first one, features past the first page of a tile never drew, and on a tile holding at least `limit` features the client kept requesting pages until the map was closed. A request that carries both gets `400` unless they are equal or `offset` is `0`. A collection column named `startindex` is now filtered with `filter=` (for example `filter=startindex = 3`) rather than as a bare query parameter.
+- WFS probes, previews and count requests now ask for gzip and inflate it under the same byte cap the OGC API Features page walk uses. ArcGIS Online answers a repeated identity request with an empty HTTP 200, which a probe could read as an empty layer or a failed probe; the compressed answer is now read instead.
 - The import wizard now says what to change when a service URL carries a credential in its query: remove it from the URL and paste it into the token field (the STAC form asks for a URL without one). It showed the generic "submitted values are invalid" message before.
 - `geolens arcgis migrate` reruns retitle a dataset after its portal item is renamed, unless its title was edited in GeoLens, which is kept and noted like an edited summary.
 - An item `geolens arcgis migrate` can't bring up to date because it changed in GeoLens is reported with what changed (its data, with feature counts, or its details), when, and when its portal item last changed, and how to keep the GeoLens version. A web map changed on both sides names both times.
@@ -50,6 +59,7 @@ and releases use semantic versioning.
 - `--start-fresh` help and the refusal that suggests it say that service layers the operator already holds are reused, while data files and web maps are imported again.
 - An ArcGIS group member whom `owner_map` maps to a GeoLens name nobody has is no longer told to run `geolens admin users import --from-inventory`, which creates the ArcGIS name; the warning names the mapped user to create or the entry to change.
 - Terrain-RGB tiles of a DEM are read with bilinear resampling for both overview reads and reprojection, where Titiler's nearest default repeated rows and columns and drew stripes under a hillshade. Categorical and photographic rasters are unchanged. Tiles already cached for a DEM are replaced within an hour.
+- A GeoJSON export names its collection after the dataset title instead of the internal table reference `data.<table>`, so tools built on GDAL list the layer by the title.
 - OGC API Features: the service probe, the credentialed endpoint check and the protected-collection read ask for `application/json` when they read a landing page, conformance or collection document, and keep `application/geo+json` for items. ArcGIS Online's OGC feature services answered the GeoJSON request with HTTP 400, so the probe reported "Couldn't detect service type".
 - STAC items and OGC records of a mosaic now carry `thumbnail` and `overview` assets that link to the mosaic's quicklook, so STAC clients that show a picture per item no longer show a blank card for it. Existing mosaics get them with no action. A mosaic that reaches past one of its sources answers its quicklook link as it answers its tiles, and the link never becomes a signed storage URL.
 - A token-protected OGC API Features import or preview that gets an ArcGIS error envelope (HTTP 200 with `{"error": {...}}`) in place of a collection document or items page now fails with `service_auth_refused` for token codes 498 and 499, or `service_error` otherwise, naming the service's error code, instead of reporting a description GeoLens couldn't read.
@@ -65,6 +75,10 @@ and releases use semantic versioning.
 - A private layer added to ArcGIS Pro through `/api/desktop` now loads again after the project is reopened. The desktop entry serves the OGC API itself, keeps its links under `/api/desktop` and challenges every request without a working API key, where it used to send a signed-in Pro to `/api/`, which answered anonymously. A project saved before this release keeps pointing at `/api` until its layers are added again through `/api/desktop`.
 - An import or refresh that fails on an ArcGIS WFS count (`arcgis_wfs_count_unavailable`, `arcgis_wfs_short`, `arcgis_wfs_repeated`) or on an OGC API Features page read (`service_auth_refused`, `service_error`, `service_empty_page`) stores that code with its reason, so the job and refresh views show the failure in the reader's language.
 - `HEAD` now answers on a map's `style.json`, a 3D Tiles dataset's files and `/api/health` with GET's status and headers; it returned 405.
+
+### Security
+- An admin transfer of a map to another owner revokes the map's embed tokens, which served with the previous owner's rights, so they stop being accepted at once; the new owner mints a fresh one, and the `map.transfer_owner` audit entry counts the tokens revoked. Tile URLs already signed through such a token keep working until they expire, at most 16 minutes.
+- While public visibility is restricted to admins, an embed token a non-admin minted on a private or internal map stops being accepted at once for tiles, features and the shared-map view, and is accepted again if the setting is turned off. Tile URLs already signed through such a token keep working until they expire, at most 16 minutes.
 
 ## [1.31.0] - 2026-11-10
 

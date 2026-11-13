@@ -455,7 +455,9 @@ def test_a_failed_item_left_out_of_the_run_still_gives_exit_1(
     assert result.exit_code == 1
 
 
-def test_a_completed_run_reports_a_changed_owner(runner, tmp_path, geolens):
+def test_a_completed_run_reports_a_queued_handover_left_out_by_only(
+    runner, tmp_path, geolens
+):
     plan_file = _write_plan(tmp_path)
     state_path = tmp_path / "arcgis-migration-state.json"
     plan = json.loads(plan_file.read_text())
@@ -481,6 +483,8 @@ def test_a_completed_run_reports_a_changed_owner(runner, tmp_path, geolens):
     assert (A1, "owner_changed") in {
         (f["item"], f["kind"]) for f in report["follow_ups"]
     }, result.output
+    text = (tmp_path / "arcgis-migration-report.md").read_text()
+    assert "rerun with it selected" in text
 
 
 def test_a_report_that_cannot_be_written_does_not_replace_the_exit_code(

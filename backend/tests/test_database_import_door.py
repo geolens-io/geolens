@@ -198,6 +198,7 @@ async def test_second_import_by_the_same_user_is_a_duplicate(
     listing,
     deferred,
     test_db_session,
+    clean_tables,
 ):
     editor_id = await _user_id(client, editor_auth_header)
     dataset = await create_dataset(

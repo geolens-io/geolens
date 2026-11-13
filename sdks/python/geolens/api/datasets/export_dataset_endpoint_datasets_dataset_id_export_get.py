@@ -23,6 +23,7 @@ def _get_kwargs(
     target_crs: None | str | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     where: None | str | Unset = UNSET,
+    xy: bool | Unset = False,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -53,6 +54,8 @@ def _get_kwargs(
     else:
         json_where = where
     params["where"] = json_where
+
+    params["xy"] = xy
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -159,6 +162,7 @@ def sync_detailed(
     target_crs: None | str | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     where: None | str | Unset = UNSET,
+    xy: bool | Unset = False,
 ) -> Response[Any | File | ProblemDetail]:
     """Export a dataset
 
@@ -175,6 +179,10 @@ def sync_detailed(
         target_crs (None | str | Unset): Target CRS, e.g. EPSG:3857
         bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy (WGS84)
         where (None | str | Unset): Attribute filter expression, e.g. pop > 1000
+        xy (bool | Unset): CSV only: add WGS 84 longitude and latitude columns after the geometry,
+            filled for a point or a one-point multipoint and empty otherwise. Ignored for other
+            formats, for layers that are not point or multipoint, and for a dataset that already has a
+            longitude or latitude column. Default: False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -190,6 +198,7 @@ def sync_detailed(
         target_crs=target_crs,
         bbox=bbox,
         where=where,
+        xy=xy,
     )
 
     response = client.get_httpx_client().request(
@@ -207,6 +216,7 @@ def sync(
     target_crs: None | str | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     where: None | str | Unset = UNSET,
+    xy: bool | Unset = False,
 ) -> Any | File | ProblemDetail | None:
     """Export a dataset
 
@@ -223,6 +233,10 @@ def sync(
         target_crs (None | str | Unset): Target CRS, e.g. EPSG:3857
         bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy (WGS84)
         where (None | str | Unset): Attribute filter expression, e.g. pop > 1000
+        xy (bool | Unset): CSV only: add WGS 84 longitude and latitude columns after the geometry,
+            filled for a point or a one-point multipoint and empty otherwise. Ignored for other
+            formats, for layers that are not point or multipoint, and for a dataset that already has a
+            longitude or latitude column. Default: False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -239,6 +253,7 @@ def sync(
         target_crs=target_crs,
         bbox=bbox,
         where=where,
+        xy=xy,
     ).parsed
 
 
@@ -250,6 +265,7 @@ async def asyncio_detailed(
     target_crs: None | str | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     where: None | str | Unset = UNSET,
+    xy: bool | Unset = False,
 ) -> Response[Any | File | ProblemDetail]:
     """Export a dataset
 
@@ -266,6 +282,10 @@ async def asyncio_detailed(
         target_crs (None | str | Unset): Target CRS, e.g. EPSG:3857
         bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy (WGS84)
         where (None | str | Unset): Attribute filter expression, e.g. pop > 1000
+        xy (bool | Unset): CSV only: add WGS 84 longitude and latitude columns after the geometry,
+            filled for a point or a one-point multipoint and empty otherwise. Ignored for other
+            formats, for layers that are not point or multipoint, and for a dataset that already has a
+            longitude or latitude column. Default: False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -281,6 +301,7 @@ async def asyncio_detailed(
         target_crs=target_crs,
         bbox=bbox,
         where=where,
+        xy=xy,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -296,6 +317,7 @@ async def asyncio(
     target_crs: None | str | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     where: None | str | Unset = UNSET,
+    xy: bool | Unset = False,
 ) -> Any | File | ProblemDetail | None:
     """Export a dataset
 
@@ -312,6 +334,10 @@ async def asyncio(
         target_crs (None | str | Unset): Target CRS, e.g. EPSG:3857
         bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy (WGS84)
         where (None | str | Unset): Attribute filter expression, e.g. pop > 1000
+        xy (bool | Unset): CSV only: add WGS 84 longitude and latitude columns after the geometry,
+            filled for a point or a one-point multipoint and empty otherwise. Ignored for other
+            formats, for layers that are not point or multipoint, and for a dataset that already has a
+            longitude or latitude column. Default: False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -329,5 +355,6 @@ async def asyncio(
             target_crs=target_crs,
             bbox=bbox,
             where=where,
+            xy=xy,
         )
     ).parsed

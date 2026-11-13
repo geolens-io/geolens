@@ -19,7 +19,10 @@ from app.core.persistent_config import OGC_ITEMS_MAX_PAGE_SIZE
 from app.core.public_urls import get_public_api_url, get_public_app_url
 from app.core.tenancy import is_multi_tenant
 from app.core.tile_scope import tile_template_query, vector_tile_template
-from app.modules.auth.dependencies import get_optional_user
+from app.modules.auth.dependencies import (
+    get_optional_user,
+    request_carries_credentials,
+)
 from app.modules.catalog.authorization import (
     apply_visibility_filter,
     get_user_roles,
@@ -58,7 +61,13 @@ from app.standards.ogc.schemas import (
     OGCLink,
     OGCSingleFeatureResponse,
 )
-from app.standards.ogc.utils import build_url, link_header_value
+from app.platform.dataset_origin import geolens_owns_table
+from app.platform.http.ranges import if_none_match_matches
+from app.standards.ogc.utils import (
+    build_url,
+    items_validator_headers,
+    link_header_value,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -922,6 +931,44 @@ async def get_collection_items(
         )
         cql2_where, cql2_binds = compile_feature_cql2_ast(filter_ast, queryables)
 
+    # Every 4xx the request can earn has been decided by here, and the
+    # visibility check ran first. A registered table is written directly by its
+    # owner, which moves no catalog counter, so it gets no validator.
+    validators: dict[str, str] = {}
+    star = False
+    if geolens_owns_table(
+        dataset.source_format, dataset.record.record_type, dataset.origin_ref
+    ):
+        validators = items_validator_headers(
+            request,
+            dataset,
+            base_url=public_api_url,
+            limit=limit,
+            offset=offset,
+            after_gid=after_gid,
+            carries_credentials=request_carries_credentials(request),
+        )
+        # A tag that matches came from an earlier 200 for these parameters, so
+        # they were valid; `*` carries no such proof and 304s at the end.
+        if_none_match = request.headers.get("if-none-match")
+        star = "*" in (t.strip() for t in (if_none_match or "").split(","))
+        if not star and if_none_match_matches(
+            if_none_match, validators["ETag"].removeprefix("W/")
+        ):
+            # A missing table stays the retryable 503, not a 304.
+            try:
+                table_present = await feature_table_exists(db, dataset.table_name)
+            except (ProgrammingError, OperationalError):
+                table_present = False
+            if not table_present:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Dataset table is temporarily unavailable",
+                )
+            return Response(
+                status_code=status.HTTP_304_NOT_MODIFIED, headers=validators
+            )
+
     try:
         # Use get_features.has_more, determined by over-fetching, so a full final
         # page does not advertise a next link to an empty page.
@@ -967,6 +1014,9 @@ async def get_collection_items(
                 detail="Dataset table is temporarily unavailable",
             )
         raise
+
+    if validators and star:
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=validators)
 
     features = [
         {
@@ -1076,6 +1126,7 @@ async def get_collection_items(
     headers = {
         "Content-Crs": "<http://www.opengis.net/def/crs/OGC/1.3/CRS84>",
         **number_matched_headers(page.total_is_estimate),
+        **validators,
     }
     if link_value := link_header_value(links):
         headers["Link"] = link_value
