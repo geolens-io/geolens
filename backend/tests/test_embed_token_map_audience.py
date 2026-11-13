@@ -45,13 +45,16 @@ class _Setting:
         self.session = session
 
     async def turn(self, on: bool) -> None:
+        await self.store({"v": on})
+
+    async def store(self, value) -> None:
         stored = await self.session.get(AppSetting, RESTRICT_PUBLIC_VISIBILITY.key)
         if stored is None:
             self.session.add(
-                AppSetting(key=RESTRICT_PUBLIC_VISIBILITY.key, value={"v": on})
+                AppSetting(key=RESTRICT_PUBLIC_VISIBILITY.key, value=value)
             )
         else:
-            stored.value = {"v": on}
+            stored.value = value
         await self.session.commit()
 
 
@@ -353,3 +356,17 @@ async def test_a_stale_cached_setting_does_not_keep_a_non_admin_token_serving(
         )
     finally:
         await get_cache().delete(f"{_CACHE_PREFIX}{RESTRICT_PUBLIC_VISIBILITY.key}")
+
+
+async def test_a_setting_stored_as_a_string_still_refuses_a_non_admin_token(
+    client: AsyncClient, test_db_session, editor, public_visibility_setting
+):
+    map_id, dataset_id = await _map_with_layer(
+        client, test_db_session, editor["headers"], editor["id"], "private"
+    )
+    raw_token = (await _mint(client, map_id, editor["headers"])).json()["raw_token"]
+
+    await public_visibility_setting.store({"v": "true"})
+
+    assert await RESTRICT_PUBLIC_VISIBILITY.get_uncached(test_db_session)
+    assert not await validate_embed_token_access(raw_token, dataset_id, test_db_session)

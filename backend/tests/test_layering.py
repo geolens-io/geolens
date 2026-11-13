@@ -1384,7 +1384,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Config resolution coordinates validation, overrides, caching, audit and side
     # effects, model defaults that follow the selected LLM provider, and SQL
     # reads of a committed flag.
-    "backend/app/core/persistent_config.py": 1244,
+    "backend/app/core/persistent_config.py": 1256,
     # Backfill batches share vector/model validation and progress/cancellation
     # semantics.
     "backend/app/processing/embeddings/backfill.py": 909,
