@@ -119,7 +119,7 @@ async def _read(
     credential_line: str | None,
     on_first_request: Callable[[], None] | None,
 ) -> _Answer | None:
-    """One bounded, identity-encoded read and the URL it ended on, or None
+    """One bounded read that accepts gzip, and the URL it ended on, or None
     when it fails.
 
     ``on_first_request`` fires once the target has passed SSRF validation,
