@@ -182,43 +182,22 @@ case $? in
 esac' sh "$1"
 }
 
-# Succeeds when the project Compose will use already has a database volume.
-# Compose resolves the project name itself. When it can't list volumes the
-# install stops, since a guess could lock the app out of its database.
-pgdata_volume_exists() {
-  pg_labels="$(compose volumes --format '{{.Labels}}' 2>/dev/null)" \
-    || fail "Could not check for an existing database with \`docker compose volumes\`, which needs a recent Docker Compose. Set POSTGRES_PASSWORD in .env yourself: the password an existing database was created with, or a new value from \`openssl rand -hex 24\` for a first install."
-  case "$pg_labels" in
-    *com.docker.compose.volume=pgdata*) return 0 ;;
-  esac
-  return 1
-}
-
-# Sets KEY in .env by replacing the one line that sets it, any spelling
-# included, or appending one. Stops when several lines set it rather than
-# guess which one Compose reads.
-replace_env_key() {
-  rek_ws="[ $(printf '\t')]"
-  rek_pattern="^${rek_ws}*(export${rek_ws}+)?$1${rek_ws}*="
-  rek_lines="$(grep -cE "$rek_pattern" .env || true)"
-  [ "$rek_lines" -le 1 ] \
-    || fail "$1 is set on $rek_lines lines in .env. Keep one line and run the installer again."
-  __VAL="$2" awk -v pat="$rek_pattern" -v key="$1" '
-    BEGIN { line = key "=" ENVIRON["__VAL"]; done = 0 }
-    $0 ~ pat { print line; done = 1; next }
-    { print }
-    END { if (!done) print line }
-  ' .env > .env.tmp.$$
-  mv .env.tmp.$$ .env
-}
-
-# POSTGRES_PASSWORD is generated only when it resolves empty and no database
-# exists: the pgdata volume keeps the password it was created with, so a set
-# value is never rotated. A value exported in this shell wins, as in Compose.
+# POSTGRES_PASSWORD is written only into a .env this run created from the
+# template; an existing .env may belong to a live database, so it is never
+# rewritten. A value exported in this shell wins over .env, as in Compose.
 ensure_postgres_password() {
   if [ -n "${POSTGRES_PASSWORD+x}" ]; then
     [ -n "$POSTGRES_PASSWORD" ] \
       || fail "POSTGRES_PASSWORD is set but empty in this shell, and Compose would use that over .env. Unset it or give it a value."
+    return 0
+  fi
+  if [ "$ENV_CREATED" = "true" ]; then
+    existing_pg_pw="$(get_env_value_decoded POSTGRES_PASSWORD)"
+    if [ -z "$existing_pg_pw" ] || [ "$existing_pg_pw" = "geolens" ]; then
+      warn_if_database_volume_exists
+      update_env_value POSTGRES_PASSWORD "$(generate_password)"
+      say "Generated POSTGRES_PASSWORD."
+    fi
     return 0
   fi
   if existing_pg_pw="$(compose_env_value POSTGRES_PASSWORD)"; then
@@ -227,29 +206,28 @@ ensure_postgres_password() {
     case $? in
       3) existing_pg_pw="" ;;
       4)
-        # An older checkout: only a .env this run copied from its template is
-        # simple enough to read line by line.
-        if [ "$ENV_CREATED" != "true" ]; then
-          warn "This checkout cannot read .env the way Docker Compose does, so POSTGRES_PASSWORD was left as it is."
-          return 0
+        if [ -z "$(get_env_value_decoded POSTGRES_PASSWORD)" ]; then
+          warn "POSTGRES_PASSWORD looks empty in .env. Set it to the existing database's password, or to a new value such as \`openssl rand -hex 24\` for a first install."
         fi
-        existing_pg_pw="$(get_env_value_decoded POSTGRES_PASSWORD)"
+        return 0
         ;;
       *) fail "Could not read POSTGRES_PASSWORD from .env the way Docker Compose reads it. Fix that line and run the installer again." ;;
     esac
   fi
   if [ -z "$existing_pg_pw" ]; then
-    if pgdata_volume_exists; then
-      fail "POSTGRES_PASSWORD is empty in .env, but this project already has a database volume. Set POSTGRES_PASSWORD in .env to the password that database was created with."
-    fi
-  elif [ "$existing_pg_pw" != "geolens" ]; then
-    return 0
-  elif [ "$ENV_CREATED" != "true" ] || pgdata_volume_exists; then
+    fail "POSTGRES_PASSWORD is empty in .env. Set it to the existing database's password, or to a new value such as \`openssl rand -hex 24\` for a first install, and run the installer again."
+  elif [ "$existing_pg_pw" = "geolens" ]; then
     warn "POSTGRES_PASSWORD is still the public default 'geolens'. A later release refuses to start with it; UPGRADING.md shows how to change it on a running install."
-    return 0
   fi
-  replace_env_key POSTGRES_PASSWORD "$(generate_password)"
-  say "Generated POSTGRES_PASSWORD."
+}
+
+# A new .env beside an old database volume (a deleted .env, a rerun) gets a
+# password that database doesn't know. Warn only: Docker may not answer, and
+# the volume may belong to another install on this host.
+warn_if_database_volume_exists() {
+  pg_volumes="$(docker volume ls -q --filter label=com.docker.compose.volume=pgdata 2>/dev/null || true)"
+  [ -z "$pg_volumes" ] \
+    || warn "Docker already has a database volume ($(printf '%s' "$pg_volumes" | tr '\n' ' ')). If it belongs to this install, set POSTGRES_PASSWORD in .env to its password before starting."
 }
 
 check_port() {

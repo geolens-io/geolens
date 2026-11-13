@@ -41,131 +41,110 @@ grep -q 'Generated POSTGRES_PASSWORD' "$INSTALL_SH" \
 grep -q 'generated_admin_pw=true' "$INSTALL_SH" \
   || { echo "FAIL: install.sh does not generate an admin password (SEC-011)"; exit 1; }
 
-# --- behavioral: POSTGRES_PASSWORD on a pre-copied or re-used .env ------------
-# Invariant: the installer never writes POSTGRES_PASSWORD when .env resolves it
-# (as Compose does) to a non-empty value, and generates one only when it can
-# show the project Compose will use has no database volume.
+# --- behavioral: POSTGRES_PASSWORD on a new or existing .env -----------------
+# Rule: the installer writes POSTGRES_PASSWORD only into a .env this run created
+# from the template. An existing .env is never rewritten: it is checked as
+# Compose reads it, and an empty value stops the install.
 work="$(mktemp -d)"
-real_volume=""
-cleanup() {
-  [ -z "$real_volume" ] || command docker volume rm "$real_volume" >/dev/null 2>&1 || true
-  rm -rf "$work"
-}
-trap cleanup EXIT
+trap 'rm -rf "$work"' EXIT
 pgfns="$work/pgfns.sh"
-for fn in generate_jwt_secret generate_password get_env_value get_env_value_decoded compose compose_env_value pgdata_volume_exists replace_env_key ensure_postgres_password; do
+for fn in generate_jwt_secret generate_password get_env_value get_env_value_decoded update_env_value compose_env_value ensure_postgres_password warn_if_database_volume_exists; do
   awk -v fn="$fn" '$0 ~ "^" fn "\\(\\) \\{" {f=1} f{print} f&&/^}/{exit}' "$INSTALL_SH" >>"$pgfns"
 done
 say() { :; }
-warn() { :; }
-COMPOSE_FILE=docker-compose.yml
+warn() { printf 'Warning: %s\n' "$*" >&2; }
 # shellcheck disable=SC1090
 . "$pgfns"
-proj="$work/My Install"
+proj="$work/install"
 mkdir -p "$proj/scripts/lib"
 cp "$(dirname "$INSTALL_SH")/lib/common.sh" "$proj/scripts/lib/common.sh"
 cd "$proj"
 
-# Stub: STUB_VOLUME=1 lists a pgdata volume, STUB_DOCKER_FAIL=1 fails the call.
+# Stub: STUB_VOLUME=1 lists a database volume, STUB_DOCKER_FAIL=1 fails the call.
 docker() {
   [ "${STUB_DOCKER_FAIL:-0}" = 1 ] && return 1
-  [ "${STUB_VOLUME:-0}" = 1 ] && echo 'com.docker.compose.project=myinstall,com.docker.compose.volume=pgdata'
+  [ "${STUB_VOLUME:-0}" = 1 ] && echo other_pgdata
   return 0
 }
 
 # run_ensure ENV_CREATED STUB_VOLUME STUB_DOCKER_FAIL: runs ensure_postgres_password
-# in a subshell, so a fail() exit is its rc 1 and no stub setting leaks out.
+# in a subshell, so a fail() exit is its rc 1; warnings go to $work/stderr.
 run_ensure() {
   (
     unset POSTGRES_PASSWORD
     ENV_CREATED="$1" STUB_VOLUME="$2" STUB_DOCKER_FAIL="$3"
     ensure_postgres_password
-  ) 2>/dev/null
+  ) 2>"$work/stderr"
 }
 pg_value() { v="$(compose_env_value POSTGRES_PASSWORD)" && printf '%s' "${v%x}"; }
-pg_lines() { grep -cE "^[ $(printf '\t')]*(export[ $(printf '\t')]+)?POSTGRES_PASSWORD[ $(printf '\t')]*=" .env || true; }
+file_mode() { ls -l .env | cut -c1-10; }
+# write_env BODY: a .env holding BODY (printf escapes) with mode 600.
+write_env() {
+  printf "POSTGRES_USER=geolens\\n$1\\n" >.env
+  chmod 600 .env
+  cp -p .env "$work/before"
+}
+unchanged() { cmp -s .env "$work/before" && [ "$(file_mode)" = "-rw-------" ]; }
 
-# Each spelling that resolves empty is generated into exactly one line.
+# A .env this run created gets a generated value in place of the template's.
+for body in 'POSTGRES_PASSWORD=' 'POSTGRES_PASSWORD=geolens'; do
+  write_env "$body"
+  run_ensure true 0 0 || { echo "FAIL: new .env [$body] stopped the install"; exit 1; }
+  v="$(pg_value)"
+  [ -n "$v" ] && [ "$v" != geolens ] || { echo "FAIL: new .env [$body] was not generated"; exit 1; }
+done
+write_env 'POSTGRES_PASSWORD='
+run_ensure true 1 0 && [ -n "$(pg_value)" ] || { echo "FAIL: an existing volume blocked a new .env"; exit 1; }
+grep -q 'already has a database volume' "$work/stderr" || { echo "FAIL: no warning about the existing volume"; exit 1; }
+write_env 'POSTGRES_PASSWORD='
+run_ensure true 0 1 && [ -n "$(pg_value)" ] || { echo "FAIL: a failed volume listing blocked a new .env"; exit 1; }
+
+# An existing .env that resolves empty stops the install and is left as it was.
 for body in 'POSTGRES_PASSWORD=' 'POSTGRES_PASSWORD=""' "POSTGRES_PASSWORD=''" '' \
   'export POSTGRES_PASSWORD=' 'POSTGRES_PASSWORD = ' '  POSTGRES_PASSWORD=' 'POSTGRES_PASSWORD=\r' \
+  'POSTGRES_PASSWORD' 'POSTGRES_PASSWORD:' \
+  'OTHER="a\nPOSTGRES_PASSWORD=x\nb"'; do
+  write_env "$body"
+  run_ensure false 0 0 && { echo "FAIL: existing .env [$body] did not stop"; exit 1; }
+  unchanged || { echo "FAIL: existing .env [$body] was changed"; exit 1; }
+done
+
+# An existing .env that resolves to a value goes on, byte for byte and mode intact.
+for body in 'POSTGRES_PASSWORD=existing' 'export POSTGRES_PASSWORD=existing' \
+  'POSTGRES_PASSWORD = existing' 'POSTGRES_PASSWORD=\nPOSTGRES_PASSWORD=existing' \
+  'POSTGRES_PASSWORD=existing\r' 'POSTGRES_PASSWORD= # set me' \
+  'OTHER_PW=abc\nPOSTGRES_PASSWORD=${OTHER_PW}' 'POSTGRES_PASSWORD: existing' \
+  'OTHER="a\nPOSTGRES_PASSWORD=\nb"\nPOSTGRES_PASSWORD=existing' 'POSTGRES_PASSWORD=geolens' \
   'POSTGRES_PASSWORD=${UNSET_IN_THIS_TEST}'; do
-  printf "POSTGRES_USER=geolens\\n$body\\n" >.env
-  run_ensure false 0 0 || { echo "FAIL: [$body] with no volume stopped the install"; exit 1; }
-  v="$(pg_value)"
-  [ -n "$v" ] && [ "$v" != geolens ] || { echo "FAIL: [$body] with no volume did not generate a password"; exit 1; }
-  [ "$(pg_lines)" = 1 ] || { echo "FAIL: [$body] left $(pg_lines) POSTGRES_PASSWORD lines"; exit 1; }
+  write_env "$body"
+  run_ensure false 1 0 || { echo "FAIL: existing .env [$body] stopped the install"; exit 1; }
+  unchanged || { echo "FAIL: existing .env [$body] was changed"; exit 1; }
 done
+write_env 'POSTGRES_PASSWORD=geolens'
+run_ensure false 0 0 && grep -q "public default 'geolens'" "$work/stderr" \
+  || { echo "FAIL: no warning for the published default"; exit 1; }
 
-# Each spelling that resolves to a value is left byte-for-byte alone, even
-# where a naive first-match reader would see it as empty or absent.
-for body in 'export POSTGRES_PASSWORD=existing' 'POSTGRES_PASSWORD = existing' \
-  'POSTGRES_PASSWORD=\nPOSTGRES_PASSWORD=existing' 'POSTGRES_PASSWORD=existing\r' \
-  'POSTGRES_PASSWORD= # set me' 'OTHER_PW=abc\nPOSTGRES_PASSWORD=${OTHER_PW}'; do
-  printf "POSTGRES_USER=geolens\\n$body\\n" >.env
-  cp .env "$work/before"
-  run_ensure false 1 0 || { echo "FAIL: [$body] stopped the install"; exit 1; }
-  cmp -s .env "$work/before" || { echo "FAIL: [$body] was rewritten"; exit 1; }
-done
-
-printf 'POSTGRES_PASSWORD=\n' >.env
-run_ensure false 1 0 && { echo "FAIL: empty value with an existing volume did not stop"; exit 1; }
-[ -z "$(pg_value)" ] || { echo "FAIL: empty value with an existing volume was replaced"; exit 1; }
-run_ensure false 0 1 && { echo "FAIL: a failed volume lookup did not stop"; exit 1; }
-[ -z "$(pg_value)" ] || { echo "FAIL: a failed volume lookup still generated a password"; exit 1; }
-
-printf 'POSTGRES_PASSWORD=existing\nPOSTGRES_PASSWORD=\n' >.env
-run_ensure false 0 0 && { echo "FAIL: two lines for the key did not stop"; exit 1; }
-printf 'POSTGRES_PASSWORD="unterminated\n' >.env
-cp .env "$work/before"
+write_env 'POSTGRES_PASSWORD="unterminated'
 run_ensure false 0 0 && { echo "FAIL: an unreadable line did not stop"; exit 1; }
-cmp -s .env "$work/before" || { echo "FAIL: an unreadable line was rewritten"; exit 1; }
+unchanged || { echo "FAIL: an unreadable line was changed"; exit 1; }
 
-printf 'POSTGRES_PASSWORD=\n' >.env
-( POSTGRES_PASSWORD=from-shell; export POSTGRES_PASSWORD; ensure_postgres_password ) \
+# A value exported in the shell wins over .env, as in Compose.
+write_env 'POSTGRES_PASSWORD='
+( POSTGRES_PASSWORD=from-shell; export POSTGRES_PASSWORD; ENV_CREATED=false; ensure_postgres_password ) \
   || { echo "FAIL: a value exported in the shell stopped the install"; exit 1; }
-[ -z "$(pg_value)" ] || { echo "FAIL: .env was written although the shell value wins"; exit 1; }
-( POSTGRES_PASSWORD=; export POSTGRES_PASSWORD; ensure_postgres_password ) 2>/dev/null \
+( POSTGRES_PASSWORD=from-shell; export POSTGRES_PASSWORD; ENV_CREATED=true; ensure_postgres_password ) \
+  || { echo "FAIL: a value exported in the shell stopped a new install"; exit 1; }
+unchanged || { echo "FAIL: .env was written although the shell value wins"; exit 1; }
+( POSTGRES_PASSWORD=; export POSTGRES_PASSWORD; ENV_CREATED=false; ensure_postgres_password ) 2>/dev/null \
   && { echo "FAIL: an empty value exported in the shell did not stop"; exit 1; }
 
-printf 'POSTGRES_PASSWORD=geolens\n' >.env
-run_ensure false 0 0 && [ "$(pg_value)" = geolens ] || { echo "FAIL: an existing .env's default was rotated"; exit 1; }
-run_ensure true 1 0 && [ "$(pg_value)" = geolens ] \
-  || { echo "FAIL: the default was rotated although a database volume exists"; exit 1; }
-run_ensure true 0 0 && [ "$(pg_value)" != geolens ] \
-  || { echo "FAIL: a .env created this run kept the default"; exit 1; }
-
-# A checkout without the Compose-compatible reader leaves an existing .env
-# alone and reads only a .env this run copied from the template.
+# A checkout without the Compose-compatible reader never stops or writes on an
+# existing .env.
 mv scripts/lib/common.sh "$work/common.sh"
-printf 'export POSTGRES_PASSWORD=existing\n' >.env
-cp .env "$work/before"
-run_ensure false 0 0 && cmp -s .env "$work/before" \
-  || { echo "FAIL: an existing .env was changed without the reader"; exit 1; }
-printf 'POSTGRES_PASSWORD=geolens\n' >.env
-run_ensure true 0 0 && [ "$(get_env_value_decoded POSTGRES_PASSWORD)" != geolens ] \
-  || { echo "FAIL: a template .env without the reader kept the default"; exit 1; }
+for body in 'export POSTGRES_PASSWORD=existing' 'POSTGRES_PASSWORD='; do
+  write_env "$body"
+  run_ensure false 0 0 && unchanged || { echo "FAIL: [$body] without the reader stopped or changed .env"; exit 1; }
+done
 mv "$work/common.sh" scripts/lib/common.sh
-
-# Real Compose resolves the project name, inline comment and all, so the
-# volume of project `<name>` is found. Skipped without a Docker daemon.
-unset -f docker
-if command docker compose version >/dev/null 2>&1 && command docker info >/dev/null 2>&1; then
-  real_project="glinstalltest$$"
-  real_volume="${real_project}_pgdata"
-  printf 'services:\n  db:\n    image: busybox\n    volumes: [pgdata:/data]\nvolumes:\n  pgdata:\n' >docker-compose.yml
-  command docker volume create --label "com.docker.compose.project=$real_project" \
-    --label com.docker.compose.volume=pgdata "$real_volume" >/dev/null
-  printf 'COMPOSE_PROJECT_NAME=%s # production\nPOSTGRES_PASSWORD=\n' "$real_project" >.env
-  ( unset POSTGRES_PASSWORD COMPOSE_PROJECT_NAME; ENV_CREATED=false; ensure_postgres_password ) 2>/dev/null \
-    && { echo "FAIL: the volume of a commented COMPOSE_PROJECT_NAME was missed"; exit 1; }
-  [ -z "$(pg_value)" ] || { echo "FAIL: a password was generated beside an existing volume"; exit 1; }
-  command docker volume rm "$real_volume" >/dev/null
-  real_volume=""
-  ( unset POSTGRES_PASSWORD COMPOSE_PROJECT_NAME; ENV_CREATED=false; ensure_postgres_password ) 2>/dev/null \
-    || { echo "FAIL: no volume, yet the install stopped"; exit 1; }
-  [ -n "$(pg_value)" ] || { echo "FAIL: no volume, yet no password was generated"; exit 1; }
-else
-  echo "SKIP: real Compose project-name case (no Docker daemon)"
-fi
 
 echo "PASS: install.sh secret generation (SEC-010 / SEC-011)"

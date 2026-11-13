@@ -79,7 +79,7 @@ and releases use semantic versioning.
 - `HEAD` now answers on a map's `style.json`, a 3D Tiles dataset's files and `/api/health` with GET's status and headers; it returned 405.
 
 ### Security
-- `.env.example` and `.env.test.example` no longer set the database password to the published default `geolens`: `install.sh` and `make dev-init` generate one, also for a `.env` copied by hand before the database exists, and `make env-test` copies the dev stack's. The API and worker log `postgres_password_published_default` at startup while `POSTGRES_PASSWORD` or a database URL override still signs in with it.
+- `.env.example` and `.env.test.example` no longer set the database password to the published default `geolens`: `install.sh` and `make dev-init` generate one when they create `.env`, stop with a message when an existing `.env` leaves it empty, and `make env-test` copies the dev stack's. The API and worker log `postgres_password_published_default` at startup while `POSTGRES_PASSWORD` or a database URL override still signs in with it.
 - An admin transfer of a map to another owner revokes the map's embed tokens, which served with the previous owner's rights, so they stop being accepted at once; the new owner mints a fresh one, and the `map.transfer_owner` audit entry counts the tokens revoked. Tile URLs already signed through such a token keep working until they expire, at most 16 minutes.
 - While public visibility is restricted to admins, an embed token a non-admin minted on a private or internal map stops being accepted at once for tiles, features and the shared-map view, and is accepted again if the setting is turned off. Tile URLs already signed through such a token keep working until they expire, at most 16 minutes.
 

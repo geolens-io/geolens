@@ -126,7 +126,7 @@ AZURE_TITILER_KEYS = frozenset(
 
 # Matches `update_env_value <KEY> ...` — the canonical write path install.sh
 # uses to persist a value into .env.
-WRITE_RE = re.compile(r"^\s*(?:update_env_value|replace_env_key)\s+([A-Z][A-Z0-9_]*)\b")
+WRITE_RE = re.compile(r"^\s*update_env_value\s+([A-Z][A-Z0-9_]*)\b")
 
 # Every `scripts/<file>` path a doc tells an operator to run must resolve to a
 # real file, or the recipe is unrunnable as written.
@@ -174,7 +174,7 @@ def unresolvable_doc_script_refs() -> list[str]:
 
 
 def keys_written_by_installer(install_sh: Path) -> set[str]:
-    """Return the set of env keys install.sh persists via update_env_value or replace_env_key."""
+    """Return the set of env keys install.sh persists via update_env_value."""
     keys: set[str] = set()
     for line in install_sh.read_text().splitlines():
         m = WRITE_RE.match(line)
