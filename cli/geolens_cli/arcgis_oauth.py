@@ -398,7 +398,12 @@ class _Session:
 
     def adopt(self, data: Mapping[str, Any]) -> None:
         if self._username is None:
-            self._username = data.get("username")
+            name = data.get("username")
+            self._username = name
+            # A browser that already holds an ArcGIS session signs in as that
+            # account without asking, so say whose it is.
+            if isinstance(name, str) and name:
+                self._say(f"Signed in to {self._client.root} as {name}")
         refresh = data.get("refresh_token")
         if isinstance(refresh, str) and refresh:
             self._redact.add(refresh)
@@ -425,10 +430,13 @@ class _Session:
         except (_auth.CredentialsFileCorrupt, OSError):
             # The run keeps the new token in memory; an unwritable stderr must
             # not end it.
-            try:
-                self._notify(_UNSAVED)
-            except (OSError, ValueError):
-                pass
+            self._say(_UNSAVED)
+
+    def _say(self, message: str) -> None:
+        try:
+            self._notify(message)
+        except (OSError, ValueError):
+            pass
 
     def forget_if_unchanged(self, backend: str, token: str) -> None:
         """Delete the refused *token* from *backend*, unless another run has

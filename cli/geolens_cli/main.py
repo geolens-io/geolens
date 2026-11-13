@@ -2027,7 +2027,8 @@ def arcgis_inventory(
         str,
         typer.Option(
             "--portal-url",
-            help="ArcGIS Online organization URL, or https://<host>/portal for a self-hosted portal",
+            help="ArcGIS Online organization URL, or https://<host>/portal for a self-hosted portal. "
+            "Members with a SAML or OpenID Connect login pass their organization's URL.",
         ),
     ] = _arcgis_inventory.DEFAULT_PORTAL_URL,
     token: Annotated[

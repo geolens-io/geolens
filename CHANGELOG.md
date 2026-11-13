@@ -21,6 +21,9 @@ and releases use semantic versioning.
   half of its lifetime, the next run exchanges it for a new one without the
   browser, so the sign-in stays valid as long as the CLI runs at least once
   within that lifetime (two weeks on ArcGIS Online's defaults).
+- `geolens arcgis inventory` and `geolens arcgis migrate` now print
+  `Signed in to <portal> as <username>` on stderr after a browser sign-in and at
+  the start of a run that reuses a saved one.
 - The share card for a map with no social card image now shows the site card
   instead of the map's thumbnail.
 - A web page on another site can now read the public stories, maps and

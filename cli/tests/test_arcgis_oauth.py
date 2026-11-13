@@ -781,7 +781,7 @@ def test_an_exchanged_token_and_its_lifetime_are_stored_before_use(
     assert stored_when_used == [saved]
     assert json.loads(mock_keyring[ACCOUNT]) == saved
     assert client.token == f"{ACCESS_2}-2"
-    assert shown == []
+    assert shown == [f"Signed in to {PORTAL} as {USER}"]
 
 
 def test_the_exchange_reuses_the_sign_ins_redirect_uri(mock_keyring):
@@ -880,7 +880,7 @@ def test_a_store_that_takes_no_write_is_not_exchanged(monkeypatch, mock_keyring)
     assert endpoint.kinds() == ["refresh_token"]
     assert mock_keyring[ACCOUNT] == _value(STORED, age=LIFETIME)
     assert client.token == ACCESS_2
-    assert shown == []
+    assert shown == [f"Signed in to {PORTAL} as {USER}"]
 
 
 class _FlakyStore:
@@ -919,7 +919,7 @@ def test_an_exchanged_token_that_cannot_be_saved_lasts_only_this_run(
     assert [g["refresh_token"] for g in endpoint.grants[2:]] == [rotated, rotated]
     assert store.calls == 2
     assert mock_keyring[ACCOUNT] == _value(STORED, age=LIFETIME)
-    assert shown == [oauth._UNSAVED]
+    assert shown == [f"Signed in to {PORTAL} as {USER}", oauth._UNSAVED]
     assert "no longer works" in oauth._UNSAVED
     assert "browser" in oauth._UNSAVED
     captured = capsys.readouterr()
@@ -1145,3 +1145,37 @@ def test_a_run_that_cannot_get_the_lock_does_not_exchange(monkeypatch, mock_keyr
     assert endpoint.kinds() == ["refresh_token"]
     assert client.token == ACCESS_2
     assert mock_keyring[ACCOUNT] == _value(STORED, age=LIFETIME * 0.9)
+
+
+def test_the_account_signed_in_is_shown_once_and_never_a_secret(invoke, mock_keyring):
+    """A browser sign-in and a reused stored one each print the portal and
+    username on stderr only, with no token."""
+    portal = FakePortal(portal_routes({"oauth2/token": TokenEndpoint()}))
+    result, texts, out = invoke(portal, Browser(), "--client-id", CLIENT_ID)
+    assert result.stderr.count(" as " + USER) == 1
+    assert "Signed in to " in result.stderr and USER not in result.stdout
+    _assert_no_secret(texts)
+
+    mock_keyring[ACCOUNT] = _value(STORED)
+    portal = FakePortal(portal_routes({"oauth2/token": TokenEndpoint(valid=(STORED,))}))
+    result, _, _ = invoke(portal, _never_opened, "--client-id", CLIENT_ID)
+    assert result.stderr.count(" as " + USER) == 1
+
+
+def test_a_stored_sign_in_whose_reply_has_no_username_shows_no_line(mock_keyring):
+    """A reply without a username signs in and prints no account line."""
+    mock_keyring[ACCOUNT] = _value(STORED)
+    endpoint = TokenEndpoint(valid=(STORED,))
+
+    def no_name(seen):
+        answer = endpoint(seen)
+        answer.pop("username", None)
+        return answer
+
+    redact = arcgis_portal.Redactor()
+    client = _client(FakePortal({"oauth2/token": no_name}), redact)
+    shown: list[str] = []
+    oauth.sign_in(
+        client, CLIENT_ID, redact, open_browser=_never_opened, notify=shown.append
+    )
+    assert not [m for m in shown if m.startswith("Signed in")]
