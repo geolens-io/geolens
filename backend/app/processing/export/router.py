@@ -474,7 +474,7 @@ async def export_dataset_endpoint(
                 headers={"etag": artifact.etag},
             )
         if artifact_response.revalidates(
-            request.headers.get("if-none-match"), artifact.etag, cached_media_type
+            request.headers.get("if-none-match"), artifact.etag, gzipped=gzipped
         ):
             return artifact_response.not_modified(artifact.etag, gzipped=gzipped)
         # Answered here, above planning, so a cached parquet probe, the request
@@ -663,7 +663,7 @@ async def export_dataset_endpoint(
             detail="Export has changed since the version you hold",
         )
     if if_match_ok_unbuilt and artifact_response.revalidates(
-        request.headers.get("if-none-match"), None, cached_media_type
+        request.headers.get("if-none-match"), None, gzipped=gzipped
     ):
         return artifact_response.not_modified(None, gzipped=gzipped)
     if request.method == "HEAD":
@@ -808,7 +808,7 @@ async def export_dataset_endpoint(
             headers={"etag": etag} if etag is not None else None,
         )
     if artifact_response.revalidates(
-        request.headers.get("if-none-match"), etag, media_type
+        request.headers.get("if-none-match"), etag, gzipped=gzipped
     ):
         _cleanup_export(temp_dir)
         return artifact_response.not_modified(etag, gzipped=gzipped)

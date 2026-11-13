@@ -311,8 +311,8 @@ _XY_COLUMNS = frozenset({"longitude", "latitude"})
 # geom_4326 is the WGS 84 copy GeoLens maintains next to every geometry, so the
 # coordinates are right whatever CRS the table or the target uses.
 _XY_AXIS_SQL = (
-    "CASE WHEN GeometryType(t.geom_4326) = 'POINT' THEN ST_{axis}(t.geom_4326) "
-    "WHEN GeometryType(t.geom_4326) = 'MULTIPOINT' "
+    "CASE WHEN ST_GeometryType(t.geom_4326) = 'ST_Point' THEN ST_{axis}(t.geom_4326) "
+    "WHEN ST_GeometryType(t.geom_4326) = 'ST_MultiPoint' "
     "AND ST_NumGeometries(t.geom_4326) = 1 "
     "THEN ST_{axis}(ST_GeometryN(t.geom_4326, 1)) END"
 )
@@ -398,10 +398,11 @@ async def run_ogr2ogr_export(
     if target_srs:
         cmd.extend(["-t_srs", target_srs])
 
-    if bbox and bbox[0] > bbox[2]:
+    if bbox and (bbox[0] > bbox[2] or use_xy):
         # -spat takes one rectangle, so an antimeridian-crossing box would
         # become the complement band and drop every feature. Split into the
-        # server-side WHERE instead, in one pass.
+        # server-side WHERE instead, in one pass. The coordinate-column
+        # SELECT takes the same route: -spat_srs is refused alongside -sql.
         spatial_where = bbox_where_sql(bbox, literal=True)
         where = f"{spatial_where} AND ({where})" if where else spatial_where
     elif bbox:

@@ -24,7 +24,7 @@ and releases use semantic versioning.
   within that lifetime (two weeks on ArcGIS Online's defaults).
 - The share card for a map with no social card image now shows the site card
   instead of the map's thumbnail.
-- GeoJSON and CSV exports are sent gzip-compressed when the client offers `Accept-Encoding: gzip` and sends no `Range` or `If-Range`. The compressed response carries its own weak `ETag`, an `If-None-Match` with either tag answers 304, and a range request still gets the uncompressed file. A `HEAD` for a client that offers gzip omits `Content-Length`.
+- GeoJSON and CSV exports are sent gzip-compressed when the client offers `Accept-Encoding: gzip` and sends no `Range` or `If-Range`. The compressed response carries its own weak `ETag` and `If-None-Match` is checked against the tag of the representation the request gets. A request with `Range`, `If-Range` or `If-Match` still gets the uncompressed file. A `HEAD` for a client that offers gzip omits `Content-Length`.
 - A web page on another site can now read the public stories, maps and
   dataset rows without credentials: `GET /stories/`, `/stories/{id}`,
   `/maps/{id}`, `/maps/{id}/style.json`, `/datasets/{id}/rows/`,

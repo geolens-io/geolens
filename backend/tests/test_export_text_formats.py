@@ -19,14 +19,16 @@ from app.processing.export.ogr import FORMAT_MAP
 from tests.factories import create_dataset, get_user_id
 
 
-async def _make_table(session, geom_type: str, srid: int, rows: list[tuple]) -> str:
+async def _make_table(session, geom_type: str, srid: int, rows: list[tuple]) -> str:  # noqa: E501
     """A GeoLens-shaped table: ``geom`` in ``srid`` plus a generated ``geom_4326``."""
     table = f"exp_gl_{uuid.uuid4().hex[:12]}"
+    # An untyped column holds every dimension (Z, M, ZM).
+    typmod = "" if geom_type == "Geometry" else f"({geom_type}, {{srid}})"
     await session.execute(
         text(
             f"CREATE TABLE data.{table} (gid serial PRIMARY KEY, name varchar, "
-            f"geom geometry({geom_type}, {srid}), "
-            f"geom_4326 geometry({geom_type}, 4326) "
+            f"geom geometry{typmod.format(srid=srid)}, "
+            f"geom_4326 geometry{typmod.format(srid=4326)} "
             "GENERATED ALWAYS AS (ST_Transform(geom, 4326)) STORED)"
         )
     )
@@ -128,6 +130,109 @@ class TestCsvCoordinatesEndToEnd:
         rows = await self._export(test_db_session, monkeypatch, tmp_path)
         assert "longitude" not in rows[0] and "latitude" not in rows[0]
         assert "name" in rows[0] and "gid" not in rows[0]
+
+
+@pytest.mark.requires_ogr2ogr
+@pytest.mark.skipif(shutil.which("ogr2ogr") is None, reason="ogr2ogr not available")
+class TestCsvCoordinatesFilters:
+    async def _run(self, session, monkeypatch, tmp_path, geom_type, srid, rows, **kw):
+        from app.processing.export import service as export_service
+
+        monkeypatch.setattr(
+            export_service.settings, "upload_staging_dir", str(tmp_path)
+        )
+        table = await _make_table(session, geom_type, srid, rows)
+        try:
+            path, _n, _m = await export_service.export_dataset(
+                table,
+                "Seeds",
+                "csv",
+                schema="data",
+                xy=True,
+                column_info=[{"name": "name", "type": "text"}],
+                **kw,
+            )
+            with open(path, newline="", encoding="utf-8") as handle:
+                data = list(csv.reader(handle))
+        finally:
+            await _drop_table(session, table)
+        header = data[0]
+        return {
+            row[header.index("name")]: (
+                row[header.index("longitude")],
+                row[header.index("latitude")],
+            )
+            for row in data[1:]
+        }
+
+    _PTS = [
+        ("in", "POINT (-75 40)"),
+        ("out", "POINT (10 10)"),
+        ("east", "POINT (179 0)"),
+        ("west", "POINT (-179 0)"),
+    ]
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("srid", [4326, 3857])
+    async def test_ordinary_bbox(self, test_db_session, monkeypatch, tmp_path, srid):
+        got = await self._run(
+            test_db_session,
+            monkeypatch,
+            tmp_path,
+            "Point",
+            srid,
+            self._PTS,
+            bbox=[-80, 30, -70, 50],
+        )
+        assert set(got) == {"in"}
+        assert float(got["in"][0]) == pytest.approx(-75)
+
+    @pytest.mark.anyio
+    async def test_antimeridian_bbox(self, test_db_session, monkeypatch, tmp_path):
+        got = await self._run(
+            test_db_session,
+            monkeypatch,
+            tmp_path,
+            "Point",
+            4326,
+            self._PTS,
+            bbox=[170, -10, -170, 10],
+        )
+        assert set(got) == {"east", "west"}
+
+    @pytest.mark.anyio
+    async def test_bbox_with_where(self, test_db_session, monkeypatch, tmp_path):
+        got = await self._run(
+            test_db_session,
+            monkeypatch,
+            tmp_path,
+            "Point",
+            3857,
+            self._PTS,
+            bbox=[-180, -90, 180, 90],
+            where="name = 'in'",
+        )
+        assert set(got) == {"in"}
+
+    @pytest.mark.anyio
+    async def test_every_point_dimension(self, test_db_session, monkeypatch, tmp_path):
+        rows = [
+            ("xy", "POINT (1 2)"),
+            ("xyz", "POINT Z (1 2 3)"),
+            ("xym", "POINT M (1 2 3)"),
+            ("xyzm", "POINT ZM (1 2 3 4)"),
+            ("mxyz", "MULTIPOINT Z ((1 2 3))"),
+            ("mxym", "MULTIPOINT M ((1 2 3))"),
+            ("mxyzm", "MULTIPOINT ZM ((1 2 3 4))"),
+            ("empty", "POINT EMPTY"),
+            ("null", None),
+        ]
+        got = await self._run(
+            test_db_session, monkeypatch, tmp_path, "Geometry", 4326, rows
+        )
+        for name in ("xy", "xyz", "xym", "xyzm", "mxyz", "mxym", "mxyzm"):
+            assert (float(got[name][0]), float(got[name][1])) == (1.0, 2.0), name
+        assert got["empty"] == ("", "") and got["null"] == ("", "")
 
 
 class TestSelectionKey:
@@ -293,29 +398,56 @@ class TestGzipRepresentation:
         assert len(raw) < len(recorder.body)
 
     @pytest.mark.anyio
-    @pytest.mark.parametrize("held", ["identity", "gzip"])
-    async def test_either_tag_revalidates_to_304(
-        self, client, admin_auth_header, dataset, held
+    @pytest.mark.parametrize("warm", [False, True])
+    @pytest.mark.parametrize("method", ["GET", "HEAD"])
+    @pytest.mark.parametrize("holds", ["identity", "gzip"])
+    async def test_a_tag_of_the_other_representation_gets_the_body(
+        self, client, admin_auth_header, dataset, warm, method, holds
+    ):
+        url = self._url(dataset)
+        identity = {**admin_auth_header, "Accept-Encoding": "identity"}
+        zipped = {**admin_auth_header, "Accept-Encoding": "gzip"}
+        if warm:
+            await client.get(url, headers=identity)
+        held = await client.get(
+            url, headers=identity if holds == "identity" else zipped
+        )
+        asks = zipped if holds == "identity" else identity
+        other = await client.request(
+            method, url, headers={**asks, "If-None-Match": held.headers["etag"]}
+        )
+        assert other.status_code == 200
+        same = await client.request(
+            method,
+            url,
+            headers={
+                **(identity if holds == "identity" else zipped),
+                "If-None-Match": held.headers["etag"],
+            },
+        )
+        assert same.status_code == 304
+        assert same.headers["etag"] == held.headers["etag"]
+        assert "accept-encoding" in _vary_tokens(same)
+
+    @pytest.mark.anyio
+    async def test_if_match_gets_the_identity_representation(
+        self, client, admin_auth_header, dataset
     ):
         url = self._url(dataset)
         identity = await client.get(
             url, headers={**admin_auth_header, "Accept-Encoding": "identity"}
         )
-        zipped = await client.get(
-            url, headers={**admin_auth_header, "Accept-Encoding": "gzip"}
-        )
-        tag = identity.headers["etag"] if held == "identity" else zipped.headers["etag"]
-        answer = await client.get(
+        response = await client.get(
             url,
             headers={
                 **admin_auth_header,
                 "Accept-Encoding": "gzip",
-                "If-None-Match": tag,
+                "If-Match": identity.headers["etag"],
             },
         )
-        assert answer.status_code == 304
-        assert answer.headers["etag"] == zipped.headers["etag"]
-        assert "accept-encoding" in _vary_tokens(answer)
+        assert response.status_code == 200
+        assert "content-encoding" not in response.headers
+        assert response.headers["etag"] == identity.headers["etag"]
 
     @pytest.mark.anyio
     async def test_range_gets_identity_bytes(

@@ -51,12 +51,14 @@ def client_offers_gzip(request: Request, media_type: str) -> bool:
     """Is this request answered with the gzip representation?
 
     Only text exports, only when the client offers gzip with a nonzero
-    q-value, and never with ``Range`` or ``If-Range``: the gzip bytes have no
+    q-value, and never with ``Range``, ``If-Range`` or ``If-Match``: the gzip bytes have no
     byte offsets a client could resume against, so those get the identity file.
     """
     if not is_text_export(media_type):
         return False
-    if "range" in request.headers or "if-range" in request.headers:
+    # If-Match is a strong comparison against the stored artifact's tag, which
+    # only the identity representation carries.
+    if any(h in request.headers for h in ("range", "if-range", "if-match")):
         return False
     for member in request.scope.get(ORIGINAL_ACCEPT_ENCODING_KEY, "").split(","):
         name, _, params = member.partition(";")
@@ -87,15 +89,17 @@ def gzip_etag(etag: str) -> str:
     return f"W/{_gzip_strong_etag(etag)}"
 
 
-def revalidates(if_none_match: str | None, etag: str | None, media_type: str) -> bool:
-    """Does ``If-None-Match`` name the artifact or, for a text export, its gzip form?"""
-    if if_none_match_matches(if_none_match, etag):
-        return True
-    return (
-        etag is not None
-        and is_text_export(media_type)
-        and if_none_match_matches(if_none_match, _gzip_strong_etag(etag))
-    )
+def revalidates(
+    if_none_match: str | None, etag: str | None, *, gzipped: bool = False
+) -> bool:
+    """Does ``If-None-Match`` name the representation this request selects?
+
+    A 304 must carry the validator of the stored response it updates, so a tag
+    of the other representation is not a match.
+    """
+    if gzipped and etag is not None:
+        etag = _gzip_strong_etag(etag)
+    return if_none_match_matches(if_none_match, etag)
 
 
 # GZipMiddleware is kept off this route, so a text export names the request
