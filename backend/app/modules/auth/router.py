@@ -622,6 +622,7 @@ async def register(
         verification_required and body.email and smtp_configured
     )
 
+    raw_token: str | None = None
     if not collision:
         # The registrant is the actor; resource_id == user_id == the new
         # pending user.
@@ -637,6 +638,12 @@ async def register(
                 ip_address=ip,
             ),
         )
+        if wants_email_verification:
+            # Committed with the account: resend serves only accounts holding a
+            # token, so a failure after this commit must not strand the sign-up.
+            from app.modules.auth.verification import issue_verification_token
+
+            raw_token = await issue_verification_token(db, new_user_id)
         await db.commit()
         _username = body.username
         _email = body.email or ""
@@ -669,14 +676,7 @@ async def register(
         # Send for both genuine registrations and swallowed collisions: a
         # collision gets a decoy token so delivery stays uniform and can't
         # reveal whether the username/email existed.
-        if new_user_id is not None:
-            from app.modules.auth.verification import (
-                issue_verification_token,
-            )
-
-            raw_token = await issue_verification_token(db, new_user_id)
-            await db.commit()
-        else:
+        if raw_token is None:
             raw_token = secrets.token_urlsafe(32)
 
         # Map an SMTP/OSError to HTTP 502; never expose the exception repr
