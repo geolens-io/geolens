@@ -73,6 +73,8 @@ and releases use semantic versioning.
 - ArcGIS Online and other browser clients given the OGC API URL without its trailing slash (`/api`) can now read it directly. The redirect to `/api/` carried no `Access-Control-Allow-Origin`, so the browser refused it and ArcGIS Online fell back to its own proxy, which fails when that proxy can't reach the server.
 - An import or refresh that fails on an ArcGIS WFS count (`arcgis_wfs_count_unavailable`, `arcgis_wfs_short`, `arcgis_wfs_repeated`) or on an OGC API Features page read (`service_auth_refused`, `service_error`, `service_empty_page`) stores that code with its reason, so the job and refresh views show the failure in the reader's language.
 - `HEAD` now answers on a map's `style.json`, a 3D Tiles dataset's files and `/api/health` with GET's status and headers; it returned 405.
+- The point cloud viewer now recognises a geocentric coordinate system from the structure of its definition, not from words in its text, so unusual geocentric files keep the footprint view and projected ones with such words in a name load.
+- A point cloud whose first loaded tile has only dark 16-bit colours no longer dims or saturates the whole cloud; tiles are redrawn once a later tile shows the real colour depth.
 
 ### Security
 - An admin transfer of a map to another owner revokes the map's embed tokens, which served with the previous owner's rights, so they stop being accepted at once; the new owner mints a fresh one, and the `map.transfer_owner` audit entry counts the tokens revoked. Tile URLs already signed through such a token keep working until they expire, at most 16 minutes.

@@ -93,7 +93,15 @@ export function normalizeWkt(wkt: string): string | null {
 // Geocentric (Earth-centred Cartesian) coordinates need a three-dimensional
 // transform; the viewer reprojects X and Y only, so these keep the footprint.
 const QUOTED = /"(?:[^"]|"")*"/g;
-const GEOCENTRIC = /GEOCCS\[|geocentric/i;
+const GEODETIC_WKT2 = ['GEODCRS', 'GEODETICCRS'];
+const CARTESIAN_3D = /(?<![A-Za-z])CS\[Cartesian,3[,\]]/;
+
+/** True when the WKT holds a WKT1 GEOCCS or a WKT2 geodetic CRS with a three-axis Cartesian system, at any depth. */
+function isGeocentric(wkt: string): boolean {
+  if (wktNode(wkt, 'GEOCCS')) return true;
+  const node = firstNode(wkt, GEODETIC_WKT2);
+  return node !== null && CARTESIAN_3D.test(node.replace(QUOTED, '""'));
+}
 
 export interface CopcCrs {
   /** WKT of the horizontal CRS; proj4 refuses a compound CRS as a whole. */
@@ -109,7 +117,7 @@ export interface CopcCrs {
 export function parseCopcCrs(rawWkt: string | undefined): CopcCrs | null {
   if (!rawWkt || rawWkt.length > MAX_WKT_LENGTH) return null;
   const wkt = normalizeWkt(rawWkt);
-  if (!wkt || GEOCENTRIC.test(wkt.replace(QUOTED, '""'))) return null;
+  if (!wkt || isGeocentric(wkt)) return null;
   const compound = COMPOUND.some((keyword) => wkt.startsWith(keyword));
   const projected = compound ? firstNode(wkt, PROJECTED) : null;
   const found = compound ? projected ?? firstNode(wkt, GEOGRAPHIC) : wkt;
