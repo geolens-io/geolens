@@ -41,6 +41,7 @@ and releases use semantic versioning.
   no wildcard. This changes the CORS contract: these routes used to send no
   CORS headers to an origin outside the allowlist.
 - `geolens arcgis migrate --cutover` checks the inventory's freshness and unresolved plan owners before the run, and stops without importing or refreshing anything, printing only the refusal, when either fails without its `--accept-*` flag. The freshness check ignores portal items the plan skips and names the items that changed, apart from those created since the inventory.
+- `geolens arcgis migrate` hands a migrated dataset or map to the new owner when `owner_map` or an item's `target.owner` is edited after the item was migrated, the same way it follows an ArcGIS owner change; a handover GeoLens refuses is still reported to do by hand.
 - The default ceiling for the OGC API Features `limit` parameter is now 5,000 instead of 1,000. An instance where an admin already set `ogc_items_max_page_size` keeps its own value. Clients such as ArcGIS Online ask for up to 5,000 features per map tile and do not follow the `next` link, so the old ceiling drew only the first 1,000 features of a busy tile. The setting is on the admin Network tab. An items page now also ends early, with a `next` link, once its geometries hold about 4 MB (roughly 250,000 vertices), so a page of large polygons returns fewer features than `limit` instead of using several hundred MB of server memory.
 
 ### Fixed
