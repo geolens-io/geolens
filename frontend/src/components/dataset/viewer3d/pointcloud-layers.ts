@@ -51,6 +51,7 @@ export function loadPointCloud(
       copc.info.rootHierarchyPage,
       (page) => Copc.loadHierarchyPage(getter, page),
       fileSize,
+      copc.header.pointDataRecordLength,
     );
     const queue = selectNodes(nodes, POINT_BUDGET, copc.header.pointDataRecordLength, fileSize);
     if (queue.length === 0) throw new Error('COPC has no node the viewer can read');

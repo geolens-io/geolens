@@ -27,3 +27,5 @@ export const MAX_WKT_LENGTH = 64 * 1024;
 export const MAX_HIERARCHY_PAGES = 40;
 export const MAX_HIERARCHY_BYTES = 16 * 1024 * 1024;
 export const MAX_HIERARCHY_PAGE_DEPTH = 8;
+/** Child-page references one load considers; the rest of a wider hierarchy is ignored. */
+export const MAX_HIERARCHY_REFERENCES = 2000;
