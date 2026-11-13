@@ -8,10 +8,13 @@ challenged, and every link to a path the entry serves stays under it.
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.core.dependencies import get_db
 from app.core.public_urls import (
     DESKTOP_ENTRY_PATH,
+    get_public_api_url,
     desktop_entry_serves,
     is_desktop_entry,
     mark_desktop_entry,
@@ -21,6 +24,7 @@ from app.modules.auth.dependencies import (
     get_optional_user_no_security_schema,
 )
 from app.standards.ogc.errors import ProblemDetail
+from app.standards.ogc.utils import build_url
 
 _OPENAPI_PATH = "/openapi.json"
 _METHODS = ("GET", "HEAD")
@@ -210,17 +214,17 @@ def _entry_path_item(item: dict) -> dict:
     include_in_schema=False,
     dependencies=[Depends(get_optional_user_no_security_schema)],
 )
-async def desktop_openapi(request: Request) -> JSONResponse:
+async def desktop_openapi(
+    request: Request, db: AsyncSession = Depends(get_db)
+) -> JSONResponse:
     """The OpenAPI document of the routes the entry serves, with the entry as server."""
     schema = request.app.openapi()
+    entry_url = build_url("/", base_url=await get_public_api_url(db, request=request))
     components = schema.get("components", {})
     return JSONResponse(
         {
             **schema,
-            "servers": [
-                {**server, "url": server["url"].rstrip("/") + DESKTOP_ENTRY_PATH}
-                for server in schema.get("servers", [])
-            ],
+            "servers": [{"url": entry_url.rstrip("/")}],
             "paths": {
                 path: _entry_path_item(item)
                 for path, item in schema.get("paths", {}).items()

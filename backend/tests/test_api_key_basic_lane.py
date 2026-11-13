@@ -599,9 +599,10 @@ async def test_the_openapi_document_under_the_entry_describes_the_routes_it_serv
     document = (await client.get("/desktop/openapi.json", headers=_basic(key))).json()
     published = (await client.get("/openapi.json")).json()
 
-    assert [server["url"] for server in document["servers"]] == [
-        server["url"].rstrip("/") + "/desktop" for server in published["servers"]
-    ]
+    landing = (await client.get("/desktop/", headers=_basic(key))).json()["links"]
+    entry_url = next(link["href"] for link in landing if link["rel"] == "self")
+    assert document["servers"] == [{"url": entry_url.rstrip("/")}]
+    assert entry_url.rstrip("/").endswith("/api/desktop")
     assert document["paths"]
     assert "/collections/{dataset_id}/items" in document["paths"]
     assert all(desktop_entry_serves(path) for path in document["paths"])
@@ -811,3 +812,35 @@ async def test_a_database_failure_while_judging_the_credential_is_a_503(
     resp = await client.get("/desktop/collections", headers=_basic("glk_any"))
     assert resp.status_code == 503, resp.text
     assert resp.headers["content-type"] == "application/problem+json"
+
+
+@pytest.mark.parametrize("source", ["environment", "admin setting"])
+async def test_the_openapi_server_under_the_entry_follows_a_configured_api_path(
+    client: AsyncClient, owner, monkeypatch, source
+):
+    """A proxy mount in the public API URL reaches the document's server too."""
+    from app.core import public_urls
+
+    configured = "https://catalog.example.test/geolens/api"
+    overrides = {"public_api_url": configured} if source == "admin setting" else {}
+
+    async def stored_overrides(db):
+        return overrides
+
+    monkeypatch.setattr(public_urls, "_load_public_url_overrides", stored_overrides)
+    monkeypatch.setattr(settings, "public_app_url", None)
+    monkeypatch.setattr(settings, "public_base_url", None)
+    monkeypatch.setattr(settings, "public_api_url", None if overrides else configured)
+    public_urls.invalidate_public_url_cache()
+    headers, _ = owner
+    key = await _mint(client, headers)
+    try:
+        document = await client.get("/desktop/openapi.json", headers=_basic(key))
+        landing = await client.get("/desktop/", headers=_basic(key))
+    finally:
+        public_urls.invalidate_public_url_cache()
+
+    server = document.json()["servers"][0]["url"]
+    assert server == configured + "/desktop"
+    data = next(link for link in landing.json()["links"] if link["rel"] == "data")
+    assert server + "/collections" == data["href"]
