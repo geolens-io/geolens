@@ -844,3 +844,34 @@ async def test_the_openapi_server_under_the_entry_follows_a_configured_api_path(
     assert server == configured + "/desktop"
     data = next(link for link in landing.json()["links"] if link["rel"] == "data")
     assert server + "/collections" == data["href"]
+
+
+async def test_an_items_page_under_the_entry_has_its_own_tag_and_revalidates_only_signed_in(
+    client: AsyncClient, owner, datasets
+):
+    headers, _ = owner
+    public = datasets[2]
+    key = await _mint(client, headers)
+    path = f"/collections/{public.id}/items"
+
+    api = await client.get(path, headers=_basic(key))
+    entry = await client.get("/desktop" + path, headers=_basic(key))
+    assert api.status_code == entry.status_code == 200
+    tag = entry.headers["etag"]
+    assert tag != api.headers["etag"]
+    assert entry.headers["cache-control"] == "private, no-cache"
+
+    for auth in ({}, _basic("glk_not-a-real-key")):
+        refused = await client.get(
+            "/desktop" + path, headers={**auth, "If-None-Match": tag}
+        )
+        assert refused.status_code == 401, auth
+        assert refused.headers["www-authenticate"] == CHALLENGE
+
+    revalidated = await client.get(
+        "/desktop" + path, headers={**_basic(key), "If-None-Match": tag}
+    )
+    assert revalidated.status_code == 304
+    assert revalidated.headers["etag"] == tag
+    crossed = await client.get(path, headers={**_basic(key), "If-None-Match": tag})
+    assert crossed.status_code == 200
