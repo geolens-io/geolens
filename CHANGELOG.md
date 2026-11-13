@@ -78,6 +78,7 @@ and releases use semantic versioning.
 ### Security
 - An admin transfer of a map to another owner revokes the map's embed tokens, which served with the previous owner's rights, so they stop being accepted at once; the new owner mints a fresh one, and the `map.transfer_owner` audit entry counts the tokens revoked. Tile URLs already signed through such a token keep working until they expire, at most 16 minutes.
 - While public visibility is restricted to admins, an embed token a non-admin minted on a private or internal map stops being accepted at once for tiles, features and the shared-map view, and is accepted again if the setting is turned off. Tile URLs already signed through such a token keep working until they expire, at most 16 minutes.
+- With Valkey configured but unreachable, an AI request from a user under a daily token cap is refused with 429 instead of taking a per-worker in-flight slot, so the two-request limit can no longer be multiplied by the number of API workers. Deployments without Valkey keep per-process slots.
 
 ## [1.31.0] - 2026-11-10
 
