@@ -217,5 +217,5 @@ def items_validator_headers(
     return {
         "ETag": f'W/"{digest}"',
         "Cache-Control": "private, no-cache" if carries_credentials else "no-cache",
-        "Vary": "Authorization, X-Api-Key, X-Embed-Token",
+        "Vary": "Authorization, X-Api-Key",
     }
