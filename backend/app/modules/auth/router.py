@@ -866,7 +866,8 @@ async def resend_verification(
     """Re-issue and re-send a verification email.
 
     Sends nothing unless self-registration is on and requires email
-    verification, since only then can the link activate an account.
+    verification, since only then can the link activate an account. A
+    pending account that signed up under admin approval gets no link.
 
     Enumeration-safe: ALWAYS returns the same 200 body
     regardless of whether the email exists, is unknown, or is already verified.
@@ -887,15 +888,21 @@ async def resend_verification(
     from app.modules.auth.verification_email import (
         send_verification_email,
     )
-    from sqlalchemy import select
+    from sqlalchemy import exists, or_, select
 
-    from app.modules.auth.models import User
+    from app.modules.auth.models import EmailVerificationToken, User
 
-    # Look up an unverified user by email (case-insensitive).
+    # Register mails a token only to a verification-mode sign-up, so a pending
+    # account without one signed up for admin approval and must not get a link
+    # that would activate it after the mode changed.
     result = await db.execute(
         select(User).where(
             func.lower(User.email) == func.lower(body.email),
             User.email_verified.is_(False),
+            or_(
+                User.status != "pending",
+                exists().where(EmailVerificationToken.user_id == User.id),
+            ),
         )
     )
     user = result.scalar_one_or_none()
