@@ -5,6 +5,7 @@ import proj4 from 'proj4';
 import { makeRangeGetter } from './copc-getter';
 import { parseCopcCrs } from './copc-crs';
 import { POINT_BUDGET } from './copc-limits';
+import { loadHierarchyNodes } from './copc-hierarchy';
 import { selectNodes } from './copc-select';
 import type { DecodeRequest, DecodeResponse } from './copc-decode.worker';
 
@@ -46,7 +47,12 @@ export function loadPointCloud(
     const origin = toLngLat.forward([(minX + maxX) / 2, (minY + maxY) / 2]) as [number, number];
     if (!origin.every(Number.isFinite)) throw new Error('COPC extent cannot be placed');
 
-    const { nodes } = await Copc.loadHierarchyPage(getter, copc.info.rootHierarchyPage);
+    const nodes = await loadHierarchyNodes(
+      copc.info.rootHierarchyPage,
+      (page) => Copc.loadHierarchyPage(getter, page),
+      fileSize,
+      copc.header.pointDataRecordLength,
+    );
     const queue = selectNodes(nodes, POINT_BUDGET, copc.header.pointDataRecordLength, fileSize);
     if (queue.length === 0) throw new Error('COPC has no node the viewer can read');
 
