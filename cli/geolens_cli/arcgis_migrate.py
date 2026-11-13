@@ -210,6 +210,7 @@ class MigrateOptions:
     password_stdin: bool = False
     client_id: str | None = None
     redirect_port: int | None = None
+    quiet: bool = False
     allow_insecure_http: bool = False
     trusted_hosts: list[str] = field(default_factory=list)
     export_cap_mb: int = DEFAULT_CAP_MB
@@ -730,21 +731,17 @@ def _follow_portal_owner(
     permission: str,
     owners: Owners,
 ) -> None:
-    """Queue a handover to *user* when only the item's ArcGIS owner moved;
-    report a new owner from a ``target.owner`` or ``owner_map`` edit. An entry
-    without a recorded ArcGIS owner adopts the current one while *user* owns
-    the item. An item a handover left incomplete goes to *user*, whoever owns
-    each of its objects now."""
+    """Queue a handover to *user* when the plan now resolves the item to a
+    user other than the one it was migrated to, whether the ArcGIS owner moved
+    or ``target.owner`` / ``owner_map`` was edited. An entry without a recorded
+    ArcGIS owner adopts the current one while *user* owns the item. An item a
+    handover left incomplete goes to *user*, whoever owns each of its objects
+    now."""
     portal_owner = item["owner"]
-    moved = entry.portal_owner is not None and portal_owner != entry.portal_owner
-    pinned = item["target"]["owner"] is not None
     _note_portal_owner(item, entry, owners, str(user.id))
     if entry.handover_incomplete:
         pass
     elif str(user.id) == entry.owner_id:
-        return
-    elif not moved or pinned:
-        owners.changed.append({"item": item["id"], "owner": user.username})
         return
     inactive = directory.inactive(user)
     if inactive:
@@ -1393,6 +1390,8 @@ def _report(
 ) -> int:
     groups = groups or GroupPlan()
     notes = notes or {}
+    if not opts.dry_run:
+        _note_unattempted_handovers(state, owners, summary)
     rows = [
         {
             "id": item["id"],
@@ -1549,6 +1548,25 @@ def _report(
     return EXIT_GENERIC if unaccepted or groups.failures or report_failed else EXIT_OK
 
 
+def _note_unattempted_handovers(
+    state: MigrationState, owners: Owners, summary: RunSummary
+) -> None:
+    """Keep a queued handover that never succeeded (left out by ``--only``,
+    or after an interruption or refusal) in the follow-ups."""
+    done = {h["item"] for h in summary.handed_over}
+    reported = {c["item"] for c in owners.changed}
+    for item_id in owners.waiting:
+        owner = owners.handovers.get(item_id)
+        entry = state.items.get(item_id)
+        if owner is None or item_id in done or item_id in reported:
+            continue
+        if entry is None or entry.owner_pending:
+            continue
+        owners.changed.append(
+            {"item": item_id, "owner": owner.username, "unattempted": "1"}
+        )
+
+
 def _planned_handovers(owners: Owners, only: Sequence[str]) -> list[dict[str, str]]:
     """The handovers ``hand_over`` makes, as it selects them."""
     return [
@@ -1566,8 +1584,12 @@ def _print_owners(fmt: _output.Formatter, owners: Owners, summary: RunSummary) -
     for change in owners.changed:
         fmt.warn(
             f"{change['item']} was migrated before its owner changed to "
-            f"{change['owner']}, and this run didn't hand it over; transfer it "
-            "in GeoLens by hand."
+            f"{change['owner']}, and this run didn't hand it over; "
+            + (
+                "rerun with it selected, or transfer it in GeoLens by hand."
+                if change.get("unattempted")
+                else "transfer it in GeoLens by hand."
+            )
         )
     for conflict in owners.conflicts:
         fmt.warn(
@@ -1875,7 +1897,11 @@ def _portal_client(
         return client, lambda: client.generate_token(username, password)
     if client_id:
         return client, lambda: arcgis_oauth.sign_in(
-            client, client_id, redact, redirect_port=opts.redirect_port
+            client,
+            client_id,
+            redact,
+            redirect_port=opts.redirect_port,
+            quiet=opts.quiet,
         )
     return client, None
 
@@ -2140,6 +2166,7 @@ def _run(
         if stopped is not None:
             try:
                 state.save()
+                _note_unattempted_handovers(state, owners, summary)
                 _json_path, md_path = _report_files(
                     state, plan, owners, redact, stopped, groups=groups
                 )

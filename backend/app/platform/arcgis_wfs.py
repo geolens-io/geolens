@@ -104,7 +104,7 @@ async def _read(
     credential_line: str | None,
     on_first_request: Callable[[], None] | None,
 ) -> bytes | None:
-    """One bounded, identity-encoded read, or None when it fails.
+    """One bounded read that accepts gzip, or None when it fails.
 
     ``on_first_request`` fires once the target has passed SSRF validation,
     right before the request, as `fetch_document` does. A ``token`` in the

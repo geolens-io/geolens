@@ -45519,6 +45519,18 @@
               "description": "Attribute filter expression, e.g. pop > 1000",
               "title": "Where"
             }
+          },
+          {
+            "description": "CSV only: add WGS 84 longitude and latitude columns after the geometry, filled for a point or a one-point multipoint and empty otherwise. Ignored for other formats, for layers that are not point or multipoint, and for a dataset that already has a longitude or latitude column.",
+            "in": "query",
+            "name": "xy",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "CSV only: add WGS 84 longitude and latitude columns after the geometry, filled for a point or a one-point multipoint and empty otherwise. Ignored for other formats, for layers that are not point or multipoint, and for a dataset that already has a longitude or latitude column.",
+              "title": "Xy",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {

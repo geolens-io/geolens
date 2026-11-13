@@ -134,9 +134,9 @@ async def _resolve_conformance(
             "OGC API probe: conformance link blocked by SSRF check",
             href=redact_url_credentials(abs_href),
         )
-    # `EndpointCheckFailedError` (over-cap body/size, or a non-identity
-    # Content-Encoding) degrades like an httpx/JSON failure: conformance stays
-    # unestablished.
+    # `EndpointCheckFailedError` (over-cap body/size, or a Content-Encoding
+    # other than identity or gzip) degrades like an httpx/JSON failure:
+    # conformance stays unestablished.
     except Exception as exc:  # broad: conformance fetch — httpx/JSON/bound failures can throw varied errors; degrade gracefully
         logger.debug(
             "OGC API probe: conformance fetch failed",

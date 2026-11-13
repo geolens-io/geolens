@@ -116,6 +116,12 @@ def conversions(monkeypatch):
     shutil.rmtree(root, ignore_errors=True)
 
 
+@pytest.fixture
+def admin_auth_header(admin_auth_header: dict) -> dict:
+    """These tests pin the identity representation; gzip has its own tests."""
+    return {**admin_auth_header, "Accept-Encoding": "identity"}
+
+
 @pytest.fixture(autouse=True)
 def _long_ttl(monkeypatch):
     """Pin the freshness window so a slow test cannot expire its own artifact.
@@ -2228,46 +2234,30 @@ def test_both_remote_puts_drain_their_upload_thread():
 
 
 @pytest.mark.parametrize("accept_encoding", ["gzip", "x-gzip", "br, gzip;q=0.9"])
-async def test_the_export_route_is_never_gzipped_and_others_still_are(
+async def test_the_export_route_gzips_under_its_own_validator_and_others_still_are(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
     conversions,
     accept_encoding,
 ):
-    """A compressed 200 and a raw 206 must not share one ETag — on THIS route only.
+    """A gzipped text export never shares the ETag of the raw bytes.
 
-    Parametrized over the spellings that trip ``GZipMiddleware``: it
-    engages on a SUBSTRING test, ``"gzip" in Accept-Encoding``,
-    so ``x-gzip`` — which RFC 9110 section 8.4.1.3 makes equivalent to gzip —
-    compresses too. The opt-out applies the same predicate the middleware does,
-    rather than dropping only members that START with gzip.
-
-    `GZipMiddleware` compresses a full response and skips a 206 by design, and
-    this route's validator names the RAW stored bytes, so a client that took it
-    from a compressed 200 and offered it back on an `If-Range` would have it
-    accepted and splice raw bytes at compressed offsets. The COG download route
-    is the same case with `image/tiff`.
-
-    Scoped by PATH, and the second half of this test is why. Excluding the
-    export MEDIA TYPES app-wide would also stop compressing feature GeoJSON and
-    the admin and audit CSV streams — endpoints that serve one representation
-    and never a range, so the safety buys nothing there and the bandwidth loss
-    is a straight regression. Asserting only that exports are uncompressed
-    would pass against that design too.
+    ``GZipMiddleware`` is kept off this route, which compresses its own
+    GeoJSON and CSV under a weak validator distinct from the stored artifact's,
+    so a range of the raw file never meets a tag taken from a gzip 200. Feature
+    GeoJSON elsewhere is still compressed by the middleware.
     """
     dataset = await _dataset(test_db_session, "Gzip Scope")
 
+    raw = await client.get(_url(dataset.id), headers=admin_auth_header)
     export = await client.get(
         _url(dataset.id),
         headers={**admin_auth_header, "Accept-Encoding": accept_encoding},
     )
     assert export.status_code == 200, export.text
-    assert export.headers.get("content-encoding") != "gzip", (
-        f"the export was gzipped for Accept-Encoding: {accept_encoding}; its "
-        f"ETag names the raw bytes every range is a slice of, so one validator "
-        f"would name two byte streams"
-    )
+    assert export.headers.get("content-encoding") == "gzip"
+    assert export.headers["etag"] != raw.headers["etag"]
 
     features = await client.get(
         f"/datasets/{dataset.id}/features?limit=1",

@@ -233,6 +233,7 @@ def sign_in(
     redirect_port: int | None = None,
     open_browser: Callable[[str], Any] | None = None,
     notify: Callable[[str], None] = _notify,
+    quiet: bool = False,
 ) -> None:
     """Give *client* an access token for *client_id* that renews itself.
 
@@ -242,7 +243,7 @@ def sign_in(
     fails, ``usage`` when the listener can't start.
     """
     account = _account(client.root, client_id)
-    session = _Session(client, client_id, account, redact, notify, redirect_port)
+    session = _Session(client, client_id, account, redact, notify, redirect_port, quiet)
     # Read under the lock: a run that waited for another's exchange sees the
     # token that exchange saved, not the one it invalidated.
     with _exchange_lock(account) as locked:
@@ -262,6 +263,7 @@ def sign_in(
         notify("The saved ArcGIS sign-in was refused; signing in through the browser.")
     verifier, challenge = pkce_pair()
     redact.add(verifier)
+    redact.add(challenge)
     code, redirect_uri = _authorize(
         client.root,
         client_id,
@@ -271,6 +273,7 @@ def sign_in(
         open_browser or webbrowser.open,
         notify,
     )
+    redact.add(code)
     data = client.oauth_token(
         {
             "client_id": client_id,
@@ -296,7 +299,9 @@ class _Session:
         redact: Redactor,
         notify: Callable[[str], None],
         redirect_port: int | None,
+        quiet: bool = False,
     ) -> None:
+        self._quiet = quiet
         self._client = client
         self._client_id = client_id
         self._account = account
@@ -397,11 +402,14 @@ class _Session:
         raise refused
 
     def adopt(self, data: Mapping[str, Any]) -> None:
-        if self._username is None:
-            self._username = data.get("username")
+        # Registered before anything is printed: a malformed reply can echo a
+        # credential back in any field.
+        for key in ("access_token", "refresh_token"):
+            value = data.get(key)
+            if isinstance(value, str):
+                self._redact.add(value)
         refresh = data.get("refresh_token")
         if isinstance(refresh, str) and refresh:
-            self._redact.add(refresh)
             if refresh != self.refresh_token:
                 self.refresh_token = refresh
                 lifetime = _seconds(data.get("refresh_token_expires_in"))
@@ -412,6 +420,13 @@ class _Session:
         lifetime = expires_in if valid and expires_in > 0 else _DEFAULT_LIFETIME
         renew = self._renew if self.refresh_token else None
         self._client.use_token(data.get("access_token"), lifetime, renew)
+        if self._username is None:
+            name = data.get("username")
+            self._username = name
+            # A browser that already holds an ArcGIS session signs in as that
+            # account without asking, so say whose it is.
+            if isinstance(name, str) and name and not self._quiet:
+                self._say(self._redact(f"Signed in to {self._client.root} as {name}"))
 
     def _saved(self, refresh: str, lifetime: float | None) -> _Saved:
         if lifetime is None or lifetime <= 0:
@@ -425,10 +440,13 @@ class _Session:
         except (_auth.CredentialsFileCorrupt, OSError):
             # The run keeps the new token in memory; an unwritable stderr must
             # not end it.
-            try:
-                self._notify(_UNSAVED)
-            except (OSError, ValueError):
-                pass
+            self._say(_UNSAVED)
+
+    def _say(self, message: str) -> None:
+        try:
+            self._notify(message)
+        except (OSError, ValueError):
+            pass
 
     def forget_if_unchanged(self, backend: str, token: str) -> None:
         """Delete the refused *token* from *backend*, unless another run has

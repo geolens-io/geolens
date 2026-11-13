@@ -1793,7 +1793,11 @@ def _run(fmt: _output.Formatter, opts: InventoryOptions, redact: Redactor) -> in
             client.generate_token(opts.username, password)
         elif auth_mode == "oauth" and opts.client_id:
             arcgis_oauth.sign_in(
-                client, opts.client_id, redact, redirect_port=opts.redirect_port
+                client,
+                opts.client_id,
+                redact,
+                redirect_port=opts.redirect_port,
+                quiet=fmt.quiet,
             )
         inv = run_inventory(
             client,

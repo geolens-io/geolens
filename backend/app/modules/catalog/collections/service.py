@@ -9,12 +9,10 @@ import uuid
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete, func, select, text
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from app.core.db.sqlstate import is_lock_conflict
 from app.core.geo import rollup_bbox, rollup_bbox_columns
 from app.core.identity import Identity
 from app.modules.catalog.authorization import (
@@ -25,6 +23,7 @@ from app.modules.catalog.authorization import (
 from app.modules.catalog.collections.models import Collection, CollectionDataset
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.write_recheck import admit_writer, recheck_admitted_writer
+from app.platform.catalog_locks import bounded_row_lock
 
 
 async def create_collection(
@@ -128,9 +127,6 @@ async def check_collection_ownership(
     admit_writer(session, ("collection", collection.id), user)
 
 
-_COLLECTION_LOCK_TIMEOUT = "2s"
-
-
 async def lock_collection_for_write(
     session: AsyncSession, collection_id: uuid.UUID
 ) -> None:
@@ -142,25 +138,16 @@ async def lock_collection_for_write(
     lock leaves the row's key shareable, so membership inserts still pass
     their foreign-key check.
     """
-    await session.execute(
-        text("SELECT set_config('lock_timeout', :timeout, true)"),
-        {"timeout": _COLLECTION_LOCK_TIMEOUT},
-    )
-    try:
-        await session.execute(
-            select(Collection.id)
-            .where(Collection.id == collection_id)
-            .with_for_update(key_share=True)
-        )
-    except DBAPIError as exc:
-        if not is_lock_conflict(exc):
-            raise
-        await session.rollback()
-        raise HTTPException(
+    await bounded_row_lock(
+        session,
+        select(Collection.id)
+        .where(Collection.id == collection_id)
+        .with_for_update(key_share=True),
+        conflict=lambda: HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Another change to this collection is in progress. Retry shortly.",
-        ) from exc
-    await session.execute(text("RESET lock_timeout"))
+        ),
+    )
 
     async def enforce(user: Identity, row: Any) -> None:
         if row is None:

@@ -889,7 +889,30 @@ class TestThePagingProbe:
             "1",
             "1",
         )
-        assert request.headers["Accept-Encoding"] == "identity"
+        assert request.headers["Accept-Encoding"] == "gzip"
+
+    async def test_a_gzipped_answer_is_read(self, monkeypatch) -> None:
+        """ArcGIS Online answers a repeated identity request with an empty
+        200, so the probe asks for gzip and reads the capabilities it gets."""
+
+        async def _chunks():
+            yield gzip.compress(_GML % _MEMBER)
+
+        recorded = self._serve_probe(
+            monkeypatch,
+            httpx.Response(
+                200,
+                headers={
+                    "Content-Type": "application/xml",
+                    "Content-Encoding": "gzip",
+                },
+                content=_chunks(),
+            ),
+        )
+
+        assert await self._probe() is True
+        (request,) = recorded
+        assert request.headers["Accept-Encoding"] == "gzip"
 
     @pytest.mark.parametrize(
         "response",
