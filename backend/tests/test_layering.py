@@ -1431,8 +1431,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # error mapping and the catalog refresh; create also carries idempotent
     # repeats and the dry run.
     "backend/app/modules/catalog/features/router.py": 1766,
-    # Native search and OGC Records share visibility, query parsing and pagination.
-    "backend/app/modules/catalog/search/router.py": 1449,
+    # Native search and OGC Records share visibility, query parsing and pagination;
+    # the collections routes also answer under the desktop entry's gate.
+    "backend/app/modules/catalog/search/router.py": 1451,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
     "backend/app/standards/stac/router.py": 1936,
     # Authorization, acquisition order and cache rehydration share this route boundary;

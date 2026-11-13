@@ -493,6 +493,8 @@ async def test_a_key_sent_as_the_basic_password_reads_every_route_under_the_entr
         for auth in (_basic(key), {"X-Api-Key": key}, headers):
             resp = await client.get(path, headers=auth)
             assert resp.status_code == 200, (path, resp.text)
+        head = await client.head(path, headers=_basic(key))
+        assert head.status_code == 200, path
 
     listed = await client.get("/desktop/collections", headers=_basic(key))
     assert str(private.id) in {c["id"] for c in listed.json()["collections"]}
@@ -669,12 +671,11 @@ async def test_the_entry_never_gets_the_anonymous_cors_wildcard(
         assert resp.headers.get("access-control-allow-origin") is None, auth
 
 
-def test_the_entry_is_routed_before_the_rate_limiter_and_gated_inside_the_tenant_layer():
-    """The limiter finds the route a request under the entry names; the gate logs and has a tenant."""
+def test_the_entry_is_routed_before_the_rate_limiter_and_backstopped_inside_logging():
+    """The limiter finds the route a request under the entry names; a backstop refusal is logged."""
     from app.api.main import app
     from app.api.middleware.logging import RequestLoggingMiddleware
     from app.api.middleware.rate_limit import GlobalRateLimitMiddleware
-    from app.api.middleware.tenant_context import TenantContextMiddleware
     from app.standards.ogc.desktop import (
         DesktopEntryGateMiddleware,
         DesktopEntryRewriteMiddleware,
@@ -683,5 +684,82 @@ def test_the_entry_is_routed_before_the_rate_limiter_and_gated_inside_the_tenant
     outermost_first = [middleware.cls for middleware in app.user_middleware]
     position = outermost_first.index
     assert position(DesktopEntryRewriteMiddleware) < position(GlobalRateLimitMiddleware)
-    assert position(TenantContextMiddleware) < position(DesktopEntryGateMiddleware)
     assert position(RequestLoggingMiddleware) < position(DesktopEntryGateMiddleware)
+
+
+async def test_a_refusal_under_the_entry_is_a_problem_document(
+    client: AsyncClient, datasets
+):
+    _, _, public = datasets
+    for path in ("/desktop", f"/desktop/collections/{public.id}/items"):
+        for auth in ({}, _basic("glk_not-a-real-key"), {"X-Api-Key": "glk_nope"}):
+            resp = await client.get(path, headers=auth)
+            assert resp.status_code == 401, (path, auth)
+            assert resp.headers["content-type"] == "application/problem+json"
+            assert resp.headers["cache-control"] == "no-store"
+            assert "www-authenticate" in resp.headers
+            body = resp.json()
+            assert body["status"] == 401 and body["title"] == "Unauthorized", body
+            assert {"type", "detail"} <= body.keys(), body
+    refused = await client.post(f"/desktop/collections/{public.id}/items", json={})
+    assert refused.headers["content-type"] == "application/problem+json"
+    assert refused.json()["status"] == 405
+
+
+async def test_a_dataset_key_is_judged_under_the_entry_as_on_the_api(
+    client: AsyncClient, owner, datasets
+):
+    headers, _ = owner
+    bound, other, _ = datasets
+    resp = await client.post(
+        f"/datasets/{bound.id}/api-keys",
+        json={"name": "Bound", "expires_at": _in_days(30)},
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    key = resp.json()["key"]
+    feature_id = (
+        await client.get(f"/collections/{bound.id}/items", headers=headers)
+    ).json()["features"][0]["id"]
+
+    expected = {
+        f"/collections/{bound.id}/items": 200,
+        f"/collections/{bound.id}/items/{feature_id}": 200,
+        f"/collections/{other.id}/items": 401,
+        "/collections": 401,
+    }
+    for path, status_code in expected.items():
+        for auth in (_basic(key), {"X-Api-Key": key}):
+            api = await client.get(path, headers=auth)
+            entry = await client.get("/desktop" + path, headers=auth)
+            assert api.status_code == status_code, (path, api.text)
+            assert entry.status_code == status_code, (path, entry.text)
+    # The landing page never reads a key on /api; the entry requires one that resolves.
+    assert (await client.get("/desktop/", headers=_basic(key))).status_code == 401
+
+
+async def test_the_backstop_challenges_an_answer_the_gate_did_not_pass():
+    """A route reached through the entry without the gate answers with the challenge."""
+    from starlette.responses import PlainTextResponse
+
+    from app.core.public_urls import mark_desktop_entry
+    from app.standards.ogc.desktop import DesktopEntryGateMiddleware
+
+    sent: list[dict] = []
+
+    async def ungated(scope, receive, send):
+        await PlainTextResponse("private")(scope, receive, send)
+
+    async def receive():
+        return {"type": "http.request", "body": b""}
+
+    async def send(message):
+        sent.append(message)
+
+    scope = {"type": "http", "method": "GET", "path": "/", "headers": []}
+    mark_desktop_entry(scope)
+    await DesktopEntryGateMiddleware(ungated)(scope, receive, send)
+
+    assert sent[0]["status"] == 401
+    assert (b"www-authenticate", CHALLENGE.encode()) in sent[0]["headers"]
+    assert b"private" not in b"".join(m.get("body", b"") for m in sent)

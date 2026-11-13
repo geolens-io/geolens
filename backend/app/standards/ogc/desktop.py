@@ -8,7 +8,7 @@ challenged, and every link to a path the entry serves stays under it.
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.core.public_urls import (
     DESKTOP_ENTRY_PATH,
@@ -20,35 +20,57 @@ from app.modules.auth.dependencies import (
     BASIC_CHALLENGE,
     get_optional_user_no_security_schema,
 )
+from app.standards.ogc.errors import ProblemDetail
 
 _OPENAPI_PATH = "/openapi.json"
 _METHODS = ("GET", "HEAD")
+_CALLER_RESOLVED = "geolens.desktop_caller_resolved"
+_NO_STORE = {"Cache-Control": "no-store"}
 
 
-async def _refusal(request: Request) -> JSONResponse | None:
-    """The 401 for a caller without a working credential, or None for a signed-in one.
+def _problem(status_code: int, title: str, detail: str, headers: dict) -> JSONResponse:
+    return JSONResponse(
+        ProblemDetail(title=title, status=status_code, detail=detail).model_dump(),
+        status_code=status_code,
+        media_type="application/problem+json",
+        headers=headers,
+    )
 
-    A caller that sent no credential is challenged for Basic. A credential that
-    does not resolve is refused as ``get_optional_user`` refuses it.
+
+def _challenge() -> JSONResponse:
+    return _problem(
+        status.HTTP_401_UNAUTHORIZED,
+        "Unauthorized",
+        "Not authenticated",
+        {"WWW-Authenticate": BASIC_CHALLENGE, **_NO_STORE},
+    )
+
+
+async def desktop_entry_gate(request: Request) -> None:
+    """Refuse a request made through the desktop entry until its caller resolves.
+
+    Runs as a route dependency, so the credential is judged against the route
+    it reaches, as on ``/api``. A caller that sent no credential is challenged
+    for Basic; one whose credential does not resolve is refused as
+    ``get_optional_user`` refuses it. Elsewhere it does nothing.
     """
+    if not is_desktop_entry(request.scope):
+        return
     from app.core.db import async_session
 
     try:
         async with async_session() as db:
             user = await get_optional_user_no_security_schema(request, db)
     except HTTPException as exc:
-        return JSONResponse(
-            {"detail": exc.detail},
-            status_code=exc.status_code,
-            headers={**(exc.headers or {}), "Cache-Control": "no-store"},
+        exc.headers = {**(exc.headers or {}), **_NO_STORE}
+        raise
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": BASIC_CHALLENGE, **_NO_STORE},
         )
-    if user is not None:
-        return None
-    return JSONResponse(
-        {"detail": "Not authenticated"},
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        headers={"WWW-Authenticate": BASIC_CHALLENGE, "Cache-Control": "no-store"},
-    )
+    request.scope.setdefault("state", {})[_CALLER_RESOLVED] = True
 
 
 class DesktopEntryRewriteMiddleware:
@@ -79,10 +101,11 @@ class DesktopEntryRewriteMiddleware:
             await self.app(scope, receive, send)
             return
         if scope["method"] not in _METHODS:
-            response = JSONResponse(
-                {"detail": "Method Not Allowed"},
-                status_code=405,
-                headers={"Allow": ", ".join(_METHODS)},
+            response = _problem(
+                status.HTTP_405_METHOD_NOT_ALLOWED,
+                "Method Not Allowed",
+                "Method Not Allowed",
+                {"Allow": ", ".join(_METHODS)},
             )
             await response(scope, receive, send)
             return
@@ -99,29 +122,44 @@ class DesktopEntryRewriteMiddleware:
 
 
 class DesktopEntryGateMiddleware:
-    """Refuse a request under the entry until its credential resolves.
+    """Refuse any answer under the entry that ``desktop_entry_gate`` did not pass.
 
-    Mounted inside the tenant and rate-limit layers, since resolving a
-    credential reads the database.
+    A route that serves the entry without the gate is answered with the
+    challenge instead of its content, so a route added without it fails closed.
     """
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "http" and is_desktop_entry(scope):
-            refusal = await _refusal(Request(scope, receive=receive))
-            if refusal is not None:
-                await refusal(scope, receive, send)
+        if scope["type"] != "http" or not is_desktop_entry(scope):
+            await self.app(scope, receive, send)
+            return
+        state = scope.setdefault("state", {})
+        refused = False
+
+        async def guarded_send(message: Message) -> None:
+            nonlocal refused
+            if refused:
                 return
-        await self.app(scope, receive, send)
+            if (
+                message["type"] == "http.response.start"
+                and message["status"] < 400
+                and not state.get(_CALLER_RESOLVED)
+            ):
+                refused = True
+                await _challenge()(scope, receive, send)
+                return
+            await send(message)
+
+        await self.app(scope, receive, guarded_send)
 
 
-desktop_router = APIRouter()
+desktop_router = APIRouter(dependencies=[Depends(desktop_entry_gate)])
 
 
-# The gate has resolved the caller already; resolving here too keeps the route
-# refusing a dead credential on its own, as every key-reading route does.
+# Declared so the route's dependencies show the key it reads, which the
+# CORS header-key lane relies on.
 @desktop_router.api_route(
     DESKTOP_ENTRY_PATH + _OPENAPI_PATH,
     methods=list(_METHODS),

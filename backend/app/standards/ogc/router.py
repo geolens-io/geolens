@@ -40,6 +40,7 @@ from app.platform.extensions import (
     get_billing_extensions,
     get_data_serving_extension,
 )
+from app.standards.ogc.desktop import desktop_entry_gate
 from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC
 from app.standards.ogc.filtering import (
     MAX_FEATURE_FILTER_BINDS,
@@ -195,12 +196,16 @@ async def _check_cold_rehydrate(
     return None
 
 
-ogc_router = APIRouter(tags=["OGC Features"])
+ogc_router = APIRouter(
+    tags=["OGC Features"], dependencies=[Depends(desktop_entry_gate)]
+)
 
 # Separate router for per-dataset OGC Features endpoints.
 # Must be registered AFTER collections_router in main.py to avoid
 # /collections/{dataset_id} catching literal paths like /collections/datasets.
-ogc_features_router = APIRouter(tags=["OGC Features"])
+ogc_features_router = APIRouter(
+    tags=["OGC Features"], dependencies=[Depends(desktop_entry_gate)]
+)
 
 
 def _validate_f_param(f: str | None) -> None:
