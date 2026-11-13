@@ -2161,6 +2161,7 @@ def _run(
         if stopped is not None:
             try:
                 state.save()
+                _note_unattempted_handovers(state, owners, summary)
                 _json_path, md_path = _report_files(
                     state, plan, owners, redact, stopped, groups=groups
                 )

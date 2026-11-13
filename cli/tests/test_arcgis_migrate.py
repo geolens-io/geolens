@@ -2034,6 +2034,49 @@ def test_an_owner_map_edit_to_an_inactive_user_is_reported_and_moves_nothing(
     assert _state(tmp_path)["items"][L1]["owner_id"] == ALICE
 
 
+def _owner_changed_in_reports(tmp_path, item_id: str) -> None:
+    report = json.loads((tmp_path / "arcgis-migration-report.json").read_text())
+    assert (item_id, "owner_changed") in {
+        (f["item"], f["kind"]) for f in report["follow_ups"]
+    }
+    assert item_id in (tmp_path / "arcgis-migration-report.md").read_text()
+
+
+@pytest.mark.parametrize("error", [KeyboardInterrupt, RuntimeError])
+def test_an_interrupted_handover_still_reports_the_unapplied_owner_change(
+    runner, tmp_path, geolens, handled, monkeypatch, error
+):
+    _owned(geolens, datasets=(_created_id(L1),))
+    _users(geolens, _user(NEW, "newbie", ["editor"]))
+    assert _run(runner, tmp_path, _plan([_item(L1)]))[0].exit_code == 0
+
+    def interrupted(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(migrate, "transfer_dataset", interrupted)
+    _run(runner, tmp_path, _plan([_item(L1)], owner_map={"agol_alice": "newbie"}))
+
+    _owner_changed_in_reports(tmp_path, L1)
+
+
+def test_an_only_run_interrupted_on_another_item_reports_the_unapplied_owner_change(
+    runner, tmp_path, geolens, handled, monkeypatch
+):
+    _owned(geolens, datasets=(_created_id(L1),))
+    _users(geolens, _user(NEW, "newbie", ["editor"]))
+    assert _run(runner, tmp_path, _plan([_item(L1)]))[0].exit_code == 0
+
+    def interrupted(ctx, item, entry):
+        raise KeyboardInterrupt
+
+    monkeypatch.setitem(migrate.HANDLERS, "import_layers", interrupted)
+    plan = _plan([_item(L1), _item(L2)], owner_map={"agol_alice": "newbie"})
+    result, _ = _run(runner, tmp_path, plan, "--only", L2)
+
+    assert result.exit_code == 130
+    _owner_changed_in_reports(tmp_path, L1)
+
+
 @pytest.mark.parametrize("version", ["1", "2"])
 def test_v1_and_v2_plans_run_alike(runner, tmp_path, geolens, handled, version):
     _allow_transfers(geolens, _created_id(L1))
