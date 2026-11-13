@@ -3,6 +3,7 @@
 from unittest.mock import patch
 
 import pytest
+from sqlalchemy import text
 from httpx import AsyncClient
 
 from tests.factories import get_user_id
@@ -202,3 +203,30 @@ async def test_a_registered_table_gets_no_validator_and_ignores_if_none_match(
     assert resp.status_code == 200
     assert "etag" not in resp.headers
     assert "cache-control" not in resp.headers
+
+
+async def test_reversed_duplicate_parameters_get_different_tags(
+    client: AsyncClient, points
+) -> None:
+    url = f"/collections/{points.id}/items"
+    first = await _etag(client, f"{url}?name=Feature%201&name=Feature%202")
+
+    resp = await client.get(
+        f"{url}?name=Feature%202&name=Feature%201", headers={"If-None-Match": first}
+    )
+
+    assert resp.status_code == 200
+    assert resp.headers["etag"] != first
+
+
+async def test_a_missing_table_answers_503_not_304(
+    client: AsyncClient, points, test_db_session
+) -> None:
+    url = f"/collections/{points.id}/items"
+    tag = await _etag(client, url)
+    await test_db_session.execute(text(f"DROP TABLE data.{points.table_name}"))
+    await test_db_session.commit()
+
+    resp = await client.get(url, headers={"If-None-Match": tag})
+
+    assert resp.status_code == 503

@@ -977,6 +977,16 @@ async def get_collection_items(
             request.headers.get("if-none-match"),
             validators["ETag"].removeprefix("W/"),
         ):
+            # A missing table stays the retryable 503, not a 304.
+            try:
+                table_present = await feature_table_exists(db, dataset.table_name)
+            except (ProgrammingError, OperationalError):
+                table_present = False
+            if not table_present:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Dataset table is temporarily unavailable",
+                )
             return Response(
                 status_code=status.HTTP_304_NOT_MODIFIED, headers=validators
             )

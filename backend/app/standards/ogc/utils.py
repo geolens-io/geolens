@@ -188,11 +188,13 @@ def items_validator_headers(
     body does not vary by caller once access is granted, so no identity enters the tag; ``Vary`` keeps a
     shared cache from replaying one credential's response to another.
     """
-    params = sorted(
+    # Original order, so repeated parameters whose last value wins never
+    # collide two different pages.
+    params = [
         (k, v)
         for k, v in request.query_params.multi_items()
         if k not in _ITEMS_ETAG_EXCLUDED_PARAMS
-    )
+    ]
     material = json.dumps(
         [
             str(dataset.id),
