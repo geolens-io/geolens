@@ -476,17 +476,15 @@ main() {
     fi
   fi
 
-  # POSTGRES_PASSWORD: .env.example ships the publicly-known default
-  # `geolens`. On a FRESH install replace it with a strong value so the database
-  # is initialized with a real password. On a re-run we must NOT rotate it — the
-  # pgdata volume is already initialized with the existing value and changing it
-  # would lock the app out.
+  # POSTGRES_PASSWORD: a fresh install generates it (older templates shipped the
+  # published default `geolens`). A re-run never rotates it: the pgdata volume
+  # already holds the existing value, and changing .env alone locks the app out.
   existing_pg_pw="$(get_env_value POSTGRES_PASSWORD)"
   if [ "$ENV_CREATED" = "true" ] && { [ -z "$existing_pg_pw" ] || [ "$existing_pg_pw" = "geolens" ]; }; then
     update_env_value POSTGRES_PASSWORD "$(generate_password)"
     say "Generated POSTGRES_PASSWORD."
   elif [ "$existing_pg_pw" = "geolens" ]; then
-    warn "POSTGRES_PASSWORD is still the public default 'geolens'. If the database has not been initialized yet, set a strong value in .env before first start."
+    warn "POSTGRES_PASSWORD is still the public default 'geolens'. A later release refuses to start with it; UPGRADING.md shows how to change it on a running install."
   fi
 
   # Admin credentials: set only if either is empty. Honors GEOLENS_ADMIN_USERNAME /

@@ -39,6 +39,9 @@ and releases use semantic versioning.
 - `geolens arcgis migrate --cutover` checks the inventory's freshness and unresolved plan owners before the run, and stops without importing or refreshing anything, printing only the refusal, when either fails without its `--accept-*` flag. The freshness check ignores portal items the plan skips and names the items that changed, apart from those created since the inventory.
 - The default ceiling for the OGC API Features `limit` parameter is now 5,000 instead of 1,000. An instance where an admin already set `ogc_items_max_page_size` keeps its own value. Clients such as ArcGIS Online ask for up to 5,000 features per map tile and do not follow the `next` link, so the old ceiling drew only the first 1,000 features of a busy tile. The setting is on the admin Network tab. An items page now also ends early, with a `next` link, once its geometries hold about 4 MB (roughly 250,000 vertices), so a page of large polygons returns fewer features than `limit` instead of using several hundred MB of server memory.
 
+### Deprecated
+- A `POSTGRES_PASSWORD` of `geolens`, the database password earlier `.env.example` files shipped, is accepted with a startup warning until at least 2027-02-10; GeoLens 1.33.0 refuses to start with it. UPGRADING.md shows how to change it on a running install.
+
 ### Fixed
 - The OGC API Features items endpoint accepts `startindex` as another name for `offset`. ArcGIS Online and the ArcGIS Maps SDK for JavaScript page a busy map tile with `startindex`, which the endpoint ignored, so every page repeated the first one, features past the first page of a tile never drew, and on a tile holding at least `limit` features the client kept requesting pages until the map was closed. A request that carries both gets `400` unless they are equal or `offset` is `0`. A collection column named `startindex` is now filtered with `filter=` (for example `filter=startindex = 3`) rather than as a bare query parameter.
 - The import wizard now says what to change when a service URL carries a credential in its query: remove it from the URL and paste it into the token field (the STAC form asks for a URL without one). It showed the generic "submitted values are invalid" message before.
@@ -64,6 +67,9 @@ and releases use semantic versioning.
 - ArcGIS Online and other browser clients given the OGC API URL without its trailing slash (`/api`) can now read it directly. The redirect to `/api/` carried no `Access-Control-Allow-Origin`, so the browser refused it and ArcGIS Online fell back to its own proxy, which fails when that proxy can't reach the server.
 - An import or refresh that fails on an ArcGIS WFS count (`arcgis_wfs_count_unavailable`, `arcgis_wfs_short`, `arcgis_wfs_repeated`) or on an OGC API Features page read (`service_auth_refused`, `service_error`, `service_empty_page`) stores that code with its reason, so the job and refresh views show the failure in the reader's language.
 - `HEAD` now answers on a map's `style.json`, a 3D Tiles dataset's files and `/api/health` with GET's status and headers; it returned 405.
+
+### Security
+- `.env.example` and `.env.test.example` no longer set the database password to the published default `geolens`: `install.sh` and `make dev-init` generate one, and `make env-test` copies the dev stack's. The API and worker log `postgres_password_published_default` at startup while an instance still uses it.
 
 ## [1.31.0] - 2026-11-10
 

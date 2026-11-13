@@ -75,6 +75,33 @@ _CLOUD_PORT_CHECKS: list[tuple[str, str]] = [
 _CORE_BUILTIN_SLOT_KEYS: frozenset[str] = frozenset({"notification_sinks"})
 
 
+#: The database password the example configuration shipped before installs
+#: generated one; a later release refuses it at boot.
+PUBLISHED_DEFAULT_POSTGRES_PASSWORD = "geolens"
+
+
+def warn_if_published_default_postgres_password(settings_obj) -> None:
+    """Log one warning when POSTGRES_PASSWORD is the published default.
+
+    The message never contains the password value.
+    """
+    if (
+        settings_obj.postgres_password.get_secret_value()
+        != PUBLISHED_DEFAULT_POSTGRES_PASSWORD
+    ):
+        return
+    logger.warning(
+        "postgres_password_published_default",
+        message=(
+            "POSTGRES_PASSWORD is a published default that anyone can look "
+            "up. Change the database role's password with ALTER ROLE ... PASSWORD "
+            "(or \\password in psql), set the new value as POSTGRES_PASSWORD "
+            "in .env and run `docker compose up -d`; UPGRADING.md lists the "
+            "steps. A later release will refuse to start with this value."
+        ),
+    )
+
+
 def _overlay_extension_names() -> list[str]:
     """``list_extensions()`` minus the core-builtin slot keys.
 
@@ -232,6 +259,7 @@ async def bootstrap(*, app: "FastAPI | None" = None) -> EditionInfo:
         edition=edition_info.edition,
         features=list(edition_info.features),
     )
+    warn_if_published_default_postgres_password(settings)
 
     # AFTER edition resolution: the sink writes into the same `_extensions`
     # registry edition detection reads, so registering it earlier would make
