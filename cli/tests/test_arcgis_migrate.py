@@ -2016,6 +2016,24 @@ def test_an_arcgis_owner_change_to_an_inactive_user_is_reported(
     assert _state(tmp_path)["items"][L1]["owner_id"] == ALICE
 
 
+def test_an_owner_map_edit_to_an_inactive_user_is_reported_and_moves_nothing(
+    runner, tmp_path, geolens, handled
+):
+    _owned(geolens, datasets=(_created_id(L1),))
+    assert _run(runner, tmp_path, _plan([_item(L1)]))[0].exit_code == 0
+
+    result, payload = _run(
+        runner, tmp_path, _plan([_item(L1)], owner_map={"agol_alice": "gone"})
+    )
+
+    assert _owner_patches(geolens) == [ALICE]
+    assert payload["owner_unresolved"] == [
+        {"item": L1, "reason": "gone is not an active GeoLens user"}
+    ]
+    assert payload["handovers"] == []
+    assert _state(tmp_path)["items"][L1]["owner_id"] == ALICE
+
+
 @pytest.mark.parametrize("version", ["1", "2"])
 def test_v1_and_v2_plans_run_alike(runner, tmp_path, geolens, handled, version):
     _allow_transfers(geolens, _created_id(L1))
