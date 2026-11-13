@@ -1213,7 +1213,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # restricted maps' group members included.
         "backend/app/modules/catalog/maps/service_public.py": 1122,
         # Record assembly keeps one format and asset branch per record type.
-        "backend/app/modules/catalog/search/service_records.py": 636,
+        "backend/app/modules/catalog/search/service_records.py": 660,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
         "backend/app/modules/catalog/search/service_semantic.py": 516,
         "backend/app/modules/catalog/maps/service_diff.py": 414,
@@ -1289,11 +1289,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
 # These decomposition ceilings may shrink freely; the inclusion rule uses them
 # to avoid tracking the same module in both cap tables.
 _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
-    "backend/app/modules/catalog/maps/style_json.py": 1631,
+    "backend/app/modules/catalog/maps/style_json.py": 1640,
     "backend/app/modules/catalog/maps/style_import.py": 605,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 151,
-    "backend/app/modules/catalog/maps/router_assets.py": 165,
-    "backend/app/modules/catalog/maps/router_sharing.py": 494,
+    "backend/app/modules/catalog/maps/router_assets.py": 190,
+    "backend/app/modules/catalog/maps/router_sharing.py": 510,
     "backend/app/modules/catalog/search/query_params.py": 205,
     "backend/app/modules/catalog/search/router_saved.py": 113,
     "backend/app/modules/admin/router_operations.py": 348,
@@ -1310,10 +1310,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/manifest_service.py": 1291,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
-    "backend/app/platform/service_endpoints.py": 1354,
+    "backend/app/platform/service_endpoints.py": 1418,
     # Pagination and materialization keep credentials and remote page traversal out of
     # GDAL.
-    "backend/app/platform/service_items.py": 777,
+    "backend/app/platform/service_items.py": 873,
     # ArcGIS sign-in shares destination checks, abuse budgets and deadlines across its
     # protocol.
     "backend/app/modules/catalog/sources/arcgis_signin.py": 1130,
@@ -1336,7 +1336,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/auth/router.py": 1534,
     # Application composition debt; preserve lifespan and middleware ordering when
     # splitting.
-    "backend/app/api/main.py": 1646,
+    "backend/app/api/main.py": 1656,
     # Map request validation and published response contracts share this module,
     # including the visibility a client that hasn't opted in reads.
     "backend/app/modules/catalog/maps/schemas.py": 1606,
@@ -1358,13 +1358,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ArcGIS requests, lifecycle context, the quicklook draw that ingest and
     # replacement share, and the swap that keeps the replaced table as a previous
     # version and drops the oldest past the instance's limit.
-    "backend/app/processing/ingest/tasks_common.py": 1899,
+    "backend/app/processing/ingest/tasks_common.py": 1894,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, a service re-upload's
     # review of the changes its preview showed, and the live-table comparison
     # that lets a refresh or file re-upload of unchanged data publish nothing.
-    "backend/app/processing/ingest/tasks_reupload.py": 1909,
+    "backend/app/processing/ingest/tasks_reupload.py": 1906,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection and accepting a held run
     # by the door it came through, which records the capability it admitted under.
@@ -1382,8 +1382,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # http allowlist; split by configuration domain before raising further.
     "backend/app/core/config.py": 1511,
     # Config resolution coordinates validation, overrides, caching, audit and side
-    # effects, including model defaults that follow the selected LLM provider.
-    "backend/app/core/persistent_config.py": 1221,
+    # effects, model defaults that follow the selected LLM provider, and SQL
+    # reads of a committed flag.
+    "backend/app/core/persistent_config.py": 1256,
     # Backfill batches share vector/model validation and progress/cancellation
     # semantics.
     "backend/app/processing/embeddings/backfill.py": 909,
@@ -1401,7 +1402,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_vector.py": 1218,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
-    "backend/app/processing/ingest/ogr.py": 1627,
+    "backend/app/processing/ingest/ogr.py": 1733,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
     "backend/app/processing/ingest/validation.py": 1206,
@@ -1431,13 +1432,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # error mapping and the catalog refresh; create also carries idempotent
     # repeats and the dry run.
     "backend/app/modules/catalog/features/router.py": 1766,
-    # Native search and OGC Records share visibility, query parsing and pagination.
-    "backend/app/modules/catalog/search/router.py": 1449,
+    # Native search and OGC Records share visibility, query parsing and pagination;
+    # the collections routes also answer under the desktop entry's gate.
+    "backend/app/modules/catalog/search/router.py": 1451,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
-    "backend/app/standards/stac/router.py": 1935,
+    "backend/app/standards/stac/router.py": 1936,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
-    "backend/app/processing/tiles/router.py": 2945,
+    "backend/app/processing/tiles/router.py": 2954,
     # SQL allowlisting and cost validation must share canonical AST resolution.
     "backend/app/platform/sandbox/validator.py": 1766,
     # AI orchestration coordinates tool execution, usage accounting, pool-connection
@@ -1450,17 +1452,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/datasets/api/router_export.py": 1638,
     # Artifact selection, atomic publication, range reads and eviction share one cache
     # protocol.
-    "backend/app/processing/export/artifact_cache.py": 616,
+    "backend/app/processing/export/artifact_cache.py": 620,
     # Embed tokens share origin/scope checks, revocation, cached-denial behavior
-    # and the token map's reader settings.
-    "backend/app/modules/embed_tokens/service.py": 1009,
+    # and the token map's reader settings and audience.
+    "backend/app/modules/embed_tokens/service.py": 1008,
     # Feature reads/writes share schema typing, safe SQL and geometry/metadata
     # invariants; temporal writes reuse the validated filter parsers, batch
     # inserts reuse the single-insert validation, batch deletes the prior-envelope
     # capture, and the create dry run checks the table's kind, insert triggers
     # and rules, and the shapes that run user code on insert, with the same
-    # catalog probes.
-    "backend/app/modules/catalog/features/service.py": 1694,
+    # catalog probes. Paged reads can end a page at a geometry byte budget.
+    "backend/app/modules/catalog/features/service.py": 1722,
     # Dataset visibility, and the VRT member counts and extents each requester
     # may see, and which groups can't read a dataset, share the permission
     # extension's one audience; map reads, and which groups can't read a map,
@@ -2793,6 +2795,10 @@ _STANDARDS_MODULE_IMPORT_SURFACE: dict[str, set[str]] = {
     "ogc/filtering.py": {
         "app.modules.catalog.datasets.domain.models",
         "app.modules.catalog.search.schemas",
+    },
+    # The desktop entry resolves a caller as the OGC routes do before serving them.
+    "ogc/desktop.py": {
+        "app.modules.auth.dependencies",
     },
     "ogc/router.py": {
         "app.modules.auth.dependencies",

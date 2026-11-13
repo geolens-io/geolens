@@ -525,6 +525,29 @@ def test_cutover_counts_groups_a_non_admin_inventory_may_have_missed(
     assert payload["cutover"]["refused"] == []
 
 
+def test_a_cutover_refused_before_the_run_makes_or_changes_no_group(
+    runner, tmp_path, team, monkeypatch
+):
+    service = _service(team)
+    GroupsApi(team, service, existing=[])
+    plan_file = _write(tmp_path, members=["agol_bob"])
+    monkeypatch.setattr(migrate, "inventory_changes", lambda *a: "portal items changed")
+
+    result, payload = _migrate(
+        runner, plan_file, "--cutover", "--token", secrets.token_urlsafe(16)
+    )
+
+    assert result.exit_code == 1, result.output
+    assert payload["cutover"]["refused"] == ["incomplete-inventory"]
+    writes = [
+        f"{s.method} {s.url}"
+        for s in team.seen
+        if s.method != "GET" and "/admin/groups/" in s.url
+    ]
+    assert writes == []
+    assert not (plan_file.parent / "arcgis-migration-state.json").exists()
+
+
 def test_unread_members_and_pending_members_reach_the_cutover_checks(
     runner, tmp_path, team
 ):
@@ -2025,7 +2048,11 @@ def test_members_without_an_account_print_as_one_line_however_many_groups():
                 "name": "Three",
                 "created": True,
                 "added": [],
-                "pending": [{"member": "d", "reason": "d has another email"}],
+                "pending": [
+                    {"member": "d", "reason": "d has another email"},
+                    # owner_map gives e a GeoLens name nobody has.
+                    {"member": "e", "reason": "renamed is not a GeoLens user yet"},
+                ],
             },
         }
     )
@@ -2036,10 +2063,12 @@ def test_members_without_an_account_print_as_one_line_however_many_groups():
     [summary] = [w for w in say.warn_lines if "aren't GeoLens users" in w]
     assert summary.startswith("3 ArcGIS member(s)") and ": a, b, c." in summary
     assert "admin users import --from-inventory" in summary
-    assert [w for w in say.warn_lines if w.startswith("d:")] == [
-        "d: d has another email (not in GeoLens group Three)"
+    assert [w for w in say.warn_lines if w.startswith(("d:", "e:"))] == [
+        "d: d has another email (not in GeoLens group Three)",
+        "e: renamed is not a GeoLens user yet (not in GeoLens group Three); "
+        "owner_map names that user, so create it or change owner_map",
     ]
-    assert len(say.warn_lines) == 2
+    assert len(say.warn_lines) == 3
 
 
 def test_a_rerun_prints_and_reports_the_groups_it_shared_and_removed(

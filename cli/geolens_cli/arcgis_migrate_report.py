@@ -190,7 +190,12 @@ def _follow_ups(
             change["item"],
             "owner_changed",
             f"migrated before its owner changed to {change['owner']}; "
-            "it was not imported again, so transfer it by hand",
+            "it was not imported again, so "
+            + (
+                "rerun with it selected to hand it over, or transfer it by hand"
+                if change.get("unattempted")
+                else "transfer it by hand"
+            ),
         )
     for conflict in owner_conflicts:
         add(
@@ -300,12 +305,19 @@ def _export_section(
 def _cutover_section(
     state: MigrationState, cutover: Mapping[str, Any] | None
 ) -> dict[str, Any] | None:
-    """This run's cutover checks, or when an earlier run was marked final."""
+    """This run's cutover checks, or when an earlier run was marked final.
+    A refused run keeps the earlier marking as ``earlier``."""
     if cutover is not None:
-        return {
+        section = {
             **cutover,
             "at": (state.cutover or {}).get("at") if cutover["marked"] else None,
         }
+        if state.cutover and not cutover["marked"]:
+            section["earlier"] = {
+                "at": state.cutover["at"],
+                "accepted": state.cutover["accepted"],
+            }
+        return section
     if state.cutover:
         return {
             "marked": True,
@@ -393,14 +405,16 @@ def _cutover_lines(cutover: Mapping[str, Any] | None) -> list[str]:
     if cutover is None:
         return []
     esc = _report.md_escape
-    if cutover["marked"]:
-        accepted = ", ".join(cutover["accepted"]) or "none"
-        lines = [
-            f"**Cut over** at {esc(cutover['at'])}; losses accepted: {esc(accepted)}",
+    marked = cutover if cutover["marked"] else cutover.get("earlier")
+    lines = []
+    if marked:
+        accepted = ", ".join(marked["accepted"]) or "none"
+        lines += [
+            f"**Cut over** at {esc(marked['at'])}; losses accepted: {esc(accepted)}",
             "",
         ]
-    else:
-        lines = [
+    if not cutover["marked"]:
+        lines += [
             "**Cutover refused:** " + esc(", ".join(cutover["refused"])),
             "",
         ]

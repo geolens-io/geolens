@@ -30,13 +30,10 @@ from sqlalchemy import (
     literal,
     or_,
     select,
-    text,
 )
-from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 
-from app.core.db.sqlstate import is_lock_conflict
 from app.core.text import escape_ilike
 from app.core.identity import Identity
 from app.modules.auth.permissions import get_user_roles as get_account_roles
@@ -76,6 +73,7 @@ from app.modules.catalog.widgets.schemas import (
     to_store,
 )
 from app.modules.catalog.write_recheck import admit_writer, recheck_admitted_writer
+from app.platform.catalog_locks import bounded_row_lock
 from app.platform.storage.publication import AssetPublication
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -97,8 +95,6 @@ _MAP_VISIBILITIES_FOR_STORY = {
 }
 # How far each visibility reaches; only a change to a wider one is checked.
 _REACH_ORDER = {"private": 0, "restricted": 1, "internal": 2, "public": 3}
-
-_LOCK_TIMEOUT = "2s"
 
 
 def empty_document() -> dict[str, Any]:
@@ -218,22 +214,20 @@ def apply_story_visibility_filter(
 
 async def _bounded_lock(db: AsyncSession, stmt: Select[Any]) -> list[Any]:
     """Run a locking select, answering 409 when the wait outlasts the timeout."""
-    await db.execute(
-        text("SELECT set_config('lock_timeout', :timeout, true)"),
-        {"timeout": _LOCK_TIMEOUT},
+    return list(
+        (
+            await bounded_row_lock(
+                db,
+                stmt,
+                conflict=lambda: HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Another change to this story is in progress. Retry shortly.",
+                ),
+            )
+        )
+        .scalars()
+        .all()
     )
-    try:
-        rows = list((await db.scalars(stmt)).all())
-    except DBAPIError as exc:
-        if not is_lock_conflict(exc):
-            raise
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Another change to this story is in progress. Retry shortly.",
-        ) from exc
-    await db.execute(text("RESET lock_timeout"))
-    return rows
 
 
 async def lock_story(

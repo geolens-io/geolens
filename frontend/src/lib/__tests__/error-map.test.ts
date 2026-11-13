@@ -25,6 +25,9 @@ describe('API error localization boundary', () => {
   it.each([
     ['unsupported_layer_type', 'errors.serviceLayerNoFeatures', 'holds no features'],
     ['unsupported_geometry', 'errors.serviceGeometryUnsupported', 'multipatch'],
+    ['service_auth_refused', 'errors.serviceAuthRefused', "the token is valid and hasn't expired"],
+    ['service_error', 'errors.serviceAnsweredError', 'answered with an error'],
+    ['service_empty_page', 'errors.serviceEmptyPage', 'Retry in a few minutes'],
   ])('maps the service preview refusal %s to its own message', (code, key, text) => {
     const detail = { code, message: 'English diagnostic' };
     expect(classifyApiError(detail, 422).key).toBe(key);
@@ -625,6 +628,21 @@ describe('API error localization boundary', () => {
     const rendered = translateApiErrorDetail(detail, 422);
     expect(rendered).toBe('items.0.data_asset_href must be an http or https address.');
     expect(rendered).not.toBe('The submitted values are invalid.');
+  });
+
+  it('tells the user to move a URL credential into the token field', () => {
+    const detail =
+      'body.url: Value error, url must not include credential query parameters; use the token field instead';
+    expect(classifyApiError(detail, 422)).toEqual({ key: 'errors.validationUrlCredentialToken' });
+    expect(translateApiErrorDetail(detail, 422)).toBe(
+      'Remove the credential from the URL and paste it into the token field instead.',
+    );
+  });
+
+  it('finds the credential message among several joined validation errors', () => {
+    const detail =
+      'body.name: Field required; body.url: Value error, url must not include credential query parameters; use a non-secret URL';
+    expect(classifyApiError(detail, 422)).toEqual({ key: 'errors.validationUrlCredentialStac' });
   });
 
   it('localizes validation constraints with their numeric limit', () => {

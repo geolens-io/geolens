@@ -70,7 +70,7 @@
       "additionalProperties": false,
       "required": ["mode", "user"],
       "properties": {
-        "mode": {"enum": ["token", "generateToken", "anonymous"]},
+        "mode": {"enum": ["token", "generateToken", "oauth", "anonymous"]},
         "user": {"type": ["string", "null"]},
         "role": {
           "description": "The signed-in account's portal role, such as org_admin; null when anonymous or not reported. Only an org_admin sees every group an item is shared with.",

@@ -235,6 +235,7 @@ def _harden_csv_formulas(
     output_path: str,
     hard_deadline: float,
     numeric_columns: frozenset[str] = frozenset(),
+    drop_columns: frozenset[str] = frozenset(),
 ) -> None:
     """Rewrite a just-written CSV with every formula-triggering cell escaped.
 
@@ -245,7 +246,7 @@ def _harden_csv_formulas(
     exempts only columns whose declared SQL type is numeric, so a text
     column's digits stay escaped; an unmatched name (WKT, a rename) fails
     toward escaping. Field-size limit is raised and never lowered
-    (process-global state).
+    (process-global state). ``drop_columns`` removes columns by header name.
     """
     if csv.field_size_limit() < _CSV_FIELD_SIZE_LIMIT:
         csv.field_size_limit(_CSV_FIELD_SIZE_LIMIT)
@@ -264,6 +265,7 @@ def _harden_csv_formulas(
         ):
             writer = csv.writer(dst, lineterminator=terminator)
             numeric_at: frozenset[int] = frozenset()
+            kept: list[int] | None = None
             for index, row in enumerate(csv.reader(src)):
                 if (
                     index % _CSV_DEADLINE_CHECK_ROWS == 0
@@ -281,12 +283,18 @@ def _harden_csv_formulas(
                         for position, name in enumerate(row)
                         if name in numeric_columns
                     )
-                    writer.writerow([escape_csv_formula(cell) for cell in row])
+                    kept = [
+                        position
+                        for position, name in enumerate(row)
+                        if name not in drop_columns
+                    ]
+                    writer.writerow([escape_csv_formula(row[i]) for i in kept])
                     continue
+                assert kept is not None  # the header row always comes first
                 writer.writerow(
                     [
-                        escape_csv_formula(cell, allow_numeric=position in numeric_at)
-                        for position, cell in enumerate(row)
+                        escape_csv_formula(row[i], allow_numeric=i in numeric_at)
+                        for i in kept
                     ]
                 )
     except BaseException:
@@ -296,6 +304,30 @@ def _harden_csv_formulas(
             os.unlink(hardened_path)
         raise
     os.replace(hardened_path, output_path)
+
+
+_XY_COLUMNS = frozenset({"longitude", "latitude"})
+
+# geom_4326 is the WGS 84 copy GeoLens maintains next to every geometry, so the
+# coordinates are right whatever CRS the table or the target uses.
+_XY_AXIS_SQL = (
+    "CASE WHEN ST_GeometryType(t.geom_4326) = 'ST_Point' THEN ST_{axis}(t.geom_4326) "
+    "WHEN ST_GeometryType(t.geom_4326) = 'ST_MultiPoint' "
+    "AND ST_NumGeometries(t.geom_4326) = 1 "
+    "THEN ST_{axis}(ST_GeometryN(t.geom_4326, 1)) END"
+)
+
+
+def _xy_select_sql(schema: str, table_name: str, where: str | None) -> str:
+    """The SELECT behind a CSV export with longitude and latitude columns.
+
+    Both names were validated by the caller. ``where`` is the same fragment
+    ``-where`` would push down, already checked by ``validate_where_clause``.
+    """
+    lon = _XY_AXIS_SQL.format(axis="X")
+    lat = _XY_AXIS_SQL.format(axis="Y")
+    sql = f'SELECT {lon} AS longitude, {lat} AS latitude, t.* FROM "{schema}"."{table_name}" AS t'
+    return f"{sql} WHERE {where}" if where else sql
 
 
 _FGB_NULL_GEOMETRY_REFUSAL = "NULL geometry not supported with spatial index"
@@ -315,6 +347,8 @@ async def run_ogr2ogr_export(
     deadline: float | None = None,
     numeric_columns: frozenset[str] = frozenset(),
     spatial_index: bool = True,
+    layer_name: str | None = None,
+    xy: bool = False,
 ) -> None:
     """Run ogr2ogr to export a PostGIS table to a file.
 
@@ -336,6 +370,11 @@ async def run_ogr2ogr_export(
         spatial_index: FlatGeobuf only. GDAL refuses null or empty geometries
             while writing the packed index; on that refusal the export reruns
             once with False so those rows are kept.
+        layer_name: GeoJSON only; the collection's top-level ``name``, which
+            GDAL reads as the layer name.
+        xy: CSV only; adds WGS 84 ``longitude`` and ``latitude`` columns after
+            the geometry, filled for a point or a one-point multipoint. The
+            caller has checked the layer holds points and has no such columns.
 
     Raises:
         ExportError: If ogr2ogr exits with non-zero code.
@@ -353,16 +392,17 @@ async def run_ogr2ogr_export(
         driver,
         output_path,
         pg_conn,
-        f"{schema}.{table_name}",
     ]
+    use_xy = xy and format_key == "csv"
 
     if target_srs:
         cmd.extend(["-t_srs", target_srs])
 
-    if bbox and bbox[0] > bbox[2]:
+    if bbox and (bbox[0] > bbox[2] or use_xy):
         # -spat takes one rectangle, so an antimeridian-crossing box would
         # become the complement band and drop every feature. Split into the
-        # server-side WHERE instead, in one pass.
+        # server-side WHERE instead, in one pass. The coordinate-column
+        # SELECT takes the same route: -spat_srs is refused alongside -sql.
         spatial_where = bbox_where_sql(bbox, literal=True)
         where = f"{spatial_where} AND ({where})" if where else spatial_where
     elif bbox:
@@ -378,8 +418,26 @@ async def run_ogr2ogr_export(
             ]
         )
 
-    if where:
-        cmd.extend(["-where", where])
+    if use_xy:
+        cmd.extend(["-sql", _xy_select_sql(schema, table_name, where)])
+    else:
+        cmd.append(f"{schema}.{table_name}")
+        if where:
+            cmd.extend(["-where", where])
+
+    if format_key == "gpkg":
+        # GeoPackage reserves the "gpkg" prefix and SQLite "sqlite_", so such a
+        # table name is rejected as a layer name.
+        reserved = table_name.lower().startswith(("gpkg", "sqlite_"))
+        layer_name = f"export_{table_name}" if reserved else table_name
+        # Without -nln the file keeps the "schema.table" source name, a table
+        # name with a dot that ArcGIS Pro cannot open.
+        cmd.extend(["-nln", layer_name])
+
+    if format_key == "geojson" and layer_name:
+        # Without -nln the collection is named "schema.table", the internal
+        # reference GDAL then reports as the layer name.
+        cmd.extend(["-nln", layer_name])
 
     if format_key == "csv":
         cmd.extend(["-lco", "GEOMETRY=AS_WKT"])
@@ -465,5 +523,8 @@ async def run_ogr2ogr_export(
             _harden_csv_formulas,
             output_path,
             time.monotonic() + export_subprocess_timeout_seconds(deadline),
-            numeric_columns,
+            # Signed coordinates must not be escaped as formulas.
+            numeric_columns | _XY_COLUMNS if use_xy else numeric_columns,
+            # The SQL result lists the key column, which the table read hides.
+            frozenset({"gid"}) if use_xy else frozenset(),
         )

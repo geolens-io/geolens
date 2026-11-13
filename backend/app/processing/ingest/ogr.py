@@ -13,6 +13,7 @@ from typing import NoReturn, TypedDict
 import structlog
 
 from app.core.config import settings
+from app.core.failure_reason import FixedReason
 from app.core.crs_uri import parse_crs_uri
 from app.core.runtime.staging import (
     GDAL_HEADER_FILE_REDIRECT_ENV,
@@ -23,6 +24,7 @@ from app.processing.ingest.shapefile_source import (
     declares_dbf_encoding,
     zip_dataset_root,
 )
+from app.platform.esri_services import esri_service_kind
 from app.platform.service_items import materialise_oapif_items
 from app.platform.service_endpoints import (
     assert_endpoints_stay_on_origin,
@@ -46,6 +48,11 @@ from app.core.service_tokens import (
 )
 from app.core.upload_errors import IngestCeilingError
 from app.core.url_redaction import redact_url_credentials, scrub_secret_value
+from app.platform.arcgis_wfs import (
+    arcgis_wfs_pages_by_count,
+    arcgis_wfs_version,
+    fetch_arcgis_wfs_hits,
+)
 from app.platform.egress_proxy import (
     gdal_source_url,
     pinned_origin,
@@ -456,6 +463,11 @@ class OgrinfoResult(TypedDict, total=False):
 
 class IngestionError(Exception):
     """Raised when an ingestion subprocess fails."""
+
+
+class WfsCountMismatchError(IngestionError):
+    """An ArcGIS WFS import whose feature count differs from the layer's
+    total. Final: retrying under another layer name can't make it whole."""
 
 
 class MissingCrsError(IngestionError):
@@ -1377,8 +1389,9 @@ async def run_ogr2ogr_service(
     # every request the process makes, and a collection whose page 2 names a
     # different origin would otherwise hand it the credential too. GDAL
     # 3.10.3 has no way to scope a header to one origin (measured; see
-    # `platform/service_items`). WFS is untouched: its driver pages by
-    # startIndex against the capabilities endpoint and ignores `next`.
+    # `platform/service_items`). An ArcGIS collection is read here with or
+    # without a credential, since GDAL keeps only its last page. WFS is
+    # untouched: its driver pages by startIndex and ignores `next`.
     items_path: str | None = None
     # One clock over the materialisation and the subprocess, or a service
     # trickling pages inside the per-read timeout could hold a worker for
@@ -1388,7 +1401,9 @@ async def run_ogr2ogr_service(
     # might reach the origin first (page walk, preflight, spawn), so a callee
     # that returns early or is stubbed cannot lose the contact date.
     arm_origin_contact = fire_once(on_spawn)
-    if token and service_type == "ogcapi_features":
+    if service_type == "ogcapi_features" and (
+        token or esri_service_kind(gdal_source_url(gdal_source)) == "oapif"
+    ):
         items_path = (
             await materialise_oapif_items(
                 gdal_source.split(":", 1)[1],
@@ -1396,7 +1411,8 @@ async def run_ogr2ogr_service(
                 credential_line=_sanitize_authorization_token(
                     token, service_format=service_type
                 )
-                or "",
+                if token
+                else None,
                 staging_dir=ensure_staging_ready(settings.upload_staging_dir),
                 deadline=deadline,
                 # Here the walk, not the subprocess, contacts the origin, so
@@ -1465,8 +1481,12 @@ async def run_ogr2ogr_service(
     if layer_name:
         cmd.append(layer_name)
 
+    expected_features: int | None = None
     if service_type == "wfs":
         cmd.extend(["--config", "OGR_WFS_PAGE_SIZE", "1000"])
+        expected_features = await _arcgis_wfs_expected_features(
+            cmd, gdal_source, layer_name, token, arm_origin_contact
+        )
 
     # libcurl inside GDAL resolves hosts and follows every redirect itself, and
     # no GDAL option stops it (GDAL_HTTP_FOLLOWLOCATION is not one; never add
@@ -1625,3 +1645,89 @@ async def run_ogr2ogr_service(
             left_origin=egress.left_origin,
             service_error=service_error,
         )
+    if expected_features is not None:
+        refuse_short_arcgis_wfs(
+            await staged_row_count(table_name, schema), expected_features
+        )
+
+
+async def _arcgis_wfs_expected_features(
+    cmd: list[str],
+    gdal_source: str,
+    layer_name: str,
+    token: str | None,
+    arm_origin_contact: "Callable[[], None] | None",
+) -> int | None:
+    """For an ArcGIS WFS, read the layer's total, and turn GDAL's paging off
+    unless ``COUNT`` is a page size there. None for any other WFS. Raises
+    when the total can't be read: without it a capped read would pass for
+    the whole layer."""
+    url = gdal_source_url(gdal_source)
+    if url is None or esri_service_kind(url) != "wfs":
+        return None
+    credential_line = (
+        _sanitize_authorization_token(token, service_format="wfs") if token else None
+    )
+    # The contact is armed by the first read to pass SSRF validation.
+    reads = {"credential_line": credential_line, "on_first_request": arm_origin_contact}
+    version = await arcgis_wfs_version(url, **reads)
+    expected = await fetch_arcgis_wfs_hits(url, layer_name, version=version, **reads)
+    if expected is None:
+        raise IngestionError(
+            FixedReason(
+                "Couldn't count the features this ArcGIS WFS holds. Retry in a "
+                "few minutes, or import the layer's FeatureServer or OGC API "
+                "Features URL.",
+                code="arcgis_wfs_count_unavailable",
+            )
+        )
+    if not await arcgis_wfs_pages_by_count(url, layer_name, version=version, **reads):
+        cmd.extend(["--config", "OGR_WFS_PAGING_ALLOWED", "OFF"])
+    return expected
+
+
+async def staged_row_count(table_name: str, schema: str) -> int:
+    """Rows in a staging table ogr2ogr just created as the tenant writer.
+
+    In ``multi_tenant`` mode a SELECT runs as the tenant reader, which can't
+    read the table until it is granted, so the grant the staging pipeline
+    makes later comes first here.
+    """
+    from sqlalchemy import text
+
+    from app.core.db import async_session
+    from app.processing.ingest.metadata import _qtable, grant_reader_access
+    from app.processing.ingest.tasks_common import _current_tenant_role
+
+    async with async_session() as session:
+        await grant_reader_access(
+            session, table_name, schema=schema, role=_current_tenant_role()
+        )
+        result = await session.execute(
+            text(f"SELECT COUNT(*) FROM {_qtable(table_name, schema=schema)}")
+        )
+        count = int(result.scalar_one())
+        await session.commit()
+        return count
+
+
+def refuse_short_arcgis_wfs(imported: int, expected: int) -> None:
+    """Fail an ArcGIS WFS import whose feature count differs from the
+    layer's ``resultType=hits`` total: fewer under a server-side cap, more
+    when the server repeated a page."""
+    if imported == expected:
+        return
+    advice = "Import the layer's FeatureServer or OGC API Features URL instead."
+    reason = (
+        FixedReason(
+            f"The ArcGIS WFS returned {imported} of {expected} features. {advice}",
+            code="arcgis_wfs_short",
+        )
+        if imported < expected
+        else FixedReason(
+            f"The ArcGIS WFS repeated features: it returned {imported} for a "
+            f"layer of {expected}. {advice}",
+            code="arcgis_wfs_repeated",
+        )
+    )
+    raise WfsCountMismatchError(reason)

@@ -112,11 +112,15 @@ def selection_key(
     bbox: str | None,
     where: str | None,
     exporter_version: str,
+    xy: bool = False,
 ) -> str:
     """Identity of the requested bytes, as a storage path segment.
 
+    ``xy`` (CSV with coordinate columns) joins the URL identity only when set,
+    so every key written without it stays as it was.
+
     Includes ``table_name`` (a replace swaps the physical table) and
-    ``dataset_title`` (becomes the GPKG layer name). ``tile_cache_version`` is
+    ``dataset_title`` (names the file ogr2ogr writes). ``tile_cache_version`` is
     keyed here rather than checked at freshness time: a missed bump then only
     costs bounded staleness, not a wrong download. ``exporter_version`` is
     the running app's version: an upgrade can write different bytes for the
@@ -125,10 +129,10 @@ def selection_key(
     """
     # Two segments (URL identity, then version) so every artifact of one URL
     # shares a prefix for `url_answered_other_bytes_recently`.
-    url_payload = json.dumps(
-        [str(dataset_id), str(format_key), target_crs, bbox, where],
-        separators=(",", ":"),
-    )
+    url_fields = [str(dataset_id), str(format_key), target_crs, bbox, where]
+    if xy:
+        url_fields.append("xy")
+    url_payload = json.dumps(url_fields, separators=(",", ":"))
     version_payload = json.dumps(
         [table_name, dataset_title, tile_cache_version, exporter_version],
         separators=(",", ":"),

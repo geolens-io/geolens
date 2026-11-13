@@ -28,7 +28,7 @@ interface TabProps {
 const FIELDS = [
   { key: 'cors_allowed_origins', defaultValue: '' },
   { key: 'global_rate_limit', defaultValue: 60 },
-  { key: 'ogc_items_max_page_size', defaultValue: 1000 },
+  { key: 'ogc_items_max_page_size', defaultValue: 5000 },
   // These two live on tab="network"; the admin Settings UI is their only
   // control (there is no env var for either).
   { key: 'semantic_search_rate_limit', defaultValue: 30 },

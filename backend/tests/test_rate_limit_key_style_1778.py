@@ -9,7 +9,7 @@ the caller picks the URL, so the caller picked how many budgets to have: one
 per dataset id, one per z/x/y, one per record id. openapi.json lists 46
 anonymous parameterised operations, and the expensive ones are among them
 (``/datasets/{dataset_id}/export`` runs an ogr2ogr conversion,
-``/collections/{dataset_id}/items`` returns up to 1000 features a page).
+``/collections/{dataset_id}/items`` returns up to 5000 features a page).
 
 ``key_style="endpoint"`` counts under (client IP, ``module.function``) instead.
 The route table decides how many handlers exist, so the multiplier is fixed at

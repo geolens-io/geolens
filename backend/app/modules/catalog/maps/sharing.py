@@ -11,12 +11,16 @@ import uuid
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, NamedTuple
 
-from sqlalchemy import func, select
+from sqlalchemy import any_, func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.core.identity import Identity
+from app.core.persistent_config import RESTRICT_PUBLIC_VISIBILITY
 from app.core.text import escape_ilike
+from app.modules.auth.permissions import user_standing_columns
 from app.modules.catalog.authorization import (
+    ANONYMOUS_MAP_VISIBILITIES,
     RESTRICTED_MAP_VISIBILITY,
     apply_visibility_filter,
     get_user_roles,
@@ -101,15 +105,15 @@ async def get_share_card_image_url(
 ) -> str:
     """Resolve a card image against the correct public API or app root.
 
-    Crawlers are anonymous, so a stored image is used only when an anonymous
-    caller can read every dataset the map draws.
+    Crawlers are anonymous, so the OG image is used only when an anonymous
+    caller can read every dataset the map draws. The thumbnail is never a
+    card: it carries no basemap credit, and a card has no text beside it.
     """
-    if (map_obj.og_image_uri or map_obj.thumbnail_uri) and (
+    if map_obj.og_image_uri and (
         await can_read_every_map_dataset(session, map_obj, None)
     ):
         api_base = await get_public_api_url(session, request=request)
-        kind = "og-image" if map_obj.og_image_uri else "thumbnail"
-        return join_public_url(api_base, f"/maps/{map_obj.id}/{kind}/")
+        return join_public_url(api_base, f"/maps/{map_obj.id}/og-image/")
     return await site_card_image_url(session, request)
 
 
@@ -132,20 +136,46 @@ async def get_map_embed_scope(
     )
 
 
+def _map_admits_embed_token(minter_id: uuid.UUID | None) -> ColumnElement[bool]:
+    """The map isn't restricted to its groups and, while public visibility is
+    restricted to admins, is public or the token's minter is an admin now:
+    the rule that refuses such a mint. Reads the setting as committed."""
+    minter_roles = user_standing_columns(minter_id)[0]
+    return (Map.visibility != RESTRICTED_MAP_VISIBILITY) & or_(
+        ~RESTRICT_PUBLIC_VISIBILITY.committed_flag(),
+        Map.visibility.in_(ANONYMOUS_MAP_VISIBILITIES),
+        literal("admin") == any_(minter_roles),
+    )
+
+
 async def map_embeds_dataset(
-    session: AsyncSession, map_id: uuid.UUID, dataset_id: uuid.UUID
+    session: AsyncSession,
+    map_id: uuid.UUID,
+    dataset_id: uuid.UUID,
+    *,
+    minter_id: uuid.UUID | None,
 ) -> bool:
     """Whether a map's embed tokens may still serve a dataset: it is a live
-    layer on the map, and the map isn't restricted to its groups."""
+    layer on a map that still admits the token (``_map_admits_embed_token``)."""
     result = await session.execute(
         select(MapLayer.id)
         .join(Map, Map.id == MapLayer.map_id)
         .where(
             MapLayer.map_id == map_id,
             MapLayer.dataset_id == dataset_id,
-            Map.visibility != RESTRICTED_MAP_VISIBILITY,
+            _map_admits_embed_token(minter_id),
         )
         .limit(1)
+    )
+    return result.scalar_one_or_none() is not None
+
+
+async def map_admits_embed_token(
+    session: AsyncSession, map_id: uuid.UUID, *, minter_id: uuid.UUID | None
+) -> bool:
+    """Whether the map still admits a token its ``minter_id`` minted."""
+    result = await session.execute(
+        select(Map.id).where(Map.id == map_id, _map_admits_embed_token(minter_id))
     )
     return result.scalar_one_or_none() is not None
 

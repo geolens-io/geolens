@@ -1,0 +1,10 @@
+{
+  "error": {
+    "code": 499,
+    "message": "Token Required",
+    "messageCode": "GWM_0003",
+    "details": [
+      "Token Required"
+    ]
+  }
+}

@@ -36,6 +36,7 @@ from app.modules.catalog.maps.sharing import (
     find_map_ids_by_name,
     get_map_embed_scope,
     get_map_names,
+    map_admits_embed_token,
     map_embeds_dataset,
     map_shows_attribute_table,
 )
@@ -649,6 +650,8 @@ async def resolve_embed_scope_for_map(
     # validate_embed_token_access, so the two cannot drift.
     if not await _request_origin_is_allowed(db, request, token.allowed_origins):
         return set()
+    if not await map_admits_embed_token(db, map_id, minter_id=token.created_by):
+        return set()
 
     scoped: set[uuid.UUID] = set()
     for raw_id in token.scoped_dataset_ids or []:
@@ -809,25 +812,21 @@ async def validate_embed_token_access(
         if token_tenant != dataset_tenant:
             return False
 
-    # Fail-closed live re-check on both cache paths. scoped_dataset_ids is a
-    # creation-time snapshot, so a removed layer or a deleted map must stop a
-    # cached positive here. A private or internal map still serves: embed
-    # tokens are a private-dataset capability. A restricted map does not, since
-    # its audience is its groups; sharing with groups also revokes its tokens.
+    # Re-checked live on both cache paths: scoped_dataset_ids is a mint-time
+    # snapshot, and the map's audience or the public-visibility setting may
+    # have changed since (see _map_admits_embed_token).
     if token is not None:
         live_map_id: uuid.UUID | None = token.map_id
+        minter_id = token.created_by
     else:
         raw_map_id = cached.get("map_id") if cached else None  # type: ignore[union-attr]
         live_map_id = uuid.UUID(raw_map_id) if raw_map_id else None
-    if live_map_id is None:
-        return False
-    if not await map_embeds_dataset(db, live_map_id, dataset_id):
-        return False
-    if token is not None:
-        minter_id = token.created_by
-    else:
         raw_minter = cached.get("created_by") if cached else None  # type: ignore[union-attr]
         minter_id = uuid.UUID(raw_minter) if raw_minter else None
+    if live_map_id is None:
+        return False
+    if not await map_embeds_dataset(db, live_map_id, dataset_id, minter_id=minter_id):
+        return False
     if dataset_id not in await datasets_account_can_read(db, [dataset_id], minter_id):
         return False
 

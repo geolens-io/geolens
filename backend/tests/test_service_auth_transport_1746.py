@@ -4450,19 +4450,23 @@ class TestOnePageCannotCostTheWholeProcess:
         assert b"\\u" not in raw
         assert json.loads(raw.decode())["type"] == "FeatureCollection"
 
-    async def test_a_compressed_page_is_refused(self, monkeypatch, tmp_path) -> None:
-        """Identity is asked for, and the answer has to be identity.
+    async def test_a_page_in_another_encoding_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The collection document is read as identity, an items page as
+        identity or gzip, and any other encoding is refused.
 
-        `aiter_raw` hands back the compressed bytes, so the alternative is a
+        `aiter_raw` hands back the encoded bytes, so the alternative is a
         JSON error about the wrong thing.
         """
 
         def handle(request: httpx.Request) -> httpx.Response:
-            assert request.headers["Accept-Encoding"] == "identity"
             if not request.url.path.endswith("/items"):
+                assert request.headers["Accept-Encoding"] == "identity"
                 return httpx.Response(200, json=_collection_doc(None))
+            assert request.headers["Accept-Encoding"] == "gzip"
             return httpx.Response(
-                200, headers={"Content-Encoding": "gzip"}, json={"features": []}
+                200, headers={"Content-Encoding": "br"}, json={"features": []}
             )
 
         self._transport(monkeypatch, handle)
@@ -6690,7 +6694,7 @@ class TestAServiceThatServesHtmlToAnyoneWhoAsks:
         one of them refuse what the others accepted.
         """
         from app.modules.catalog.sources.adapters import ogcapi as adapter
-        from app.platform.service_endpoints import OGC_JSON_ACCEPT
+        from app.platform.service_endpoints import OGC_DOCUMENT_ACCEPT
 
         # `probe_ogcapi` is now a thin deadline
         # wrapper (see the class docstring on the split); the Accept header
@@ -6700,9 +6704,9 @@ class TestAServiceThatServesHtmlToAnyoneWhoAsks:
             inspect.getsource(adapter._probe_ogcapi_within_deadline),
         )
         assert probe_accept is not None, "probe_ogcapi no longer sets Accept"
-        # The shared value is a superset of the probe's, so a service that
-        # answers the probe answers the other two.
-        assert probe_accept.group(1) in OGC_JSON_ACCEPT
+        # The probe's landing-page read asks for what the check and the walk
+        # ask for when they read the same documents.
+        assert probe_accept.group(1) == OGC_DOCUMENT_ACCEPT
 
 
 class TestEveryReadStatesWhatItWants:
@@ -7132,7 +7136,7 @@ class TestEachDocumentKindGetsItsOwnBound:
 
         from app.platform import service_endpoints, service_items
 
-        known = {"OGC_JSON_ACCEPT", "WFS_XML_ACCEPT"}
+        known = {"OGC_JSON_ACCEPT", "OGC_DOCUMENT_ACCEPT", "WFS_XML_ACCEPT"}
         seen: list[str] = []
         for module in (service_endpoints, service_items):
             tree = ast.parse(_inspect.getsource(module))
@@ -7162,10 +7166,12 @@ class TestEachDocumentKindGetsItsOwnBound:
         endpoints_default = (
             _inspect.signature(service_endpoints._fetch).parameters["accept"].default
         )
-        assert endpoints_default == service_endpoints.OGC_JSON_ACCEPT
+        assert endpoints_default == service_endpoints.OGC_DOCUMENT_ACCEPT
 
-        items_source = _inspect.getsource(service_items._fetch_page)
-        assert "accept=OGC_JSON_ACCEPT" in items_source
+        items_default = (
+            _inspect.signature(service_items._fetch_page).parameters["accept"].default
+        )
+        assert items_default == service_endpoints.OGC_JSON_ACCEPT
 
 
 class TestAnOrphanedExtractIsReclaimed:
@@ -9367,16 +9373,13 @@ class TestAdapterProbeReadsAreBounded:
         assert result is None
         assert chunks_yielded <= (MAX_DOCUMENT_BYTES // chunk_size) + 2, chunks_yielded
 
-    async def test_a_compressed_body_is_refused_before_decompression(
-        self, monkeypatch
-    ) -> None:
-        """Pin: a compressed body -- large or small -- never reaches the
-        decoded-size check at all. `read_bounded_body` refuses any
-        `Content-Encoding` other than identity outright, the same
-        compression-bomb defense `service_endpoints.py`'s door reads already
-        use, extended here rather than reinvented.
+    async def test_a_gzipped_body_is_inflated_under_the_cap(self, monkeypatch) -> None:
+        """Pin: a gzip body is inflated under the same byte cap the walk's
+        pages get, wire and decoded, instead of refused. A service that
+        answers a repeated identity request with an empty 200 answers a
+        gzip one with the document, so the probe reads it.
 
-        SSRF is mocked and `recorded` is asserted to length 1 so this cannot
+        SSRF is mocked and `recorded` is asserted to length 2 so this cannot
         pass for the wrong reason: a real httpx client transparently
         decompresses a gzip body on `.json()`, so the counterfactual (a plain
         `client.get`) would otherwise reach `/collections` too and only fail
@@ -9396,10 +9399,45 @@ class TestAdapterProbeReadsAreBounded:
         compressed = gzip.compress(payload)
         recorded: list[httpx.Request] = []
 
+        async def _chunks():
+            yield compressed
+
         def handle(request: httpx.Request) -> httpx.Response:
             recorded.append(request)
             return httpx.Response(
-                200, content=compressed, headers={"Content-Encoding": "gzip"}
+                200, headers={"Content-Encoding": "gzip"}, content=_chunks()
+            )
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
+            AsyncMock(),
+        )
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+            result = await probe_ogcapi(f"{_SERVICE_ORIGIN}/oapif", client)
+
+        assert result == {"service_type": "OGC API Features", "layers": []}
+        assert len(recorded) == 2
+
+    async def test_a_gzip_bomb_is_refused_before_it_fully_inflates(
+        self, monkeypatch
+    ) -> None:
+        """Pin: the inflation above still refuses a body that would inflate
+        past the decoded cap, before the probe ever reaches `/collections`."""
+        import gzip
+
+        from app.modules.catalog.sources.adapters.ogcapi import probe_ogcapi
+        from app.platform import service_endpoints
+
+        bomb = gzip.compress(b" " * (service_endpoints.MAX_DOCUMENT_BYTES + 1))
+        recorded: list[httpx.Request] = []
+
+        async def _chunks():
+            yield bomb
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return httpx.Response(
+                200, headers={"Content-Encoding": "gzip"}, content=_chunks()
             )
 
         monkeypatch.setattr(

@@ -3,7 +3,7 @@ from urllib.parse import urlencode
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError, OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,9 +20,8 @@ from app.core.public_urls import get_public_api_url, get_public_app_url
 from app.core.tenancy import is_multi_tenant
 from app.core.tile_scope import tile_template_query, vector_tile_template
 from app.modules.auth.dependencies import (
-    BASIC_CHALLENGE,
     get_optional_user,
-    get_optional_user_no_security_schema,
+    request_carries_credentials,
 )
 from app.modules.catalog.authorization import (
     apply_visibility_filter,
@@ -44,6 +43,7 @@ from app.platform.extensions import (
     get_billing_extensions,
     get_data_serving_extension,
 )
+from app.standards.ogc.desktop import desktop_entry_gate
 from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC
 from app.standards.ogc.filtering import (
     MAX_FEATURE_FILTER_BINDS,
@@ -61,7 +61,13 @@ from app.standards.ogc.schemas import (
     OGCLink,
     OGCSingleFeatureResponse,
 )
-from app.standards.ogc.utils import build_url, link_header_value
+from app.platform.dataset_origin import geolens_owns_table
+from app.platform.http.ranges import if_none_match_matches
+from app.standards.ogc.utils import (
+    build_url,
+    items_validator_headers,
+    link_header_value,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -199,12 +205,16 @@ async def _check_cold_rehydrate(
     return None
 
 
-ogc_router = APIRouter(tags=["OGC Features"])
+ogc_router = APIRouter(
+    tags=["OGC Features"], dependencies=[Depends(desktop_entry_gate)]
+)
 
 # Separate router for per-dataset OGC Features endpoints.
 # Must be registered AFTER collections_router in main.py to avoid
 # /collections/{dataset_id} catching literal paths like /collections/datasets.
-ogc_features_router = APIRouter(tags=["OGC Features"])
+ogc_features_router = APIRouter(
+    tags=["OGC Features"], dependencies=[Depends(desktop_entry_gate)]
+)
 
 
 def _validate_f_param(f: str | None) -> None:
@@ -307,35 +317,6 @@ async def landing_page(
         title="GeoLens",
         description="OGC API Records catalog for geospatial datasets",
         links=links,
-    )
-
-
-@ogc_router.api_route("/desktop", methods=["GET", "HEAD"], include_in_schema=False)
-async def desktop_entry(
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    user: Identity | None = Depends(get_optional_user_no_security_schema),
-) -> RedirectResponse:
-    """Challenge for HTTP Basic, then send a signed-in caller to the landing page.
-
-    ArcGIS Pro sends its saved login only in answer to a Basic challenge, and
-    the landing page serves anonymous callers, so this route asks every caller
-    without a working credential for one, whatever the catalog holds.
-    """
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-            headers={
-                "WWW-Authenticate": BASIC_CHALLENGE,
-                "Cache-Control": "no-store",
-            },
-        )
-    public_api_url = await get_public_api_url(db, request=request)
-    return RedirectResponse(
-        build_url("/", base_url=public_api_url),
-        status_code=status.HTTP_302_FOUND,
-        headers={"Cache-Control": "no-store"},
     )
 
 
@@ -635,6 +616,11 @@ async def get_collection_queryables(
 # rate limiting bounds repeated work from anonymous callers.
 _FILTERED_ITEMS_RATE_LIMIT = "10/second"
 
+# An items page is built in memory at several times its response size, so a page
+# ends early, with a `next` link, once its geometries take this many bytes
+# (about 250,000 2D vertices).
+_ITEMS_PAGE_MAX_GEOMETRY_BYTES = 4_000_000
+
 
 def _items_request_carries_no_filter(request: Request) -> bool:
     """Exempt an unfiltered items request from the filter-specific limit.
@@ -721,12 +707,14 @@ async def get_collection_items(
         ge=1,
         description=(
             "Page size for bulk GeoJSON export. The maximum is an "
-            "admin-configurable ceiling (default 1000; Network settings tab, "
+            "admin-configurable ceiling (default 5000; Network settings tab, "
             "`ogc_items_max_page_size`) rather than the 200 used by offset-paged "
             "list endpoints, because this route pages via the constant-time "
             "`after_gid` keyset cursor. Per OGC API Features Core "
             "/req/core/fc-limit-response-1(C) a value above the ceiling is "
-            "clamped to it, not rejected."
+            "clamped to it, not rejected. A page whose geometries are large "
+            "may hold fewer features than `limit`; its `next` link continues "
+            "from the last feature returned."
         ),
     ),
     offset: int = Query(
@@ -736,6 +724,14 @@ async def get_collection_items(
             "Legacy offset-based pagination. Prefer `after_gid` keyset cursor "
             "(via the `next` link) — offset is retained for backward "
             "compatibility but is O(N) at high values."
+        ),
+    ),
+    startindex: int | None = Query(
+        None,
+        ge=0,
+        description=(
+            "Alias of `offset`, the name ArcGIS clients send. When both are "
+            "given, a non-zero `offset` must equal it."
         ),
     ),
     after_gid: int | None = Query(
@@ -804,6 +800,14 @@ async def get_collection_items(
     parameter SHALL be ignored" applies (OGC 17-069r4 §7.15.5).
     """
     _validate_f_param(f)
+    if startindex is not None:
+        # A generated client sends its offset default of 0 alongside startindex.
+        if offset and offset != startindex:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="offset must be 0 or equal startindex",
+            )
+        offset = startindex
     public_api_url = await get_public_api_url(db, request=request)
 
     # OGC Features Core requires over-limit requests to clamp, not fail.
@@ -847,6 +851,7 @@ async def get_collection_items(
     ogc_reserved = {
         "limit",
         "offset",
+        "startindex",
         "after_gid",
         "bbox",
         "f",
@@ -926,6 +931,44 @@ async def get_collection_items(
         )
         cql2_where, cql2_binds = compile_feature_cql2_ast(filter_ast, queryables)
 
+    # Every 4xx the request can earn has been decided by here, and the
+    # visibility check ran first. A registered table is written directly by its
+    # owner, which moves no catalog counter, so it gets no validator.
+    validators: dict[str, str] = {}
+    star = False
+    if geolens_owns_table(
+        dataset.source_format, dataset.record.record_type, dataset.origin_ref
+    ):
+        validators = items_validator_headers(
+            request,
+            dataset,
+            base_url=public_api_url,
+            limit=limit,
+            offset=offset,
+            after_gid=after_gid,
+            carries_credentials=request_carries_credentials(request),
+        )
+        # A tag that matches came from an earlier 200 for these parameters, so
+        # they were valid; `*` carries no such proof and 304s at the end.
+        if_none_match = request.headers.get("if-none-match")
+        star = "*" in (t.strip() for t in (if_none_match or "").split(","))
+        if not star and if_none_match_matches(
+            if_none_match, validators["ETag"].removeprefix("W/")
+        ):
+            # A missing table stays the retryable 503, not a 304.
+            try:
+                table_present = await feature_table_exists(db, dataset.table_name)
+            except (ProgrammingError, OperationalError):
+                table_present = False
+            if not table_present:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Dataset table is temporarily unavailable",
+                )
+            return Response(
+                status_code=status.HTTP_304_NOT_MODIFIED, headers=validators
+            )
+
     try:
         # Use get_features.has_more, determined by over-fetching, so a full final
         # page does not advertise a next link to an empty page.
@@ -943,6 +986,7 @@ async def get_collection_items(
             cached_feature_count=dataset.feature_count,
             cql2_where=cql2_where,
             cql2_binds=cql2_binds,
+            max_geometry_bytes=_ITEMS_PAGE_MAX_GEOMETRY_BYTES,
         )
     except ValueError as exc:
         # An unparseable property-filter value is rejected before
@@ -970,6 +1014,9 @@ async def get_collection_items(
                 detail="Dataset table is temporarily unavailable",
             )
         raise
+
+    if validators and star:
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=validators)
 
     features = [
         {
@@ -1079,6 +1126,7 @@ async def get_collection_items(
     headers = {
         "Content-Crs": "<http://www.opengis.net/def/crs/OGC/1.3/CRS84>",
         **number_matched_headers(page.total_is_estimate),
+        **validators,
     }
     if link_value := link_header_value(links):
         headers["Link"] = link_value

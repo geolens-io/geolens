@@ -213,7 +213,9 @@ async def _count_selected_features(
     return result.scalar_one()
 
 
-def _head_export_response(dataset_title: str, format_key: str) -> Response:
+def _head_export_response(
+    dataset_title: str, format_key: str, *, gzipped: bool = False
+) -> Response:
     """The HEAD half of the export route.
 
     Not `_register_standards_head_routes` (app/api/main.py): that clones the
@@ -240,6 +242,7 @@ def _head_export_response(dataset_title: str, format_key: str) -> Response:
             "content-disposition": file_response_content_disposition(filename),
             # vsicurl learns the length from the first range response.
             "accept-ranges": "bytes",
+            **artifact_response.representation_headers(media_type, gzipped=gzipped),
         },
     )
     # Starlette defaults an empty body to `content-length: 0`, a wrong answer
@@ -283,6 +286,16 @@ async def export_dataset_endpoint(
     ),
     where: str | None = Query(
         None, description="Attribute filter expression, e.g. pop > 1000"
+    ),
+    xy: bool = Query(
+        False,
+        description=(
+            "CSV only: add WGS 84 longitude and latitude columns after the "
+            "geometry, filled for a point or a one-point multipoint and empty "
+            "otherwise. Ignored for other formats, for layers that are not "
+            "point or multipoint, and for a dataset that already has a "
+            "longitude or latitude column."
+        ),
     ),
     # Optional: every caller gets public+published datasets without the
     # export capability (OGC/tiles parity); the body gates the rest.
@@ -405,6 +418,18 @@ async def export_dataset_endpoint(
             detail=f"Cannot export non-spatial dataset as {format}. Use csv format.",
         )
 
+    column_names = {
+        str(col.get("name", "")).lower()
+        for col in dataset.column_info or []
+        if isinstance(col, dict)
+    }
+    with_xy = bool(
+        xy
+        and format == ExportFormat.csv
+        and (dataset.geometry_type or "").upper() in ("POINT", "MULTIPOINT")
+        and not column_names & {"longitude", "latitude"}
+    )
+
     # 6c. The cached artifact for this selection, if usable. Resolved before
     # the expensive work below, which would otherwise run `plan_parquet_export`'s
     # bounded count on every range slice of an existing artifact; the ogr COUNT
@@ -421,12 +446,14 @@ async def export_dataset_endpoint(
         bbox=bbox,
         where=where,
         exporter_version=request.app.version,
+        xy=with_xy,
     )
     # filename/media_type are derived, not stored: `export_descriptor` answers
     # both from title+format without touching the DB.
     cached_filename, cached_media_type = export_descriptor(
         dataset.record.title, str(format)
     )
+    gzipped = artifact_response.client_offers_gzip(request, cached_media_type)
     held_before_build: set[str] = set()
     artifact = await artifact_cache.lookup(
         dataset_id,
@@ -446,12 +473,14 @@ async def export_dataset_endpoint(
                 detail="Export has changed since the version you hold",
                 headers={"etag": artifact.etag},
             )
-        if if_none_match_matches(request.headers.get("if-none-match"), artifact.etag):
-            return not_modified_response(artifact.etag)
+        if artifact_response.revalidates(
+            request.headers.get("if-none-match"), artifact.etag, gzipped=gzipped
+        ):
+            return artifact_response.not_modified(artifact.etag, gzipped=gzipped)
         # Answered here, above planning, so a cached parquet probe, the request
         # a range-reading client makes first and most, never runs the planner.
         if request.method == "HEAD":
-            return artifact_response.head_response(artifact)
+            return artifact_response.head_response(artifact, gzipped=gzipped)
         # A cache hit still audits (bytes transfer); built only if the response
         # carries bytes, since `read_response` may 416.
         #
@@ -473,6 +502,7 @@ async def export_dataset_endpoint(
             range_header=request.headers.get("range"),
             if_range=request.headers.get("if-range"),
             may_serve_range=may_serve_range,
+            gzipped=gzipped,
         )
         await _emit_export_audit(
             db,
@@ -632,13 +662,13 @@ async def export_dataset_endpoint(
             status_code=status.HTTP_412_PRECONDITION_FAILED,
             detail="Export has changed since the version you hold",
         )
-    if if_match_ok_unbuilt and if_none_match_matches(
-        request.headers.get("if-none-match"), None
+    if if_match_ok_unbuilt and artifact_response.revalidates(
+        request.headers.get("if-none-match"), None, gzipped=gzipped
     ):
-        return not_modified_response(None)
+        return artifact_response.not_modified(None, gzipped=gzipped)
     if request.method == "HEAD":
         # Only the cold case reaches here; a hit returned above.
-        return _head_export_response(dataset_title, format)
+        return _head_export_response(dataset_title, format, gzipped=gzipped)
 
     if _conversion_slots.locked():
         raise HTTPException(
@@ -695,6 +725,7 @@ async def export_dataset_endpoint(
                 column_info=dataset_columns,
                 pmtiles_maxzoom=pmtiles_maxzoom,
                 deadline=request_deadline,
+                **({"xy": True} if with_xy else {}),
             )
     except ValueError as e:
         raise HTTPException(
@@ -776,9 +807,11 @@ async def export_dataset_endpoint(
             detail="Export has changed since the version you hold",
             headers={"etag": etag} if etag is not None else None,
         )
-    if if_none_match_matches(request.headers.get("if-none-match"), etag):
+    if artifact_response.revalidates(
+        request.headers.get("if-none-match"), etag, gzipped=gzipped
+    ):
         _cleanup_export(temp_dir)
-        return not_modified_response(etag)
+        return artifact_response.not_modified(etag, gzipped=gzipped)
 
     # 8b. Build the response before the audit row, on both branches.
     # `read_response` can still 416 after preconditions pass; building first
@@ -818,6 +851,7 @@ async def export_dataset_endpoint(
                 if_range=request.headers.get("if-range"),
                 may_serve_range=may_serve_range,
                 leading_slice_ok=leading_slice_ok,
+                gzipped=gzipped,
                 background=BackgroundTask(_cleanup_export, temp_dir),
             )
         else:
@@ -840,6 +874,7 @@ async def export_dataset_endpoint(
                 etag=etag,
                 range_header=request.headers.get("range"),
                 if_range=request.headers.get("if-range"),
+                gzipped=gzipped,
                 background=BackgroundTask(_cleanup_export, temp_dir),
             )
     except BaseException:

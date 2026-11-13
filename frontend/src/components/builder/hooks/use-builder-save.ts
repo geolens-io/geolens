@@ -34,7 +34,6 @@ import {
   measureAttributionBand,
   readRenderedAttribution,
   OG_ATTRIBUTION,
-  THUMBNAIL_ATTRIBUTION,
 } from '@/lib/map-image-attribution';
 // Detects fields the builder has no editor for on a given layer type.
 import { getLayerCapabilities } from '@/lib/layer-capabilities';
@@ -261,14 +260,12 @@ function doCapture(
         return;
       }
 
-      // Both crops carry the credit line, drawn on the canvas because
-      // MapLibre's DOM attribution control is invisible to crops of the WebGL
-      // canvas. It runs after the blank-frame guard, which measures srcCanvas:
-      // a credit must not make an unpainted frame read as painted.
+      // Drawn on the canvas because MapLibre's DOM attribution control is
+      // invisible to crops. After the blank-frame guard, so a credit can't make
+      // an unpainted frame read as painted.
       const credits = readRenderedAttribution(map);
 
       const thumb = cropResize(srcCanvas, 400, 250, backdrop);
-      drawAttributionOverlay(thumb, credits, THUMBNAIL_ATTRIBUTION);
       const og = cropResize(srcCanvas, 1200, 630, backdrop);
       drawAttributionOverlay(og, credits, OG_ATTRIBUTION);
 

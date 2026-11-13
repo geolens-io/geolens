@@ -3,6 +3,7 @@
 
 import hashlib
 import json
+import math
 import sys
 import urllib.request
 import zipfile
@@ -36,6 +37,20 @@ def content_uris(tile: dict) -> list[str]:
     return uris
 
 
+def rooted_tileset(source: dict, tile: dict) -> dict:
+    """A tileset rooted at ``tile``, the content-less parent of the kept tiles.
+
+    Its geometricError is the root box's bounding radius, so a client refines
+    the empty root from any view that shows the box.
+    """
+    box = tile["boundingVolume"].get("box")
+    if not isinstance(box, list) or len(box) != 12:
+        raise ValueError("The selected 3DBAG root no longer has a box bounding volume")
+    radius = round(math.sqrt(sum(value * value for value in box[3:])), 2)
+    root = {**tile, "geometricError": radius}
+    return {"asset": source["asset"], "geometricError": radius, "root": root}
+
+
 def zip_entry(archive: zipfile.ZipFile, path: str, data: bytes) -> None:
     info = zipfile.ZipInfo(path, date_time=(2025, 9, 3, 0, 0, 0))
     info.compress_type = zipfile.ZIP_DEFLATED
@@ -59,11 +74,7 @@ def main() -> int:
     uris = content_uris(tile)
     if set(uris) != set(CONTENT_SHA256) or len(uris) != 4:
         raise ValueError("The selected 3DBAG tile hierarchy changed")
-    selected = {
-        "asset": source["asset"],
-        "geometricError": tile["geometricError"],
-        "root": tile,
-    }
+    selected = rooted_tileset(source, tile)
     with zipfile.ZipFile(output, "x") as archive:
         zip_entry(
             archive,

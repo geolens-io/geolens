@@ -6,7 +6,6 @@ import {
   EXPORT_CANVAS_MAX_AREA,
   EXPORT_CANVAS_MAX_DIMENSION,
   OG_ATTRIBUTION,
-  THUMBNAIL_ATTRIBUTION,
 } from '@/lib/map-image-attribution';
 import { act } from '@testing-library/react';
 import { renderHook as baseRenderHook } from '@testing-library/react';
@@ -2573,8 +2572,9 @@ describe('useBuilderSave', () => {
     // The crops composite from the WebGL canvas, so MapLibre's own
     // attribution control — a DOM overlay — is invisible to them by
     // construction. The credit reaches a distributed image only if it is drawn
-    // INTO the canvas, which is what these two assert.
-    it('draws the map credit into BOTH the thumbnail and the OG crop (#1486)', async () => {
+    // INTO the canvas. The OG card leaves the app and carries it; the thumbnail
+    // is an in-app preview and stays clean.
+    it('draws the map credit into the OG crop and leaves the thumbnail clean (#1486)', async () => {
       vi.useFakeTimers();
       const canvases: ReturnType<typeof createMockCanvas>[] = [];
       createElementSpy.mockImplementation((tag: string, options?: ElementCreationOptions) => {
@@ -2592,7 +2592,15 @@ describe('useBuilderSave', () => {
       const credited = canvases.filter((c) =>
         c.ctx.fillText.mock.calls.some((call: unknown[]) => call[0] === MOCK_ATTRIBUTION),
       );
-      expect(credited).toHaveLength(2);
+      expect(credited.map((c) => `${c.width}x${c.height}`)).toEqual(['1200x630']);
+
+      const thumb = canvases.find((c) => c.width === 400 && c.height === 250)!;
+      expect(thumb).toBeDefined();
+      expect(thumb.ctx.drawImage).toHaveBeenCalled();
+      expect(thumb.ctx.fillText).not.toHaveBeenCalled();
+      expect(thumb.fills.some((f) => f.style === MAP_COLORS.exportImage.attributionScrim))
+        .toBe(false);
+
       for (const crop of credited) {
         // Over the map, not under it: the reverse order would bury the credit.
         expect(crop.ctx.drawImage.mock.invocationCallOrder[0])
@@ -2610,7 +2618,7 @@ describe('useBuilderSave', () => {
     // same pipeline — crop, overlay, upload — with the five-credit load that
     // measurably lost two providers, and asserts at the crops rather than at
     // the fitter: the credit has to survive the path, not just the helper.
-    it('carries every credit into BOTH crops when the set needs wrapping (#1541)', async () => {
+    it('carries every credit into the OG crop when the set needs wrapping (#1541)', async () => {
       vi.useFakeTimers();
       const canvases: ReturnType<typeof createMockCanvas>[] = [];
       createElementSpy.mockImplementation((tag: string, options?: ElementCreationOptions) => {
@@ -2633,9 +2641,7 @@ describe('useBuilderSave', () => {
       await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
 
       const credited = canvases.filter((c) => c.ctx.fillText.mock.calls.length > 0);
-      // The 400x250 thumbnail and the 1200x630 OG card.
-      expect(credited).toHaveLength(2);
-      expect(credited.map((c) => `${c.width}x${c.height}`)).toEqual(['400x250', '1200x630']);
+      expect(credited.map((c) => `${c.width}x${c.height}`)).toEqual(['1200x630']);
 
       for (const crop of credited) {
         const drawn = crop.ctx.fillText.mock.calls.map((call: unknown[]) => String(call[0]));
@@ -2651,8 +2657,9 @@ describe('useBuilderSave', () => {
         // The scrim was sized for every line, so none of them sits on bare map.
         const scrim = crop.fills.find((f) => f.style === MAP_COLORS.exportImage.attributionScrim)!;
         expect(scrim).toBeDefined();
-        const spec = crop.width === 400 ? THUMBNAIL_ATTRIBUTION : OG_ATTRIBUTION;
-        expect(scrim.rect[3]).toBe(drawn.length * spec.lineHeight + spec.paddingY * 2);
+        expect(scrim.rect[3]).toBe(
+          drawn.length * OG_ATTRIBUTION.lineHeight + OG_ATTRIBUTION.paddingY * 2,
+        );
       }
 
       // Ate map pixels rather than dropping a provider, and the image itself is
@@ -2664,11 +2671,11 @@ describe('useBuilderSave', () => {
 
     /* `BasemapEntry.attribution` permits HTML, so
      * a provider may credit itself with a logo. Its alt text is not DOM text,
-     * so the old `textContent` read skipped the source entirely and all three
-     * images shipped uncredited while the interactive map visibly showed the
-     * credit. Asserted at the outputs, on all three at once: this is a
+     * so the old `textContent` read skipped the source entirely and every
+     * image shipped uncredited while the interactive map visibly showed the
+     * credit. Asserted at the outputs, on every credited image at once: this is a
      * whole-pipeline property, and the reader is only where it broke. */
-    it('carries an image-only credit into all three images (#1541)', async () => {
+    it('carries an image-only credit into the OG card and the export (#1541)', async () => {
       vi.useFakeTimers();
       const canvases: ReturnType<typeof createMockCanvas>[] = [];
       createElementSpy.mockImplementation((tag: string, options?: ElementCreationOptions) => {
@@ -2699,10 +2706,10 @@ describe('useBuilderSave', () => {
           String(call[0]).includes('© Logo Provider'),
         ),
       );
-      // The 400x250 thumbnail, the 1200x630 OG card, and the PNG export.
-      expect(credited).toHaveLength(3);
+      // The 1200x630 OG card and the PNG export; the thumbnail carries none.
+      expect(credited).toHaveLength(2);
       const sizes = credited.map((c) => `${c.width}x${c.height}`);
-      expect(sizes).toContain('400x250');
+      expect(sizes).not.toContain('400x250');
       expect(sizes).toContain('1200x630');
       // The export's own band, on the default named-and-described state:
       // 84 title + 600 map + 40 band (12 gap + 1 line + 12 gap) + 32 footer.

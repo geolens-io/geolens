@@ -337,6 +337,7 @@ async def _dataset_to_stac_item(
         cog_download=await can_download_raster_cog(
             db, dataset, user, user_roles, may_export=may_export
         ),
+        raster_meta=raster_meta,
     )
 
     if collection_id is None:

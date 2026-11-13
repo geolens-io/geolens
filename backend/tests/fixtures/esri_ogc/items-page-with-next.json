@@ -1,0 +1,96 @@
+{
+  "type": "FeatureCollection",
+  "properties": {
+    "exceededTransferLimit": true
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "id": 10,
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -73.9228970513825,
+          39.8966804746508
+        ]
+      },
+      "properties": {
+        "OBJECTID": 10,
+        "name": "pt9",
+        "kind": "a",
+        "val": 9,
+        "seen": 1790777600000
+      }
+    },
+    {
+      "type": "Feature",
+      "id": 11,
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -73.5237448944071,
+          39.5465826806178
+        ]
+      },
+      "properties": {
+        "OBJECTID": 11,
+        "name": "pt10",
+        "kind": "b",
+        "val": 10,
+        "seen": 1790864000000
+      }
+    },
+    {
+      "type": "Feature",
+      "id": 12,
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -73.6415315409513,
+          39.7896092863317
+        ]
+      },
+      "properties": {
+        "OBJECTID": 12,
+        "name": "pt11",
+        "kind": "c",
+        "val": 11,
+        "seen": 1790950400000
+      }
+    },
+    {
+      "type": "Feature",
+      "id": 13,
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -74.3557449166426,
+          39.6177922380784
+        ]
+      },
+      "properties": {
+        "OBJECTID": 13,
+        "name": "pt12",
+        "kind": "a",
+        "val": 12,
+        "seen": 1791036800000
+      }
+    }
+  ],
+  "numberReturned": 4,
+  "timeStamp": "2026-11-10 23:02:52Z",
+  "links": [
+    {
+      "title": "Next page",
+      "type": "application/geo+json",
+      "rel": "next",
+      "href": "https://services8.arcgis.com/<redacted>/arcgis/rest/services/glTrial2Ogc/OGCFeatureServer/collections/0/items?offset=12&limit=4&f=application%2Fgeo%2Bjson"
+    },
+    {
+      "title": "This document as text/html",
+      "type": "application/html",
+      "rel": "alternate",
+      "href": "https://services8.arcgis.com/<redacted>/arcgis/rest/services/glTrial2Ogc/OGCFeatureServer/collections/0/items?offset=12&limit=4&f=text%2Fhtml"
+    }
+  ]
+}

@@ -1,0 +1,76 @@
+{
+  "links": [
+    {
+      "href": "https://services8.arcgis.com/<redacted>/arcgis/rest/services/glTrial2Ogc/OGCFeatureServer?f=application/json",
+      "rel": "self",
+      "type": "application/json",
+      "title": "This document as application/json"
+    },
+    {
+      "href": "https://services8.arcgis.com/<redacted>/arcgis/rest/services/glTrial2Ogc/OGCFeatureServer?f=application/x-yaml",
+      "rel": "alternate",
+      "type": "application/x-yaml",
+      "title": "This document as application/x-yaml"
+    },
+    {
+      "href": "https://services8.arcgis.com/<redacted>/arcgis/rest/services/glTrial2Ogc/OGCFeatureServer?f=text/html",
+      "rel": "alternate",
+      "type": "text/html",
+      "title": "This document as text/html"
+    },
+    {
+      "href": "https://services8.arcgis.com/<redacted>/arcgis/rest/services/glTrial2Ogc/OGCFeatureServer/api?f=application%2Fjson",
+      "rel": "service-desc",
+      "type": "application/vnd.oai.openapi+json;version=3.0",
+      "title": "API definition for this endpoint as application/openapi+json; version = 3.0"
+    },
+    {
+      "href": "https://services8.arcgis.com/<redacted>/arcgis/rest/services/glTrial2Ogc/OGCFeatureServer/api?f=application%2Fx-yaml",
+      "rel": "service",
+      "type": "application/x-yaml",
+      "title": "API definition for this endpoint as application/x-yaml"
+    },
+    {
+      "href": "https://services8.arcgis.com/<redacted>/arcgis/rest/services/glTrial2Ogc/OGCFeatureServer/api?f=text%2Fhtml",
+      "rel": "service-doc",
+      "type": "text/html",
+      "title": "API definition for this endpoint as text/html"
+    },
+    {
+      "href": "https://services8.arcgis.com/<redacted>/arcgis/rest/services/glTrial2Ogc/OGCFeatureServer/conformance?f=application/json",
+      "rel": "conformance",
+      "type": "application/json",
+      "title": "Conformance declaration as application/json"
+    },
+    {
+      "href": "https://services8.arcgis.com/<redacted>/arcgis/rest/services/glTrial2Ogc/OGCFeatureServer/conformance?f=application/x-yaml",
+      "rel": "conformance",
+      "type": "application/x-yaml",
+      "title": "Conformance declaration as application/x-yaml"
+    },
+    {
+      "href": "https://services8.arcgis.com/<redacted>/arcgis/rest/services/glTrial2Ogc/OGCFeatureServer/conformance?f=text/html",
+      "rel": "conformance",
+      "type": "text/html",
+      "title": "Conformance declaration as text/html"
+    },
+    {
+      "href": "https://services8.arcgis.com/<redacted>/arcgis/rest/services/glTrial2Ogc/OGCFeatureServer/collections?f=application/json",
+      "rel": "data",
+      "type": "application/json",
+      "title": "Collections Metadata as application/json"
+    },
+    {
+      "href": "https://services8.arcgis.com/<redacted>/arcgis/rest/services/glTrial2Ogc/OGCFeatureServer/collections?f=application/x-yaml",
+      "rel": "data",
+      "type": "application/x-yaml",
+      "title": "Collections Metadata as application/x-yaml"
+    },
+    {
+      "href": "https://services8.arcgis.com/<redacted>/arcgis/rest/services/glTrial2Ogc/OGCFeatureServer/collections?f=text/html",
+      "rel": "data",
+      "type": "text/html",
+      "title": "Collections Metadata as text/html"
+    }
+  ]
+}

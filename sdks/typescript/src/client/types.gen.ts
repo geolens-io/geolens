@@ -20875,7 +20875,7 @@ export type GetCollectionItemsCollectionsDatasetIdItemsGetData = {
         /**
          * Limit
          *
-         * Page size for bulk GeoJSON export. The maximum is an admin-configurable ceiling (default 1000; Network settings tab, `ogc_items_max_page_size`) rather than the 200 used by offset-paged list endpoints, because this route pages via the constant-time `after_gid` keyset cursor. Per OGC API Features Core /req/core/fc-limit-response-1(C) a value above the ceiling is clamped to it, not rejected.
+         * Page size for bulk GeoJSON export. The maximum is an admin-configurable ceiling (default 5000; Network settings tab, `ogc_items_max_page_size`) rather than the 200 used by offset-paged list endpoints, because this route pages via the constant-time `after_gid` keyset cursor. Per OGC API Features Core /req/core/fc-limit-response-1(C) a value above the ceiling is clamped to it, not rejected. A page whose geometries are large may hold fewer features than `limit`; its `next` link continues from the last feature returned.
          */
         limit?: number;
         /**
@@ -20884,6 +20884,12 @@ export type GetCollectionItemsCollectionsDatasetIdItemsGetData = {
          * Legacy offset-based pagination. Prefer `after_gid` keyset cursor (via the `next` link) — offset is retained for backward compatibility but is O(N) at high values.
          */
         offset?: number;
+        /**
+         * Startindex
+         *
+         * Alias of `offset`, the name ArcGIS clients send. When both are given, a non-zero `offset` must equal it.
+         */
+        startindex?: number | null;
         /**
          * After Gid
          *
@@ -23452,6 +23458,12 @@ export type ExportDatasetEndpointDatasetsDatasetIdExportGetData = {
          * Attribute filter expression, e.g. pop > 1000
          */
         where?: string | null;
+        /**
+         * Xy
+         *
+         * CSV only: add WGS 84 longitude and latitude columns after the geometry, filled for a point or a one-point multipoint and empty otherwise. Ignored for other formats, for layers that are not point or multipoint, and for a dataset that already has a longitude or latitude column.
+         */
+        xy?: boolean;
     };
     url: '/datasets/{dataset_id}/export';
 };
@@ -29221,6 +29233,102 @@ export type GetSharedMapEndpointMapsSharedTokenGetResponses = {
 
 export type GetSharedMapEndpointMapsSharedTokenGetResponse = GetSharedMapEndpointMapsSharedTokenGetResponses[keyof GetSharedMapEndpointMapsSharedTokenGetResponses];
 
+export type GetPrefixedSpriteIndexEndpointMapsSpritesGeolensPrefixedJsonGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/maps/sprites/geolens-prefixed.json';
+};
+
+export type GetPrefixedSpriteIndexEndpointMapsSpritesGeolensPrefixedJsonGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type GetPrefixedSpriteIndexEndpointMapsSpritesGeolensPrefixedJsonGetError = GetPrefixedSpriteIndexEndpointMapsSpritesGeolensPrefixedJsonGetErrors[keyof GetPrefixedSpriteIndexEndpointMapsSpritesGeolensPrefixedJsonGetErrors];
+
+export type GetPrefixedSpriteIndexEndpointMapsSpritesGeolensPrefixedJsonGetResponses = {
+    /**
+     * Response Get Prefixed Sprite Index Endpoint Maps Sprites Geolens Prefixed Json Get
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: {
+            [key: string]: number | number | boolean;
+        };
+    };
+};
+
+export type GetPrefixedSpriteIndexEndpointMapsSpritesGeolensPrefixedJsonGetResponse = GetPrefixedSpriteIndexEndpointMapsSpritesGeolensPrefixedJsonGetResponses[keyof GetPrefixedSpriteIndexEndpointMapsSpritesGeolensPrefixedJsonGetResponses];
+
+export type GetGeolensSpritePngEndpointMapsSpritesGeolensPrefixedPngGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/maps/sprites/geolens-prefixed.png';
+};
+
+export type GetGeolensSpritePngEndpointMapsSpritesGeolensPrefixedPngGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type GetGeolensSpritePngEndpointMapsSpritesGeolensPrefixedPngGetError = GetGeolensSpritePngEndpointMapsSpritesGeolensPrefixedPngGetErrors[keyof GetGeolensSpritePngEndpointMapsSpritesGeolensPrefixedPngGetErrors];
+
+export type GetGeolensSpritePngEndpointMapsSpritesGeolensPrefixedPngGetResponses = {
+    /**
+     * The sprite sheet
+     */
+    200: Blob | File;
+};
+
+export type GetGeolensSpritePngEndpointMapsSpritesGeolensPrefixedPngGetResponse = GetGeolensSpritePngEndpointMapsSpritesGeolensPrefixedPngGetResponses[keyof GetGeolensSpritePngEndpointMapsSpritesGeolensPrefixedPngGetResponses];
+
 export type GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetData = {
     body?: never;
     path?: never;
@@ -30781,7 +30889,14 @@ export type ExportMapStyleEndpointMapsMapIdStyleJsonGetData = {
          */
         map_id: string;
     };
-    query?: never;
+    query?: {
+        /**
+         * Sprite
+         *
+         * `url` writes `sprite` as a plain URL string naming a sprite whose entries keep the `geolens:` prefix, for clients that read only the Mapbox style spec's string form, such as Esri's vector tile layer. Omit it for the MapLibre array form.
+         */
+        sprite?: 'url' | null;
+    };
     url: '/maps/{map_id}/style.json';
 };
 

@@ -9,12 +9,12 @@ them, and both the catalog and the ingest router reach the VRT admission here.
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from typing import Any
 
-from sqlalchemy import event, func, select, text, update
+from sqlalchemy import Executable, Result, event, func, select, text, update
 from sqlalchemy.exc import DBAPIError, InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
@@ -146,6 +146,35 @@ async def lock_catalog_rows(
         if not is_lock_conflict(exc):
             raise
         await _raise_rolled_back_conflict(session, exc)
+
+
+async def bounded_row_lock(
+    session: AsyncSession,
+    stmt: Executable,
+    *,
+    conflict: Callable[[], Exception],
+    lock_timeout: str = REQUEST_LOCK_TIMEOUT,
+    reset: bool = True,
+) -> Result[Any]:
+    """Run a locking statement under a transaction-local wait bound.
+
+    When the wait expires or deadlocks, the whole transaction is rolled back
+    and the exception ``conflict()`` builds is raised, so each caller keeps its
+    own response. ``SET LOCAL`` ends with the transaction on every path.
+    ``reset`` also lifts the bound once the lock is held, so later waits in the
+    transaction are not cut short; pass False to keep it.
+    """
+    await _set_lock_timeout(session, lock_timeout)
+    try:
+        result = await session.execute(stmt)
+    except DBAPIError as exc:
+        if not is_lock_conflict(exc):
+            raise
+        await session.rollback()
+        raise conflict() from exc
+    if reset:
+        await session.execute(text("RESET lock_timeout"))
+    return result
 
 
 async def lock_request_key(

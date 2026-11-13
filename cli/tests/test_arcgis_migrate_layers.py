@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -183,10 +184,10 @@ class FakeImport:
         if job in self.committed:
             return (400, _problem(400, "Job already processed"))
         self.committed.add(job)
-        # The dataset the job makes takes the commit's visibility.
-        self.fields.setdefault(dataset_id(name), {})["visibility"] = seen.json()[
-            "visibility"
-        ]
+        # The dataset the job makes takes the commit's title and visibility.
+        self.fields.setdefault(dataset_id(name), {}).update(
+            {k: seen.json()[k] for k in ("title", "visibility") if k in seen.json()}
+        )
         return (202, {"job_id": job, "status": "pending", "message": "queued"})
 
     def job(self, job_id: str, name: str, error: str | None) -> dict:
@@ -499,6 +500,39 @@ def test_a_reused_dataset_its_owner_edited_is_still_reused(runner, plan_file, ge
     assert entry["status"] == "exists" and entry["reused"] == [earlier]
 
 
+def test_a_reused_dataset_shared_maps_show_fails_with_how_to_resolve_it(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    earlier = dataset_id("earlier")
+    service.duplicates["Parcels"] = earlier
+    service.fields[earlier] = {"visibility": "internal"}
+    serve = service._serve_dataset
+
+    def serve_refused(dataset: str) -> None:
+        serve(dataset)
+        geolens.routes[f"PATCH /datasets/{dataset}"] = (
+            422,
+            _problem(
+                422,
+                "Cannot restrict visibility: dataset is used in shared maps: "
+                "Seed web map, Field map",
+            ),
+        )
+
+    service._serve_dataset = serve_refused
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    error = _state(plan_file)["items"][A2]["error"]
+    assert error == (
+        f"Parcels (public view): GeoLens won't make dataset {earlier} public while "
+        "shared maps show it: Seed web map, Field map. Unshare those maps, or set "
+        "the item's target.visibility in the plan to internal"
+    )
+
+
 def test_a_target_write_geolens_refuses_as_stale_fails_the_item(
     runner, plan_file, geolens
 ):
@@ -630,6 +664,58 @@ def test_a_password_token_is_renewed_once_after_a_rejection(
     assert password not in raw and password not in result.output
 
 
+def test_an_empty_client_id_is_refused(runner, plan_file, geolens):
+    result, _ = _migrate(runner, plan_file, "--only", A2, "--client-id", "")
+
+    assert result.exit_code == 2, result.output
+    assert "--client-id" in result.output
+    assert geolens.seen == []
+
+
+def test_an_oauth_token_is_refreshed_once_after_a_rejection(
+    runner, plan_file, geolens, monkeypatch, mock_keyring
+):
+    stored = secrets.token_urlsafe(16)
+    issued = [secrets.token_urlsafe(16), secrets.token_urlsafe(16)]
+    now = time.time()
+    mock_keyring[("geolens", f"arcgis-oauth:app01@{PORTAL}")] = json.dumps(
+        {"refresh_token": stored, "issued_at": now, "expires_at": now + 1209599}
+    )
+    grants: list[dict] = []
+
+    def token(seen):
+        grants.append(seen.params)
+        return {"access_token": issued[len(grants) - 1], "expires_in": 1800}
+
+    def no_browser(url):
+        raise AssertionError("the stored sign-in must be used")
+
+    portal = FakePortal(portal_routes({"oauth2/token": token}))
+    monkeypatch.setattr(migrate, "build_opener", lambda: portal)
+    monkeypatch.setattr("webbrowser.open", no_browser)
+    service = FakeImport(geolens, [_layer(0, "Parcels")], needs_auth=True)
+    preview = service.preview
+    replies = [(403, _problem(403, TOKEN_REFUSED)), preview]
+    geolens.routes[PREVIEW] = lambda seen: (
+        replies.pop(0) if isinstance(replies[0], tuple) else replies[0](seen)
+    )
+
+    result, _ = _migrate(runner, plan_file, "--only", A1, "--client-id", "app01")
+
+    assert result.exit_code == 0, result.output
+    assert [g["grant_type"] for g in grants] == ["refresh_token", "refresh_token"]
+    assert all(g["refresh_token"] == stored for g in grants)
+    sent = [
+        s.json()["auth"]["token"]
+        for s in geolens.seen
+        if s.method == "POST" and urlsplit(s.url).path.endswith("/services/preview/")
+    ]
+    assert sent[:2] == issued
+    raw = (plan_file.parent / "arcgis-migration-state.json").read_text()
+    for secret in (stored, *issued):
+        assert secret not in raw and secret not in result.output
+
+
 @pytest.mark.parametrize(("accepted", "code"), [(True, 0), (False, 3)])
 def test_a_dry_run_signs_in_once_as_the_run_does(
     runner, plan_file, geolens, monkeypatch, accepted, code
@@ -669,6 +755,7 @@ def test_a_password_token_is_renewed_before_it_expires():
 
     class Client:
         token = "first"
+        token_lifetime = 3600.0
 
         def renew_token(self) -> bool:
             renewals.append(1)
@@ -681,6 +768,29 @@ def test_a_password_token_is_renewed_before_it_expires():
     assert auth.service_auth().token == "first"
     clock.now = 59 * 60
     assert auth.service_auth().token == "second"
+    assert renewals == [1]
+
+
+def test_a_short_lived_token_is_renewed_at_half_its_lifetime():
+    renewals: list[int] = []
+
+    class Client:
+        token = "first"
+        token_lifetime = 60.0
+
+        def renew_token(self) -> bool:
+            renewals.append(1)
+            self.token = f"renewed-{len(renewals)}"
+            return True
+
+    clock = _Clock()
+    auth = session.PortalAuth(Client(), renewable=True, clock=clock)
+    clock.now = 20
+    assert auth.service_auth().token == "first"
+    clock.now = 31
+    assert auth.service_auth().token == "renewed-1"
+    clock.now = 40
+    assert auth.service_auth().token == "renewed-1"
     assert renewals == [1]
 
 

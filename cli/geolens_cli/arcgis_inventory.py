@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlsplit
 
+from . import arcgis_oauth
 from . import arcgis_report as _report
 from . import output as _output
 from ._sdk_helpers import (
@@ -992,6 +993,10 @@ def _collect_dependencies(
                 )
                 or (not_json_ok and exc.kind == "not_json")
                 or (lenient and exc.kind == "invalid")
+                # ArcGIS Online's item data host refuses a notebook's file to
+                # a token the portal accepts, so it stays unread like other
+                # data that can't be parsed.
+                or (non_json and exc.http_status == 403)
             )
             if not is_map and tolerated:
                 return "unparsed"
@@ -1661,6 +1666,8 @@ class InventoryOptions:
     json_mode: bool
     read_groups: bool = True
     read_all_item_data: bool = False
+    client_id: str | None = None
+    redirect_port: int | None = None
 
 
 class _UsageError(Exception):
@@ -1687,7 +1694,11 @@ def _resolve_credentials(opts: InventoryOptions) -> tuple[str, str | None, str |
     """(auth mode, token, password)."""
     try:
         token, password = read_credentials(
-            opts.token, opts.token_stdin, opts.username, opts.password_stdin
+            opts.token,
+            opts.token_stdin,
+            opts.username,
+            opts.password_stdin,
+            opts.client_id,
         )
     except ValueError as exc:
         raise _UsageError(str(exc)) from None
@@ -1695,10 +1706,13 @@ def _resolve_credentials(opts: InventoryOptions) -> tuple[str, str | None, str |
         return "token", token, None
     if opts.username:
         return "generateToken", None, password
+    if opts.client_id:
+        return "oauth", None, None
     if opts.scope == "user":
         raise _UsageError(
             "--scope user needs a signed-in user: pass --token, ARCGIS_TOKEN, "
-            "--token-stdin or --username, or use --scope org to list public items"
+            "--token-stdin, --username or --client-id, or use --scope org to "
+            "list public items"
         )
     return "anonymous", None, None
 
@@ -1777,6 +1791,14 @@ def _run(fmt: _output.Formatter, opts: InventoryOptions, redact: Redactor) -> in
     try:
         if password is not None and opts.username:
             client.generate_token(opts.username, password)
+        elif auth_mode == "oauth" and opts.client_id:
+            arcgis_oauth.sign_in(
+                client,
+                opts.client_id,
+                redact,
+                redirect_port=opts.redirect_port,
+                quiet=fmt.quiet,
+            )
         inv = run_inventory(
             client,
             auth_mode=auth_mode,

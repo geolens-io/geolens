@@ -27,6 +27,7 @@ from uuid import UUID
 import click
 import typer
 
+from . import arcgis_oauth
 from . import arcgis_plan as _plan
 from . import output as _output
 from ._sdk_helpers import (
@@ -56,7 +57,12 @@ from .arcgis_migrate_export import (
     refresh_export,
     write_index,
 )
-from .arcgis_migrate_cutover import current, failing_checks, inventory_changes
+from .arcgis_migrate_cutover import (
+    current,
+    failing_checks,
+    inventory_changes,
+    refused_before_run,
+)
 from .arcgis_migrate_groups import (
     GroupPlan,
     NO_GROUP,
@@ -117,6 +123,7 @@ from .arcgis_portal import (
     PortalError,
     Redactor,
     build_opener,
+    check_client_id,
     portal_root,
     read_credentials,
 )
@@ -144,6 +151,7 @@ _PORTAL_EXIT = {
     "network": EXIT_NETWORK,
     "server": EXIT_SERVER,
     "redirect": EXIT_USAGE,
+    "usage": EXIT_USAGE,
 }
 EXIT_INTERRUPTED = 130
 CUTOVER_LINES = 10
@@ -200,6 +208,9 @@ class MigrateOptions:
     token_stdin: bool = False
     username: str | None = None
     password_stdin: bool = False
+    client_id: str | None = None
+    redirect_port: int | None = None
+    quiet: bool = False
     allow_insecure_http: bool = False
     trusted_hosts: list[str] = field(default_factory=list)
     export_cap_mb: int = DEFAULT_CAP_MB
@@ -458,7 +469,8 @@ def _earlier_copies(
         f"{len(found)} dataset(s) migrated from {len({i for i, _ in found})} of "
         f"the plan's items ({shown}{f' and {more} more' if more > 0 else ''}), "
         "which this run would import again; pass --state with the state file "
-        "of the earlier run, or --start-fresh to migrate them again anyway"
+        "of the earlier run, or --start-fresh to run anyway, which reuses the "
+        "service layers you hold and imports data files and web maps again"
     )
 
 
@@ -719,21 +731,17 @@ def _follow_portal_owner(
     permission: str,
     owners: Owners,
 ) -> None:
-    """Queue a handover to *user* when only the item's ArcGIS owner moved;
-    report a new owner from a ``target.owner`` or ``owner_map`` edit. An entry
-    without a recorded ArcGIS owner adopts the current one while *user* owns
-    the item. An item a handover left incomplete goes to *user*, whoever owns
-    each of its objects now."""
+    """Queue a handover to *user* when the plan now resolves the item to a
+    user other than the one it was migrated to, whether the ArcGIS owner moved
+    or ``target.owner`` / ``owner_map`` was edited. An entry without a recorded
+    ArcGIS owner adopts the current one while *user* owns the item. An item a
+    handover left incomplete goes to *user*, whoever owns each of its objects
+    now."""
     portal_owner = item["owner"]
-    moved = entry.portal_owner is not None and portal_owner != entry.portal_owner
-    pinned = item["target"]["owner"] is not None
     _note_portal_owner(item, entry, owners, str(user.id))
     if entry.handover_incomplete:
         pass
     elif str(user.id) == entry.owner_id:
-        return
-    elif not moved or pinned:
-        owners.changed.append({"item": item["id"], "owner": user.username})
         return
     inactive = directory.inactive(user)
     if inactive:
@@ -850,6 +858,42 @@ def _check_cutover(opts: MigrateOptions) -> None:
         raise UsageError("--cutover is the final run of the whole plan; drop --only")
 
 
+def owner_blockers(owners: Owners) -> list[dict[str, str]]:
+    """The owner problems no run fixes, which refuse a cutover: a plan owner
+    that names no single GeoLens user, and a plan owner changed after the
+    item was migrated, which stays with the old one."""
+    return [
+        *owners.unresolved,
+        *(
+            {
+                "item": change["item"],
+                "reason": f"its plan owner is now {change['owner']}, who hasn't "
+                "been given it",
+            }
+            for change in owners.changed
+        ),
+    ]
+
+
+def _held_after_run(
+    plan: Mapping[str, Any], state: MigrationState, owners: Owners
+) -> list[dict[str, str]]:
+    """The items the cutover's owner check will find held after this run: those
+    held for an owner who can't take them yet, and a hold the state records on
+    an item this run neither imports nor hands over."""
+    held = [{"item": i, "reason": r} for i, r in owners.pending.items()]
+    settled = {*owners.pending, *owners.waiting, *owners.by_item}
+    held += [
+        {"item": item["id"], "reason": entry.owner_pending}
+        for item in plan["items"]
+        if not item.get("removed")
+        and item["id"] not in settled
+        and (entry := state.items.get(item["id"])) is not None
+        and entry.owner_pending
+    ]
+    return held
+
+
 def mark_cutover(
     opts: MigrateOptions,
     plan: Mapping[str, Any],
@@ -868,17 +912,9 @@ def mark_cutover(
     changed = (
         None if opts.dry_run else inventory_changes(portal, plan, datetime.now(tz=UTC))
     )
-    # An item whose plan now names another owner stays with the old one.
+    blocked = owner_blockers(owners)
+    listed = {row["item"] for row in blocked}
     moved = [
-        {
-            "item": change["item"],
-            "reason": f"its plan owner is now {change['owner']}, who hasn't "
-            "been given it",
-        }
-        for change in owners.changed
-    ]
-    listed = {row["item"] for row in [*owners.unresolved, *moved]}
-    moved += [
         {
             "item": item["id"],
             "reason": "a handover stopped part way, so its objects may have "
@@ -892,7 +928,7 @@ def mark_cutover(
     failing = failing_checks(
         plan,
         state,
-        [*owners.unresolved, *moved],
+        [*blocked, *moved],
         changed,
         groups.groups if groups else None,
     )
@@ -1350,9 +1386,12 @@ def _report(
     cutover: Mapping[str, Any] | None = None,
     groups: GroupPlan | None = None,
     notes: Mapping[str, list[str]] | None = None,
+    before_run: bool = False,
 ) -> int:
     groups = groups or GroupPlan()
     notes = notes or {}
+    if not opts.dry_run:
+        _note_unattempted_handovers(state, owners, summary)
     rows = [
         {
             "id": item["id"],
@@ -1436,57 +1475,60 @@ def _report(
     if fmt.json_mode:
         fmt.json(payload)
     else:
-        verb = "Would run" if opts.dry_run else "Ran"
-        fmt.info(f"{verb} {len(rows)} item(s).")
-        for row in rows:
-            owner = f" as {row['owner']}" if row["owner"] else ""
-            fmt.info(f"  {row['id']} {row['action']}{owner}: {row['status']}")
-            for note in row["notes"]:
-                fmt.info(f"    {note}")
-            if row["error"]:
-                # An error, not a warning: --quiet must not hide a failed item.
-                fmt.error(f"{row['id']}: {row['error']}")
-        for item_id in failed:
-            if item_id not in ran:
-                # Failed before, left out of this run: the exit code counts it.
-                fmt.error(f"{item_id}: {state.item(item_id).error or 'failed'}")
-        _print_owners(fmt, owners, summary)
-        if opts.dry_run:
-            for planned in _planned_handovers(owners, opts.only):
-                fmt.info(f"{planned['item']} would be handed to {planned['owner']}")
-        _print_groups(fmt, groups, opts.dry_run)
-        verb = "Would bring" if opts.dry_run else "Brought"
-        brought = len(summary.refreshed)
-        # A dry run counts every item it would try; its stale reasons are old.
-        if not opts.dry_run:
-            brought -= len([i for i in stale if i in summary.refreshed])
-        fmt.info(f"{verb} {brought} migrated item(s) up to date.")
-        for item_id, reasons in stale.items():
-            for reason in reasons:
-                fmt.error(f"{item_id} is not up to date: {reason}")
-        if summary.unavailable:
-            fmt.warn(
-                f"{len(summary.unavailable)} item(s) use an action this version "
-                "can't run yet and were left pending."
-            )
-        if summary.unlisted:
-            fmt.warn(
-                f"{len(summary.unlisted)} item(s) are missing from the inventory the "
-                "plan was last merged from and were left pending; merge a complete "
-                "inventory to run them: " + ", ".join(summary.unlisted[:5])
-            )
-        for wait in summary.waiting:
-            fmt.warn(f"{wait['item']} waits on {', '.join(wait['waiting_on'])}")
-        if summary.stopped:
-            fmt.error(f"stopped: {summary.stopped}")
+        # A cutover refused before the run ran nothing, so only the refusal shows.
+        if not before_run:
+            verb = "Would run" if opts.dry_run else "Ran"
+            fmt.info(f"{verb} {len(rows)} item(s).")
+            for row in rows:
+                owner = f" as {row['owner']}" if row["owner"] else ""
+                fmt.info(f"  {row['id']} {row['action']}{owner}: {row['status']}")
+                for note in row["notes"]:
+                    fmt.info(f"    {note}")
+                if row["error"]:
+                    # An error, not a warning: --quiet must not hide a failed item.
+                    fmt.error(f"{row['id']}: {row['error']}")
+            for item_id in failed:
+                if item_id not in ran:
+                    # Failed before, left out of this run: the exit code counts it.
+                    fmt.error(f"{item_id}: {state.item(item_id).error or 'failed'}")
+            _print_owners(fmt, owners, summary)
+            if opts.dry_run:
+                for planned in _planned_handovers(owners, opts.only):
+                    fmt.info(f"{planned['item']} would be handed to {planned['owner']}")
+            _print_groups(fmt, groups, opts.dry_run)
+            verb = "Would bring" if opts.dry_run else "Brought"
+            brought = len(summary.refreshed)
+            # A dry run counts every item it would try; its stale reasons are old.
+            if not opts.dry_run:
+                brought -= len([i for i in stale if i in summary.refreshed])
+            fmt.info(f"{verb} {brought} migrated item(s) up to date.")
+            for item_id, reasons in stale.items():
+                for reason in reasons:
+                    fmt.error(f"{item_id} is not up to date: {reason}")
+            if summary.unavailable:
+                fmt.warn(
+                    f"{len(summary.unavailable)} item(s) use an action this version "
+                    "can't run yet and were left pending."
+                )
+            if summary.unlisted:
+                fmt.warn(
+                    f"{len(summary.unlisted)} item(s) are missing from the inventory the "
+                    "plan was last merged from and were left pending; merge a complete "
+                    "inventory to run them: " + ", ".join(summary.unlisted[:5])
+                )
+            for wait in summary.waiting:
+                fmt.warn(f"{wait['item']} waits on {', '.join(wait['waiting_on'])}")
+            if summary.stopped:
+                fmt.error(f"stopped: {summary.stopped}")
         _print_cutover(fmt, cutover, opts.dry_run)
         if state.cutover and not opts.cutover:
             fmt.warn(f"this migration was cut over at {state.cutover['at']}")
         if not opts.dry_run:
-            fmt.info(f"State: {state.path}")
+            if not before_run:
+                fmt.info(f"State: {state.path}")
             if report_files:
                 fmt.info(f"Report: {report_files[1]}")
-            if failed:
+            if failed and not before_run:
                 fmt.error(
                     f"{len(failed)} item(s) failed; see {report_files[1] if report_files else state.path}"
                 )
@@ -1506,6 +1548,25 @@ def _report(
     return EXIT_GENERIC if unaccepted or groups.failures or report_failed else EXIT_OK
 
 
+def _note_unattempted_handovers(
+    state: MigrationState, owners: Owners, summary: RunSummary
+) -> None:
+    """Keep a queued handover that never succeeded (left out by ``--only``,
+    or after an interruption or refusal) in the follow-ups."""
+    done = {h["item"] for h in summary.handed_over}
+    reported = {c["item"] for c in owners.changed}
+    for item_id in owners.waiting:
+        owner = owners.handovers.get(item_id)
+        entry = state.items.get(item_id)
+        if owner is None or item_id in done or item_id in reported:
+            continue
+        if entry is None or entry.owner_pending:
+            continue
+        owners.changed.append(
+            {"item": item_id, "owner": owner.username, "unattempted": "1"}
+        )
+
+
 def _planned_handovers(owners: Owners, only: Sequence[str]) -> list[dict[str, str]]:
     """The handovers ``hand_over`` makes, as it selects them."""
     return [
@@ -1523,7 +1584,12 @@ def _print_owners(fmt: _output.Formatter, owners: Owners, summary: RunSummary) -
     for change in owners.changed:
         fmt.warn(
             f"{change['item']} was migrated before its owner changed to "
-            f"{change['owner']}; it was not imported again. Transfer it by hand."
+            f"{change['owner']}, and this run didn't hand it over; "
+            + (
+                "rerun with it selected, or transfer it in GeoLens by hand."
+                if change.get("unattempted")
+                else "transfer it in GeoLens by hand."
+            )
         )
     for conflict in owners.conflicts:
         fmt.warn(
@@ -1560,12 +1626,19 @@ def _print_members_left_out(fmt: _output.Formatter, groups: GroupPlan) -> None:
             reasons.add(left["reason"])
     no_account = []
     for member, (names, reasons) in sorted(by_member.items()):
-        if all(r.endswith(NOT_A_USER) for r in reasons):
+        # An inventory import creates the ArcGIS name, not one owner_map gives.
+        if reasons == {f"{member}{NOT_A_USER}"}:
             no_account.append(member)
             continue
+        mapped = all(r.endswith(NOT_A_USER) for r in reasons)
         fmt.warn(
             f"{member}: {'; '.join(sorted(reasons))} "
             f"(not in GeoLens group {', '.join(sorted(names))})"
+            + (
+                "; owner_map names that user, so create it or change owner_map"
+                if mapped
+                else ""
+            )
         )
     if no_account:
         shown = ", ".join(no_account[:_LISTED_MEMBERS])
@@ -1738,8 +1811,9 @@ def _portal_client(
     rows: Mapping[str, Mapping[str, Any]],
     state: MigrationState,
     redact: Redactor,
-) -> tuple[PortalClient, str | None] | None:
-    """A client for the plan's portal holding the run's token or password.
+) -> tuple[PortalClient, Callable[[], None] | None] | None:
+    """A client for the plan's portal holding the run's token, and the
+    sign-in that gives it a renewable one (a password or OAuth), if any.
 
     None when no item to import or bring up to date needs one; a
     ``UsageError`` when one does and no credential was given.
@@ -1778,7 +1852,7 @@ def _portal_client(
         )
     )
     files = any(i["action"] != _plan.IMPORT_LAYERS for i in wanted)
-    supplied = bool(opts.token or opts.token_stdin or opts.username)
+    supplied = bool(opts.token or opts.token_stdin or opts.username or opts.client_id)
     # The cutover searches the organization, which takes a credential.
     if not private and not ((files or opts.cutover) and supplied):
         # A public data file is still downloaded from the portal, anonymously
@@ -1797,12 +1871,16 @@ def _portal_client(
         return None
     try:
         token, password = read_credentials(
-            opts.token, opts.token_stdin, opts.username, opts.password_stdin
+            opts.token,
+            opts.token_stdin,
+            opts.username,
+            opts.password_stdin,
+            opts.client_id,
         )
-        if token is None and password is None:
+        if token is None and password is None and not opts.client_id:
             raise UsageError(
                 f"{private} item(s) to import or bring up to date are not public: pass --token, "
-                "ARCGIS_TOKEN, --token-stdin or --username"
+                "ARCGIS_TOKEN, --token-stdin, --username or --client-id"
             )
         root = portal_root(
             plan["portal"]["url"],
@@ -1813,9 +1891,19 @@ def _portal_client(
         raise UsageError(str(exc)) from None
     redact.add(token)
     redact.add(password)
-    return PortalClient(
-        root, opener=build_opener(), redact=redact, token=token
-    ), password
+    client = PortalClient(root, opener=build_opener(), redact=redact, token=token)
+    username, client_id = opts.username, opts.client_id
+    if password is not None and username:
+        return client, lambda: client.generate_token(username, password)
+    if client_id:
+        return client, lambda: arcgis_oauth.sign_in(
+            client,
+            client_id,
+            redact,
+            redirect_port=opts.redirect_port,
+            quiet=opts.quiet,
+        )
+    return client, None
 
 
 def _check_hosts(hosts: list[str]) -> None:
@@ -1835,6 +1923,21 @@ def _portal_base(url: str) -> str:
         return url.rstrip("/")
 
 
+def _sign_in(
+    fmt: _output.Formatter, portal: tuple[PortalClient, Callable[[], None] | None]
+) -> PortalAuth | int:
+    """Sign the portal client in; its auth, or the exit code of a refused
+    sign-in."""
+    client, sign_in = portal
+    try:
+        if sign_in is not None:
+            sign_in()
+    except PortalError as exc:
+        fmt.error(str(exc))
+        return _PORTAL_EXIT.get(exc.kind, EXIT_GENERIC)
+    return PortalAuth(client, renewable=sign_in is not None)
+
+
 def _run(
     fmt: _output.Formatter,
     opts: MigrateOptions,
@@ -1844,6 +1947,10 @@ def _run(
 ) -> int:
     try:
         _check_hosts(opts.trusted_hosts)
+        try:
+            check_client_id(opts.client_id)
+        except ValueError as exc:
+            raise UsageError(str(exc)) from None
         _check_cutover(opts)
         plan = _plan.load_plan(opts.plan_path)
         state_path = opts.state_path or opts.plan_path.parent / STATE_FILENAME
@@ -1860,15 +1967,22 @@ def _run(
         rows, portal_info, inventory_groups = _inventory_rows(
             plan, opts.plan_path, touched
         )
-        # A dry run makes only the password sign-in the run starts with.
+        # A dry run makes only the sign-in the run starts with.
         portal = (
             None
-            if opts.dry_run and not opts.username
+            if opts.dry_run and not (opts.username or opts.client_id)
             else _portal_client(opts, plan, touched, rows, state, redact)
         )
     except (_plan.PlanError, StateError, UsageError) as exc:
         fmt.error(str(exc))
         return EXIT_USAGE
+
+    auth = None
+    # The cutover preflight searches the portal before any group is made.
+    if portal is not None and opts.cutover and not opts.dry_run:
+        auth = _sign_in(fmt, portal)
+        if isinstance(auth, int):
+            return auth
 
     sdk = sdk_factory()
     geolens = GeoLens(sdk, instance, redact)
@@ -1905,6 +2019,29 @@ def _run(
         )
         if refusal:
             raise UsageError(refusal)
+        # Before any group is made or changed, so a refused cutover changes nothing.
+        if opts.cutover and not opts.dry_run:
+            early = refused_before_run(
+                plan,
+                [*owner_blockers(owners), *_held_after_run(plan, state, owners)],
+                inventory_changes(
+                    auth.client if auth else None, plan, datetime.now(tz=UTC)
+                ),
+                opts.accept,
+            )
+            if early is not None:
+                return _report(
+                    fmt,
+                    opts,
+                    plan,
+                    state,
+                    [],
+                    owners,
+                    RunSummary(),
+                    redact,
+                    early,
+                    before_run=True,
+                )
         if editor:
             groups = my_groups_plan(
                 geolens, plan, inventory_groups, state, touched, dry_run=opts.dry_run
@@ -1941,16 +2078,10 @@ def _run(
             return EXIT_AUTH
         return EXIT_SERVER if exc.status >= 500 else EXIT_GENERIC
 
-    auth = None
-    if portal is not None:
-        client, password = portal
-        try:
-            if password is not None and opts.username:
-                client.generate_token(opts.username, password)
-        except PortalError as exc:
-            fmt.error(str(exc))
-            return _PORTAL_EXIT.get(exc.kind, EXIT_GENERIC)
-        auth = PortalAuth(client, renewable=password is not None)
+    if portal is not None and auth is None:
+        auth = _sign_in(fmt, portal)
+        if isinstance(auth, int):
+            return auth
 
     if opts.dry_run:
         # As the run does first, so the dry run shows the status it will leave.
@@ -2035,6 +2166,7 @@ def _run(
         if stopped is not None:
             try:
                 state.save()
+                _note_unattempted_handovers(state, owners, summary)
                 _json_path, md_path = _report_files(
                     state, plan, owners, redact, stopped, groups=groups
                 )

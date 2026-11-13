@@ -25,7 +25,9 @@ from . import analysis as _analysis
 from . import arcgis_inventory as _arcgis_inventory
 from . import arcgis_migrate as _arcgis_migrate
 from . import arcgis_migrate_cutover as _arcgis_cutover
+from . import arcgis_oauth as _arcgis_oauth
 from . import arcgis_plan as _arcgis_plan
+from . import arcgis_portal as _arcgis_portal
 from . import auth as _auth
 from . import config as _config
 from . import export_stac as _export_stac
@@ -1991,6 +1993,33 @@ def analysis_materialize(
         raise typer.Exit(materialize_exit_code)
 
 
+ClientIdOpt = Annotated[
+    Optional[str],
+    typer.Option(
+        "--client-id",
+        envvar="GEOLENS_ARCGIS_CLIENT_ID",
+        show_envvar=True,
+        help="Sign in through the browser with OAuth, which also works for "
+        "accounts that use SAML or OpenID Connect. The client ID of an OAuth 2.0 "
+        "credentials item registered in your organization. Register "
+        "http://127.0.0.1 (not localhost) as a redirect URL, which matches "
+        "any port, or the exact http://127.0.0.1:<port>/callback with "
+        "--redirect-port. The sign-in is saved in the OS keyring for the "
+        "next run",
+    ),
+]
+RedirectPortOpt = Annotated[
+    Optional[int],
+    typer.Option(
+        "--redirect-port",
+        min=1,
+        max=65535,
+        help="With --client-id, receive the browser sign-in on this port "
+        "of 127.0.0.1 instead of a free one",
+    ),
+]
+
+
 @arcgis_app.command("inventory")
 def arcgis_inventory(
     ctx: typer.Context,
@@ -1998,7 +2027,8 @@ def arcgis_inventory(
         str,
         typer.Option(
             "--portal-url",
-            help="ArcGIS Online organization URL, or https://<host>/portal for a self-hosted portal",
+            help="ArcGIS Online organization URL, or https://<host>/portal for a self-hosted portal. "
+            "Members with a SAML or OpenID Connect login pass their organization's URL.",
         ),
     ] = _arcgis_inventory.DEFAULT_PORTAL_URL,
     token: Annotated[
@@ -2025,6 +2055,8 @@ def arcgis_inventory(
         bool,
         typer.Option("--password-stdin", help="Read the ArcGIS password from stdin"),
     ] = False,
+    client_id: ClientIdOpt = None,
+    redirect_port: RedirectPortOpt = None,
     scope: Annotated[
         _arcgis_inventory.InventoryScope,
         typer.Option(
@@ -2089,6 +2121,8 @@ def arcgis_inventory(
         token_stdin=token_stdin,
         username=username,
         password_stdin=password_stdin,
+        client_id=client_id,
+        redirect_port=redirect_port,
         scope=scope.value,
         max_items=max_items,
         concurrency=concurrency,
@@ -2188,7 +2222,8 @@ def arcgis_migrate(
         typer.Option(
             "--start-fresh",
             help="Run without a state file even though GeoLens already holds "
-            "datasets migrated from the plan's items, importing them again",
+            "datasets migrated from the plan's items: service layers you already "
+            "hold are reused, and data files and web maps are imported again",
         ),
     ] = False,
     unmapped_owner: Annotated[
@@ -2222,6 +2257,8 @@ def arcgis_migrate(
         bool,
         typer.Option("--password-stdin", help="Read the ArcGIS password from stdin"),
     ] = False,
+    client_id: ClientIdOpt = None,
+    redirect_port: RedirectPortOpt = None,
     allow_insecure_http: Annotated[
         bool,
         typer.Option(
@@ -2297,8 +2334,8 @@ def arcgis_migrate(
     you: an editor then migrates their own content, with nothing transferred.
     Items are imported as you, in depends_on order, then transferred to the
     owner the plan maps them to. A rerun also brings the items migrated before
-    up to date. Items that aren't public need an ArcGIS token or a built-in
-    account.
+    up to date. Items that aren't public need an ArcGIS token, a built-in
+    account or a browser sign-in with --client-id.
 
     As an editor, a public item under restrict_public_visibility becomes
     internal, collections are skipped without manage_collections, and an item
@@ -2325,6 +2362,9 @@ def arcgis_migrate(
         token_stdin=token_stdin,
         username=username,
         password_stdin=password_stdin,
+        client_id=client_id,
+        redirect_port=redirect_port,
+        quiet=state.quiet,
         allow_insecure_http=allow_insecure_http,
         trusted_hosts=trust_service_host or [],
         export_cap_mb=export_cap_mb,
@@ -2339,6 +2379,58 @@ def arcgis_migrate(
     )
     if code:
         raise typer.Exit(code)
+
+
+@arcgis_app.command("logout")
+def arcgis_logout(
+    ctx: typer.Context,
+    portal_url: Annotated[
+        str,
+        typer.Option(
+            "--portal-url",
+            help="The portal the sign-in was saved for, as passed to inventory "
+            "or in the plan's portal.url",
+        ),
+    ] = _arcgis_inventory.DEFAULT_PORTAL_URL,
+    client_id: ClientIdOpt = None,
+) -> None:
+    """Forget the ArcGIS browser sign-in saved for a portal and client ID.
+
+    Deletes the refresh token from the OS keyring and credentials.toml, so the
+    next --client-id run signs in through the browser. Nothing is sent to the
+    portal.
+    """
+    state: AppState = ctx.obj
+    if not client_id:
+        state.output.error("pass --client-id or set GEOLENS_ARCGIS_CLIENT_ID")
+        raise typer.Exit(EXIT_USAGE)
+    try:
+        root = _arcgis_portal.portal_root(portal_url, True)
+    except ValueError as exc:
+        state.output.error(str(exc))
+        raise typer.Exit(EXIT_USAGE) from None
+    removed, left, unreadable = _arcgis_oauth.forget(root, client_id)
+    places = {"keyring": "the OS keyring", "file": "credentials.toml"}
+    if left or unreadable:
+        problems = []
+        if left:
+            problems.append(f"still saved in {', '.join(places[b] for b in left)}")
+        if unreadable:
+            problems.append(
+                f"{', '.join(places[b] for b in unreadable)} could not be read, "
+                "so removal is not confirmed"
+            )
+        state.output.error(
+            f"the ArcGIS sign-in for {client_id} at {root}: {'; '.join(problems)}"
+        )
+        raise typer.Exit(EXIT_GENERIC)
+    if removed:
+        where = " and ".join(places[b] for b in removed)
+        state.output.success(
+            f"Removed the saved ArcGIS sign-in for {client_id} at {root} from {where}"
+        )
+    else:
+        state.output.success(f"No ArcGIS sign-in was saved for {client_id} at {root}")
 
 
 @admin_users_app.command("import")

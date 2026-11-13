@@ -229,19 +229,23 @@ async def test_a_throttled_copc_read_is_readable_and_the_same_for_any_id(
     assert len(answers) == 1
 
 
-async def test_the_preflight_offers_head_only_where_the_route_serves_it(
-    client: AsyncClient, publish
+@pytest.mark.parametrize("target", _TARGETS)
+async def test_a_foreign_page_may_head_a_public_file(
+    client: AsyncClient, publish, target
 ) -> None:
-    copc = await client.options(
-        await publish("copc"), headers=_preflight_headers("HEAD")
-    )
-    tileset = await client.options(
-        await publish("tileset"), headers=_preflight_headers("HEAD")
-    )
+    url = await publish(target)
 
-    assert copc.status_code == 200
-    assert copc.headers["access-control-allow-origin"] == "*"
-    assert "access-control-allow-origin" not in tileset.headers
+    preflight = await client.options(url, headers=_preflight_headers("HEAD"))
+    head = await client.head(url, headers={"Origin": _FOREIGN_ORIGIN})
+
+    assert preflight.status_code == head.status_code == 200
+    assert preflight.headers["access-control-allow-origin"] == "*"
+    assert _listed(preflight.headers["access-control-allow-methods"]) == {
+        "get",
+        "head",
+        "options",
+    }
+    _assert_public_answer(head)
 
 
 @pytest.mark.parametrize("target", _TARGETS)

@@ -15,6 +15,7 @@ from geolens_cli import arcgis_migrate as migrate_mod
 from geolens_cli import arcgis_migrate_cutover as cutover_mod
 from geolens_cli import arcgis_migrate_refresh as refresh_mod
 from geolens_cli.arcgis_portal import PortalError
+from geolens_cli.main import app
 
 from . import test_arcgis_migrate_files as files
 from . import test_arcgis_migrate_layers as layers
@@ -249,17 +250,21 @@ def test_the_token_is_not_sent_to_a_stored_source_on_another_host(
 
 
 @pytest.mark.parametrize(
-    "edit",
+    ("edit", "named"),
     [
-        {"updated_at": EDITED, "updated_by": ALICE},
+        (
+            {"updated_at": EDITED, "updated_by": ALICE},
+            "its title, description, sharing or other details were edited; "
+            "last changed at 2026-10-03T00:00:00+00:00",
+        ),
         # A feature added by the operator's own account moves only the count.
-        {"feature_count": 5},
+        ({"feature_count": 5}, "its data was edited, 0 features then, 5 now"),
         # An attribute edit by the operator's own account moves only the revision.
-        {"data_revision": 1},
+        ({"data_revision": 1}, "its data was edited; last changed"),
     ],
 )
 def test_a_dataset_changed_in_geolens_since_the_last_run_is_left_alone(
-    runner, plan_file, geolens, edit
+    runner, plan_file, geolens, edit, named
 ):
     service = _migrated(runner, plan_file, geolens)
     refresh = FakeRefresh(geolens, service).allow(PARCELS)
@@ -272,7 +277,12 @@ def test_a_dataset_changed_in_geolens_since_the_last_run_is_left_alone(
     assert refresh.bodies == []
     assert [s for s in geolens.seen[before:] if s.method not in ("GET", "POST")] == []
     [reason] = payload["not_up_to_date"][A2]
-    assert "changed in GeoLens since the last run" in reason
+    assert f"changed in GeoLens since the last run ({named}" in reason
+    assert "Its portal item was last modified at 2026-" in reason
+    assert reason.endswith(
+        "To keep the GeoLens version, set the item's action to skip in the plan, "
+        "or accept it at cutover with --accept-unfinished-items"
+    )
     entry = _state(plan_file)["items"][A2]
     assert entry["last_update"][PARCELS] == {
         "updated_at": "2026-10-01T00:00:00+00:00",
@@ -732,6 +742,114 @@ def test_a_summary_cleared_in_the_portal_is_cleared_unless_edited_in_geolens(
         assert entry["metadata_baseline"][PARCELS]["summary"] == ""
 
 
+def _set_title(plan_file: Path, item_id: str, title: str) -> None:
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == item_id:
+            item["title"] = item["target"]["title"] = title
+    plan_file.write_text(json.dumps(plan))
+
+
+@pytest.mark.parametrize("edited", [False, True])
+def test_a_portal_rename_retitles_the_dataset_unless_edited_in_geolens(
+    runner, plan_file, geolens, edited
+):
+    service = _migrated(runner, plan_file, geolens)
+    FakeRefresh(geolens, service).allow(PARCELS)
+    first = service.fields[PARCELS]["title"]
+    # The rerun that records the title this command left.
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    if edited:
+        service.fields[PARCELS]["title"] = "Named in GeoLens"
+    _set_title(plan_file, A2, "Parcels renamed")
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    entry = _state(plan_file)["items"][A2]
+    if edited:
+        assert service.fields[PARCELS]["title"] == "Named in GeoLens"
+        assert (
+            f"kept the title edited in GeoLens on dataset {PARCELS}" in (entry["notes"])
+        )
+        assert entry["metadata_baseline"][PARCELS]["title"] == first
+    else:
+        assert service.fields[PARCELS]["title"] == "Parcels renamed"
+        assert entry["metadata_baseline"][PARCELS]["title"] == "Parcels renamed"
+
+
+def test_a_decomposed_portal_title_is_recorded_as_geolens_stores_it(
+    runner, plan_file, geolens
+):
+    service = _migrated(runner, plan_file, geolens)
+    FakeRefresh(geolens, service).allow(PARCELS)
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    _set_title(plan_file, A2, "Cafe\u0301 parcels")
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    # GeoLens stores titles NFC-normalized.
+    service.fields[PARCELS]["title"] = "Caf\u00e9 parcels"
+    _set_title(plan_file, A2, "Parcels renamed")
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert service.fields[PARCELS]["title"] == "Parcels renamed"
+
+
+def test_an_empty_title_baseline_an_older_cli_recorded_is_adopted(
+    runner, plan_file, geolens
+):
+    service = _migrated(runner, plan_file, geolens)
+    FakeRefresh(geolens, service).allow(PARCELS)
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    # An older CLI empties fields the portal no longer gives; GeoLens ignores a
+    # null title, so only the baseline changes.
+    baseline = _state(plan_file)["items"][A2]["metadata_baseline"]
+    baseline[PARCELS]["title"] = ""
+    _edit_state(plan_file, A2, metadata_baseline=baseline)
+    _set_title(plan_file, A2, "Parcels renamed")
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert service.fields[PARCELS]["title"] == "Parcels renamed"
+
+
+def test_a_metadata_write_whose_keywords_fail_is_still_recorded_as_this_commands(
+    runner, plan_file, geolens
+):
+    service = _migrated(runner, plan_file, geolens)
+    refresh = FakeRefresh(geolens, service).allow(PARCELS)
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    patch = geolens.routes[f"PATCH /datasets/{PARCELS}"]
+
+    def stamped(seen):
+        # GeoLens moves updated_at on every metadata write.
+        service.fields[PARCELS]["updated_at"] = EDITED
+        return patch(seen)
+
+    geolens.routes[f"PATCH /datasets/{PARCELS}"] = stamped
+    keywords = f"POST /records/{PARCELS}/keywords/"
+    add = geolens.routes[keywords]
+    geolens.routes[keywords] = (500, layers._problem(500, "boom"))
+    _set_title(plan_file, A2, "Parcels renamed")
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == A2:
+            item["target"]["tags"].append("renamed")
+    plan_file.write_text(json.dumps(plan))
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+    assert result.exit_code == 1
+    assert "writing the item metadata failed" in payload["not_up_to_date"][A2][0]
+    assert service.fields[PARCELS]["title"] == "Parcels renamed"
+    geolens.routes[keywords] = add
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, payload["not_up_to_date"]
+    assert len(refresh.bodies) == 3
+
+
 def _set_visibility(plan_file: Path, item_id: str, visibility: str) -> None:
     plan = json.loads(plan_file.read_text())
     for item in plan["items"]:
@@ -851,11 +969,18 @@ def test_a_data_file_is_downloaded_again_and_replaced(
             },
         }
     )
+    _set_title(plan_file, D3, "Inspections renamed")
+    before = len(geolens.seen)
 
     result, payload = _migrate(runner, plan_file, "--only", D3)
 
     assert result.exit_code == 0, result.output
     assert payload["refreshed"] == [D3] and payload["not_up_to_date"] == {}
+    assert [
+        s.json()["title"]
+        for s in geolens.seen[before:]
+        if s.method == "PATCH" and "title" in s.json()
+    ] == ["Inspections renamed"]
     assert len(portal.requests_to(item_data_path(D3))) == 2
     [body] = sent["upload"]
     assert files.CSV in body
@@ -1581,7 +1706,7 @@ def test_cutover_refuses_a_plan_not_merged_from_a_complete_org_inventory(
 
     assert result.exit_code == 1
     assert payload["cutover"]["refused"] == ["incomplete-inventory"]
-    assert _state(plan_file)["cutover"] is None
+    assert not (plan_file.parent / "arcgis-migration-state.json").exists()
 
     FakeRefresh(geolens, service).allow(PARCELS)
     result, payload = _migrate(
@@ -1702,6 +1827,31 @@ def test_a_later_run_reports_the_cutover_in_the_report(runner, plan_file, geolen
     assert "**Cut over** at" in report
 
 
+def test_a_refused_cutover_keeps_the_earlier_one_in_the_report(
+    runner, plan_file, geolens, monkeypatch
+):
+    _edit_plan(plan_file, (A2,))
+    service = FakeImport(geolens, [_layer(0, "Parcels", has_attachments=False)])
+    result, _ = _migrate(runner, plan_file, "--cutover")
+    assert result.exit_code == 0, result.output
+    at = _state(plan_file)["cutover"]["at"]
+    report = plan_file.parent / "arcgis-migration-report.md"
+    assert f"**Cut over** at {at}; losses accepted: none" in report.read_text()
+    FakeRefresh(geolens, service).allow(PARCELS)
+    monkeypatch.setattr(
+        migrate_mod, "inventory_changes", lambda *a: "portal items changed"
+    )
+
+    result, payload = _migrate(runner, plan_file, "--cutover")
+
+    assert result.exit_code == 1
+    text = report.read_text()
+    assert f"**Cut over** at {at}; losses accepted: none" in text
+    assert "**Cutover refused:** incomplete-inventory" in text
+    saved = json.loads((plan_file.parent / "arcgis-migration-report.json").read_text())
+    assert saved["cutover"]["earlier"] == {"at": at, "accepted": []}
+
+
 _ORG = "ExAmPlEoRg0123"
 _ADMIN = {"id": _ORG, "user": {"username": "gis_admin", "role": "org_admin"}}
 
@@ -1737,10 +1887,16 @@ _PLAN = {
 @pytest.mark.parametrize(
     ("client", "says"),
     [
-        (_SearchPortal({"results": [{"modified": 1791000000000}]}), "changed after"),
+        (
+            _SearchPortal({"results": [{"id": "a1", "modified": 1791000000000}]}),
+            "changed after the inventory was read 10 days ago (a1)",
+        ),
         # Changed while the inventory ran, after its start, before its end.
-        (_SearchPortal({"results": [{"modified": 1790815000000}]}), "changed after"),
-        (_SearchPortal({"results": [{"modified": 1759000000000}]}), None),
+        (
+            _SearchPortal({"results": [{"id": "a1", "modified": 1790815000000}]}),
+            "changed after",
+        ),
+        (_SearchPortal({"results": [{"id": "a1", "modified": 1759000000000}]}), None),
         # An organization the plan came from has items; none is no answer.
         (_SearchPortal({"results": []}), "found no items of the organization"),
         (_SearchPortal({"results": []}, token=None), "no ArcGIS credential"),
@@ -1748,9 +1904,19 @@ _PLAN = {
         (_SearchPortal(PortalError("boom", kind="server")), "couldn't check"),
         (_SearchPortal({"error": "nope"}), "couldn't check"),
         (_SearchPortal({"results": [{}]}), "couldn't check"),
-        (_SearchPortal({"results": [{"modified": None}]}), "couldn't check"),
-        (_SearchPortal({"results": [{"modified": "1791000000000"}]}), "couldn't check"),
-        (_SearchPortal({"results": [{"modified": True}]}), "couldn't check"),
+        (
+            _SearchPortal({"results": [{"id": "a1", "modified": None}]}),
+            "couldn't check",
+        ),
+        (
+            _SearchPortal({"results": [{"id": "a1", "modified": "1791000000000"}]}),
+            "couldn't check",
+        ),
+        (
+            _SearchPortal({"results": [{"id": "a1", "modified": True}]}),
+            "couldn't check",
+        ),
+        (_SearchPortal({"results": [{"modified": 1791000000000}]}), "couldn't check"),
         (_SearchPortal({"results": ["item"]}), "couldn't check"),
     ],
 )
@@ -1764,7 +1930,62 @@ def test_cutover_asks_the_portal_for_items_changed_since_the_inventory(client, s
     if isinstance(client, _SearchPortal) and client.token:
         [(_self, _), (path, params)] = client.asked
         assert path == "search" and params["q"] == "orgid:ExAmPlEoRg0123"
-        assert params["sortField"] == "modified" and params["num"] == 1
+        assert params["sortField"] == "modified" and params["sortOrder"] == "desc"
+        assert params["start"] == 1
+
+
+class _PagedPortal(_SearchPortal):
+    """A search answering *pages* in turn, each with its nextStart."""
+
+    def __init__(self, pages) -> None:
+        super().__init__(None)
+        self.pages = list(pages)
+
+    def get_json(self, path, params=None):
+        self.asked.append((path, dict(params or {})))
+        if path == "portals/self":
+            return self.self_info
+        return self.pages.pop(0)
+
+
+def test_the_freshness_check_ignores_items_the_plan_skips():
+    newer, older = 1791000000000, 1759000000000
+    plan = {
+        **_PLAN,
+        "items": [
+            {"id": "skipped", "action": "skip"},
+            {"id": "imported", "action": "import_layers"},
+        ],
+    }
+    pages = [
+        {"results": [{"id": "skipped", "modified": newer}], "nextStart": 2},
+        {"results": [{"id": "imported", "modified": older}], "nextStart": 3},
+    ]
+
+    assert cutover_mod.inventory_changes(_PagedPortal(pages), plan, _NOW) is None
+
+    # The next page holds a planned item and a new one, changed after the read.
+    client = _PagedPortal(
+        [
+            pages[0],
+            {
+                "results": [
+                    {"id": "imported", "modified": newer},
+                    {"id": "brand-new", "modified": newer},
+                    {"id": "skipped", "modified": older},
+                ],
+                "nextStart": -1,
+            },
+        ]
+    )
+    reason = cutover_mod.inventory_changes(client, plan, _NOW)
+    assert reason == (
+        "portal items changed after the inventory was read 10 days ago (imported); "
+        "portal items the plan doesn't hold were created or changed after the "
+        "inventory was read 10 days ago (brand-new); run inventory and plan again "
+        "to include them"
+    )
+    assert [p["start"] for path, p in client.asked if path == "search"] == [1, 2]
 
 
 def test_a_portal_changed_since_the_inventory_refuses_cutover(
@@ -1790,7 +2011,43 @@ def test_a_portal_changed_since_the_inventory_refuses_cutover(
     # The search goes out with the run's credential, though no item needs it.
     [client] = seen
     assert client.token == token
+    assert not (plan_file.parent / "arcgis-migration-state.json").exists()
+
+
+@pytest.mark.parametrize("refusal", ["inventory", "owner"])
+def test_a_cutover_refused_for_what_no_run_changes_runs_nothing(
+    runner, plan_file, geolens, monkeypatch, refusal
+):
+    _edit_plan(plan_file, (A2,))
+    service = FakeImport(geolens, [_layer(0, "Parcels", has_attachments=False)])
+    _migrate(runner, plan_file)
+    refresh = FakeRefresh(geolens, service).allow(PARCELS)
+    if refusal == "inventory":
+        monkeypatch.setattr(
+            migrate_mod,
+            "inventory_changes",
+            lambda client, plan, now: "portal items changed after the inventory",
+        )
+        check = "incomplete-inventory"
+    else:
+        monkeypatch.setattr(migrate_mod, "inventory_changes", lambda *a: None)
+        plan = json.loads(plan_file.read_text())
+        plan["owner_map"] = {k: "ghost" for k in plan["owner_map"]}
+        plan_file.write_text(json.dumps(plan))
+        check = "unresolved-users"
+
+    result, payload = _migrate(runner, plan_file, "--cutover")
+
+    assert result.exit_code == 1
+    assert payload["cutover"]["refused"] == [check]
+    assert payload["refreshed"] == [] and refresh.bodies == []
     assert _state(plan_file)["cutover"] is None
+    text = runner.invoke(app, ["arcgis", "migrate", str(plan_file), "--cutover"])
+    assert text.exit_code == 1
+    assert "cutover refused" in text.output and "Report: " in text.output
+    assert "up to date" not in text.output and "Ran 0" not in text.output
+    # Nothing ran, so no state was saved and no earlier failure is counted.
+    assert "State: " not in text.output and "item(s) failed" not in text.output
 
 
 def _set_row(plan_file: Path, item_id: str, **row) -> None:

@@ -44,8 +44,9 @@ async def bounded_probe_exchange(
     `MAX_DOCUMENT_BYTES` on the wire (`read_bounded_body`, streamed via
     `aiter_raw`, stopped the instant the cap is crossed), the same
     `MAX_DOCUMENT_TOKENS`/`MAX_DOCUMENT_ELEMENTS` decoded (`require_decodable`),
-    identity-only so a compressed body can't be used as a bomb. Raises
-    `EndpointCheckFailedError` on any bound violation, alongside the
+    and a gzip body inflated under that same byte cap on the wire and decoded,
+    so a compressed body can't be used as a bomb; any other encoding is
+    refused. Raises `EndpointCheckFailedError` on any bound violation, alongside the
     `httpx.HTTPStatusError` `raise_for_status()` raises for a non-2xx
     response; every caller catches both in one except clause, since both mean
     the same thing to a probe: not this service, degrade to `None`.
@@ -83,7 +84,7 @@ async def bounded_probe_exchange(
     callee's parameter name or position, so a positional call would silently
     drop out of that walk's count.
     """
-    request_headers = {**headers, "Accept": accept, "Accept-Encoding": "identity"}
+    request_headers = {**headers, "Accept": accept, "Accept-Encoding": "gzip"}
     # A marker covers only the one-line call directly below it, so a comment
     # or a wrapped argument list in between leaves the call unsuppressed.
     # codeql[py/full-ssrf] the caller validated this exact URL with validate_url_for_ssrf immediately before invoking bounded_probe_exchange, and the client comes from make_safe_client, whose transport re-resolves, validates and pins the IP at connect time and whose response hook revalidates every redirect hop
@@ -99,7 +100,9 @@ async def bounded_probe_exchange(
                 response.history = redirects
                 if raise_for_status:
                     response.raise_for_status()
-                body = await read_bounded_body(response, MAX_DOCUMENT_BYTES)
+                body, _wire = await read_bounded_body(
+                    response, MAX_DOCUMENT_BYTES, gzip=True
+                )
                 break
             redirects.append(response)
             if len(redirects) > client.max_redirects:

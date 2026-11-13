@@ -8,12 +8,10 @@ from typing import cast
 
 import structlog
 from fastapi import HTTPException, status
-from sqlalchemy import Row, Select, func, or_, select, text
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy import Row, Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.core.db.sqlstate import is_lock_conflict
 from app.core.identity import Identity
 from app.modules.auth.models import User
 from app.modules.catalog.authorization import (
@@ -52,6 +50,7 @@ from app.modules.catalog.maps.service_shared import (
     _fetch_layer_rows_ordered,
     _resolve_save_response_metadata,
 )
+from app.platform.catalog_locks import bounded_row_lock
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -75,11 +74,6 @@ def new_map_asset_key(prefix: str, map_id: uuid.UUID, ext: str) -> str:
     return f"{prefix}/{map_id}-{uuid.uuid4().hex}.{ext}"
 
 
-def _is_lock_timeout_error(exc: BaseException) -> bool:
-    """True for the shared lock-conflict states (55P03, 40P01), in either shape."""
-    return is_lock_conflict(exc)
-
-
 async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> Row:
     """Take the row lock that serializes one map's asset replacements.
 
@@ -94,28 +88,23 @@ async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> 
     Raises 404 centrally so all three callers agree, and selects columns (not
     ``Map``) so a stale identity-mapped instance can't shadow a fresh commit.
 
-    ``SET LOCAL lock_timeout = '2s'`` bounds the wait, since a degraded
-    storage backend could otherwise queue every writer behind this lock (a
-    lost wait, 55P03, maps to 409).
+    The wait is bounded, since a degraded storage backend could otherwise
+    queue every writer behind this lock; a lost wait answers 409.
     """
-    await session.execute(text("SET LOCAL lock_timeout = '2s'"))
-    try:
-        result = await session.execute(
-            select(Map.thumbnail_uri, Map.og_image_uri)
-            .where(Map.id == map_id)
-            .with_for_update()
-        )
-    except DBAPIError as exc:
-        if not _is_lock_timeout_error(exc):
-            raise
-        await session.rollback()
-        raise HTTPException(
+    result = await bounded_row_lock(
+        session,
+        select(Map.thumbnail_uri, Map.og_image_uri)
+        .where(Map.id == map_id)
+        .with_for_update(),
+        conflict=lambda: HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
                 "code": "map_asset_write_locked",
                 "message": "Another write to this map's assets is in progress. Retry shortly.",
             },
-        ) from exc
+        ),
+        reset=False,
+    )
     row = result.one_or_none()
     if row is None:
         raise HTTPException(

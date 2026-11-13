@@ -292,6 +292,7 @@ services:
       - ./scripts/flatten_openapi_defs.py:/app/scripts/flatten_openapi_defs.py:ro
       - ./scripts/init-db.sh:/app/scripts/init-db.sh:ro
       - ./scripts/lib:/app/scripts/lib:ro
+      - ./scripts/prepare-showcase-tiles3d.py:/app/scripts/prepare-showcase-tiles3d.py:ro
       - ./scripts/restore.sh:/app/scripts/restore.sh:ro
       - ./scripts/seed-showcase.py:/app/scripts/seed-showcase.py:ro
       - ./scripts/seed_showcase_cambridge.py:/app/scripts/seed_showcase_cambridge.py:ro

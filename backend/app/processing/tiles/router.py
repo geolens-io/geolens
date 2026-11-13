@@ -364,6 +364,10 @@ _MAX_RASTER_MAXZOOM = 22
 # spiking the DEM boundary; -9999 is below any real terrain.
 _DEM_DEFAULT_NODATA = "-9999"
 
+# Titiler's nearest default repeats rows and columns when the source grid isn't
+# an integer multiple of the tile grid; a hillshade draws each repeat as a stripe.
+_DEM_RESAMPLING_PARAMS = "resampling=bilinear&reproject=bilinear"
+
 
 def _dem_nodata_param(recorded_nodata: str | None) -> str | None:
     """Resolve the Titiler ``nodata=`` value for a DEM terrainrgb tile.
@@ -1094,7 +1098,7 @@ async def raster_auth_check(
         # DEM terrain: terrainrgb with no rescale, which encodes raw elevation
         # into RGB. The nodata is masked so fill pixels in edge tiles are
         # transparent rather than an extreme elevation.
-        render_params = "algorithm=terrainrgb"
+        render_params = f"algorithm=terrainrgb&{_DEM_RESAMPLING_PARAMS}"
         nodata_param = _dem_nodata_param(meta.nodata)
         if nodata_param is not None:
             render_params = f"{render_params}&nodata={nodata_param}"
@@ -1456,9 +1460,21 @@ async def raster_tile_proxy(
             detail="Tile service unavailable",
         )
 
+    # Private/restricted rasters must never be retained by the shared nginx
+    # cache, whose key carries no auth. `no-store` makes nginx skip caching
+    # (frontend/nginx.conf honors it); only public datasets are cacheable.
+    if cache_status == "public":
+        cache_control = public_cache_control(3600)
+    else:
+        cache_control = "private, no-store"
+
     if resp.status_code == 404:
-        # A tile outside the raster extent.
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
+        # A tile outside the raster extent; clients ask for each empty child
+        # of an empty parent, so the 204 is cacheable like a tile with data.
+        return Response(
+            status_code=status.HTTP_204_NO_CONTENT,
+            headers={"Cache-Control": cache_control},
+        )
     if resp.status_code != 200:
         # Logged so upstream titiler failures are diagnosable from logs alone.
         logger.warning(
@@ -1471,13 +1487,6 @@ async def raster_tile_proxy(
         )
         raise HTTPException(status_code=resp.status_code, detail="Tile fetch failed")
 
-    # Private/restricted rasters must never be retained by the shared nginx
-    # cache, whose key carries no auth. `no-store` makes nginx skip caching
-    # (frontend/nginx.conf honors it); only public datasets are cacheable.
-    if cache_status == "public":
-        cache_control = public_cache_control(3600)
-    else:
-        cache_control = "private, no-store"
     return Response(
         content=resp.content,
         media_type=resp.headers.get("content-type", "image/png"),

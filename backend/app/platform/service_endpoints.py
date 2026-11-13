@@ -1,6 +1,7 @@
 """Refuse a credentialed source whose description names a foreign endpoint,
 because GDAL fetches what a description advertises and sends the credential
-there. Every read applies ``Accept-Encoding: identity``, a ``Content-Length``
+there. Every read applies ``Accept-Encoding: identity`` (items pages may
+take gzip, inflated under the same cap), a ``Content-Length``
 check, a streamed byte cap, a structural-token bound, SSRF revalidation, the
 final URL after redirects, and an optional origin-contact callback.
 """
@@ -12,6 +13,7 @@ import json
 import re
 import time
 import xml.parsers.expat
+import zlib
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 from urllib.parse import (
@@ -150,6 +152,10 @@ DEFAULT_CHECK_TIMEOUT = 30.0
 # may forget — a service serving HTML for `*/*` answers the probe with a
 # document and the check with a web page.
 OGC_JSON_ACCEPT = "application/geo+json, application/json"
+# The landing page, conformance and collection documents are JSON, not
+# GeoJSON, and ArcGIS Online answers them with HTTP 400 when the Accept
+# header leads with `application/geo+json`. Items pages keep the value above.
+OGC_DOCUMENT_ACCEPT = "application/json"
 
 # WFS negotiates by query, not header, so this states the expectation rather
 # than driving it. No `*/*` term: that's exactly what lets HTML back.
@@ -603,8 +609,10 @@ async def read_bounded_body(
     budget: int,
     *,
     error: type[EndpointCheckFailedError] = EndpointCheckFailedError,
-) -> bytes:
-    """The body, or a refusal once more than ``budget`` bytes have arrived.
+    gzip: bool = False,
+) -> tuple[bytes, int]:
+    """The body and the bytes read off the wire for it, or a refusal once
+    more than ``budget`` bytes have arrived.
 
     The read stops at the bound rather than the response's end, so a refusal
     costs one chunk past the budget, not however much the service sent.
@@ -613,10 +621,15 @@ async def read_bounded_body(
     inflates a ``Content-Encoding`` body, so one wire chunk could
     materialise an unbounded ``bytes`` BEFORE this check ran.
 
+    With ``gzip``, a gzip body is inflated by `_inflate_bounded` under the
+    same budget, on the wire and decoded. Every other encoding is refused.
+
     Returns bytes, never text: ``json.loads``/``ET.fromstring`` both take
     bytes, and ``ET`` needs them to honour an XML encoding declaration.
     """
     encoding = response.headers.get("Content-Encoding", "identity").lower()
+    if gzip and encoding == "gzip":
+        return await _inflate_bounded(response, budget, error=error)
     if encoding not in ("", "identity"):
         # Refused rather than decoded: aiter_raw hands back compressed
         # bytes, so the parser would fail on them about the wrong thing.
@@ -633,7 +646,45 @@ async def read_bounded_body(
         if read > budget:
             raise error("document exceeds the cap")
         chunks.append(chunk)
-    return b"".join(chunks)
+    return b"".join(chunks), read
+
+
+async def _inflate_bounded(
+    response: httpx.Response,
+    budget: int,
+    *,
+    error: type[EndpointCheckFailedError],
+) -> tuple[bytes, int]:
+    """A gzip body inflated chunk by chunk, refused past ``budget`` bytes
+    either compressed or decoded. ``max_length`` stops each decode one byte
+    past what the budget allows, so a bomb never inflates further."""
+    declared = response.headers.get("Content-Length", "")
+    if declared.isdigit() and int(declared) > budget:
+        raise error("document exceeds the cap")
+    decoder = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    wire = 0
+    decoded = 0
+    chunks: list[bytes] = []
+    try:
+        async for chunk in response.aiter_raw():
+            wire += len(chunk)
+            if wire > budget:
+                raise error("document exceeds the cap")
+            pending = chunk
+            while pending and not decoder.eof:
+                piece = decoder.decompress(pending, budget - decoded + 1)
+                decoded += len(piece)
+                if decoded > budget:
+                    raise error("document exceeds the cap")
+                chunks.append(piece)
+                pending = decoder.unconsumed_tail
+            if decoder.eof and (pending or decoder.unused_data):
+                raise error("unreadable compressed document")
+    except zlib.error:
+        raise error("unreadable compressed document") from None
+    if wire and not decoder.eof:
+        raise error("unreadable compressed document")
+    return b"".join(chunks), wire
 
 
 async def fetch_document(
@@ -647,8 +698,12 @@ async def fetch_document(
     element_budget: int | None = None,
     error: type[EndpointCheckFailedError] = EndpointCheckFailedError,
     on_first_request: "Callable[[], None] | None" = None,
-) -> tuple[bytes, str]:
-    """One document from an untrusted service, and the URL it came from.
+    gzip: bool = False,
+    refused: "Callable[[int], EndpointCheckFailedError] | None" = None,
+) -> tuple[bytes, str, int]:
+    """One document from an untrusted service, the URL it came from, and
+    the bytes read off the wire for it (fewer than the body's for gzip,
+    possibly more).
 
     THE request site for BOTH this module and `service_items`, deliberately
     the only one: every contract the module docstring lists is applied here.
@@ -661,7 +716,10 @@ async def fetch_document(
     ``on_first_request`` fires once SSRF validation has succeeded, right
     before the request goes out; wrap it in `fire_once` for the first read
     only. ``accept`` has no default — a default would guess wrong for one
-    of the callers.
+    of the callers. ``gzip`` asks for and accepts a gzip body, inflated
+    under the same budget; otherwise the read is identity-only.
+    ``refused`` builds the error for an HTTP 401 or 403, for a caller that
+    reports a refused credential differently from an unreadable document.
     """
     # Resolved here, not as default arguments: a default binds the module
     # constant once at definition time, so a caller/test that changes the
@@ -671,7 +729,12 @@ async def fetch_document(
     element_budget = MAX_DOCUMENT_ELEMENTS if element_budget is None else element_budget
     # Copied, not mutated: the caller's dict is reused across the pages of
     # a walk, and the negotiation belongs to this read.
-    headers = {**headers, "Accept": accept, "User-Agent": SERVICE_CHECK_USER_AGENT}
+    headers = {
+        **headers,
+        "Accept": accept,
+        "Accept-Encoding": "gzip" if gzip else "identity",
+        "User-Agent": SERVICE_CHECK_USER_AGENT,
+    }
     try:
         await validate_url_for_ssrf(url)
         if on_first_request is not None:
@@ -680,11 +743,15 @@ async def fetch_document(
         # Marker must stay directly above the call (pinned by test).
         # codeql[py/full-ssrf] Rule 2 posture — validated above; make_safe_client re-resolves/pins/revalidates per hop
         async with client.stream("GET", url, headers=headers) as response:
+            if refused is not None and response.status_code in (401, 403):
+                raise refused(response.status_code)
             if response.status_code >= 400:
                 # Read nothing: an error body from a service these modules
                 # exist to distrust is not worth the bytes.
                 raise error(f"HTTP {response.status_code}")
-            body = await read_bounded_body(response, budget, error=error)
+            body, wire = await read_bounded_body(
+                response, budget, error=error, gzip=gzip
+            )
             # The URL the representation actually came from — a
             # same-origin canonical redirect changes what a relative href
             # in the body is relative to.
@@ -696,7 +763,7 @@ async def fetch_document(
             element_budget=element_budget,
             error=error,
         )
-        return body, final_url
+        return body, final_url, wire
     except (httpx.HTTPError, SSRFError, ValueError) as exc:
         raise error(str(exc)) from None
 
@@ -707,16 +774,13 @@ async def _fetch(
     headers: dict[str, str],
     on_first_request: "Callable[[], None] | None" = None,
     *,
-    accept: str = OGC_JSON_ACCEPT,
+    accept: str = OGC_DOCUMENT_ACCEPT,
 ) -> tuple[bytes, str]:
-    """This module's reads, with its own caps and exception.
-
-    Defaults to the OGC value since four of the five reads here are OGC API
-    documents; the capabilities read passes `WFS_XML_ACCEPT` explicitly.
-    """
-    return await fetch_document(
+    """This module's reads, with its caps and exception; OGC API documents by default."""
+    body, final_url, _wire = await fetch_document(
         client, url, headers, accept=accept, on_first_request=on_first_request
     )
+    return body, final_url
 
 
 def _parsed_json(body: bytes) -> object:

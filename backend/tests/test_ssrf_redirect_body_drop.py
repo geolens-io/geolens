@@ -137,7 +137,7 @@ async def test_fetch_document_never_reads_a_redirect_body(upstream, chunks, head
     _redirect_then_final(upstream, body, headers)
 
     async with make_safe_client() as client:
-        document, final_url = await fetch_document(
+        document, final_url, _wire = await fetch_document(
             client, "https://catalog.test/start", {}, accept="application/json"
         )
 
