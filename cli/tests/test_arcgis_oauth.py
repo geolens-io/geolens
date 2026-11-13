@@ -16,7 +16,7 @@ import time
 import urllib.error
 import urllib.request
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlsplit
+from urllib.parse import parse_qsl, quote, quote_plus, urlencode, urlsplit
 
 import pytest
 from keyring.errors import KeyringError
@@ -919,7 +919,7 @@ def test_an_exchanged_token_that_cannot_be_saved_lasts_only_this_run(
     assert [g["refresh_token"] for g in endpoint.grants[2:]] == [rotated, rotated]
     assert store.calls == 2
     assert mock_keyring[ACCOUNT] == _value(STORED, age=LIFETIME)
-    assert shown == [f"Signed in to {PORTAL} as {USER}", oauth._UNSAVED]
+    assert shown == [oauth._UNSAVED, f"Signed in to {PORTAL} as {USER}"]
     assert "no longer works" in oauth._UNSAVED
     assert "browser" in oauth._UNSAVED
     captured = capsys.readouterr()
@@ -1179,3 +1179,116 @@ def test_a_stored_sign_in_whose_reply_has_no_username_shows_no_line(mock_keyring
         client, CLIENT_ID, redact, open_browser=_never_opened, notify=shown.append
     )
     assert not [m for m in shown if m.startswith("Signed in")]
+
+
+def _accounts_shown(
+    monkeypatch, mock_keyring, stored: list[str], endpoint, browser=None
+):
+    """Sign in with two stored copies (file, then keyring) and return what
+    was shown."""
+    _auth._set_credential_field(ACCOUNT[1], "secret", _value(stored[0]))
+    if len(stored) > 1:
+        mock_keyring[ACCOUNT] = _value(stored[1])
+    _block_file_cleanup(monkeypatch)
+    redact = arcgis_portal.Redactor()
+    client = _client(FakePortal({"oauth2/token": endpoint}), redact)
+    shown: list[str] = []
+    oauth.sign_in(
+        client,
+        CLIENT_ID,
+        redact,
+        open_browser=browser or _never_opened,
+        notify=shown.append,
+    )
+    if browser is not None:
+        browser.join()
+    return [m for m in shown if m.startswith("Signed in")]
+
+
+def _refused_token_for(bad: str, plain: TokenEndpoint):
+    """Replies with an unusable access token and another account's name for
+    the refresh token *bad*, as the portal would for a stale session."""
+
+    def reply(seen):
+        if seen.params.get("refresh_token") == bad:
+            return {
+                "access_token": "bad token!",
+                "expires_in": 1800,
+                "username": "stale",
+            }
+        return plain(seen)
+
+    return reply
+
+
+def test_only_the_account_that_signs_in_is_announced_after_a_fallback(
+    monkeypatch, mock_keyring, tmp_xdg_home
+):
+    """A saved sign-in whose token is refused never announces its account,
+    whether the next one is another saved sign-in or the browser."""
+    endpoint = TokenEndpoint(valid=(REFRESH,))
+    reply = _refused_token_for(STORED, endpoint)
+    assert _accounts_shown(monkeypatch, mock_keyring, [STORED, REFRESH], reply) == [
+        f"Signed in to {PORTAL} as {USER}"
+    ]
+
+
+def test_a_refused_saved_sign_in_falls_to_the_browser_and_names_that_account(
+    monkeypatch, mock_keyring, tmp_xdg_home
+):
+    reply = _refused_token_for(STORED, TokenEndpoint(valid=()))
+    assert _accounts_shown(monkeypatch, mock_keyring, [STORED], reply, Browser()) == [
+        f"Signed in to {PORTAL} as {USER}"
+    ]
+
+
+def test_a_username_that_echoes_a_credential_is_redacted(mock_keyring):
+    """A reply that reflects its tokens in the username shows neither the raw
+    nor the URL-encoded form."""
+    mock_keyring[ACCOUNT] = _value(STORED)
+    endpoint = TokenEndpoint(valid=(STORED,))
+
+    def echo(seen):
+        answer = endpoint(seen)
+        token = answer["access_token"]
+        answer["username"] = (
+            f"{token} {quote(token + ' x')} {quote_plus(STORED + ' y')} {STORED}"
+        )
+        return answer
+
+    _, shown = _sign_in_stored(echo)  # type: ignore[arg-type]
+    text = "\n".join(shown)
+    assert "Signed in to" in text
+    _assert_no_secret(text, ACCESS_2, STORED)
+
+
+@pytest.mark.parametrize(
+    "flags", [["-q"], ["--quiet"], ["-q", "--json"], ["--quiet", "--json"]]
+)
+def test_quiet_hides_the_account_line_but_not_the_browser_link(
+    flags, runner, monkeypatch, tmp_path, mock_keyring, tmp_xdg_home
+):
+    for name in ("ARCGIS_TOKEN", "ARCGIS_PASSWORD"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(inventory, "_sleep", lambda seconds: None)
+    portal = FakePortal(portal_routes({"oauth2/token": TokenEndpoint()}))
+    browser = Browser()
+    monkeypatch.setattr(inventory, "build_opener", lambda: portal)
+    monkeypatch.setattr("webbrowser.open", browser)
+    result = runner.invoke(
+        app,
+        [
+            *flags,
+            "arcgis",
+            "inventory",
+            "--portal-url",
+            PORTAL,
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--client-id",
+            CLIENT_ID,
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Signed in to" not in result.stderr
+    assert browser.urls[0] in result.stderr

@@ -2364,6 +2364,7 @@ def arcgis_migrate(
         password_stdin=password_stdin,
         client_id=client_id,
         redirect_port=redirect_port,
+        quiet=state.quiet,
         allow_insecure_http=allow_insecure_http,
         trusted_hosts=trust_service_host or [],
         export_cap_mb=export_cap_mb,
