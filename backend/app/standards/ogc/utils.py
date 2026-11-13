@@ -184,8 +184,8 @@ def items_validator_headers(
 
     The tag is weak because the gzip middleware re-encodes the body. It covers
     the dataset's write counters and the row fields the page is built from, the
-    page window, every other query parameter and the base URL of the links. The body does not vary by caller
-    once access is granted, so no identity enters the tag; ``Vary`` keeps a
+    page window, every other query parameter and the base URL of the links. The
+    body does not vary by caller once access is granted, so no identity enters the tag; ``Vary`` keeps a
     shared cache from replaying one credential's response to another.
     """
     params = sorted(

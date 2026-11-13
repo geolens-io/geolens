@@ -62,6 +62,7 @@ from app.standards.ogc.schemas import (
     OGCLink,
     OGCSingleFeatureResponse,
 )
+from app.platform.dataset_origin import geolens_owns_table
 from app.platform.http.ranges import if_none_match_matches
 from app.standards.ogc.utils import (
     build_url,
@@ -914,22 +915,6 @@ async def get_collection_items(
         if _ogc_cold_result is not None:
             return _ogc_cold_result
 
-    # The visibility check above has already run, so a caller who may not read
-    # the collection never reaches a 304. A match skips the feature query.
-    validators = items_validator_headers(
-        request,
-        dataset,
-        base_url=public_api_url,
-        limit=limit,
-        offset=offset,
-        after_gid=after_gid,
-        carries_credentials=request_carries_credentials(request),
-    )
-    if if_none_match_matches(
-        request.headers.get("if-none-match"), validators["ETag"].removeprefix("W/")
-    ):
-        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=validators)
-
     # Pass the cached feature_count so the pagination COUNT(*) is a
     # constant-time lookup, and honor include_geometry so clients that don't need
     # geometry avoid the ST_AsGeoJSON cost. With after_gid the service uses keyset
@@ -971,6 +956,30 @@ async def get_collection_items(
             dataset.geometry_type,
         )
         cql2_where, cql2_binds = compile_feature_cql2_ast(filter_ast, queryables)
+
+    # Every 4xx the request can earn has been decided by here, and the
+    # visibility check ran first. A registered table is written directly by its
+    # owner, which moves no catalog counter, so it gets no validator.
+    validators: dict[str, str] = {}
+    if geolens_owns_table(
+        dataset.source_format, dataset.record.record_type, dataset.origin_ref
+    ):
+        validators = items_validator_headers(
+            request,
+            dataset,
+            base_url=public_api_url,
+            limit=limit,
+            offset=offset,
+            after_gid=after_gid,
+            carries_credentials=request_carries_credentials(request),
+        )
+        if if_none_match_matches(
+            request.headers.get("if-none-match"),
+            validators["ETag"].removeprefix("W/"),
+        ):
+            return Response(
+                status_code=status.HTTP_304_NOT_MODIFIED, headers=validators
+            )
 
     try:
         # Use get_features.has_more, determined by over-fetching, so a full final

@@ -172,3 +172,33 @@ async def test_a_private_collection_refuses_an_anonymous_caller_with_a_guessed_t
             assert resp.status_code == 404, header
     finally:
         await _cleanup_table(test_db_session, dataset.table_name)
+
+
+@pytest.mark.parametrize("header", ["*", None])
+async def test_an_invalid_filter_answers_400_whatever_if_none_match_says(
+    client: AsyncClient, points, header
+) -> None:
+    url = f"/collections/{points.id}/items"
+    tag = await _etag(client, url)
+    headers = {"If-None-Match": header or tag}
+
+    bare = await client.get(url, params={"filter": "nope ??"})
+    resp = await client.get(url, params={"filter": "nope ??"}, headers=headers)
+
+    assert bare.status_code == 400
+    assert resp.status_code == 400
+
+
+async def test_a_registered_table_gets_no_validator_and_ignores_if_none_match(
+    client: AsyncClient, points, test_db_session
+) -> None:
+    points.source_format = None
+    points.origin_ref = None
+    await test_db_session.commit()
+    url = f"/collections/{points.id}/items"
+
+    resp = await client.get(url, headers={"If-None-Match": "*"})
+
+    assert resp.status_code == 200
+    assert "etag" not in resp.headers
+    assert "cache-control" not in resp.headers
