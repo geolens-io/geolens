@@ -388,3 +388,36 @@ class WorkflowTransitionDenied(ValueError):
             "requested_stage": self.requested,
             "allowed_stages": self.allowed,
         }
+
+
+class DatasetInSharedMapsError(ValueError):
+    """A visibility narrowing refused because the owner's shared maps show it.
+
+    ``detail`` is the 422 body: ``message`` keeps the sentence clients already
+    show, and the maps travel as ``shared_maps`` (id and name each) so no
+    reader has to split them back out of the sentence. ``action`` names the
+    refused change: ``unpublish`` or ``restrict_visibility``.
+    """
+
+    _ACTION_WORDS = {
+        "unpublish": "unpublish",
+        "restrict_visibility": "restrict visibility",
+    }
+
+    def __init__(self, *, action: str, shared_maps: list[dict[str, str]]) -> None:
+        self.action = action
+        self.shared_maps = shared_maps
+        names = ", ".join(entry["name"] for entry in shared_maps)
+        super().__init__(
+            f"Cannot {self._ACTION_WORDS[action]}: dataset is used in "
+            f"shared maps: {names}"
+        )
+
+    @property
+    def detail(self) -> dict[str, object]:
+        return {
+            "code": "dataset_in_shared_maps",
+            "message": str(self),
+            "action": self.action,
+            "shared_maps": self.shared_maps,
+        }

@@ -806,6 +806,43 @@ describe('API error localization boundary', () => {
     ).toContain('Flood Risk');
   });
 
+  // The coded refusal names the maps as id/name pairs, so the message
+  // wording no longer matters: rewording it keeps the localized list.
+  it('surfaces the maps from the coded refusal even with a reworded message', () => {
+    const detail = {
+      code: 'dataset_in_shared_maps',
+      message: 'This dataset cannot be narrowed right now.',
+      action: 'restrict_visibility',
+      shared_maps: [
+        { id: '00000000-0000-0000-0000-0000000000b1', name: 'Flood Risk' },
+        { id: '00000000-0000-0000-0000-0000000000b2', name: 'Parcels 2026' },
+      ],
+    };
+    expect(classifyApiError(detail, 422)).toEqual({
+      key: 'errors.datasetVisibilityBlockedByMaps',
+      values: { maps: 'Flood Risk, Parcels 2026' },
+    });
+    expect(translateApiErrorDetail(detail, 422)).toContain('Flood Risk');
+    expect(translateApiErrorDetail(detail, 422)).toContain('Parcels 2026');
+  });
+
+  it('uses the unpublish wording for a coded unpublish refusal', () => {
+    expect(
+      classifyApiError(
+        {
+          code: 'dataset_in_shared_maps',
+          message: 'Cannot unpublish: dataset is used in shared maps: Flood Risk',
+          action: 'unpublish',
+          shared_maps: [{ id: '00000000-0000-0000-0000-0000000000b1', name: 'Flood Risk' }],
+        },
+        422,
+      ),
+    ).toEqual({
+      key: 'errors.datasetUnpublishBlockedByMaps',
+      values: { maps: 'Flood Risk' },
+    });
+  });
+
   // `MapCreate.name` is length-bounded and NFC-normalized,
   // nothing more, so a newline in a map name is valid input. Without the `s`
   // flag `.` stopped at it and the whole list fell back to the generic 422 —

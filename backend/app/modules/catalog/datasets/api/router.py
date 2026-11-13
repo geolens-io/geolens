@@ -52,6 +52,7 @@ from app.modules.catalog.authorization import (
     visible_vrt_extents,
 )
 from app.modules.catalog.datasets.domain.helpers import (
+    DatasetInSharedMapsError,
     DatasetNotFoundError,
     WorkflowTransitionDenied,
     dataset_to_response,
@@ -452,6 +453,11 @@ async def update_dataset_metadata(
             warnings_out=metadata_warnings,
         )
     except WorkflowTransitionDenied as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=e.detail,
+        )
+    except DatasetInSharedMapsError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=e.detail,

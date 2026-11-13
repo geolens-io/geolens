@@ -106,7 +106,7 @@ async def test_the_owners_own_shared_map_still_blocks_and_is_the_only_one_named(
     _, other_id = await create_user(client, admin_auth_header, "editor")
     dataset = await _public_dataset(test_db_session, owner_id)
     own_map = await _map_using(test_db_session, dataset.id, owner_id)
-    other_map = await _map_using(test_db_session, dataset.id, other_id)
+    await _map_using(test_db_session, dataset.id, other_id)
 
     narrow = await client.patch(
         f"/datasets/{dataset.id}",
@@ -116,8 +116,12 @@ async def test_the_owners_own_shared_map_still_blocks_and_is_the_only_one_named(
 
     assert narrow.status_code == 422, narrow.text
     detail = narrow.json()["detail"]
-    assert own_map.name in detail
-    assert other_map.name not in detail
+    assert detail["code"] == "dataset_in_shared_maps"
+    assert detail["action"] == "restrict_visibility"
+    assert detail["shared_maps"] == [{"id": str(own_map.id), "name": own_map.name}]
+    assert detail["message"] == (
+        f"Cannot restrict visibility: dataset is used in shared maps: {own_map.name}"
+    )
 
 
 async def test_an_admin_narrowing_follows_the_owners_maps_and_still_sees_the_layer(
@@ -201,7 +205,10 @@ async def test_a_map_named_not_found_still_gets_the_shared_map_refusal(
     )
 
     assert narrow.status_code == 422, narrow.text
-    assert "Roads not found" in narrow.json()["detail"]
+    detail = narrow.json()["detail"]
+    assert detail["code"] == "dataset_in_shared_maps"
+    assert "Roads not found" in detail["message"]
+    assert detail["shared_maps"] == [{"id": str(own_map.id), "name": "Roads not found"}]
 
 
 async def _status(session, dataset_id) -> str:
@@ -250,9 +257,14 @@ async def test_unpublishing_a_dataset_on_the_owners_internal_map_is_refused(
     refused = await _unpublish(client, dataset.id, owner_headers)
 
     assert refused.status_code == 422, refused.text
-    assert refused.json()["detail"] == (
-        f"Cannot unpublish: dataset is used in shared maps: {own_map.name}"
-    )
+    assert refused.json()["detail"] == {
+        "code": "dataset_in_shared_maps",
+        "message": (
+            f"Cannot unpublish: dataset is used in shared maps: {own_map.name}"
+        ),
+        "action": "unpublish",
+        "shared_maps": [{"id": str(own_map.id), "name": own_map.name}],
+    }
     assert await _status(test_db_session, dataset.id) == "published"
 
 
@@ -271,7 +283,10 @@ async def test_unpublishing_a_dataset_a_restricted_maps_member_reads_is_refused(
     refused = await _unpublish(client, dataset.id, owner_headers)
 
     assert refused.status_code == 422, refused.text
-    assert refused.json()["detail"].startswith("Cannot unpublish:")
+    detail = refused.json()["detail"]
+    assert detail["code"] == "dataset_in_shared_maps"
+    assert detail["action"] == "unpublish"
+    assert detail["message"].startswith("Cannot unpublish:")
     assert await _status(test_db_session, dataset.id) == "published"
 
 
@@ -315,9 +330,14 @@ async def test_the_publication_status_endpoints_refuse_a_stranding_unpublish(
     )
 
     assert refused.status_code == 422, refused.text
-    assert refused.json()["detail"] == (
-        f"Cannot unpublish: dataset is used in shared maps: {own_map.name}"
-    )
+    assert refused.json()["detail"] == {
+        "code": "dataset_in_shared_maps",
+        "message": (
+            f"Cannot unpublish: dataset is used in shared maps: {own_map.name}"
+        ),
+        "action": "unpublish",
+        "shared_maps": [{"id": str(own_map.id), "name": own_map.name}],
+    }
     assert await _status(test_db_session, dataset.id) == "published"
 
 

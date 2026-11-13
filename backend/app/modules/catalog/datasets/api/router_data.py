@@ -37,7 +37,10 @@ from app.modules.catalog.authorization import (
     may_read_dataset,
     readable_columns,
 )
-from app.modules.catalog.datasets.domain.helpers import WorkflowTransitionDenied
+from app.modules.catalog.datasets.domain.helpers import (
+    DatasetInSharedMapsError,
+    WorkflowTransitionDenied,
+)
 from app.modules.catalog.datasets.domain.models import Dataset as DatasetModel
 from app.modules.catalog.datasets.domain.schemas import (
     DatasetRowsResponse,
@@ -499,6 +502,10 @@ async def _refuse_stranding(
         await refuse_stranding_shared_maps(
             db, dataset.record, dataset.id, record_status=target
         )
+    except DatasetInSharedMapsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.detail
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)

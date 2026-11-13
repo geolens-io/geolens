@@ -370,6 +370,33 @@ def _import_layer(
 _SHARED_MAPS = "dataset is used in shared maps: "
 
 
+def _shared_map_names(detail: Any) -> str | None:
+    """The shared maps a 422 names, or None when it names none.
+
+    Reads the code and the list, never the sentence, so rewording the
+    message keeps the guidance. An older server sends only the sentence,
+    so its tail is the fallback; a coded refusal without a usable list
+    still counts, with an empty string.
+    """
+    if isinstance(detail, Mapping) and detail.get("code") == "dataset_in_shared_maps":
+        maps = detail.get("shared_maps")
+        if isinstance(maps, list):
+            names = [
+                entry["name"]
+                for entry in maps
+                if isinstance(entry, Mapping) and isinstance(entry.get("name"), str)
+            ]
+            if names:
+                return ", ".join(names)
+        message = detail.get("message")
+        if isinstance(message, str) and _SHARED_MAPS in message:
+            return message.split(_SHARED_MAPS, 1)[1]
+        return ""
+    if isinstance(detail, str) and _SHARED_MAPS in detail:
+        return detail.split(_SHARED_MAPS, 1)[1]
+    return None
+
+
 def _commit_body(title: str, visibility: str) -> Any:
     from geolens.models.commit_request import CommitRequest
 
@@ -415,13 +442,13 @@ def _apply_target(
             ),
         )
     except GeoLensError as exc:
-        detail = exc.detail if isinstance(exc.detail, str) else ""
-        if exc.status == 422 and _SHARED_MAPS in detail:
-            maps = detail.split(_SHARED_MAPS, 1)[1]
+        maps = _shared_map_names(exc.detail) if exc.status == 422 else None
+        if maps is not None:
+            shown = f": {maps}" if maps else ""
             current = getattr(read.visibility, "value", read.visibility)
             raise ItemFailed(
                 f"{target.title}: GeoLens won't make dataset {dataset} "
-                f"{target.visibility} while shared maps show it: {maps}. Unshare "
+                f"{target.visibility} while shared maps show it{shown}. Unshare "
                 "those maps, or set the item's target.visibility in the plan to "
                 f"{current}"
             ) from None
