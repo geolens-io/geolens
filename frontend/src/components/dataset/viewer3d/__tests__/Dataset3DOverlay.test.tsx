@@ -85,9 +85,12 @@ describe('Dataset3DOverlay', () => {
     expect(h.createLayers).not.toHaveBeenCalled();
     const [url, size, , handlers] = loadPointCloud.mock.calls[0];
     expect([url, size]).toEqual(['/api/datasets/d1/copc/a/data.copc.laz', 99]);
-    handlers.onLayer('a');
-    handlers.onLayer('b');
-    expect(h.controls[0].setProps).toHaveBeenLastCalledWith({ layers: ['a', 'b'] });
+    const [a, b, a2] = [{ id: 'a' }, { id: 'b' }, { id: 'a' }];
+    handlers.onLayer(a);
+    handlers.onLayer(b);
+    expect(h.controls[0].setProps).toHaveBeenLastCalledWith({ layers: [a, b] });
+    handlers.onLayer(a2);
+    expect(h.controls[0].setProps).toHaveBeenLastCalledWith({ layers: [a2, b] });
     unmount();
     expect(stop).toHaveBeenCalled();
   });

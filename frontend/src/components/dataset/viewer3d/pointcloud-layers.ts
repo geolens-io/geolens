@@ -72,9 +72,30 @@ export function loadPointCloud(
     // and its builders are quadratic in the entry count, so it stays behind.
     const workerCopc = { ...copc, eb: [] };
     let nextId = 0;
-    // LAS colour depth is a property of the file, so the first node decides it
-    // and the rest decode with the same shift.
-    let colorShift: 0 | 8 | undefined;
+    // Colour depth is a property of the file, but a node whose values all fit
+    // a byte can't tell. Nodes drawn at shift 0 are kept until one shows 16-bit
+    // colour; then their 8-bit values read as near black, so they are redrawn.
+    let colorShift: 0 | 8 = 0;
+    const undecided: { key: string; result: DecodeResponse }[] = [];
+    const emit = (key: string, result: DecodeResponse, dark: boolean) => {
+      const colors = dark ? result.colors!.map((v, i) => (i % 4 === 3 ? v : 0)) : result.colors!;
+      handlers.onLayer(
+        new PointCloudLayer({
+          id: `copc-${key}`,
+          data: {
+            length: result.count,
+            attributes: {
+              getPosition: { value: result.positions!, size: 3 },
+              getColor: { value: colors, size: 4 },
+            },
+          },
+          coordinateSystem: COORDINATE_SYSTEM.LNGLAT_OFFSETS,
+          coordinateOrigin: [origin[0], origin[1], 0],
+          pointSize: 1.5,
+          sizeUnits: 'pixels',
+        }),
+      );
+    };
     const decodeNext = async (worker: Worker) => {
       const entry = queue.shift();
       if (!entry || abort.signal.aborted) return false;
@@ -103,23 +124,12 @@ export function loadPointCloud(
         handlers.onError(`node ${key}: ${result.error}`);
         return true;
       }
-      colorShift ??= result.colorShift;
-      handlers.onLayer(
-        new PointCloudLayer({
-          id: `copc-${key}`,
-          data: {
-            length: result.count,
-            attributes: {
-              getPosition: { value: result.positions, size: 3 },
-              getColor: { value: result.colors, size: 4 },
-            },
-          },
-          coordinateSystem: COORDINATE_SYSTEM.LNGLAT_OFFSETS,
-          coordinateOrigin: [origin[0], origin[1], 0],
-          pointSize: 1.5,
-          sizeUnits: 'pixels',
-        }),
-      );
+      if (result.colorShift === 8 && colorShift === 0) {
+        colorShift = 8;
+        undecided.splice(0).forEach((node) => emit(node.key, node.result, true));
+      }
+      if (colorShift === 0) undecided.push({ key, result });
+      emit(key, result, colorShift === 8 && result.colorShift === 0);
       return true;
     };
     const run = async (worker: Worker) => {
