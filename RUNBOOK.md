@@ -1258,12 +1258,12 @@ bespoke deployment that runs the api image outside these compose files with
 container-local directory, or every scrape reverts to seeing one arbitrary
 worker.
 
-That header check is the only thing that keeps `/metrics` private, since the
-endpoint has no authentication. The bundled Compose files publish the API port
-on `127.0.0.1` only. If you publish it beyond loopback, or put GeoLens behind a
-proxy of your own, make sure that proxy sets at least one of those headers on
-every request it passes to the API. Otherwise anyone who can reach the API
-can read `/metrics`.
+`/metrics` has no authentication, and the header check only refuses requests
+that come through a proxy: anyone who reaches the API port directly reads
+`/metrics` without those headers. Keep the API port reachable only by your
+proxy and your scrapers, by bind address or firewall (the bundled Compose
+files bind it to `127.0.0.1`), and have a proxy of your own set one of those
+headers on every request it passes to the API.
 
 `infra/monitoring/prometheus.yml` already defines both scrape jobs
 (`geolens-api`, `geolens-worker`) and loads `alerts.yml` as a rule file. Run
