@@ -9,7 +9,8 @@ prefix applies to nothing for http(s) URLs, because ``CPLHTTPFetch``
 consults path-specific options only for the ``/vsi*`` handlers.
 
 So the pages are read here instead, with the bounded client that
-revalidates SSRF and refuses to leave the origin, streamed to a local
+revalidates SSRF and, for a credentialed read, refuses to leave the
+origin, streamed to a local
 GeoJSON file GDAL is handed in place of the OAPIF source — it follows
 nothing, because there's nothing left to follow.
 
@@ -45,6 +46,7 @@ from app.core.runtime.staging import (
     OAPIF_ITEMS_SCRATCH_SUFFIX,
 )
 from app.core.failure_reason import FixedReason
+from app.platform.egress_proxy import pinned_origin
 from app.platform.esri_services import (
     EsriEvidence,
     esri_evidence,
@@ -468,6 +470,7 @@ async def _resolve_items_url(
     url: str,
     collection: str,
     headers: dict,
+    held: bool,
     on_first_request: "Callable[[], None] | None" = None,
 ) -> tuple[str, int, bool]:
     """Where this collection actually keeps its items, what asking cost, and
@@ -476,7 +479,7 @@ async def _resolve_items_url(
     The collection document is read first and its ``rel=items`` link is
     what the walk follows, judged by the same rules as a ``next``:
     resolved against the URL the document came from, refused if it leaves
-    the submitted origin, and revalidated for SSRF by `_fetch_page` before
+    the submitted origin on a ``held`` read, and revalidated for SSRF by `_fetch_page` before
     it's requested.
 
     A document that advertises no items link falls back to the
@@ -499,7 +502,7 @@ async def _resolve_items_url(
     arcgis = _esri_evidence(url, document, from_url) is not None
     if href is None:
         return _items_url(url, collection), size, arcgis
-    if not same_origin(url, href):
+    if held and not same_origin(url, href):
         # Same rule as the page chain, for the same reason: the document
         # chose this address and doesn't get to choose a different service
         # to be paid with this credential.
@@ -585,6 +588,7 @@ def _end_of_chain(
     observed: int,
     number_matched: int | None,
     truncated: bool | None,
+    held: bool,
 ) -> tuple[str | None, bool | None]:
     """The page this walk's `for ... else` reaches without breaking early:
     either another page to fetch, or the genuine end of the chain.
@@ -597,11 +601,12 @@ def _end_of_chain(
     `_page_proves_complete` proves it, `None` where it doesn't. The LAST
     page decides, not a value an intermediate one left behind.
 
-    Raises `ItemFetchFailedError` for a `next` that leaves the origin, or
+    Raises `ItemFetchFailedError` for a `next` that leaves the origin of a
+    ``held`` walk, or
     (full walks only, first page only) one that can't prove it's the last.
     """
     following = _next_href(document, from_url)
-    if following is not None and not same_origin(url, following):
+    if following is not None and held and not same_origin(url, following):
         # The page chose the next address; it doesn't get to choose a
         # different service to be paid with this credential.
         raise ItemFetchFailedError("next page leaves the origin")
@@ -684,10 +689,19 @@ async def _walk_pages(
     # moment a caller dating origin contacts hears about. `fire_once`
     # means no loop tracks which pass it's on.
     arm = fire_once(on_first_request)
+    # A walk carrying no credential, in a header or a `token` query, may
+    # follow the service's links to another origin; each request is still
+    # revalidated for SSRF and counted against the same caps.
+    held = pinned_origin(url, credential=bool(headers)) is not None
     # Only an ArcGIS chain may end on a page that counts its own remainder;
     # the evidence can arrive with any page before the one that ends it.
     first_page, downloaded, arcgis = await _resolve_items_url(
-        client, url=url, collection=collection, headers=headers, on_first_request=arm
+        client,
+        url=url,
+        collection=collection,
+        headers=headers,
+        held=held,
+        on_first_request=arm,
     )
     # Counted apart: a gzip page's wire bytes can exceed what it decodes to,
     # and each total is held to MAX_BYTES. The collection document is
@@ -773,6 +787,7 @@ async def _walk_pages(
                 observed=observed,
                 number_matched=number_matched,
                 truncated=truncated,
+                held=held,
             )
     if page_url is not None:
         # Page cap reached with more to come — closing the
@@ -824,7 +839,8 @@ async def materialise_oapif_items(
     requested, for callers that date origin contacts.
 
     Raises :class:`ItemFetchFailedError` for a page that can't be read, a
-    page over the size bound, a ``next`` leaving the submitted origin, the
+    page over the size bound, a ``next`` leaving the submitted origin of a
+    credentialed read, the
     deadline, and a chain still offering a ``next`` at ``MAX_PAGES``; the
     file is removed before any of them escape. Every bound refuses rather
     than stopping short, since the caller can't tell a prefix from a

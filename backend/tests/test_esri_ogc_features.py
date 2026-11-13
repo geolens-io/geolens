@@ -1451,11 +1451,9 @@ class TestAnArcGISCollectionBehindAnotherURLIsReadWhole:
         assert not any(str(a).startswith("OAPIF:") for a in spawn["argv"])
         assert spawn["features"] and spawn["features"][0]
 
-    async def test_a_redirect_to_another_host_is_refused_with_a_reason(
+    async def test_a_redirect_to_another_host_imports_every_page(
         self, monkeypatch
     ) -> None:
-        """The walk keeps to the submitted origin, so the import stops
-        rather than reading the last page alone."""
         monkeypatch.setattr("app.platform.security.validate_url_for_ssrf", AsyncMock())
         service = _esri(_three_esri_pages())
 
@@ -1471,9 +1469,84 @@ class TestAnArcGISCollectionBehindAnotherURLIsReadWhole:
         _serve(monkeypatch, handle)
         seen = _spawn_reading_the_source(monkeypatch)
 
+        await self._import("https://vanity.example.test/parcels")
+
+        (spawn,) = seen
+        assert [len(f) for f in spawn["features"]] == [9]
+
+    async def test_a_proxy_whose_links_name_the_service_host(self, monkeypatch) -> None:
+        """The proxy forwards the path; the service's own links point at
+        its host, and an anonymous walk follows them there."""
+        recorded = _serve(
+            monkeypatch,
+            _behind(
+                "/parcels", _esri(_three_esri_pages()), host="services.arcgis.example"
+            ),
+        )
+        seen = _spawn_reading_the_source(monkeypatch)
+
+        await self._import("https://gis.example.test/parcels")
+
+        (spawn,) = seen
+        assert [len(f) for f in spawn["features"]] == [9]
+        assert {r.url.host for r in recorded} == {
+            "gis.example.test",
+            "services.arcgis.example",
+        }
+        assert not any("Authorization" in r.headers for r in recorded)
+
+    async def test_a_credentialed_walk_stays_on_the_submitted_origin(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        recorded = _serve(
+            monkeypatch,
+            _behind(
+                "/parcels", _esri(_three_esri_pages()), host="services.arcgis.example"
+            ),
+        )
+
         with pytest.raises(ItemFetchFailedError):
-            await self._import("https://vanity.example.test/parcels")
-        assert seen == []
+            await materialise_oapif_items(
+                "https://gis.example.test/parcels",
+                "0",
+                credential_line=_credential_line(),
+                staging_dir=tmp_path,
+            )
+
+        assert {r.url.host for r in recorded} == {"gis.example.test"}
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_each_off_origin_page_is_checked_for_ssrf(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        from app.platform.security import SSRFError
+
+        first = _fixture("items-page-with-next.json")
+        (link,) = [lnk for lnk in first["links"] if lnk["rel"] == "next"]
+        link["href"] = "https://internal.example.test/collections/0/items?offset=4"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/items"):
+                return _json(first)
+            return _json({"id": "0", "links": []})
+
+        recorded = _serve(monkeypatch, handle)
+
+        async def _refuse_internal(url: str, *args, **kwargs) -> None:
+            if httpx.URL(url).host == "internal.example.test":
+                raise SSRFError("private address")
+
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", _refuse_internal
+        )
+
+        with pytest.raises(ItemFetchFailedError):
+            await materialise_oapif_items(
+                _PROXY, "0", credential_line=None, staging_dir=tmp_path
+            )
+
+        assert "internal.example.test" not in {r.url.host for r in recorded}
+        assert list(tmp_path.iterdir()) == []
 
     async def test_pygeoapi_keeps_gdal(self, monkeypatch) -> None:
         recorded = _serve(monkeypatch, _pygeoapi)
