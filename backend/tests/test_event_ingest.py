@@ -17,6 +17,7 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
+from pydantic import SecretStr
 
 
 # ---------------------------------------------------------------------------
@@ -30,7 +31,8 @@ def _fake_settings(*, complete: bool = False, failed: bool = False) -> SimpleNam
     Includes all settings attributes accessed by:
     - emit_event_safe / event_enabled / build_event_notification (events.py)
     - EnvConfiguredNotificationSink (env_sink.py)
-    - bootstrap() worker path (bootstrap.py) — storage_provider for the S3 gate
+    - bootstrap() worker path (bootstrap.py) — storage_provider for the S3 gate,
+      and the database password fields for the published-default warning
     """
     return SimpleNamespace(
         notify_on_ingest_complete=complete,
@@ -47,6 +49,10 @@ def _fake_settings(*, complete: bool = False, failed: bool = False) -> SimpleNam
         # bootstrap() Step 9b (fix #1315) — init_tile_cache reads redis_url.
         # None takes the worker branch: no provider, one boot warning.
         redis_url=None,
+        # bootstrap() checks the database password against the published default.
+        postgres_password=SecretStr("event-ingest-test-db-password"),
+        database_url_override=None,
+        tile_database_url_override=None,
     )
 
 
