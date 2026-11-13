@@ -14,6 +14,7 @@ from __future__ import annotations
 import base64
 import uuid
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlsplit
 
 import pytest
 import sqlalchemy
@@ -21,6 +22,7 @@ from httpx import AsyncClient
 from sqlalchemy import text
 
 from app.core.config import settings
+from app.core.public_urls import desktop_entry_serves
 from app.modules.auth.dependencies import _basic_password
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from tests.factories import create_raster_dataset, create_user
@@ -411,55 +413,275 @@ async def test_a_dataset_key_keeps_its_binding_over_basic(
 
 
 # ---------------------------------------------------------------------------
-# The desktop entry route
+# The desktop entry: the OGC API under /desktop, for signed-in callers only
 # ---------------------------------------------------------------------------
 
 
-async def _landing_url(client: AsyncClient) -> str:
+def _entry_paths(private, public) -> list[str]:
+    paths = ["/desktop", "/desktop/", "/desktop/conformance", "/desktop/openapi.json"]
+    paths += ["/desktop/collections/datasets", "/desktop/collections/datasets/items"]
+    for dataset in (private, public):
+        paths += [
+            "/desktop/collections",
+            f"/desktop/collections/{dataset.id}",
+            f"/desktop/collections/{dataset.id}/queryables",
+            f"/desktop/collections/{dataset.id}/items",
+        ]
+    return paths
+
+
+async def _api_base(client: AsyncClient) -> str:
     links = (await client.get("/")).json()["links"]
-    return next(link["href"] for link in links if link["rel"] == "self")
+    return next(link["href"] for link in links if link["rel"] == "self").rstrip("/")
 
 
-async def test_the_desktop_entry_challenges_without_a_working_credential(
-    client: AsyncClient,
+def _links(document) -> list[dict]:
+    """Every object carrying an ``href`` anywhere in ``document``."""
+    if isinstance(document, list):
+        return [link for item in document for link in _links(item)]
+    if not isinstance(document, dict):
+        return []
+    found = [document] if isinstance(document.get("href"), str) else []
+    return found + [link for value in document.values() for link in _links(value)]
+
+
+async def test_every_route_under_the_entry_challenges_a_caller_without_a_credential(
+    client: AsyncClient, datasets
 ):
-    for auth in (
-        {},
-        _basic("glk_not-a-real-key"),
-        _basic(ADMIN_PASS, username=ADMIN_USER),
-        {"Authorization": "Basic not*base64"},
-    ):
+    private, _, public = datasets
+    for path in _entry_paths(private, public):
         for method in ("GET", "HEAD"):
-            resp = await client.request(method, "/desktop", headers=auth)
-            assert resp.status_code == 401, (method, auth, resp.text)
-            assert resp.headers["www-authenticate"] == CHALLENGE, (method, auth)
+            resp = await client.request(method, path)
+            assert resp.status_code == 401, (method, path, resp.text)
+            assert resp.headers["www-authenticate"] == CHALLENGE, (method, path)
+            assert resp.headers["cache-control"] == "no-store", (method, path)
 
 
-async def test_the_desktop_entry_refuses_a_dead_credential_in_its_own_scheme(
-    client: AsyncClient,
+async def test_a_credential_that_does_not_resolve_is_refused_under_the_entry(
+    client: AsyncClient, datasets
 ):
-    for auth in (
-        {"Authorization": "Bearer not-a-token"},
-        {"X-Api-Key": "glk_not-a-real-key"},
+    _, _, public = datasets
+    for path in (
+        "/desktop",
+        "/desktop/conformance",
+        f"/desktop/collections/{public.id}",
     ):
-        resp = await client.get("/desktop", headers=auth)
-        assert resp.status_code == 401, (auth, resp.text)
-        assert resp.headers["www-authenticate"] == "Bearer", auth
+        for auth in (
+            _basic("glk_not-a-real-key"),
+            _basic(ADMIN_PASS, username=ADMIN_USER),
+            {"Authorization": "Basic not*base64"},
+        ):
+            resp = await client.get(path, headers=auth)
+            assert resp.status_code == 401, (path, resp.text)
+            assert resp.headers["www-authenticate"] == CHALLENGE, path
+        for auth in (
+            {"Authorization": "Bearer not-a-token"},
+            {"X-Api-Key": "glk_not-a-real-key"},
+        ):
+            resp = await client.get(path, headers=auth)
+            assert resp.status_code == 401, (path, auth, resp.text)
+            assert resp.headers["www-authenticate"] == "Bearer", (path, auth)
 
 
-async def test_the_desktop_entry_redirects_a_signed_in_caller_to_the_landing_page(
+async def test_a_key_sent_as_the_basic_password_reads_every_route_under_the_entry(
+    client: AsyncClient, owner, datasets
+):
+    headers, _ = owner
+    private, _, public = datasets
+    key = await _mint(client, headers)
+    for path in _entry_paths(private, public):
+        for auth in (_basic(key), {"X-Api-Key": key}, headers):
+            resp = await client.get(path, headers=auth)
+            assert resp.status_code == 200, (path, resp.text)
+
+    listed = await client.get("/desktop/collections", headers=_basic(key))
+    assert str(private.id) in {c["id"] for c in listed.json()["collections"]}
+    items = await client.get(
+        f"/desktop/collections/{private.id}/items", headers=_basic(key)
+    )
+    assert [f["properties"]["name"] for f in items.json()["features"]] == ["seed"]
+    feature_id = items.json()["features"][0]["id"]
+    feature = await client.get(
+        f"/desktop/collections/{private.id}/items/{feature_id}", headers=_basic(key)
+    )
+    assert feature.status_code == 200, feature.text
+
+
+async def test_a_reopened_client_without_its_login_is_challenged_at_the_stored_address(
+    client: AsyncClient, owner, datasets
+):
+    headers, _ = owner
+    private = datasets[0]
+    key = await _mint(client, headers)
+    stored = ["/desktop", "/desktop/openapi.json", "/desktop/collections"]
+    stored.append(f"/desktop/collections/{private.id}/items")
+    for path in stored:
+        assert (await client.get(path, headers=_basic(key))).status_code == 200
+    for path in stored:
+        resp = await client.get(path)
+        assert resp.status_code == 401, path
+        assert resp.headers["www-authenticate"] == CHALLENGE, path
+
+
+async def test_every_link_under_the_entry_stays_there_when_the_entry_serves_it(
+    client: AsyncClient, test_db_session, owner, datasets
+):
+    headers, _ = owner
+    private = datasets[0]
+    await test_db_session.execute(
+        text(
+            f"INSERT INTO data.{private.table_name} (geom, geom_4326, name) VALUES "
+            "(ST_SetSRID(ST_MakePoint(-73.9, 40.7), 4326), "
+            "ST_SetSRID(ST_MakePoint(-73.9, 40.7), 4326), 'second')"
+        )
+    )
+    await test_db_session.commit()
+    key = await _mint(client, headers)
+    api_base = await _api_base(client)
+    entry_base = api_base + "/desktop"
+
+    items = await client.get(
+        f"/desktop/collections/{private.id}/items?limit=1", headers=_basic(key)
+    )
+    assert any(link["rel"] == "next" for link in items.json()["links"])
+    feature_id = items.json()["features"][0]["id"]
+    documents = [items.json()]
+    for path in (
+        "/desktop/",
+        "/desktop/collections",
+        f"/desktop/collections/{private.id}",
+        f"/desktop/collections/{private.id}/items/{feature_id}",
+    ):
+        resp = await client.get(path, headers=_basic(key))
+        assert resp.status_code == 200, (path, resp.text)
+        documents.append(resp.json())
+
+    served = 0
+    for link in _links(documents):
+        href = link["href"]
+        if not href.startswith(api_base + "/"):
+            assert "/desktop" not in href, href
+            continue
+        path = urlsplit(href).path.removeprefix(urlsplit(api_base).path)
+        if path.startswith("/desktop/") or path == "/desktop":
+            assert desktop_entry_serves(path.removeprefix("/desktop") or "/"), href
+            served += 1
+        else:
+            assert not desktop_entry_serves(path), href
+    assert served > 10
+
+    for rel in ("self", "data", "conformance", "service-desc"):
+        landing = documents[1]["links"]
+        href = next(link["href"] for link in landing if link["rel"] == rel)
+        assert href.startswith(entry_base + "/"), (rel, href)
+    for link in items.json()["links"]:
+        assert link["href"].startswith(entry_base + "/"), link
+
+    next_href = next(link for link in items.json()["links"] if link["rel"] == "next")
+    next_page = await client.get(
+        urlsplit(next_href["href"]).path.removeprefix(urlsplit(api_base).path)
+        + "?"
+        + urlsplit(next_href["href"]).query,
+        headers=_basic(key),
+    )
+    assert [f["properties"]["name"] for f in next_page.json()["features"]] == ["second"]
+
+
+async def test_the_openapi_document_under_the_entry_describes_the_routes_it_serves(
     client: AsyncClient, owner
 ):
     headers, _ = owner
     key = await _mint(client, headers)
-    landing = await _landing_url(client)
-    assert landing.endswith("/")
+    document = (await client.get("/desktop/openapi.json", headers=_basic(key))).json()
+    published = (await client.get("/openapi.json")).json()
 
-    for auth in (_basic(key), {"X-Api-Key": key}, headers):
-        for method in ("GET", "HEAD"):
-            resp = await client.request(
-                method, "/desktop", headers=auth, follow_redirects=False
-            )
-            assert resp.status_code == 302, (method, resp.text)
-            assert resp.headers["location"] == landing
-            assert resp.headers["cache-control"] == "no-store"
+    assert [server["url"] for server in document["servers"]] == [
+        server["url"].rstrip("/") + "/desktop" for server in published["servers"]
+    ]
+    assert document["paths"]
+    assert "/collections/{dataset_id}/items" in document["paths"]
+    assert all(desktop_entry_serves(path) for path in document["paths"])
+    for path in document["paths"]:
+        if "{" not in path:
+            resp = await client.get("/desktop" + path, headers=_basic(key))
+            assert resp.status_code == 200, (path, resp.text)
+    assert not any("desktop" in path for path in published["paths"])
+
+
+async def test_the_entry_serves_only_reads_of_the_ogc_routes(
+    client: AsyncClient, owner, datasets
+):
+    headers, _ = owner
+    public = datasets[2]
+    key = await _mint(client, headers)
+    for path in ("/desktop/datasets", "/desktop/auth/me", "/desktop/desktop"):
+        resp = await client.get(path, headers=headers)
+        assert resp.status_code == 404, (path, resp.text)
+    resp = await client.post(
+        f"/desktop/collections/{public.id}/items", json={}, headers=headers
+    )
+    assert resp.status_code == 405, resp.text
+    assert resp.headers["allow"] == "GET, HEAD"
+    assert (
+        await client.get("/desktop/collections", headers=_basic(key))
+    ).status_code == 200
+
+
+async def test_the_api_root_answers_anonymous_callers_as_before(
+    client: AsyncClient, owner, datasets
+):
+    headers, _ = owner
+    private, _, public = datasets
+    key = await _mint(client, headers)
+    paths = [
+        "/",
+        "/conformance",
+        "/collections",
+        f"/collections/{public.id}",
+        f"/collections/{public.id}/items",
+    ]
+
+    def stable(resp):
+        assert resp.status_code == 200, resp.text
+        return {**resp.json(), "timeStamp": None}
+
+    before = [stable(await client.get(path)) for path in paths]
+    for path in _entry_paths(private, public):
+        await client.get(path, headers=_basic(key))
+    after = [stable(await client.get(path)) for path in paths]
+
+    assert before == after
+    assert not any("/desktop" in link["href"] for link in _links(after))
+    assert (await client.get(f"/collections/{private.id}")).status_code == 404
+
+
+async def test_the_entry_never_gets_the_anonymous_cors_wildcard(
+    client: AsyncClient, owner
+):
+    headers, _ = owner
+    key = await _mint(client, headers)
+    origin = {"Origin": "https://elsewhere.example.com"}
+
+    public_answer = await client.get("/collections", headers=origin)
+    assert public_answer.headers.get("access-control-allow-origin") == "*"
+    for auth in ({}, _basic(key)):
+        resp = await client.get("/desktop/collections", headers={**origin, **auth})
+        assert resp.headers.get("access-control-allow-origin") is None, auth
+
+
+def test_the_entry_is_routed_before_the_rate_limiter_and_gated_inside_the_tenant_layer():
+    """The limiter finds the route a request under the entry names; the gate logs and has a tenant."""
+    from app.api.main import app
+    from app.api.middleware.logging import RequestLoggingMiddleware
+    from app.api.middleware.rate_limit import GlobalRateLimitMiddleware
+    from app.api.middleware.tenant_context import TenantContextMiddleware
+    from app.standards.ogc.desktop import (
+        DesktopEntryGateMiddleware,
+        DesktopEntryRewriteMiddleware,
+    )
+
+    outermost_first = [middleware.cls for middleware in app.user_middleware]
+    position = outermost_first.index
+    assert position(DesktopEntryRewriteMiddleware) < position(GlobalRateLimitMiddleware)
+    assert position(TenantContextMiddleware) < position(DesktopEntryGateMiddleware)
+    assert position(RequestLoggingMiddleware) < position(DesktopEntryGateMiddleware)
