@@ -234,6 +234,7 @@
     "jobFailureArcgisWfsCountUnavailable": "No se pudieron contar las entidades de este WFS de ArcGIS, así que no se importó nada. Vuelve a intentarlo en unos minutos o importa la URL de FeatureServer o de OGC API Features de la capa.",
     "jobFailureArcgisWfsRepeated": "El WFS de ArcGIS devolvió las mismas entidades más de una vez, así que no se importó nada. Importa en su lugar la URL de FeatureServer o de OGC API Features de la capa.",
     "jobFailureArcgisWfsShort": "El WFS de ArcGIS devolvió menos entidades de las que contiene la capa, así que no se importó nada. Importa en su lugar la URL de FeatureServer o de OGC API Features de la capa.",
+    "jobFailureWfsShort": "El WFS devolvió menos entidades de las que contiene la capa, así que no se importó nada.",
     "reuploadOriginChanged": "La fuente de este conjunto de datos cambió mientras se preparaba el reemplazo, así que no se puso nada en cola. Revisa la fuente del conjunto de datos antes de reemplazar sus datos.",
     "reuploadPointCloudUnsupported": "Los conjuntos de datos de nube de puntos no se pueden reemplazar volviendo a subir un archivo. Sube la nueva nube de puntos como un conjunto de datos nuevo.",
     "reuploadTilesetUnsupported": "Los conjuntos de datos 3D Tiles no se pueden reemplazar volviendo a subir un archivo. Sube el nuevo conjunto de teselas como un conjunto de datos nuevo.",

@@ -391,6 +391,7 @@
     "jobFailureArcgisWfsCountUnavailable": "无法统计此 ArcGIS WFS 中的要素数量，因此未导入任何内容。请过几分钟再试，或改为导入该图层的 FeatureServer 或 OGC API Features URL。",
     "jobFailureArcgisWfsRepeated": "ArcGIS WFS 多次返回了相同的要素，因此未导入任何内容。请改为导入该图层的 FeatureServer 或 OGC API Features URL。",
     "jobFailureArcgisWfsShort": "ArcGIS WFS 返回的要素少于图层中的要素，因此未导入任何内容。请改为导入该图层的 FeatureServer 或 OGC API Features URL。",
+    "jobFailureWfsShort": "WFS 返回的要素少于图层中的要素，因此未导入任何内容。",
     "reuploadOriginChanged": "在准备替换数据期间，此数据集的数据源发生了变化，因此未将任何任务加入队列。请在替换数据前检查该数据集的数据源。",
     "reuploadPointCloudUnsupported": "点云数据集不支持重新上传。请将新的点云作为新数据集上传。",
     "reuploadTilesetUnsupported": "3D Tiles 数据集不支持重新上传。请将新的瓦片集作为新数据集上传。",

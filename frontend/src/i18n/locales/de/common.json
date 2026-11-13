@@ -234,6 +234,7 @@
     "jobFailureArcgisWfsCountUnavailable": "Die Features dieses ArcGIS-WFS konnten nicht gezählt werden, daher wurde nichts importiert. Versuchen Sie es in einigen Minuten erneut oder importieren Sie die FeatureServer- oder OGC-API-Features-URL der Ebene.",
     "jobFailureArcgisWfsRepeated": "Der ArcGIS-WFS hat dieselben Features mehrfach zurückgegeben, daher wurde nichts importiert. Importieren Sie stattdessen die FeatureServer- oder OGC-API-Features-URL der Ebene.",
     "jobFailureArcgisWfsShort": "Der ArcGIS-WFS hat weniger Features zurückgegeben, als die Ebene enthält, daher wurde nichts importiert. Importieren Sie stattdessen die FeatureServer- oder OGC-API-Features-URL der Ebene.",
+    "jobFailureWfsShort": "Der WFS hat weniger Features zurückgegeben, als die Ebene enthält, daher wurde nichts importiert.",
     "reuploadOriginChanged": "Die Quelle dieses Datensatzes hat sich geändert, während die Ersetzung vorbereitet wurde, daher wurde nichts in die Warteschlange gestellt. Prüfen Sie die Quelle des Datensatzes, bevor Sie seine Daten ersetzen.",
     "reuploadPointCloudUnsupported": "Punktwolken-Datensätze können nicht durch erneutes Hochladen ersetzt werden. Laden Sie die neue Punktwolke als neuen Datensatz hoch.",
     "reuploadTilesetUnsupported": "3D-Tiles-Datensätze können nicht durch erneutes Hochladen ersetzt werden. Laden Sie das neue Tileset als neuen Datensatz hoch.",

@@ -48,6 +48,7 @@ const FIXED_FAILURE_CODE_KEYS: Record<string, `errors.${string}`> = {
   stale_never_queued: 'errors.jobFailureStaleNeverQueued',
   upload_abandoned: 'errors.jobFailureUploadAbandoned',
   user_cancelled: 'errors.jobFailureUserCancelled',
+  wfs_short: 'errors.jobFailureWfsShort',
   worker_lost: 'errors.jobFailureWorkerLost',
 };
 
