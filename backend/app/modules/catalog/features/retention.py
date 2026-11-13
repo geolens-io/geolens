@@ -26,7 +26,7 @@ from sqlalchemy import case, func, or_, select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db.sqlstate import is_lock_conflict, sqlstate
+from app.core.db.sqlstate import sqlstate
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var
 from app.core.record_types import capabilities
@@ -39,8 +39,8 @@ from app.modules.catalog.features.idempotency import current_table_oid, held_tab
 from app.modules.catalog.features.service import refresh_dataset_metadata
 from app.platform.catalog_locks import (
     WORKER_LOCK_TIMEOUT,
-    REQUEST_LOCK_TIMEOUT,
     CatalogLockConflict,
+    bounded_row_lock,
     lock_catalog_rows,
     record_live_data_write,
     worker_lock_budget,
@@ -241,23 +241,19 @@ async def hold_table_for_setting(session: AsyncSession, table_name: str) -> None
     if await current_table_oid(session, table_name) is None:
         return
     quoted = get_catalog_port().quote_table(table_name)
-    await session.execute(
-        text("SELECT set_config('lock_timeout', :budget, true)"),
-        {"budget": REQUEST_LOCK_TIMEOUT},
-    )
     try:
         # codeql[py/sql-injection] table via quote_table; the mode is a literal
-        await session.execute(text(f"LOCK TABLE ONLY {quoted} IN ROW EXCLUSIVE MODE"))
+        await bounded_row_lock(
+            session,
+            text(f"LOCK TABLE ONLY {quoted} IN ROW EXCLUSIVE MODE"),
+            what="dataset's table",
+            reset=False,
+        )
     except DBAPIError as exc:
-        if sqlstate(exc) == WRONG_OBJECT_TYPE:
-            await session.rollback()
-            raise _unsupported_relation() from exc
-        if not is_lock_conflict(exc):
+        if sqlstate(exc) != WRONG_OBJECT_TYPE:
             raise
         await session.rollback()
-        raise CatalogLockConflict(
-            "Another operation is changing this dataset's table."
-        ) from exc
+        raise _unsupported_relation() from exc
 
 
 async def refuse_retention_column_change(

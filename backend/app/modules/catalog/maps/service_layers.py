@@ -5,11 +5,9 @@ from collections.abc import Iterable
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete, func, select, text, update
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db.sqlstate import is_lock_conflict
 from app.core.identity import Identity
 from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
@@ -26,6 +24,7 @@ from app.modules.catalog.maps.service_shared import (
     normalize_dem_style_config,
 )
 from app.modules.catalog.write_recheck import admit_writer, recheck_admitted_writer
+from app.platform.catalog_locks import bounded_row_lock
 
 MAP_WRITE_DENIED = "Not authorized to modify this map"
 
@@ -113,23 +112,12 @@ async def lock_map_layers(session: AsyncSession, map_id: uuid.UUID) -> None:
     ``check_map_ownership`` admitted, so a write that leaves the map row itself
     unchanged takes it before its first write too.
     """
-    await session.execute(
-        text("SELECT set_config('lock_timeout', :timeout, true)"),
-        {"timeout": _LAYER_LOCK_TIMEOUT},
+    await bounded_row_lock(
+        session,
+        select(Map.id).where(Map.id == map_id).with_for_update(key_share=True),
+        what="map",
+        lock_timeout=_LAYER_LOCK_TIMEOUT,
     )
-    try:
-        await session.execute(
-            select(Map.id).where(Map.id == map_id).with_for_update(key_share=True)
-        )
-    except DBAPIError as exc:
-        if not is_lock_conflict(exc):
-            raise
-        await session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Another change to this map is in progress. Retry shortly.",
-        ) from exc
-    await session.execute(text("RESET lock_timeout"))
     await recheck_map_ownership(session, map_id)
 
 

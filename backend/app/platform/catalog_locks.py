@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from typing import Any
 
-from sqlalchemy import event, func, select, text, update
+from sqlalchemy import Executable, Result, event, func, select, text, update
 from sqlalchemy.exc import DBAPIError, InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
@@ -146,6 +146,37 @@ async def lock_catalog_rows(
         if not is_lock_conflict(exc):
             raise
         await _raise_rolled_back_conflict(session, exc)
+
+
+async def bounded_row_lock(
+    session: AsyncSession,
+    stmt: Executable,
+    *,
+    what: str,
+    lock_timeout: str = REQUEST_LOCK_TIMEOUT,
+    reset: bool = True,
+) -> Result[Any]:
+    """Run a locking statement under a transaction-local wait bound.
+
+    Raises ``CatalogLockConflict`` ("Another change to this ``what`` is in
+    progress. Retry shortly.") after rolling the whole transaction back when
+    the wait expires or deadlocks. ``SET LOCAL`` ends with the transaction on
+    every path. ``reset`` also lifts the bound once the lock is held, so later
+    waits in the transaction are not cut short; pass False to keep it.
+    """
+    await _set_lock_timeout(session, lock_timeout)
+    try:
+        result = await session.execute(stmt)
+    except DBAPIError as exc:
+        if not is_lock_conflict(exc):
+            raise
+        await session.rollback()
+        raise CatalogLockConflict(
+            f"Another change to this {what} is in progress. Retry shortly."
+        ) from exc
+    if reset:
+        await session.execute(text("RESET lock_timeout"))
+    return result
 
 
 async def lock_request_key(
