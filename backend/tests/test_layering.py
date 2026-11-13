@@ -1451,7 +1451,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/datasets/api/router_export.py": 1638,
     # Artifact selection, atomic publication, range reads and eviction share one cache
     # protocol.
-    "backend/app/processing/export/artifact_cache.py": 616,
+    "backend/app/processing/export/artifact_cache.py": 620,
     # Embed tokens share origin/scope checks, revocation, cached-denial behavior
     # and the token map's reader settings and audience.
     "backend/app/modules/embed_tokens/service.py": 1008,
