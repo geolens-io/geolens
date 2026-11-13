@@ -96,6 +96,8 @@ describe('parseCopcCrs', () => {
     ['a WKT2 geocentric CRS', GEOCENTRIC2],
     ['a geocentric CRS inside a compound CRS', `COMPOUNDCRS["x",${GEOCENTRIC2},VERTCRS["h",VDATUM["d"],CS[vertical,1],AXIS["H",up,LENGTHUNIT["metre",1]]]]`],
     ['a geocentric CRS inside a bound CRS', `BOUNDCRS[SOURCECRS[${GEOCENTRIC2}],TARGETCRS[${GEOCENTRIC2}],ABRIDGEDTRANSFORMATION["t",METHOD["m"]]]`],
+    ['a WKT2 geocentric CRS with a lower-case system type', GEOCENTRIC2.replace('Cartesian', 'cartesian')],
+    ['a WKT2 geocentric CRS with an upper-case system type', GEOCENTRIC2.replace('Cartesian', 'CARTESIAN')],
     ['a WKT1 geocentric CRS in lower case', 'geoccs["x",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["metre",1]]'],
     ['a geocentric CRS', 'GEOCCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["metre",1],AXIS["Geocentric X",OTHER],AXIS["Geocentric Y",OTHER],AXIS["Geocentric Z",NORTH]]'],
     ['text proj4 cannot read', 'not a CRS'],

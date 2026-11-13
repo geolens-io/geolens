@@ -94,7 +94,7 @@ export function normalizeWkt(wkt: string): string | null {
 // transform; the viewer reprojects X and Y only, so these keep the footprint.
 const QUOTED = /"(?:[^"]|"")*"/g;
 const GEODETIC_WKT2 = ['GEODCRS', 'GEODETICCRS'];
-const CARTESIAN_3D = /(?<![A-Za-z])CS\[Cartesian,3[,\]]/;
+const CARTESIAN_3D = /(?<![A-Za-z])CS\[Cartesian,3[,\]]/i;
 
 /** True when the WKT holds a WKT1 GEOCCS or a WKT2 geodetic CRS with a three-axis Cartesian system, at any depth. */
 function isGeocentric(wkt: string): boolean {
