@@ -12,7 +12,6 @@ and releases use semantic versioning.
 - `GET /maps/{map_id}/style.json?sprite=url` returns the style with `sprite` as a plain URL string, pointing at `/maps/sprites/geolens-prefixed`, a copy of the GeoLens sprite whose entries carry the `geolens:` prefix the style's icon names use, so clients that read only the string form, such as the ArcGIS vector tile layer in ArcGIS Online and the ArcGIS Maps SDK for JavaScript, can load it. Esri's layer drops a query string typed into the style URL, so pass it there as the layer's custom parameter (`customParameters: {sprite: "url"}`). Without the parameter the style is unchanged.
 
 ### Changed
-- A write to a story, map, map image, collection or a feature table's retention setting that waits more than two seconds on another change now answers 409 with the same `{code: "catalog_lock_conflict", message}` detail as a busy dataset; the story, map and collection responses were a plain string, and the map image response used the code `map_asset_write_locked`, which is gone.
 - Map thumbnails no longer carry the basemap and data credit line, which was
   unreadable at gallery size. The social card image and the PNG export still
   carry it, and a thumbnail saved earlier keeps its credit until the map is

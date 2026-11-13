@@ -1718,7 +1718,7 @@ class TestLockMapForAssetWriteFailsFast:
             elapsed = time.monotonic() - started
 
             assert resp.status_code == 409, resp.text
-            assert resp.json()["detail"]["code"] == "catalog_lock_conflict"
+            assert resp.json()["detail"]["code"] == "map_asset_write_locked"
             # lock_timeout is '2s'; generous slack for CI scheduling noise, but
             # nowhere near the ~190s an unbounded wait against a degraded
             # storage backend could reach.

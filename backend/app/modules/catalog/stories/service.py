@@ -214,7 +214,20 @@ def apply_story_visibility_filter(
 
 async def _bounded_lock(db: AsyncSession, stmt: Select[Any]) -> list[Any]:
     """Run a locking select, answering 409 when the wait outlasts the timeout."""
-    return list((await bounded_row_lock(db, stmt, what="story")).scalars().all())
+    return list(
+        (
+            await bounded_row_lock(
+                db,
+                stmt,
+                conflict=lambda: HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Another change to this story is in progress. Retry shortly.",
+                ),
+            )
+        )
+        .scalars()
+        .all()
+    )
 
 
 async def lock_story(

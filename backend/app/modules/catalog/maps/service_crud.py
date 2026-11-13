@@ -96,7 +96,13 @@ async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> 
         select(Map.thumbnail_uri, Map.og_image_uri)
         .where(Map.id == map_id)
         .with_for_update(),
-        what="map's assets",
+        conflict=lambda: HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "map_asset_write_locked",
+                "message": "Another write to this map's assets is in progress. Retry shortly.",
+            },
+        ),
         reset=False,
     )
     row = result.one_or_none()
