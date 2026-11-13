@@ -170,6 +170,7 @@ bash scripts/install.sh
 
 Re-running the script is idempotent. Existing `.env` values (including a
 real `JWT_SECRET_KEY`) are preserved. Only missing or empty values are
-populated. An empty `POSTGRES_PASSWORD` is generated only while the project has
-no database volume; with one, the script stops and asks for the password that
-database was created with.
+populated. `POSTGRES_PASSWORD` is read from `.env` the way Docker Compose reads
+it, and an empty one is generated only when `docker compose volumes` shows the
+project has no database volume; otherwise the script stops and asks for the
+password that database was created with.

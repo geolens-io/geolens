@@ -83,8 +83,9 @@ PUBLISHED_DEFAULT_POSTGRES_PASSWORD = "geolens"
 def warn_if_published_default_postgres_password(settings_obj) -> None:
     """Log one warning when the process signs in with the published default.
 
-    Checks POSTGRES_PASSWORD and the passwords inside DATABASE_URL_OVERRIDE and
-    TILE_DATABASE_URL_OVERRIDE. The message never contains the password value.
+    Checks POSTGRES_PASSWORD and every password inside DATABASE_URL_OVERRIDE and
+    TILE_DATABASE_URL_OVERRIDE, in the authority or a `password` query
+    parameter. The message never contains the password value.
     """
     from sqlalchemy.engine import make_url
     from sqlalchemy.exc import ArgumentError
@@ -96,9 +97,15 @@ def warn_if_published_default_postgres_password(settings_obj) -> None:
     ):
         if url:
             try:
-                passwords.append(make_url(url.strip()).password or "")
+                parsed = make_url(url.strip())
             except (ArgumentError, ValueError):
-                pass
+                continue
+            # The asyncpg dialect lets a query `password` override the
+            # authority's while libpq-style readers take the authority's.
+            query_password = parsed.query.get("password", ())
+            if isinstance(query_password, str):
+                query_password = (query_password,)
+            passwords += [parsed.password or "", *query_password]
     if PUBLISHED_DEFAULT_POSTGRES_PASSWORD not in passwords:
         return
     logger.warning(

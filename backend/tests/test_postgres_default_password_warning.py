@@ -98,6 +98,35 @@ def test_url_override_with_published_default_warns_once(monkeypatch, overrides):
     assert "geolens" not in json.dumps(recorder.warnings).lower()
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "postgresql://tiles@db.example.test/gl?password=geolens",
+        "postgresql://tiles@db.example.test/gl?password=%67eolens",
+        "postgresql://tiles@db.example.test/gl?password=other&password=geolens",
+        "postgresql://tiles:other@db.example.test/gl?password=geolens",
+    ],
+)
+@pytest.mark.parametrize(
+    "field", ["database_url_override", "tile_database_url_override"]
+)
+def test_query_string_password_warns_once(monkeypatch, url, field):
+    """A published-default `password` query parameter warns once, without the value."""
+    recorder = _RecordingLogger()
+    monkeypatch.setattr(bootstrap_module, "logger", recorder)
+    settings_obj = SimpleNamespace(
+        postgres_password=SecretStr("Aa0123456789abcdef_1"),
+        database_url_override=None,
+        tile_database_url_override=None,
+    )
+    setattr(settings_obj, field, url)
+
+    bootstrap_module.warn_if_published_default_postgres_password(settings_obj)
+
+    assert _events(recorder) == ["postgres_password_published_default"]
+    assert "geolens" not in json.dumps(recorder.warnings).lower()
+
+
 @pytest.mark.parametrize("url", ["not a url", "postgresql://u:p@h:notaport/db"])
 def test_unparsable_url_override_does_not_raise(monkeypatch, url):
     """An override SQLAlchemy can't parse is skipped rather than failing startup."""
