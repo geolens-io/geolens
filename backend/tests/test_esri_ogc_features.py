@@ -261,8 +261,10 @@ class TestOnlyAnArcGISChainCountsItsOwnRemainder:
         response on every server; it still is anywhere but ArcGIS."""
         other = "https://ogc.example.test/features"
         first = _fixture("items-page-with-next.json")
+        del first["properties"]
         (link,) = [lnk for lnk in first["links"] if lnk["rel"] == "next"]
         link["href"] = f"{other}/collections/0/items?offset=4&limit=4"
+        first["links"] = [link]
         last = _fixture("items-last-partial-page.json")
 
         def handle(request: httpx.Request) -> httpx.Response:
@@ -576,7 +578,9 @@ class TestAnArcGISCollectionIsReadByTheWalkWithoutACredential:
         )
 
         assert "OAPIF:https://ogc.example.test/features" in seen[0]["argv"]
-        assert recorded == []
+        (recognition,) = recorded
+        assert recognition.url.path == "/features/collections/0/items"
+        assert recognition.url.params["limit"] == "1"
 
     async def test_the_preview_reads_the_walk(self, monkeypatch) -> None:
         from app.modules.catalog.sources.preview import run_service_preview
@@ -617,9 +621,15 @@ class TestArcGISWFSIsReadUnpagedAndCounted:
         return fetch
 
     @pytest.fixture(autouse=True)
-    def version(self, monkeypatch):
-        settle = AsyncMock(return_value="2.0.0")
-        monkeypatch.setattr("app.processing.ingest.ogr.arcgis_wfs_version", settle)
+    def recognise(self, monkeypatch):
+        from app.platform.arcgis_wfs import ArcGISWfs
+        from app.platform.esri_services import esri_service_kind
+
+        async def _by_url(url: str, **_reads) -> ArcGISWfs | None:
+            return ArcGISWfs("url", "2.0.0") if esri_service_kind(url) else None
+
+        settle = AsyncMock(side_effect=_by_url)
+        monkeypatch.setattr("app.processing.ingest.ogr.recognise_arcgis_wfs", settle)
         return settle
 
     @pytest.fixture
@@ -657,7 +667,7 @@ class TestArcGISWFSIsReadUnpagedAndCounted:
         assert hits.await_count == 1
 
     async def test_another_wfs_is_read_as_before(
-        self, monkeypatch, hits, pages, rows, version
+        self, monkeypatch, hits, pages, rows
     ) -> None:
         seen = _spawn_reading_the_source(monkeypatch)
 
@@ -665,7 +675,7 @@ class TestArcGISWFSIsReadUnpagedAndCounted:
 
         assert not _paging_off(seen[0]["argv"])
         assert (hits.await_count, pages.await_count) == (0, 0)
-        version.assert_not_awaited()
+        rows.assert_not_awaited()
 
     async def test_fewer_features_than_the_total_fails_the_import(
         self, monkeypatch, hits, pages, rows
@@ -1057,7 +1067,7 @@ class TestTheWFSReadsSpeakTheEndpointsVersion:
         return _serve(monkeypatch, handler)
 
     async def test_a_1_1_only_endpoint_is_counted_in_1_1(self, monkeypatch) -> None:
-        from app.platform.arcgis_wfs import arcgis_wfs_version, fetch_arcgis_wfs_hits
+        from app.platform.arcgis_wfs import fetch_arcgis_wfs_hits, recognise_arcgis_wfs
 
         def handle(request: httpx.Request) -> httpx.Response:
             params = request.url.params
@@ -1069,7 +1079,9 @@ class TestTheWFSReadsSpeakTheEndpointsVersion:
 
         recorded = self._serve(monkeypatch, handle)
 
-        version = await arcgis_wfs_version(_ARCGIS_WFS, credential_line=None)
+        version = (
+            await recognise_arcgis_wfs(_ARCGIS_WFS, credential_line=None)
+        ).version
         total = await fetch_arcgis_wfs_hits(
             _ARCGIS_WFS, "glTrial2Ogc:pts", credential_line=None, version=version
         )
@@ -1078,16 +1090,13 @@ class TestTheWFSReadsSpeakTheEndpointsVersion:
         assert "VERSION" not in recorded[0].url.params
 
     async def test_the_urls_own_version_is_kept(self, monkeypatch) -> None:
-        from app.platform.arcgis_wfs import arcgis_wfs_version
+        from app.platform.arcgis_wfs import ArcGISWfs, recognise_arcgis_wfs
 
         recorded = self._serve(monkeypatch, lambda r: _streamed(500, b"", "text/plain"))
 
-        assert (
-            await arcgis_wfs_version(
-                f"{_ARCGIS_WFS}?service=WFS&version=1.1.0", credential_line=None
-            )
-            == "1.1.0"
-        )
+        assert await recognise_arcgis_wfs(
+            f"{_ARCGIS_WFS}?service=WFS&version=1.1.0", credential_line=None
+        ) == ArcGISWfs("url", "1.1.0")
         assert recorded == []
 
     async def test_a_1_1_endpoint_is_not_probed_for_paging(self, monkeypatch) -> None:
@@ -1249,11 +1258,12 @@ class TestTheWorkerRefusalsKeepTheirCodes:
 
     async def test_an_uncountable_wfs_stores_its_code(self, monkeypatch) -> None:
         from app.core.failure_reason import failure_code, redact_failure_reason
+        from app.platform.arcgis_wfs import ArcGISWfs
         from app.processing.ingest.ogr import IngestionError, run_ogr2ogr_service
 
         monkeypatch.setattr(
-            "app.processing.ingest.ogr.arcgis_wfs_version",
-            AsyncMock(return_value="2.0.0"),
+            "app.processing.ingest.ogr.recognise_arcgis_wfs",
+            AsyncMock(return_value=ArcGISWfs("url", "2.0.0")),
         )
         monkeypatch.setattr(
             "app.processing.ingest.ogr.fetch_arcgis_wfs_hits",
@@ -1310,3 +1320,380 @@ class TestAWFSAnswerWithADoctypeIsRefused:
         answer = await reader(_ARCGIS_WFS, "glTrial2Ogc:pts", credential_line=None)
 
         assert answer in (None, False)
+
+
+# A reverse proxy on the service's own host that maps a vanity path onto it.
+_VANITY = "https://services.arcgis.example/parcels"
+_SERVICE_PATH = httpx.URL(_SERVICE).path
+# A proxy on another host that also rewrites the addresses in the bodies.
+_PROXY = "https://gis.example.test/features/parcels"
+
+
+def _behind(prefix: str, handler, *, host: str | None = None):
+    """Answer requests under ``prefix`` as the service does at its own path."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        url = request.url
+        if url.path.startswith(prefix):
+            real = url.copy_with(
+                host=host or url.host, path=_SERVICE_PATH + url.path[len(prefix) :]
+            )
+            request = httpx.Request(request.method, real, headers=request.headers)
+        return handler(request)
+
+    return handle
+
+
+def _proxied_page(name: str, *, next_offset: int | None = None) -> dict:
+    """An ArcGIS page whose addresses a body-rewriting proxy has replaced."""
+    page = _fixture(name)
+    if next_offset is None:
+        return page
+    page["links"] = [
+        {
+            "rel": "next",
+            "type": "application/geo+json",
+            "href": f"{_PROXY}/collections/0/items?offset={next_offset}&limit=4",
+        }
+    ]
+    return page
+
+
+def _rewriting_proxy(request: httpx.Request) -> httpx.Response:
+    path = request.url.path.rstrip("/")
+    if path.endswith("/collections/0/items"):
+        pages = {
+            0: _proxied_page("items-page-with-next.json", next_offset=4),
+            4: _proxied_page("items-page-with-next.json", next_offset=8),
+            8: _fixture("items-last-partial-page.json"),
+        }
+        return _json(pages[int(request.url.params.get("offset", 0))])
+    if path.endswith("/collections/0"):
+        items = f"{_PROXY}/collections/0/items"
+        return _json({"id": "0", "links": [{"rel": "items", "href": items}]})
+    return _streamed(404, b"Not Found", "text/html")
+
+
+def _pygeoapi(request: httpx.Request) -> httpx.Response:
+    """Answers as pygeoapi and GeoServer do: counts and plain links, no
+    top-level ``properties``."""
+    base = "https://ogc.example.test/features/collections/lakes/items"
+    if request.url.path.endswith("/items"):
+        return _json(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {"type": "Feature", "id": 1, "geometry": None, "properties": {}}
+                ],
+                "numberMatched": 1500,
+                "numberReturned": 1,
+                "timeStamp": "2026-11-12T00:00:00Z",
+                "links": [
+                    {"rel": "self", "href": f"{base}?f=json&limit=1"},
+                    {"rel": "next", "href": f"{base}?f=json&limit=1&offset=1"},
+                ],
+            }
+        )
+    return _streamed(404, b"Not Found", "text/html")
+
+
+class TestAnArcGISCollectionBehindAnotherURLIsReadWhole:
+    """A vanity path, a redirect or a rewriting proxy hides the service's
+    path; what it answers still names it, so the walk reads every page."""
+
+    @pytest.fixture(autouse=True)
+    def _staging_dir(self, tmp_path, monkeypatch):
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path / "staging"))
+
+    async def _import(self, url: str, collection: str = "0") -> None:
+        from app.processing.ingest.ogr import run_ogr2ogr_service
+
+        await run_ogr2ogr_service(
+            f"OAPIF:{url}",
+            collection,
+            "target_table",
+            "PG:dbname=x",
+            "ogcapi_features",
+            schema="data",
+        )
+
+    async def test_a_vanity_path_imports_every_page(self, monkeypatch) -> None:
+        _serve(monkeypatch, _behind("/parcels", _esri(_three_esri_pages())))
+        seen = _spawn_reading_the_source(monkeypatch)
+
+        await self._import(_VANITY)
+
+        (spawn,) = seen
+        assert not any(str(a).startswith("OAPIF:") for a in spawn["argv"])
+        assert [len(f) for f in spawn["features"]] == [9]
+
+    async def test_a_rewriting_proxy_imports_every_page(self, monkeypatch) -> None:
+        recorded = _serve(monkeypatch, _rewriting_proxy)
+        seen = _spawn_reading_the_source(monkeypatch)
+
+        await self._import(_PROXY)
+
+        (spawn,) = seen
+        assert [len(f) for f in spawn["features"]] == [9]
+        assert {r.url.host for r in recorded} == {"gis.example.test"}
+
+    async def test_the_preview_reads_the_walk(self, monkeypatch) -> None:
+        from app.modules.catalog.sources.preview import run_service_preview
+
+        _serve(monkeypatch, _rewriting_proxy)
+        seen = _spawn_reading_the_source(monkeypatch, stdout=b"{}")
+
+        await run_service_preview(f"OAPIF:{_PROXY}", "0")
+
+        (spawn,) = seen
+        assert not any(str(a).startswith("OAPIF:") for a in spawn["argv"])
+        assert spawn["features"] and spawn["features"][0]
+
+    async def test_a_redirect_to_another_host_is_refused_with_a_reason(
+        self, monkeypatch
+    ) -> None:
+        """The walk keeps to the submitted origin, so the import stops
+        rather than reading the last page alone."""
+        monkeypatch.setattr("app.platform.security.validate_url_for_ssrf", AsyncMock())
+        service = _esri(_three_esri_pages())
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "vanity.example.test":
+                target = request.url.copy_with(
+                    host="services.arcgis.example",
+                    path=_SERVICE_PATH + request.url.path.removeprefix("/parcels"),
+                )
+                return httpx.Response(302, headers={"Location": str(target)})
+            return service(request)
+
+        _serve(monkeypatch, handle)
+        seen = _spawn_reading_the_source(monkeypatch)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._import("https://vanity.example.test/parcels")
+        assert seen == []
+
+    async def test_pygeoapi_keeps_gdal(self, monkeypatch) -> None:
+        recorded = _serve(monkeypatch, _pygeoapi)
+        seen = _spawn_reading_the_source(monkeypatch)
+
+        await self._import("https://ogc.example.test/features", "lakes")
+
+        assert "OAPIF:https://ogc.example.test/features" in seen[0]["argv"]
+        assert len(recorded) == 1
+
+
+class TestWhatRecognisesAnArcGISCollection:
+    async def _recognise(self, url: str):
+        from app.platform.service_items import recognise_esri_oapif
+
+        return await recognise_esri_oapif(url, "0")
+
+    async def test_a_redirect_to_the_service_path(self, monkeypatch) -> None:
+        monkeypatch.setattr("app.platform.security.validate_url_for_ssrf", AsyncMock())
+        page = _fixture("items-last-partial-page.json")
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.startswith("/parcels"):
+                target = request.url.copy_with(
+                    path=_SERVICE_PATH + request.url.path.removeprefix("/parcels")
+                )
+                return httpx.Response(301, headers={"Location": str(target)})
+            return _json(page)
+
+        _serve(monkeypatch, handle)
+
+        assert await self._recognise(_VANITY) == "redirect"
+
+    async def test_a_link_naming_the_service_path(self, monkeypatch) -> None:
+        _serve(
+            monkeypatch,
+            lambda r: _json(
+                {
+                    "type": "FeatureCollection",
+                    "features": [],
+                    "links": [{"rel": "self", "href": f"{_SERVICE}/collections/0"}],
+                }
+            ),
+        )
+
+        assert await self._recognise(_PROXY) == "advertised"
+
+    async def test_the_transfer_limit_member(self, monkeypatch) -> None:
+        _serve(monkeypatch, _rewriting_proxy)
+
+        assert await self._recognise(_PROXY) == "marker"
+
+    async def test_the_url_alone_sends_nothing(self, monkeypatch) -> None:
+        recorded = _serve(monkeypatch, _rewriting_proxy)
+
+        assert await self._recognise(_SERVICE) == "url"
+        assert recorded == []
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            pytest.param(lambda r: _pygeoapi(r), id="pygeoapi"),
+            pytest.param(lambda r: _streamed(404, b"", "text/html"), id="not-found"),
+            pytest.param(lambda r: _streamed(200, b"<html>", "text/html"), id="html"),
+            pytest.param(
+                lambda r: _json({"type": "FeatureCollection", "links": "x"}),
+                id="links-not-a-list",
+            ),
+        ],
+    )
+    async def test_anything_else_is_not_arcgis(self, monkeypatch, response) -> None:
+        _serve(monkeypatch, response)
+
+        assert await self._recognise(_PROXY) is None
+
+    async def test_a_link_to_another_service_doesnt_count(self, monkeypatch) -> None:
+        """Only links a page gives for itself or its pages name the service."""
+        _serve(
+            monkeypatch,
+            lambda r: _json(
+                {
+                    "type": "FeatureCollection",
+                    "features": [],
+                    "links": [{"rel": "related", "href": f"{_SERVICE}/collections/0"}],
+                }
+            ),
+        )
+
+        assert await self._recognise(_PROXY) is None
+
+
+_PROXIED_WFS = "https://gis.example.test/wfs/parcels"
+
+
+def _capabilities(endpoint: str, *, formats: tuple[str, ...] = ("GML32",)) -> bytes:
+    values = "".join(f"<ows:Value>{f}</ows:Value>" for f in formats)
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<wfs:WFS_Capabilities xmlns:wfs="http://www.opengis.net/wfs/2.0"
+  xmlns:ows="http://www.opengis.net/ows/1.1"
+  xmlns:xlink="http://www.w3.org/1999/xlink" version="2.0.0">
+  <ows:OperationsMetadata>
+    <ows:Operation name="GetFeature">
+      <ows:DCP><ows:HTTP><ows:Get xlink:href="{endpoint}?"/></ows:HTTP></ows:DCP>
+      <ows:Parameter name="outputFormat">
+        <ows:AllowedValues>{values}</ows:AllowedValues>
+      </ows:Parameter>
+    </ows:Operation>
+  </ows:OperationsMetadata>
+</wfs:WFS_Capabilities>""".encode()
+
+
+def _wfs(capabilities: bytes, *, hits: int = 25, member_count: int = 1):
+    def handle(request: httpx.Request) -> httpx.Response:
+        params = {k.upper(): v for k, v in request.url.params.items()}
+        if params.get("REQUEST") == "GetCapabilities":
+            return _streamed(200, capabilities, "application/xml")
+        if params.get("RESULTTYPE") == "hits":
+            body = (
+                '<wfs:FeatureCollection xmlns:wfs="http://www.opengis.net/wfs/2.0" '
+                f'numberMatched="{hits}"/>'
+            ).encode()
+            return _streamed(200, body, "application/xml")
+        return _streamed(200, _GML % (_MEMBER * member_count), "application/xml")
+
+    return handle
+
+
+class TestAnArcGISWFSBehindAnotherURLIsCounted:
+    """GetCapabilities names the service when the URL doesn't, so the import
+    is held to the layer's total."""
+
+    @pytest.fixture(autouse=True)
+    def _no_ssrf(self, monkeypatch):
+        for module in ("app.platform.arcgis_wfs", "app.platform.security"):
+            monkeypatch.setattr(f"{module}.validate_url_for_ssrf", AsyncMock())
+
+    @pytest.fixture
+    def rows(self, monkeypatch):
+        count = AsyncMock(return_value=10)
+        monkeypatch.setattr("app.processing.ingest.ogr.staged_row_count", count)
+        return count
+
+    async def _import(self, url: str) -> None:
+        from app.processing.ingest.ogr import run_ogr2ogr_service
+
+        await run_ogr2ogr_service(
+            f"WFS:{url}", "glTrial2Ogc:pts", "t", "PG:dbname=x", "wfs", schema="data"
+        )
+
+    async def test_a_short_read_behind_a_proxy_is_refused(
+        self, monkeypatch, rows
+    ) -> None:
+        from app.core.failure_reason import failure_code, redact_failure_reason
+        from app.processing.ingest.ogr import WfsCountMismatchError
+
+        _serve(monkeypatch, _wfs(_capabilities(_ARCGIS_WFS)))
+        _spawn_reading_the_source(monkeypatch)
+
+        with pytest.raises(WfsCountMismatchError) as caught:
+            await self._import(_PROXIED_WFS)
+
+        assert failure_code(redact_failure_reason(caught.value)) == "arcgis_wfs_short"
+
+    async def test_the_whole_layer_behind_a_proxy_passes(
+        self, monkeypatch, rows
+    ) -> None:
+        _serve(monkeypatch, _wfs(_capabilities(_ARCGIS_WFS), hits=10))
+        _spawn_reading_the_source(monkeypatch)
+
+        await self._import(_PROXIED_WFS)
+
+        rows.assert_awaited_once()
+
+    async def test_geoserver_is_read_as_before(self, monkeypatch, rows) -> None:
+        recorded = _serve(
+            monkeypatch,
+            _wfs(_capabilities(_OTHER_WFS, formats=("application/json", "GML2"))),
+        )
+        seen = _spawn_reading_the_source(monkeypatch)
+
+        await self._import(_OTHER_WFS)
+
+        assert not _paging_off(seen[0]["argv"])
+        rows.assert_not_awaited()
+        assert [r.url.params.get("REQUEST") for r in recorded] == ["GetCapabilities"]
+
+    async def test_a_redirect_to_the_service_path(self, monkeypatch) -> None:
+        from app.platform.arcgis_wfs import recognise_arcgis_wfs
+
+        capabilities = _capabilities(_PROXIED_WFS)
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/wfs/parcels":
+                target = request.url.copy_with(path=httpx.URL(_ARCGIS_WFS).path)
+                return httpx.Response(302, headers={"Location": str(target)})
+            return _streamed(200, capabilities, "application/xml")
+
+        _serve(monkeypatch, handle)
+
+        found = await recognise_arcgis_wfs(_PROXIED_WFS, credential_line=None)
+
+        assert found is not None and found.evidence == "redirect"
+
+    @pytest.mark.parametrize(
+        ("capabilities", "evidence"),
+        [
+            (_capabilities(_ARCGIS_WFS), "advertised"),
+            (_capabilities(_PROXIED_WFS, formats=("GML32", "ESRIGEOJSON")), "marker"),
+            (_capabilities(_PROXIED_WFS, formats=("GML32", "GEOJSON")), None),
+            (b"<not xml", None),
+        ],
+        ids=["endpoint", "esri-format", "neither", "unparsable"],
+    )
+    async def test_what_recognises_it(
+        self, monkeypatch, capabilities, evidence
+    ) -> None:
+        from app.platform.arcgis_wfs import recognise_arcgis_wfs
+
+        _serve(monkeypatch, lambda r: _streamed(200, capabilities, "application/xml"))
+
+        found = await recognise_arcgis_wfs(_PROXIED_WFS, credential_line=None)
+
+        assert (found and found.evidence) == evidence

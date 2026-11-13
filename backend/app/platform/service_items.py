@@ -45,7 +45,12 @@ from app.core.runtime.staging import (
     OAPIF_ITEMS_SCRATCH_SUFFIX,
 )
 from app.core.failure_reason import FixedReason
-from app.platform.esri_services import esri_service_kind
+from app.platform.esri_services import (
+    EsriEvidence,
+    esri_evidence,
+    oapif_page_is_esri,
+    oapif_self_hrefs,
+)
 from app.platform.security import (
     PROBE_TIMEOUT,
     make_safe_client,
@@ -177,6 +182,18 @@ def _items_url(url: str, collection: str) -> str:
     return (
         f"{url.rstrip('/')}/collections/{quote(collection, safe='')}"
         f"/items?limit={PAGE_SIZE}"
+    )
+
+
+def _esri_evidence(url: str, document: object, from_url: str) -> EsriEvidence | None:
+    """What a document read from ``from_url`` shows about ``url`` being an
+    ArcGIS OGC API Features service, or None."""
+    return esri_evidence(
+        "oapif",
+        url,
+        final_url=from_url,
+        advertised=oapif_self_hrefs(document),
+        marker=oapif_page_is_esri(document),
     )
 
 
@@ -452,8 +469,9 @@ async def _resolve_items_url(
     collection: str,
     headers: dict,
     on_first_request: "Callable[[], None] | None" = None,
-) -> tuple[str, int]:
-    """Where this collection actually keeps its items, and what asking cost.
+) -> tuple[str, int, bool]:
+    """Where this collection actually keeps its items, what asking cost, and
+    whether the collection document shows an ArcGIS service.
 
     The collection document is read first and its ``rel=items`` link is
     what the walk follows, judged by the same rules as a ``next``:
@@ -478,8 +496,9 @@ async def _resolve_items_url(
     href = _advertised_items_href(
         _require_object(document, "collection document"), from_url
     )
+    arcgis = _esri_evidence(url, document, from_url) is not None
     if href is None:
-        return _items_url(url, collection), size
+        return _items_url(url, collection), size, arcgis
     if not same_origin(url, href):
         # Same rule as the page chain, for the same reason: the document
         # chose this address and doesn't get to choose a different service
@@ -488,7 +507,7 @@ async def _resolve_items_url(
     try:
         # `_with_page_size` re-parses href's query to replace
         # `limit`, bounding both its length and field count.
-        return _with_page_size(href), size
+        return _with_page_size(href), size, arcgis
     except HrefTooLongError:
         raise ItemFetchFailedError("items link exceeds the length limit") from None
     except ValueError:
@@ -665,9 +684,9 @@ async def _walk_pages(
     # moment a caller dating origin contacts hears about. `fire_once`
     # means no loop tracks which pass it's on.
     arm = fire_once(on_first_request)
-    # Only an ArcGIS chain may end on a page that counts its own remainder.
-    arcgis = esri_service_kind(url) == "oapif"
-    first_page, downloaded = await _resolve_items_url(
+    # Only an ArcGIS chain may end on a page that counts its own remainder;
+    # the evidence can arrive with any page before the one that ends it.
+    first_page, downloaded, arcgis = await _resolve_items_url(
         client, url=url, collection=collection, headers=headers, on_first_request=arm
     )
     # Counted apart: a gzip page's wire bytes can exceed what it decodes to,
@@ -695,6 +714,7 @@ async def _walk_pages(
         features, counts_remainder = _require_feature_page(
             document, first_page=pages == 1, arcgis=arcgis
         )
+        arcgis = arcgis or _esri_evidence(url, document, from_url) is not None
         # The page's own claim about its size, before the sample loop below
         # may stop partway through it.
         observed += len(features)
@@ -788,8 +808,8 @@ async def materialise_oapif_items(
     The caller hands the returned path to GDAL INSTEAD of the OAPIF
     source, and writes no header file at all — that's what removes the
     credential from everything GDAL does. ``credential_line`` is None for
-    an ArcGIS collection read anonymously (see `esri_service_kind`); the walk
-    and its bounds are the same.
+    an ArcGIS collection read anonymously (see `recognise_esri_oapif`); the
+    walk and its bounds are the same.
 
     ``feature_limit`` stops early for a preview, which needs a handful of
     rows rather than the collection.
@@ -871,3 +891,45 @@ async def materialise_oapif_items(
     else:
         total = number_matched if number_matched is not None else written
     return MaterialisedCollection(path=path, features=written, total=total)
+
+
+async def recognise_esri_oapif(
+    url: str,
+    collection: str,
+    *,
+    deadline: float | None = None,
+    on_first_request: Callable[[], None] | None = None,
+) -> EsriEvidence | None:
+    """What shows an anonymous OGC API collection is served by ArcGIS, or
+    None for any other server.
+
+    A URL naming the service decides without a request. Otherwise one
+    one-feature items page is read from the submitted origin: a redirect to
+    the service's path, a self or next link naming it, or ArcGIS's
+    ``exceededTransferLimit`` member recognises it. A read that fails
+    recognises nothing, so the source is read as any other server's.
+    """
+    named = esri_evidence("oapif", url)
+    if named is not None or not collection:
+        return named
+    target = f"{url.rstrip('/')}/collections/{quote(collection, safe='')}/items?limit=1"
+    try:
+        budget = deadline_budget(deadline, error=ItemFetchFailedError)
+        async with asyncio.timeout(budget):
+            async with make_safe_client(timeout=PROBE_TIMEOUT) as client:
+                document, _size, _wire, from_url = await _fetch_page(
+                    client,
+                    target,
+                    {},
+                    budget=MAX_DOCUMENT_BYTES,
+                    token_budget=MAX_DOCUMENT_TOKENS,
+                    gzip=True,
+                    on_first_request=on_first_request,
+                )
+    except (ItemFetchFailedError, TimeoutError) as exc:
+        logger.warning("esri_oapif_recognition_failed", error_class=type(exc).__name__)
+        return None
+    evidence = _esri_evidence(url, document, from_url)
+    if evidence is not None:
+        logger.info("esri_oapif_recognised", evidence=evidence)
+    return evidence
