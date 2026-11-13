@@ -80,6 +80,7 @@ and releases use semantic versioning.
 - While public visibility is restricted to admins, an embed token a non-admin minted on a private or internal map stops being accepted at once for tiles, features and the shared-map view, and is accepted again if the setting is turned off. Tile URLs already signed through such a token keep working until they expire, at most 16 minutes.
 - With Valkey configured but unreachable, an AI request from a user under a daily token cap is refused with 429 instead of taking a per-worker in-flight slot, so the two-request limit can no longer be multiplied by the number of API workers. Deployments without Valkey keep per-process slots.
 - After sign-up switches from admin approval to email verification, an account still waiting for approval can no longer request a verification link and activate itself; it stays pending until an administrator approves it.
+- The bundled nginx edge answers 404 for `/api/tiles/raster-auth-check/`, an internal check the raster tile proxy runs in-process that returned a dataset's managed storage path to signed-in readers. Raster tiles are unaffected.
 
 ## [1.31.0] - 2026-11-10
 
