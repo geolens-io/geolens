@@ -423,6 +423,8 @@ def _entry_paths(private, public) -> list[str]:
     for dataset in (private, public):
         paths += [
             "/desktop/collections",
+            "/desktop/collections/",
+            f"/desktop/collections/{dataset.id}/items/",
             f"/desktop/collections/{dataset.id}",
             f"/desktop/collections/{dataset.id}/queryables",
             f"/desktop/collections/{dataset.id}/items",
@@ -609,6 +611,24 @@ async def test_the_openapi_document_under_the_entry_describes_the_routes_it_serv
             assert resp.status_code == 200, (path, resp.text)
     assert not any("desktop" in path for path in published["paths"])
 
+    schemes = document["components"]["securitySchemes"]
+    assert schemes["HTTPBasic"]["scheme"] == "basic"
+    assert "HTTPBasic" not in published["components"]["securitySchemes"]
+    for path, item in document["paths"].items():
+        assert set(item) & {"get", "head"} and not set(item) & {
+            "post",
+            "put",
+            "patch",
+            "delete",
+        }, path
+        for method in ("get", "head"):
+            if method not in item:
+                continue
+            security = item[method]["security"]
+            assert {} not in security and {"HTTPBasic": []} in security, (path, method)
+            assert "401" in item[method]["responses"], (path, method)
+    assert {} in published["paths"]["/collections"]["get"]["security"]
+
 
 async def test_the_entry_serves_only_reads_of_the_ogc_routes(
     client: AsyncClient, owner, datasets
@@ -724,16 +744,27 @@ async def test_a_dataset_key_is_judged_under_the_entry_as_on_the_api(
 
     expected = {
         f"/collections/{bound.id}/items": 200,
+        f"/collections/{bound.id}/items/": 200,
         f"/collections/{bound.id}/items/{feature_id}": 200,
         f"/collections/{other.id}/items": 401,
+        f"/collections/{other.id}/items/": 401,
         "/collections": 401,
     }
+    transports = {
+        "basic": (_basic(key), ""),
+        "header": ({"X-Api-Key": key}, ""),
+        "query": ({}, f"?api_key={key}"),
+    }
     for path, status_code in expected.items():
-        for auth in (_basic(key), {"X-Api-Key": key}):
-            api = await client.get(path, headers=auth)
-            entry = await client.get("/desktop" + path, headers=auth)
-            assert api.status_code == status_code, (path, api.text)
-            assert entry.status_code == status_code, (path, entry.text)
+        for name, (auth, query) in transports.items():
+            for method in ("GET", "HEAD"):
+                api = await client.request(method, path + query, headers=auth)
+                entry = await client.request(
+                    method, "/desktop" + path + query, headers=auth
+                )
+                assert entry.status_code == api.status_code, (method, name, path)
+                if method == "GET":
+                    assert api.status_code == status_code, (name, path, api.text)
     # The landing page never reads a key on /api; the entry requires one that resolves.
     assert (await client.get("/desktop/", headers=_basic(key))).status_code == 401
 
@@ -763,3 +794,20 @@ async def test_the_backstop_challenges_an_answer_the_gate_did_not_pass():
     assert sent[0]["status"] == 401
     assert (b"www-authenticate", CHALLENGE.encode()) in sent[0]["headers"]
     assert b"private" not in b"".join(m.get("body", b"") for m in sent)
+
+
+async def test_a_database_failure_while_judging_the_credential_is_a_503(
+    client: AsyncClient, monkeypatch
+):
+    """The gate's lookup failing on the database gets the API's 503, not a 500."""
+    from sqlalchemy.exc import OperationalError
+
+    import app.standards.ogc.desktop as desktop
+
+    async def unavailable(request, db):
+        raise OperationalError("SELECT 1", {}, ConnectionError("connection lost"))
+
+    monkeypatch.setattr(desktop, "get_optional_user_no_security_schema", unavailable)
+    resp = await client.get("/desktop/collections", headers=_basic("glk_any"))
+    assert resp.status_code == 503, resp.text
+    assert resp.headers["content-type"] == "application/problem+json"

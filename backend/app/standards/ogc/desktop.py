@@ -158,6 +158,50 @@ class DesktopEntryGateMiddleware:
 desktop_router = APIRouter(dependencies=[Depends(desktop_entry_gate)])
 
 
+_CREDENTIALS = [
+    {"HTTPBasic": []},
+    {"OAuth2PasswordBearer": []},
+    {"ApiKeyHeader": []},
+    {"ApiKeyQuery": []},
+]
+_BASIC_SCHEME = {
+    "type": "http",
+    "scheme": "basic",
+    "description": "Any username, with a GeoLens API key as the password. Reads only.",
+}
+_UNAUTHORIZED = {
+    "description": "No working credential; a request without one is challenged for Basic",
+    "headers": {"WWW-Authenticate": {"schema": {"type": "string"}}},
+    "content": {
+        "application/problem+json": {
+            "schema": {"$ref": "#/components/schemas/ProblemDetail"}
+        }
+    },
+}
+
+
+_HTTP_METHODS = frozenset(
+    {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
+)
+
+
+def _entry_path_item(item: dict) -> dict:
+    """A path item as the entry serves it: reads only, each requiring a credential."""
+    return {
+        key: (
+            {
+                **value,
+                "security": _CREDENTIALS,
+                "responses": {**value.get("responses", {}), "401": _UNAUTHORIZED},
+            }
+            if key in ("get", "head")
+            else value
+        )
+        for key, value in item.items()
+        if key in ("get", "head") or key not in _HTTP_METHODS
+    }
+
+
 # Declared so the route's dependencies show the key it reads, which the
 # CORS header-key lane relies on.
 @desktop_router.api_route(
@@ -169,6 +213,7 @@ desktop_router = APIRouter(dependencies=[Depends(desktop_entry_gate)])
 async def desktop_openapi(request: Request) -> JSONResponse:
     """The OpenAPI document of the routes the entry serves, with the entry as server."""
     schema = request.app.openapi()
+    components = schema.get("components", {})
     return JSONResponse(
         {
             **schema,
@@ -177,9 +222,16 @@ async def desktop_openapi(request: Request) -> JSONResponse:
                 for server in schema.get("servers", [])
             ],
             "paths": {
-                path: item
+                path: _entry_path_item(item)
                 for path, item in schema.get("paths", {}).items()
                 if desktop_entry_serves(path)
+            },
+            "components": {
+                **components,
+                "securitySchemes": {
+                    **components.get("securitySchemes", {}),
+                    "HTTPBasic": _BASIC_SCHEME,
+                },
             },
         },
         headers={"Cache-Control": "no-store"},
