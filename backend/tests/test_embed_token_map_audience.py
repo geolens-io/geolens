@@ -9,7 +9,8 @@ from sqlalchemy import delete, insert, select, update
 
 from app.core.config import settings
 from app.core.db.models import AppSetting
-from app.core.persistent_config import RESTRICT_PUBLIC_VISIBILITY
+from app.core.persistent_config import _CACHE_PREFIX, RESTRICT_PUBLIC_VISIBILITY
+from app.platform.cache.provider import get_cache
 from app.modules.auth.models import Role, UserRole
 from app.modules.catalog.maps.models import Map
 from app.modules.catalog.write_recheck import PUBLIC_VISIBILITY_DENIED
@@ -322,3 +323,33 @@ async def test_restricted_public_visibility_keeps_admin_and_public_map_tokens(
     assert await resolve_embed_scope_for_map(
         test_db_session, admin_token, uuid.UUID(admin_map)
     ) == {admin_dataset}
+
+
+async def test_a_stale_cached_setting_does_not_keep_a_non_admin_token_serving(
+    client: AsyncClient, test_db_session, editor, public_visibility_setting
+):
+    """The use-time rule reads the committed setting, not the config cache."""
+    map_id, dataset_id = await _map_with_layer(
+        client, test_db_session, editor["headers"], editor["id"], "private"
+    )
+    raw_token = (await _mint(client, map_id, editor["headers"])).json()["raw_token"]
+    assert not await RESTRICT_PUBLIC_VISIBILITY.get(test_db_session)
+    assert await validate_embed_token_access(raw_token, dataset_id, test_db_session)
+
+    # A reader that loaded `false` before the commit re-caches it after the
+    # writer's eviction.
+    await public_visibility_setting.turn(True)
+    await get_cache().set(
+        f"{_CACHE_PREFIX}{RESTRICT_PUBLIC_VISIBILITY.key}", False, ttl=30
+    )
+    try:
+        assert not await RESTRICT_PUBLIC_VISIBILITY.get(test_db_session)
+
+        assert not await validate_embed_token_access(
+            raw_token, dataset_id, test_db_session
+        )
+        assert not await resolve_embed_scope_for_map(
+            test_db_session, raw_token, uuid.UUID(map_id)
+        )
+    finally:
+        await get_cache().delete(f"{_CACHE_PREFIX}{RESTRICT_PUBLIC_VISIBILITY.key}")
