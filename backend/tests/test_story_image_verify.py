@@ -60,3 +60,11 @@ async def test_verify_image_bytes_runs_off_the_event_loop(
     await images.verify_image_bytes(_png_bytes())
     assert seen_threads, "verify did not run"
     assert threading.get_ident() not in seen_threads
+
+
+def test_map_image_uploads_verify_on_the_decode_threads() -> None:
+    import inspect
+
+    from app.modules.catalog.maps.router import store_map_image
+
+    assert "await verify_image_bytes(" in inspect.getsource(store_map_image)
