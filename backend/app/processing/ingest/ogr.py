@@ -48,6 +48,7 @@ from app.core.service_tokens import (
 from app.core.upload_errors import IngestCeilingError
 from app.core.url_redaction import redact_url_credentials, scrub_secret_value
 from app.platform.arcgis_wfs import (
+    CapabilitiesUnreadableError,
     arcgis_wfs_pages_by_count,
     fetch_arcgis_wfs_hits,
     recognise_arcgis_wfs,
@@ -1675,7 +1676,17 @@ async def _arcgis_wfs_expected_features(
     )
     # The contact is armed by the first read to pass SSRF validation.
     reads = {"credential_line": credential_line, "on_first_request": arm_origin_contact}
-    arcgis = await recognise_arcgis_wfs(url, **reads)
+    try:
+        arcgis = await recognise_arcgis_wfs(url, **reads)
+    except CapabilitiesUnreadableError:
+        raise IngestionError(
+            FixedReason(
+                "Couldn't read this WFS's capabilities to tell whether ArcGIS "
+                "serves it, so its feature count can't be checked. Retry in a "
+                "few minutes.",
+                code="arcgis_wfs_count_unavailable",
+            )
+        ) from None
     if arcgis is None:
         return None
     version = arcgis.version

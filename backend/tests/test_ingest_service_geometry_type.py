@@ -78,9 +78,15 @@ class TestRunOgr2ogrServiceArgv:
             captured_argv.append(list(args))
             return fake_proc
 
-        with patch(
-            "app.processing.ingest.ogr.asyncio.create_subprocess_exec",
-            side_effect=_fake_exec,
+        with (
+            patch(
+                "app.processing.ingest.ogr.asyncio.create_subprocess_exec",
+                side_effect=_fake_exec,
+            ),
+            patch(
+                "app.processing.ingest.ogr.recognise_arcgis_wfs",
+                AsyncMock(return_value=None),
+            ),
         ):
             yield
 

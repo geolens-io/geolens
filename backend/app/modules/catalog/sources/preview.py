@@ -111,15 +111,17 @@ async def _localise_protected_oapif(
     Returns what to run ogrinfo against, the file to delete afterwards, and
     the name/total to report instead of trusting ogrinfo.
     """
-    if not gdal_source.startswith("OAPIF:") or (
-        credential is None
-        and await recognise_esri_oapif(
-            _service_url(gdal_source), layer_name, deadline=deadline
-        )
-        is None
-    ):
+    if not gdal_source.startswith("OAPIF:"):
         return _Localised(gdal_source, layer_name, credential, None, None, None)
     try:
+        if (
+            credential is None
+            and await recognise_esri_oapif(
+                _service_url(gdal_source), layer_name, deadline=deadline
+            )
+            is None
+        ):
+            return _Localised(gdal_source, layer_name, credential, None, None, None)
         extract = await materialise_oapif_items(
             _service_url(gdal_source),
             layer_name,

@@ -48,6 +48,7 @@ from app.core.runtime.staging import (
 from app.core.failure_reason import FixedReason
 from app.platform.egress_proxy import pinned_origin
 from app.platform.esri_services import (
+    RECOGNITION_RETRY_DELAYS,
     EsriEvidence,
     esri_evidence,
     oapif_page_is_esri,
@@ -55,8 +56,10 @@ from app.platform.esri_services import (
 )
 from app.platform.security import (
     PROBE_TIMEOUT,
+    SSRFError,
     make_safe_client,
     same_origin,
+    validate_url_for_ssrf,
 )
 from app.platform.service_endpoints import (
     MAX_DOCUMENT_BYTES,
@@ -163,6 +166,24 @@ EMPTY_PAGE_POLICY = (
 )
 
 
+RECOGNITION_FAILED_POLICY = (
+    "GeoLens couldn't read this collection to tell how its pages must be "
+    "read, so it stopped rather than risk importing part of it. Retry in a "
+    "few minutes."
+)
+
+
+class RecognitionFailedError(ItemFetchFailedError):
+    """The collection couldn't be inspected for which server it is, so
+    neither reader can be trusted with it."""
+
+    def __init__(self, reason: str = "recognition failed") -> None:
+        super().__init__(reason)
+        self.policy = FixedReason(RECOGNITION_FAILED_POLICY, code=SERVICE_ERROR_CODE)
+        self.code = self.policy.code
+        self.args = (self.policy,)
+
+
 class EmptyPageError(ItemFetchFailedError):
     """An HTTP 200 whose body is empty, which no document can be."""
 
@@ -180,10 +201,10 @@ def _discard(path: str) -> None:
         pass
 
 
-def _items_url(url: str, collection: str) -> str:
+def _items_url(url: str, collection: str, page_size: int) -> str:
     return (
         f"{url.rstrip('/')}/collections/{quote(collection, safe='')}"
-        f"/items?limit={PAGE_SIZE}"
+        f"/items?limit={page_size}"
     )
 
 
@@ -330,9 +351,10 @@ def _advertised_items_href(document: dict, base: str) -> str | None:
     an advertised link as authoritative; the conventional
     ``/collections/{id}/items`` layout is the fallback if it says nothing.
     """
+    links = document.get("links")
     candidates = [
         link
-        for link in document.get("links", []) or []
+        for link in (links if isinstance(links, list) else [])
         if isinstance(link, dict) and link.get("rel") == _ITEMS_REL and link.get("href")
     ]
     if not candidates:
@@ -359,7 +381,7 @@ def _advertised_items_href(document: dict, base: str) -> str | None:
         raise ItemFetchFailedError("unparseable items link") from None
 
 
-def _with_page_size(href: str) -> str:
+def _with_page_size(href: str, page_size: int) -> str:
     """The advertised link, asking for the page size this module wants.
 
     Every other parameter the service put on its own link is kept: an
@@ -374,7 +396,7 @@ def _with_page_size(href: str) -> str:
     query = [
         (key, value) for key, value in bounded_parse_qsl(parts.query) if key != "limit"
     ]
-    query.append(("limit", str(PAGE_SIZE)))
+    query.append(("limit", str(page_size)))
     return urlunsplit(parts._replace(query=urlencode(query)))
 
 
@@ -471,10 +493,11 @@ async def _resolve_items_url(
     collection: str,
     headers: dict,
     held: bool,
+    page_size: int = PAGE_SIZE,
     on_first_request: "Callable[[], None] | None" = None,
-) -> tuple[str, int, bool]:
+) -> tuple[str, int, EsriEvidence | None]:
     """Where this collection actually keeps its items, what asking cost, and
-    whether the collection document shows an ArcGIS service.
+    what the collection document shows about it being an ArcGIS service.
 
     The collection document is read first and its ``rel=items`` link is
     what the walk follows, judged by the same rules as a ``next``:
@@ -499,9 +522,9 @@ async def _resolve_items_url(
     href = _advertised_items_href(
         _require_object(document, "collection document"), from_url
     )
-    arcgis = _esri_evidence(url, document, from_url) is not None
+    arcgis = _esri_evidence(url, document, from_url)
     if href is None:
-        return _items_url(url, collection), size, arcgis
+        return _items_url(url, collection, page_size), size, arcgis
     if held and not same_origin(url, href):
         # Same rule as the page chain, for the same reason: the document
         # chose this address and doesn't get to choose a different service
@@ -510,7 +533,7 @@ async def _resolve_items_url(
     try:
         # `_with_page_size` re-parses href's query to replace
         # `limit`, bounding both its length and field count.
-        return _with_page_size(href), size, arcgis
+        return _with_page_size(href, page_size), size, arcgis
     except HrefTooLongError:
         raise ItemFetchFailedError("items link exceeds the length limit") from None
     except ValueError:
@@ -695,7 +718,7 @@ async def _walk_pages(
     held = pinned_origin(url, credential=bool(headers)) is not None
     # Only an ArcGIS chain may end on a page that counts its own remainder;
     # the evidence can arrive with any page before the one that ends it.
-    first_page, downloaded, arcgis = await _resolve_items_url(
+    first_page, downloaded, evidence = await _resolve_items_url(
         client,
         url=url,
         collection=collection,
@@ -703,6 +726,7 @@ async def _walk_pages(
         held=held,
         on_first_request=arm,
     )
+    arcgis = evidence is not None
     # Counted apart: a gzip page's wire bytes can exceed what it decodes to,
     # and each total is held to MAX_BYTES. The collection document is
     # identity, so it seeds both.
@@ -909,6 +933,38 @@ async def materialise_oapif_items(
     return MaterialisedCollection(path=path, features=written, total=total)
 
 
+async def _recognise_once(
+    client: httpx.AsyncClient,
+    url: str,
+    collection: str,
+    on_first_request: Callable[[], None] | None,
+) -> EsriEvidence | None:
+    """One inspection: the collection document, then, unless it already
+    names the service, a one-feature page from the items link it advertises."""
+    held = pinned_origin(url, credential=False) is not None
+    href, _size, evidence = await _resolve_items_url(
+        client,
+        url=url,
+        collection=collection,
+        headers={},
+        held=held,
+        page_size=1,
+        on_first_request=on_first_request,
+    )
+    if evidence is not None:
+        return evidence
+    document, _size, _wire, from_url = await _fetch_page(
+        client,
+        href,
+        {},
+        budget=MAX_DOCUMENT_BYTES,
+        token_budget=MAX_DOCUMENT_TOKENS,
+        gzip=True,
+        on_first_request=on_first_request,
+    )
+    return _esri_evidence(url, _require_object(document, "items page"), from_url)
+
+
 async def recognise_esri_oapif(
     url: str,
     collection: str,
@@ -917,35 +973,54 @@ async def recognise_esri_oapif(
     on_first_request: Callable[[], None] | None = None,
 ) -> EsriEvidence | None:
     """What shows an anonymous OGC API collection is served by ArcGIS, or
-    None for any other server.
+    None when it was inspected and isn't.
 
-    A URL naming the service decides without a request. Otherwise one
-    one-feature items page is read from the submitted origin: a redirect to
-    the service's path, a self or next link naming it, or ArcGIS's
-    ``exceededTransferLimit`` member recognises it. A read that fails
-    recognises nothing, so the source is read as any other server's.
+    A URL naming the service decides without a request. Otherwise the
+    collection document and a one-feature page from the items link it
+    advertises are read: a redirect to the service's path, a self, items
+    or next link naming it, or ArcGIS's ``exceededTransferLimit`` member
+    recognises it.
+
+    A read that fails is retried after each of `RECOGNITION_RETRY_DELAYS`
+    within ``deadline``. Then an error envelope or empty page is raised as
+    itself, and any other failure as `RecognitionFailedError`: without an
+    answer, GDAL could publish part of an ArcGIS collection. An address the
+    SSRF check refuses answers None, since GDAL's egress proxy refuses it too.
     """
+    arm = fire_once(on_first_request)
     named = esri_evidence("oapif", url)
     if named is not None or not collection:
         return named
-    target = f"{url.rstrip('/')}/collections/{quote(collection, safe='')}/items?limit=1"
     try:
-        budget = deadline_budget(deadline, error=ItemFetchFailedError)
-        async with asyncio.timeout(budget):
-            async with make_safe_client(timeout=PROBE_TIMEOUT) as client:
-                document, _size, _wire, from_url = await _fetch_page(
-                    client,
-                    target,
-                    {},
-                    budget=MAX_DOCUMENT_BYTES,
-                    token_budget=MAX_DOCUMENT_TOKENS,
-                    gzip=True,
-                    on_first_request=on_first_request,
-                )
-    except (ItemFetchFailedError, TimeoutError) as exc:
+        await validate_url_for_ssrf(url)
+    except SSRFError as exc:
         logger.warning("esri_oapif_recognition_failed", error_class=type(exc).__name__)
         return None
-    evidence = _esri_evidence(url, document, from_url)
-    if evidence is not None:
-        logger.info("esri_oapif_recognised", evidence=evidence)
-    return evidence
+    failure: ItemFetchFailedError = RecognitionFailedError()
+    try:
+        budget = deadline_budget(deadline, error=RecognitionFailedError)
+        async with asyncio.timeout(budget):
+            async with make_safe_client(timeout=PROBE_TIMEOUT) as client:
+                for pause in (*RECOGNITION_RETRY_DELAYS, None):
+                    try:
+                        evidence = await _recognise_once(client, url, collection, arm)
+                    except ServiceErrorResponseError:
+                        raise
+                    except ItemFetchFailedError as exc:
+                        failure = exc
+                        logger.warning(
+                            "esri_oapif_recognition_failed",
+                            error_class=type(exc).__name__,
+                        )
+                        if pause is None:
+                            break
+                        await asyncio.sleep(pause)
+                        continue
+                    if evidence is not None:
+                        logger.info("esri_oapif_recognised", evidence=evidence)
+                    return evidence
+    except TimeoutError:
+        raise RecognitionFailedError() from None
+    if isinstance(failure, EmptyPageError):
+        raise failure
+    raise RecognitionFailedError()

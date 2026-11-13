@@ -26,6 +26,10 @@ EsriEvidence = Literal["url", "redirect", "advertised", "marker"]
 # path in one names the service. Read here only, never followed.
 _SELF_RELS = frozenset({"self", "alternate", "next", "prev", "items"})
 
+# Pauses between recognition reads when a service couldn't be inspected;
+# the caller's deadline still bounds the whole.
+RECOGNITION_RETRY_DELAYS = (1.0, 3.0)
+
 # Output formats ArcGIS lists in WFS capabilities and no other server does.
 _ESRI_WFS_FORMATS = frozenset({"esrigeojson", "esrigeojson+zip", "esrigeojson+gzip"})
 
@@ -87,7 +91,8 @@ def oapif_self_hrefs(document: object) -> list[str]:
         link["href"]
         for link in (links if isinstance(links, list) else [])
         if isinstance(link, dict)
-        and link.get("rel") in _SELF_RELS
+        and isinstance(link.get("rel"), str)
+        and link["rel"] in _SELF_RELS
         and isinstance(link.get("href"), str)
     ]
 

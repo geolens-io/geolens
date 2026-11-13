@@ -41,6 +41,13 @@ from app.platform.service_items import (
 
 pytestmark = pytest.mark.anyio
 
+
+@pytest.fixture(autouse=True)
+def _no_recognition_pauses(monkeypatch):
+    for module in ("app.platform.service_items", "app.platform.arcgis_wfs"):
+        monkeypatch.setattr(f"{module}.RECOGNITION_RETRY_DELAYS", (0.0, 0.0))
+
+
 _FIXTURES = pathlib.Path(__file__).parent / "fixtures" / "esri_ogc"
 _CAPTURED_ORIGIN = "https://services8.arcgis.com/<redacted>"
 _ORIGIN = "https://services.arcgis.example/ORG"
@@ -132,6 +139,7 @@ def _serve(monkeypatch, handler) -> list[httpx.Request]:
     )
     for module in (
         "app.platform.service_endpoints",
+        "app.platform.service_items",
         "app.modules.catalog.sources.adapters.ogcapi",
     ):
         monkeypatch.setattr(f"{module}.validate_url_for_ssrf", AsyncMock())
@@ -565,7 +573,7 @@ class TestAnArcGISCollectionIsReadByTheWalkWithoutACredential:
     async def test_other_ogc_api_servers_keep_gdal(self, monkeypatch) -> None:
         from app.processing.ingest.ogr import run_ogr2ogr_service
 
-        recorded = _serve(monkeypatch, _esri())
+        recorded = _serve(monkeypatch, _pygeoapi)
         seen = _spawn_reading_the_source(monkeypatch)
 
         await run_ogr2ogr_service(
@@ -578,9 +586,9 @@ class TestAnArcGISCollectionIsReadByTheWalkWithoutACredential:
         )
 
         assert "OAPIF:https://ogc.example.test/features" in seen[0]["argv"]
-        (recognition,) = recorded
-        assert recognition.url.path == "/features/collections/0/items"
-        assert recognition.url.params["limit"] == "1"
+        collection, items = recorded
+        assert collection.url.path == "/features/collections/0"
+        assert items.url.params["limit"] == "1"
 
     async def test_the_preview_reads_the_walk(self, monkeypatch) -> None:
         from app.modules.catalog.sources.preview import run_service_preview
@@ -1378,6 +1386,17 @@ def _pygeoapi(request: httpx.Request) -> httpx.Response:
     """Answers as pygeoapi and GeoServer do: counts and plain links, no
     top-level ``properties``."""
     base = "https://ogc.example.test/features/collections/lakes/items"
+    path = request.url.path
+    if "/collections/" in path and not path.endswith("/items"):
+        return _json(
+            {
+                "id": "lakes",
+                "links": [
+                    {"rel": "self", "href": base.removesuffix("/items")},
+                    {"rel": "items", "type": "application/geo+json", "href": base},
+                ],
+            }
+        )
     if request.url.path.endswith("/items"):
         return _json(
             {
@@ -1555,7 +1574,7 @@ class TestAnArcGISCollectionBehindAnotherURLIsReadWhole:
         await self._import("https://ogc.example.test/features", "lakes")
 
         assert "OAPIF:https://ogc.example.test/features" in seen[0]["argv"]
-        assert len(recorded) == 1
+        assert len(recorded) == 2
 
 
 class TestWhatRecognisesAnArcGISCollection:
@@ -1609,8 +1628,6 @@ class TestWhatRecognisesAnArcGISCollection:
         "response",
         [
             pytest.param(lambda r: _pygeoapi(r), id="pygeoapi"),
-            pytest.param(lambda r: _streamed(404, b"", "text/html"), id="not-found"),
-            pytest.param(lambda r: _streamed(200, b"<html>", "text/html"), id="html"),
             pytest.param(
                 lambda r: _json({"type": "FeatureCollection", "links": "x"}),
                 id="links-not-a-list",
@@ -1756,9 +1773,8 @@ class TestAnArcGISWFSBehindAnotherURLIsCounted:
             (_capabilities(_ARCGIS_WFS), "advertised"),
             (_capabilities(_PROXIED_WFS, formats=("GML32", "ESRIGEOJSON")), "marker"),
             (_capabilities(_PROXIED_WFS, formats=("GML32", "GEOJSON")), None),
-            (b"<not xml", None),
         ],
-        ids=["endpoint", "esri-format", "neither", "unparsable"],
+        ids=["endpoint", "esri-format", "neither"],
     )
     async def test_what_recognises_it(
         self, monkeypatch, capabilities, evidence
@@ -1770,3 +1786,273 @@ class TestAnArcGISWFSBehindAnotherURLIsCounted:
         found = await recognise_arcgis_wfs(_PROXIED_WFS, credential_line=None)
 
         assert (found and found.evidence) == evidence
+
+
+def _failing_first(count: int, handler):
+    """Answer HTTP 503 to the first ``count`` requests, then as ``handler``."""
+    calls = {"n": 0}
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] <= count:
+            return _streamed(503, b"busy", "text/plain")
+        return handler(request)
+
+    return handle
+
+
+class TestARecognitionThatCannotFinishStopsTheImport:
+    """Without an answer, GDAL could keep only the last page, so a read that
+    still fails after its retries refuses rather than falling back."""
+
+    @pytest.fixture(autouse=True)
+    def _staging_dir(self, tmp_path, monkeypatch):
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path / "staging"))
+
+    async def _import(self, url: str) -> None:
+        from app.processing.ingest.ogr import run_ogr2ogr_service
+
+        await run_ogr2ogr_service(
+            f"OAPIF:{url}", "0", "t", "PG:dbname=x", "ogcapi_features", schema="data"
+        )
+
+    async def test_a_transient_failure_is_retried(self, monkeypatch) -> None:
+        _serve(
+            monkeypatch,
+            _failing_first(2, _behind("/parcels", _esri(_three_esri_pages()))),
+        )
+        seen = _spawn_reading_the_source(monkeypatch)
+
+        await self._import(_VANITY)
+
+        (spawn,) = seen
+        assert [len(f) for f in spawn["features"]] == [9]
+
+    async def test_failing_every_attempt_refuses_before_gdal(self, monkeypatch) -> None:
+        from app.core.failure_reason import failure_code, redact_failure_reason
+        from app.platform.service_items import RecognitionFailedError
+
+        _serve(
+            monkeypatch,
+            _failing_first(3, _behind("/parcels", _esri(_three_esri_pages()))),
+        )
+        seen = _spawn_reading_the_source(monkeypatch)
+
+        with pytest.raises(RecognitionFailedError) as caught:
+            await self._import(_VANITY)
+
+        assert seen == []
+        assert failure_code(redact_failure_reason(caught.value)) == "service_error"
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            pytest.param(lambda r: _streamed(404, b"", "text/html"), id="not-found"),
+            pytest.param(lambda r: _streamed(200, b"<html>", "text/html"), id="html"),
+        ],
+    )
+    async def test_an_uninspectable_server_is_refused(
+        self, monkeypatch, response
+    ) -> None:
+        from app.platform.service_items import RecognitionFailedError
+
+        _serve(monkeypatch, response)
+        seen = _spawn_reading_the_source(monkeypatch)
+
+        with pytest.raises(RecognitionFailedError):
+            await self._import(_PROXY)
+        assert seen == []
+
+    async def test_the_preview_answers_a_coded_422(self, monkeypatch) -> None:
+        from fastapi import HTTPException
+
+        from app.modules.catalog.sources.preview import run_service_preview
+
+        _serve(monkeypatch, lambda r: _streamed(503, b"busy", "text/plain"))
+        seen = _spawn_reading_the_source(monkeypatch, stdout=b"{}")
+
+        with pytest.raises(HTTPException) as caught:
+            await run_service_preview(f"OAPIF:{_PROXY}", "0")
+
+        assert caught.value.status_code == 422
+        assert caught.value.detail["code"] == "service_error"
+        assert seen == []
+
+
+_ODD = "https://gis.example.test/parcels"
+
+
+def _odd_layout(request: httpx.Request) -> httpx.Response:
+    """A proxy whose collection advertises its items at a relative,
+    nonconventional path that needs an ``f`` parameter."""
+    path = request.url.path
+    if path == "/parcels/collections/0":
+        return _json(
+            {
+                "id": "0",
+                "links": [
+                    {"rel": "items", "type": "text/html", "href": "../../html/0"},
+                    {
+                        "rel": "items",
+                        "type": "application/geo+json",
+                        "href": "../../layers/0/features?f=geojson",
+                    },
+                ],
+            }
+        )
+    if path == "/layers/0/features":
+        if request.url.params.get("f") != "geojson":
+            return _streamed(400, b"f required", "text/plain")
+        offset = int(request.url.params.get("offset", 0))
+        if offset >= 8:
+            return _json(_fixture("items-last-partial-page.json"))
+        page = _fixture("items-page-with-next.json")
+        page["links"] = [
+            {
+                "rel": "next",
+                "href": f"/layers/0/features?f=geojson&offset={offset + 4}",
+            }
+        ]
+        return _json(page)
+    return _streamed(404, b"Not Found", "text/html")
+
+
+class TestRecognitionFollowsTheAdvertisedItemsLink:
+    @pytest.fixture(autouse=True)
+    def _staging_dir(self, tmp_path, monkeypatch):
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path / "staging"))
+
+    async def test_the_import_reads_every_page(self, monkeypatch) -> None:
+        from app.processing.ingest.ogr import run_ogr2ogr_service
+
+        recorded = _serve(monkeypatch, _odd_layout)
+        seen = _spawn_reading_the_source(monkeypatch)
+
+        await run_ogr2ogr_service(
+            f"OAPIF:{_ODD}", "0", "t", "PG:dbname=x", "ogcapi_features", schema="data"
+        )
+
+        (spawn,) = seen
+        assert [len(f) for f in spawn["features"]] == [9]
+        probe = recorded[1]
+        assert probe.url.path == "/layers/0/features"
+        assert (probe.url.params["f"], probe.url.params["limit"]) == ("geojson", "1")
+
+    async def test_the_preview_reads_the_walk(self, monkeypatch) -> None:
+        from app.modules.catalog.sources.preview import run_service_preview
+
+        _serve(monkeypatch, _odd_layout)
+        seen = _spawn_reading_the_source(monkeypatch, stdout=b"{}")
+
+        await run_service_preview(f"OAPIF:{_ODD}", "0")
+
+        (spawn,) = seen
+        assert not any(str(a).startswith("OAPIF:") for a in spawn["argv"])
+
+
+class TestALinkWhoseRelIsNotAStringIsSkipped:
+    @pytest.mark.parametrize("rel", [["self"], {"self": 1}, 3, None])
+    def test_the_link_readers(self, rel) -> None:
+        from app.platform.esri_services import oapif_self_hrefs
+        from app.platform.service_endpoints import _ogcapi_link_hrefs
+
+        document = {
+            "links": [
+                {"rel": rel, "href": f"{_SERVICE}/collections/0"},
+                {"rel": "self", "href": "https://ogc.example.test/features"},
+            ]
+        }
+
+        assert oapif_self_hrefs(document) == ["https://ogc.example.test/features"]
+        assert _ogcapi_link_hrefs(document, frozenset({"self"})) == [
+            "https://ogc.example.test/features"
+        ]
+
+    @pytest.mark.parametrize("links", [5, "x", {"rel": "self"}, None])
+    def test_links_that_are_not_a_list(self, links) -> None:
+        from app.platform.esri_services import oapif_self_hrefs
+        from app.platform.service_endpoints import _ogcapi_link_hrefs
+
+        assert oapif_self_hrefs({"links": links}) == []
+        assert _ogcapi_link_hrefs({"links": links}, frozenset({"self"})) == []
+
+    async def test_recognition_reads_past_it(self, monkeypatch) -> None:
+        from app.platform.service_items import recognise_esri_oapif
+
+        _serve(
+            monkeypatch,
+            lambda r: _json(
+                {
+                    "type": "FeatureCollection",
+                    "features": [],
+                    "links": [
+                        {"rel": ["self"], "href": "x"},
+                        {"rel": "items", "href": 5},
+                    ],
+                }
+            ),
+        )
+
+        assert await recognise_esri_oapif(_PROXY, "0") is None
+
+
+class TestAnUnreadableWFSCapabilitiesStopsTheImport:
+    @pytest.fixture(autouse=True)
+    def _no_ssrf(self, monkeypatch):
+        for module in ("app.platform.arcgis_wfs", "app.platform.security"):
+            monkeypatch.setattr(f"{module}.validate_url_for_ssrf", AsyncMock())
+
+    async def _import(self) -> None:
+        from app.processing.ingest.ogr import run_ogr2ogr_service
+
+        await run_ogr2ogr_service(
+            f"WFS:{_PROXIED_WFS}",
+            "glTrial2Ogc:pts",
+            "t",
+            "PG:dbname=x",
+            "wfs",
+            schema="data",
+        )
+
+    async def test_a_transient_failure_is_retried_and_counted(
+        self, monkeypatch
+    ) -> None:
+        from app.processing.ingest.ogr import WfsCountMismatchError
+
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr.staged_row_count", AsyncMock(return_value=10)
+        )
+        _serve(monkeypatch, _failing_first(2, _wfs(_capabilities(_ARCGIS_WFS))))
+        _spawn_reading_the_source(monkeypatch)
+
+        with pytest.raises(WfsCountMismatchError, match="returned 10 of 25"):
+            await self._import()
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            pytest.param(lambda r: _streamed(503, b"", "text/plain"), id="down"),
+            pytest.param(lambda r: _streamed(200, b"<not xml", "text/xml"), id="junk"),
+        ],
+    )
+    async def test_failing_every_attempt_refuses_before_gdal(
+        self, monkeypatch, response
+    ) -> None:
+        from app.core.failure_reason import failure_code, redact_failure_reason
+        from app.processing.ingest.ogr import IngestionError
+
+        recorded = _serve(monkeypatch, response)
+        seen = _spawn_reading_the_source(monkeypatch)
+
+        with pytest.raises(IngestionError) as caught:
+            await self._import()
+
+        assert seen == []
+        assert len(recorded) == 3
+        assert failure_code(redact_failure_reason(caught.value)) == (
+            "arcgis_wfs_count_unavailable"
+        )

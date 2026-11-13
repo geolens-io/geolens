@@ -18,7 +18,12 @@ import httpx
 import structlog
 
 from app.platform.egress_proxy import pinned_origin
-from app.platform.esri_services import EsriEvidence, esri_evidence, wfs_format_is_esri
+from app.platform.esri_services import (
+    RECOGNITION_RETRY_DELAYS,
+    EsriEvidence,
+    esri_evidence,
+    wfs_format_is_esri,
+)
 from app.platform.probe_bounds import bounded_probe_exchange
 from app.platform.security import (
     PROBE_TIMEOUT,
@@ -151,6 +156,11 @@ async def _read(
     return _Answer(body, str(response.url))
 
 
+class CapabilitiesUnreadableError(Exception):
+    """GetCapabilities couldn't be read, so whether ArcGIS serves a WFS whose
+    URL doesn't say is unknown."""
+
+
 class ArcGISWfs(NamedTuple):
     """What recognised an ArcGIS WFS, and the WFS version its reads speak."""
 
@@ -183,8 +193,11 @@ async def recognise_arcgis_wfs(
 
     A URL naming the service decides on its own. Otherwise GetCapabilities
     does: the URL it ended on after redirects, the operation endpoints it
-    advertises, or an output format only ArcGIS lists. A failed read
-    recognises nothing.
+    advertises, or an output format only ArcGIS lists. A read that fails
+    or doesn't parse is retried after each of `RECOGNITION_RETRY_DELAYS`,
+    then raises `CapabilitiesUnreadableError`: unrecognised, an ArcGIS
+    layer would be imported unchecked. An address the SSRF check refuses
+    answers None, since GDAL's egress proxy refuses it too.
 
     The version is the URL's own, else the one GetCapabilities answers in,
     as GDAL settles on it, else 2.0.0; GetCapabilities isn't read when the
@@ -194,9 +207,18 @@ async def recognise_arcgis_wfs(
     evidence = esri_evidence("wfs", url)
     if evidence is not None and version is not None:
         return ArcGISWfs(evidence, version)
-    answer = await _read(_capabilities_url(url), credential_line, on_first_request)
-    root = None if answer is None else _root(answer.body)
-    if evidence is None and root is not None:
+    if evidence is None:
+        try:
+            await validate_url_for_ssrf(_capabilities_url(url))
+        except SSRFError as exc:
+            logger.warning("arcgis_wfs_read_failed", error_class=type(exc).__name__)
+            return None
+    answer, root = await _read_capabilities(
+        url, credential_line, on_first_request, retry=evidence is None
+    )
+    if evidence is None:
+        if answer is None or root is None:
+            raise CapabilitiesUnreadableError()
         evidence = esri_evidence(
             "wfs",
             url,
@@ -210,6 +232,25 @@ async def recognise_arcgis_wfs(
         return None
     answered = None if root is None else root.get("version")
     return ArcGISWfs(evidence, version or answered or _DEFAULT_VERSION)
+
+
+async def _read_capabilities(
+    url: str,
+    credential_line: str | None,
+    on_first_request: Callable[[], None] | None,
+    *,
+    retry: bool,
+) -> tuple[_Answer | None, object | None]:
+    """GetCapabilities and its parsed root, either None when unread."""
+    pauses = (*RECOGNITION_RETRY_DELAYS, None) if retry else (None,)
+    answer = root = None
+    for pause in pauses:
+        answer = await _read(_capabilities_url(url), credential_line, on_first_request)
+        root = None if answer is None else _root(answer.body)
+        if root is not None or pause is None:
+            break
+        await asyncio.sleep(pause)
+    return answer, root
 
 
 async def fetch_arcgis_wfs_hits(
