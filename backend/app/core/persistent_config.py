@@ -18,8 +18,10 @@ from typing import Any, Generic, TypeVar, cast
 import structlog
 from fastapi import HTTPException
 from pydantic import TypeAdapter, ValidationError
-from sqlalchemy import select, text
+from sqlalchemy import case, func, literal, select, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.platform.cache import get_cache
 from app.platform.cache.provider import CacheProvider
@@ -198,6 +200,27 @@ class PersistentConfig(Generic[T]):
             effective, _ = _validate_or_fallback(self, unwrapped)
             return effective
         return self.env_default
+
+    def committed_flag(self) -> ColumnElement[bool]:
+        """SQL for a boolean key's committed value, for a statement to embed.
+
+        Reads like ``get_uncached`` without a query of its own. ``set`` stores
+        a boolean as ``{"v": true|false}``; any other stored value, or no row,
+        reads as the env default.
+        """
+        default = literal(bool(self.env_default))
+        if _is_env_only():
+            return default
+        stored = (
+            select(func.coalesce(AppSetting.value["v"], AppSetting.value))
+            .where(AppSetting.key == self.key)
+            .scalar_subquery()
+        )
+        return case(
+            (stored == literal(True, JSONB), literal(True)),
+            (stored == literal(False, JSONB), literal(False)),
+            else_=default,
+        )
 
     async def set(
         self,

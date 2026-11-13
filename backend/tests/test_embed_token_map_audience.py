@@ -8,10 +8,11 @@ from httpx import AsyncClient
 from sqlalchemy import delete, insert, select, update
 
 from app.core.config import settings
+from app.core.db.models import AppSetting
+from app.core.persistent_config import RESTRICT_PUBLIC_VISIBILITY
 from app.modules.auth.models import Role, UserRole
 from app.modules.catalog.maps.models import Map
 from app.modules.catalog.write_recheck import PUBLIC_VISIBILITY_DENIED
-from app.modules.embed_tokens import service as embed_service
 from app.modules.embed_tokens.router import RESTRICTED_MAP_EMBED_REFUSED
 from app.modules.embed_tokens.service import (
     resolve_embed_scope_for_map,
@@ -34,27 +35,32 @@ def _restrict_public_visibility(monkeypatch):
         get_uncached = get
 
     monkeypatch.setattr(pc, "RESTRICT_PUBLIC_VISIBILITY", _AlwaysOn())
-    monkeypatch.setattr(embed_service, "RESTRICT_PUBLIC_VISIBILITY", _AlwaysOn())
 
 
-class _Switch:
-    def __init__(self) -> None:
-        self.on = False
+class _Setting:
+    """Writes the committed ``restrict_public_visibility`` row."""
 
-    async def get(self, _db):
-        return self.on
+    def __init__(self, session) -> None:
+        self.session = session
 
-    get_uncached = get
+    async def turn(self, on: bool) -> None:
+        stored = await self.session.get(AppSetting, RESTRICT_PUBLIC_VISIBILITY.key)
+        if stored is None:
+            self.session.add(
+                AppSetting(key=RESTRICT_PUBLIC_VISIBILITY.key, value={"v": on})
+            )
+        else:
+            stored.value = {"v": on}
+        await self.session.commit()
 
 
 @pytest.fixture
-def public_visibility_switch(monkeypatch) -> _Switch:
-    import app.core.persistent_config as pc
-
-    switch = _Switch()
-    monkeypatch.setattr(pc, "RESTRICT_PUBLIC_VISIBILITY", switch)
-    monkeypatch.setattr(embed_service, "RESTRICT_PUBLIC_VISIBILITY", switch)
-    return switch
+async def public_visibility_setting(test_db_session):
+    yield _Setting(test_db_session)
+    await test_db_session.execute(
+        delete(AppSetting).where(AppSetting.key == RESTRICT_PUBLIC_VISIBILITY.key)
+    )
+    await test_db_session.commit()
 
 
 @pytest.fixture
@@ -260,7 +266,7 @@ async def test_a_mint_waiting_on_its_owners_demotion_is_judged_on_the_new_role(
 
 
 async def test_a_non_admin_token_on_a_private_map_serves_only_while_public_visibility_is_open(
-    client: AsyncClient, test_db_session, editor, public_visibility_switch
+    client: AsyncClient, test_db_session, editor, public_visibility_setting
 ):
     map_id, dataset_id = await _map_with_layer(
         client, test_db_session, editor["headers"], editor["id"], "private"
@@ -270,13 +276,13 @@ async def test_a_non_admin_token_on_a_private_map_serves_only_while_public_visib
     raw_token = minted.json()["raw_token"]
     assert await validate_embed_token_access(raw_token, dataset_id, test_db_session)
 
-    public_visibility_switch.on = True
+    await public_visibility_setting.turn(True)
     assert not await validate_embed_token_access(raw_token, dataset_id, test_db_session)
     assert not await resolve_embed_scope_for_map(
         test_db_session, raw_token, uuid.UUID(map_id)
     )
 
-    public_visibility_switch.on = False
+    await public_visibility_setting.turn(False)
     assert await validate_embed_token_access(raw_token, dataset_id, test_db_session)
     assert await resolve_embed_scope_for_map(
         test_db_session, raw_token, uuid.UUID(map_id)
@@ -288,7 +294,7 @@ async def test_restricted_public_visibility_keeps_admin_and_public_map_tokens(
     admin_auth_header,
     test_db_session,
     editor,
-    public_visibility_switch,
+    public_visibility_setting,
 ):
     admin_id = await get_user_id(test_db_session, settings.geolens_admin_username)
     admin_map, admin_dataset = await _map_with_layer(
@@ -305,7 +311,7 @@ async def test_restricted_public_visibility_keeps_admin_and_public_map_tokens(
         "raw_token"
     ]
 
-    public_visibility_switch.on = True
+    await public_visibility_setting.turn(True)
 
     assert await validate_embed_token_access(
         admin_token, admin_dataset, test_db_session

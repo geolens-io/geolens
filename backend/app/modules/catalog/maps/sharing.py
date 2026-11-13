@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.core.identity import Identity
+from app.core.persistent_config import RESTRICT_PUBLIC_VISIBILITY
 from app.core.text import escape_ilike
 from app.modules.auth.permissions import user_standing_columns
 from app.modules.catalog.authorization import (
@@ -135,17 +136,13 @@ async def get_map_embed_scope(
     )
 
 
-def _map_admits_embed_token(
-    minter_id: uuid.UUID | None, public_visibility_restricted: bool
-) -> ColumnElement[bool]:
+def _map_admits_embed_token(minter_id: uuid.UUID | None) -> ColumnElement[bool]:
     """The map isn't restricted to its groups and, while public visibility is
     restricted to admins, is public or the token's minter is an admin now:
-    the rule that refuses such a mint."""
-    admits = Map.visibility != RESTRICTED_MAP_VISIBILITY
-    if not public_visibility_restricted:
-        return admits
+    the rule that refuses such a mint. Reads the setting as committed."""
     minter_roles = user_standing_columns(minter_id)[0]
-    return admits & or_(
+    return (Map.visibility != RESTRICTED_MAP_VISIBILITY) & or_(
+        ~RESTRICT_PUBLIC_VISIBILITY.committed_flag(),
         Map.visibility.in_(ANONYMOUS_MAP_VISIBILITIES),
         literal("admin") == any_(minter_roles),
     )
@@ -157,7 +154,6 @@ async def map_embeds_dataset(
     dataset_id: uuid.UUID,
     *,
     minter_id: uuid.UUID | None,
-    public_visibility_restricted: bool,
 ) -> bool:
     """Whether a map's embed tokens may still serve a dataset: it is a live
     layer on a map that still admits the token (``_map_admits_embed_token``)."""
@@ -167,7 +163,7 @@ async def map_embeds_dataset(
         .where(
             MapLayer.map_id == map_id,
             MapLayer.dataset_id == dataset_id,
-            _map_admits_embed_token(minter_id, public_visibility_restricted),
+            _map_admits_embed_token(minter_id),
         )
         .limit(1)
     )
@@ -175,18 +171,11 @@ async def map_embeds_dataset(
 
 
 async def map_admits_embed_token(
-    session: AsyncSession,
-    map_id: uuid.UUID,
-    *,
-    minter_id: uuid.UUID | None,
-    public_visibility_restricted: bool,
+    session: AsyncSession, map_id: uuid.UUID, *, minter_id: uuid.UUID | None
 ) -> bool:
     """Whether the map still admits a token its ``minter_id`` minted."""
     result = await session.execute(
-        select(Map.id).where(
-            Map.id == map_id,
-            _map_admits_embed_token(minter_id, public_visibility_restricted),
-        )
+        select(Map.id).where(Map.id == map_id, _map_admits_embed_token(minter_id))
     )
     return result.scalar_one_or_none() is not None
 

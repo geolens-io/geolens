@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
 from app.core.edition import is_enterprise
-from app.core.persistent_config import RESTRICT_PUBLIC_VISIBILITY
 from app.core.public_urls import (
     get_configured_public_app_url,
     is_loopback_host,
@@ -651,12 +650,7 @@ async def resolve_embed_scope_for_map(
     # validate_embed_token_access, so the two cannot drift.
     if not await _request_origin_is_allowed(db, request, token.allowed_origins):
         return set()
-    if not await map_admits_embed_token(
-        db,
-        map_id,
-        minter_id=token.created_by,
-        public_visibility_restricted=await RESTRICT_PUBLIC_VISIBILITY.get(db),
-    ):
+    if not await map_admits_embed_token(db, map_id, minter_id=token.created_by):
         return set()
 
     scoped: set[uuid.UUID] = set()
@@ -831,13 +825,7 @@ async def validate_embed_token_access(
         minter_id = uuid.UUID(raw_minter) if raw_minter else None
     if live_map_id is None:
         return False
-    if not await map_embeds_dataset(
-        db,
-        live_map_id,
-        dataset_id,
-        minter_id=minter_id,
-        public_visibility_restricted=await RESTRICT_PUBLIC_VISIBILITY.get(db),
-    ):
+    if not await map_embeds_dataset(db, live_map_id, dataset_id, minter_id=minter_id):
         return False
     if dataset_id not in await datasets_account_can_read(db, [dataset_id], minter_id):
         return False
