@@ -18,8 +18,10 @@ from typing import Any, Generic, TypeVar, cast
 import structlog
 from fastapi import HTTPException
 from pydantic import TypeAdapter, ValidationError
-from sqlalchemy import select, text
+from sqlalchemy import Numeric, Text, case, func, literal, literal_column, select, text
+from sqlalchemy import cast as sql_cast
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.platform.cache import get_cache
 from app.platform.cache.provider import CacheProvider
@@ -43,6 +45,9 @@ T = TypeVar("T")
 
 _CACHE_TTL = 30  # seconds
 _CACHE_PREFIX = "config:"
+# The strings pydantic's lax ``bool`` accepts, compared lowercased.
+_LAX_TRUE_STRINGS = ("1", "on", "t", "true", "y", "yes")
+_LAX_FALSE_STRINGS = ("0", "off", "f", "false", "n", "no")
 # Marks an omitted ``old_value``; ``None`` is a real setting value.
 _UNSET: Any = object()
 
@@ -198,6 +203,36 @@ class PersistentConfig(Generic[T]):
             effective, _ = _validate_or_fallback(self, unwrapped)
             return effective
         return self.env_default
+
+    def committed_flag(self) -> ColumnElement[bool]:
+        """SQL for a boolean key's committed value, for a statement to embed.
+
+        Gives the answer ``get_uncached`` would without a query of its own:
+        the stored value, wrapped or raw, decoded as pydantic's lax ``bool``
+        decodes it; no row or any other value reads as the env default.
+        """
+        default = literal(bool(self.env_default))
+        if _is_env_only():
+            return default
+        stored = func.coalesce(AppSetting.value["v"], AppSetting.value)
+        kind = func.jsonb_typeof(stored)
+        as_text = stored.op("#>>", return_type=Text)(literal_column("'{}'::text[]"))
+        spelled = func.lower(as_text)
+        number = sql_cast(as_text, Numeric)
+        decoded = case(
+            (kind == "boolean", as_text == "true"),
+            (
+                kind == "string",
+                case(
+                    (spelled.in_(_LAX_TRUE_STRINGS), True),
+                    (spelled.in_(_LAX_FALSE_STRINGS), False),
+                ),
+            ),
+            # Nested so the cast only runs on a JSON number.
+            (kind == "number", case((number == 1, True), (number == 0, False))),
+        )
+        committed = select(decoded).where(AppSetting.key == self.key)
+        return func.coalesce(committed.scalar_subquery(), default)
 
     async def set(
         self,

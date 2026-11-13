@@ -1382,8 +1382,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # http allowlist; split by configuration domain before raising further.
     "backend/app/core/config.py": 1511,
     # Config resolution coordinates validation, overrides, caching, audit and side
-    # effects, including model defaults that follow the selected LLM provider.
-    "backend/app/core/persistent_config.py": 1221,
+    # effects, model defaults that follow the selected LLM provider, and SQL
+    # reads of a committed flag.
+    "backend/app/core/persistent_config.py": 1256,
     # Backfill batches share vector/model validation and progress/cancellation
     # semantics.
     "backend/app/processing/embeddings/backfill.py": 909,
@@ -1452,8 +1453,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # protocol.
     "backend/app/processing/export/artifact_cache.py": 616,
     # Embed tokens share origin/scope checks, revocation, cached-denial behavior
-    # and the token map's reader settings.
-    "backend/app/modules/embed_tokens/service.py": 1009,
+    # and the token map's reader settings and audience.
+    "backend/app/modules/embed_tokens/service.py": 1008,
     # Feature reads/writes share schema typing, safe SQL and geometry/metadata
     # invariants; temporal writes reuse the validated filter parsers, batch
     # inserts reuse the single-insert validation, batch deletes the prior-envelope

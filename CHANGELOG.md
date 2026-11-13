@@ -71,6 +71,10 @@ and releases use semantic versioning.
 - An import or refresh that fails on an ArcGIS WFS count (`arcgis_wfs_count_unavailable`, `arcgis_wfs_short`, `arcgis_wfs_repeated`) or on an OGC API Features page read (`service_auth_refused`, `service_error`, `service_empty_page`) stores that code with its reason, so the job and refresh views show the failure in the reader's language.
 - `HEAD` now answers on a map's `style.json`, a 3D Tiles dataset's files and `/api/health` with GET's status and headers; it returned 405.
 
+### Security
+- An admin transfer of a map to another owner revokes the map's embed tokens, which served with the previous owner's rights, so they stop being accepted at once; the new owner mints a fresh one, and the `map.transfer_owner` audit entry counts the tokens revoked. Tile URLs already signed through such a token keep working until they expire, at most 16 minutes.
+- While public visibility is restricted to admins, an embed token a non-admin minted on a private or internal map stops being accepted at once for tiles, features and the shared-map view, and is accepted again if the setting is turned off. Tile URLs already signed through such a token keep working until they expire, at most 16 minutes.
+
 ## [1.31.0] - 2026-11-10
 
 An instance on 1.30.1 moves to 1.31.0 with one additive migration (0103,
