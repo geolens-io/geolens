@@ -7,6 +7,7 @@ from sqlalchemy import text
 from httpx import AsyncClient
 
 from tests.factories import get_user_id
+from tests.test_ogc_features_filter import filter_dataset  # noqa: F401
 from tests.test_ogc_features import _cleanup_table, _create_test_table_and_dataset
 
 pytestmark = pytest.mark.anyio
@@ -230,3 +231,49 @@ async def test_a_missing_table_answers_503_not_304(
     resp = await client.get(url, headers={"If-None-Match": tag})
 
     assert resp.status_code == 503
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"offset": "9223372036854775808"},
+        {"filter": "nope ??"},
+    ],
+)
+async def test_a_star_precondition_never_hides_a_request_error(
+    client: AsyncClient, points, params: dict
+) -> None:
+    url = f"/collections/{points.id}/items"
+
+    bare = await client.get(url, params=params)
+    starred = await client.get(url, params=params, headers={"If-None-Match": "*"})
+
+    assert bare.status_code >= 400
+    assert starred.status_code == bare.status_code
+
+
+async def test_a_star_precondition_on_a_valid_request_answers_304_with_validators(
+    client: AsyncClient, points
+) -> None:
+    url = f"/collections/{points.id}/items"
+    tag = await _etag(client, url)
+
+    resp = await client.get(url, headers={"If-None-Match": "*"})
+
+    assert resp.status_code == 304
+    assert resp.content == b""
+    assert resp.headers["etag"] == tag
+
+
+async def test_a_star_precondition_never_hides_an_invalid_typed_value(
+    client: AsyncClient,
+    filter_dataset,  # noqa: F811
+) -> None:
+    url = f"/collections/{filter_dataset.id}/items"
+    params = {"cat": "abc"}
+
+    bare = await client.get(url, params=params)
+    starred = await client.get(url, params=params, headers={"If-None-Match": "*"})
+
+    assert bare.status_code == 400
+    assert starred.status_code == 400

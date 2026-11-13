@@ -961,6 +961,7 @@ async def get_collection_items(
     # visibility check ran first. A registered table is written directly by its
     # owner, which moves no catalog counter, so it gets no validator.
     validators: dict[str, str] = {}
+    star = False
     if geolens_owns_table(
         dataset.source_format, dataset.record.record_type, dataset.origin_ref
     ):
@@ -973,9 +974,12 @@ async def get_collection_items(
             after_gid=after_gid,
             carries_credentials=request_carries_credentials(request),
         )
-        if if_none_match_matches(
-            request.headers.get("if-none-match"),
-            validators["ETag"].removeprefix("W/"),
+        # A tag that matches came from an earlier 200 for these parameters, so
+        # they were valid; `*` carries no such proof and 304s at the end.
+        if_none_match = request.headers.get("if-none-match")
+        star = "*" in (t.strip() for t in (if_none_match or "").split(","))
+        if not star and if_none_match_matches(
+            if_none_match, validators["ETag"].removeprefix("W/")
         ):
             # A missing table stays the retryable 503, not a 304.
             try:
@@ -1036,6 +1040,9 @@ async def get_collection_items(
                 detail="Dataset table is temporarily unavailable",
             )
         raise
+
+    if validators and star:
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=validators)
 
     features = [
         {
