@@ -38,6 +38,7 @@ from app.platform.service_endpoints import (
     _capabilities_url,
     _local_name,
     _operation_hrefs,
+    _wfs_capabilities_node,
     _url_add_kvp,
     _wfs_root,
     bounded_parse_qsl,
@@ -241,12 +242,14 @@ async def _read_capabilities(
     *,
     retry: bool,
 ) -> tuple[_Answer | None, object | None]:
-    """GetCapabilities and its parsed root, either None when unread."""
+    """GetCapabilities and its ``WFS_Capabilities`` node, either None when
+    unread. An exception report or any other document counts as unread."""
     pauses = (*RECOGNITION_RETRY_DELAYS, None) if retry else (None,)
     answer = root = None
     for pause in pauses:
         answer = await _read(_capabilities_url(url), credential_line, on_first_request)
         root = None if answer is None else _root(answer.body)
+        root = None if root is None else _wfs_capabilities_node(root)
         if root is not None or pause is None:
             break
         await asyncio.sleep(pause)

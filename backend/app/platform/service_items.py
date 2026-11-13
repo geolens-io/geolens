@@ -962,7 +962,11 @@ async def _recognise_once(
         gzip=True,
         on_first_request=on_first_request,
     )
-    return _esri_evidence(url, _require_object(document, "items page"), from_url)
+    page = _require_object(document, "items page")
+    if page.get("type") != "FeatureCollection":
+        # A 200 carrying an exception document is no answer about the server.
+        raise ItemFetchFailedError("malformed items page")
+    return _esri_evidence(url, page, from_url)
 
 
 async def recognise_esri_oapif(
@@ -981,9 +985,10 @@ async def recognise_esri_oapif(
     or next link naming it, or ArcGIS's ``exceededTransferLimit`` member
     recognises it.
 
-    A read that fails is retried after each of `RECOGNITION_RETRY_DELAYS`
-    within ``deadline``. Then an error envelope or empty page is raised as
-    itself, and any other failure as `RecognitionFailedError`: without an
+    A read that fails, or answers with anything but a collection document
+    and a feature collection, is retried after each of
+    `RECOGNITION_RETRY_DELAYS` within ``deadline``; a refused credential is
+    raised at once. Then an error envelope or empty page is raised as itself, and any other failure as `RecognitionFailedError`: without an
     answer, GDAL could publish part of an ArcGIS collection. An address the
     SSRF check refuses answers None, since GDAL's egress proxy refuses it too.
     """
@@ -1004,9 +1009,10 @@ async def recognise_esri_oapif(
                 for pause in (*RECOGNITION_RETRY_DELAYS, None):
                     try:
                         evidence = await _recognise_once(client, url, collection, arm)
-                    except ServiceErrorResponseError:
-                        raise
                     except ItemFetchFailedError as exc:
+                        # A refused credential won't clear on a retry.
+                        if exc.code == SERVICE_AUTH_REFUSED_CODE:
+                            raise
                         failure = exc
                         logger.warning(
                             "esri_oapif_recognition_failed",
@@ -1021,6 +1027,6 @@ async def recognise_esri_oapif(
                     return evidence
     except TimeoutError:
         raise RecognitionFailedError() from None
-    if isinstance(failure, EmptyPageError):
+    if isinstance(failure, (EmptyPageError, ServiceErrorResponseError)):
         raise failure
     raise RecognitionFailedError()

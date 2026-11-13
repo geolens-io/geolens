@@ -2079,3 +2079,132 @@ class TestAnUnreadableWFSCapabilitiesStopsTheImport:
         assert failure_code(redact_failure_reason(caught.value)) == (
             "arcgis_wfs_count_unavailable"
         )
+
+
+_EXCEPTION_REPORT = (
+    b'<ows:ExceptionReport xmlns:ows="http://www.opengis.net/ows/1.1" '
+    b'version="2.0.0"><ows:Exception exceptionCode="NoApplicableCode">'
+    b"<ows:ExceptionText>busy</ows:ExceptionText></ows:Exception>"
+    b"</ows:ExceptionReport>"
+)
+
+
+def _reporting_first(count: int, handler):
+    """Answer the first ``count`` requests with an HTTP 200 exception report."""
+    calls = {"n": 0}
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] <= count:
+            return _streamed(200, _EXCEPTION_REPORT, "application/xml")
+        return handler(request)
+
+    return handle
+
+
+class TestAnExceptionReportIsNotCapabilities:
+    @pytest.fixture(autouse=True)
+    def _no_ssrf(self, monkeypatch):
+        for module in ("app.platform.arcgis_wfs", "app.platform.security"):
+            monkeypatch.setattr(f"{module}.validate_url_for_ssrf", AsyncMock())
+
+    async def test_a_report_then_capabilities_recognises_on_the_retry(
+        self, monkeypatch
+    ) -> None:
+        from app.platform.arcgis_wfs import recognise_arcgis_wfs
+
+        _serve(monkeypatch, _reporting_first(1, _wfs(_capabilities(_ARCGIS_WFS))))
+
+        found = await recognise_arcgis_wfs(_PROXIED_WFS, credential_line=None)
+
+        assert found is not None and found.evidence == "advertised"
+
+    async def test_reports_on_every_try_refuse_before_gdal(self, monkeypatch) -> None:
+        from app.core.failure_reason import failure_code, redact_failure_reason
+        from app.processing.ingest.ogr import IngestionError, run_ogr2ogr_service
+
+        recorded = _serve(
+            monkeypatch, lambda r: _streamed(200, _EXCEPTION_REPORT, "application/xml")
+        )
+        seen = _spawn_reading_the_source(monkeypatch)
+
+        with pytest.raises(IngestionError) as caught:
+            await run_ogr2ogr_service(
+                f"WFS:{_PROXIED_WFS}",
+                "glTrial2Ogc:pts",
+                "t",
+                "PG:dbname=x",
+                "wfs",
+                schema="data",
+            )
+
+        assert (seen, len(recorded)) == ([], 3)
+        assert failure_code(redact_failure_reason(caught.value)) == (
+            "arcgis_wfs_count_unavailable"
+        )
+
+
+_OGC_EXCEPTION = {"code": "ServerError", "description": "busy"}
+
+
+class TestAnOgcExceptionIsNotAnItemsPage:
+    async def test_an_exception_then_a_page_recognises_on_the_retry(
+        self, monkeypatch
+    ) -> None:
+        from app.platform.service_items import recognise_esri_oapif
+
+        page = _fixture("items-page-with-next.json")
+        calls = {"items": 0}
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/items"):
+                calls["items"] += 1
+                return _json(_OGC_EXCEPTION if calls["items"] == 1 else page)
+            return _json({"id": "0", "links": []})
+
+        _serve(monkeypatch, handle)
+
+        assert await recognise_esri_oapif(_PROXY, "0") == "advertised"
+
+    async def test_exceptions_on_every_try_refuse(self, monkeypatch) -> None:
+        from app.platform.service_items import (
+            RecognitionFailedError,
+            recognise_esri_oapif,
+        )
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/items"):
+                return _json(_OGC_EXCEPTION)
+            return _json({"id": "0", "links": []})
+
+        _serve(monkeypatch, handle)
+
+        with pytest.raises(RecognitionFailedError):
+            await recognise_esri_oapif(_PROXY, "0")
+
+    async def test_an_error_envelope_is_retried_then_raised(self, monkeypatch) -> None:
+        from app.platform.service_items import (
+            ServiceErrorResponseError,
+            recognise_esri_oapif,
+        )
+
+        recorded = _serve(monkeypatch, lambda r: _json({"error": {"code": 500}}))
+
+        with pytest.raises(ServiceErrorResponseError) as caught:
+            await recognise_esri_oapif(_PROXY, "0")
+
+        assert caught.value.code == "service_error"
+        assert len(recorded) == 3
+
+    async def test_a_refused_token_is_not_retried(self, monkeypatch) -> None:
+        from app.platform.service_items import (
+            ServiceErrorResponseError,
+            recognise_esri_oapif,
+        )
+
+        recorded = _serve(monkeypatch, lambda r: _json({"error": {"code": 499}}))
+
+        with pytest.raises(ServiceErrorResponseError):
+            await recognise_esri_oapif(_PROXY, "0")
+
+        assert len(recorded) == 1
