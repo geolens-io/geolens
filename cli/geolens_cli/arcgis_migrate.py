@@ -210,6 +210,7 @@ class MigrateOptions:
     password_stdin: bool = False
     client_id: str | None = None
     redirect_port: int | None = None
+    quiet: bool = False
     allow_insecure_http: bool = False
     trusted_hosts: list[str] = field(default_factory=list)
     export_cap_mb: int = DEFAULT_CAP_MB
@@ -1875,7 +1876,11 @@ def _portal_client(
         return client, lambda: client.generate_token(username, password)
     if client_id:
         return client, lambda: arcgis_oauth.sign_in(
-            client, client_id, redact, redirect_port=opts.redirect_port
+            client,
+            client_id,
+            redact,
+            redirect_port=opts.redirect_port,
+            quiet=opts.quiet,
         )
     return client, None
 
