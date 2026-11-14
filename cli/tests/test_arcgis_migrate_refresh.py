@@ -2347,3 +2347,50 @@ def test_a_multi_layer_file_whose_previews_list_no_layers_is_reported(
     assert payload["not_up_to_date"][D3] == [
         "couldn't check the file's layers: its previews listed none"
     ]
+
+
+def _loss_notes(plan_file: Path) -> list[str]:
+    return [n for n in _state(plan_file)["items"][A2]["notes"] if "M values" in n]
+
+
+def test_a_refresh_reports_a_property_declared_after_the_import_once(
+    runner, plan_file, geolens
+):
+    service = _migrated(runner, plan_file, geolens)
+    assert _loss_notes(plan_file) == []
+    service.layers[0]["has_m"] = True
+    FakeRefresh(geolens, service).allow(PARCELS)
+
+    for _ in range(2):
+        result, _payload = _migrate(runner, plan_file, "--only", A2)
+        assert result.exit_code == 0, result.output
+
+    assert len(_loss_notes(plan_file)) == 1
+
+
+def test_a_refresh_adds_the_note_to_a_state_saved_before_the_notes_existed(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels", has_m=True)])
+    _migrate(runner, plan_file, "--only", A2)
+    _edit_state(plan_file, A2, notes=[])
+    FakeRefresh(geolens, service).allow(PARCELS)
+
+    result, _payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert len(_loss_notes(plan_file)) == 1
+
+
+def test_a_refresh_whose_probe_lacks_the_metadata_keeps_the_known_loss(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels", has_m=True)])
+    _migrate(runner, plan_file, "--only", A2)
+    service.layers[0].pop("has_m")
+    FakeRefresh(geolens, service).allow(PARCELS)
+
+    result, _payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert len(_loss_notes(plan_file)) == 1

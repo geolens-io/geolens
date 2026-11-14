@@ -78,10 +78,17 @@ def _uncarried(entry: dict) -> dict:
             for key in ("startTimeField", "endTimeField")
             if isinstance(name := time_info.get(key), str) and name
         ]
-    subtype_field, subtypes = entry.get("subtypeField"), entry.get("subtypes")
-    has_subtypes = isinstance(subtypes, list) and bool(subtypes)
-    if isinstance(subtype_field, str) and subtype_field and has_subtypes:
-        found["subtype_field"] = subtype_field
+    # Subtypes appear as subtypeField + subtypes, or as typeIdField + types
+    # (feature types); a field with an empty list declares none.
+    for field_key, list_key in (("subtypeField", "subtypes"), ("typeIdField", "types")):
+        subtype_field, subtypes = entry.get(field_key), entry.get(list_key)
+        if (
+            isinstance(subtype_field, str)
+            and subtype_field
+            and (isinstance(subtypes, list) and subtypes)
+        ):
+            found["subtype_field"] = subtype_field
+            break
     if isinstance(entry.get("hasM"), bool):
         found["has_m"] = entry["hasM"]
     for key, esri_type in (

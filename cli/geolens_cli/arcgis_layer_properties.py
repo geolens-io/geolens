@@ -13,6 +13,7 @@ from typing import Any
 
 # Every note below contains it; the report lists such notes as follow-ups.
 NOT_CARRIED = "not carried over"
+MAX_LISTED = 8
 
 
 def _names(value: Any) -> list[str]:
@@ -28,39 +29,58 @@ def _label(layer: Any) -> str:
     return title if isinstance(title, str) and title else str(layer.name)
 
 
+def _get(layer: Any, key: str) -> Any:
+    """A probe field; an older SDK model keeps keys it doesn't know in
+    ``additional_properties``."""
+    value = getattr(layer, key, None)
+    if value is None:
+        extra = getattr(layer, "additional_properties", None)
+        value = extra.get(key) if isinstance(extra, dict) else None
+    return value
+
+
+def _listed(names: list[str]) -> str:
+    """The first few *names*; a long list would push the note past the state's
+    length cap."""
+    shown = ", ".join(names[:MAX_LISTED])
+    more = len(names) - MAX_LISTED
+    return f"{shown} and {more} more" if more > 0 else shown
+
+
 def property_notes(layers: Any) -> list[str]:
     """One note per property each probed layer has that an import drops."""
     notes: list[str] = []
     for layer in layers:
         label = _label(layer)
-        time_fields = getattr(layer, "time_fields", None)
+        time_fields = _get(layer, "time_fields")
         if isinstance(time_fields, list):
             on = _names(time_fields)
-            fields = f" on {', '.join(on)}" if on else ""
+            fields = f" ({_listed(on)})" if on else ""
             notes.append(
-                f"layer {label}: its time settings{fields} are {NOT_CARRIED}; "
-                "the fields arrive as ordinary columns"
+                f"layer {label}: its time settings are {NOT_CARRIED}; "
+                f"the fields arrive as ordinary columns{fields}"
             )
-        subtype_field = getattr(layer, "subtype_field", None)
+        subtype_field = _get(layer, "subtype_field")
         if isinstance(subtype_field, str) and subtype_field:
             notes.append(
                 f"layer {label}: its subtypes are {NOT_CARRIED}; field "
-                f"{subtype_field} arrives as a plain column without the subtype names"
+                f"{subtype_field} arrives as a plain column without the "
+                "type or subtype names"
             )
-        if getattr(layer, "has_m", None) is True:
+        if _get(layer, "has_m") is True:
             notes.append(
                 f"layer {label}: its M values are {NOT_CARRIED}; the geometries "
                 "arrive without them"
             )
-        if time_only := _names(getattr(layer, "time_only_fields", None)):
+        if time_only := _names(_get(layer, "time_only_fields")):
             notes.append(
-                f"layer {label}: time-only field(s) {', '.join(time_only)} are "
-                f"{NOT_CARRIED} as times; they arrive as text"
+                f"layer {label}: time-only fields are {NOT_CARRIED} as times; "
+                f"they arrive as text ({_listed(time_only)})"
             )
-        if offset := _names(getattr(layer, "timestamp_offset_fields", None)):
+        if offset := _names(_get(layer, "timestamp_offset_fields")):
             notes.append(
-                f"layer {label}: timestamp-offset field(s) {', '.join(offset)} are "
-                f"{NOT_CARRIED} with their offsets; each arrives as the instant "
-                "without its UTC offset"
+                f"layer {label}: timestamp-offset fields are {NOT_CARRIED} with "
+                "their offsets; each arrives as the instant without its UTC "
+                f"offset ({_listed(offset)})"
             )
     return notes

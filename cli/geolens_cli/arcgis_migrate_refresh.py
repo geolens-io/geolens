@@ -36,6 +36,7 @@ from .arcgis_migrate_files import (
     _megabytes,
     _Skipped,
 )
+from .arcgis_layer_properties import property_notes
 from .arcgis_migrate_layers import (
     JOB_POLL_INTERVAL,
     JOB_TIMEOUT,
@@ -55,7 +56,12 @@ from .arcgis_migrate_session import (
     MigrationContext,
     refuse_credentials,
 )
-from .arcgis_migrate_state import ItemState, aware_time, whole_number
+from .arcgis_migrate_state import (
+    MAX_ERROR_CHARS,
+    ItemState,
+    aware_time,
+    whole_number,
+)
 from .arcgis_plan import IMPORT_FILE
 from .refresh import (
     RefreshPollResult,
@@ -496,6 +502,11 @@ def refresh_layers(
     ctx.save()
     wanted, _notes, left_behind = importable_layers(probe)
     entry.left_behind = _redacted(ctx, left_behind)
+    # Added only: the optional metadata may be missing from this probe, and a
+    # loss already reported stays true.
+    known = [layer for layer in wanted if _layer_key(layer) in entry.layer_datasets]
+    found = [n[:MAX_ERROR_CHARS] for n in _redacted(ctx, property_notes(known))]
+    entry.notes.extend(n for n in found if n not in entry.notes)
     added = [
         f"layer {_layer_label(layer)} was added to the service in the portal and "
         "isn't migrated"

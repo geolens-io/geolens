@@ -29,8 +29,8 @@ def _follow_ups(runner, plan_file, geolens, **properties) -> list[str]:
     [
         (
             {"time_fields": ["opened", "closed"]},
-            "layer Parcels: its time settings on opened, closed are not carried "
-            "over; the fields arrive as ordinary columns",
+            "layer Parcels: its time settings are not carried over; the fields "
+            "arrive as ordinary columns (opened, closed)",
         ),
         (
             {"time_fields": []},
@@ -40,7 +40,7 @@ def _follow_ups(runner, plan_file, geolens, **properties) -> list[str]:
         (
             {"subtype_field": "kind"},
             "layer Parcels: its subtypes are not carried over; field kind arrives "
-            "as a plain column without the subtype names",
+            "as a plain column without the type or subtype names",
         ),
         (
             {"has_m": True},
@@ -49,14 +49,14 @@ def _follow_ups(runner, plan_file, geolens, **properties) -> list[str]:
         ),
         (
             {"time_only_fields": ["opens_at"]},
-            "layer Parcels: time-only field(s) opens_at are not carried over as "
-            "times; they arrive as text",
+            "layer Parcels: time-only fields are not carried over as times; they "
+            "arrive as text (opens_at)",
         ),
         (
             {"timestamp_offset_fields": ["seen", "fixed"]},
-            "layer Parcels: timestamp-offset field(s) seen, fixed are not carried "
-            "over with their offsets; each arrives as the instant without its UTC "
-            "offset",
+            "layer Parcels: timestamp-offset fields are not carried over with their "
+            "offsets; each arrives as the instant without its UTC offset (seen, "
+            "fixed)",
         ),
     ],
     ids=["time", "time_unnamed", "subtypes", "m_values", "time_only", "offset"],
@@ -98,3 +98,38 @@ def test_a_resumed_import_keeps_the_follow_ups(runner, plan_file, geolens):
         "layer Parcels: its M values are not carried over; the geometries arrive "
         "without them"
     ]
+
+
+@pytest.mark.parametrize(
+    ("key", "marker"),
+    [
+        ("time_only_fields", "time-only fields are not carried over"),
+        ("timestamp_offset_fields", "timestamp-offset fields are not carried over"),
+    ],
+)
+def test_many_long_field_names_keep_the_loss_marker_in_the_follow_ups(
+    runner, plan_file, geolens, key, marker
+):
+    names = [f"a_very_long_field_name_{i:03d}_" + "x" * 40 for i in range(50)]
+
+    [text] = _follow_ups(runner, plan_file, geolens, **{key: names})
+
+    assert marker in text and "and 42 more" in text and len(text) < 2000
+    assert names[0] in text and names[8] not in text
+
+
+def test_the_note_reads_properties_an_older_sdk_keeps_as_extra_keys():
+    from geolens_cli.arcgis_layer_properties import property_notes
+
+    class OldLayerInfo:
+        name = "Parcels"
+        title = "Parcels"
+        additional_properties = {
+            "time_fields": ["opened"],
+            "subtype_field": "kind",
+            "has_m": True,
+            "time_only_fields": ["opens_at"],
+            "timestamp_offset_fields": ["seen"],
+        }
+
+    assert len(property_notes([OldLayerInfo()])) == 5

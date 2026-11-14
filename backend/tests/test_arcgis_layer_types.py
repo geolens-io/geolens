@@ -253,6 +253,25 @@ class TestProbeReportsUncarriedProperties:
         assert found[4]["time_fields"] == [] and found[4]["has_m"] is None
         assert found[2] == {**found[1], "has_m": None}
 
+    async def test_reads_subtypes_declared_as_feature_types(self) -> None:
+        body = {
+            "layers": [
+                {"id": 0, "typeIdField": "kind", "types": [{"id": 1, "name": "Main"}]},
+                {"id": 1, "typeIdField": "kind", "types": []},
+                {"id": 2, "typeIdField": "kind"},
+            ],
+            "tables": [
+                {"id": 4, "typeIdField": "kind", "types": [{"id": 1, "name": "A"}]}
+            ],
+        }
+
+        found = await self._properties(body)
+
+        assert found[0]["subtype_field"] == "kind"
+        assert found[1]["subtype_field"] is None
+        assert found[2]["subtype_field"] is None
+        assert found[4]["subtype_field"] == "kind"
+
 
 class TestProbeReportsRelationships:
     async def _relationships(self, body: dict) -> dict:
