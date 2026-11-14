@@ -194,7 +194,7 @@ def file_into_collections(
             ]
         return []
     names = list(dict.fromkeys(n for n in target["collections"] if n))
-    datasets = writable(ctx, entry.dataset_ids)
+    datasets = writable(ctx, entry, entry.dataset_ids)
     if ctx.collection_from != FOLDER or not names or not datasets:
         return []
     if ctx.collections_denied:

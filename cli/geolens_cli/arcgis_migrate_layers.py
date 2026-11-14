@@ -14,6 +14,7 @@ requests: it resumes from the state file's recorded pass.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from types import SimpleNamespace
 from typing import Any
 from urllib.parse import unquote, urlsplit
 from uuid import UUID
@@ -29,6 +30,7 @@ from .arcgis_migrate_session import (
     changed_before_handover,
     operator_or_nobody_wrote_last,
     refuse_credentials,
+    writable,
 )
 from .arcgis_migrate_shared import gone_note, migrated, reuse_note, wider_note
 from .arcgis_migrate_state import DONE, EXISTS, ItemState
@@ -331,6 +333,7 @@ def _import_layer(
             # Recorded first, so a write refused below is refused again on a
             # rerun instead of the layer being previewed as a stranger's.
             entry.layer_datasets[key] = dataset
+            entry.dataset_ids = list(dict.fromkeys(entry.layer_datasets.values()))
             ctx.save()
             # The commit that made it may predate an edit of the plan.
             _apply_target(ctx, entry, dataset, title_visibility)
@@ -371,6 +374,31 @@ def _import_layer(
     return False
 
 
+def settle_jobs(
+    ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
+) -> None:
+    """Wait for each import job an earlier run of *item* left pending and
+    record its dataset, so items over the same service see what it holds
+    before they borrow. A job that ended without a dataset is dropped and the
+    item's own run imports that layer again. Writes no dataset: the item's
+    run gives each the plan's title and visibility."""
+    row = _row(ctx, item)
+    if not entry.layer_jobs or entry.service_url not in (None, row["url"]):
+        return
+    body = _commit_body(
+        item["target"]["title"] or item["title"], item["target"]["visibility"]
+    )
+    for key, job in list(entry.layer_jobs.items()):
+        dataset = _finish_job(
+            ctx, row, SimpleNamespace(url=row["url"]), UUID(job), body
+        )
+        del entry.layer_jobs[key]
+        if dataset is not None:
+            entry.layer_datasets[key] = dataset
+            entry.dataset_ids = list(dict.fromkeys(entry.layer_datasets.values()))
+        ctx.save()
+
+
 def _borrow(
     ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState, key: str
 ) -> str | None:
@@ -388,12 +416,15 @@ def _borrow(
         for other, dataset in layers.holders(ctx.items, service, key)
         if other != item["id"]
     )
+    gone = {o: d for o, d in held.items() if not migrated(layers.items.get(o))}
+    if gone and len(gone) == len(held):
+        # Only items the plan no longer migrates hold it: none is promoted.
+        owner_id, dataset = next(iter(gone.items()))
+        return gone_note(owner_id, f"dataset {dataset}" if dataset else f"layer {key}")
     owner_id = layers.owner(ctx.items, item["id"], key)
     if owner_id == item["id"]:
         return None
     dataset = held.get(owner_id)
-    if owner_id in held and not migrated(layers.items.get(owner_id)):
-        return gone_note(owner_id, f"dataset {dataset}" if dataset else f"layer {key}")
     if dataset is None:
         return (
             f"layer {key} belongs to item {owner_id} over the same service, which "
@@ -460,7 +491,7 @@ def _apply_target(
     this write doesn't make their edit the operator's. A reused dataset
     predates the migration, and its owner's edits are taken as they are.
     """
-    if dataset in entry.last_update or dataset in ctx.double_recorded:
+    if dataset in entry.last_update or not writable(ctx, entry, [dataset]):
         return
     from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get as get
     from geolens.api.datasets import (
@@ -693,6 +724,8 @@ def import_layers(
         )
         entry.dataset_ids = list(dict.fromkeys(entry.layer_datasets.values()))
         ctx.save()
+    # A layer pinned by an earlier attempt adds no import above.
+    entry.dataset_ids = list(dict.fromkeys(entry.layer_datasets.values()))
     shared_notes, gone = _shared_notes(ctx, item, entry)
     if waiting or gone:
         ctx.save()

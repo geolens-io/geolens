@@ -129,7 +129,7 @@ def groups_in_use(plan: Mapping[str, Any], state: MigrationState) -> set[str]:
             not item.get("removed")
             and item["target"]["visibility"] == "restricted"
             and entry is not None
-            and (entry.dataset_ids or entry.map_id)
+            and (entry.dataset_ids or entry.shared or entry.map_id)
         ):
             needed.update(item["target"]["groups"] or [])
     return needed
@@ -149,7 +149,7 @@ def sharing_losses(
         item.get("removed")
         or item["target"]["visibility"] != "restricted"
         or entry is None
-        or not (entry.dataset_ids or entry.map_id)
+        or not (entry.dataset_ids or entry.shared or entry.map_id)
     ):
         return []
     plan_reason = _plan.possibly_under_shared(plan, item)

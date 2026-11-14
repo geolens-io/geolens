@@ -11,7 +11,7 @@ the layer. For a layer nobody holds, the plan decides: the hosted item whose
 URL is the service itself, else the first item in plan order that covers the
 layer. Ownership records never move between items; a dataset an earlier
 version let several items record is written by none of them until the plan
-skips all but one (``double_recorded``).
+skips all but one. Every write is checked with ``may_write`` when it is made.
 """
 
 from __future__ import annotations
@@ -126,16 +126,24 @@ class SharedLayers:
         if mine is None:
             return item_id
         if layer is not None:
-            held = [other for other, _ in self.holders(items, mine.service, layer)]
+            held = [
+                other
+                for other, _ in self.holders(items, mine.service, layer)
+                if migrated(self.items.get(other))
+            ]
             if held:
                 return self.preferred(held)
         return self.plan_owner(item_id, layer)["id"]
 
-    def dependencies(self, items: Mapping[str, ItemState]) -> dict[str, list[str]]:
-        """Item -> the items it waits on: the owner the plan picks for a layer
-        it shares that nobody holds, and an item whose import job for such a
-        layer is pending. A finished holder's dataset is borrowed at once, so
-        it adds none. Items whose layers don't overlap get none."""
+    def dependencies(
+        self, items: Mapping[str, ItemState], *, blocking: bool = False
+    ) -> dict[str, list[str]]:
+        """Item -> the items that run before it: the owner the plan picks for
+        a layer it shares that nobody holds, and an item whose import job for
+        such a layer is pending. With *blocking*, only the former, which an
+        item waits on; a pending holder only runs first, since its job settles
+        whatever else it waits on. A finished holder's dataset is borrowed at
+        once, so it adds none. Items whose layers don't overlap get none."""
         out: dict[str, set[str]] = {}
         for item_id, mine in self._covers.items():
             if mine.layer is not None:
@@ -153,8 +161,10 @@ class SharedLayers:
             for layer in layers:
                 owner = self.owner(items, item_id, layer)
                 held = dict(self.holders(items, mine.service, layer)) if layer else {}
-                if owner != item_id and (owner not in held or held[owner] is None):
-                    out.setdefault(item_id, set()).add(owner)
+                pending = owner in held and held[owner] is None
+                if owner != item_id and (owner not in held or pending):
+                    if not (blocking and pending):
+                        out.setdefault(item_id, set()).add(owner)
         kept = _acyclic(out, list(self.items))
         return {i: sorted(owners) for i, owners in kept.items() if owners}
 
@@ -283,3 +293,37 @@ def _acyclic(edges: dict[str, set[str]], order: list[str]) -> dict[str, set[str]
         if not reaches(owner, item_id):
             kept.setdefault(item_id, set()).add(owner)
     return kept
+
+
+def may_write(ctx: Any, entry: ItemState, dataset: str) -> str | None:
+    """Why the item whose state is *entry* must not write *dataset* now, or
+    None. Decided from the state as it is at the write: another plan item
+    records the same dataset, or another item owns its service layer."""
+    layers = ctx.shared_layers
+    if layers is None:
+        return None
+    item_id = next((i for i, e in ctx.items.items() if e is entry), None)
+    others = [
+        other
+        for other, held in ctx.items.items()
+        if held is not entry
+        and dataset in held.layer_datasets.values()
+        and _records(layers.items.get(other))
+    ]
+    if others:
+        items = ", ".join(sorted([item_id or "this item", *others]))
+        return (
+            f"dataset {dataset} is recorded by items {items}, as an earlier "
+            "version of this command left it; none of them writes it until all "
+            "but one are set to skip in the plan"
+        )
+    key = next((k for k, d in entry.layer_datasets.items() if d == dataset), None)
+    if item_id is None or key is None:
+        return None
+    owner = layers.owner(ctx.items, item_id, key)
+    if owner != item_id:
+        return (
+            f"dataset {dataset} is this item's copy of layer {key}, which item "
+            f"{owner} over the same service owns; it isn't written"
+        )
+    return None

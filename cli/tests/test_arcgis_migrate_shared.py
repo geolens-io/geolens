@@ -8,10 +8,13 @@ import re
 import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from geolens_cli import arcgis_migrate_cutover as cutover_mod
+from geolens_cli import arcgis_migrate_layers as layers_mod
+from geolens_cli import arcgis_migrate_session as session
 from geolens_cli import arcgis_migrate_shared as shared_mod
 from geolens_cli import arcgis_migrate_state as state_mod
 from geolens_cli.arcgis_migrate_state import ItemState, MigrationState, StateError
@@ -89,7 +92,7 @@ class NoOwners:
     def __init__(self, items, rows) -> None:
         self.items = {item["id"]: item for item in items}
 
-    def dependencies(self, items) -> dict:
+    def dependencies(self, items, blocking=False) -> dict:
         return {}
 
     def service_of(self, item_id, entry) -> None:
@@ -199,7 +202,7 @@ def _legacy(runner, plan_file, monkeypatch, *items: str) -> dict:
     """The state the earlier CLI leaves: a run and a rerun with no owner."""
     with monkeypatch.context() as m:
         m.setattr(layers.migrate, "SharedLayers", NoOwners)
-        m.setattr(layers.migrate, "double_recorded", lambda *args: {})
+        m.setattr(shared_mod, "may_write", lambda *args: None)
         _run(runner, plan_file, *items)
         _migrated(runner, plan_file, *items)
     return _state(plan_file)["items"]
@@ -515,15 +518,20 @@ def test_an_item_holding_a_layer_keeps_it_when_a_hosted_root_is_added(
     _add_hosted_root(plan_file, hosted, removed=False)
     previews = len(service.bodies(PREVIEW))
 
-    # --only the hosted item runs the holder first, then waits on it.
+    # --only the hosted item runs the holder first; the hosted item then
+    # borrows what the holder's job settled.
     result, payload = _migrated(runner, plan_file, hosted if only_hosted else by_url)
 
     assert result.exit_code != 0
-    if only_hosted:
-        assert payload["waiting"] == [{"item": hosted, "waiting_on": [by_url]}]
+    assert payload["waiting"] == []
     assert service.fields[PARCELS]["title"] == "Alice's title"
-    assert hosted not in _state(plan_file)["items"]
-    assert len(service.bodies(PREVIEW)) == previews
+    if only_hosted:
+        assert _state(plan_file)["items"][hosted]["shared"] == {"0": PARCELS}
+    else:
+        assert hosted not in _state(plan_file)["items"]
+    assert not [
+        b for b in service.bodies(PREVIEW)[previews:] if b["layer_name"] == "Parcels"
+    ]
     entry = _state(plan_file)["items"][by_url]
     assert entry["layer_datasets"] == {"0": PARCELS}
     assert "changed" in (entry["error"] or " ".join(entry["stale"]))
@@ -581,6 +589,12 @@ def test_a_dataset_two_items_recorded_is_written_by_neither(
             if row["id"] in (A1, A2):
                 row["access_information"] = "Example County GIS"
         inventory_file.write_text(json.dumps(inventory))
+        _edit_plan(
+            plan_file,
+            lambda plan: next(i for i in plan["items"] if i["id"] == hosted)[
+                "target"
+            ].update(visibility="private"),
+        )
     state_file.write_text(json.dumps(state))
     before = _state(plan_file)["items"]
     start = len(geolens.seen)
@@ -603,7 +617,12 @@ def test_a_dataset_two_items_recorded_is_written_by_neither(
         assert sum(reason in r for r in found) == 1, found
     after = _state(plan_file)["items"]
     for item in (A1, A2):
-        for name in ("layer_datasets", "metadata_baseline", "last_update"):
+        for name in (
+            "layer_datasets",
+            "metadata_baseline",
+            "last_update",
+            "visibility",
+        ):
             assert after[item][name] == before[item][name], (item, name)
     assert after[by_url]["refreshing"] == before[by_url]["refreshing"]
 
@@ -802,3 +821,265 @@ def test_holders_that_would_wait_on_each_other_run_in_plan_order():
     deps = shared_mod.SharedLayers(_items("a", "b"), rows).dependencies(items)
 
     assert deps == {"b": ["a"]}
+
+
+# Every write is checked when it is made
+
+
+def _pending(plan_file: Path, item: str, layer: str, job: str, **extra) -> None:
+    """Leave *item* as an import that stopped after committing *job*."""
+    inventory = json.loads((plan_file.parent / "arcgis-inventory.json").read_text())
+    url = next(row["url"] for row in inventory["items"] if row["id"] == item)
+    state_file = plan_file.parent / "arcgis-migration-state.json"
+    state = json.loads(state_file.read_text())
+    entry = state["items"].setdefault(item, {"status": "failed"})
+    entry.update(
+        status="failed",
+        service_url=url,
+        layer_datasets={},
+        dataset_ids=[],
+        layer_jobs={layer: job},
+        import_pass=None,
+        last_update={},
+        **extra,
+    )
+    state_file.write_text(json.dumps(state))
+
+
+def test_a_pending_job_that_settles_on_another_items_dataset_writes_nothing(
+    runner, tmp_path, geolens
+):
+    service, _c, plan_file, hosted, by_url = _fresh(
+        tmp_path, geolens, url_first=False, hosted_access="public"
+    )
+    _run(runner, plan_file, hosted)
+    # The URL item's earlier import committed the job that made that dataset.
+    job = _state(plan_file)["items"][hosted]["job_ids"][0]
+    _pending(plan_file, by_url, "0", job)
+    start = len(geolens.seen)
+
+    result, _ = _migrated(runner, plan_file, by_url)
+
+    assert result.exit_code != 0
+    entry = _state(plan_file)["items"][by_url]
+    assert entry["status"] == "failed"
+    assert f"dataset {PARCELS} is recorded by items" in entry["error"]
+    assert not [
+        s
+        for s in geolens.seen[start:]
+        if s.method != "GET" and (PARCELS in s.url or PARCELS.encode() in s.body)
+    ]
+
+
+def test_every_dataset_writer_asks_before_it_writes(monkeypatch):
+    from geolens_cli import arcgis_item_metadata as metadata_mod
+    from geolens_cli import arcgis_migrate_collections as collections_mod
+    from geolens_cli import arcgis_migrate_groups as groups_mod
+    from geolens_cli import arcgis_migrate_refresh as refresh_mod
+
+    asked: list[str] = []
+
+    def refuse(ctx, entry, dataset):
+        asked.append(dataset)
+        return "refused"
+
+    monkeypatch.setattr(shared_mod, "may_write", refuse)
+
+    class NoGeoLens:
+        def __getattr__(self, name):
+            raise AssertionError(f"GeoLens was called ({name})")
+
+    entry = ItemState(
+        status="done", layer_datasets={"0": PARCELS}, dataset_ids=[PARCELS]
+    )
+    item = {
+        "id": A1,
+        "action": "import_layers",
+        "title": "Parcels",
+        "owner": "gis_admin",
+        "target": {
+            "title": None,
+            "visibility": "restricted",
+            "collections": ["Folder"],
+            "geolens_groups": ["g1"],
+            "groups": [],
+            "tags": ["t"],
+        },
+    }
+    ctx = session.MigrationContext(
+        geolens=NoGeoLens(),
+        inventory={A1: {"id": A1, "snippet": "s", "url": SERVICE}},
+        portal=None,
+        save=lambda: None,
+        items={A1: entry},
+    )
+    owner = layers.migrate.Owner(id=layers.OPERATOR, username="operator")
+    writers = {
+        "target": lambda: layers_mod._apply_target(
+            ctx, entry, PARCELS, SimpleNamespace(title="t", visibility="private")
+        ),
+        "metadata": lambda: metadata_mod.apply_item_metadata(ctx, item, entry),
+        "collections": lambda: collections_mod.file_into_collections(ctx, item, entry),
+        "sharing": lambda: groups_mod.share(ctx, item, entry),
+        "transfer": lambda: layers.migrate.transfer(ctx, entry, owner, {}),
+        "keep_own": lambda: layers.migrate._keep_own(ctx, entry, owner, {}),
+        "handover": lambda: layers.migrate._hand_over_one(ctx, entry, owner),
+        "refresh": lambda: refresh_mod._bring_each(ctx, item, entry, None),
+    }
+
+    for name, write in writers.items():
+        asked.clear()
+        try:
+            write()
+        except session.ItemFailed as exc:
+            assert "refused" in str(exc), name
+        assert PARCELS in asked, name
+
+
+def test_a_recovered_jobs_dataset_is_kept_in_the_items_datasets(
+    runner, tmp_path, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    plan_file = _write_plan(tmp_path)
+    _run(runner, plan_file, A2)
+    job = _state(plan_file)["items"][A2]["job_ids"][0]
+    _pending(plan_file, A2, "0", job, job_ids=[job])
+    patch = geolens.routes[f"PATCH /datasets/{PARCELS}"]
+    geolens.routes[f"PATCH /datasets/{PARCELS}"] = (
+        500,
+        {"title": "Error", "status": 500, "detail": "boom"},
+    )
+
+    _migrated(runner, plan_file, A2)
+
+    entry = _state(plan_file)["items"][A2]
+    assert entry["status"] == "failed"
+    assert entry["layer_datasets"] == {"0": PARCELS}
+    assert entry["dataset_ids"] == [PARCELS]
+
+    # A state that pinned the layer without listing its dataset gets it back.
+    state_file = plan_file.parent / "arcgis-migration-state.json"
+    state = json.loads(state_file.read_text())
+    state["items"][A2]["dataset_ids"] = []
+    state_file.write_text(json.dumps(state))
+    geolens.routes[f"PATCH /datasets/{PARCELS}"] = patch
+
+    items = _run(runner, plan_file, A2)
+
+    assert items[A2]["dataset_ids"] == [PARCELS]
+    assert service.fields[PARCELS]["visibility"] == "public"
+
+
+def test_two_roots_each_holding_a_pending_job_both_finish(runner, tmp_path, geolens):
+    service, _c, plan_file, _hosted, _by_url = _fresh(
+        tmp_path, geolens, url_first=True, hosted=False, hosted_access="public"
+    )
+    _edit_plan(
+        plan_file,
+        lambda plan: next(i for i in plan["items"] if i["id"] == A2).update(
+            removed=True
+        ),
+    )
+    _run(runner, plan_file, A1)
+    jobs = _state(plan_file)["items"][A1]["job_ids"]
+    _pending(plan_file, A1, "0", jobs[0])
+    _pending(plan_file, A2, "1", jobs[1])
+    _edit_plan(
+        plan_file,
+        lambda plan: next(i for i in plan["items"] if i["id"] == A2).pop("removed"),
+    )
+    previews = len(service.bodies(PREVIEW))
+
+    # Each settles its own pending job before either borrows, so one run does.
+    _migrated(runner, plan_file, A1, A2)
+
+    items = _state(plan_file)["items"]
+    assert items[A1]["status"] in ("done", "exists"), items[A1]["error"]
+    assert items[A2]["status"] in ("done", "exists"), items[A2]["error"]
+    assert items[A1]["layer_datasets"] == {"0": PARCELS}
+    assert items[A1]["shared"] == {"1": OWNERS}
+    assert items[A2]["layer_datasets"] == {"1": OWNERS}
+    assert items[A2]["shared"] == {"0": PARCELS}
+    assert len(service.bodies(PREVIEW)) == previews
+    FakeRefresh(geolens, service).allow(PARCELS, OWNERS)
+    for dataset in (PARCELS, OWNERS):
+        service.fields[dataset]["origin_ref"] = {"url": SERVICE}
+
+    again = _run(runner, plan_file, A1, A2)
+
+    assert again[A1]["stale"] == [] and again[A2]["stale"] == []
+    assert len(service.bodies(PREVIEW)) == previews
+
+
+@pytest.mark.parametrize(
+    ("group", "loss"),
+    [
+        (None, "maps to no GeoLens group"),
+        ({"id": "x", "name": "G", "members_unread": "403"}, "weren't read"),
+        ({"id": "x", "name": "G", "unsynced": [{"member": "bob"}]}, "aren't in"),
+    ],
+)
+def test_a_restricted_borrower_still_reports_its_sharing_losses(tmp_path, group, loss):
+    plan = json.loads(_write_plan(tmp_path).read_text())
+    item = next(i for i in plan["items"] if i["id"] == A1)
+    item["target"].update(visibility="restricted", groups=["g1"])
+    state = MigrationState(tmp_path / "s.json", PORTAL, GEOLENS_INSTANCE, str)
+    state.items[A1] = ItemState(status="exists", shared={"0": PARCELS})
+    if group is not None:
+        state.groups["g1"] = group
+
+    losses = cutover_mod.sharing_losses(plan, state, item)
+
+    assert any(loss in reason for reason in losses), losses
+    # Its group stays in use while only its records name the item.
+    item["unlisted"] = True
+    assert "g1" in cutover_mod.groups_in_use(plan, state)
+
+
+def test_an_items_own_copy_of_a_layer_another_item_owns_is_not_written(
+    runner, tmp_path, geolens
+):
+    service, _c, plan_file, hosted, by_url = _fresh(
+        tmp_path, geolens, url_first=True, hosted_access="public"
+    )
+    _run(runner, plan_file, A1, A2)
+    # An earlier version imported a second copy of layer 0 for the URL item.
+    copy = dataset_id("Second copy")
+    service._serve_dataset(copy)
+    state_file = plan_file.parent / "arcgis-migration-state.json"
+    state = json.loads(state_file.read_text())
+    state["items"][by_url].update(
+        layer_datasets={"0": copy}, dataset_ids=[copy], shared={"1": OWNERS}
+    )
+    state_file.write_text(json.dumps(state))
+    FakeRefresh(geolens, service).allow(PARCELS, OWNERS, copy)
+    start = len(geolens.seen)
+
+    _migrated(runner, plan_file, A1, A2)
+
+    [reason] = [s for s in _state(plan_file)["items"][by_url]["stale"] if copy in s]
+    assert f"this item's copy of layer 0, which item {hosted}" in reason
+    assert not [s for s in geolens.seen[start:] if s.method != "GET" and copy in s.url]
+
+
+def test_a_new_item_over_a_layer_only_a_departed_item_holds_imports_nothing(
+    runner, tmp_path, geolens
+):
+    service, _c, plan_file, hosted, by_url = _fresh(
+        tmp_path, geolens, service_class=FakeImport, url_first=False
+    )
+    _run(runner, plan_file, hosted)
+    _edit_plan(
+        plan_file,
+        lambda plan: next(i for i in plan["items"] if i["id"] == hosted).update(
+            action="skip"
+        ),
+    )
+    previews = len(service.bodies(PREVIEW))
+
+    result, _ = _migrated(runner, plan_file, by_url)
+
+    assert result.exit_code != 0
+    entry = _state(plan_file)["items"][by_url]
+    assert f"dataset {PARCELS} belongs to item {hosted}" in entry["error"]
+    assert len(service.bodies(PREVIEW)) == previews

@@ -258,7 +258,9 @@ def apply_item_metadata(
 
     row = ctx.inventory.get(item["id"])
     ids = [
-        d for d in writable(ctx, entry.dataset_ids) if datasets is None or d in datasets
+        d
+        for d in writable(ctx, entry, entry.dataset_ids)
+        if datasets is None or d in datasets
     ]
     if row is None or not ids:
         return

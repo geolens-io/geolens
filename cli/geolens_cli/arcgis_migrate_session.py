@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from ._sdk_helpers import call_sdk_with_reauth, detail_text
+from . import arcgis_migrate_shared as _shared
 from .arcgis_migrate_state import DONE
 from .arcgis_portal import (
     PortalClient,
@@ -253,9 +254,6 @@ class MigrationContext:
     # Which plan item owns each service layer several items import
     # (arcgis_migrate_shared.SharedLayers); None when nothing is shared.
     shared_layers: Any = None
-    # Dataset -> the items that each record it, which none of them writes
-    # (arcgis_migrate_shared.double_recorded).
-    double_recorded: dict[str, list[str]] = field(default_factory=dict)
     portal_root: str = ""
     redact: Callable[[str], str] = str
     # The GeoLens operator's user id, whose writes a rerun recognises as its own.
@@ -276,19 +274,15 @@ class MigrationContext:
     clock: Callable[[], float] = time.monotonic
 
 
-def writable(ctx: MigrationContext, datasets: Any) -> list[str]:
-    """*datasets* without those several plan items record, which no item
-    writes until the plan skips all but one."""
-    return [d for d in datasets if d not in ctx.double_recorded]
+def write_refusal(ctx: MigrationContext, entry: Any, dataset: str) -> str | None:
+    """Why the item whose state is *entry* may not write *dataset* now, or
+    None (arcgis_migrate_shared.may_write); every dataset writer asks it."""
+    return _shared.may_write(ctx, entry, dataset)
 
 
-def double_recorded_reason(ctx: MigrationContext, dataset: str) -> str:
-    items = ", ".join(ctx.double_recorded[dataset])
-    return (
-        f"dataset {dataset} is recorded by items {items}, as an earlier version "
-        "of this command left it; none of them writes it until all but one are "
-        "set to skip in the plan"
-    )
+def writable(ctx: MigrationContext, entry: Any, datasets: Any) -> list[str]:
+    """Those of *datasets* the item whose state is *entry* may write now."""
+    return [d for d in datasets if write_refusal(ctx, entry, d) is None]
 
 
 def outgoing_secret(

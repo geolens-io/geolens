@@ -1025,7 +1025,7 @@ def test_a_share_reads_the_grants_again_right_before_writing(monkeypatch):
         call=lambda fn, **kwargs: sent.append(kwargs["body"].to_dict())
     )
     ctx = SimpleNamespace(
-        double_recorded={},
+        shared_layers=None,
         geolens=geolens,
         save=lambda: None,
         operator_id=OPERATOR,
@@ -1126,7 +1126,7 @@ def test_a_dataset_share_follows_the_target_and_keeps_geolens_grants(
         call=lambda fn, **kwargs: puts.append(kwargs["body"].to_dict()["group_ids"])
     )
     ctx = SimpleNamespace(
-        double_recorded={},
+        shared_layers=None,
         geolens=geolens,
         save=lambda: None,
         operator_id=OPERATOR,
@@ -1178,7 +1178,7 @@ def test_a_dataset_share_never_makes_a_private_dataset_restricted_off_plan(
     )
     puts: list[list[str]] = []
     ctx = SimpleNamespace(
-        double_recorded={},
+        shared_layers=None,
         geolens=SimpleNamespace(
             call=lambda fn, **kw: puts.append(kw["body"].to_dict()["group_ids"])
         ),
@@ -1217,7 +1217,7 @@ def test_a_dataset_group_removed_in_geolens_and_shared_again_is_theirs(monkeypat
     )
     puts: list = []
     ctx = SimpleNamespace(
-        double_recorded={},
+        shared_layers=None,
         geolens=SimpleNamespace(call=lambda fn, **kw: puts.append(kw)),
         save=lambda: None,
         operator_id=OPERATOR,
@@ -1337,7 +1337,7 @@ def test_a_dataset_changed_between_its_two_reads_isnt_shared(monkeypatch):
     monkeypatch.setattr(refresh, "changed_in_geolens", lambda *args: None)
     puts: list = []
     ctx = SimpleNamespace(
-        double_recorded={},
+        shared_layers=None,
         geolens=SimpleNamespace(call=lambda fn, **kw: puts.append(kw)),
         save=lambda: None,
         operator_id=OPERATOR,
@@ -1397,7 +1397,7 @@ def _map_ctx(monkeypatch, found, after=None, *, answers=True):
 
     monkeypatch.setattr(webmaps, "get_map", lambda geolens, map_id: reads["map"])
     ctx = SimpleNamespace(
-        double_recorded={},
+        shared_layers=None,
         geolens=SimpleNamespace(write=write, call=write),
         save=lambda: None,
         operator_id=OPERATOR,
@@ -1662,7 +1662,7 @@ def test_a_map_changed_after_the_check_isnt_written(monkeypatch):
     monkeypatch.setattr(webmaps, "get_map", lambda geolens, map_id: next(reads))
     puts: list = []
     ctx = SimpleNamespace(
-        double_recorded={},
+        shared_layers=None,
         geolens=SimpleNamespace(call=lambda fn, **kw: puts.append(kw)),
         save=lambda: None,
     )

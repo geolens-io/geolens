@@ -51,11 +51,11 @@ from .arcgis_migrate_layers import (
     relationship_records,
 )
 from .arcgis_migrate_session import (
-    double_recorded_reason,
     GeoLensError,
     ItemFailed,
     MigrationContext,
     refuse_credentials,
+    write_refusal,
 )
 from .arcgis_migrate_state import ItemState, aware_time, whole_number
 from .arcgis_plan import IMPORT_FILE
@@ -819,8 +819,8 @@ def _bring_each(
 ) -> list[str]:
     problems = []
     for dataset_id in dict.fromkeys(entry.layer_datasets.values()):
-        if dataset_id in ctx.double_recorded:
-            problems.append(double_recorded_reason(ctx, dataset_id))
+        if refused := write_refusal(ctx, entry, dataset_id):
+            problems.append(refused)
             continue
         try:
             problem = _bring_one(ctx, item, entry, dataset_id, start)
