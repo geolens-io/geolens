@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import AsyncGenerator, Callable, Sequence
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
@@ -18,7 +18,7 @@ from shapely.validation import explain_validity
 from sqlalchemy import bindparam, func, select, text
 from sqlalchemy import types as sa_types
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncResult, AsyncSession
 
 from app.core.db.pg_ranges import check_int8_range, check_pg_value_range
 from app.core.geo import seam_extent_wkt_for_table
@@ -561,15 +561,14 @@ async def get_features(
     after_gid: int | None = None,
     cql2_where: str | None = None,
     cql2_binds: Sequence | None = None,
-    max_geometry_bytes: int | None = None,
+    ids_only: bool = False,
 ) -> FeaturePage:
     """Fetch paginated features from a data table as GeoJSON-ready dicts.
 
     ``total_is_estimate`` is True past ``_FILTERED_COUNT_CAP``,
     and ``has_more`` (not ``total``) must drive pagination links.
-    ``max_geometry_bytes`` ends the page after the row whose geometry
-    brings the page's total to it, so a page may hold fewer than ``limit``
-    rows; the first row is always returned.
+    With ``ids_only`` each row holds only ``gid``, for a caller that streams
+    the page with ``stream_features_json``.
     ``cql2_where``/``cql2_binds`` must come from
     ``app.standards.ogc.filtering``, the only sanctioned
     producer of typed CQL2 binds. Raises ValueError (400) on a bad property
@@ -636,9 +635,16 @@ async def get_features(
     where_sql = ""
     if where_clauses:
         where_sql = "WHERE " + " AND ".join(where_clauses)
-    row_source = await _projected_row_source(
-        db, table_name, with_geometry=with_geometry, where_sql=where_sql
-    )
+    if ids_only:
+        select_cols = "gid"
+        row_source = (
+            f"(SELECT gid FROM {get_catalog_port().quote_table(table_name)} t "
+            f"{where_sql})"
+        )
+    else:
+        row_source = await _projected_row_source(
+            db, table_name, with_geometry=with_geometry, where_sql=where_sql
+        )
 
     page_sql = f"FROM {row_source} t ORDER BY gid LIMIT :limit"
     if not use_keyset:
@@ -647,26 +653,7 @@ async def get_features(
     # One row past the page, so `has_more` is a fact about the
     # rows rather than a comparison against a count that may be estimated.
     bind_values["limit"] = limit + 1
-    budgeted = max_geometry_bytes is not None and with_geometry
-    if budgeted:
-        # The cut runs in SQL so rows past the budget are never serialized;
-        # page_rows tells a budget cut apart from a short last page. Only a
-        # compressed geometry is read to size it: any other is stored at the
-        # size it takes in memory.
-        data_sql = (
-            f"WITH page AS MATERIALIZED (SELECT * {page_sql}), "
-            "kept AS (SELECT gid FROM (SELECT gid, sum(n) OVER "
-            "(ORDER BY gid ROWS UNBOUNDED PRECEDING) - n AS bytes_before "
-            "FROM (SELECT gid, CASE WHEN pg_column_compression(geom_4326) IS NULL "
-            "THEN COALESCE(pg_column_size(geom_4326), 0) "
-            "ELSE ST_MemSize(geom_4326) END AS n FROM page) v"
-            ") w WHERE bytes_before < :max_geometry_bytes) "
-            f"SELECT {select_cols}, (SELECT count(*) FROM page) AS page_rows "
-            "FROM page t WHERE gid IN (SELECT gid FROM kept) ORDER BY gid"
-        )
-        bind_values["max_geometry_bytes"] = max_geometry_bytes
-    else:
-        data_sql = f"SELECT {select_cols} {page_sql}"
+    data_sql = f"SELECT {select_cols} {page_sql}"
 
     # CQL2 and typed property binds are shared by the data and count queries.
     extra_binds = [*(cql2_binds or ()), *typed_binds]
@@ -678,13 +665,8 @@ async def get_features(
         _with_extra_binds(text(data_sql).bindparams(**bind_values))
     )
     rows = [dict(row._mapping) for row in result.all()]
-    if budgeted:
-        fetched = max((row.pop("page_rows") for row in rows), default=0)
-        rows = rows[:limit]
-        has_more = fetched > len(rows)
-    else:
-        has_more = len(rows) > limit
-        rows = rows[:limit]
+    has_more = len(rows) > limit
+    rows = rows[:limit]
 
     # The keyset cursor is excluded from the count (no LIMIT/OFFSET either),
     # so total reflects the full result set, not "rows remaining after cursor".
@@ -699,7 +681,7 @@ async def get_features(
         count_bind = {
             k: v
             for k, v in bind_values.items()
-            if k not in ("limit", "offset", "after_gid", "max_geometry_bytes")
+            if k not in ("limit", "offset", "after_gid")
         }
         total, total_is_estimate = await _bounded_total(
             db, table_name, count_where_sql, count_bind, _with_extra_binds
@@ -713,6 +695,60 @@ async def get_features(
         has_more=has_more,
     )
     return FeaturePage(rows, total, total_is_estimate, has_more)
+
+
+# Rows a streamed page holds in memory at once; one row's geometry is unbounded.
+STREAM_FETCH_ROWS = 100
+
+
+async def open_feature_stream(
+    db: AsyncSession,
+    table_name: str,
+    gids: Sequence[int],
+    *,
+    has_geometry: bool = True,
+    include_geometry: bool = True,
+) -> AsyncGenerator[str]:
+    """Open a cursor over the features *gids* name and return their GeoJSON text.
+
+    The query runs here, so a failure is raised before the caller commits to
+    a response. The returned iterator yields one Feature per row, in gid
+    order, fetching ``STREAM_FETCH_ROWS`` rows at a time; *db* must stay open
+    in its transaction until it is exhausted or closed. Postgres serializes
+    the geometry and properties, which are never parsed here.
+    """
+    if not gids:
+        return _no_features()
+    with_geometry = has_geometry and include_geometry
+    geometry = "ST_AsGeoJSON(geom_4326, 6)" if with_geometry else "NULL::text"
+    drop_geom = " - 'geom_4326'" if with_geometry else ""
+    row_source = await _projected_row_source(
+        db, table_name, with_geometry=with_geometry, where_sql="WHERE gid = ANY(:gids)"
+    )
+    stmt = text(
+        f"SELECT gid, {geometry} AS geometry, "
+        f"(to_jsonb(t.*) - 'gid'{drop_geom})::text AS properties "
+        f"FROM {row_source} t ORDER BY gid"
+    ).bindparams(gids=list(gids))
+    result = await db.stream(stmt.execution_options(yield_per=STREAM_FETCH_ROWS))
+    return _feature_json(result)
+
+
+async def _no_features() -> AsyncGenerator[str]:
+    return
+    yield
+
+
+async def _feature_json(result: AsyncResult) -> AsyncGenerator[str]:
+    try:
+        async for gid, geometry_json, properties_json in result:
+            yield (
+                f'{{"type":"Feature","id":{int(gid)},'
+                f'"geometry":{geometry_json or "null"},'
+                f'"properties":{properties_json}}}'
+            )
+    finally:
+        await result.close()
 
 
 async def get_features_geojson_z(
