@@ -61321,7 +61321,7 @@
     },
     "/maps/{map_id}/groups/": {
       "put": {
-        "description": "Share a map with exactly these sharing groups (owner or admin).\n\nAn owner may add only groups they belong to (403); an admin may add any.\nA private map shared with a group becomes restricted and its members can\nread it; a restricted one left with no group becomes private. Internal\nand public maps keep their audience. Becoming restricted revokes the\nmap's share link and embed tokens. 404 for an unknown group.\n\n409 (`detail.code` `layers_hidden_from_groups`, the layers under\n`detail.layers`) when new groups can't read some layers; see `confirm`.\nA lock wait that times out answers 409 `catalog_lock_conflict`.\nWith `expected_updated_at`, a map changed since that value answers 409\nwith `detail.code` `stale_write` and nothing is written.",
+        "description": "Share a map with exactly these sharing groups (owner or admin).\n\nAn owner may add only groups they belong to (403); an admin may add any.\nA private map shared with a group becomes restricted and its members can\nread it; a restricted one left with no group becomes private. Internal\nand public maps keep their audience. Becoming restricted revokes the\nmap's share link and embed tokens. 404 for an unknown group.\n\n409 (`detail.code` `layers_hidden_from_groups`, the layers under\n`detail.layers`) when new groups can't read some layers; see `confirm`.\nA lock wait that times out also answers 409, without `detail.code` and\nwith the top-level `code` `catalog_lock_conflict`.\nWith `expected_updated_at`, a map changed since that value answers 409\nwith `detail.code` `stale_write` and nothing is written.",
         "operationId": "set_map_groups_endpoint_maps__map_id__groups__put",
         "parameters": [
           {
@@ -61404,7 +61404,7 @@
                 }
               }
             },
-            "description": "Layers some new groups can't read (`detail.code` `layers_hidden_from_groups`), or another change to the map holding its lock (`detail.code` `catalog_lock_conflict`); branch on `detail.code`."
+            "description": "Layers some new groups can't read (`detail.code` `layers_hidden_from_groups`), or another change to the map holding its lock (no `detail.code`; top-level `code` `catalog_lock_conflict`); branch on the codes."
           },
           "422": {
             "content": {

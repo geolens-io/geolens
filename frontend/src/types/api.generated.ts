@@ -4616,7 +4616,8 @@ export interface paths {
          *
          *     409 (`detail.code` `layers_hidden_from_groups`, the layers under
          *     `detail.layers`) when new groups can't read some layers; see `confirm`.
-         *     A lock wait that times out answers 409 `catalog_lock_conflict`.
+         *     A lock wait that times out also answers 409, without `detail.code` and
+         *     with the top-level `code` `catalog_lock_conflict`.
          *     With `expected_updated_at`, a map changed since that value answers 409
          *     with `detail.code` `stale_write` and nothing is written.
          */
@@ -41378,7 +41379,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description Layers some new groups can't read (`detail.code` `layers_hidden_from_groups`), or another change to the map holding its lock (`detail.code` `catalog_lock_conflict`); branch on `detail.code`. */
+            /** @description Layers some new groups can't read (`detail.code` `layers_hidden_from_groups`), or another change to the map holding its lock (no `detail.code`; top-level `code` `catalog_lock_conflict`); branch on the codes. */
             409: {
                 headers: {
                     [name: string]: unknown;

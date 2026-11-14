@@ -1,4 +1,4 @@
-"""Each lock site raises CatalogLockConflict with its message, answers the keyed 409, and keeps its lock_timeout scope."""
+"""Each lock site raises CatalogLockConflict, answers its released 409 detail plus top-level code, and keeps its lock_timeout scope."""
 
 from __future__ import annotations
 
@@ -138,10 +138,6 @@ async def test_success_resets_the_bound_only_where_it_did_before(
         assert await _show(session) == default
 
 
-def _keyed(message: str) -> dict:
-    return {"code": "catalog_lock_conflict", "message": message}
-
-
 async def _held_request(client, headers, name, map_id, coll, story):
     """Send the route whose lock ``name`` names while another session holds its row."""
     model, row, request = {
@@ -192,18 +188,30 @@ def _thumbnail() -> str:
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
 
 
-@pytest.mark.parametrize(
-    ("name", "expected"),
-    [("story", _STORY), ("map", _MAP), ("asset", _ASSET), ("collection", _COLLECTION)],
-)
-async def test_held_row_answers_the_keyed_409(
-    client, admin_auth_header, name, expected
+# The 409 detail each route answered before the top-level code was added.
+_RELEASED_DETAIL = {
+    "story": _STORY,
+    "map": _MAP,
+    "asset": {"code": "map_asset_write_locked", "message": _ASSET},
+    "collection": _COLLECTION,
+}
+
+
+@pytest.mark.parametrize("name", sorted(_RELEASED_DETAIL))
+async def test_held_row_keeps_the_released_detail_and_adds_the_code(
+    client, admin_auth_header, name
 ):
-    """A route waiting on a held story, map, map image or collection row answers 409 catalog_lock_conflict with the site's message."""
+    """A route waiting on a held story, map, map image or collection row answers its released 409 detail and top-level code catalog_lock_conflict."""
     map_id, coll, story = await _fixtures(client, admin_auth_header)
     resp = await _held_request(client, admin_auth_header, name, map_id, coll, story)
     assert resp.status_code == 409, resp.text
-    assert resp.json()["detail"] == _keyed(expected)
+    assert resp.json() == {
+        "type": "about:blank",
+        "title": "Conflict",
+        "status": 409,
+        "detail": _RELEASED_DETAIL[name],
+        "code": "catalog_lock_conflict",
+    }
 
 
 async def test_bounded_row_lock_reset_flag(client, admin_auth_header):

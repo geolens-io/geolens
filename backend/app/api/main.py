@@ -892,21 +892,31 @@ async def _storage_quota_handler(
     )
 
 
-def _catalog_lock_conflict_response(request: Request, message: str) -> JSONResponse:
-    """The one 409 body for a contended catalog row."""
+def _catalog_lock_conflict_response(
+    request: Request,
+    message: str,
+    detail: str | dict[str, str] | None = None,
+) -> JSONResponse:
+    """The 409 for a contended row: top-level ``code`` ``catalog_lock_conflict``
+    on every route, beside the ``detail`` that route has always answered."""
     logger.info(
         "catalog row lock conflict",
         path=safe_access_log_path(request.url.path),
     )
-    return JSONResponse(
-        status_code=status.HTTP_409_CONFLICT,
-        content=ProblemDetail(
+    if detail is None:
+        problem = ProblemDetail(
             title="Catalog entry is busy",
             status=status.HTTP_409_CONFLICT,
-            # Keyed, because this is the ONLY shape a contended row produces
-            # and a client cannot match on a title.
             detail={"code": CATALOG_LOCK_CONFLICT_CODE, "message": message},
-        ).model_dump(),
+        )
+    else:
+        # A route's released detail, under the title its HTTPException had.
+        problem = ProblemDetail(
+            title="Conflict", status=status.HTTP_409_CONFLICT, detail=detail
+        )
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content={**problem.model_dump(), "code": CATALOG_LOCK_CONFLICT_CODE},
         media_type="application/problem+json",
     )
 
@@ -918,7 +928,9 @@ async def _catalog_lock_conflict_handler(
 
     Safe to retry: the acquisition rolled its transaction back first.
     """
-    return _catalog_lock_conflict_response(request, str(exc))
+    return _catalog_lock_conflict_response(
+        request, str(exc), getattr(exc, "detail", None)
+    )
 
 
 async def _database_error_handler(request: Request, exc: DBAPIError) -> JSONResponse:

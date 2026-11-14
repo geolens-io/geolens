@@ -4969,7 +4969,8 @@ export const updateEmbedTokenEndpointMapsMapIdEmbedTokensTokenIdPatch = <ThrowOn
  *
  * 409 (`detail.code` `layers_hidden_from_groups`, the layers under
  * `detail.layers`) when new groups can't read some layers; see `confirm`.
- * A lock wait that times out answers 409 `catalog_lock_conflict`.
+ * A lock wait that times out also answers 409, without `detail.code` and
+ * with the top-level `code` `catalog_lock_conflict`.
  * With `expected_updated_at`, a map changed since that value answers 409
  * with `detail.code` `stale_write` and nothing is written.
  */

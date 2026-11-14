@@ -29,6 +29,9 @@ from app.platform.catalog_locks import bounded_row_lock
 MAP_WRITE_DENIED = "Not authorized to modify this map"
 
 
+_MAP_BUSY = "Another change to this map is in progress. Retry shortly."
+
+
 async def bulk_check_dataset_access(
     session: AsyncSession,
     dataset_ids: list[uuid.UUID],
@@ -115,7 +118,8 @@ async def lock_map_layers(session: AsyncSession, map_id: uuid.UUID) -> None:
     await bounded_row_lock(
         session,
         select(Map.id).where(Map.id == map_id).with_for_update(key_share=True),
-        message="Another change to this map is in progress. Retry shortly.",
+        message=_MAP_BUSY,
+        detail=_MAP_BUSY,
         lock_timeout=_LAYER_LOCK_TIMEOUT,
     )
     await recheck_map_ownership(session, map_id)

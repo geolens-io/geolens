@@ -26,6 +26,9 @@ from app.modules.catalog.write_recheck import admit_writer, recheck_admitted_wri
 from app.platform.catalog_locks import bounded_row_lock
 
 
+_COLLECTION_BUSY = "Another change to this collection is in progress. Retry shortly."
+
+
 async def create_collection(
     session: AsyncSession,
     name: str,
@@ -143,7 +146,8 @@ async def lock_collection_for_write(
         select(Collection.id)
         .where(Collection.id == collection_id)
         .with_for_update(key_share=True),
-        message="Another change to this collection is in progress. Retry shortly.",
+        message=_COLLECTION_BUSY,
+        detail=_COLLECTION_BUSY,
     )
 
     async def enforce(user: Identity, row: Any) -> None:

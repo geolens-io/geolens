@@ -58,6 +58,9 @@ _COPY_SUFFIX_RE = re.compile(r"\s*\(copy(?:\s+(\d+))?\)\s*$")
 _UNSET = object()
 
 
+_ASSETS_BUSY = "Another write to this map's assets is in progress. Retry shortly."
+
+
 def new_map_asset_key(prefix: str, map_id: uuid.UUID, ext: str) -> str:
     """A storage key for one map image that no later upload can reuse.
 
@@ -96,7 +99,8 @@ async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> 
         select(Map.thumbnail_uri, Map.og_image_uri)
         .where(Map.id == map_id)
         .with_for_update(),
-        message="Another write to this map's assets is in progress. Retry shortly.",
+        message=_ASSETS_BUSY,
+        detail={"code": "map_asset_write_locked", "message": _ASSETS_BUSY},
         reset=False,
     )
     row = result.one_or_none()
