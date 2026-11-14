@@ -24,7 +24,9 @@ type Node = unknown[];
 
 const op = (node: unknown): string | null =>
   Array.isArray(node) && node.length > 0 && typeof node[0] === 'string' ? node[0] : null;
-const isNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+// An integer past the safe range reached the browser rounded, so the server refuses it too.
+const isNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && (!Number.isInteger(value) || Number.isSafeInteger(value));
 const isScalar = (value: unknown) => typeof value === 'string' || typeof value === 'boolean' || isNumber(value);
 const hasOp = (table: Record<string, string>, name: string | null): name is string =>
   name !== null && Object.hasOwn(table, name);
@@ -191,15 +193,15 @@ class Builder {
     const name = op(node);
     if (name !== 'all' && name !== 'any') throw new Refused();
     const parts: Cql2Expression[] = [];
+    let keepsAll = false;
     for (const child of (node as Node).slice(1)) {
       if (!Array.isArray(child)) throw new Refused();
+      // Every branch is read, after one that keeps every feature too.
       const part = this.tree(child);
-      if (part === null) {
-        if (name === 'any') return null;
-        continue;
-      }
-      parts.push(part);
+      if (part === null) keepsAll = true;
+      else parts.push(part);
     }
+    if (name === 'any' && keepsAll) return null;
     if (parts.length === 0) {
       if (name === 'any') throw new Refused();
       return null;

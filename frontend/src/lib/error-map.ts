@@ -600,7 +600,9 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
     }
     // A map save refusing dashboard widgets names them by id, which a reader can't act on.
     if (Array.isArray(value.widget_ids)) {
-      return { key: 'errors.dashboardWidgetsRefused' };
+      const refused = Array.isArray(value.widgets) ? (value.widgets as { reason?: unknown }[]) : [];
+      const filtered = refused.some((widget) => typeof widget?.reason === 'string' && widget.reason.startsWith('filter_'));
+      return { key: filtered ? 'errors.dashboardWidgetFilterRefused' : 'errors.dashboardWidgetsRefused' };
     }
     // An import still running has no dataset to name yet, only its job.
     if (value.code === 'duplicate_source' && typeof value.existing_job_id === 'string') {

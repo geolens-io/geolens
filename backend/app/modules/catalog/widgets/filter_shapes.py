@@ -28,6 +28,8 @@ _TEMPORAL = {
     "timestamp with time zone": "timestamp",
 }
 _LOW, _HIGH = -1_000_000_000_000, 1_000_000_000_000
+# JSON integers past this reach the browser rounded, so the viewer can't send them.
+_MAX_SAFE_INTEGER = 2**53 - 1
 _REFUSED = (
     "A widget filter takes only the conditions the filter editor writes: "
     "comparisons, value lists, contains, has and is-empty tests on named "
@@ -54,9 +56,16 @@ def _op(node: Any) -> str | None:
 
 
 def _is_number(value: Any) -> bool:
-    if isinstance(value, bool) or not isinstance(value, int | float):
+    """A finite number the viewer reads exactly: an integer within JavaScript's safe range."""
+    if isinstance(value, bool):
         return False
-    return math.isfinite(value)
+    if isinstance(value, int):
+        return abs(value) <= _MAX_SAFE_INTEGER
+    if isinstance(value, float):
+        return math.isfinite(value) and not (
+            value.is_integer() and abs(value) > _MAX_SAFE_INTEGER
+        )
+    return False
 
 
 def _is_scalar(value: Any) -> bool:
@@ -258,15 +267,18 @@ class _Builder:
         if _op(node) not in ("all", "any"):
             raise _refuse()
         parts = []
+        keeps_all = False
         for child in node[1:]:
             if not isinstance(child, list):
                 raise _refuse()
+            # Every branch is read, after one that keeps every feature too.
             part = self.tree(child)
             if part is None:
-                if node[0] == "any":
-                    return None
-                continue
-            parts.append(part)
+                keeps_all = True
+            else:
+                parts.append(part)
+        if node[0] == "any" and keeps_all:
+            return None
         if not parts:
             if node[0] == "any":
                 raise _refuse()
@@ -339,7 +351,7 @@ def _legacy(node: Any) -> list:
     return ["all", _typeof(key, "number", "=="), guarded]
 
 
-def _measure(cql2: Any) -> tuple[int, int]:
+def measure_cql2(cql2: Any) -> tuple[int, int]:
     """Values (one bind each once compiled) and depth, as the aggregate counts them."""
     values, deepest = 0, 0
     pending: list[tuple[Any, int, str | None]] = [(cql2, 1, None)]
@@ -369,5 +381,5 @@ def widget_filter_cql2(
     builder = _Builder(types)
     expression = _legacy(value) if _classify(value) == "legacy" else value
     cql2 = builder.tree(expression)
-    values, depth = _measure(cql2) if cql2 is not None else (0, 0)
+    values, depth = measure_cql2(cql2) if cql2 is not None else (0, 0)
     return WidgetFilter(cql2, frozenset(builder.columns), values, depth)

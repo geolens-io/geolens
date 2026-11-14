@@ -74,16 +74,13 @@ def _widget(type, layer_id=None, widget_id=None, **extra) -> dict:
     }
 
 
-def _merge(sent, stored, readable=(), hidden=(), repointed=(), columns=None):
+def _merge(sent, stored, readable=(), hidden=(), repointed=(), refusals=None):
     return merge_dashboard(
         None if sent is None else DashboardConfigInput.model_validate(sent),
         drop_repointed(stored, set(repointed)),
         layer_ids=set(readable) | set(hidden),
         hidden_layer_ids=set(hidden),
-        layer_columns={
-            layer: names if isinstance(names, dict) else dict.fromkeys(names, "text")
-            for layer, names in (columns or {}).items()
-        },
+        filter_refusals=refusals or {},
     )
 
 

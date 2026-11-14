@@ -145,8 +145,23 @@ export function widgetProblem(widget: WidgetInstance, layer: MapLayerResponse): 
   const missing = shape.columns.find((name) => !columns.some((column) => column.name === name));
   if (missing !== undefined) return { kind: 'missingColumn', column: missing };
   const { filter, ownUnsupported } = widgetFilter(toSharedLayer(layer), [], widget.filter);
-  if (ownUnsupported) return { kind: 'filterUnsupported' };
+  if (ownUnsupported || (filter && ordersBoolean(filter, columns))) return { kind: 'filterUnsupported' };
   return filter && !fitsAggregateFilterLimits(filter) ? { kind: 'filterTooLarge' } : null;
+}
+
+const ORDER_OPS = new Set(['<', '>', '<=', '>=']);
+
+/** Whether `cql2` orders a boolean column, which the aggregate endpoint refuses. */
+function ordersBoolean(cql2: unknown, columns: readonly { name: string; type?: string | null }[]): boolean {
+  if (!cql2 || typeof cql2 !== 'object' || Array.isArray(cql2)) return false;
+  const { op, args } = cql2 as { op?: unknown; args?: unknown };
+  if (!Array.isArray(args)) return false;
+  const [first] = args as { property?: unknown }[];
+  if (typeof op === 'string' && ORDER_OPS.has(op) && typeof first?.property === 'string') {
+    const type = columns.find((column) => column.name === first.property)?.type;
+    if (type?.toLowerCase() === 'boolean') return true;
+  }
+  return args.some((arg) => ordersBoolean(arg, columns));
 }
 
 /**

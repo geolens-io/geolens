@@ -950,10 +950,37 @@
         "kind"
       ]
     ],
-    "columns": [],
+    "columns": [
+      "kind"
+    ],
     "cql2": null,
     "values": 0,
     "depth": 0
+  },
+  {
+    "name": "largest_safe_integer",
+    "filter": [
+      "==",
+      [
+        "get",
+        "pop"
+      ],
+      9007199254740991
+    ],
+    "columns": [
+      "pop"
+    ],
+    "cql2": {
+      "op": "=",
+      "args": [
+        {
+          "property": "pop"
+        },
+        9007199254740991
+      ]
+    },
+    "values": 1,
+    "depth": 4
   },
   {
     "name": "legacy_comparison_normalized",
@@ -1500,6 +1527,88 @@
         "type": "Polygon",
         "coordinates": []
       }
+    ],
+    "columns": null
+  },
+  {
+    "name": "any_with_an_empty_all_then_match",
+    "filter": [
+      "any",
+      [
+        "all"
+      ],
+      [
+        "match",
+        [
+          "get",
+          "kind"
+        ],
+        "a",
+        true,
+        false
+      ]
+    ],
+    "columns": null
+  },
+  {
+    "name": "all_with_an_empty_all_then_match",
+    "filter": [
+      "all",
+      [
+        "all"
+      ],
+      [
+        "match",
+        [
+          "get",
+          "kind"
+        ],
+        "a",
+        true,
+        false
+      ]
+    ],
+    "columns": null
+  },
+  {
+    "name": "unsafe_integer",
+    "filter": [
+      "==",
+      [
+        "get",
+        "pop"
+      ],
+      9007199254740992
+    ],
+    "columns": null
+  },
+  {
+    "name": "unsafe_integral_float",
+    "filter": [
+      "==",
+      [
+        "get",
+        "pop"
+      ],
+      1e+300
+    ],
+    "columns": null
+  },
+  {
+    "name": "unsafe_integer_in_list",
+    "filter": [
+      "in",
+      [
+        "get",
+        "pop"
+      ],
+      [
+        "literal",
+        [
+          1,
+          -9007199254740992
+        ]
+      ]
     ],
     "columns": null
   }

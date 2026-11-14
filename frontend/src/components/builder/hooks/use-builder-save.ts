@@ -1067,6 +1067,7 @@ const DASHBOARD_SAVE_ERRORS = new Set([
   'errors.dashboardTooNew',
   'errors.dashboardTooManyWidgets',
   'errors.dashboardWidgetsRefused',
+  'errors.dashboardWidgetFilterRefused',
 ]);
 
 /** The state fields handleSave snapshots into its payloads. If any changes

@@ -28,6 +28,7 @@ from app.modules.catalog.maps.dashboard import (
     merge_dashboard,
     shows_widgets,
 )
+from app.modules.catalog.maps.dashboard_filters import widget_filter_refusals
 from app.modules.catalog.maps.service_diff import (
     _coerce_uuid,
     _replace_layers,
@@ -610,34 +611,15 @@ async def _saved_dashboard(
     stored = drop_repointed(map_obj.dashboard_config, repointed)
     if sent is _UNSET:
         return stored
+    config = None if sent is None else DashboardConfigInput.model_validate(sent)
+    hidden = await _unreadable_layer_ids(session, layers, user)
     return merge_dashboard(
-        None if sent is None else DashboardConfigInput.model_validate(sent),
+        config,
         stored,
         layer_ids={layer.id for layer in layers},
-        hidden_layer_ids=await _unreadable_layer_ids(session, layers, user),
-        layer_columns=await _layer_columns(session, layers),
+        hidden_layer_ids=hidden,
+        filter_refusals=await widget_filter_refusals(session, config, layers, hidden),
     )
-
-
-async def _layer_columns(
-    session: AsyncSession, layers: Sequence[MapLayer]
-) -> dict[uuid.UUID, dict[str, str]]:
-    """Each layer's dataset columns and their types, from ``column_info``."""
-    dataset_ids = {layer.dataset_id for layer in layers}
-    if not dataset_ids:
-        return {}
-    rows = await session.execute(
-        select(Dataset.id, Dataset.column_info).where(Dataset.id.in_(dataset_ids))
-    )
-    types = {
-        dataset_id: {
-            col["name"]: str(col.get("type") or "").lower()
-            for col in info or []
-            if isinstance(col, dict) and isinstance(col.get("name"), str)
-        }
-        for dataset_id, info in rows.all()
-    }
-    return {layer.id: types.get(layer.dataset_id, {}) for layer in layers}
 
 
 async def delete_map(

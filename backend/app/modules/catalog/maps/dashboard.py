@@ -21,7 +21,6 @@ from pydantic import (
     field_validator,
 )
 
-from app.modules.catalog.widgets.filter_shapes import MAX_CQL2_DEPTH, widget_filter_cql2
 from app.modules.catalog.widgets.schemas import (
     BarChartWidget,
     CategorySelectorWidget,
@@ -210,25 +209,6 @@ def _client_reads(widget: Any, readable: Collection[str]) -> bool:
     return f"{widget.type}:{widget.v}" in readable
 
 
-def _filter_refusal(widget: Any, types: Mapping[str, str]) -> str | None:
-    """Why the widget's filter can't be saved on its layer, whose columns ``types`` lists.
-
-    ``filter_column`` for a column the layer lacks, ``filter_too_large`` for a
-    filter past the aggregate's bind or depth limit on its own.
-    """
-    from app.standards.ogc.filtering import MAX_FEATURE_FILTER_BINDS
-
-    widget_filter = getattr(widget, "filter", None)
-    if widget_filter is None:
-        return None
-    sent = widget_filter_cql2(widget_filter, types)
-    if not sent.columns <= types.keys():
-        return "filter_column"
-    if sent.values > MAX_FEATURE_FILTER_BINDS or sent.depth > MAX_CQL2_DEPTH:
-        return "filter_too_large"
-    return None
-
-
 def _raw_id(raw: Any) -> str | None:
     """The id of a stored widget this server can't parse, as a parsed id reads."""
     try:
@@ -282,15 +262,14 @@ def merge_dashboard(
     *,
     layer_ids: Collection[uuid.UUID],
     hidden_layer_ids: Collection[uuid.UUID],
-    layer_columns: Mapping[uuid.UUID, Mapping[str, str]],
+    filter_refusals: Mapping[str, str],
 ) -> dict[str, Any] | None:
     """The dashboard to store for a save; ``sent=None`` removes what the editor sees.
 
     ``layer_ids`` are the map's layers after the save and ``hidden_layer_ids``
-    those among them whose dataset the editor can't read. ``layer_columns``
-    maps each layer's dataset columns to their types; a sent widget whose
-    ``filter`` names a column not listed for its layer, or alone passes the
-    aggregate's bind or depth limit, is refused (422).
+    those among them whose dataset the editor can't read. A sent widget with
+    a reason in ``filter_refusals`` (by widget id, from
+    ``dashboard_filters.widget_filter_refusals``) is refused (422) with it.
 
     A stored widget on a hidden layer, or one the editor's client can't read
     (outside its ``readable`` pairs, by default those of earlier releases),
@@ -342,17 +321,16 @@ def merge_dashboard(
 
     # A missing layer and an unreadable one share a reason so a refusal never
     # tells the editor a hidden layer exists.
-    columns = {str(layer_id): types for layer_id, types in layer_columns.items()}
     refused = []
     for w in sent_widgets:
         if not _on_layers(w, readable):
             reason = "layer_unavailable"
         elif str(w.id) in locked_ids:
             reason = "id_in_use"
+        elif str(w.id) in filter_refusals:
+            reason = filter_refusals[str(w.id)]
         else:
-            reason = _filter_refusal(w, columns.get(_layer_id(w) or "", {}))
-            if reason is None:
-                continue
+            continue
         refused.append({"id": str(w.id), "layer_id": _layer_id(w), "reason": reason})
     refused.sort(key=lambda item: item["id"])
     if refused:

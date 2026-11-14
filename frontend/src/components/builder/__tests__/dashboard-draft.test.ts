@@ -135,6 +135,17 @@ describe("a widget's own filter", () => {
     },
   );
 
+  it('holds an order comparison on a boolean column, which the aggregate endpoint refuses', () => {
+    const flagged = layer({
+      dataset_column_info: [
+        { name: 'kind', type: 'text' },
+        { name: 'active', type: 'boolean' },
+      ],
+    });
+    expect(widgetProblem(filtered(['>', ['get', 'active'], true]), flagged)).toEqual({ kind: 'filterUnsupported' });
+    expect(widgetProblem(filtered(['==', ['get', 'active'], true]), flagged)).toBeNull();
+  });
+
   it('holds a filter whose columns are computed', () => {
     expect(widgetProblem(filtered(['==', ['get', ['concat', 'ki', 'nd']], 'a']), layer())).toEqual({
       kind: 'filterUnsupported',

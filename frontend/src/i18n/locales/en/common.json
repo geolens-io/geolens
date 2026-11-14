@@ -571,6 +571,7 @@
     "dashboardTooNew": "This dashboard was saved by a newer version of GeoLens and can't be changed here.",
     "dashboardTooManyWidgets": "A dashboard holds at most 50 widgets. Remove some before saving.",
     "dashboardWidgetsRefused": "Some dashboard widgets name layers that aren't on this map or that you can't read. Remove them or pick other layers.",
+    "dashboardWidgetFilterRefused": "A dashboard widget's filter can't be used on its layer: the server refused one of its conditions, or it is too large together with the layer's filter. Check it in the Dashboard panel.",
     "storyImageUnreadable": "The file isn't a readable image.",
     "storyImageTooLarge": "This image is too large. Upload a file under 50 MB with fewer pixels.",
     "storyImageUnsupported": "Only PNG, JPEG and WebP images can be uploaded.",
