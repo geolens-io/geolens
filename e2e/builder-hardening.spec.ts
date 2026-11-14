@@ -407,9 +407,11 @@ test.describe('Builder residual-risk hardening', () => {
       await page.getByRole('button', { name: /close panel/i }).click();
 
       await page.getByRole('button', { name: /ask ai|ai unavailable/i }).click();
-      await expect(page.getByRole('dialog')).toBeVisible();
+      const aiSheet = page.getByRole('dialog');
+      await expect(aiSheet).toBeVisible();
+      // The page keeps empty live regions outside the sheet, so look inside it.
       await expect(
-        page.getByRole('status').or(page.getByPlaceholder(/describe a map change/i)).first(),
+        aiSheet.getByRole('status').or(aiSheet.getByPlaceholder(/describe a map change/i)).first(),
       ).toBeVisible({ timeout: 10_000 });
 
       const hasHorizontalOverflow = await page.evaluate(
