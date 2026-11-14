@@ -9,6 +9,10 @@ import {
 } from '@/components/widgets/registry';
 import { isAggregateNumeric, isDateColumn, isListableColumn, isSortableColumn } from '@/lib/column-utils';
 import { canOpenAttributeTable } from '@/lib/layer-capabilities';
+import { widgetFilterShape } from '@/lib/widget-filter-shape';
+import { widgetFilter } from '@/components/viewer/linked-filters';
+import { toSharedLayer } from '@/components/viewer/shared-layer';
+import { fitsAggregateFilterLimits } from './cluster-source';
 import type { DashboardConfig, MapLayerResponse } from '@/types/api';
 import type { components } from '@/types/api.generated';
 
@@ -44,12 +48,17 @@ export function toDashboardDraft(config: DashboardConfig | null | undefined): Da
 }
 
 /**
- * A widget as a save stores it: its title trimmed and left out when blank, and
- * its version the oldest one that can hold its config.
+ * A widget as a save stores it: its title trimmed and left out when blank, its
+ * filter left out when it has none, and its version the oldest one that can
+ * hold its config and filter.
  */
-function toSaved({ title, ...widget }: WidgetInstance): WidgetInstance {
-  const v = getWidgetDefinition(widget.type, 'dashboard')?.storedVersion?.(widget.config) ?? widget.v;
-  return title?.trim() ? { ...widget, v, title: title.trim() } : { ...widget, v };
+function toSaved({ title, filter, ...widget }: WidgetInstance): WidgetInstance {
+  const definition = getWidgetDefinition(widget.type, 'dashboard');
+  const base = definition?.storedVersion?.(widget.config) ?? widget.v;
+  const filterVersion = filter ? definition?.filterVersion : undefined;
+  const v = filterVersion ? Math.max(base, filterVersion) : base;
+  const saved: WidgetInstance = { ...widget, v, ...(filterVersion ? { filter } : {}) };
+  return title?.trim() ? { ...saved, title: title.trim() } : saved;
 }
 
 /**
@@ -100,7 +109,11 @@ export function widgetLayerGone(widget: WidgetInstance, layers: readonly MapLaye
 export type WidgetProblem =
   | { kind: 'missingColumn' | 'notNumeric' | 'notSortable' | 'notListable' | 'notDate'; column: string }
   /** The widget follows the map view on a layer with no geometry, which the endpoint refuses. */
-  | { kind: 'viewWithoutGeometry' };
+  | { kind: 'viewWithoutGeometry' }
+  /** The widget's own filter is one the aggregate endpoint can't take. */
+  | { kind: 'filterUnsupported' }
+  /** With the layer's filter, the widget's own filter is past what the aggregate endpoint accepts. */
+  | { kind: 'filterTooLarge' };
 
 /** True when `layer` has geometry a map view can bound. */
 export function layerFollowsView(layer: MapLayerResponse): boolean {
@@ -109,8 +122,9 @@ export function layerFollowsView(layer: MapLayerResponse): boolean {
 
 /**
  * What stops the widget from saving on `layer`: a view scope the layer can't
- * follow, or a column it lacks or holds as anything but a number where one is
- * needed. Without column metadata the server judges the columns.
+ * follow, a column it lacks or holds as anything but a number where one is
+ * needed, or a filter the aggregate endpoint can't take. Without column
+ * metadata the server judges the columns.
  */
 export function widgetProblem(widget: WidgetInstance, layer: MapLayerResponse): WidgetProblem | null {
   if (widget.scope === 'view' && !layerFollowsView(layer)) return { kind: 'viewWithoutGeometry' };
@@ -125,19 +139,45 @@ export function widgetProblem(widget: WidgetInstance, layer: MapLayerResponse): 
     if (use.listable && !isListableColumn(use.name, column.type)) return { kind: 'notListable', column: use.name };
     if (use.sortable && !isSortableColumn(use.name, column.type)) return { kind: 'notSortable', column: use.name };
   }
-  return null;
+  if (!widget.filter) return null;
+  const shape = widgetFilterShape(widget.filter);
+  if (shape === null) return { kind: 'filterUnsupported' };
+  const missing = shape.columns.find((name) => !columns.some((column) => column.name === name));
+  if (missing !== undefined) return { kind: 'missingColumn', column: missing };
+  const { filter, ownUnsupported } = widgetFilter(toSharedLayer(layer), [], widget.filter);
+  if (ownUnsupported || (filter && ordersBoolean(filter, columns))) return { kind: 'filterUnsupported' };
+  return filter && !fitsAggregateFilterLimits(filter) ? { kind: 'filterTooLarge' } : null;
 }
 
-/** The first problem that holds the save; a widget whose layer is gone isn't sent, so it holds nothing. */
+const ORDER_OPS = new Set(['<', '>', '<=', '>=']);
+
+/** Whether `cql2` orders a boolean column, which the aggregate endpoint refuses. */
+function ordersBoolean(cql2: unknown, columns: readonly { name: string; type?: string | null }[]): boolean {
+  if (!cql2 || typeof cql2 !== 'object' || Array.isArray(cql2)) return false;
+  const { op, args } = cql2 as { op?: unknown; args?: unknown };
+  if (!Array.isArray(args)) return false;
+  const [first] = args as { property?: unknown }[];
+  if (typeof op === 'string' && ORDER_OPS.has(op) && typeof first?.property === 'string') {
+    const type = columns.find((column) => column.name === first.property)?.type;
+    if (type?.toLowerCase() === 'boolean') return true;
+  }
+  return args.some((arg) => ordersBoolean(arg, columns));
+}
+
+/**
+ * The first problem that holds the save; a widget whose layer is gone isn't
+ * sent, so it holds nothing. With `kinds`, only problems of those kinds count.
+ */
 export function firstWidgetProblem(
   draft: DashboardDraft,
   layers: readonly MapLayerResponse[],
+  kinds?: readonly WidgetProblem['kind'][],
 ): WidgetProblem | null {
   for (const widget of draft.widgets) {
     const layer = layers.find((candidate) => candidate.id === widget.layer_id);
     if (!layer || !canOpenAttributeTable(layer)) continue;
     const problem = widgetProblem(widget, layer);
-    if (problem) return problem;
+    if (problem && (!kinds || kinds.includes(problem.kind))) return problem;
   }
   return null;
 }

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import type { WidgetSelection } from '@/components/widgets/contract';
+import type { WidgetInstance, WidgetSelection } from '@/components/widgets/contract';
 import type { SharedLayerResponse } from '@/types/api';
 import { fitsAggregateFilterLimits, getClusterSourceStrategy } from '@/components/builder/cluster-source';
 import { clusterTileFilter, describeLayers, tileBaseUrlFor } from '@/components/builder/layer-description';
@@ -28,19 +28,28 @@ const PROBLEM_KEYS = {
 /**
  * Why `picks` can't all filter `layer`, or null when every transport they feed
  * takes them: the aggregate requests of the layer's widgets, which a widget
- * with no pick of its own sends with the saved filter and every pick, and, on
- * a server-clustered layer, its cluster tile requests. MapLibre and a bounded
- * cluster's GeoJSON filter on the client, without limits.
+ * with no pick of its own sends with the saved filter and every pick, and one
+ * with its own filter (in `filtered`) sends with that filter and the picks on
+ * the others, and, on a server-clustered layer, its cluster tile requests.
+ * MapLibre and a bounded cluster's GeoJSON filter on the client, without limits.
  */
 function pickFilterProblem(
   layer: SharedLayerResponse,
   picks: readonly LinkedPick[],
   tileBaseUrl: string,
   sourceLayerPrefix: string | null | undefined,
+  filtered: readonly WidgetInstance[],
 ): PickFilterProblem | null {
   const onLayer = picks.filter((pick) => pick.layerId === layer.id);
-  const { filter } = widgetFilter(layer, onLayer.map((pick) => pick.cql2));
-  if (filter && !fitsAggregateFilterLimits(filter)) return 'too-many-values';
+  const recipients: Pick<WidgetInstance, 'id' | 'filter'>[] = [
+    { id: '' },
+    ...filtered.filter((widget) => widget.layer_id === layer.id),
+  ];
+  for (const recipient of recipients) {
+    const others = onLayer.filter((pick) => pick.widgetId !== recipient.id).map((pick) => pick.cql2);
+    const { filter } = widgetFilter(layer, others, recipient.filter);
+    if (filter && !fitsAggregateFilterLimits(filter)) return 'too-many-values';
+  }
   if (getClusterSourceStrategy(layer).kind === 'server-tile') {
     const [linked] = linkMapLayers([layer], onLayer);
     // The columns the map's own cluster URL names, adapter-derived ones included.
@@ -85,6 +94,7 @@ export function usePicks(
   picks: readonly LinkedPick[],
   onPicksChange: ((picks: readonly LinkedPick[]) => void) | undefined,
   layers: readonly SharedLayerResponse[],
+  filtered: readonly WidgetInstance[] = [],
 ) {
   const { t } = useTranslation('widgets');
   const { data: tileConfig } = useTileConfig();
@@ -117,7 +127,13 @@ export function usePicks(
     const nextPicks = current ? picks.map((pick) => (pick === current ? next : pick)) : [...picks, next];
     // Picks on a server-clustered layer wait for the tile config (DashboardWidgetList), so this is the map's base.
     const tileBaseUrl = tileBaseUrlFor(resolveTileBaseUrl(tileConfig), window.location.origin);
-    const problem = pickFilterProblem(layer, nextPicks, tileBaseUrl, tileConfig?.mvt_source_layer_prefix ?? 'data');
+    const problem = pickFilterProblem(
+      layer,
+      nextPicks,
+      tileBaseUrl,
+      tileConfig?.mvt_source_layer_prefix ?? 'data',
+      filtered,
+    );
     if (problem) {
       announce(t(PROBLEM_KEYS[problem]));
       return;

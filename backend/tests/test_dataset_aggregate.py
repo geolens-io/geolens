@@ -1414,6 +1414,143 @@ class TestEmbedColumnAllowlist:
         assert resp.json()["result"]["sum"] == 210
 
 
+# A layer filter (pop >= 20) ANDed with a widget's own filter (kind = keep), as
+# the viewer sends it: points 2-6 match.
+LAYER_AND_WIDGET = {
+    "op": "and",
+    "args": [{"op": ">=", "args": [{"property": "pop"}, 20]}, KEEP],
+}
+WIDGET_REQUESTS = {
+    "indicator_count": ({"op": "count"}, lambda r: r["count"] == 5),
+    "indicator_stat": (
+        {"op": "stats", "column": "pop", "stats": ["sum"]},
+        lambda r: r["sum"] == 200,
+    ),
+    "bar_chart": (
+        {"op": "group_by", "group_column": "kind", "stat": "count"},
+        lambda r: r["groups"] == [{"key": "keep", "value": 5}],
+    ),
+    "table": (
+        {
+            "op": "group_by",
+            "group_column": "kind",
+            "stats": [{"stat": "count"}, {"stat": "sum", "column": "pop"}],
+            "sort_by": "group",
+        },
+        lambda r: r["groups"][0]["values"] == [5, 200],
+    ),
+    "pie_chart_and_selector": (
+        {"op": "value_counts", "column": "kind", "blank_text_as_null": True},
+        lambda r: r == {"values": [{"value": "keep", "count": 5}], "other_count": 0},
+    ),
+    "histogram": (
+        {"op": "histogram", "column": "pop", "bins": 2},
+        lambda r: sum(b["count"] for b in r["bins"]) == 5,
+    ),
+    "feature_list": (
+        {"op": "rows", "columns": ["kind"], "sort_column": "pop", "sort": "asc"},
+        lambda r: [row["gid"] for row in r["rows"]] == [2, 3, 4, 5, 6],
+    ),
+}
+
+
+class TestWidgetFilter:
+    """A widget's own filter, ANDed with its layer's, narrows every widget kind for every caller."""
+
+    @pytest.mark.parametrize("caller", ["owner", "reader", "anonymous", "embed"])
+    @pytest.mark.parametrize("kind", sorted(WIDGET_REQUESTS))
+    async def test_each_widget_kind_counts_only_matching_features(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        viewer_auth_header: dict,
+        test_db_session,
+        embed_headers,
+        kind,
+        caller,
+    ):
+        body, matches = WIDGET_REQUESTS[kind]
+        public = caller in ("reader", "anonymous")
+        async with _dropped(
+            test_db_session, visibility="public" if public else "private"
+        ) as dataset:
+            headers = {
+                "owner": admin_auth_header,
+                "reader": viewer_auth_header,
+                "anonymous": {},
+            }.get(caller)
+            if caller == "embed":
+                await set_tile_columns(test_db_session, dataset.id, ["kind", "pop"])
+                headers = await embed_headers(dataset.id)
+
+            resp = await _aggregate(
+                client, dataset.id, body | {"filter": LAYER_AND_WIDGET}, headers
+            )
+
+            assert resp.status_code == 200, resp.text
+            assert matches(resp.json()["result"]), resp.json()["result"]
+
+    @pytest.mark.parametrize("caller", ["anonymous", "embed"])
+    @pytest.mark.parametrize(
+        "spelling",
+        ["not_in", "not_has", "equals"],
+    )
+    async def test_a_legacy_spelling_on_a_column_the_caller_cannot_read_is_refused(
+        self,
+        client: AsyncClient,
+        test_db_session,
+        embed_headers,
+        caller,
+        spelling,
+    ):
+        # The CQL2 the viewer sends for ["!in", c, 1], ["!has", c] and ["==", c, 1].
+        column = {"property": "pop" if caller == "embed" else "missing"}
+        cql2 = {
+            "not_in": {
+                "op": "or",
+                "args": [
+                    {"op": "isNull", "args": [column]},
+                    {"op": "not", "args": [{"op": "in", "args": [column, [1]]}]},
+                ],
+            },
+            "not_has": {"op": "isNull", "args": [column]},
+            "equals": {"op": "in", "args": [column, [1]]},
+        }[spelling]
+        visibility = "private" if caller == "embed" else "public"
+        async with _dropped(test_db_session, visibility=visibility) as dataset:
+            headers = {}
+            if caller == "embed":
+                await set_tile_columns(test_db_session, dataset.id, ["kind"])
+                headers = await embed_headers(dataset.id)
+
+            resp = await _aggregate(
+                client,
+                dataset.id,
+                {"op": "count", "filter": {"op": "and", "args": [KEEP, cql2]}},
+                headers,
+            )
+
+            assert resp.status_code == 422, resp.text
+            assert resp.json()["detail"]["code"] == "invalid_filter"
+
+    async def test_an_embed_widget_filter_on_a_column_outside_the_allowlist_is_refused(
+        self, client: AsyncClient, test_db_session, private_points, embed_headers
+    ):
+        await set_tile_columns(test_db_session, private_points.id, ["kind"])
+        headers = await embed_headers(private_points.id)
+
+        resp = await _aggregate(
+            client,
+            private_points.id,
+            {"op": "count", "filter": LAYER_AND_WIDGET},
+            headers,
+        )
+
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"]["code"] == "invalid_filter"
+        assert "'pop'" in resp.json()["detail"]["message"]
+
+
 class TestApiKeys:
     @pytest.mark.parametrize("scope", ["read_only", "publish"])
     async def test_a_scoped_key_reads_what_its_user_may_read(

@@ -2007,11 +2007,17 @@ def test_delegated_guards_still_enforce_access() -> None:
 
     tile_auth_calls = _calls_in(tiles_router._authorize_vector_tile_request)
     assert {
-        "verify_tile_signature",
+        "_signed_template_authorizes",
         "validate_embed_token_access",
     } <= tile_auth_calls, (
         "tiles _authorize_vector_tile_request no longer verifies tile "
         "signatures / embed tokens"
+    )
+    assert {"verify_tile_signature", "embed_token_still_admits"} <= _calls_in(
+        tiles_router._signed_template_authorizes
+    ), (
+        "tiles _signed_template_authorizes no longer verifies the signature "
+        "and the liveness of the embed token a template names"
     )
     assert "check_dataset_access" in tile_auth_calls, (
         "tiles _authorize_vector_tile_request no longer delegates a caller's "

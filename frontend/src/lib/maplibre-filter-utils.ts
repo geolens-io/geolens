@@ -491,6 +491,11 @@ const CQL2_QUERYABLE_TYPES = new Set([
   'timestamp with time zone',
   'uuid',
 ]);
+/** Whether CQL2 compares columns of `pgType`. */
+export function isCql2QueryableType(pgType: string): boolean {
+  return CQL2_QUERYABLE_TYPES.has(pgType);
+}
+
 /** Whether a server-side CQL2 filter can read `column`: one `columns` lists, of a type CQL2 compares. */
 export function isCql2QueryableColumn(column: string, columns: readonly FilterColumn[] | null | undefined): boolean {
   const type = columns?.find((candidate) => candidate.name === column)?.type;
@@ -563,7 +568,7 @@ export function utcTimestampText(value: string): string | null {
  * The CQL2 literal for a value compared with a column of `pgType`, or null when
  * SQL can't compare it the way the map does.
  */
-function cql2Literal(value: string | number | boolean, pgType: string | undefined): unknown {
+export function cql2Literal(value: string | number | boolean, pgType: string | undefined): unknown {
   if (pgType === 'date') {
     return typeof value === 'string' && DATE_TEXT_RE.test(value) && isCalendarDate(value)
       ? { date: value }

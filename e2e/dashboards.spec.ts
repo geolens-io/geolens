@@ -277,6 +277,40 @@ test.describe('Dashboard widgets and layouts', () => {
     }
   });
 
+  test("an indicator's own filter narrows its count for the author and for readers", async ({
+    page,
+    browser,
+    request,
+  }) => {
+    const { mapId } = await publicMapWithShareLink(request, datasetId);
+    try {
+      await openDashboardEditor(page, mapId, ['Indicator']);
+      const preview = page.getByRole('region', { name: 'Preview' });
+      // The fixture has six points, three of them parks.
+      await expect(preview.getByText('6', { exact: true })).toBeVisible({ timeout: 15_000 });
+
+      await expect(page.getByText('Only count features where…')).toBeVisible();
+      await page.getByRole('button', { name: 'Add filter' }).click();
+      await page.getByRole('combobox', { name: 'Field' }).click();
+      await page.getByRole('option', { name: 'kind', exact: true }).click();
+      await page.getByRole('textbox', { name: 'Value' }).fill('park');
+      await expect(preview.getByText('3', { exact: true })).toBeVisible({ timeout: 15_000 });
+      await save(page, mapId);
+
+      const reader = await anonymousPage(browser);
+      try {
+        await reader.goto(`/maps/${mapId}`);
+        const indicator = reader.getByRole('region', { name: 'Dashboard' }).getByRole('article');
+        await expect(indicator).toHaveCount(1, { timeout: 20_000 });
+        await expect(indicator.getByText('3', { exact: true })).toBeVisible({ timeout: 15_000 });
+      } finally {
+        await reader.context().close();
+      }
+    } finally {
+      await deleteMap(request, mapId);
+    }
+  });
+
   test('a dashboard that hides its map shows the widgets without a map', async ({ page, browser, request }) => {
     const { mapId } = await publicMapWithShareLink(request, datasetId);
     try {

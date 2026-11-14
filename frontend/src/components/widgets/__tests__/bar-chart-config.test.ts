@@ -154,7 +154,7 @@ describe('bar chart options', () => {
   });
 
   it('reads a version 2 widget and offers picks only for bars that are values of one column', () => {
-    expect(barChartWidget.v).toBe(2);
+    expect(barChartWidget.v).toBe(3);
     expect(pickedColumn(read(category)!)).toBe('kind');
     expect(pickedColumn(read(byFeature)!)).toBe('name');
     expect(pickedColumn(read(byDate)!)).toBeNull();
