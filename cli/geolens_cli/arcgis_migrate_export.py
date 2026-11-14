@@ -593,6 +593,29 @@ def _read_draft(export: _Export, name: str | None, saved: set[str]) -> Any:
     return draft if ok else None
 
 
+def _usable_collection(data: Any) -> bool:
+    """A Feature Collection's data: an object with a layer holding a feature
+    set, which may have no features."""
+    layers = data.get("layers") if isinstance(data, dict) else None
+    return isinstance(layers, list) and any(
+        isinstance(layer, dict) and isinstance(layer.get("featureSet"), dict)
+        for layer in layers
+    )
+
+
+def _require_collection(export: _Export, item: Mapping[str, Any], data: Any) -> None:
+    """Fail a Feature Collection whose data is missing or not a collection, so
+    a bundle holding only item.json is never clean and never replaces a good
+    one."""
+    if item["type"] != "Feature Collection" or _usable_collection(data):
+        return
+    if any(e.startswith("data") for e in export.errors):
+        return
+    message = "data: not a Feature Collection with a layer, nothing usable saved"
+    export.errors.append(message)
+    export.failures.append(message)
+
+
 def _story(
     ctx: MigrationContext,
     export: _Export,
@@ -826,6 +849,7 @@ def _export_into(
             export.partial = True
             export.errors.append("item.json: over the export size cap, not saved")
         data = _save_data(ctx, export, item, full)
+        _require_collection(export, item, data)
         saved = _save_resources(ctx, export, item["id"])
         story = _story(ctx, export, item, data, saved, full)
         draft = _draft_resource(full) if item["type"] == "StoryMap" else None

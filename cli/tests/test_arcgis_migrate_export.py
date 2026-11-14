@@ -1420,9 +1420,7 @@ def test_the_hosted_layer_note_follows_the_items_current_action(
         item["defaults"] = defaults
     plan = {"items": [item, {"id": C1, "title": "Layer"}]}
 
-    assert export_module.item_replacement(item, plan, state).startswith(
-        expected
-    )
+    assert export_module.item_replacement(item, plan, state).startswith(expected)
 
 
 def _dashboard_plan(map_ids, map_widgets):
@@ -1695,11 +1693,99 @@ def test_a_dataset_type_saved_as_json_or_zip_gets_the_upload_line(
 
 def test_other_json_and_zip_files_are_not_called_datasets(tmp_path):
     state = MigrationState(tmp_path / "s.json", "p", "i", str, persist=False)
-    state.items[D1] = ItemState(
-        export={"files": {"data.json": {}, "data.zip": {}}}
-    )
+    state.items[D1] = ItemState(export={"files": {"data.json": {}, "data.zip": {}}})
     item = {"id": D1, "type": "Code Sample2", "action": "export_only"}
 
     note = export_module.item_replacement(item, {"items": [item]}, state)
 
     assert "upload" not in note
+
+
+_BAD_COLLECTIONS = {
+    "404": (404, {"error": {"code": 404}}),
+    "400": (400, {"error": {"code": 400}}),
+    "null": b"null",
+    "scalar": b"5",
+    "empty object": b"{}",
+    "empty list": b"[]",
+    "not json": b"plain text",
+}
+
+
+def _collection_plan(tmp_path: Path, legacy: bool) -> Path:
+    plan_file = _plan(
+        tmp_path, rows={C2: {**_FC_ROW, "reason": "data_file_import_candidate"}}
+    )
+    if legacy:
+        plan = json.loads(plan_file.read_text())
+        for item in plan["items"]:
+            if item["id"] == C2:
+                item["action"] = "import_file"
+        plan_file.write_text(json.dumps(plan))
+    return plan_file
+
+
+def _run_c2(runner, plan_file: Path, *extra: str):
+    return _migrate(runner, plan_file, "--only", C2, "--token", TOKEN, *extra)
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+@pytest.mark.parametrize("kind", list(_BAD_COLLECTIONS))
+def test_a_feature_collection_without_a_usable_payload_fails_and_blocks_cutover(
+    runner, tmp_path, geolens, install, kind, legacy
+):
+    install({f"content/items/{C2}/data": _BAD_COLLECTIONS[kind]})
+    plan_file = _collection_plan(tmp_path, legacy)
+
+    result, _ = _run_c2(runner, plan_file)
+
+    assert result.exit_code == 1
+    assert _state(plan_file)["items"][C2]["status"] == "failed"
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] != C2:
+            item["action"] = "skip"
+    plan_file.write_text(json.dumps(plan))
+    _, payload = _migrate(runner, plan_file, "--token", TOKEN, "--cutover")
+    assert payload["cutover"]["refused"] == ["unfinished-items"]
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_a_valid_collection_with_no_features_is_usable(
+    runner, tmp_path, geolens, install, legacy
+):
+    install({f"content/items/{C2}/data": _COLLECTION})
+    plan_file = _collection_plan(tmp_path, legacy)
+
+    result, _ = _run_c2(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    errors = _state(plan_file)["items"][C2]["export"]["errors"]
+    assert not [e for e in errors if e.startswith("data")]
+
+
+@pytest.mark.parametrize("kind", ["404", "null"])
+def test_a_collection_that_lost_its_data_keeps_the_earlier_bundle_and_recovers(
+    runner, tmp_path, geolens, install, kind
+):
+    portal = install({f"content/items/{C2}/data": _COLLECTION})
+    plan_file = _collection_plan(tmp_path, False)
+    result, _ = _run_c2(runner, plan_file)
+    assert result.exit_code == 0, result.output
+    folder = _export(plan_file, "feature-collection", C2)
+    before = _tree(folder)
+    item = portal.routes[f"content/items/{C2}"]
+    portal.routes[f"content/items/{C2}"] = {
+        **item,
+        "modified": item["modified"] + 60_000,
+    }
+    portal.routes[f"content/items/{C2}/data"] = _BAD_COLLECTIONS[kind]
+
+    result, _ = _run_c2(runner, plan_file)
+
+    assert result.exit_code == 1
+    assert _tree(folder) == before
+    portal.routes[f"content/items/{C2}/data"] = _COLLECTION
+    result, _ = _run_c2(runner, plan_file)
+    assert result.exit_code == 0, result.output
+    assert _state(plan_file)["items"][C2]["status"] == "done"

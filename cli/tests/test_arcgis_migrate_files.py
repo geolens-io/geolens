@@ -401,6 +401,7 @@ def test_a_rerun_after_a_lost_commit_answer_does_not_upload_again(
 
 def test_a_feature_collection_is_skipped_with_a_note(runner, tmp_path, geolens, portal):
     files = FakeFiles(geolens)
+    portal.routes[item_data_path(D3)] = {"layers": [{"featureSet": {"features": []}}]}
     plan_file = _plan(tmp_path, type="Feature Collection")
     plan = json.loads(plan_file.read_text())
     for item in plan["items"]:
@@ -576,6 +577,7 @@ def test_a_private_feature_collection_is_exported_with_a_token(
     runner, tmp_path, geolens, portal
 ):
     FakeFiles(geolens)
+    portal.routes[item_data_path(D3)] = {"layers": [{"featureSet": {"features": []}}]}
     plan_file = _plan(tmp_path, public=False)
     plan = json.loads(plan_file.read_text())
     for item in plan["items"]:
