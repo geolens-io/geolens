@@ -1216,7 +1216,8 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/search/service_records.py": 660,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
         "backend/app/modules/catalog/search/service_semantic.py": 521,
-        "backend/app/modules/catalog/maps/service_diff.py": 414,
+        # A map_author key's added layers are stacked on top inside the diff.
+        "backend/app/modules/catalog/maps/service_diff.py": 420,
         # Layer rows are shaped for the reader: visible datasets and VRT extents.
         "backend/app/modules/catalog/maps/service_shared.py": 416,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 668,
@@ -1425,8 +1426,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1427,
-    # Map endpoints share response assembly, visibility and ownership checks.
-    "backend/app/modules/catalog/maps/router.py": 1499,
+    # Every credential lane resolves here, with each key scope's route rule at
+    # the one chokepoint that refuses it.
+    "backend/app/modules/auth/dependencies.py": 1008,
+    # Map endpoints share response assembly, visibility and ownership checks,
+    # and the map_author key's limits on the routes it may write.
+    "backend/app/modules/catalog/maps/router.py": 1509,
     # Feature writes, single and batch, share the dataset guards, the database
     # error mapping and the catalog refresh; create also carries idempotent
     # repeats and the dry run.

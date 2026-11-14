@@ -407,6 +407,8 @@
     "scopeReadOnly": "Read only",
     "scopePublish": "Publish",
     "scopePublishDescription": "Adds your own data and maps, edits your datasets' details and replaces uploaded datasets, keeping their previous versions. It can't make anything public or widen a dataset's visibility, update an existing map, replace raster datasets or ones bound to a service, STAC item or table, write features, or delete anything.",
+    "scopeMapAuthor": "Map author",
+    "scopeMapAuthorDescription": "Reads what you can read, creates private maps from datasets you can read, and sets the camera, basemap, layer styles and popups on the maps it created. It can't change any other map, delete anything, share or change visibility, or edit datasets.",
     "scopeDatasetWrite": "One dataset",
     "scopeDatasetAppend": "One dataset, add only",
     "expiry": "Expires",

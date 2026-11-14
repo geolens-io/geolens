@@ -27,9 +27,9 @@ class AdminApiKeyListItem:
         fingerprint (None | str): Non-secret key identifier; null for legacy keys.
         is_active (bool): Whether the key is active. Inactive keys cannot authenticate.
         scope (str): Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata
-            edits and new maps, but no map updates, deletes, feature writes or public visibility), 'dataset_write' (reads
-            and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates
-            features in that dataset).
+            edits and new maps, but no map updates, deletes, feature writes or public visibility), 'map_author' (reads,
+            creates maps and styles the maps it created), 'dataset_write' (reads and writes the features of the dataset in
+            dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset).
         created_at (datetime.datetime): Timestamp when the key was created.
         last_used_at (datetime.datetime | None): Timestamp of the most recent successful authentication using this key.
         expires_at (datetime.datetime | None | Unset): Expiry timestamp; null means the key does not expire.

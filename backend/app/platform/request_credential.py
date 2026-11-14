@@ -3,7 +3,7 @@
 A request's dependencies and handler share one session, so the record made
 while resolving the caller is visible to the guards and audit events of the
 same request, and to nothing else. Also the routes each dataset-bound key
-scope may call, the refusal a key gets for exceeding its scope, and the marks
+scope and the map_author scope may call, the refusal a key gets for exceeding its scope, and the marks
 the CORS layer reads: whether a request's header key was looked up, whether its
 query-string key was looked up and resolved, and whether a limit refused it
 before that could happen.
@@ -99,6 +99,21 @@ DATASET_KEY_SCOPE_ROUTES: dict[str, frozenset[tuple[str, str]]] = {
 
 # Scopes whose keys are bound to the one dataset in ``api_keys.dataset_id``.
 DATASET_KEY_SCOPES: frozenset[str] = frozenset(DATASET_KEY_SCOPE_ROUTES)
+
+# A map_author key may read like a read_only key and write only through these
+# pairs; each handler also limits the fields it may set and the maps it may
+# change to the ones the key created.
+MAP_AUTHOR_KEY_ROUTES: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("POST", "/maps/"),
+        ("POST", "/maps"),
+        ("PUT", "/maps/{map_id}"),
+        ("POST", "/maps/{map_id}/layers"),
+        ("POST", "/maps/{map_id}/layers/"),
+        ("PATCH", "/maps/{map_id}/layers"),
+        ("PATCH", "/maps/{map_id}/layers/"),
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)

@@ -252,7 +252,7 @@ class ApiKeyCreateRequest(BaseModel):
             "for a non-expiring key; expired keys stop authenticating."
         ),
     )
-    scope: Literal["full", "read_only", "publish"] = Field(
+    scope: Literal["full", "read_only", "publish", "map_author"] = Field(
         default="full",
         description=(
             "Privilege scope. 'full' impersonates the owner completely. "
@@ -260,7 +260,9 @@ class ApiKeyCreateRequest(BaseModel):
             "OPTIONS requests only; any other method is refused with 403. "
             "'publish' also allows uploads, manifest apply, dataset metadata "
             "edits and new maps, but no map update, delete, feature write, "
-            "public visibility, admin or key route."
+            "public visibility, admin or key route. 'map_author' reads, "
+            "creates private maps and sets the camera, basemap, layers' style "
+            "and popups on the maps it created."
         ),
     )
 
@@ -303,7 +305,8 @@ class DatasetApiKeyCreateRequest(BaseModel):
 _SCOPE_DESCRIPTION = (
     "Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest "
     "apply, dataset metadata edits and new maps, but no map updates, deletes, "
-    "feature writes or public visibility), "
+    "feature writes or public visibility), 'map_author' (reads, creates "
+    "maps and styles the maps it created), "
     "'dataset_write' (reads and writes the features of the dataset in "
     "dataset_id, and nothing else), or 'dataset_append' (only creates features "
     "in that dataset)"

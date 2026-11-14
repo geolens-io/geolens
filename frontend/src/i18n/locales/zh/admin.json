@@ -407,6 +407,8 @@
     "scopeReadOnly": "只读",
     "scopePublish": "发布",
     "scopePublishDescription": "添加您自己的数据与地图，编辑您的数据集信息，并替换已上传的数据集，保留其先前版本。不能将任何内容设为公开或提高数据集的可见性级别，不能更新已有地图，不能替换栅格数据集或绑定到服务、STAC 项或数据表的数据集，不能写入要素，也不能删除任何内容。",
+    "scopeMapAuthor": "地图作者",
+    "scopeMapAuthorDescription": "可读取您能读取的内容，用您能读取的数据集创建私有地图，并为其创建的地图设置视角、底图、图层样式和弹出窗口。不能更改任何其他地图，不能删除任何内容，不能共享或更改可见性，也不能编辑数据集。",
     "scopeDatasetWrite": "单个数据集",
     "scopeDatasetAppend": "单个数据集，仅添加",
     "expiry": "有效期",

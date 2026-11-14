@@ -56,6 +56,10 @@ from app.modules.catalog.maps.schemas import (
     OgImageUploadRequest,
     ThumbnailUploadRequest,
 )
+from app.modules.catalog.maps.author_key import (
+    map_author_key_id,
+    refuse_map_author_key,
+)
 from app.modules.catalog.maps.router_assets import router as assets_router
 from app.modules.catalog.maps.router_groups import router as groups_router
 from app.modules.catalog.maps.router_sharing import router as sharing_router
@@ -89,7 +93,7 @@ from app.modules.catalog.maps.service import (
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.service import remove_layers_bulk
 from app.modules.embed_tokens.service import revoke_embed_tokens_for_dropped_datasets
-from app.platform.request_credential import refuse_publish_key
+from app.platform.request_credential import api_key_audit_details, refuse_publish_key
 from app.platform.binary_response import binary_response
 from app.platform.storage.titiler_url import (
     resolve_current_storage_key as _map_asset_storage_key,
@@ -157,6 +161,7 @@ async def create_map_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> MapResponse:
     """Create a new map."""
+    refuse_map_author_key(db, user.id, body)
     terrain_config = (
         body.terrain_config.model_dump(mode="json")
         if body.terrain_config is not None
@@ -176,6 +181,7 @@ async def create_map_endpoint(
         notes=body.notes,
         terrain_config=terrain_config,
         basemap_config=basemap_config,
+        created_by_api_key_id=map_author_key_id(db),
     )
     await audit_emit(
         db,
@@ -184,7 +190,7 @@ async def create_map_endpoint(
             action="map.create",
             resource_type="map",
             resource_id=map_obj.id,
-            details={"name": body.name},
+            details={"name": body.name, **api_key_audit_details(db)},
             ip_address=request.client.host if request.client else None,
         ),
     )
@@ -500,6 +506,7 @@ async def update_map_endpoint(
             detail="Map not found",
         )
     await check_map_ownership(map_obj, user, db)
+    refuse_map_author_key(db, user.id, body, map_obj)
     await _readable_terrain(db, user, body.terrain_config, map_obj.terrain_config)
 
     # A non-admin may not move a map to public when restrict_public_visibility
@@ -577,7 +584,7 @@ async def update_map_endpoint(
             action="map.update",
             resource_type="map",
             resource_id=map_id,
-            details={"changed_fields": changed_fields},
+            details={"changed_fields": changed_fields, **api_key_audit_details(db)},
             ip_address=request.client.host if request.client else None,
         ),
     )
@@ -715,6 +722,7 @@ async def patch_map_layers_endpoint(
             detail="Map not found",
         )
     await check_map_ownership(map_obj, user, db)
+    refuse_map_author_key(db, user.id, body, map_obj)
 
     _, before_layer_tuples, _, _ = await get_map_with_layers(db, map_id)
     before_rows_by_id = _layer_rows_by_id(before_layer_tuples)
@@ -765,6 +773,7 @@ async def patch_map_layers_endpoint(
                 if body.order is not None
                 else None,
                 "fallback_full_replace": body.fallback_full_replace,
+                **api_key_audit_details(db),
             },
             ip_address=request.client.host if request.client else None,
         ),
@@ -1292,6 +1301,7 @@ async def add_layer_endpoint(
             detail="Map not found",
         )
     await check_map_ownership(map_obj, user, db)
+    refuse_map_author_key(db, user.id, body, map_obj)
 
     # Verify the user can access the target dataset
     user_roles = await get_user_roles(db, user)
@@ -1316,7 +1326,7 @@ async def add_layer_endpoint(
             action="map.add_layer",
             resource_type="map",
             resource_id=map_id,
-            details={"dataset_id": str(body.dataset_id)},
+            details={"dataset_id": str(body.dataset_id), **api_key_audit_details(db)},
             ip_address=request.client.host if request.client else None,
         ),
     )
