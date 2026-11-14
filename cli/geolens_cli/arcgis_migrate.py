@@ -1736,6 +1736,9 @@ def run_cli(
 ) -> int:
     """Run ``geolens arcgis migrate`` and return its exit code."""
     redact = Redactor()
+    # Portal text such as an item title can hold a credential the run was
+    # given; every line and payload the run prints passes through this mask.
+    fmt = replace(fmt, mask=redact.mask)
     try:
         return _run(fmt, opts, redact, sdk_factory, instance)
     except (typer.Exit, click.ClickException):
