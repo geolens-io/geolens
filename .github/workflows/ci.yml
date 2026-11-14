@@ -300,6 +300,7 @@ jobs:
               - 'scripts/backup-entrypoint.sh'
               - 'scripts/init-db.sh'
               - 'scripts/lib/configure-runtime-db-role.sh'
+              - 'scripts/lib/common.sh'
               # Read by literal path in
               # test_audit_1798_runbook_shell_sourcing.py, which asserts this
               # wrapper exists, is executable, and calls get_env_value.
