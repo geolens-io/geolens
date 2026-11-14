@@ -9,7 +9,8 @@ data": no title or description says the city uses or endorses GeoLens.
 The builders take the seeder module (or any object that carries the names in
 ``SEEDER_HELPERS``) as their first argument, so this file imports nothing from
 ``seed-showcase.py``. Every builder finds its content by title or name and
-updates it in place on a rerun. None deletes anything, and ``force`` is ignored
+updates it in place on a rerun. None deletes anything except the tree
+dashboard's retired hidden layers, and ``force`` is ignored
 for that reason: ``--force`` does not rebuild the parcels upload, the derived
 parcel datasets or the imported map. Delete them first to rebuild.
 """
@@ -1063,10 +1064,18 @@ DASHBOARD_READABLE = [
     "pie_chart:1",
     "table:1",
     "feature_list:1",
-    # Indicators with a reference and bar charts by date store as version 2;
-    # leaving them out would lock those widgets on the next save.
+    # Indicators with a reference and bar charts by date store as version 2,
+    # and widgets with their own filter as these; leaving them out would lock
+    # those widgets on the next save.
     "indicator:2",
     "bar_chart:2",
+    "indicator:3",
+    "bar_chart:3",
+    "pie_chart:2",
+    "table:2",
+    "feature_list:2",
+    "histogram:2",
+    "category_selector:2",
 ]
 _MEASURED_DIAMETER = [
     "all",
@@ -1126,16 +1135,41 @@ def land_dashboard_description() -> str:
     )
 
 
-# A widget counts what its layer's filter lets through, so each filtered count
-# needs a hidden layer of its own. The collapsed group tells a builder user why
-# three layers are never drawn.
-_WIDGET_INPUTS = {
-    "builder": {
-        "folder_group_id": "cambridge-widget-inputs",
-        "folder_group_name": "Widget inputs (hidden)",
-        "folder_group_expanded": False,
+# Hidden layers that fed the filtered widgets before widgets had a filter of
+# their own; a rerun deletes them from a map seeded with them.
+_RETIRED_TREE_LAYERS = (
+    "Trees planted 2021-2025",
+    "Trees planted since 2008",
+    "Trees with a recorded trunk diameter",
+)
+
+
+def _drop_retired_tree_layers(api, map_id: str, trees_ds: str) -> None:
+    """Delete a retired hidden layer of the trees dataset that no shown widget reads.
+
+    The read-back omits widgets the server only preserves (unknown type, newer
+    version), so such a widget on a retired layer loses its layer.
+    """
+    stored = api.get_map(map_id)
+    used = {
+        w.get("layer_id")
+        for w in (stored.get("dashboard_config") or {}).get("widgets") or []
+        if isinstance(w, dict)
     }
-}
+    for layer in list(stored["layers"]):
+        name = layer.get("display_name")
+        if name not in _RETIRED_TREE_LAYERS:
+            continue
+        if str(layer.get("dataset_id")) != str(trees_ds):
+            why = "it is on another dataset"
+        elif layer.get("visible") is not False:
+            why = "it is visible"
+        elif layer["id"] in used:
+            why = "a saved widget still reads it"
+        else:
+            api.delete_layer(map_id, layer["id"])
+            continue
+        print(f"  kept layer {name!r}: {why}")
 
 
 def _tree_layers(trees_ds: str) -> list[dict]:
@@ -1148,7 +1182,6 @@ def _tree_layers(trees_ds: str) -> list[dict]:
         "expression": "{sitetype}: {commonname}",
         "visible_fields": TREE_POPUP_FIELDS,
     }
-    quiet = {"circle-radius": 3, "circle-color": "#ffffff", "circle-opacity": 0.0}
     return [
         {
             "dataset_id": trees_ds,
@@ -1183,39 +1216,6 @@ def _tree_layers(trees_ds: str) -> list[dict]:
                 "visible_fields": ["streetname", "plantingseason", "neighborhood"],
             },
         },
-        {
-            "dataset_id": trees_ds,
-            "sort_order": 2,
-            "display_name": f"Trees planted {RECENT_LABEL}",
-            "show_in_legend": False,
-            "visible": False,
-            "style_config": _WIDGET_INPUTS,
-            "filter": _plant_years_layer_filter(*RECENT_YEARS),
-            "paint": quiet,
-            "popup_config": {"enabled": False},
-        },
-        {
-            "dataset_id": trees_ds,
-            "sort_order": 4,
-            "display_name": "Trees planted since 2008",
-            "show_in_legend": False,
-            "visible": False,
-            "style_config": _WIDGET_INPUTS,
-            "filter": [">=", ["get", "plantdate"], "2008-01-01T00:00:00+00:00"],
-            "paint": quiet,
-            "popup_config": {"enabled": False},
-        },
-        {
-            "dataset_id": trees_ds,
-            "sort_order": 3,
-            "display_name": "Trees with a recorded trunk diameter",
-            "show_in_legend": False,
-            "visible": False,
-            "style_config": _WIDGET_INPUTS,
-            "filter": _MEASURED_DIAMETER,
-            "paint": quiet,
-            "popup_config": {"enabled": False},
-        },
     ]
 
 
@@ -1229,37 +1229,35 @@ def _count_planted(api, trees_ds: str, years: tuple[int, int]) -> int:
     return api.aggregate(trees_ds, op="count", filter=_years_filter(*years))["count"]
 
 
-def _tree_widgets(
-    s, layer_ids: dict[str, str], planted: int, reference: int
-) -> list[dict]:
-    def widget(key, kind, title, layer, config, scope="view"):
+def _tree_widgets(s, layer_ids: dict[str, str], earlier: int) -> list[dict]:
+    def widget(key, kind, title, layer, config, scope="view", only=None, v=1):
         built = s._dashboard_widget(
-            "cambridge-trees", layer_ids[layer], key, kind, title, config
+            "cambridge-trees", layer_ids[layer], key, kind, title, config, v
         )
         built["scope"] = scope
+        if only is not None:
+            built["filter"] = only
         return built
 
     all_trees = "Street trees by site type"
+    since_2008 = [">=", ["get", "plantdate"], "2008-01-01T00:00:00+00:00"]
     indicator = widget(
         "planted",
         "indicator",
         f"Trees planted {RECENT_LABEL}",
-        f"Trees planted {RECENT_LABEL}",
+        all_trees,
         {
             "stat": "count",
-            "reference": reference,
-            "reference_label": EARLIER_LABEL,
-            "higher_is_better": True,
-            "comparison": "both",
         },
         scope="layer",
+        only=_plant_years_layer_filter(*RECENT_YEARS),
+        v=3,
     )
-    indicator["v"] = 2
     by_year = widget(
         "by-year",
         "bar_chart",
         "Trees planted per year since 2008",
-        "Trees planted since 2008",
+        all_trees,
         {
             "mode": "date",
             "column": "plantdate",
@@ -1267,8 +1265,9 @@ def _tree_widgets(
             "stat": "count",
             "limit": 50,
         },
+        only=since_2008,
+        v=3,
     )
-    by_year["v"] = 2
     return [
         indicator,
         by_year,
@@ -1283,15 +1282,17 @@ def _tree_widgets(
             "species",
             "bar_chart",
             "Most common species of measured trees",
-            "Trees with a recorded trunk diameter",
+            all_trees,
             {"column": "commonname", "stat": "count", "limit": 10},
             scope="layer",
+            only=_MEASURED_DIAMETER,
+            v=3,
         ),
         widget(
             "neighborhoods",
             "table",
             "Measured trees by neighborhood",
-            "Trees with a recorded trunk diameter",
+            all_trees,
             {
                 "group_column": "neighborhood",
                 "stats": [
@@ -1303,19 +1304,23 @@ def _tree_widgets(
                 "limit": 15,
             },
             scope="layer",
+            only=_MEASURED_DIAMETER,
+            v=2,
         ),
         widget(
             "diameters",
             "histogram",
             "Trunk diameter of measured trees (inches)",
-            "Trees with a recorded trunk diameter",
+            all_trees,
             {"column": "diameter", "bins": 20},
             scope="layer",
+            only=_MEASURED_DIAMETER,
+            v=2,
         ),
         widget(
             "neighborhood-picker",
             "category_selector",
-            "Pick a neighborhood (filters the site-type chart and the trees layer)",
+            "Pick a neighborhood (narrows every tree count and the trees layer)",
             all_trees,
             {"column": "neighborhood"},
         ),
@@ -1343,11 +1348,15 @@ def _tree_widgets(
                 "so counts can differ from the city's current "
                 "numbers. Plant dates and diameters are as the city recorded "
                 "them, and recent years can be incomplete. The planted-trees "
-                "indicator compares 2021-2025 with 2016-2020 over the whole city. Planting dates are recorded as the city enters them. "
-                "Picking a neighborhood filters the site-type chart and the "
-                "trees layer only. The planting-by-year chart and the "
-                "proposed-sites list follow the map view, not the neighborhood; "
-                "the other widgets keep counting the whole city.\n\n"
+                "indicator counts the trees planted in 2021-2025 and follows "
+                f"your picks; citywide, {earlier:,} trees were planted in "
+                f"{EARLIER_LABEL}. Planting dates are recorded as the city enters them. "
+                "Picking a neighborhood or a species narrows every tree widget "
+                "and the trees layer: the indicator, the planting charts, the "
+                "table and the diameter histogram. The planting-by-year chart "
+                "and the proposed-sites list also follow the map view. The "
+                "measured-tree widgets count only trees with a recorded trunk "
+                "diameter.\n\n"
                 "Built from the City of Cambridge's open data (PDDL 1.0). "
                 "The city does not use or endorse GeoLens."
             },
@@ -1420,10 +1429,7 @@ def seed_tree_dashboard(s, api, force: bool = False, force_pinned: bool = False)
     map_id, created, current, layer_ids = _ensure_dashboard_map(
         api, TREE_DASHBOARD, description, _tree_layers(trees_ds)
     )
-    planted, reference = (
-        _count_planted(api, trees_ds, RECENT_YEARS),
-        _count_planted(api, trees_ds, EARLIER_YEARS),
-    )
+    earlier = _count_planted(api, trees_ds, EARLIER_YEARS)
     _save_dashboard(
         api,
         map_id,
@@ -1433,13 +1439,14 @@ def seed_tree_dashboard(s, api, force: bool = False, force_pinned: bool = False)
             "version": 1,
             "panel": "right",
             "readable": DASHBOARD_READABLE,
-            "widgets": _tree_widgets(s, layer_ids, planted, reference),
+            "widgets": _tree_widgets(s, layer_ids, earlier),
         },
     )
+    _drop_retired_tree_layers(api, map_id, trees_ds)
     s.warn_if_hidden_layers(api, map_id, TREE_DASHBOARD)
     print(
         f"  -> map {map_id} ({'created' if created else 'updated'}, public); "
-        f"planted {RECENT_LABEL}: {planted}, {EARLIER_LABEL}: {reference}"
+        f"planted {EARLIER_LABEL}: {earlier}"
     )
     return map_id
 

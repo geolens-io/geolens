@@ -36,6 +36,7 @@ from .arcgis_migrate_session import (
     ItemResult,
     MigrationContext,
     StopRun,
+    refuse_credentials,
 )
 from .arcgis_migrate_state import SKIPPED, ItemState
 from .arcgis_portal import PortalError
@@ -217,6 +218,7 @@ def _fan_out(
     from geolens.models.fan_out_layer_request import FanOutLayerRequest
 
     titles = {name: _title(base, name) for name in layers}
+    refuse_credentials(ctx, {"title": [base, *titles.values()], "layer_name": layers})
     # Recorded before the request goes out: if its answer is lost, a rerun
     # knows this job was fanned out and does not upload the file again.
     entry.fan_out = {
@@ -260,7 +262,10 @@ def _fan_out(
         raise ItemFailed(f"{base}: {'; '.join(entry.notes)}")
     for name, dataset in entry.layer_datasets.items():
         _apply_target(
-            ctx, entry, dataset, _commit_body(titles[_layer_name(name)], visibility)
+            ctx,
+            entry,
+            dataset,
+            _commit_body(titles[_layer_name(name)], visibility),
         )
     return list(entry.notes)
 
@@ -428,6 +433,10 @@ def import_file(
     if row is None:
         raise ItemFailed("the item is not in the inventory the plan was built from")
     base = item["target"]["title"] or item["title"]
+    # The upload's file name is made from the portal's title.
+    refuse_credentials(
+        ctx, {"title": [base, item["title"], _filename(item, extension)]}
+    )
     visibility = item["target"]["visibility"]
     link = _item_link(ctx, item["id"])
     # Layers of a fan-out an earlier run queued but did not wait for.

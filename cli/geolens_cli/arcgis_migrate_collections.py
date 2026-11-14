@@ -24,6 +24,7 @@ from .arcgis_migrate_session import (
     GeoLensError,
     ItemFailed,
     MigrationContext,
+    refuse_credentials,
 )
 from .arcgis_migrate_state import ItemState
 
@@ -126,6 +127,9 @@ def _create(ctx: MigrationContext, name: str) -> str:
 def _collection_id(ctx: MigrationContext, name: str) -> str | None:
     """The id of the collection for the plan's *name*, creating it on first use;
     None when the operator may not manage collections."""
+    # Refused whole: a name sent shortened can pass the request check while
+    # the state would record it under a masked name it is never looked up by.
+    refuse_credentials(ctx, {"collection": name})
     known = ctx.collections.get(name)
     if known:
         return known

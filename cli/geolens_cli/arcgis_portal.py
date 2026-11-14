@@ -17,6 +17,7 @@ redacted when it is built.
 
 from __future__ import annotations
 
+import bisect
 import email.utils
 import getpass
 import http.client
@@ -28,6 +29,7 @@ import ssl
 import sys
 import threading
 import time
+import unicodedata
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
@@ -101,23 +103,85 @@ _URL_USERINFO = re.compile(r"(//)[^/@\s]+@")
 
 
 class Redactor:
-    """Replaces known secrets, and any ``token=``/``password=`` value, in text."""
+    """Replaces known secrets, and any ``token=``/``password=`` value, in text.
+
+    A secret is matched as given and in these encodings only: composed and
+    decomposed Unicode, URL percent-encoding (with and without ``/`` encoded,
+    ``+`` for a space, escapes in either letter case) and JSON string escaping.
+    """
 
     def __init__(self) -> None:
-        self._forms: list[str] = []
+        # (form, pattern for a form with percent-escapes, else None), longest
+        # form first so a longer one is masked before a form inside it.
+        self._forms: list[tuple[str, re.Pattern[str] | None]] = []
+        # Moves on every registration, so a result cached as clean expires.
+        self.version = 0
 
     def add(self, secret: str | None) -> None:
         if not secret:
             return
-        forms = [*self._forms, secret, quote(secret, safe=""), quote_plus(secret)]
-        # Replaced whole, not sorted in place: a token renewed mid-run is added
-        # while other threads redact, and an in-place sort hides every form.
-        self._forms = sorted(dict.fromkeys(forms), key=len, reverse=True)
+        known = {form for form, _ in self._forms}
+        literal: list[str] = []
+        encoded: list[str] = []
+        normal = (unicodedata.normalize(form, secret) for form in ("NFC", "NFD"))
+        for text in dict.fromkeys((secret, *normal)):
+            literal += [text, json.dumps(text)[1:-1]]
+            literal += [json.dumps(text, ensure_ascii=False)[1:-1]]
+            encoded += [quote(text, safe=""), quote(text), quote_plus(text)]
+        # Only escapes this class made match in either case: a "%2F" the
+        # secret itself holds is a different string from "%2f".
+        added = [(f, None) for f in dict.fromkeys(literal) if f not in known]
+        added += [
+            (f, _escape_pattern(f))
+            for f in dict.fromkeys(encoded)
+            if f not in known and f not in literal
+        ]
+        if not added:
+            return
+        # Replaced whole, not changed in place: a token renewed mid-run is
+        # added while other threads redact.
+        forms = list(self._forms)
+        for entry in added:
+            bisect.insort(forms, entry, key=lambda e: -len(e[0]))
+        self._forms = forms
+        self.version += 1
+
+    def holds(self, text: str) -> bool:
+        """Whether *text* contains a registered secret in any form it masks."""
+        return any(
+            form in text if pattern is None else pattern.search(text) is not None
+            for form, pattern in self._forms
+        )
+
+    def mask(self, text: str) -> str:
+        """*text* with each registered secret, in every form it matches,
+        replaced; text that only looks like a credential is left as it is."""
+        for form, pattern in self._forms:
+            if pattern is None:
+                text = text.replace(form, "[REDACTED]")
+            else:
+                text = pattern.sub("[REDACTED]", text)
+        return text
 
     def __call__(self, text: str) -> str:
-        for form in self._forms:
-            text = text.replace(form, "[REDACTED]")
-        return _CREDENTIAL_PARAM.sub(r"\1[REDACTED]", text)
+        return _CREDENTIAL_PARAM.sub(r"\1[REDACTED]", self.mask(text))
+
+
+_ESCAPE = re.compile(r"%([0-9A-Fa-f])([0-9A-Fa-f])")
+
+
+def _escape_pattern(form: str) -> re.Pattern[str] | None:
+    """A pattern for *form* whose percent-escapes match in either letter case
+    (``%2f`` and ``%2F``), every other character only as it is; None for a
+    form without an escape that has a letter."""
+    if not any(m[1].isalpha() or m[2].isalpha() for m in _ESCAPE.finditer(form)):
+        return None
+    return re.compile(
+        _ESCAPE.sub(
+            lambda m: "%" + "".join(f"[{c.upper()}{c.lower()}]" for c in m.groups()),
+            re.escape(form),
+        )
+    )
 
 
 def _is_credential_name(name: str) -> bool:
@@ -215,6 +279,25 @@ def _scrub_text(text: str, redact: Redactor, depth: int = 0) -> str:
     if '":' in text or '" :' in text:
         text = _JSON_PAIR.sub(_scrub_pair, text)
     return text
+
+
+def holds_secret(value: Any, redact: Any) -> bool:
+    """Whether *value*, a string or a JSON document, keys included, contains a
+    secret registered with *redact*. Credential patterns don't count: text
+    shaped like a credential that isn't one of the run's is the portal's own."""
+    if not isinstance(redact, Redactor):
+        return False
+    stack = [value]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            stack.extend(node.keys())
+            stack.extend(node.values())
+        elif isinstance(node, list | tuple):
+            stack.extend(node)
+        elif isinstance(node, str) and redact.holds(node):
+            return True
+    return False
 
 
 def redact_json(value: Any, redact: Redactor) -> Any:
@@ -1192,17 +1275,14 @@ def check_client_id(client_id: str | None) -> None:
         raise ValueError("--client-id is not an ArcGIS client ID")
 
 
-def read_credentials(
+def check_credential_options(
     token: str | None,
     token_stdin: bool,
     username: str | None,
     password_stdin: bool,
     client_id: str | None = None,
-) -> tuple[str | None, str | None]:
-    """(token, password) from the options, stdin, ``ARCGIS_PASSWORD`` or a
-    prompt; both None for an anonymous run or a browser sign-in with
-    *client_id*. ``ValueError`` on a bad mix."""
-    token = token or None
+) -> None:
+    """``ValueError`` when the credential options are a bad mix."""
     if token_stdin and token:
         raise ValueError("pass the token once: --token/ARCGIS_TOKEN or --token-stdin")
     if username and (token or token_stdin):
@@ -1216,9 +1296,28 @@ def read_credentials(
                 "(GEOLENS_ARCGIS_CLIENT_ID), not several"
             )
         check_client_id(client_id)
+
+
+def read_credentials(
+    token: str | None,
+    token_stdin: bool,
+    username: str | None,
+    password_stdin: bool,
+    client_id: str | None = None,
+    stdin_line: str | None = None,
+) -> tuple[str | None, str | None]:
+    """(token, password) from the options, stdin (*stdin_line* when it was
+    read already), ``ARCGIS_PASSWORD`` or a prompt; both None for an
+    anonymous run or a browser sign-in with *client_id*. ``ValueError`` on a
+    bad mix."""
+    token = token or None
+    check_credential_options(token, token_stdin, username, password_stdin, client_id)
+    if client_id is not None:
         return None, None
+    if stdin_line is None and (token_stdin or password_stdin):
+        stdin_line = sys.stdin.readline()
     if token_stdin:
-        token = sys.stdin.readline().strip()
+        token = (stdin_line or "").strip()
         if not token:
             raise ValueError("--token-stdin read an empty line")
     if token is not None:
@@ -1231,7 +1330,7 @@ def read_credentials(
     if not username:
         return None, None
     if password_stdin:
-        password = sys.stdin.readline().rstrip("\r\n")
+        password = (stdin_line or "").rstrip("\r\n")
     else:
         password = os.environ.get("ARCGIS_PASSWORD") or getpass.getpass(
             "ArcGIS password: "

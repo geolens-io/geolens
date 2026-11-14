@@ -11,6 +11,7 @@ from starlette.responses import Response
 from app.api.middleware.liveness import is_liveness_request
 from app.platform.request_credential import (
     header_api_key_evaluated,
+    query_api_key_resolved,
     refused_before_auth,
 )
 from app.standards.ogc.utils import standards_api_path
@@ -107,9 +108,10 @@ _MAP_VISIBILITY_HEADER = "X-GeoLens-Map-Visibility"
 
 # A script that sends a key in the X-Api-Key header already holds it, so CORS
 # has no ambient credential to guard on that lane and any origin may read the
-# answer. Cookies, bearer tokens, embed tokens and query-string credentials are
-# ambient or leak-prone and never qualify. A preflight can't carry the key, so
-# it qualifies when it asks for x-api-key and only these headers besides.
+# answer. Cookies, bearer tokens and embed tokens are ambient or leak-prone and
+# never qualify; a key in the URL has its own read-only lane. A preflight can't
+# carry the key, so it qualifies when it asks for x-api-key and only these
+# headers besides.
 _HEADER_KEY_ALLOWED_HEADER_NAMES = (
     "X-Api-Key",
     *_SAFE_REQUEST_HEADERS,
@@ -140,6 +142,10 @@ _KEYED_AUTH_PATHS = frozenset(
 _KEYED_AUTH_PREFIXES = ("/auth/api-keys/", "/auth/download-token/")
 
 _ALL_METHODS = "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS"
+
+# A key in the URL authenticates only reads, so its lane promises no more.
+_QUERY_KEY_METHODS = "GET, HEAD, OPTIONS"
+_QUERY_KEY_PERMITTED = frozenset({"GET", "HEAD"})
 
 
 # What every policy lets a script read. The anonymous public answer omits the
@@ -237,6 +243,8 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         if not allowed:
             if self._is_header_key_request(request):
                 return await self._answer_header_key(request, call_next)
+            if self._is_query_key_request(request):
+                return await self._answer_query_key(request, call_next)
 
             # Standards discovery, catalog search and the listed public reads
             # are meant to be usable by anonymous browser clients. A wildcard
@@ -279,16 +287,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
             response = Response(status_code=status.HTTP_200_OK)
             self._set_header_key_cors_headers(response)
             return response
-        # Everything below builds its own Request from this scope, so dropping
-        # the header here keeps a browser's cookie from authenticating anything.
-        request.scope["headers"] = [
-            (name, value)
-            for name, value in request.scope["headers"]
-            if name != b"cookie"
-        ]
-        # Shared with the auth layer, which marks it when it reads the key.
-        request.scope.setdefault("state", {})
-        response = await call_next(request)
+        response = await self._call_without_cookie(request, call_next)
         if header_api_key_evaluated(request.scope) or refused_before_auth(
             request.scope
         ):
@@ -301,6 +300,45 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         ):
             self._set_public_cors_headers(response, request, allow_methods)
         return response
+
+    async def _answer_query_key(self, request: Request, call_next) -> Response:
+        """Serve a read whose key is in the URL, for a client that can't set headers.
+
+        Gets the header-key answer only once the auth layer resolved the key, so
+        an unknown, revoked or refused key stays unreadable. A route that never
+        looked the key up gets the public answer it gives without one.
+        """
+        if self._is_preflight(request):
+            response = Response(status_code=status.HTTP_200_OK)
+            self._set_header_key_cors_headers(response, _QUERY_KEY_METHODS)
+            return response
+        response = await self._call_without_cookie(request, call_next)
+        resolved = query_api_key_resolved(request.scope)
+        if resolved:
+            self._set_header_key_cors_headers(response, _QUERY_KEY_METHODS)
+        elif resolved is None:
+            allow_methods = self._anonymous_public_methods(
+                request, ignore_query_key=True
+            )
+            if allow_methods is not None and (
+                self._public_asset_methods(request) is None
+                or response.status_code in _ASSET_WILDCARD_STATUSES
+            ):
+                self._set_public_cors_headers(response, request, allow_methods)
+        return response
+
+    @staticmethod
+    async def _call_without_cookie(request: Request, call_next) -> Response:
+        """Serve a keyed request with any cookie dropped and a state the auth layer marks."""
+        # Everything below builds its own Request from this scope, so dropping
+        # the header here keeps a browser's cookie from authenticating anything.
+        request.scope["headers"] = [
+            (name, value)
+            for name, value in request.scope["headers"]
+            if name != b"cookie"
+        ]
+        request.scope.setdefault("state", {})
+        return await call_next(request)
 
     async def _is_origin_allowed(self, origin: str) -> bool:
         global _origins_cache
@@ -393,11 +431,35 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
             request.headers.get("authorization") or request.headers.get("x-embed-token")
         )
 
+    @classmethod
+    def _is_query_key_request(cls, request: Request) -> bool:
+        """Whether a URL key is this read's only credential, preflight included."""
+        if "api_key" not in request.query_params:
+            return False
+        if "embed_token" in request.query_params:
+            return False
+        if any(
+            request.headers.get(header)
+            for header in _CREDENTIAL_HEADERS
+            if header != "cookie"
+        ):
+            return False
+        method = request.headers.get(
+            "access-control-request-method", request.method
+        ).upper()
+        if method not in _QUERY_KEY_PERMITTED:
+            return False
+        return cls._requested_headers(request) <= (
+            _HEADER_KEY_ALLOWED_LOWER - {"x-api-key"}
+        )
+
     @staticmethod
-    def _set_header_key_cors_headers(response: Response) -> None:
-        """Answer the header-key lane: any origin, never with credentials."""
+    def _set_header_key_cors_headers(
+        response: Response, allow_methods: str = _ALL_METHODS
+    ) -> None:
+        """Answer a keyed request: any origin, never with credentials."""
         response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Methods"] = _ALL_METHODS
+        response.headers["Access-Control-Allow-Methods"] = allow_methods
         response.headers["Access-Control-Allow-Headers"] = _HEADER_KEY_ALLOWED_HEADERS
         response.headers["Access-Control-Expose-Headers"] = _EXPOSE_HEADERS
         response.headers["Access-Control-Max-Age"] = "3600"
@@ -429,7 +491,11 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
 
     @classmethod
     def _anonymous_public_methods(
-        cls, request: Request, *, ignore_header_key: bool = False
+        cls,
+        request: Request,
+        *,
+        ignore_header_key: bool = False,
+        ignore_query_key: bool = False,
     ) -> str | None:
         """Return the ``Allow-Methods`` value for an anonymous wildcard answer.
 
@@ -441,8 +507,8 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         and conditional request headers allowed in the preflight. Everything after the surface check is shared
         deliberately: the credential exclusion and safelisted-header
         check make a wildcard safe, and a new surface must not opt out.
-        ``ignore_header_key`` lets an X-Api-Key through, for a request whose
-        route never read it.
+        ``ignore_header_key`` and ``ignore_query_key`` let an X-Api-Key or an
+        ``?api_key=`` through, for a request whose route never read it.
         """
         request_path = cls._request_path(request)
         standards_path = standards_api_path(request_path)
@@ -481,7 +547,11 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
             if not (ignore_header_key and header == "x-api-key")
         ):
             return None
-        if any(param in request.query_params for param in _CREDENTIAL_QUERY_PARAMS):
+        if any(
+            param in request.query_params
+            for param in _CREDENTIAL_QUERY_PARAMS
+            if not (ignore_query_key and param == "api_key")
+        ):
             return None
         if not cls._requested_headers(request) <= _SAFE_REQUEST_LOWER | asset_headers:
             return None

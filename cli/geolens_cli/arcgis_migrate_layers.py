@@ -28,6 +28,7 @@ from .arcgis_migrate_session import (
     StopRun,
     changed_before_handover,
     operator_or_nobody_wrote_last,
+    refuse_credentials,
 )
 from .arcgis_migrate_state import DONE, EXISTS, ItemState
 
@@ -555,6 +556,23 @@ def import_layers(
             )
     except GeoLensError as exc:
         raise ItemFailed(f"probe failed, {exc}") from None
+    base = item["target"]["title"] or item["title"]
+    wanted, notes, left_behind = importable_layers(probe)
+    titles = _titles(
+        base, [(_layer_label(layer), _layer_id(layer)) for layer in wanted]
+    )
+    # Checked before the first write, so a refused item leaves nothing behind
+    # in GeoLens or the state.
+    refuse_credentials(
+        ctx,
+        {
+            "title": [base, *titles],
+            "layer_name": [
+                [str(layer.name), _layer_label(layer), _layer_key(layer)]
+                for layer in wanted
+            ],
+        },
+    )
     # A fresh pass replaces anything a previous one recorded, so a pass that
     # stops part way leaves nothing to resume from.
     entry.import_pass = None
@@ -566,7 +584,7 @@ def import_layers(
         entry.layer_jobs.clear()
         entry.dataset_ids.clear()
     entry.service_url = row["url"]
-    wanted, notes, entry.left_behind = importable_layers(probe)
+    entry.left_behind = _redacted(ctx, left_behind)
     entry.attachments = attachment_flags(wanted)
     entry.relationships = relationship_records(wanted)
     if not wanted:
@@ -575,10 +593,6 @@ def import_layers(
         # a later run, and that probe reports a layer added later.
         return ItemResult(notes=[*notes, _NO_LAYER_NOTE])
 
-    base = item["target"]["title"] or item["title"]
-    titles = _titles(
-        base, [(_layer_label(layer), _layer_id(layer)) for layer in wanted]
-    )
     found = 0
     for layer, title in zip(wanted, titles):
         pinned = entry.layer_datasets.get(_layer_key(layer))

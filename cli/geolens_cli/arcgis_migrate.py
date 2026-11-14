@@ -16,9 +16,11 @@ see ``arcgis_portal`` for the portal side of the egress contract.
 from __future__ import annotations
 
 import heapq
+import os
+import sys
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -95,6 +97,7 @@ from .arcgis_migrate_webmaps import (
     thumbnail_dry_run_notes,
 )
 from .arcgis_migrate_session import (
+    CredentialRefused,
     GeoLens,
     GeoLensError,
     ItemFailed,
@@ -124,6 +127,7 @@ from .arcgis_portal import (
     Redactor,
     build_opener,
     check_client_id,
+    check_credential_options,
     portal_root,
     read_credentials,
 )
@@ -208,6 +212,9 @@ class MigrateOptions:
     token_stdin: bool = False
     username: str | None = None
     password_stdin: bool = False
+    # The stdin line --token-stdin or --password-stdin names, read when the
+    # run starts so its credential is registered before anything prints.
+    stdin_line: str | None = None
     client_id: str | None = None
     redirect_port: int | None = None
     quiet: bool = False
@@ -1469,6 +1476,7 @@ def _report(
         "group_warnings": groups.warnings,
         "item_sharing": groups.sharing_rows(),
         "group_failures": groups.failures,
+        "state_left_out": state.left_out,
         "report": [str(p) for p in report_files] if report_files else None,
         "failed": failed,
     }
@@ -1521,6 +1529,8 @@ def _report(
             if summary.stopped:
                 fmt.error(f"stopped: {summary.stopped}")
         _print_cutover(fmt, cutover, opts.dry_run)
+        for note in state.left_out:
+            fmt.warn(note)
         if state.cutover and not opts.cutover:
             fmt.warn(f"this migration was cut over at {state.cutover['at']}")
         if not opts.dry_run:
@@ -1726,10 +1736,18 @@ def run_cli(
 ) -> int:
     """Run ``geolens arcgis migrate`` and return its exit code."""
     redact = Redactor()
+    _register_given(opts, redact)
+    # Set on the caller's formatter, not a copy, so the SDK factory's own
+    # errors pass through it as well as every line and payload the run prints.
+    fmt.mask = redact.mask
     try:
         return _run(fmt, opts, redact, sdk_factory, instance)
     except (typer.Exit, click.ClickException):
         raise
+    except CredentialRefused as exc:
+        # A request outside any item; it names the path and key, not the value.
+        fmt.error(str(exc))
+        return EXIT_USAGE
     except (
         Exception
     ) as exc:  # broad: last guard so a traceback can't print a credential
@@ -1876,7 +1894,9 @@ def _portal_client(
             opts.username,
             opts.password_stdin,
             opts.client_id,
+            stdin_line=opts.stdin_line,
         )
+        redact.add(password)
         if token is None and password is None and not opts.client_id:
             raise UsageError(
                 f"{private} item(s) to import or bring up to date are not public: pass --token, "
@@ -1938,6 +1958,50 @@ def _sign_in(
     return PortalAuth(client, renewable=sign_in is not None)
 
 
+def _register_given(opts: MigrateOptions, redact: Redactor) -> None:
+    """Add to *redact* each credential given as an option or in the
+    environment, before anything is validated or printed: --token,
+    ARCGIS_TOKEN, ARCGIS_PASSWORD and GEOLENS_TOKEN, each variable also when
+    an option overrides it."""
+    redact.add(opts.token)
+    for name in ("ARCGIS_TOKEN", "ARCGIS_PASSWORD", "GEOLENS_TOKEN"):
+        redact.add(os.environ.get(name))
+
+
+def _take_credentials(opts: MigrateOptions, redact: Redactor) -> MigrateOptions:
+    """*opts* with the stdin line a credential option names read once and
+    added to *redact* before any path can skip the portal sign-in. Nothing
+    prompts here, and an empty line is refused by the sign-in that needs it,
+    as before."""
+    try:
+        check_credential_options(
+            opts.token or None,
+            opts.token_stdin,
+            opts.username,
+            opts.password_stdin,
+            opts.client_id,
+        )
+    except ValueError as exc:
+        raise UsageError(str(exc)) from None
+    line = None
+    if opts.token_stdin or opts.password_stdin:
+        line = sys.stdin.readline()
+    for secret in (line and line.strip(), line and line.rstrip("\r\n")):
+        redact.add(secret)
+    return replace(opts, stdin_line=line)
+
+
+def _register_stored_sign_in(
+    opts: MigrateOptions, plan: Mapping[str, Any], redact: Redactor
+) -> None:
+    try:
+        root = portal_root(plan["portal"]["url"], opts.allow_insecure_http)
+    except ValueError:
+        # The sign-in refuses the same URL before it reads anything.
+        return
+    arcgis_oauth.register_stored(root, opts.client_id or "", redact)
+
+
 def _run(
     fmt: _output.Formatter,
     opts: MigrateOptions,
@@ -1952,7 +2016,12 @@ def _run(
         except ValueError as exc:
             raise UsageError(str(exc)) from None
         _check_cutover(opts)
+        opts = _take_credentials(opts, redact)
         plan = _plan.load_plan(opts.plan_path)
+        if opts.client_id:
+            # The browser sign-in comes after the groups are written, so the
+            # refresh tokens it may use are registered now.
+            _register_stored_sign_in(opts, plan, redact)
         state_path = opts.state_path or opts.plan_path.parent / STATE_FILENAME
         state = MigrationState.load(
             state_path,
