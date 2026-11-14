@@ -89,7 +89,7 @@ and releases use semantic versioning.
 - With Valkey configured but unreachable, an AI request from a user under a daily token cap is refused with 429 instead of taking a per-worker in-flight slot, so the two-request limit can no longer be multiplied by the number of API workers. Deployments without Valkey keep per-process slots.
 - After sign-up switches from admin approval to email verification, an account still waiting for approval can no longer request a verification link and activate itself; it stays pending until an administrator approves it.
 - The bundled nginx edge answers 404 for `/api/tiles/raster-auth-check/`, an internal check the raster tile proxy runs in-process that returned a dataset's managed storage path to signed-in readers. Raster tiles are unaffected.
-- `install.sh` creates `.env` readable only by its owner (mode 600) before any secret is written into it, and the installer and `upgrade.sh` keep the mode of an existing `.env` when they update a value instead of resetting it to the umask default.
+- `install.sh` creates `.env` with mode 600 before any secret is written into it, and the installer and `upgrade.sh` keep the mode of an existing `.env`, including a read-only one, when they update a value instead of resetting it to the umask default.
 
 ## [1.31.0] - 2026-11-10
 

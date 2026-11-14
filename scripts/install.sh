@@ -264,7 +264,7 @@ update_env_value() {
   # The temp file starts private and writable; the mode of the existing .env
   # (read from ls -lL, as stat flags differ between GNU and BSD) is applied last
   # so a read-only .env stays updatable.
-  ( umask 077; : > "$tmp" ) || { rm -f "$tmp"; return 1; }
+  ( umask 077; : > "$tmp" && chmod 600 "$tmp" ) || { rm -f "$tmp"; return 1; }
 
   __VAL="$value" awk -v key="$key" '
     BEGIN { val = ENVIRON["__VAL"]; updated = 0 }

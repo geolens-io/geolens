@@ -470,6 +470,7 @@ jobs:
               - 'scripts/backup-entrypoint.sh'
               - 'scripts/tests/test-install-tag-resolution.sh'
               - 'scripts/tests/test-install-secret-generation.sh'
+              - 'scripts/tests/test-env-file-mode.sh'
               - 'scripts/tests/test-install-bundled-cache.sh'
               - 'scripts/tests/test-install-main-wrapper.sh'
               - 'scripts/tests/test-upgrade-order.sh'
@@ -678,6 +679,9 @@ jobs:
 
       - name: Installer secret-generation regression test
         run: sh scripts/tests/test-install-secret-generation.sh
+
+      - name: Installer env file mode regression test
+        run: sh scripts/tests/test-env-file-mode.sh
 
       - name: Installer bundled-cache regression test
         run: sh scripts/tests/test-install-bundled-cache.sh
