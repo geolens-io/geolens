@@ -364,23 +364,19 @@ def test_webmap_popups_leave_staff_columns_out():
         assert not fields & cam.STAFF_COLUMNS
 
 
-def test_tree_dashboard_takes_its_reference_from_the_aggregate(built):
+def test_tree_indicator_counts_only_and_the_text_names_the_earlier_count(built):
     api, h = built
     map_id = cam.seed_tree_dashboard(h, api)
 
     sent = api.maps[map_id]["dashboard_sent"]
     indicator = next(w for w in sent["widgets"] if w["type"] == "indicator")
-    assert indicator["config"]["reference"] == 3151
-    assert indicator["config"]["reference_label"] == "2016-2020"
-    assert indicator["config"]["higher_is_better"] is True
-    assert indicator["config"]["comparison"] == "both"
+    assert indicator["config"] == {"stat": "count"}
     assert indicator["v"] == 3
+    about = next(w for w in sent["widgets"] if w["type"] == "markdown")
+    assert "3,151 trees were planted in 2016-2020" in about["config"]["text"]
     assert {
         a["filter"]["args"][0]["args"][1]["timestamp"][:4] for a in api.aggregates
-    } == {
-        "2016",
-        "2021",
-    }
+    } == {"2016"}
     trees = next(
         x
         for x in api.maps[map_id]["layers"]
@@ -1002,17 +998,72 @@ def test_tree_dashboard_has_one_layer_per_source_and_no_hidden_layer():
     assert not {x["display_name"] for x in layers} & set(cam._RETIRED_TREE_LAYERS)
 
 
-def test_reseed_removes_the_retired_layers_and_leaves_no_orphan_widget(built):
+def _legacy(api, map_id, names=None, **over):
+    ds = next(x["dataset_id"] for x in api.maps[map_id]["layers"])
+    for name in names or cam._RETIRED_TREE_LAYERS:
+        api.add_layer(
+            map_id,
+            {"display_name": name, "dataset_id": ds, "visible": False, **over},
+        )
+    return ds
+
+
+def _names(api, map_id):
+    return {x["display_name"] for x in api.maps[map_id]["layers"]}
+
+
+def test_reseed_removes_the_retired_layers_once(built):
     api, h = built
     map_id = cam.seed_tree_dashboard(h, api)
-    for name in cam._RETIRED_TREE_LAYERS:
-        api.add_layer(map_id, {"display_name": name, "dataset_id": "x"})
+    _legacy(api, map_id)
     cam.seed_tree_dashboard(h, api)
-    layers = api.maps[map_id]["layers"]
-    assert not {x["display_name"] for x in layers} & set(cam._RETIRED_TREE_LAYERS)
-    ids = {x["id"] for x in layers}
+    assert not _names(api, map_id) & set(cam._RETIRED_TREE_LAYERS)
+    ids = {x["id"] for x in api.maps[map_id]["layers"]}
     sent = api.maps[map_id]["dashboard_sent"]
     assert all(w["layer_id"] in ids for w in sent["widgets"] if "layer_id" in w)
+    before = len(api.writes)
+    cam.seed_tree_dashboard(h, api)
+    assert api.writes[before:] == []
+
+
+def test_reseed_keeps_a_visible_retired_name(built):
+    api, h = built
+    map_id = cam.seed_tree_dashboard(h, api)
+    _legacy(api, map_id, visible=True)
+    cam.seed_tree_dashboard(h, api)
+    assert set(cam._RETIRED_TREE_LAYERS) <= _names(api, map_id)
+
+
+def test_reseed_keeps_a_retired_name_on_another_dataset(built):
+    api, h = built
+    map_id = cam.seed_tree_dashboard(h, api)
+    _legacy(api, map_id, dataset_id="another")
+    cam.seed_tree_dashboard(h, api)
+    assert set(cam._RETIRED_TREE_LAYERS) <= _names(api, map_id)
+
+
+def test_reseed_keeps_a_layer_a_saved_widget_still_reads(built):
+    api, h = built
+    map_id = cam.seed_tree_dashboard(h, api)
+    _legacy(api, map_id)
+    kept = next(
+        x
+        for x in api.maps[map_id]["layers"]
+        if x["display_name"] == "Trees planted since 2008"
+    )
+    future = {"type": "future_widget", "layer_id": kept["id"]}
+    real = api.set_view
+
+    def preserving(map_id, **fields):
+        real(map_id, **fields)
+        api.maps[map_id]["dashboard_config"]["widgets"].append(future)
+
+    api.set_view = preserving
+    api.maps[map_id]["dashboard_config"]["widgets"].append(future)
+    cam.seed_tree_dashboard(h, api)
+    names = _names(api, map_id)
+    assert "Trees planted since 2008" in names
+    assert "Trees planted 2021-2025" not in names
 
 
 # --- polish --------------------------------------------------------------------

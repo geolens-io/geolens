@@ -1143,11 +1143,28 @@ _RETIRED_TREE_LAYERS = (
 )
 
 
-def _drop_retired_tree_layers(api, map_id: str) -> None:
-    """Delete the retired layers once the saved widgets no longer point at them."""
-    for layer in list(api.get_map(map_id)["layers"]):
-        if layer.get("display_name") in _RETIRED_TREE_LAYERS:
+def _drop_retired_tree_layers(api, map_id: str, trees_ds: str) -> None:
+    """Delete a retired hidden layer of the trees dataset that no saved widget reads."""
+    stored = api.get_map(map_id)
+    used = {
+        w.get("layer_id")
+        for w in (stored.get("dashboard_config") or {}).get("widgets") or []
+        if isinstance(w, dict)
+    }
+    for layer in list(stored["layers"]):
+        name = layer.get("display_name")
+        if name not in _RETIRED_TREE_LAYERS:
+            continue
+        if str(layer.get("dataset_id")) != str(trees_ds):
+            why = "it is on another dataset"
+        elif layer.get("visible") is not False:
+            why = "it is visible"
+        elif layer["id"] in used:
+            why = "a saved widget still reads it"
+        else:
             api.delete_layer(map_id, layer["id"])
+            continue
+        print(f"  kept layer {name!r}: {why}")
 
 
 def _tree_layers(trees_ds: str) -> list[dict]:
@@ -1207,9 +1224,7 @@ def _count_planted(api, trees_ds: str, years: tuple[int, int]) -> int:
     return api.aggregate(trees_ds, op="count", filter=_years_filter(*years))["count"]
 
 
-def _tree_widgets(
-    s, layer_ids: dict[str, str], planted: int, reference: int
-) -> list[dict]:
+def _tree_widgets(s, layer_ids: dict[str, str], earlier: int) -> list[dict]:
     def widget(key, kind, title, layer, config, scope="view", only=None, v=1):
         built = s._dashboard_widget(
             "cambridge-trees", layer_ids[layer], key, kind, title, config, v
@@ -1228,10 +1243,6 @@ def _tree_widgets(
         all_trees,
         {
             "stat": "count",
-            "reference": reference,
-            "reference_label": EARLIER_LABEL,
-            "higher_is_better": True,
-            "comparison": "both",
         },
         scope="layer",
         only=_plant_years_layer_filter(*RECENT_YEARS),
@@ -1332,7 +1343,9 @@ def _tree_widgets(
                 "so counts can differ from the city's current "
                 "numbers. Plant dates and diameters are as the city recorded "
                 "them, and recent years can be incomplete. The planted-trees "
-                "indicator compares 2021-2025 with 2016-2020. Planting dates are recorded as the city enters them. "
+                "indicator counts the trees planted in 2021-2025 and follows "
+                f"your picks; citywide, {earlier:,} trees were planted in "
+                f"{EARLIER_LABEL}. Planting dates are recorded as the city enters them. "
                 "Picking a neighborhood or a species narrows every tree widget "
                 "and the trees layer: the indicator, the planting charts, the "
                 "table and the diameter histogram. The planting-by-year chart "
@@ -1411,10 +1424,7 @@ def seed_tree_dashboard(s, api, force: bool = False, force_pinned: bool = False)
     map_id, created, current, layer_ids = _ensure_dashboard_map(
         api, TREE_DASHBOARD, description, _tree_layers(trees_ds)
     )
-    planted, reference = (
-        _count_planted(api, trees_ds, RECENT_YEARS),
-        _count_planted(api, trees_ds, EARLIER_YEARS),
-    )
+    earlier = _count_planted(api, trees_ds, EARLIER_YEARS)
     _save_dashboard(
         api,
         map_id,
@@ -1424,14 +1434,14 @@ def seed_tree_dashboard(s, api, force: bool = False, force_pinned: bool = False)
             "version": 1,
             "panel": "right",
             "readable": DASHBOARD_READABLE,
-            "widgets": _tree_widgets(s, layer_ids, planted, reference),
+            "widgets": _tree_widgets(s, layer_ids, earlier),
         },
     )
-    _drop_retired_tree_layers(api, map_id)
+    _drop_retired_tree_layers(api, map_id, trees_ds)
     s.warn_if_hidden_layers(api, map_id, TREE_DASHBOARD)
     print(
         f"  -> map {map_id} ({'created' if created else 'updated'}, public); "
-        f"planted {RECENT_LABEL}: {planted}, {EARLIER_LABEL}: {reference}"
+        f"planted {EARLIER_LABEL}: {earlier}"
     )
     return map_id
 
