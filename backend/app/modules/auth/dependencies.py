@@ -29,6 +29,7 @@ from app.platform.request_credential import (
     ApiKeyCredential,
     api_key_scope_refusal,
     mark_header_api_key_evaluated,
+    mark_query_api_key,
     record_api_key,
     refuse_publish_key,
 )
@@ -445,8 +446,13 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
     api_key = _supplied_api_key(request)
     if not api_key:
         return None
+    from_query = not request.headers.get("X-Api-Key") and not _basic_password(
+        request.headers.get("Authorization", "")
+    )
     if request.headers.get("X-Api-Key"):
         mark_header_api_key_evaluated(request.scope)
+    elif from_query:
+        mark_query_api_key(request.scope, resolved=False)
     # codeql[py/weak-sensitive-data-hashing] API keys are server-minted 256-bit random tokens; SHA-256 makes a lookup key, not password storage
     key_hash = hashlib.sha256(api_key.encode()).hexdigest()
     result = await db.execute(
@@ -537,6 +543,8 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
             expires_at=api_key_obj.expires_at,
         ),
     )
+    if from_query:
+        mark_query_api_key(request.scope, resolved=True)
     return user
 
 

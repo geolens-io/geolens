@@ -86,6 +86,7 @@ and releases use semantic versioning.
 - `HEAD` now answers on a map's `style.json`, a 3D Tiles dataset's files and `/api/health` with GET's status and headers; it returned 405.
 - The point cloud viewer now recognises a geocentric coordinate system from the structure of its definition, not from words in its text, so unusual geocentric files keep the footprint view and projected ones with such words in a name load.
 - A point cloud whose first loaded tile has only dark 16-bit colours no longer dims or saturates the whole cloud; tiles are redrawn once a later tile shows the real colour depth.
+- A read whose API key travels in the URL as `?api_key=`, which is how ArcGIS Online Map Viewer passes a layer's key, is now readable from any web origin once the key is accepted, as a key sent in the `X-Api-Key` header already was. Such a key still authenticates only `GET` and `HEAD`, and an unknown, expired or revoked key gets no CORS headers.
 
 ### Security
 - `.env.example` and `.env.test.example` no longer set the database password to the published default `geolens`: `install.sh` and `make dev-init` generate one when they create `.env`, stop with a message when an existing `.env` leaves it empty, and `make env-test` copies the dev stack's. The API and worker log `postgres_password_published_default` at startup while `POSTGRES_PASSWORD` or a database URL override still signs in with it.
