@@ -1369,13 +1369,7 @@ export function useBuilderSave(state: SaveState) {
       // recoverable by re-toggling, so the split PATCH+PUT path is safe. That
       // avoids forcing every combined save through the lossy full-replacement
       // PUT (see below). The failed-save toast prompts a retry.
-      // A PATCH would check a layer filter against the widgets stored before
-      // this save, so a filter saved with the dashboard goes in one PUT.
-      const filterWithDashboard =
-        sendDashboard &&
-        ((diff.updated ?? []).some((layer) => 'filter' in layer) ||
-          (diff.added ?? []).some((layer) => layer.filter != null));
-      if (unsupported || filterWithDashboard) {
+      if (unsupported) {
         await replaceLayers();
       } else {
         if (hasDiff(diff)) {

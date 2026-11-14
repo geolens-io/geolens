@@ -1706,33 +1706,6 @@ describe('useBuilderSave', () => {
       expect(mockPatchMapLayersMutateAsync).not.toHaveBeenCalled();
     });
 
-    it('sends a layer filter edited with the dashboard in one PUT', async () => {
-      const filtered = { ...barChart({}), title: 'Land use', v: 3, filter: listing(600) };
-      const narrowed = { ...filtered, filter: listing(300) };
-      const clean = {
-        localLayers: [widgetLayer()],
-        dashboard: { panel: 'right' as const, widgets: [filtered] },
-        savedDashboard: { panel: 'right' as const, widgets: [filtered] },
-      };
-
-      await saveAfter(
-        clean,
-        {
-          localLayers: [{ ...widgetLayer(), filter: listing(600) }],
-          dashboard: { panel: 'right', widgets: [narrowed] },
-          dashboardEdited: true,
-        },
-        'button',
-      );
-
-      const { toast } = await import('sonner');
-      expect(vi.mocked(toast.error).mock.calls).toEqual([]);
-      expect(mockPatchMapLayersMutateAsync).not.toHaveBeenCalled();
-      const { data } = mockUpdateMapMutateAsync.mock.calls[0][0];
-      expect(data.layers[0].filter).toEqual(listing(600));
-      expect(data.dashboard_config.widgets[0].filter).toEqual(listing(300));
-    });
-
     it.each([
       ['a column its layer lacks', { column: 'name' }],
       ['a text column summed', { stat: 'sum', stat_column: 'kind' }],

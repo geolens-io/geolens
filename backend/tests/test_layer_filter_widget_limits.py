@@ -250,3 +250,53 @@ async def test_a_layer_filter_on_a_column_the_layer_lacks_is_not_counted(
         resp = await _patch(client, admin_auth_header, map_id, layer_id, gone)
 
         assert resp.status_code == 200, resp.text
+
+
+async def _set_columns(session, dataset, columns) -> None:
+    await session.execute(
+        text(
+            "UPDATE catalog.datasets SET column_info = cast(:c AS jsonb) WHERE id = :id"
+        ),
+        {"c": json.dumps(columns), "id": dataset.id},
+    )
+    await session.commit()
+
+
+async def test_a_filter_on_a_layer_with_no_columns_is_not_counted(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    async with _dropped(test_db_session) as dataset:
+        await _set_columns(test_db_session, dataset, [])
+        map_id, (layer_id,) = await _map_with_layers(client, admin_auth_header, dataset)
+        await _with_widget(
+            client, admin_auth_header, map_id, _widget("indicator", layer_id)
+        )
+
+        resp = await _patch(client, admin_auth_header, map_id, layer_id, _listing(1001))
+
+        assert resp.status_code == 200, resp.text
+
+
+@pytest.mark.parametrize("route", ["patch_layers", "put_layers"])
+async def test_a_large_whole_number_the_viewer_sends_is_counted(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, route
+):
+    async with _dropped(test_db_session) as dataset:
+        await _set_columns(
+            test_db_session,
+            dataset,
+            [
+                {"name": "kind", "type": "text"},
+                {"name": "score", "type": "double precision"},
+            ],
+        )
+        map_id, (layer_id,) = await _map_with_layers(client, admin_auth_header, dataset)
+        widget = _widget("indicator", layer_id)
+        await _with_widget(client, admin_auth_header, map_id, widget)
+        filter_ = ["all", [">", ["get", "score"], 1e20], _listing(1000)]
+
+        resp = await _save(
+            route, client, admin_auth_header, map_id, dataset, layer_id, filter_, widget
+        )
+
+        _refused(resp, widget)

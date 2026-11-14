@@ -43,27 +43,31 @@ def column_types(column_info: Any) -> dict[str, str]:
     }
 
 
-def _layer_cql2(layer_filter: Any, types: Mapping[str, str]) -> dict | None:
+def layer_cql2(layer_filter: Any, column_info: Any) -> dict | None:
     """The layer's filter as the viewer sends it, or None when it sends none.
 
-    With column types known, the viewer drops a filter on a column outside them.
+    Mirrors ``layerFilterToServerCql2``: with column metadata, even an empty
+    list, a filter on a column outside it is dropped.
     """
+    types = column_types(column_info)
     try:
-        layer = widget_filter_cql2(layer_filter, types)
+        layer = widget_filter_cql2(layer_filter, types, unsafe_integers=True)
     except FilterValidationError:
         return None
-    return None if types and not layer.columns <= types.keys() else layer.cql2
+    if isinstance(column_info, list) and not layer.columns <= types.keys():
+        return None
+    return layer.cql2
 
 
 def composed_filter(
-    widget_filter: Any, layer_filter: Any, types: Mapping[str, str]
+    widget_filter: Any, layer: dict | None, types: Mapping[str, str]
 ) -> tuple[str | None, dict | None]:
     """A refusal reason, or None and the CQL2 a widget's request carries.
 
+    ``layer`` is the layer's filter as ``layer_cql2`` gives it.
     ``filter_column`` names a column outside ``types``; ``filter_invalid`` has a
     literal or operator the viewer won't send for its column's type;
     ``filter_too_large`` passes the aggregate's value, depth or length limit.
-    The viewer drops a layer filter it can't convert, and so does this.
     """
     from app.standards.ogc.filtering import (
         MAX_FEATURE_FILTER_BINDS,
@@ -78,7 +82,6 @@ def composed_filter(
         own = widget_filter_cql2(widget_filter, types)
     except FilterValidationError:
         return "filter_invalid", None
-    layer = _layer_cql2(layer_filter, types)
     parts = [part for part in (layer, own.cql2) if part is not None]
     if not parts:
         return None, None
@@ -135,12 +138,14 @@ async def widget_filter_refusals(
     for widget, layer in widgets:
         dataset = datasets.get(layer.dataset_id)
         types = column_types(dataset.column_info if dataset is not None else None)
-        layer_filter = layer.filter
-        if dataset is not None and layer_filter is not None:
-            layer_cql2 = _layer_cql2(layer_filter, types)
-            if layer_cql2 is None or not await _compiles(session, dataset, layer_cql2):
-                layer_filter = None
-        reason, cql2 = composed_filter(widget.filter, layer_filter, types)
+        layer_part = None
+        if dataset is not None:
+            layer_part = layer_cql2(layer.filter, dataset.column_info)
+            if layer_part is not None and not await _compiles(
+                session, dataset, layer_part
+            ):
+                layer_part = None
+        reason, cql2 = composed_filter(widget.filter, layer_part, types)
         if reason is None and cql2 is not None:
             if dataset is None or not await _compiles(session, dataset, cql2):
                 reason = "filter_invalid"
@@ -181,9 +186,11 @@ async def refuse_layer_filter_past_limits(
     refused: list[dict[str, str | None]] = []
     for widget in widgets:
         layer = changed[widget.layer_id]
-        types = column_types(columns.get(layer.dataset_id))
+        info = columns.get(layer.dataset_id)
         reason, _ = composed_filter(
-            getattr(widget, "filter", None), layer.filter, types
+            getattr(widget, "filter", None),
+            layer_cql2(layer.filter, info),
+            column_types(info),
         )
         if reason == "filter_too_large":
             refused.append(
