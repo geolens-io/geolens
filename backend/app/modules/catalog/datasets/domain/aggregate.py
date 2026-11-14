@@ -23,7 +23,7 @@ from sqlalchemy import BigInteger, bindparam, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db.sqlstate import sqlstate
+from app.core.db.sqlstate import is_query_canceled
 from app.core.geo import extent_to_span_bbox
 from app.modules.catalog.datasets.domain.column_stats import (
     _NUMERIC_TYPES,
@@ -91,7 +91,6 @@ _FLOAT_TYPES = frozenset({"real", "double precision"})
 _INTEGER_TYPES = frozenset({"smallint", "integer", "bigint"})
 # Integers at or past this lose precision as JavaScript numbers.
 _JS_SAFE_INTEGER = 2**53
-_QUERY_CANCELED = "57014"
 # Two widgets of one caller may run at once; a third waits for the client's
 # retry. More would let a few callers hold every slot on a worker.
 _CALLER_CONCURRENCY = 2
@@ -576,7 +575,7 @@ async def _planned_rows(
             lambda stmt: stmt.bindparams(*binds_referenced_by(planned_source, binds)),
         )
     except DBAPIError as exc:
-        if sqlstate(exc) == _QUERY_CANCELED:
+        if is_query_canceled(exc):
             raise SandboxError("query_timeout", "Query timed out") from exc
         raise_if_unavailable(exc)
         raise

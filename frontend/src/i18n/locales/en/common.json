@@ -7,6 +7,10 @@
   "cancel": "Cancel",
   "delete": "Delete",
   "confirm": "Confirm",
+  "newVersion": {
+    "message": "A new version of GeoLens is available",
+    "reload": "Reload"
+  },
   "close": "Close",
   "search": "Search",
   "back": "Back",

@@ -50,6 +50,7 @@ x-db-ssl-env: &db-ssl-env
   DB_POOL_RECYCLE: "${DB_POOL_RECYCLE:-1800}"
   # Every backend process loads it through app.core.config; only get_db applies it.
   DB_STATEMENT_TIMEOUT_SECONDS: "${DB_STATEMENT_TIMEOUT_SECONDS:-300}"
+  DB_ANONYMOUS_READ_TIMEOUT_SECONDS: "${DB_ANONYMOUS_READ_TIMEOUT_SECONDS:-30}"
 
 x-storage-env: &storage-env
   STORAGE_PROVIDER: "${STORAGE_PROVIDER:-local}"
@@ -307,6 +308,7 @@ services:
       UPLOAD_MAX_SIZE_MB: "${UPLOAD_MAX_SIZE_MB:-500}"
       MAX_TILESET_UNPACKED_MB: "${MAX_TILESET_UNPACKED_MB:-20480}"
       MAX_TILESET_ENTRIES: "${MAX_TILESET_ENTRIES:-100000}"
+      OGC_ITEMS_MAX_GEOMETRY_BYTES: "${OGC_ITEMS_MAX_GEOMETRY_BYTES:-4000000}"
       # api, worker and titiler share upload_staging at the fixed /app/staging; the
       # app path must equal it, so it is not operator-tunable.
       UPLOAD_STAGING_DIR: "/app/staging"
@@ -379,6 +381,7 @@ services:
       # The tileset worker rechecks these caps before its first put.
       MAX_TILESET_UNPACKED_MB: "${MAX_TILESET_UNPACKED_MB:-20480}"
       MAX_TILESET_ENTRIES: "${MAX_TILESET_ENTRIES:-100000}"
+      OGC_ITEMS_MAX_GEOMETRY_BYTES: "${OGC_ITEMS_MAX_GEOMETRY_BYTES:-4000000}"
       PROCRASTINATE_SCHEMA: "${PROCRASTINATE_SCHEMA:-catalog}"
       # The worker purges expired queue jobs on the same retention and reads
       # admin-editable settings, which ENV_ONLY_CONFIG locks to the env.

@@ -3,6 +3,7 @@
 # operator script). Not sourced by scripts/install.sh: install.sh is a
 # self-contained single file streamed over `curl ... | sh` and byte-synced to
 # the getgeolens.com mirror, so it inlines its own copies of these helpers.
+# Once the checkout exists it runs this file in a child shell to read .env.
 # Keep the COMPOSE wrapper / update_env_value logic here in lockstep with
 # install.sh's inlined versions. wait_for_healthy deliberately diverges:
 # install.sh's copy budgets 300s and returns a non-fatal rc=2 on timeout

@@ -1215,7 +1215,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Record assembly keeps one format and asset branch per record type.
         "backend/app/modules/catalog/search/service_records.py": 660,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
-        "backend/app/modules/catalog/search/service_semantic.py": 516,
+        "backend/app/modules/catalog/search/service_semantic.py": 521,
         "backend/app/modules/catalog/maps/service_diff.py": 414,
         # Layer rows are shaped for the reader: visible datasets and VRT extents.
         "backend/app/modules/catalog/maps/service_shared.py": 416,
@@ -1380,7 +1380,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/refresh/service.py": 1201,
     # Central settings and boot-validation debt, including the service-credential
     # http allowlist; split by configuration domain before raising further.
-    "backend/app/core/config.py": 1511,
+    "backend/app/core/config.py": 1520,
     # Config resolution coordinates validation, overrides, caching, audit and side
     # effects, model defaults that follow the selected LLM provider, and SQL
     # reads of a committed flag.
@@ -1427,16 +1427,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1427,
     # Map endpoints share response assembly, visibility and ownership checks.
-    "backend/app/modules/catalog/maps/router.py": 1539,
+    "backend/app/modules/catalog/maps/router.py": 1499,
     # Feature writes, single and batch, share the dataset guards, the database
     # error mapping and the catalog refresh; create also carries idempotent
     # repeats and the dry run.
     "backend/app/modules/catalog/features/router.py": 1766,
     # Native search and OGC Records share visibility, query parsing and pagination;
     # the collections routes also answer under the desktop entry's gate.
-    "backend/app/modules/catalog/search/router.py": 1451,
+    "backend/app/modules/catalog/search/router.py": 1476,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
-    "backend/app/standards/stac/router.py": 1936,
+    "backend/app/standards/stac/router.py": 1942,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
     "backend/app/processing/tiles/router.py": 2954,

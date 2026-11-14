@@ -371,6 +371,11 @@ class Settings(
 
     cors_allowed_origins: str = ""
     upload_max_size_mb: int = Field(default=500, gt=0)
+    # An items page is built in memory at several times its stored size, so the
+    # cap is bounded to keep one request from exhausting the API's memory.
+    ogc_items_max_geometry_bytes: int = Field(
+        default=4_000_000, ge=1_000_000, le=32_000_000
+    )
     # Both are checked against a tileset's central directory before anything is
     # unpacked, so they bound a zip bomb as well as an honest large tileset.
     max_tileset_unpacked_mb: int = Field(default=20480, gt=0)
@@ -609,6 +614,10 @@ class Settings(
     # 300 sits inside the edge proxy's 600s read timeout, so a query that
     # would trip it has already lost its client.
     db_statement_timeout_seconds: int = Field(default=300, ge=0)
+
+    # Deadline for anonymous OGC, STAC and search reads, embed and share links
+    # included; capped by the one above, and 0 leaves those reads on it.
+    db_anonymous_read_timeout_seconds: int = Field(default=30, ge=0)
 
     # How old a staged upload (a `staging/` object, or a local staging file
     # whose naming rows must also have ended this long ago) must be before a
