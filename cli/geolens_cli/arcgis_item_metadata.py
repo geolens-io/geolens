@@ -194,23 +194,6 @@ def _decide(
     return "keep", False
 
 
-def _wanted_fields(
-    fields: Mapping[str, Any], base: Mapping[str, Any] | None, title: str | None
-) -> dict[str, str]:
-    """The values a dataset's fields should hold now: *fields* without the
-    keywords, *title* when given, and "" for a field this command wrote that
-    the portal has since emptied. A title is never emptied."""
-    wanted = {name: value for name, value in fields.items() if name != "keywords"}
-    if title is not None:
-        wanted["title"] = unicodedata.normalize("NFC", title)
-    cleared = {
-        name: ""
-        for name, written in (base or {}).items()
-        if name not in ("keywords", "title") and written and name not in wanted
-    }
-    return {**wanted, **cleared}
-
-
 # The item metadata fields a rerun writes and compares, keywords aside.
 CARRIED = ("title", "summary", "attribution", "license", "source_organization")
 
@@ -264,39 +247,17 @@ def compare_edits(
     return edits
 
 
-def current_value(dataset: Any, name: str) -> str:
-    """*name*'s value on *dataset*, "" when it has none."""
-    return _current(dataset, name)
-
-
-def write_fields(
-    ctx: MigrationContext,
-    entry: ItemState,
-    dataset_id: str,
-    dataset: Any,
-    values: Mapping[str, str],
-) -> Any:
-    """Write *values* ("" empties a field) onto *dataset* as read, record them
-    as this command's in the baseline, and return the dataset GeoLens answers
-    with; ``ItemFailed`` when GeoLens refuses."""
-    from geolens.api.datasets import (
-        update_dataset_metadata_datasets_dataset_id_patch as patch,
-    )
-    from geolens.models.dataset_meta import DatasetMeta
-
-    body = {name: value or None for name, value in values.items()}
-    body["expected_updated_at"] = dataset.updated_at.isoformat()
-    try:
-        written = ctx.geolens.write(
-            patch.sync_detailed,
-            during="its metadata was written",
-            dataset_id=UUID(dataset_id),
-            body=DatasetMeta.from_dict(body),
-        )
-    except GeoLensError as exc:
-        raise ItemFailed(f"writing the item metadata failed, {exc}") from None
-    entry.metadata_baseline.setdefault(dataset_id, {}).update(values)
-    return written
+def portal_text(
+    row: Mapping[str, Any], portal: Mapping[str, Any] | None
+) -> dict[str, str]:
+    """Each carried field's portal text before ``item_metadata`` converts,
+    normalises and shortens it, the title aside."""
+    return {
+        "summary": "\n".join(str(row.get(k) or "") for k in ("snippet", "description")),
+        "attribution": str(row.get("access_information") or ""),
+        "license": str(row.get("license_info") or ""),
+        "source_organization": str((portal or {}).get("name") or ""),
+    }
 
 
 def _written(base: Mapping[str, Any] | None, name: str) -> str | None:
@@ -345,8 +306,17 @@ def apply_item_metadata(
             base = entry.metadata_baseline.get(dataset_id)
             meta: dict[str, Any] = {}
             baseline = dict(base or {})
-            wanted = _wanted_fields(fields, base, (titles or {}).get(dataset_id))
-            for name, value in wanted.items():
+            # A field this command wrote that the portal has since emptied is
+            # emptied too, by the same rule as any other change.
+            wanted = dict(fields)
+            if titles and dataset_id in titles:
+                wanted["title"] = unicodedata.normalize("NFC", titles[dataset_id])
+            cleared = {
+                name: ""
+                for name, written in (base or {}).items()
+                if name not in ("keywords", "title") and written and name not in wanted
+            }
+            for name, value in {**wanted, **cleared}.items():
                 action, claim = _decide(
                     name, _current(current, name), value, base, entry.metadata_hash
                 )

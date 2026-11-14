@@ -574,17 +574,6 @@ def load_plan(path: Path) -> dict[str, Any]:
     error = _schema_error(data, json.loads(schema_path.read_text(encoding="utf-8")))
     if error is not None:
         raise PlanError(f"{path} is not a valid migration plan at {error}")
-    misplaced = sorted(
-        item["id"]
-        for item in data["items"]
-        if "both_changed" in item and item["action"] not in (*DATASET_ACTIONS, SKIP)
-    )
-    if misplaced:
-        raise PlanError(
-            f"{path} sets both_changed on items that import no datasets: "
-            f"{', '.join(misplaced)}; it applies to {' and '.join(DATASET_ACTIONS)} "
-            "items"
-        )
     counts = Counter(item["id"] for item in data["items"])
     repeated = sorted(i for i, n in counts.items() if n > 1)
     if repeated:

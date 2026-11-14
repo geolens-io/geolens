@@ -35,9 +35,7 @@ Until cutover the operator can run the migration again. A rerun:
   operator set those in the plan, the operator's choice stays and the conflict
   is reported.
 
-A rerun never overwrites a change made in GeoLens since the last run, unless
-the plan sets `both_changed` to `portal` for the item, which overwrites the
-listed metadata fields and is reported. A
+A rerun never overwrites a change made in GeoLens since the last run. A
 dataset, map or story whose content, metadata, sharing or owner changed there
 is reported instead of updated. A refresh that stops for review is reported
 and never accepted on the operator's behalf.

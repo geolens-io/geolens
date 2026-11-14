@@ -28,6 +28,7 @@ import ssl
 import sys
 import threading
 import time
+import unicodedata
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
@@ -109,7 +110,12 @@ class Redactor:
     def add(self, secret: str | None) -> None:
         if not secret:
             return
-        forms = [*self._forms, secret, quote(secret, safe=""), quote_plus(secret)]
+        forms = list(self._forms)
+        # A secret typed in decomposed Unicode can be stored composed, and the
+        # other way round, so both forms are masked.
+        normal = (unicodedata.normalize(form, secret) for form in ("NFC", "NFD"))
+        for text in dict.fromkeys((secret, *normal)):
+            forms += [text, quote(text, safe=""), quote_plus(text)]
         # Replaced whole, not sorted in place: a token renewed mid-run is added
         # while other threads redact, and an in-place sort hides every form.
         self._forms = sorted(dict.fromkeys(forms), key=len, reverse=True)
@@ -215,6 +221,12 @@ def _scrub_text(text: str, redact: Redactor, depth: int = 0) -> str:
     if '":' in text or '" :' in text:
         text = _JSON_PAIR.sub(_scrub_pair, text)
     return text
+
+
+def holds_credential(text: str, redact: Redactor) -> bool:
+    """Whether scrubbing *text* masks anything, told by the masks it adds
+    because scrubbing also rewrites JSON held in a string."""
+    return _scrub_text(text, redact).count("[REDACTED]") > text.count("[REDACTED]")
 
 
 def redact_json(value: Any, redact: Redactor) -> Any:

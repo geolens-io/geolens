@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import secrets
+import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
@@ -15,6 +15,7 @@ import pytest
 from geolens_cli import arcgis_migrate as migrate_mod
 from geolens_cli import arcgis_migrate_cutover as cutover_mod
 from geolens_cli import arcgis_migrate_refresh as refresh_mod
+from geolens_cli.arcgis_item_metadata import CARRIED, MAX_SUMMARY
 from geolens_cli.arcgis_portal import PortalError
 from geolens_cli.main import app
 
@@ -887,25 +888,18 @@ def _edited_on_both_sides(
     return plan_file, service, refresh
 
 
-def _set_both_changed(plan_file: Path, item_id: str, value: str) -> None:
-    plan = json.loads(plan_file.read_text())
-    for item in plan["items"]:
-        if item["id"] == item_id:
-            item["both_changed"] = value
-    plan_file.write_text(json.dumps(plan))
-
-
 MERGED = (
     f"dataset {PARCELS} was edited in GeoLens; merged its metadata: the summary "
     "from the portal, the title from GeoLens"
 )
-TOOK_TITLE = (
-    f"dataset {PARCELS} was edited in GeoLens; took the portal's version as the "
-    "plan asks, overwriting the GeoLens edits to the title"
-)
 BOTH_TITLES = (
     'the title is "Named in GeoLens" in GeoLens and "Parcels renamed" in the portal'
 )
+
+
+def _merged_as_edited(service) -> None:
+    assert service.fields[PARCELS]["title"] == "Named in GeoLens"
+    assert service.summaries[PARCELS].startswith("New summary")
 
 
 def test_edits_to_different_fields_on_each_side_are_merged(runner, tmp_path, geolens):
@@ -915,10 +909,11 @@ def test_edits_to_different_fields_on_each_side_are_merged(runner, tmp_path, geo
 
     assert result.exit_code == 0, payload["not_up_to_date"]
     assert len(refresh.bodies) == 2
-    assert service.fields[PARCELS]["title"] == "Named in GeoLens"
-    assert service.summaries[PARCELS].startswith("New summary")
-    assert payload["both_changed"] == {A2: [MERGED]}
+    _merged_as_edited(service)
+    assert payload["metadata_merged"] == {A2: [MERGED]}
     assert MERGED in _state(plan_file)["items"][A2]["notes"]
+    report = (plan_file.parent / "arcgis-migration-report.json").read_text()
+    assert MERGED in report
 
 
 def test_a_field_changed_on_both_sides_stops_with_both_values(
@@ -937,40 +932,14 @@ def test_a_field_changed_on_both_sides_stops_with_both_values(
     assert service.fields[PARCELS]["title"] == "Named in GeoLens"
     [reason] = payload["not_up_to_date"][A2]
     assert f"both sides changed the same fields: {BOTH_TITLES}" in reason
-    assert reason.endswith(
-        "to take the portal's version, set the item's \"both_changed\" to "
-        '"portal" in the plan'
-    )
-    assert payload["both_changed"] == {}
+    assert reason.endswith(refresh_mod.MAKE_EQUAL + refresh_mod.KEEP_GEOLENS)
+    assert payload["metadata_merged"] == {}
 
 
-def test_the_portals_version_replaces_the_geolens_edit_when_the_plan_asks(
+def test_a_dataset_without_a_metadata_baseline_stops_as_before(
     runner, tmp_path, geolens
 ):
-    plan_file, service, refresh = _edited_on_both_sides(
-        runner, tmp_path, geolens, "Parcels renamed"
-    )
-    _set_both_changed(plan_file, A2, "portal")
-
-    result, payload = _migrate(runner, plan_file, "--only", A2)
-
-    assert result.exit_code == 0, payload["not_up_to_date"]
-    assert len(refresh.bodies) == 2
-    assert service.fields[PARCELS]["title"] == "Parcels renamed"
-    assert service.summaries[PARCELS].startswith("New summary")
-    assert payload["both_changed"] == {A2: [TOOK_TITLE]}
-    entry = _state(plan_file)["items"][A2]
-    assert TOOK_TITLE in entry["notes"]
-    assert entry["metadata_baseline"][PARCELS]["title"] == "Parcels renamed"
-
-
-@pytest.mark.parametrize("portal_title", [None, "Parcels renamed"])
-def test_a_dataset_without_a_metadata_baseline_stops_as_before(
-    runner, tmp_path, geolens, portal_title
-):
-    plan_file, service, refresh = _edited_on_both_sides(
-        runner, tmp_path, geolens, portal_title
-    )
+    plan_file, service, refresh = _edited_on_both_sides(runner, tmp_path, geolens, None)
     _edit_state(plan_file, A2, metadata_baseline={})
 
     result, payload = _migrate(runner, plan_file, "--only", A2)
@@ -1003,26 +972,20 @@ def test_a_title_with_no_recorded_value_counts_as_changed_on_both_sides(
     )
 
 
-@pytest.mark.parametrize("both_changed", [None, "portal"])
 @pytest.mark.parametrize(
-    "data_edit",
+    "edit",
     [
         {"data_revision": 1},
         # A replacement keeping the feature count, and a restore after it.
         {"current_version": 3},
         {"current_version": 4, "feature_count": 0},
+        {"created_by": ALICE},
     ],
-    ids=["feature-edit", "replacement", "restore"],
+    ids=["feature-edit", "replacement", "restore", "owner"],
 )
-def test_a_data_edit_in_geolens_still_stops(
-    runner, tmp_path, geolens, data_edit, both_changed
-):
-    plan_file, service, refresh = _edited_on_both_sides(
-        runner, tmp_path, geolens, "Parcels renamed" if both_changed else None
-    )
-    service.fields[PARCELS].update(data_edit)
-    if both_changed:
-        _set_both_changed(plan_file, A2, both_changed)
+def test_a_data_or_owner_change_in_geolens_still_stops(runner, tmp_path, geolens, edit):
+    plan_file, service, refresh = _edited_on_both_sides(runner, tmp_path, geolens, None)
+    service.fields[PARCELS].update(edit)
 
     result, payload = _migrate(runner, plan_file, "--only", A2)
 
@@ -1030,26 +993,7 @@ def test_a_data_edit_in_geolens_still_stops(
     assert len(refresh.bodies) == 1
     assert service.fields[PARCELS]["title"] == "Named in GeoLens"
     assert payload["not_up_to_date"][A2][0].endswith(refresh_mod.KEEP_GEOLENS)
-    assert payload["both_changed"] == {}
-
-
-@pytest.mark.parametrize("both_changed", [None, "portal"])
-def test_a_dataset_given_another_owner_in_geolens_still_stops(
-    runner, tmp_path, geolens, both_changed
-):
-    plan_file, service, refresh = _edited_on_both_sides(
-        runner, tmp_path, geolens, "Parcels renamed" if both_changed else None
-    )
-    service.fields[PARCELS]["created_by"] = ALICE
-    if both_changed:
-        _set_both_changed(plan_file, A2, both_changed)
-
-    result, payload = _migrate(runner, plan_file, "--only", A2)
-
-    assert result.exit_code == 1
-    assert len(refresh.bodies) == 1
-    assert service.fields[PARCELS]["title"] == "Named in GeoLens"
-    assert payload["not_up_to_date"][A2][0].endswith(refresh_mod.KEEP_GEOLENS)
+    assert payload["metadata_merged"] == {}
 
 
 def test_a_snapshot_recorded_without_its_version_stops_as_before(
@@ -1083,9 +1027,8 @@ def test_a_snapshot_recorded_without_its_version_still_refreshes_when_unchanged(
     assert len(refresh.bodies) == 1
 
 
-@pytest.mark.parametrize("both_changed", [None, "portal"])
 def test_a_field_filled_in_geolens_with_no_recorded_value_counts_as_both(
-    runner, tmp_path, geolens, both_changed
+    runner, tmp_path, geolens
 ):
     plan_file = _write_plan(tmp_path, rows={A2: {"snippet": None}})
     service = _migrated(runner, plan_file, geolens)
@@ -1096,24 +1039,14 @@ def test_a_field_filled_in_geolens_with_no_recorded_value_counts_as_both(
     service.fields[PARCELS].update(
         title="Named in GeoLens", updated_at=EDITED, updated_by=ALICE
     )
-    _set_title(plan_file, A2, "Parcels renamed")
-    if both_changed:
-        _set_both_changed(plan_file, A2, both_changed)
 
     result, payload = _migrate(runner, plan_file, "--only", A2)
 
-    if both_changed:
-        assert result.exit_code == 0, payload["not_up_to_date"]
-        assert service.summaries[PARCELS] is None
-        assert service.fields[PARCELS]["title"] == "Parcels renamed"
-        [line] = payload["both_changed"][A2]
-        assert line.endswith("overwriting the GeoLens edits to the title, the summary")
-    else:
-        assert result.exit_code == 1
-        assert len(refresh.bodies) == 1
-        assert (
-            'the summary is "Filled in GeoLens" in GeoLens and empty in the portal'
-        ) in payload["not_up_to_date"][A2][0]
+    assert result.exit_code == 1
+    assert len(refresh.bodies) == 1
+    assert (
+        'the summary is "Filled in GeoLens" in GeoLens and empty in the portal'
+    ) in payload["not_up_to_date"][A2][0]
 
 
 def test_a_field_filled_in_geolens_over_a_recorded_empty_value_is_kept(
@@ -1129,7 +1062,7 @@ def test_a_field_filled_in_geolens_over_a_recorded_empty_value_is_kept(
 
     assert result.exit_code == 0, payload["not_up_to_date"]
     assert service.fields[PARCELS]["attribution"] == "Credit added in GeoLens"
-    assert payload["both_changed"] == {
+    assert payload["metadata_merged"] == {
         A2: [
             MERGED.replace(
                 "the title from GeoLens",
@@ -1137,61 +1070,6 @@ def test_a_field_filled_in_geolens_over_a_recorded_empty_value_is_kept(
             )
         ]
     }
-
-
-def test_a_portal_version_whose_metadata_write_failed_is_written_on_the_next_run(
-    runner, tmp_path, geolens
-):
-    plan_file, service, refresh = _edited_on_both_sides(
-        runner, tmp_path, geolens, "Parcels renamed"
-    )
-    _set_both_changed(plan_file, A2, "portal")
-    route = f"PATCH /datasets/{PARCELS}"
-    patch = geolens.routes[route]
-    geolens.routes[route] = (500, layers._problem(500, "boom"))
-
-    result, payload = _migrate(runner, plan_file, "--only", A2)
-
-    assert result.exit_code == 1
-    assert "writing the item metadata failed" in payload["not_up_to_date"][A2][0]
-    assert payload["both_changed"] == {}
-    assert service.fields[PARCELS]["title"] == "Named in GeoLens"
-    geolens.routes[route] = patch
-
-    result, payload = _migrate(runner, plan_file, "--only", A2)
-
-    assert result.exit_code == 0, payload["not_up_to_date"]
-    assert service.fields[PARCELS]["title"] == "Parcels renamed"
-    assert payload["both_changed"] == {A2: [TOOK_TITLE]}
-
-
-def test_a_portal_version_is_written_after_an_adopted_background_refresh(
-    runner, tmp_path, geolens, monkeypatch
-):
-    monkeypatch.setattr(refresh_mod, "JOB_TIMEOUT", 0.05)
-    monkeypatch.setattr(refresh_mod, "JOB_POLL_INTERVAL", 0.01)
-    plan_file, service, refresh = _edited_on_both_sides(
-        runner, tmp_path, geolens, "Parcels renamed"
-    )
-    _set_both_changed(plan_file, A2, "portal")
-    refresh.outcome = "running"
-
-    result, payload = _migrate(runner, plan_file, "--only", A2)
-
-    assert result.exit_code == 1
-    assert "still running" in payload["not_up_to_date"][A2][0]
-    run = refresh.runs[PARCELS][0]
-    run.update(status="succeeded", finished_at=LATER)
-    service.fields[PARCELS].update(
-        updated_at="2026-10-04T00:00:00Z", updated_by=layers.OPERATOR, current_version=3
-    )
-    refresh.outcome = "succeeded"
-
-    result, payload = _migrate(runner, plan_file, "--only", A2)
-
-    assert result.exit_code == 0, payload["not_up_to_date"]
-    assert service.fields[PARCELS]["title"] == "Parcels renamed"
-    assert payload["both_changed"] == {A2: [TOOK_TITLE]}
 
 
 # Where each carried field's portal value comes from: an inventory row key,
@@ -1236,24 +1114,7 @@ def _geolens_value(service, name: str):
     return service.fields[PARCELS].get(name)
 
 
-@pytest.mark.parametrize("landing", ["failed-write", "adopted-refresh"])
-@pytest.mark.parametrize("baseline", ["missing", "null"])
-@pytest.mark.parametrize(
-    ("name", "portal_value"),
-    [
-        *[
-            (name, value)
-            for name in ("summary", "attribution", "license", "source_organization")
-            for value in ("From the portal", "")
-        ],
-        ("title", "From the portal"),
-    ],
-)
-def test_a_decided_portal_version_is_written_by_a_later_run_and_reported_once(
-    runner, tmp_path, geolens, monkeypatch, name, portal_value, baseline, landing
-):
-    monkeypatch.setattr(refresh_mod, "JOB_TIMEOUT", 0.05)
-    monkeypatch.setattr(refresh_mod, "JOB_POLL_INTERVAL", 0.01)
+def _every_field_recorded(runner, tmp_path, geolens):
     plan_file = _write_plan(
         tmp_path,
         rows={
@@ -1268,111 +1129,137 @@ def test_a_decided_portal_version_is_written_by_a_later_run_and_reported_once(
     service = _migrated(runner, plan_file, geolens)
     refresh = FakeRefresh(geolens, service).allow(PARCELS)
     assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
-    state = _state(plan_file)["items"][A2]["metadata_baseline"]
-    if baseline == "missing":
-        state[PARCELS].pop(name, None)
-    else:
-        state[PARCELS][name] = None
-    _edit_state(plan_file, A2, metadata_baseline=state)
-    _set_portal_value(plan_file, name, portal_value)
-    _set_geolens_value(service, name, "Filled in GeoLens")
+    return plan_file, service, refresh
+
+
+@pytest.mark.parametrize("portal", ["unchanged", "changed", "emptied"])
+@pytest.mark.parametrize("name", CARRIED)
+def test_a_value_changed_in_geolens_is_never_overwritten(
+    runner, tmp_path, geolens, name, portal
+):
+    if name == "title" and portal == "emptied":
+        pytest.skip("a title is never emptied")
+    plan_file, service, refresh = _every_field_recorded(runner, tmp_path, geolens)
+    _set_geolens_value(service, name, "Edited in GeoLens")
     service.fields[PARCELS].update(updated_at=EDITED, updated_by=ALICE)
-    _set_both_changed(plan_file, A2, "portal")
-    route = f"PATCH /datasets/{PARCELS}"
-    patch = geolens.routes[route]
-    if landing == "failed-write":
-        geolens.routes[route] = (500, layers._problem(500, "boom"))
-    else:
-        refresh.outcome = "running"
-
-    result, payload = _migrate(runner, plan_file, "--only", A2)
-
-    assert result.exit_code == 1
-    assert payload["both_changed"] == {}
-    assert _geolens_value(service, name) == "Filled in GeoLens"
-    pending = _state(plan_file)["items"][A2]["pending_metadata"][PARCELS]
-    assert pending["fields"][name] == {
-        "from": hashlib.sha256(b"Filled in GeoLens").hexdigest(),
-        "to": portal_value,
-    }
-    if landing == "failed-write":
-        geolens.routes[route] = patch
-    else:
-        refresh.runs[PARCELS][0].update(status="succeeded", finished_at=LATER)
-        service.fields[PARCELS].update(
-            updated_at="2026-10-04T00:00:00Z",
-            updated_by=layers.OPERATOR,
-            current_version=3,
+    if portal != "unchanged":
+        _set_portal_value(
+            plan_file, name, "From the portal" if portal == "changed" else None
         )
-        refresh.outcome = "succeeded"
 
-    result, payload = _migrate(runner, plan_file, "--only", A2)
+    for args in ((), ("--dry-run",), ()):
+        result, payload = _migrate(runner, plan_file, "--only", A2, *args)
 
-    assert result.exit_code == 0, payload["not_up_to_date"]
-    assert _geolens_value(service, name) == (portal_value or None)
-    line = (
-        f"dataset {PARCELS} was edited in GeoLens; took the portal's version as "
-        f"the plan asks, overwriting the GeoLens edits to the {name.replace('_', ' ')}"
-    )
-    assert payload["both_changed"] == {A2: [line]}
-    entry = _state(plan_file)["items"][A2]
-    assert entry["pending_metadata"] == {}
-    assert entry["notes"].count(line) == 1
-
-    result, payload = _migrate(runner, plan_file, "--only", A2)
-
-    assert result.exit_code == 0, payload["not_up_to_date"]
-    assert payload["both_changed"] == {}
+        assert result.exit_code == int(portal != "unchanged"), payload
+        assert _geolens_value(service, name) == "Edited in GeoLens"
 
 
-def test_cutover_refuses_while_a_decided_portal_version_is_pending(
+def test_a_failed_metadata_write_is_merged_again_by_the_next_run(
     runner, tmp_path, geolens
 ):
-    plan_file, service, refresh = _edited_on_both_sides(
-        runner, tmp_path, geolens, "Parcels renamed"
-    )
-    _edit_plan(plan_file, (A2,))
-    _set_both_changed(plan_file, A2, "portal")
-    geolens.routes[f"PATCH /datasets/{PARCELS}"] = (500, layers._problem(500, "boom"))
-    assert _migrate(runner, plan_file)[0].exit_code == 1
-    # The run's own failure is not what holds the cutover back.
-    _edit_state(plan_file, A2, stale=[])
-
-    result, payload = _migrate(runner, plan_file, "--cutover", "--dry-run")
-
-    assert result.exit_code == 1
-    [check] = [
-        c for c in payload["cutover"]["checks"] if c["check"] == "unfinished-items"
-    ]
-    assert any(
-        f"the metadata decided for dataset(s) {PARCELS}" in i["reason"]
-        for i in check["items"]
-    )
-
-
-def test_a_pending_decision_the_plan_no_longer_asks_for_is_dropped(
-    runner, tmp_path, geolens
-):
-    plan_file, service, refresh = _edited_on_both_sides(
-        runner, tmp_path, geolens, "Parcels renamed"
-    )
-    _set_both_changed(plan_file, A2, "portal")
+    plan_file, service, refresh = _edited_on_both_sides(runner, tmp_path, geolens, None)
     route = f"PATCH /datasets/{PARCELS}"
     patch = geolens.routes[route]
     geolens.routes[route] = (500, layers._problem(500, "boom"))
-    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 1
-    geolens.routes[route] = patch
-    plan = json.loads(plan_file.read_text())
-    for item in plan["items"]:
-        item.pop("both_changed", None)
-    plan_file.write_text(json.dumps(plan))
 
     result, payload = _migrate(runner, plan_file, "--only", A2)
 
     assert result.exit_code == 1
+    assert "writing the item metadata failed" in payload["not_up_to_date"][A2][0]
+    assert payload["metadata_merged"] == {}
     assert service.fields[PARCELS]["title"] == "Named in GeoLens"
-    assert BOTH_TITLES in payload["not_up_to_date"][A2][0]
-    assert _state(plan_file)["items"][A2]["pending_metadata"] == {}
+    geolens.routes[route] = patch
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, payload["not_up_to_date"]
+    _merged_as_edited(service)
+    assert payload["metadata_merged"] == {A2: [MERGED]}
+
+
+def test_a_refresh_an_earlier_run_left_running_is_adopted_and_merged(
+    runner, tmp_path, geolens, monkeypatch
+):
+    monkeypatch.setattr(refresh_mod, "JOB_TIMEOUT", 0.05)
+    monkeypatch.setattr(refresh_mod, "JOB_POLL_INTERVAL", 0.01)
+    plan_file, service, refresh = _edited_on_both_sides(runner, tmp_path, geolens, None)
+    refresh.outcome = "running"
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    assert "still running" in payload["not_up_to_date"][A2][0]
+    refresh.runs[PARCELS][0].update(status="succeeded", finished_at=LATER)
+    service.fields[PARCELS].update(
+        updated_at="2026-10-04T00:00:00Z", updated_by=layers.OPERATOR, current_version=3
+    )
+    refresh.outcome = "succeeded"
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, payload["not_up_to_date"]
+    _merged_as_edited(service)
+    assert payload["metadata_merged"] == {A2: [MERGED]}
+
+
+def test_a_merge_whose_write_answer_was_lost_is_kept_and_stops_a_later_conflict(
+    runner, tmp_path, geolens
+):
+    plan_file, service, refresh = _edited_on_both_sides(runner, tmp_path, geolens, None)
+    route = f"PATCH /datasets/{PARCELS}"
+    patch = geolens.routes[route]
+
+    def committed_then_lost(seen):
+        patch(seen)
+        return (502, layers._problem(502, "bad gateway"))
+
+    geolens.routes[route] = committed_then_lost
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 1
+    _merged_as_edited(service)
+    geolens.routes[route] = patch
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, payload["not_up_to_date"]
+    _merged_as_edited(service)
+    _set_snippet(plan_file, A2, "Newer summary")
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    # The landed summary isn't recorded as this command's, so it is kept.
+    assert result.exit_code == 1
+    assert "the summary is" in payload["not_up_to_date"][A2][0]
+    _merged_as_edited(service)
+
+
+@pytest.mark.parametrize("write", ["visibility", "metadata"])
+def test_a_run_stopped_right_after_a_write_is_merged_by_the_next(
+    runner, tmp_path, geolens, write
+):
+    plan_file, service, refresh = _edited_on_both_sides(runner, tmp_path, geolens, None)
+    if write == "visibility":
+        _set_visibility(plan_file, A2, "internal")
+    route = f"PATCH /datasets/{PARCELS}"
+    patch = geolens.routes[route]
+
+    def landed_then_stopped(seen):
+        # GeoLens moves updated_at on every metadata write.
+        service.fields[PARCELS]["updated_at"] = "2026-10-05T00:00:00Z"
+        answer = patch(seen)
+        if (write == "visibility") is ("visibility" in seen.json()):
+            raise KeyboardInterrupt
+        return answer
+
+    geolens.routes[route] = landed_then_stopped
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 130
+    geolens.routes[route] = patch
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, payload["not_up_to_date"]
+    _merged_as_edited(service)
+    [line] = payload["metadata_merged"][A2]
+    assert line.startswith(f"dataset {PARCELS} was edited in GeoLens; merged")
 
 
 @pytest.mark.parametrize("dry_run", [False, True], ids=["run", "dry-run"])
@@ -1418,68 +1305,89 @@ def test_every_credential_form_is_kept_out_of_a_public_runs_output(
             "arcgis-migration-report.json",
             "arcgis-migration-report.md",
         }
-    sinks = [human.output, data.output] + [
-        path.read_text(errors="replace") for path in files
-    ]
-    pieces = (secret, secret[:24], secret.split("\\")[0], json.dumps(secret)[1:-1])
-    for piece in pieces:
-        assert not any(piece in sink for sink in sinks), piece
+    _assert_kept_out([human.output, data.output], files, secret)
 
 
 def _secret_pieces(secret: str) -> tuple[str, ...]:
     return (secret, secret[:24], secret.split("\\")[0], json.dumps(secret)[1:-1])
 
 
-@pytest.mark.parametrize("outcome", ["written", "failed-write", "interrupted"])
-def test_a_saved_decision_never_puts_a_credential_in_the_state_file(
-    runner, tmp_path, geolens, monkeypatch, outcome
-):
-    monkeypatch.setattr(refresh_mod, "JOB_TIMEOUT", 0.05)
-    monkeypatch.setattr(refresh_mod, "JOB_POLL_INTERVAL", 0.01)
-    secret = secrets.token_urlsafe(40) + "\\" + secrets.token_urlsafe(8)
-    plan_file, service, refresh = _edited_on_both_sides(
-        runner, tmp_path, geolens, "Parcels renamed", f"Named {secret}"
-    )
-    _set_both_changed(plan_file, A2, "portal")
-    if outcome == "failed-write":
-        geolens.routes[f"PATCH /datasets/{PARCELS}"] = (
-            500,
-            layers._problem(500, "boom"),
-        )
-    elif outcome == "interrupted":
-        refresh.outcome = "running"
-
-    result, _ = _migrate(runner, plan_file, "--only", A2, "--token", secret)
-
-    assert result.exit_code == (0 if outcome == "written" else 1)
-    raw = (plan_file.parent / "arcgis-migration-state.json").read_text()
-    pending = json.loads(raw)["items"][A2]["pending_metadata"]
-    assert bool(pending) is (outcome != "written")
-    for piece in _secret_pieces(secret):
-        assert piece not in raw, piece
+def _assert_kept_out(outputs: list[str], files: list[Path], *pieces: str) -> None:
+    sinks = outputs + [path.read_text(errors="replace") for path in files]
+    for secret in pieces:
+        for piece in _secret_pieces(secret):
+            assert not any(piece in sink for sink in sinks), piece
 
 
-def test_a_portal_value_holding_a_credential_is_never_saved_or_written(
+def _run_and_dry_run(runner, plan_file: Path, *args: str, env=None):
+    base = ["arcgis", "migrate", str(plan_file), "--only", A2, *args]
+    runs = [
+        runner.invoke(app, [*prefix, *base, *suffix], env=env)
+        for prefix in ([], ["--json"])
+        for suffix in ([], ["--dry-run"])
+    ]
+    # The plan and inventory are the inputs that hold the portal's values.
+    inputs = {plan_file.name, "arcgis-inventory.json"}
+    files = [
+        path
+        for path in plan_file.parent.rglob("*")
+        if path.is_file() and path.name not in inputs
+    ]
+    return runs, files
+
+
+def test_a_portal_value_whose_credential_is_cut_at_a_length_limit_is_not_written(
     runner, tmp_path, geolens
 ):
     secret = secrets.token_urlsafe(40)
-    plan_file, service, refresh = _edited_on_both_sides(
-        runner, tmp_path, geolens, f"Renamed {secret}"
-    )
-    _set_both_changed(plan_file, A2, "portal")
+    plan_file, service, refresh = _edited_on_both_sides(runner, tmp_path, geolens, None)
+    # The summary limit falls inside the token, so only its start would be kept.
+    cut = MAX_SUMMARY - 12
+    _set_snippet(plan_file, A2, "x" * cut + secret)
 
-    result, payload = _migrate(runner, plan_file, "--only", A2, "--token", secret)
+    runs, files = _run_and_dry_run(runner, plan_file, "--token", secret)
 
-    assert result.exit_code == 1
+    assert [r.exit_code for r in runs] == [1, 1, 1, 1], runs[0].output
+    reason = json.loads(runs[2].stdout)["not_up_to_date"][A2][0]
+    assert "the portal's summary holds a credential, so it isn't written" in reason
+    assert service.summaries[PARCELS] == "Old summary"
     assert len(refresh.bodies) == 1
-    assert service.fields[PARCELS]["title"] == "Named in GeoLens"
-    [reason] = payload["not_up_to_date"][A2]
-    assert "the portal's title holds a credential, so it isn't saved or written" in (
-        reason
+    _assert_kept_out([r.output for r in runs], files, secret[:12])
+
+
+def test_a_decomposed_password_is_kept_out_of_a_conflict_and_never_written(
+    runner, tmp_path, geolens
+):
+    password = unicodedata.normalize("NFD", "Pässwörd-" + secrets.token_urlsafe(16))
+    composed = unicodedata.normalize("NFC", password)
+    plan_file, service, refresh = _edited_on_both_sides(
+        runner, tmp_path, geolens, f"Renamed {password}", f"Named {composed}"
     )
-    assert "both_changed" not in reason
-    raw = (plan_file.parent / "arcgis-migration-state.json").read_text()
-    assert secret not in raw and json.loads(raw)["items"][A2]["pending_metadata"] == {}
+    env = {"ARCGIS_PASSWORD": password}
+
+    runs, files = _run_and_dry_run(
+        runner, plan_file, "--username", "gis_admin", env=env
+    )
+
+    assert [r.exit_code for r in runs] == [1, 1, 1, 1], runs[0].output
+    reason = json.loads(runs[2].stdout)["not_up_to_date"][A2][0]
+    assert (
+        'the title is "Named [REDACTED]" in GeoLens and a value that holds a '
+        "credential in the portal"
+    ) in reason
+    assert service.fields[PARCELS]["title"] == f"Named {composed}"
+    _assert_kept_out([r.output for r in runs], files, password, composed)
+
+
+def test_a_json_valued_portal_field_is_merged_as_any_other(runner, tmp_path, geolens):
+    plan_file, service, refresh = _edited_on_both_sides(runner, tmp_path, geolens, None)
+    _set_snippet(plan_file, A2, '{"zoning":"R1","lots":[1,2]}')
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, payload["not_up_to_date"]
+    assert service.summaries[PARCELS] == '{"zoning":"R1","lots":[1,2]}'
+    assert payload["metadata_merged"] == {A2: [MERGED]}
 
 
 @pytest.mark.parametrize("dry_run", [False, True], ids=["run", "dry-run"])
@@ -1499,170 +1407,8 @@ def test_an_environment_token_is_kept_out_beside_an_explicit_one(
     assert result.exit_code == 1, result.output
     reason = json.loads(result.stdout)["not_up_to_date"][A2][0]
     assert 'the title is "Named [REDACTED] [REDACTED]" in GeoLens' in reason
-    sinks = [result.output] + [
-        path.read_text(errors="replace")
-        for path in plan_file.parent.rglob("*")
-        if path.is_file()
-    ]
-    for piece in (*_secret_pieces(from_env), *_secret_pieces(explicit)):
-        assert not any(piece in sink for sink in sinks), piece
-
-
-def test_a_visibility_edited_in_geolens_stops_before_a_decision_is_saved(
-    runner, tmp_path, geolens
-):
-    plan_file, service, refresh = _edited_on_both_sides(
-        runner, tmp_path, geolens, "Parcels renamed"
-    )
-    _set_both_changed(plan_file, A2, "portal")
-    current = service.fields[PARCELS]["visibility"]
-    service.fields[PARCELS]["visibility"] = (
-        "internal" if current != "internal" else "private"
-    )
-
-    for _ in range(2):
-        result, payload = _migrate(runner, plan_file, "--only", A2)
-
-        assert result.exit_code == 1
-        assert "its visibility was changed to" in payload["not_up_to_date"][A2][0]
-        assert service.fields[PARCELS]["title"] == "Named in GeoLens"
-        assert _state(plan_file)["items"][A2]["pending_metadata"] == {}
-        assert payload["both_changed"] == {}
-    assert len(refresh.bodies) == 1
-
-
-def test_a_saved_decision_is_not_written_once_a_visibility_check_refuses(
-    runner, tmp_path, geolens
-):
-    plan_file, service, refresh = _edited_on_both_sides(
-        runner, tmp_path, geolens, "Parcels renamed"
-    )
-    _set_both_changed(plan_file, A2, "portal")
-    route = f"PATCH /datasets/{PARCELS}"
-    patch = geolens.routes[route]
-    geolens.routes[route] = (500, layers._problem(500, "boom"))
-    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 1
-    assert _state(plan_file)["items"][A2]["pending_metadata"]
-    geolens.routes[route] = patch
-    current = service.fields[PARCELS]["visibility"]
-    _set_visibility(plan_file, A2, "internal" if current != "internal" else "private")
-    _edit_state(plan_file, A2, visibility={})
-
-    result, payload = _migrate(runner, plan_file, "--only", A2)
-
-    assert result.exit_code == 1
-    assert "the state doesn't say which changed" in payload["not_up_to_date"][A2][0]
-    assert service.fields[PARCELS]["title"] == "Named in GeoLens"
-    assert _state(plan_file)["items"][A2]["pending_metadata"] == {}
-    assert payload["both_changed"] == {}
-
-
-def test_a_write_whose_answer_was_lost_is_recorded_so_a_later_edit_merges(
-    runner, tmp_path, geolens
-):
-    plan_file = _write_plan(tmp_path, rows={A2: {"snippet": "Old summary"}})
-    service = _migrated(runner, plan_file, geolens)
-    FakeRefresh(geolens, service).allow(PARCELS)
-    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
-    baseline = _state(plan_file)["items"][A2]["metadata_baseline"]
-    del baseline[PARCELS]["summary"]
-    _edit_state(plan_file, A2, metadata_baseline=baseline)
-    service.summaries[PARCELS] = "Filled in GeoLens"
-    service.fields[PARCELS].update(updated_at=EDITED, updated_by=ALICE)
-    _set_both_changed(plan_file, A2, "portal")
-    route = f"PATCH /datasets/{PARCELS}"
-    patch = geolens.routes[route]
-
-    def committed_then_lost(seen):
-        patch(seen)
-        return (502, layers._problem(502, "bad gateway"))
-
-    geolens.routes[route] = committed_then_lost
-    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 1
-    assert service.summaries[PARCELS] == "Old summary"
-    geolens.routes[route] = patch
-
-    result, payload = _migrate(runner, plan_file, "--only", A2)
-
-    assert result.exit_code == 0, payload["not_up_to_date"]
-    assert len(payload["both_changed"][A2]) == 1
-    entry = _state(plan_file)["items"][A2]
-    assert entry["metadata_baseline"][PARCELS]["summary"] == "Old summary"
-    _set_snippet(plan_file, A2, "Newer summary")
-
-    result, payload = _migrate(runner, plan_file, "--only", A2)
-
-    assert result.exit_code == 0, payload["not_up_to_date"]
-    assert service.summaries[PARCELS] == "Newer summary"
-
-
-def test_a_dry_run_validates_a_saved_decision_before_showing_it(
-    runner, tmp_path, geolens
-):
-    plan_file, service, refresh = _edited_on_both_sides(
-        runner, tmp_path, geolens, "Parcels renamed"
-    )
-    _set_both_changed(plan_file, A2, "portal")
-    geolens.routes[f"PATCH /datasets/{PARCELS}"] = (500, layers._problem(500, "boom"))
-    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 1
-    plan = json.loads(plan_file.read_text())
-    for item in plan["items"]:
-        item.pop("both_changed", None)
-    plan_file.write_text(json.dumps(plan))
-
-    result, payload = _migrate(runner, plan_file, "--only", A2, "--dry-run")
-
-    assert result.exit_code == 1
-    assert payload["both_changed"] == {}
-    assert any(BOTH_TITLES in r for r in payload["not_up_to_date"][A2])
-
-
-@pytest.mark.parametrize("resolution", ["portal-version", "portal-edit-reverted"])
-def test_a_dry_run_replaces_a_recorded_conflict_with_its_resolution(
-    runner, tmp_path, geolens, resolution
-):
-    plan_file, service, refresh = _edited_on_both_sides(
-        runner, tmp_path, geolens, "Parcels renamed"
-    )
-    original = _state(plan_file)["items"][A2]["metadata_baseline"][PARCELS]["title"]
-    _edit_plan(plan_file, (A2,))
-    result, payload = _migrate(runner, plan_file)
-    assert result.exit_code == 1
-    assert BOTH_TITLES in payload["not_up_to_date"][A2][0]
-    if resolution == "portal-version":
-        _set_both_changed(plan_file, A2, "portal")
-    else:
-        _set_title(plan_file, A2, original)
-
-    result, payload = _migrate(runner, plan_file, "--dry-run")
-    cutover, checked = _migrate(runner, plan_file, "--cutover", "--dry-run")
-
-    assert result.exit_code == 0, payload["not_up_to_date"]
-    assert A2 not in payload["not_up_to_date"]
-    [line] = payload["both_changed"][A2]
-    assert ("would take" if resolution == "portal-version" else "would merge") in line
-    unfinished = [
-        i
-        for c in checked["cutover"]["checks"]
-        if c["check"] == "unfinished-items"
-        for i in c["items"]
-    ]
-    assert not [i for i in unfinished if i["item"] == A2], unfinished
-
-
-def test_a_later_portal_edit_to_a_field_kept_from_geolens_stops(
-    runner, tmp_path, geolens
-):
-    plan_file, service, refresh = _edited_on_both_sides(runner, tmp_path, geolens, None)
-    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
-    _set_title(plan_file, A2, "Parcels renamed")
-
-    result, payload = _migrate(runner, plan_file, "--only", A2)
-
-    assert result.exit_code == 1
-    assert len(refresh.bodies) == 2
-    assert service.fields[PARCELS]["title"] == "Named in GeoLens"
-    assert BOTH_TITLES in payload["not_up_to_date"][A2][0]
+    files = [path for path in plan_file.parent.rglob("*") if path.is_file()]
+    _assert_kept_out([result.output], files, from_env, explicit)
 
 
 @pytest.mark.parametrize(
@@ -1701,25 +1447,41 @@ def test_a_value_shown_for_a_conflict_never_carries_a_credential(
         'the title is "Named [REDACTED]" in GeoLens'
         in (payload["not_up_to_date"][A1][0])
     )
-    sinks = [result.output, dry.output] + [
-        path.read_text(errors="replace")
-        for path in plan_file.parent.rglob("*")
-        if path.is_file()
-    ]
-    pieces = (secret, secret[:24], secret.split("\\")[0], json.dumps(secret)[1:-1])
-    for piece in pieces:
-        assert not any(piece in sink for sink in sinks), piece
+    files = [path for path in plan_file.parent.rglob("*") if path.is_file()]
+    _assert_kept_out([result.output, dry.output], files, secret)
 
 
-@pytest.mark.parametrize("both_changed", [None, "portal"])
-def test_a_dry_run_shows_the_merge_and_writes_nothing(
-    runner, tmp_path, geolens, both_changed
+def test_a_visibility_edited_in_geolens_stops_a_merge(runner, tmp_path, geolens):
+    plan_file, service, refresh = _edited_on_both_sides(runner, tmp_path, geolens, None)
+    service.fields[PARCELS]["visibility"] = "internal"
+    _set_visibility(plan_file, A2, "private")
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    assert "its visibility was changed to" in payload["not_up_to_date"][A2][0]
+    assert service.fields[PARCELS]["title"] == "Named in GeoLens"
+    assert payload["metadata_merged"] == {}
+    assert len(refresh.bodies) == 1
+
+
+def test_a_later_portal_edit_to_a_field_kept_from_geolens_stops(
+    runner, tmp_path, geolens
 ):
-    plan_file, service, refresh = _edited_on_both_sides(
-        runner, tmp_path, geolens, "Parcels renamed" if both_changed else None
-    )
-    if both_changed:
-        _set_both_changed(plan_file, A2, both_changed)
+    plan_file, service, refresh = _edited_on_both_sides(runner, tmp_path, geolens, None)
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    _set_title(plan_file, A2, "Parcels renamed")
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    assert len(refresh.bodies) == 2
+    assert service.fields[PARCELS]["title"] == "Named in GeoLens"
+    assert BOTH_TITLES in payload["not_up_to_date"][A2][0]
+
+
+def test_a_dry_run_shows_the_merge_and_writes_nothing(runner, tmp_path, geolens):
+    plan_file, service, refresh = _edited_on_both_sides(runner, tmp_path, geolens, None)
     state_before = (plan_file.parent / "arcgis-migration-state.json").read_text()
     before = len(geolens.seen)
 
@@ -1731,11 +1493,9 @@ def test_a_dry_run_shows_the_merge_and_writes_nothing(
         state_before
     )
     assert service.fields[PARCELS]["title"] == "Named in GeoLens"
-    [line] = payload["both_changed"][A2]
-    if both_changed:
-        assert line == TOOK_TITLE.replace("; took", "; would take")
-    else:
-        assert line == MERGED.replace("; merged", "; would merge")
+    assert payload["metadata_merged"] == {
+        A2: [MERGED.replace("; merged", "; would merge")]
+    }
 
 
 def test_a_dry_run_reports_a_field_changed_on_both_sides(runner, tmp_path, geolens):
@@ -1750,7 +1510,7 @@ def test_a_dry_run_reports_a_field_changed_on_both_sides(runner, tmp_path, geole
 
     assert result.exit_code == 1 and cutover.exit_code == 1
     assert BOTH_TITLES in payload["not_up_to_date"][A2][0]
-    assert payload["both_changed"] == {}
+    assert payload["metadata_merged"] == {}
     [check] = [
         c for c in checked["cutover"]["checks"] if c["check"] == "unfinished-items"
     ]
@@ -1760,29 +1520,56 @@ def test_a_dry_run_reports_a_field_changed_on_both_sides(runner, tmp_path, geole
     )
 
 
-def test_an_unknown_both_changed_value_is_refused(runner, plan_file, geolens):
-    _set_both_changed(plan_file, A2, "geolens")
-
-    result, _ = _migrate(runner, plan_file, "--only", A2)
-
-    assert result.exit_code == 2
-    assert "both_changed: 'geolens' is not one of ['portal']" in result.output
-
-
-def test_both_changed_on_an_item_that_imports_no_dataset_is_refused(
-    runner, plan_file, geolens
+def test_a_dry_run_replaces_a_recorded_conflict_once_it_is_resolved(
+    runner, tmp_path, geolens
 ):
-    plan = json.loads(plan_file.read_text())
-    web_map = next(i for i in plan["items"] if i["action"] == "import_map")
-    web_map["both_changed"] = "portal"
-    plan_file.write_text(json.dumps(plan))
-
-    result, _ = _migrate(runner, plan_file, "--only", A2)
-
-    assert result.exit_code == 2
-    assert f"sets both_changed on items that import no datasets: {web_map['id']}" in (
-        result.output
+    plan_file, service, refresh = _edited_on_both_sides(
+        runner, tmp_path, geolens, "Parcels renamed"
     )
+    original = _state(plan_file)["items"][A2]["metadata_baseline"][PARCELS]["title"]
+    _edit_plan(plan_file, (A2,))
+    result, payload = _migrate(runner, plan_file)
+    assert result.exit_code == 1
+    assert BOTH_TITLES in payload["not_up_to_date"][A2][0]
+    _set_title(plan_file, A2, original)
+
+    result, payload = _migrate(runner, plan_file, "--dry-run")
+    cutover, checked = _migrate(runner, plan_file, "--cutover", "--dry-run")
+
+    assert result.exit_code == 0, payload["not_up_to_date"]
+    assert A2 not in payload["not_up_to_date"]
+    [line] = payload["metadata_merged"][A2]
+    assert "would merge" in line
+    unfinished = [
+        i
+        for c in checked["cutover"]["checks"]
+        if c["check"] == "unfinished-items"
+        for i in c["items"]
+    ]
+    assert not [i for i in unfinished if i["item"] == A2], unfinished
+
+
+def test_a_dry_run_checks_visibility_with_the_sharing_the_run_gives(
+    runner, tmp_path, geolens
+):
+    plan_file, service, refresh = _edited_on_both_sides(runner, tmp_path, geolens, None)
+    # Restricted to no mapped group becomes private, which the dataset is; the
+    # state can't say who set it, so only a raw plan comparison would refuse.
+    _set_visibility(plan_file, A2, "restricted")
+    plan = json.loads(plan_file.read_text())
+    next(i for i in plan["items"] if i["id"] == A2)["target"]["groups"] = []
+    plan_file.write_text(json.dumps(plan))
+    service.fields[PARCELS]["visibility"] = "private"
+    _edit_state(plan_file, A2, visibility={})
+
+    dry, previewed = _migrate(runner, plan_file, "--only", A2, "--dry-run")
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, payload["not_up_to_date"]
+    assert dry.exit_code == 0, previewed["not_up_to_date"]
+    assert previewed["metadata_merged"] == {
+        A2: [MERGED.replace("; merged", "; would merge")]
+    }
 
 
 def _set_visibility(plan_file: Path, item_id: str, visibility: str) -> None:

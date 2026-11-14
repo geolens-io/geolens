@@ -1266,7 +1266,7 @@ def test_a_state_file_is_written_at_the_current_version_and_v1_still_loads(
     result, _ = _run(runner, tmp_path, _plan([_item(L1), _item(L2)]))
 
     assert result.exit_code == 0, result.output
-    assert _state(tmp_path)["schema_version"] == "6"
+    assert _state(tmp_path)["schema_version"] == "7"
 
 
 def test_cutover_counts_an_item_whose_plan_owner_moved_and_could_not_be_handed_over(

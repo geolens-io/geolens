@@ -176,12 +176,6 @@
           "description": "Set by hand on an unfiltered hosted view with action skip: web maps that use it point at this parent item's dataset.",
           "type": "string"
         },
-        "both_changed": {
-          "description": "Set by hand on an import_layers or import_file item: portal takes the portal's item metadata over fields edited in GeoLens since the last run. Absent, edits to different fields are merged and the same field changed on both sides stops the dataset.",
-          "enum": [
-            "portal"
-          ]
-        },
         "superseded_by": {
           "description": "The hosted layer item this source file was published into, so the file's rows are not imported twice.",
           "type": "string"

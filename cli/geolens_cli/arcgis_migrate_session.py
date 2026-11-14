@@ -245,9 +245,9 @@ class MigrationContext:
     # The GeoLens version, read once when a style default is recorded.
     server_version: str | None = None
     sleep: Callable[[float], None] = time.sleep
-    # Item id -> the lines of this run's writes over a dataset changed on
-    # both sides, for the run's output.
-    both_changed: dict[str, list[str]] = field(default_factory=dict)
+    # Item id -> the lines of this run's metadata merges with edits made in
+    # GeoLens, for the run's output.
+    metadata_merged: dict[str, list[str]] = field(default_factory=dict)
     clock: Callable[[], float] = time.monotonic
 
 

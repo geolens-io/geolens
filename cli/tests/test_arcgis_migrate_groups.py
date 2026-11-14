@@ -1951,7 +1951,7 @@ def test_members_a_v3_state_added_are_reported_once_and_kept(
     assert api.removed == []
     [warning] = [w for w in payload["group_warnings"] if "check them by hand" in w]
     assert "bob" in warning
-    assert _state(plan_file)["schema_version"] == "6"
+    assert _state(plan_file)["schema_version"] == "7"
 
     # A later run that reads the members neither warns again nor removes bob.
     _members_next_run(plan_file, [])

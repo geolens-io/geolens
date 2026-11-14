@@ -84,7 +84,7 @@ from .arcgis_migrate_refresh import (
     changed_in_geolens,
     get_dataset,
     is_metadata_reason,
-    preview_both_changed,
+    preview_metadata,
     record,
     refresh_file,
     same_data,
@@ -1077,9 +1077,9 @@ class RunSummary:
     refreshed: list[str] = field(default_factory=list)
     handed_over: list[dict[str, str]] = field(default_factory=list)
     handover_failed: list[str] = field(default_factory=list)
-    # Item id -> its writes over datasets edited in GeoLens, or what a dry
-    # run would write.
-    both_changed: dict[str, list[str]] = field(default_factory=dict)
+    # Item id -> its metadata merges with edits made in GeoLens, or what a
+    # dry run would merge.
+    metadata_merged: dict[str, list[str]] = field(default_factory=dict)
 
 
 def _unmet(
@@ -1352,21 +1352,23 @@ def run_items(
             break
     if summary.stopped is None:
         refresh_finished(ctx, state, refresh, summary)
-    summary.both_changed = ctx.both_changed
+    summary.metadata_merged = ctx.metadata_merged
     state.save()
     write_index(ctx, plan, state)
     return summary
 
 
-def _preview_both_changed(
+def _preview_metadata(
     geolens: GeoLens,
     rows: Mapping[str, Mapping[str, Any]],
     portal_info: Mapping[str, Any] | None,
     refresh: Sequence[Mapping[str, Any]],
     state: MigrationState,
     redact: Redactor,
+    sharing: Sharing,
 ) -> dict[str, list[str]]:
-    """Item id -> what a run would write over its datasets edited in GeoLens.
+    """Item id -> what a run would merge with edits made in GeoLens on its
+    datasets, each item checked with the sharing the run gives it.
 
     For each dataset checked, the item's recorded metadata-check reasons are
     replaced in memory by why a run would leave it now, where the dry run's
@@ -1379,11 +1381,13 @@ def _preview_both_changed(
         save=lambda: None,
         portal_info=portal_info,
         redact=redact,
+        sharing=sharing,
     )
     found = {}
     for item in refresh:
         entry = state.items[item["id"]]
-        lines, checked = preview_both_changed(ctx, item, entry)
+        item, _notes = _sharing_target(ctx, item, entry.owner_id)
+        lines, checked = preview_metadata(ctx, item, entry)
         if lines:
             found[item["id"]] = lines
         for dataset_id, stop in checked.items():
@@ -1511,7 +1515,7 @@ def _report(
         "waiting": summary.waiting,
         "refreshed": summary.refreshed,
         "not_up_to_date": stale,
-        "both_changed": summary.both_changed,
+        "metadata_merged": summary.metadata_merged,
         "stopped": summary.stopped,
         "cutover": cutover,
         "groups": groups.groups,
@@ -1551,7 +1555,7 @@ def _report(
             if not opts.dry_run:
                 brought -= len([i for i in stale if i in summary.refreshed])
             fmt.info(f"{verb} {brought} migrated item(s) up to date.")
-            for item_id, lines in summary.both_changed.items():
+            for item_id, lines in summary.metadata_merged.items():
                 for line in lines:
                     fmt.warn(f"{item_id}: {line}")
             for item_id, reasons in stale.items():
@@ -2197,8 +2201,8 @@ def _run(
                 if item["action"] != _plan.SKIP and item.get("unlisted")
             ],
             refreshed=[item["id"] for item in refresh],
-            both_changed=_preview_both_changed(
-                geolens, rows, portal_info, refresh, state, redact
+            metadata_merged=_preview_metadata(
+                geolens, rows, portal_info, refresh, state, redact, sharing
             ),
         )
         return _report(

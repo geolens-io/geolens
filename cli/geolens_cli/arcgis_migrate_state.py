@@ -25,12 +25,12 @@ STATE_FILENAME = "arcgis-migration-state.json"
 # ArcGIS groups, and v4 what this command's own writes added, which a rerun may
 # take away again: a made group's members (``joined``) and each object's
 # groups (``granted``), and v5 the ArcGIS owner each item's owner follows and
-# a handover left incomplete, and v6 a web map's unconfirmed save and the layers
-# its translation still owes. An older CLI refuses the file rather than
-# rewriting it without them. A v3 file records neither, so a rerun removes
-# nothing it added before.
-STATE_VERSION = "6"
-_READABLE_VERSIONS = ("1", "2", "3", "4", "5", STATE_VERSION)
+# a handover left incomplete, v6 a web map's unconfirmed save and the layers
+# its translation still owes, and v7 each dataset's version in its recorded
+# snapshot. An older CLI refuses the file rather than rewriting it without
+# them. A v3 file records neither, so a rerun removes nothing it added before.
+STATE_VERSION = "7"
+_READABLE_VERSIONS = ("1", "2", "3", "4", "5", "6", STATE_VERSION)
 
 PENDING = "pending"
 RUNNING = "running"
@@ -187,11 +187,6 @@ class ItemState:
     # version when this command last left it, so a rerun can tell a change
     # made since.
     last_update: dict[str, dict[str, Any]] = field(default_factory=dict)
-    # Dataset -> a decided write over edits made in GeoLens that hasn't landed:
-    # its report line, the plan's both_changed then, the snapshot it was
-    # decided on, and per field the GeoLens value then and the value to write
-    # ("" empties it). Kept until the metadata write lands.
-    pending_metadata: dict[str, dict[str, Any]] = field(default_factory=dict)
     # The migrated map's owner and updated_at as this command last left it,
     # so a deferred handover leaves a map somebody changed since.
     map_snapshot: dict[str, str] | None = None
@@ -271,17 +266,6 @@ class ItemState:
         if self.pending_write is None:
             return None
         return "the web map's last save has no recorded outcome; a rerun settles it"
-
-    def pending_metadata_reason(self) -> str | None:
-        """Why a dataset isn't up to date while a decided metadata write over
-        edits made in GeoLens hasn't landed."""
-        if not self.pending_metadata:
-            return None
-        shown = ", ".join(sorted(self.pending_metadata))
-        return (
-            f"the metadata decided for dataset(s) {shown}, which were edited on "
-            "both sides, isn't written yet; a rerun writes it"
-        )
 
     def owed_reason(self) -> str | None:
         """Why a web map isn't up to date while *pending_layers* is set."""
