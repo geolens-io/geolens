@@ -495,12 +495,14 @@ def refresh_layers(
     }
     ctx.save()
     wanted, _notes, left_behind = importable_layers(probe)
-    entry.left_behind = _redacted(ctx, left_behind)
+    refused = (entry.import_pass or {}).get("refused") or {}
+    entry.left_behind = [*_redacted(ctx, left_behind), *refused.values()]
     added = [
         f"layer {_layer_label(layer)} was added to the service in the portal and "
         "isn't migrated"
         for layer in wanted
         if _layer_key(layer) not in entry.layer_datasets
+        and _layer_key(layer) not in refused
     ]
     return added + _bring_each(
         ctx, item, entry, partial(_start_refresh, ctx, row, entry)

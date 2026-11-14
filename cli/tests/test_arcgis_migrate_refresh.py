@@ -2347,3 +2347,19 @@ def test_a_multi_layer_file_whose_previews_list_no_layers_is_reported(
     assert payload["not_up_to_date"][D3] == [
         "couldn't check the file's layers: its previews listed none"
     ]
+
+
+def test_a_rerun_keeps_a_layer_geolens_refused_for_good_out_of_the_new_layers(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "Buildings")])
+    layers._refuse_preview(geolens, service, "Buildings", layers.MULTIPATCH)
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    FakeRefresh(geolens, service).allow(PARCELS)
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert payload["refreshed"] == [A2] and payload["not_up_to_date"] == {}
+    entry = _state(plan_file)["items"][A2]
+    assert entry["stale"] == [] and entry["left_behind"] == [layers.MULTIPATCH_NOTE]

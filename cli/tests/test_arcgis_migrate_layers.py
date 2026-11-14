@@ -2113,3 +2113,128 @@ def test_a_position_tag_never_matches_a_numeric_layer_id():
 
     titles = _titles("Base", [("Parcels", None), ("Parcels", "1")])
     assert titles == ["Base - Parcels (#1)", "Base - Parcels (1)"]
+
+
+MULTIPATCH = {
+    "code": "unsupported_geometry",
+    "message": (
+        "This layer holds multipatch geometry, which cannot be imported. "
+        "Publish it as a feature layer with another geometry type."
+    ),
+    "geometry_type": "esriGeometryMultiPatch",
+}
+MULTIPATCH_NOTE = (
+    "Buildings: This layer holds multipatch geometry, which cannot be imported. "
+    "Publish it as a feature layer with another geometry type; layer not imported"
+)
+
+
+def _refuse_preview(geolens, service: FakeImport, name: str, detail: Any) -> None:
+    def preview(seen):
+        if seen.json()["layer_name"] == name:
+            return (422, _problem(422, detail))
+        return service.preview(seen)
+
+    geolens.routes[PREVIEW] = preview
+
+
+def _skip_all_but(plan_file: Path, keep: str) -> None:
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] != keep:
+            item["action"] = "skip"
+    plan_file.write_text(json.dumps(plan))
+
+
+def _previews(geolens) -> int:
+    return sum(1 for s in geolens.seen if s.url.endswith("/services/preview/"))
+
+
+def test_a_layer_geolens_can_never_import_skips_the_item_with_the_reason(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Buildings")])
+    _refuse_preview(geolens, service, "Buildings", MULTIPATCH)
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    entry = _state(plan_file)["items"][A2]
+    assert entry["status"] == "skipped" and entry["error"] is None
+    assert entry["notes"] == [MULTIPATCH_NOTE]
+    assert entry["import_pass"] is None and entry["dataset_ids"] == []
+    report = json.loads((plan_file.parent / "arcgis-migration-report.json").read_text())
+    assert {"item": A2, "kind": "skipped_layer", "text": MULTIPATCH_NOTE} in report[
+        "follow_ups"
+    ]
+
+
+@pytest.mark.parametrize(
+    "detail",
+    [
+        "Layer could not be read",
+        {"code": "endpoint_check_failed", "message": "unreachable", "field": "url"},
+    ],
+)
+def test_a_refusal_without_a_permanent_code_still_fails_the_item(
+    runner, plan_file, geolens, detail
+):
+    service = FakeImport(geolens, [_layer(0, "Buildings")])
+    _refuse_preview(geolens, service, "Buildings", detail)
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    entry = _state(plan_file)["items"][A2]
+    assert entry["status"] == "failed" and "preview failed" in entry["error"]
+
+
+def test_an_item_an_earlier_run_failed_on_that_refusal_is_skipped_after_one_preview(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Buildings")])
+    _refuse_preview(geolens, service, "Buildings", "Layer could not be read")
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 1
+    assert _state(plan_file)["items"][A2]["status"] == "failed"
+    _refuse_preview(geolens, service, "Buildings", MULTIPATCH)
+    before = _previews(geolens)
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert _previews(geolens) == before + 1
+    entry = _state(plan_file)["items"][A2]
+    assert entry["status"] == "skipped" and entry["error"] is None
+
+
+def test_cutover_still_lists_an_item_skipped_for_a_layer_that_cannot_import(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Buildings")])
+    _refuse_preview(geolens, service, "Buildings", MULTIPATCH)
+    _skip_all_but(plan_file, A2)
+    assert _migrate(runner, plan_file)[0].exit_code == 0
+
+    result, payload = _migrate(runner, plan_file, "--cutover")
+
+    assert result.exit_code == 1
+    assert payload["cutover"]["refused"] == ["unfinished-items"]
+    [check] = payload["cutover"]["checks"]
+    reasons = [found["reason"] for found in check["items"] if found["item"] == A2]
+    assert reasons == ["skipped", MULTIPATCH_NOTE]
+
+
+def test_other_layers_still_import_beside_a_layer_that_cannot(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "Buildings")])
+    _refuse_preview(geolens, service, "Buildings", MULTIPATCH)
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    entry = _state(plan_file)["items"][A2]
+    assert entry["status"] == "done"
+    assert entry["dataset_ids"] == [dataset_id("Parcels")]
+    assert entry["left_behind"] == [MULTIPATCH_NOTE]
+    assert MULTIPATCH_NOTE in entry["notes"]

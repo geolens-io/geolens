@@ -30,7 +30,7 @@ from .arcgis_migrate_session import (
     operator_or_nobody_wrote_last,
     refuse_credentials,
 )
-from .arcgis_migrate_state import DONE, EXISTS, ItemState
+from .arcgis_migrate_state import DONE, EXISTS, SKIPPED, ItemState
 
 GROUP_LAYER = "Group Layer"
 MAX_TITLE = 500
@@ -45,6 +45,9 @@ _STORE_UNAVAILABLE = "credential_store_unavailable"
 _ALREADY_COMMITTED = "already processed"
 # The note an import with no importable layer ends with, fresh or resumed.
 _NO_LAYER_NOTE = "the service has no layer to import"
+# Preview refusal codes that come from the layer's own definition, which a
+# rerun can't change: the layer holds no rows, or multipatch geometry.
+PERMANENT_REFUSALS = frozenset({"unsupported_layer_type", "unsupported_geometry"})
 
 
 def _row(ctx: MigrationContext, item: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -292,6 +295,19 @@ def _wait_for_dataset(ctx: MigrationContext, job_id: UUID, title: str) -> str:
         ctx.sleep(JOB_POLL_INTERVAL)
 
 
+class _LayerRefused(Exception):
+    """GeoLens refused the layer for good; the message is the report note."""
+
+
+def _permanent_refusal(exc: GeoLensError) -> str | None:
+    """The server's reason when *exc* is a 422 refusal no rerun can change."""
+    detail = exc.detail if isinstance(exc.detail, Mapping) else {}
+    if exc.status != 422 or detail.get("code") not in PERMANENT_REFUSALS:
+        return None
+    message = detail.get("message")
+    return message.rstrip(".") if isinstance(message, str) and message else None
+
+
 def _existing_dataset(exc: GeoLensError) -> str | None:
     detail = exc.detail if isinstance(exc.detail, Mapping) else {}
     if exc.status == 409 and detail.get("code") == "duplicate_source":
@@ -313,7 +329,7 @@ def _import_layer(
 
     A job a previous run committed for the layer is waited for instead of
     importing the layer again; only a job that ended without a dataset is
-    replaced.
+    replaced. ``_LayerRefused`` when the preview refuses the layer for good.
     """
     from geolens.api.datasets import (
         preview_service_layer_services_preview_post as preview,
@@ -349,6 +365,11 @@ def _import_layer(
             previewed = _send(ctx, row, probe.url, preview.sync_detailed, body=request)
     except GeoLensError as exc:
         existing = _existing_dataset(exc)
+        refusal = _permanent_refusal(exc)
+        if refusal is not None:
+            raise _LayerRefused(
+                f"{_layer_label(layer)}: {refusal}; layer not imported"
+            ) from None
         if existing is None:
             raise ItemFailed(f"{title}: preview failed, {exc}") from None
         if existing not in entry.reused:
@@ -594,6 +615,7 @@ def import_layers(
         return ItemResult(notes=[*notes, _NO_LAYER_NOTE])
 
     found = 0
+    refused: dict[str, str] = {}
     for layer, title in zip(wanted, titles):
         pinned = entry.layer_datasets.get(_layer_key(layer))
         if pinned:
@@ -601,19 +623,31 @@ def import_layers(
             target = _commit_body(title, item["target"]["visibility"])
             _apply_target(ctx, entry, pinned, target)
             continue
-        found += _import_layer(
-            ctx, row, probe, layer, title, item["target"]["visibility"], entry
-        )
+        try:
+            found += _import_layer(
+                ctx, row, probe, layer, title, item["target"]["visibility"], entry
+            )
+        except _LayerRefused as exc:
+            refused[_layer_key(layer)] = ctx.redact(str(exc))
+            continue
         entry.dataset_ids = list(dict.fromkeys(entry.layer_datasets.values()))
         ctx.save()
+    reasons = list(refused.values())
+    entry.left_behind.extend(reasons)
+    imported = [layer for layer in wanted if _layer_key(layer) not in refused]
+    if not imported:
+        # Left without an import pass, so a rerun previews the layers again.
+        return ItemResult(status=SKIPPED, notes=[*notes, *reasons])
     entry.import_pass = {
-        "notes": _redacted(ctx, notes),
+        "notes": [*_redacted(ctx, notes), *reasons],
         "layers": {
             _layer_key(layer): {
                 "label": _layer_label(layer),
                 "layer_id": _layer_id(layer),
             }
-            for layer in wanted
+            for layer in imported
         },
+        **({"refused": refused} if refused else {}),
     }
-    return ItemResult(status=EXISTS if found == len(wanted) else DONE, notes=notes)
+    status = EXISTS if found == len(imported) and not refused else DONE
+    return ItemResult(status=status, notes=[*notes, *reasons])
