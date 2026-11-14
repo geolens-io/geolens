@@ -178,15 +178,24 @@ async def test_a_credential_gets_no_wildcard(
     assert "access-control-allow-origin" not in resp.headers, resp.status_code
 
 
+# Served to anyone; the route never looks a key up.
+_KEYLESS = frozenset(t for t in _READS if t.startswith("/maps/sprites/"))
+
+
 @pytest.mark.parametrize("template", _ALL)
-async def test_a_query_string_credential_gets_no_wildcard(
+async def test_a_made_up_url_key_gets_a_wildcard_only_where_no_key_is_read(
     client: AsyncClient, public_ids, template
 ):
     path = template.format(**public_ids) + "?api_key=not-a-real-key"
 
     resp = await _call(client, path, {"Origin": _FOREIGN_ORIGIN})
 
-    assert "access-control-allow-origin" not in resp.headers, resp.status_code
+    if template in _KEYLESS:
+        assert resp.status_code == 200, resp.text
+        assert resp.headers["access-control-allow-origin"] == "*"
+        assert "x-api-key" not in _listed(resp.headers.get("vary"))
+    else:
+        assert "access-control-allow-origin" not in resp.headers, resp.status_code
 
 
 @pytest.mark.parametrize("template", _ALL)

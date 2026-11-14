@@ -21,7 +21,7 @@ _Avoid_: 3D Tiles dataset, mesh.
 
 **Dashboard**: A panel of widgets saved with a map, shown beside or below it, or on its own with the map hidden. It follows the map's sharing and has no access of its own; a reader sees the widgets on the layers they can read, and every text widget.
 
-**Widget**: One item in a dashboard: a summary of a single saved layer, such as an indicator, a bar chart, a histogram or a category selector, or a block of Markdown text that reads no layer. A layer's widget applies the layer's saved filter, or says when it can't.
+**Widget**: One item in a dashboard: a summary of a single saved layer, such as an indicator, a bar chart, a histogram or a category selector, or a block of Markdown text that reads no layer. A layer's widget applies the layer's saved filter and, if it has one, a filter of its own, or says when it can't.
 _Avoid_: Chart, when the widget is a number.
 
 **Pick**: A reader's choice of a bar, a histogram bin or selector values in a dashboard. It filters that layer on the map and its other widgets for the session, never the widget it came from, and is never saved.
@@ -37,6 +37,11 @@ _Avoid_: Data tab, data drawer.
 **Attribute table**: A saved layer's rows as a table. It starts with the fields the layer's popup shows, and the reader can add or hide columns.
 
 **Value label**: The name a dataset gives a stored value in a column, such as a coded-value domain's description of a code. Readers see the label; filters and picks match the stored value.
+
+**Share link**: A URL for a public map that anyone can open, on its own page or framed by another site. It shows only what an anonymous reader may see.
+_Avoid_: Embed, for a plain share link.
+
+**Embed token**: A credential minted for one map so a site can frame it. The owner can limit it to listed origins, and it can show data that isn't public, limited to each dataset's column allowlist.
 
 **Column allowlist**: The columns of a dataset that anyone reaching it only through an embed may see. Map tiles carry no others; row lists keep the row id.
 _Avoid_: Tile columns.
