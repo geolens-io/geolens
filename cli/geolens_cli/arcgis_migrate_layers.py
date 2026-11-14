@@ -28,6 +28,7 @@ from .arcgis_migrate_session import (
     StopRun,
     changed_before_handover,
     operator_or_nobody_wrote_last,
+    refuse_credentials,
 )
 from .arcgis_migrate_state import DONE, EXISTS, ItemState
 
@@ -52,6 +53,7 @@ def _row(ctx: MigrationContext, item: Mapping[str, Any]) -> Mapping[str, Any]:
         raise ItemFailed("the item is not in the inventory the plan was built from")
     if not row.get("url"):
         raise ItemFailed("the inventory has no service URL for the item")
+    refuse_credentials(ctx, {"service_url": row["url"]})
     return row
 
 
@@ -320,7 +322,7 @@ def _import_layer(
     from geolens.models.service_preview_request import ServicePreviewRequest
 
     key = _layer_key(layer)
-    title_visibility = _commit_body(title, visibility)
+    title_visibility = _commit_body(ctx, title, visibility)
     recorded = entry.layer_jobs.get(key)
     if recorded:
         dataset = _finish_job(ctx, row, probe, UUID(recorded), title_visibility)
@@ -370,9 +372,13 @@ def _import_layer(
 _SHARED_MAPS = "dataset is used in shared maps: "
 
 
-def _commit_body(title: str, visibility: str) -> Any:
+def _commit_body(ctx: MigrationContext, title: str, visibility: str) -> Any:
+    """The commit or patch body giving a dataset *title* and *visibility*;
+    ``ItemFailed`` when the title contains a token or password the run was
+    given."""
     from geolens.models.commit_request import CommitRequest
 
+    refuse_credentials(ctx, {"title": title})
     return CommitRequest(title=title, visibility=visibility)
 
 
@@ -522,7 +528,7 @@ def _resume_import(
     )
     for (key, _rec), title in zip(recorded.items(), titles):
         _apply_target(
-            ctx, entry, entry.layer_datasets[key], _commit_body(title, visibility)
+            ctx, entry, entry.layer_datasets[key], _commit_body(ctx, title, visibility)
         )
     return ItemResult(notes=entry.import_pass["notes"])
 
@@ -555,6 +561,23 @@ def import_layers(
             )
     except GeoLensError as exc:
         raise ItemFailed(f"probe failed, {exc}") from None
+    base = item["target"]["title"] or item["title"]
+    wanted, notes, left_behind = importable_layers(probe)
+    titles = _titles(
+        base, [(_layer_label(layer), _layer_id(layer)) for layer in wanted]
+    )
+    # Checked before the first write, so a refused item leaves nothing behind
+    # in GeoLens or the state.
+    refuse_credentials(
+        ctx,
+        {
+            "title": [base, *titles],
+            "layer_name": [
+                [str(layer.name), _layer_label(layer), _layer_key(layer)]
+                for layer in wanted
+            ],
+        },
+    )
     # A fresh pass replaces anything a previous one recorded, so a pass that
     # stops part way leaves nothing to resume from.
     entry.import_pass = None
@@ -566,7 +589,7 @@ def import_layers(
         entry.layer_jobs.clear()
         entry.dataset_ids.clear()
     entry.service_url = row["url"]
-    wanted, notes, entry.left_behind = importable_layers(probe)
+    entry.left_behind = _redacted(ctx, left_behind)
     entry.attachments = attachment_flags(wanted)
     entry.relationships = relationship_records(wanted)
     if not wanted:
@@ -575,16 +598,12 @@ def import_layers(
         # a later run, and that probe reports a layer added later.
         return ItemResult(notes=[*notes, _NO_LAYER_NOTE])
 
-    base = item["target"]["title"] or item["title"]
-    titles = _titles(
-        base, [(_layer_label(layer), _layer_id(layer)) for layer in wanted]
-    )
     found = 0
     for layer, title in zip(wanted, titles):
         pinned = entry.layer_datasets.get(_layer_key(layer))
         if pinned:
             # The plan may have been edited since that layer was imported.
-            target = _commit_body(title, item["target"]["visibility"])
+            target = _commit_body(ctx, title, item["target"]["visibility"])
             _apply_target(ctx, entry, pinned, target)
             continue
         found += _import_layer(

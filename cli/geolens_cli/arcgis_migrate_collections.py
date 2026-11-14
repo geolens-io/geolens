@@ -24,6 +24,7 @@ from .arcgis_migrate_session import (
     GeoLensError,
     ItemFailed,
     MigrationContext,
+    refuse_credentials,
 )
 from .arcgis_migrate_state import ItemState
 
@@ -130,6 +131,9 @@ def _collection_id(ctx: MigrationContext, name: str) -> str | None:
     if known:
         return known
     prefix = _prefix(ctx.portal_info)
+    refuse_credentials(
+        ctx, {"collection": [name, name[:MAX_NAME], f"{prefix} - {name}"[:MAX_NAME]]}
+    )
     try:
         try:
             created = _create(ctx, name[:MAX_NAME])

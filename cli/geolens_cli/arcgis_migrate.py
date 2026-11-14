@@ -16,9 +16,11 @@ see ``arcgis_portal`` for the portal side of the egress contract.
 from __future__ import annotations
 
 import heapq
+import os
+import sys
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -124,6 +126,7 @@ from .arcgis_portal import (
     Redactor,
     build_opener,
     check_client_id,
+    check_credential_options,
     portal_root,
     read_credentials,
 )
@@ -208,6 +211,9 @@ class MigrateOptions:
     token_stdin: bool = False
     username: str | None = None
     password_stdin: bool = False
+    # The stdin line --token-stdin or --password-stdin names, read when the
+    # run starts so its credential is registered before anything prints.
+    stdin_line: str | None = None
     client_id: str | None = None
     redirect_port: int | None = None
     quiet: bool = False
@@ -1876,7 +1882,9 @@ def _portal_client(
             opts.username,
             opts.password_stdin,
             opts.client_id,
+            stdin_line=opts.stdin_line,
         )
+        redact.add(password)
         if token is None and password is None and not opts.client_id:
             raise UsageError(
                 f"{private} item(s) to import or bring up to date are not public: pass --token, "
@@ -1938,6 +1946,33 @@ def _sign_in(
     return PortalAuth(client, renewable=sign_in is not None)
 
 
+def _take_credentials(opts: MigrateOptions, redact: Redactor) -> MigrateOptions:
+    """*opts* with the stdin line a credential option names read once, and
+    each credential the run was given added to *redact* before any path can
+    skip the portal sign-in: a token from --token, ARCGIS_TOKEN or
+    --token-stdin, and a password from --password-stdin or ARCGIS_PASSWORD,
+    both variables even when an option overrides them. Nothing prompts here,
+    and an empty line is refused by the sign-in that needs it, as before."""
+    try:
+        check_credential_options(
+            opts.token or None,
+            opts.token_stdin,
+            opts.username,
+            opts.password_stdin,
+            opts.client_id,
+        )
+    except ValueError as exc:
+        raise UsageError(str(exc)) from None
+    line = None
+    if opts.token_stdin or opts.password_stdin:
+        line = sys.stdin.readline()
+    secrets = [opts.token, line and line.strip(), line and line.rstrip("\r\n")]
+    secrets += [os.environ.get(n) for n in ("ARCGIS_TOKEN", "ARCGIS_PASSWORD")]
+    for secret in secrets:
+        redact.add(secret)
+    return replace(opts, stdin_line=line)
+
+
 def _run(
     fmt: _output.Formatter,
     opts: MigrateOptions,
@@ -1952,6 +1987,7 @@ def _run(
         except ValueError as exc:
             raise UsageError(str(exc)) from None
         _check_cutover(opts)
+        opts = _take_credentials(opts, redact)
         plan = _plan.load_plan(opts.plan_path)
         state_path = opts.state_path or opts.plan_path.parent / STATE_FILENAME
         state = MigrationState.load(
@@ -2055,6 +2091,7 @@ def _run(
                 owners.directory,
                 touched,
                 dry_run=opts.dry_run,
+                redact=redact,
                 emails=emails,
             )
         sharing = Sharing(

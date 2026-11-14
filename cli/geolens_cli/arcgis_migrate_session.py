@@ -20,6 +20,7 @@ from .arcgis_portal import (
     PortalClient,
     Redactor,
     _retry_after,
+    holds_secret,
 )
 
 RATE_LIMIT_ATTEMPTS = 3
@@ -246,6 +247,19 @@ class MigrationContext:
     server_version: str | None = None
     sleep: Callable[[float], None] = time.sleep
     clock: Callable[[], float] = time.monotonic
+
+
+def refuse_credentials(ctx: MigrationContext, fields: Mapping[str, Any]) -> None:
+    """``ItemFailed`` naming each field, never its value, whose value (text, a
+    list or a JSON document) contains a token or password the run was given.
+    Callers pass each value as the portal holds it and as it is sent."""
+    held = [name for name, value in fields.items() if holds_secret(value, ctx.redact)]
+    if held:
+        shown = ", ".join(dict.fromkeys(name.replace("_", " ") for name in held))
+        raise ItemFailed(
+            f"the item's {shown} holds this run's ArcGIS credential, so it isn't "
+            "written"
+        )
 
 
 def operator_or_nobody_wrote_last(ctx: MigrationContext, dataset: Any) -> bool:
