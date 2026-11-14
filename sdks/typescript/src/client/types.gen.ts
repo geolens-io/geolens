@@ -33086,6 +33086,10 @@ export type PreviewServiceLayerServicesPreviewPostErrors = {
      */
     500: ProblemDetail;
     /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
+    /**
      * Service unavailable — the database could not serve the request
      */
     503: ProblemDetail;
