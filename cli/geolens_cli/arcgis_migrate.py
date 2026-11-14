@@ -1116,6 +1116,14 @@ def _unmet(
     ]
 
 
+def _targeted(
+    ctx: MigrationContext, item: Mapping[str, Any], owner: Owner | None
+) -> tuple[Mapping[str, Any], list[str]]:
+    """*item* with the sharing target its import uses for *owner*, and the
+    notes that resolution leaves; every import-time write goes through it."""
+    return _sharing_target(ctx, item, owner.id if owner else None)
+
+
 def _sharing_target(
     ctx: MigrationContext, item: Mapping[str, Any], owner_id: str | None
 ) -> tuple[Mapping[str, Any], list[str]]:
@@ -1173,7 +1181,7 @@ def _migrate_one(
     pending: str | None = None,
 ) -> None:
     entry = state.start(item["id"])
-    item, sharing_notes = _sharing_target(ctx, item, owner.id if owner else None)
+    item, sharing_notes = _targeted(ctx, item, owner)
     try:
         result = handler(ctx, item, entry)
         entry.notes = [state.clean(note) for note in [*result.notes, *sharing_notes]]
@@ -1366,7 +1374,7 @@ def run_items(
         if item["action"] != _plan.IMPORT_LAYERS or item.get("unlisted") or not entry:
             continue
         try:
-            settle_jobs(ctx, item, entry)
+            settle_jobs(ctx, _targeted(ctx, item, owners.get(item["id"]))[0], entry)
         except (ItemFailed, GeoLensError):
             # The item's own run meets the same failure and reports it.
             continue

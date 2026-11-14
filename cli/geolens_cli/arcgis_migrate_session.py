@@ -251,6 +251,9 @@ class MigrationContext:
     # A skipped hosted view's item id -> the parent item whose datasets stand
     # in for it, from the plan's alias_of.
     aliases: dict[str, str] = field(default_factory=dict)
+    # (item id, service URL) -> its probe, read once a run: the pass that
+    # settles pending jobs and the item's import share it.
+    probes: dict[tuple[str, str], Any] = field(default_factory=dict)
     # Which plan item owns each service layer several items import
     # (arcgis_migrate_shared.SharedLayers); None when nothing is shared.
     shared_layers: Any = None

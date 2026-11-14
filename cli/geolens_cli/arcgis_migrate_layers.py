@@ -14,7 +14,6 @@ requests: it resumes from the state file's recorded pass.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from types import SimpleNamespace
 from typing import Any
 from urllib.parse import unquote, urlsplit
 from uuid import UUID
@@ -374,24 +373,66 @@ def _import_layer(
     return False
 
 
+def _planned(
+    ctx: MigrationContext, item: Mapping[str, Any], row: Mapping[str, Any]
+) -> tuple[Any, list[Any], list[str], list[str], list[str]]:
+    """Probe the item's service: the probe, the layers to import, the notes
+    and data-loss notes of those left out, and each layer's dataset title.
+    ``ItemFailed`` before any write when a title or layer name holds a
+    credential the run was given."""
+    from geolens.api.datasets import probe_service_url_services_probe_post as probe_api
+    from geolens.models.probe_request import ProbeRequest
+
+    probe = ctx.probes.get((item["id"], row["url"]))
+    if probe is None:
+        try:
+            with long_request_timeout(ctx.geolens.client):
+                probe = _send(
+                    ctx,
+                    row,
+                    row["url"],
+                    probe_api.sync_detailed,
+                    body=ProbeRequest(url=row["url"]),
+                )
+        except GeoLensError as exc:
+            raise ItemFailed(f"probe failed, {exc}") from None
+        ctx.probes[(item["id"], row["url"])] = probe
+    base = item["target"]["title"] or item["title"]
+    wanted, notes, left_behind = importable_layers(probe)
+    titles = _titles(
+        base, [(_layer_label(layer), _layer_id(layer)) for layer in wanted]
+    )
+    refuse_credentials(
+        ctx,
+        {
+            "title": [base, *titles],
+            "layer_name": [
+                [str(layer.name), _layer_label(layer), _layer_key(layer)]
+                for layer in wanted
+            ],
+        },
+    )
+    return probe, wanted, notes, left_behind, titles
+
+
 def settle_jobs(
     ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
 ) -> None:
     """Wait for each import job an earlier run of *item* left pending and
     record its dataset, so items over the same service see what it holds
     before they borrow. A job that ended without a dataset is dropped and the
-    item's own run imports that layer again. Writes no dataset: the item's
-    run gives each the plan's title and visibility."""
+    item's own run imports that layer again. *item* carries the sharing
+    target its owner resolves to; a commit that never landed is sent with it
+    and the layer's title, as the import sends them."""
     row = _row(ctx, item)
     if not entry.layer_jobs or entry.service_url not in (None, row["url"]):
         return
-    body = _commit_body(
-        item["target"]["title"] or item["title"], item["target"]["visibility"]
-    )
+    probe, wanted, _notes, _left, titles = _planned(ctx, item, row)
+    title_of = {_layer_key(layer): t for layer, t in zip(wanted, titles)}
+    base = item["target"]["title"] or item["title"]
     for key, job in list(entry.layer_jobs.items()):
-        dataset = _finish_job(
-            ctx, row, SimpleNamespace(url=row["url"]), UUID(job), body
-        )
+        body = _commit_body(title_of.get(key, base), item["target"]["visibility"])
+        dataset = _finish_job(ctx, row, probe, UUID(job), body)
         del entry.layer_jobs[key]
         if dataset is not None:
             entry.layer_datasets[key] = dataset
@@ -646,40 +687,10 @@ def import_layers(
     finished resumes from the recorded datasets without probing the service
     again.
     """
-    from geolens.api.datasets import probe_service_url_services_probe_post as probe_api
-    from geolens.models.probe_request import ProbeRequest
-
     row = _row(ctx, item)
     if _import_recorded(entry, row["url"]):
         return _resume_import(ctx, item, entry)
-    try:
-        with long_request_timeout(ctx.geolens.client):
-            probe = _send(
-                ctx,
-                row,
-                row["url"],
-                probe_api.sync_detailed,
-                body=ProbeRequest(url=row["url"]),
-            )
-    except GeoLensError as exc:
-        raise ItemFailed(f"probe failed, {exc}") from None
-    base = item["target"]["title"] or item["title"]
-    wanted, notes, left_behind = importable_layers(probe)
-    titles = _titles(
-        base, [(_layer_label(layer), _layer_id(layer)) for layer in wanted]
-    )
-    # Checked before the first write, so a refused item leaves nothing behind
-    # in GeoLens or the state.
-    refuse_credentials(
-        ctx,
-        {
-            "title": [base, *titles],
-            "layer_name": [
-                [str(layer.name), _layer_label(layer), _layer_key(layer)]
-                for layer in wanted
-            ],
-        },
-    )
+    probe, wanted, notes, left_behind, titles = _planned(ctx, item, row)
     # A fresh pass replaces anything a previous one recorded, so a pass that
     # stops part way leaves nothing to resume from.
     entry.import_pass = None
