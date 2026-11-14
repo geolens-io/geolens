@@ -71,8 +71,11 @@ class ArcgisWebmapImportRequest(BaseModel):
         default=False,
         description="Return the translation without creating a map.",
     )
+    description: Annotated[str, StringConstraints(max_length=2000)] | None = Field(
+        default=None, description="Description of the new map."
+    )
 
-    @field_validator("name", "title", mode="before")
+    @field_validator("name", "title", "description", mode="before")
     @classmethod
     def _normalize_nfc(cls, v: str | None) -> str | None:
         return _nfc(v)

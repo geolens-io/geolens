@@ -25,12 +25,13 @@ STATE_FILENAME = "arcgis-migration-state.json"
 # ArcGIS groups, and v4 what this command's own writes added, which a rerun may
 # take away again: a made group's members (``joined``) and each object's
 # groups (``granted``), and v5 the ArcGIS owner each item's owner follows and
-# a handover left incomplete, and v6 a web map's unconfirmed save and the layers
-# its translation still owes. An older CLI refuses the file rather than
+# a handover left incomplete, v6 a web map's unconfirmed save and the layers
+# its translation still owes, and v7 the service layers an item borrows from
+# the item owning them (``shared``). An older CLI refuses the file rather than
 # rewriting it without them. A v3 file records neither, so a rerun removes
 # nothing it added before.
-STATE_VERSION = "6"
-_READABLE_VERSIONS = ("1", "2", "3", "4", "5", STATE_VERSION)
+STATE_VERSION = "7"
+_READABLE_VERSIONS = ("1", "2", "3", "4", "5", "6", STATE_VERSION)
 
 PENDING = "pending"
 RUNNING = "running"
@@ -151,6 +152,9 @@ class ItemState:
     # Datasets GeoLens already held that the import reused, whose owner's
     # edits from before the migration are taken as they are.
     reused: list[str] = field(default_factory=list)
+    # Service layer -> the dataset another plan item over the same service
+    # imported and writes; this item never writes it.
+    shared: dict[str, str] = field(default_factory=dict)
     # Layer -> its committed ingest job, until the job yields the dataset.
     layer_jobs: dict[str, str] = field(default_factory=dict)
     # The coordinate columns a CSV's pending upload job is committed with.
@@ -257,7 +261,9 @@ class ItemState:
         return bool(
             self.status in FINISHED
             and self.export is not None
-            and not (self.dataset_ids or self.layer_datasets or self.map_id)
+            and not (
+                self.dataset_ids or self.layer_datasets or self.shared or self.map_id
+            )
         )
 
     def unsettled_reason(self) -> str | None:

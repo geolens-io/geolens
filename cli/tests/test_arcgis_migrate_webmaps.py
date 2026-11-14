@@ -77,6 +77,18 @@ def _map(owner: str = OPERATOR) -> dict[str, Any]:
     }
 
 
+def _translated_layer() -> dict[str, Any]:
+    return {
+        "dataset_id": dataset_id("Parcels"),
+        "sort_order": 0,
+        "opacity": 1.0,
+        "paint": {"fill-color": "#336699"},
+        "layout": {},
+        "style_config": {},
+        "layer_type": "vector_geolens",
+    }
+
+
 def _response(*, lost: int = 0, unmatched: list[dict] | None = None) -> dict:
     items = [
         {"path": f"$.p{n}", "kind": "popup_expression", "detail": ""}
@@ -84,7 +96,7 @@ def _response(*, lost: int = 0, unmatched: list[dict] | None = None) -> dict:
     ]
     return {
         "map": _map(),
-        "layers": [],
+        "layers": [_translated_layer()],
         "layer_ids": {"parcels_0": LAYER_ID.format(1), "view_0": LAYER_ID.format(2)},
         "loss_report": {"items": items, "summary": {"popup_expression": lost}},
         "unmatched_layers": unmatched or [],
@@ -92,7 +104,19 @@ def _response(*, lost: int = 0, unmatched: list[dict] | None = None) -> dict:
 
 
 def _services(geolens) -> None:
-    FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "Owners", "Table")])
+    service = FakeImport(geolens, [])
+    probe = service.probe
+
+    def each_service(seen):
+        # The public view is a service of its own, with datasets of its own.
+        view = "Parcels_view" in seen.json()["url"]
+        service.layers = [
+            _layer(0, "View parcels" if view else "Parcels"),
+            _layer(1, "View owners" if view else "Owners", "Table"),
+        ]
+        return probe(seen)
+
+    geolens.routes["POST /services/probe/"] = each_service
     geolens.routes["PATCH /maps/" + MAP_ID] = lambda seen: _map(
         seen.json().get("owner_id", OPERATOR)
     )
@@ -106,7 +130,17 @@ def _services(geolens) -> None:
 
 
 def _sent(geolens) -> list[Any]:
-    return [s for s in geolens.seen if s.url.endswith("/maps/import/arcgis-webmap/")]
+    """The import requests, without the dry run that precedes each create."""
+    sent = [s for s in geolens.seen if s.url.endswith("/maps/import/arcgis-webmap/")]
+    return [
+        s
+        for n, s in enumerate(sent)
+        if not (
+            s.json().get("dry_run")
+            and n + 1 < len(sent)
+            and not sent[n + 1].json().get("dry_run")
+        )
+    ]
 
 
 @pytest.fixture(autouse=True)
@@ -134,7 +168,7 @@ def test_a_web_map_is_imported_with_the_datasets_of_its_services(
     [request] = [s.json() for s in _sent(geolens)]
     assert request["dataset_matches"] == {
         "parcels_0": dataset_id("Parcels"),
-        "view_0": dataset_id("Parcels"),
+        "view_0": dataset_id("View parcels"),
     }
     assert request["webmap"]["operationalLayers"][0]["id"] == "parcels_0"
     state = _state(plan_file)["items"][B1]
@@ -1320,6 +1354,7 @@ def test_a_layer_whose_dataset_the_account_cant_read_is_left_as_it_is(
     _services(geolens)
     parcels = dataset_id("Parcels")
     unreadable: set[str] = set()
+    created: list[int] = []
 
     def translate(seen):
         body = seen.json()
@@ -1327,6 +1362,9 @@ def test_a_layer_whose_dataset_the_account_cant_read_is_left_as_it_is(
         if set(body["dataset_matches"].values()) & unreadable:
             return (404, {"title": "Not Found", "status": 404, "detail": "nope"})
         if not body.get("dry_run"):
+            created.append(1)
+            return (201, _response())
+        if not created:
             return (201, _response())
         return (201, {**_translated(parcels), "layers": [], "layer_sources": []})
 
@@ -1334,13 +1372,15 @@ def test_a_layer_whose_dataset_the_account_cant_read_is_left_as_it_is(
     geolens.routes["PUT /maps/" + MAP_ID] = lambda seen: _saved(seen.json())
     assert _run(runner, plan_file)[0].exit_code == 0
     recorded = _state(plan_file)["items"][B1]["layer_ids"]
-    # The dataset now belongs to someone the run's account can't read for.
-    unreadable.add(parcels)
-    readable = geolens.routes.get(f"GET /datasets/{parcels}")
-    geolens.routes[f"GET /datasets/{parcels}"] = (
-        404,
-        {"title": "Not Found", "status": 404, "detail": "Dataset not found"},
-    )
+    # The datasets now belong to someone the run's account can't read for.
+    view = dataset_id("View parcels")
+    unreadable.update({parcels, view})
+    readable = {d: geolens.routes.get(f"GET /datasets/{d}") for d in (parcels, view)}
+    for gone in (parcels, view):
+        geolens.routes[f"GET /datasets/{gone}"] = (
+            404,
+            {"title": "Not Found", "status": 404, "detail": "Dataset not found"},
+        )
     listed = portal.routes[f"content/items/{B1}"]
     portal.routes[f"content/items/{B1}"] = {
         **listed,
@@ -1362,7 +1402,8 @@ def test_a_layer_whose_dataset_the_account_cant_read_is_left_as_it_is(
 
     # Access comes back; the portal hasn't changed since.
     unreadable.clear()
-    geolens.routes[f"GET /datasets/{parcels}"] = readable
+    for dataset, route in readable.items():
+        geolens.routes[f"GET /datasets/{dataset}"] = route
     read = geolens.routes["GET /maps/" + MAP_ID]
     geolens.routes["GET /maps/" + MAP_ID] = lambda seen: {
         **read(seen),
@@ -2887,7 +2928,7 @@ def test_only_a_web_map_imports_an_exported_service_whose_action_became_an_impor
     [request] = [s.json() for s in _sent(geolens)]
     assert request["dataset_matches"] == {
         "parcels_0": dataset_id("Parcels"),
-        "view_0": dataset_id("Parcels"),
+        "view_0": dataset_id("View parcels"),
     }
 
 
