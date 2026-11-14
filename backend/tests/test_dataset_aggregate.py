@@ -374,15 +374,106 @@ class TestOperations:
             "whole_numbers": False,
         }
 
-    def test_histogram_edges_never_decrease_over_adjacent_doubles(self):
-        low, high = 0.3, 0.30000000000000004
+    async def _score_histogram(self, client, session, points, scores, bins):
+        """Sets each row's score (None is NULL) and returns the histogram result."""
+        for gid, score in enumerate(scores, start=1):
+            value = "NULL" if score is None else repr(score)
+            await session.execute(
+                text(
+                    f"UPDATE data.{points.table_name}"  # noqa: S608
+                    f" SET score = {value} WHERE gid = {gid}"
+                )
+            )
+        await session.commit()
+        resp = await _aggregate(
+            client, points.id, {"op": "histogram", "column": "score", "bins": bins}
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()["result"]["bins"]
 
-        result = aggregate._histogram([(low, high, 1, 2), (low, high, 10, 3)], 10)
+    async def test_a_histogram_of_decimals_has_rounded_edges(
+        self, client: AsyncClient, test_db_session, points
+    ):
+        scores = [0.13, 0.5, 1.07, 2.2, 3.3, 3.9, 4.41, 4.77]
 
-        edges = [result.bins[0].lower] + [b.upper for b in result.bins]
-        assert edges == sorted(edges)
-        assert (edges[0], edges[-1]) == (low, high)
-        assert sum(b.count for b in result.bins) == 5
+        bins = await self._score_histogram(client, test_db_session, points, scores, 10)
+
+        edges = [bins[0]["lower"]] + [b["upper"] for b in bins]
+        assert edges == [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]
+        assert sum(b["count"] for b in bins) == 8
+        assert [b["count"] for b in bins] == [1, 1, 1, 0, 1, 0, 1, 1, 1, 1]
+
+    async def test_a_value_on_the_last_edge_is_counted_once(
+        self, client: AsyncClient, test_db_session, points
+    ):
+        scores = [0.0, 0.25, 0.5, 0.75, 1.0, 1.0, 0.1, 0.9]
+
+        bins = await self._score_histogram(client, test_db_session, points, scores, 4)
+
+        assert [(b["lower"], b["upper"]) for b in bins] == [(0.0, 0.5), (0.5, 1.0)]
+        assert [b["count"] for b in bins] == [3, 5]
+
+    async def test_a_histogram_of_negative_values_rounds_outward(
+        self, client: AsyncClient, test_db_session, points
+    ):
+        scores = [-7.3, -6.1, -4.9, -3.2, -2.8, -1.4, -0.6, -0.2]
+
+        bins = await self._score_histogram(client, test_db_session, points, scores, 4)
+
+        assert (bins[0]["lower"], bins[-1]["upper"]) == (-8.0, 0.0)
+        assert len(bins) == 4
+        assert sum(b["count"] for b in bins) == 8
+
+    async def test_a_histogram_never_exceeds_the_requested_bins(
+        self, client: AsyncClient, test_db_session, points
+    ):
+        # A step of 1 would need 6 bins from 0 to 6; the next step needs 3.
+        scores = [0.9, 1.5, 2.5, 3.5, 4.5, 5.1, 2.0, 3.0]
+
+        bins = await self._score_histogram(client, test_db_session, points, scores, 5)
+
+        assert [(b["lower"], b["upper"]) for b in bins] == [
+            (0.0, 2.0),
+            (2.0, 4.0),
+            (4.0, 6.0),
+        ]
+        assert sum(b["count"] for b in bins) == 8
+
+    async def test_a_single_requested_bin_holds_every_value(
+        self, client: AsyncClient, test_db_session, points
+    ):
+        scores = [-1.5, 1.5, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+
+        bins = await self._score_histogram(client, test_db_session, points, scores, 1)
+
+        assert bins == [{"lower": -10.0, "upper": 10.0, "count": 8}]
+
+    async def test_equal_values_make_one_bin(
+        self, client: AsyncClient, test_db_session, points
+    ):
+        bins = await self._score_histogram(
+            client, test_db_session, points, [2.5] * 8, 5
+        )
+
+        assert bins == [{"lower": 2.5, "upper": 2.5, "count": 8}]
+
+    async def test_null_scores_are_left_out_of_a_histogram(
+        self, client: AsyncClient, test_db_session, points
+    ):
+        scores = [None, None, 1.5, 2.5, None, 4.5, None, 3.5]
+
+        bins = await self._score_histogram(client, test_db_session, points, scores, 4)
+
+        assert sum(b["count"] for b in bins) == 4
+
+    async def test_a_histogram_of_only_nulls_has_no_bins(
+        self, client: AsyncClient, test_db_session, points
+    ):
+        bins = await self._score_histogram(
+            client, test_db_session, points, [None] * 8, 4
+        )
+
+        assert bins == []
 
     async def test_double_values_keep_every_stored_digit(
         self, client: AsyncClient, test_db_session, points
@@ -460,8 +551,7 @@ class TestOperations:
             {"key": "keep", "value": 0.30000000000000004}
         ]
         bins = histogram.json()["result"]["bins"]
-        assert [b["count"] for b in bins] == [1, 1]
-        assert (bins[0]["lower"], bins[-1]["upper"]) == (0.3, 0.30000000000000004)
+        assert bins == [{"lower": 0.3, "upper": 0.30000000000000004, "count": 2}]
         values = {v["value"] for v in counted.json()["result"]["values"]}
         assert values == {0.3, 0.30000000000000004}
         keys = {g["key"] for g in keyed.json()["result"]["groups"]}

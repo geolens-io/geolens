@@ -14,6 +14,7 @@ import functools
 import hashlib
 import json
 import math
+import sys
 from decimal import Decimal
 from collections.abc import Sequence
 from typing import Any, NamedTuple
@@ -316,11 +317,31 @@ def build_aggregate_sql(
             " _f AS (SELECT x FROM _v"
             " WHERE x > '-Infinity'::float8 AND x < 'Infinity'::float8),"
         )
+        # Edges are decimal (numeric) so a bin's edges are exactly the numbers
+        # the reader sees. s1 is the 1-2-5 step nearest above (hi - lo) / bins;
+        # one bump to the next step in the series keeps the bin count in range.
         return (
-            f"{head} _r AS (SELECT min(x) AS lo, max(x) AS hi FROM _f)"
-            " SELECT _r.lo AS _lo, _r.hi AS _hi, CASE WHEN _r.hi = _r.lo THEN 1"
-            f" ELSE least(width_bucket(_f.x, _r.lo, _r.hi, {bins}), {bins}) END AS _b,"
-            " count(*) AS _n FROM _f CROSS JOIN _r GROUP BY 1, 2, 3 ORDER BY 3"
+            f"{head} _r AS (SELECT min(x) AS flo, max(x) AS fhi FROM _f),"
+            " _p AS (SELECT flo::numeric AS lo, fhi::numeric AS hi,"
+            f" (fhi::numeric - flo::numeric) / {bins} AS raw FROM _r"
+            " WHERE fhi::numeric > flo::numeric),"
+            " _m AS (SELECT lo, hi, raw, power(10::numeric, floor(log(raw))) AS mag"
+            " FROM _p),"
+            " _k AS (SELECT lo, hi, mag, CASE WHEN raw <= mag THEN 1"
+            " WHEN raw <= 2 * mag THEN 2 WHEN raw <= 5 * mag THEN 5 ELSE 10 END AS k"
+            " FROM _m),"
+            " _s1 AS (SELECT lo, hi, k, mag * k AS s1 FROM _k),"
+            " _s AS (SELECT lo, hi, CASE WHEN ceil(hi / s1) - floor(lo / s1) > "
+            f"{bins} THEN s1 * CASE k WHEN 2 THEN 2.5 ELSE 2 END ELSE s1 END AS st"
+            " FROM _s1),"
+            " _e AS (SELECT lo, hi, st, floor(lo / st) * st AS start,"
+            " ceil(hi / st) - floor(lo / st) AS nb FROM _s)"
+            " SELECT _r.flo AS _lo, _r.fhi AS _hi,"
+            " CASE WHEN _e.st IS NULL THEN 1 ELSE least(floor((_f.x::numeric"
+            " - _e.start) / _e.st), _e.nb - 1)::int END AS _b,"
+            " count(*) AS _n, _e.start AS _start, _e.st AS _step, _e.nb AS _nb"
+            " FROM _f CROSS JOIN _r LEFT JOIN _e ON true"
+            " GROUP BY 1, 2, 3, 5, 6, 7 ORDER BY 3"
         )
     if request.op == "rows":
         return _rows_sql(request, source, predicates, columns, geometry=geometry)
@@ -418,6 +439,15 @@ def _whole_number_histogram(rows: Sequence[Sequence[Any]]) -> HistogramResult:
 
 
 def _histogram(rows: Sequence[Sequence[Any]], bins: int) -> HistogramResult:
+    """Bins of a non-integer column, with rounded edges.
+
+    The step is the smallest of 1, 2, 5 times a power of ten that covers the
+    range in at most ``bins`` bins; the first edge is the multiple of the step
+    at or below the minimum, the last at or above the maximum. A maximum on the
+    last edge counts in the last bin. All values equal (or equal at 15 digits)
+    give one bin from the minimum to the maximum; one requested bin whose
+    rounded edges need two spans them both.
+    """
     if not rows:
         return HistogramResult(bins=[])
     # An integer column's rows carry a fifth value, the width of its
@@ -425,6 +455,46 @@ def _histogram(rows: Sequence[Sequence[Any]], bins: int) -> HistogramResult:
     if len(rows[0]) == 5 and rows[0][4] is not None:
         return _whole_number_histogram(rows)
     low, high = float(rows[0][0]), float(rows[0][1])
+    if len(rows[0]) == 5:
+        return _float_fallback_histogram(rows, low, high, bins)
+    if rows[0][5] is None:
+        return HistogramResult(
+            bins=[
+                HistogramBin(lower=low, upper=high, count=sum(int(r[3]) for r in rows))
+            ]
+        )
+    start, step = Decimal(str(rows[0][4])), Decimal(str(rows[0][5]))
+    count = int(rows[0][6])
+    counts: dict[int, int] = {}
+    for row in rows:
+        counts[int(row[2])] = counts.get(int(row[2]), 0) + int(row[3])
+    if count > bins:
+        # One bin can't be rounded on both sides without straddling a multiple.
+        return HistogramResult(
+            bins=[
+                HistogramBin(
+                    lower=_edge(start),
+                    upper=_edge(start + count * step),
+                    count=sum(counts.values()),
+                )
+            ]
+        )
+    return HistogramResult(
+        bins=[
+            HistogramBin(
+                lower=_edge(start + i * step),
+                upper=_edge(start + (i + 1) * step),
+                count=counts.get(i, 0),
+            )
+            for i in range(count)
+        ]
+    )
+
+
+def _float_fallback_histogram(
+    rows: Sequence[Sequence[Any]], low: float, high: float, bins: int
+) -> HistogramResult:
+    """Equal-width bins for an integer column too wide for whole-number edges."""
     if low == high:
         return HistogramResult(
             bins=[HistogramBin(lower=low, upper=high, count=int(rows[0][3]))]
@@ -441,6 +511,11 @@ def _histogram(rows: Sequence[Sequence[Any]], bins: int) -> HistogramResult:
             for i in range(bins)
         ]
     )
+
+
+def _edge(value: Decimal) -> float:
+    """A decimal edge as the nearest finite double."""
+    return max(-sys.float_info.max, min(sys.float_info.max, float(value)))
 
 
 def _exact(value: Any) -> Any:
@@ -584,7 +659,7 @@ async def _planned_rows(
 def _row_limit(request: AggregateRequest) -> int:
     """The most rows a request's SQL returns: one past its limit, when it has one."""
     if request.op == "histogram":
-        return request.bins
+        return request.bins + 1
     limit = getattr(request, "limit", None)
     return 1 if limit is None else limit + 1
 
