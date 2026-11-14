@@ -44,7 +44,7 @@ async def test_conversion_overflow_gets_429_with_retry_after(
         "app.processing.export.router._conversion_slots", asyncio.Semaphore(1)
     )
     monkeypatch.setattr(
-        "app.processing.export.router.export_dataset", _fake_export(tmp_path, gate)
+        "app.processing.export.selection.export_dataset", _fake_export(tmp_path, gate)
     )
 
     running = asyncio.create_task(
@@ -69,7 +69,7 @@ async def test_failed_conversion_releases_its_slot(
     slots = asyncio.Semaphore(1)
     monkeypatch.setattr("app.processing.export.router._conversion_slots", slots)
     monkeypatch.setattr(
-        "app.processing.export.router.export_dataset",
+        "app.processing.export.selection.export_dataset",
         _fake_export(tmp_path, fail=True),
     )
 

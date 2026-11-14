@@ -277,7 +277,7 @@ class _Recorder:
 def recorder(monkeypatch):
     root = tempfile.mkdtemp(prefix="test_export_text_")
     stub = _Recorder(root, b'{"type":"FeatureCollection","features":[]}\n' * 200)
-    monkeypatch.setattr("app.processing.export.router.export_dataset", stub)
+    monkeypatch.setattr("app.processing.export.selection.export_dataset", stub)
     monkeypatch.setattr(artifact_cache, "_ttl_seconds", lambda: 600)
     yield stub
     shutil.rmtree(root, ignore_errors=True)

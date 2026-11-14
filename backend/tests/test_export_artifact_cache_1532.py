@@ -111,7 +111,7 @@ def conversions(monkeypatch):
     # Distinctive and long enough that a range is a genuine slice, and every byte
     # value present so a splice is detectable wherever it lands.
     counter = Conversions(root, bytes(range(256)) * 40)
-    monkeypatch.setattr("app.processing.export.router.export_dataset", counter)
+    monkeypatch.setattr("app.processing.export.selection.export_dataset", counter)
     yield counter
     shutil.rmtree(root, ignore_errors=True)
 
@@ -1677,7 +1677,7 @@ async def test_a_cached_probe_does_not_recount_the_selection(
     The dataset is over the unfiltered ceiling and the request carries a filter,
     which is the only shape that reaches the COUNT at all.
     """
-    import app.processing.export.router as router_module
+    import app.processing.export.selection as selection_module
 
     counts = {"n": 0}
 
@@ -1687,7 +1687,7 @@ async def test_a_cached_probe_does_not_recount_the_selection(
         counts["n"] += 1
         return 1
 
-    monkeypatch.setattr(router_module, "_count_selected_features", _counted)
+    monkeypatch.setattr(selection_module, "_count_selected_features", _counted)
 
     dataset = await _dataset(
         test_db_session, "Counted Probe", feature_count=_OVER_THE_CEILING
@@ -4477,10 +4477,10 @@ async def test_the_artifact_is_stamped_with_the_snapshot_not_the_upload(
 
     from app.api.main import app as api_app
     from app.processing.export import artifact_cache as cache
-    from app.processing.export import router as export_router
+    from app.processing.export import selection as export_selection
 
     dataset = await _dataset(test_db_session, "Snapshot Stamp")
-    real_conversion = export_router.export_dataset
+    real_conversion = export_selection.export_dataset
     conversion_started_at: float | None = None
 
     async def _slow(*args, **kwargs):
@@ -4489,7 +4489,7 @@ async def test_the_artifact_is_stamped_with_the_snapshot_not_the_upload(
         await asyncio.sleep(2.0)
         return await real_conversion(*args, **kwargs)
 
-    monkeypatch.setattr(export_router, "export_dataset", _slow)
+    monkeypatch.setattr(export_selection, "export_dataset", _slow)
 
     resp = await client.get(_url(dataset.id), headers=admin_auth_header)
     assert resp.status_code == 200, resp.text
@@ -4653,7 +4653,7 @@ async def test_a_builder_that_loses_the_race_serves_the_incumbent(
     import asyncio
 
     from app.processing.export import artifact_cache as cache
-    from app.processing.export import router as export_router
+    from app.processing.export import selection as export_selection
 
     dataset = await _dataset(test_db_session, "Lost Race")
     url = _url(dataset.id)
@@ -4662,7 +4662,7 @@ async def test_a_builder_that_loses_the_race_serves_the_incumbent(
     second_body = bytes(reversed(first_body))
     assert first_body != second_body
 
-    real_conversion = export_router.export_dataset
+    real_conversion = export_selection.export_dataset
     builds = {"n": 0}
 
     async def _mutating(*args, **kwargs):
@@ -4671,7 +4671,7 @@ async def test_a_builder_that_loses_the_race_serves_the_incumbent(
             conversions.body = second_body  # the data moved between the two reads
         return await real_conversion(*args, **kwargs)
 
-    monkeypatch.setattr(export_router, "export_dataset", _mutating)
+    monkeypatch.setattr(export_selection, "export_dataset", _mutating)
 
     arrived = asyncio.Event()
     waiting = {"n": 0}

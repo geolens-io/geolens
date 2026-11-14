@@ -316,7 +316,9 @@ class TestExportReleasesThePoolConnection:
             return str(path), path.name, FORMAT_MAP["gpkg"]["media"]
 
         monkeypatch.setattr(artifact_cache, "lookup", _probing_lookup)
-        monkeypatch.setattr("app.processing.export.router.export_dataset", _fake_export)
+        monkeypatch.setattr(
+            "app.processing.export.selection.export_dataset", _fake_export
+        )
 
         try:
             baseline = live["n"]
@@ -419,7 +421,9 @@ class TestExportDeadlineAnchor:
         monkeypatch.setitem(
             app.dependency_overrides, get_optional_user, _slow_optional_user
         )
-        monkeypatch.setattr("app.processing.export.router.export_dataset", _fake_export)
+        monkeypatch.setattr(
+            "app.processing.export.selection.export_dataset", _fake_export
+        )
 
         # Anonymous, so the slow override is the whole of the auth phase.
         response = await client.get(
