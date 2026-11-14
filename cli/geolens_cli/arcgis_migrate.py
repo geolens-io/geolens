@@ -1736,9 +1736,10 @@ def run_cli(
 ) -> int:
     """Run ``geolens arcgis migrate`` and return its exit code."""
     redact = Redactor()
-    # Portal text such as an item title can hold a credential the run was
-    # given; every line and payload the run prints passes through this mask.
-    fmt = replace(fmt, mask=redact.mask)
+    _register_given(opts, redact)
+    # Set on the caller's formatter, not a copy, so the SDK factory's own
+    # errors pass through it as well as every line and payload the run prints.
+    fmt.mask = redact.mask
     try:
         return _run(fmt, opts, redact, sdk_factory, instance)
     except (typer.Exit, click.ClickException):
@@ -1957,13 +1958,21 @@ def _sign_in(
     return PortalAuth(client, renewable=sign_in is not None)
 
 
+def _register_given(opts: MigrateOptions, redact: Redactor) -> None:
+    """Add to *redact* each credential given as an option or in the
+    environment, before anything is validated or printed: --token,
+    ARCGIS_TOKEN, ARCGIS_PASSWORD and GEOLENS_TOKEN, each variable also when
+    an option overrides it."""
+    redact.add(opts.token)
+    for name in ("ARCGIS_TOKEN", "ARCGIS_PASSWORD", "GEOLENS_TOKEN"):
+        redact.add(os.environ.get(name))
+
+
 def _take_credentials(opts: MigrateOptions, redact: Redactor) -> MigrateOptions:
-    """*opts* with the stdin line a credential option names read once, and
-    each credential the run was given added to *redact* before any path can
-    skip the portal sign-in: a token from --token, ARCGIS_TOKEN or
-    --token-stdin, and a password from --password-stdin or ARCGIS_PASSWORD,
-    both variables even when an option overrides them. Nothing prompts here,
-    and an empty line is refused by the sign-in that needs it, as before."""
+    """*opts* with the stdin line a credential option names read once and
+    added to *redact* before any path can skip the portal sign-in. Nothing
+    prompts here, and an empty line is refused by the sign-in that needs it,
+    as before."""
     try:
         check_credential_options(
             opts.token or None,
@@ -1977,9 +1986,7 @@ def _take_credentials(opts: MigrateOptions, redact: Redactor) -> MigrateOptions:
     line = None
     if opts.token_stdin or opts.password_stdin:
         line = sys.stdin.readline()
-    secrets = [opts.token, line and line.strip(), line and line.rstrip("\r\n")]
-    secrets += [os.environ.get(n) for n in ("ARCGIS_TOKEN", "ARCGIS_PASSWORD")]
-    for secret in secrets:
+    for secret in (line and line.strip(), line and line.rstrip("\r\n")):
         redact.add(secret)
     return replace(opts, stdin_line=line)
 

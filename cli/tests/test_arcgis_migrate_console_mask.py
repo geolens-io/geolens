@@ -15,11 +15,13 @@ from urllib.parse import quote, quote_plus
 
 import pytest
 
+from geolens_cli import config as config_mod
 from geolens_cli import output as output_mod
 from geolens_cli.main import app
 
 from . import test_arcgis_migrate_groups as groups
 from .arcgis_fake import A2
+from .conftest import GEOLENS_INSTANCE
 from .test_arcgis_migrate_files import portal  # noqa: F401  (fixture)
 from .test_arcgis_migrate_groups import team  # noqa: F401  (fixture)
 from .test_arcgis_migrate_layers import geolens, quick  # noqa: F401  (fixtures)
@@ -147,6 +149,54 @@ def test_each_encoded_form_of_a_registered_secret_is_masked(
         assert item["title"] == "Parcels [REDACTED]"
     else:
         assert f"for {A2}: planner [REDACTED] " in result.stderr
+
+
+@pytest.mark.parametrize("as_json", [False, True], ids=["text", "json"])
+@pytest.mark.parametrize(
+    "source", ["--token", "ARCGIS_TOKEN", "ARCGIS_PASSWORD", "GEOLENS_TOKEN"]
+)
+def test_an_error_before_the_sign_in_holds_no_given_credential(
+    runner, tmp_path, geolens, monkeypatch, source, as_json
+):
+    secret = {"ARCGIS_PASSWORD": PASSWORD, "GEOLENS_TOKEN": geolens.token}.get(
+        source, TOKEN
+    )
+    if source == "ARCGIS_TOKEN":
+        monkeypatch.setenv("ARCGIS_TOKEN", TOKEN)
+    given = ["--token", TOKEN] if source == "--token" else []
+    host = f"https://host.example.test/?token={secret}"
+
+    result = _invoke(
+        runner,
+        tmp_path / "plan.json",
+        "run",
+        as_json,
+        *given,
+        "--trust-service-host",
+        host,
+    )
+
+    assert result.exit_code == 2
+    assert "[REDACTED]" in result.stderr
+    assert not _holds(result.stdout + result.stderr, secret)
+
+
+@pytest.mark.parametrize("as_json", [False, True], ids=["text", "json"])
+def test_a_stored_credential_failure_holds_no_given_credential(
+    runner, tmp_path, team, portal, monkeypatch, as_json
+):
+    plan_file, _ = _scenario(tmp_path, team, "title", "Parcels")
+    monkeypatch.delenv("GEOLENS_TOKEN")
+    instance = config_mod.normalize_instance_url(GEOLENS_INSTANCE)
+    path = config_mod.credentials_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f'["{instance}"]\nactive_kind = "x{TOKEN}"\n')
+
+    result = _invoke(runner, plan_file, "dry-run", as_json, "--token", TOKEN)
+
+    assert result.exit_code == 4, result.output
+    assert "unrecognized active_kind value" in result.stderr
+    assert TOKEN not in result.stdout + result.stderr
 
 
 @pytest.mark.parametrize("as_json", [False, True], ids=["text", "json"])
