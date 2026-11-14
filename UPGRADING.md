@@ -98,6 +98,13 @@ saved through a 1.29 instance drops the story's reader settings (navigation,
 layout, theme), so set them again once every instance is on 1.30. Chapters,
 blocks and scenes without a transition are kept.
 
+During a rolling upgrade to 1.32, an instance still on 1.31 answers 403 to a
+tile URL that a 1.32 instance signed for an embedded map. Embedded maps can
+miss tiles until every instance is on 1.32, and a map opened during the upgrade
+recovers on reload. After a rollback to 1.31 the same happens for up to 16
+minutes, until the URLs signed by 1.32 expire. Single-instance installs are not
+affected.
+
 ## Change the published default database password
 
 Earlier `.env.example` files set `POSTGRES_PASSWORD=geolens`. An install whose
