@@ -116,6 +116,25 @@ def portal(monkeypatch):
     return fake
 
 
+@pytest.fixture(autouse=True)
+def a_matched_layer(monkeypatch, portal):
+    """Give a web map whose services the run left alone one matched layer, so
+    it is imported rather than skipped for having nothing to carry, and leave
+    its summary out so no description write precedes the writes under test."""
+    item = portal.routes[f"content/items/{B1}"]
+    portal.routes[f"content/items/{B1}"] = {**item, "snippet": ""}
+    real = webmaps.match_datasets
+
+    def matched(ctx, webmap):
+        found = real(ctx, webmap)
+        entry = ctx.items.get(B1)
+        if found or (entry is not None and entry.map_id):
+            return found
+        return {"parcels_0": dataset_id("Parcels")}
+
+    monkeypatch.setattr(webmaps, "match_datasets", matched)
+
+
 def _run(runner, plan_file, **kwargs):
     return _migrate(
         runner, plan_file, "--only", B1, "--token", secrets.token_urlsafe(16), **kwargs
