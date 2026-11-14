@@ -628,7 +628,9 @@ def test_items_are_transferred_to_the_mapped_owner(runner, tmp_path, geolens, ha
 
 
 @pytest.mark.parametrize(
-    "edit", [{"updated_by": ALICE}, {"data_revision": 1}], ids=["alice", "data"]
+    "edit",
+    [{"updated_by": ALICE}, {"data_revision": 1}, {"current_version": 2}],
+    ids=["alice", "data", "replacement"],
 )
 def test_a_dataset_changed_before_its_first_transfer_is_not_handed_over(
     runner, tmp_path, geolens, handled, edit

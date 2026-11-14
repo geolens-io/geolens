@@ -194,7 +194,7 @@ def _decide(
     return "keep", False
 
 
-def wanted_fields(
+def _wanted_fields(
     fields: Mapping[str, Any], base: Mapping[str, Any] | None, title: str | None
 ) -> dict[str, str]:
     """The values a dataset's fields should hold now: *fields* without the
@@ -211,6 +211,10 @@ def wanted_fields(
     return {**wanted, **cleared}
 
 
+# The item metadata fields a rerun writes and compares, keywords aside.
+CARRIED = ("title", "summary", "attribution", "license", "source_organization")
+
+
 @dataclass
 class Edits:
     """The fields where GeoLens and the portal now differ, by the side that
@@ -218,23 +222,36 @@ class Edits:
 
     portal: list[str] = field(default_factory=list)
     geolens: list[str] = field(default_factory=list)
-    # (field, GeoLens value, portal value): changed on both sides, or with no
-    # recorded value to tell which side changed it.
+    # (field, GeoLens value, portal value) for a field changed on both sides,
+    # and for one with no recorded value to tell which side changed it.
     both: list[tuple[str, str, str]] = field(default_factory=list)
+    unknown: list[tuple[str, str, str]] = field(default_factory=list)
 
 
 def compare_edits(
-    dataset: Any, base: Mapping[str, Any] | None, wanted: Mapping[str, str]
+    dataset: Any,
+    base: Mapping[str, Any] | None,
+    fields: Mapping[str, Any],
+    title: str | None,
 ) -> Edits:
-    """Classify each of *wanted* that *dataset* doesn't hold against *base*,
-    the values this command last wrote."""
+    """Classify each carried field where *dataset* differs from the portal's
+    value in *fields* (absent: empty) against *base*, the values this command
+    last wrote. The title is compared only when *title* is given."""
     edits = Edits()
-    for name, value in wanted.items():
+    for name in CARRIED:
+        if name == "title":
+            if title is None:
+                continue
+            value = unicodedata.normalize("NFC", title)
+        else:
+            value = fields.get(name) or ""
         existing = _current(dataset, name)
         if existing == value:
             continue
         written = _written(base, name)
-        if written is None or (existing != written and value != written):
+        if written is None:
+            edits.unknown.append((name, existing, value))
+        elif existing != written and value != written:
             edits.both.append((name, existing, value))
         elif existing != written:
             edits.geolens.append(name)
@@ -244,14 +261,15 @@ def compare_edits(
 
 
 def _written(base: Mapping[str, Any] | None, name: str) -> str | None:
-    """What this command last wrote to *name*, or None when nothing tells.
-    A missing title is recorded only by a later run, and an older CLI
-    recorded "" while GeoLens kept the title."""
+    """What this command last wrote to *name*, or None when nothing tells: a
+    field it never recorded, and a title that is missing or empty, which a
+    later run records and an older CLI wrote as "" while GeoLens kept it."""
     if base is None:
         return None
-    if name == "title":
-        return base.get("title") or None
-    return base.get(name, "")
+    written = base.get(name)
+    if not isinstance(written, str) or (name == "title" and not written):
+        return None
+    return written
 
 
 def apply_item_metadata(
@@ -291,7 +309,9 @@ def apply_item_metadata(
             meta: dict[str, Any] = {}
             baseline = dict(base or {})
             taken = (overwrite or {}).get(dataset_id, ())
-            wanted = wanted_fields(fields, base, (titles or {}).get(dataset_id))
+            wanted = _wanted_fields(fields, base, (titles or {}).get(dataset_id))
+            # A field the portal leaves empty is emptied over the GeoLens edit.
+            wanted.update({name: "" for name in taken if name not in wanted})
             for name, value in wanted.items():
                 existing = _current(current, name)
                 if name in taken and existing != value:

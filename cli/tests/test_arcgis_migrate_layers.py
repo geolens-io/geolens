@@ -237,6 +237,7 @@ def _dataset(dataset: str, owner: str) -> dict:
         "updated_at": NOW,
         "updated_by": OPERATOR,
         "data_revision": 0,
+        "current_version": 1,
     }
 
 

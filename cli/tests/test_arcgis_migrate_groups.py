@@ -913,8 +913,17 @@ def _map_a_second_group(plan_file: Path) -> None:
     plan_file.write_text(json.dumps(plan))
 
 
+@pytest.mark.parametrize(
+    "edit",
+    [
+        {"data_revision": 7, "updated_by": BOB},
+        # A replacement by the operator's own account moves only the version.
+        {"current_version": 9},
+    ],
+    ids=["feature-edit", "replacement"],
+)
 def test_an_edit_landing_during_a_rerun_share_is_never_adopted(
-    runner, tmp_path, team, up_to_date
+    runner, tmp_path, team, up_to_date, edit
 ):
     service = _service(team)
     api = GroupsApi(team, service, existing=[_group(OTHER, "Other")])
@@ -927,8 +936,8 @@ def test_an_edit_landing_during_a_rerun_share_is_never_adopted(
     def edit_after_share(seen, dataset):
         answer = share(seen, dataset)
         if dataset == DATASETS[0]:
-            # Someone edits the data between the share and the read after it.
-            service.fields[dataset].update(data_revision=7, updated_by=BOB)
+            # The data changes between the share and the read after it.
+            service.fields[dataset].update(edit)
         return answer
 
     api.share = edit_after_share

@@ -269,7 +269,7 @@ class _Dataset:
     summary = "Old summary"
     attribution = "Edited credit"
     license_ = "CC-BY"
-    source_organization = None
+    source_organization = "Filled in GeoLens"
 
 
 def test_each_differing_field_is_classified_by_the_side_that_changed_it():
@@ -278,24 +278,32 @@ def test_each_differing_field_is_classified_by_the_side_that_changed_it():
         "summary": "Old summary",
         "attribution": "Old credit",
         "license": "CC-BY",
+        "source_organization": "",
     }
-    wanted = {
-        "title": "Parcels",
-        "summary": "New summary",
-        "attribution": "New credit",
-        "license": "CC-BY",
-        "source_organization": "Example County",
-    }
+    fields = {"summary": "New summary", "attribution": "New credit", "license": ""}
 
-    edits = compare_edits(_Dataset(), base, wanted)
+    edits = compare_edits(_Dataset(), base, fields, "Parcels")
 
-    assert edits.portal == ["summary", "source_organization"]
-    assert edits.geolens == ["title"]
+    assert edits.portal == ["summary", "license"]
+    assert edits.geolens == ["title", "source_organization"]
     assert edits.both == [("attribution", "Edited credit", "New credit")]
+    assert edits.unknown == []
 
 
-@pytest.mark.parametrize("base", [None, {"summary": "Old summary"}, {"title": ""}])
-def test_a_field_with_no_recorded_value_counts_as_changed_on_both_sides(base):
-    edits = compare_edits(_Dataset(), base, {"title": "Parcels"})
+@pytest.mark.parametrize(
+    "base", [None, {"summary": "Old summary"}, {"title": ""}, {"title": None}]
+)
+def test_a_field_with_no_recorded_value_is_unknown(base):
+    edits = compare_edits(_Dataset(), base, {"summary": "Old summary"}, "Parcels")
 
-    assert edits.both == [("title", "Named in GeoLens", "Parcels")]
+    assert ("title", "Named in GeoLens", "Parcels") in edits.unknown
+    assert edits.both == edits.geolens == edits.portal == []
+
+
+def test_a_field_the_portal_leaves_empty_is_compared_with_a_known_empty_value():
+    base = {"title": "t", "summary": "Old summary", "source_organization": ""}
+
+    edits = compare_edits(_Dataset(), base, {"summary": "Old summary"}, None)
+
+    assert edits.geolens == ["source_organization"]
+    assert [name for name, _g, _p in edits.unknown] == ["attribution", "license"]

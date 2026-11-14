@@ -84,6 +84,7 @@ from .arcgis_migrate_refresh import (
     preview_both_changed,
     record,
     refresh_file,
+    same_data,
     refresh_layers,
     snapshot,
 )
@@ -1013,7 +1014,7 @@ def _transfer_map(geolens: GeoLens, entry: ItemState, owner: Owner) -> None:
 
 
 def _import_revisions(ctx: MigrationContext, dataset_ids: list[str]) -> dict:
-    """Each dataset's data revision as the import left it, read before this
+    """Each dataset's snapshot as the import left it, read before this
     command writes to it; one somebody else wrote last is refused, so their
     edit isn't taken as the import's."""
     revisions = {}
@@ -1021,7 +1022,7 @@ def _import_revisions(ctx: MigrationContext, dataset_ids: list[str]) -> dict:
         read = get_dataset(ctx, dataset_id)
         if not operator_or_nobody_wrote_last(ctx, read):
             raise changed_before_handover(dataset_id)
-        revisions[dataset_id] = snapshot(read)["data_revision"]
+        revisions[dataset_id] = snapshot(read)
     return revisions
 
 
@@ -1036,8 +1037,8 @@ def transfer(
     lands, so a later failure keeps the transfers made before it.
 
     A dataset this import has not handed over goes only while the operator or
-    nobody wrote it last and its data revision is still the one in
-    *revisions*. One an earlier attempt handed over is left with an owner it
+    nobody wrote it last and its data is still as *revisions* recorded it.
+    One an earlier attempt handed over is left with an owner it
     already has, and otherwise moves only while it is as that transfer left it.
     """
     for dataset_id in entry.dataset_ids:
@@ -1048,9 +1049,9 @@ def transfer(
             reason = changed_in_geolens(ctx, entry, dataset_id, read)
             if reason:
                 raise ItemFailed(f"dataset {dataset_id} was {reason}")
-        elif not operator_or_nobody_wrote_last(ctx, read) or snapshot(read)[
-            "data_revision"
-        ] != revisions.get(dataset_id):
+        elif not operator_or_nobody_wrote_last(ctx, read) or not same_data(
+            revisions.get(dataset_id, {}), snapshot(read)
+        ):
             raise changed_before_handover(dataset_id)
         record(
             entry, dataset_id, transfer_dataset(ctx.geolens, dataset_id, owner, read)
@@ -1107,16 +1108,15 @@ def _keep_own(
     run already handed to someone else, and record the baselines a rerun's
     sharing changes compare GeoLens to. A dataset *revisions* names, one this
     import wrote, gets its baseline only while the operator or nobody wrote it
-    last and its data revision is the one captured before the writes, so a
-    concurrent edit is never taken as the import's."""
+    last and its data is as captured before the writes, so a concurrent edit
+    is never taken as the import's."""
     for dataset_id in entry.dataset_ids:
         read = get_dataset(ctx, dataset_id)
         if str(read.created_by) != owner.id:
             raise ItemFailed(_not_yours(f"dataset {dataset_id}"))
         if dataset_id in revisions:
-            if (
-                not operator_or_nobody_wrote_last(ctx, read)
-                or snapshot(read)["data_revision"] != revisions[dataset_id]
+            if not operator_or_nobody_wrote_last(ctx, read) or not same_data(
+                revisions[dataset_id], snapshot(read)
             ):
                 raise changed_before_handover(dataset_id)
             record(entry, dataset_id, read)
@@ -1358,20 +1358,30 @@ def _preview_both_changed(
     portal_info: Mapping[str, Any] | None,
     refresh: Sequence[Mapping[str, Any]],
     state: MigrationState,
+    redact: Redactor,
 ) -> dict[str, list[str]]:
-    """Item id -> what a run would write over its datasets edited in GeoLens."""
+    """Item id -> what a run would write over its datasets edited in GeoLens.
+
+    Why a run would leave a dataset is added to the item's reasons in memory,
+    where the dry run's report and cutover check read them; a dry run's state
+    is never saved.
+    """
     ctx = MigrationContext(
         geolens=geolens,
         inventory=rows,
         portal=None,
         save=lambda: None,
         portal_info=portal_info,
+        redact=redact,
     )
     found = {}
     for item in refresh:
-        lines = preview_both_changed(ctx, item, state.items[item["id"]])
+        entry = state.items[item["id"]]
+        lines, stops = preview_both_changed(ctx, item, entry)
         if lines:
             found[item["id"]] = lines
+        cleaned = [state.clean(stop) for stop in stops]
+        entry.stale.extend(c for c in cleaned if c not in entry.stale)
     return found
 
 
@@ -1999,6 +2009,9 @@ def _run(
         rows, portal_info, inventory_groups = _inventory_rows(
             plan, opts.plan_path, touched
         )
+        # A dry run builds no portal client but shows GeoLens values, which
+        # can hold the token.
+        redact.add(opts.token)
         # A dry run makes only the sign-in the run starts with.
         portal = (
             None
@@ -2135,7 +2148,7 @@ def _run(
             ],
             refreshed=[item["id"] for item in refresh],
             both_changed=_preview_both_changed(
-                geolens, rows, portal_info, refresh, state
+                geolens, rows, portal_info, refresh, state, redact
             ),
         )
         return _report(

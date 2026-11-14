@@ -924,10 +924,11 @@ def _record_share(
     ctx: MigrationContext, entry: ItemState, dataset_id: str, before: Any
 ) -> None:
     """Record the dataset as the share left it as this command's write, only
-    while the share is the one change since *before*: the same data and
-    feature count, and no other writer. Anything else stays unrecorded, so a
-    rerun sees it as a change made in GeoLens and leaves the dataset alone."""
-    from .arcgis_migrate_refresh import get_dataset, record, snapshot
+    while the share is the one change since *before*: the same data (no
+    feature write, replacement or restore) and no other writer. Anything else
+    stays unrecorded, so a rerun sees it as a change made in GeoLens and leaves
+    the dataset alone."""
+    from .arcgis_migrate_refresh import get_dataset, record, same_data, snapshot
     from .refresh import _value
 
     after = get_dataset(ctx, dataset_id)
@@ -937,11 +938,7 @@ def _record_share(
         str(_value(getattr(before, "updated_by", None))),
         str(ctx.operator_id),
     )
-    if (
-        now["data_revision"] != was["data_revision"]
-        or now["feature_count"] != was["feature_count"]
-        or not same_writer
-    ):
+    if not same_data(was, now) or not same_writer:
         raise ItemFailed(
             f"dataset {dataset_id} changed in GeoLens while it was shared with "
             "its new groups; it was left as it is"
