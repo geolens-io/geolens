@@ -1323,7 +1323,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/sources/adapters/arcgis.py": 1084,
     # Source API router debt; each credential door judges its URL's scheme in
     # place. Split discovery, preview and dispatch endpoints before raising further.
-    "backend/app/modules/catalog/sources/router.py": 1708,
+    "backend/app/modules/catalog/sources/router.py": 1722,
     # STAC import door: per-item refusals, failure codes and quicklook draws sit
     # beside the batch loop.
     "backend/app/modules/catalog/sources/stac_router.py": 1058,
@@ -1392,7 +1392,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/embeddings/backfill.py": 909,
     # Reupload preview, compatibility, the file and service review, and staged
     # commit share an endpoint lifecycle and the capability its jobs record.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1712,
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1715,
     # VRT creation and regeneration share publication, member and submitter
     # re-authorization and its refusal, owed-object records and superseded-object
     # cleanup; regeneration's claim, build and store phases are functions here.

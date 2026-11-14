@@ -252,6 +252,7 @@
     "uploadFileSizeExceeded": "El archivo ({{size_mb}} MB) supera el máximo permitido ({{limit_mb}} MB).",
     "uploadFileSizeLimitExceeded": "El archivo supera el tamaño máximo permitido ({{limit_mb}} MB).",
     "uploadServicePreviewFailed": "No se pudo previsualizar la capa remota. El servicio puede no estar disponible o el formato de la capa no es compatible.",
+    "uploadServicePreviewTimeout": "La capa tardó demasiado en previsualizarse. El servicio respondió, pero no devolvió a tiempo las primeras entidades de la capa.",
     "uploadPreviewFailed": "No se pudo previsualizar el archivo. Puede estar dañado o no ser compatible.",
     "uploadRasterPreviewFailed": "No se pudo previsualizar el archivo ráster. Puede estar dañado o no ser compatible.",
     "uploadFilenameControlCharacters": "El nombre del archivo contiene caracteres de control no permitidos.",
