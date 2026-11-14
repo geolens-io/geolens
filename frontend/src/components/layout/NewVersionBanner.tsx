@@ -10,26 +10,28 @@ export function NewVersionBanner() {
   // Holds the server version that was dismissed, so a later release re-prompts.
   const [dismissed, setDismissed] = useState<string | null>(null);
 
-  if (!serverVersion || dismissed === serverVersion) return null;
+  const visible = serverVersion !== null && dismissed !== serverVersion;
 
+  // The live region stays mounted while empty so assistive tech registers it
+  // before the message arrives.
   return (
-    <div
-      role="status"
-      aria-live="polite"
-      className="relative flex items-center justify-center gap-3 border-b border-info/30 bg-info/10 px-8 py-1.5 text-sm text-info"
-    >
-      <span>{t('newVersion.message')}</span>
-      <Button type="button" size="sm" variant="outline" onClick={() => window.location.reload()}>
-        {t('newVersion.reload')}
-      </Button>
-      <button
-        type="button"
-        onClick={() => setDismissed(serverVersion)}
-        aria-label={t('close')}
-        className="absolute end-2 top-1/2 -translate-y-1/2 rounded p-0.5 opacity-70 hover:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-current"
-      >
-        <X className="h-3.5 w-3.5" />
-      </button>
+    <div role="status" aria-live="polite">
+      {visible && (
+        <div className="relative flex items-center justify-center gap-3 border-b border-info/30 bg-info/10 px-8 py-1.5 text-sm text-info">
+          <span>{t('newVersion.message')}</span>
+          <Button type="button" size="sm" variant="outline" onClick={() => window.location.reload()}>
+            {t('newVersion.reload')}
+          </Button>
+          <button
+            type="button"
+            onClick={() => setDismissed(serverVersion)}
+            aria-label={t('close')}
+            className="absolute end-2 top-1/2 -translate-y-1/2 rounded p-0.5 opacity-70 hover:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-current"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

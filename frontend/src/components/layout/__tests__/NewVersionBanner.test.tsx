@@ -1,5 +1,5 @@
 /** NewVersionBanner shows only when the server reports a different, non-empty version. */
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { NewVersionBanner } from '../NewVersionBanner';
 import { apiFetch } from '@/api/client';
@@ -43,7 +43,10 @@ describe('NewVersionBanner', () => {
   it('shows when the server version differs', async () => {
     fetchMock.mockResolvedValue({ version: '1.1.0' });
     renderBanner();
-    expect(await screen.findByRole('status')).toHaveTextContent(/new version/i);
+    const region = screen.getByRole('status');
+    expect(region).toBeEmptyDOMElement();
+    expect(await within(region).findByText(/new version/i)).toBeInTheDocument();
+    expect(screen.getByRole('status')).toBe(region);
   });
 
   it.each([
@@ -55,7 +58,7 @@ describe('NewVersionBanner', () => {
     fetchMock.mockResolvedValue(body);
     renderBanner();
     await settled();
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
   it('stays hidden when the bundle has no version', async () => {
@@ -63,14 +66,14 @@ describe('NewVersionBanner', () => {
     fetchMock.mockResolvedValue({ version: '1.1.0' });
     renderBanner();
     await settled();
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
   it('stays hidden when the request fails', async () => {
     fetchMock.mockRejectedValue(new Error('down'));
     renderBanner();
     await settled();
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
   it('does not re-call /health inside the stale window after a failure', async () => {
@@ -89,11 +92,11 @@ describe('NewVersionBanner', () => {
     try {
       fetchMock.mockResolvedValue({ version: '1.1.0' });
       renderBanner();
-      await screen.findByRole('status');
+      await screen.findByText(/new version/i);
       fetchMock.mockRejectedValue(new Error('down'));
       vi.setSystemTime(Date.now() + 61_000);
       act(() => setVisibility('visible'));
-      await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
+      await waitFor(() => expect(screen.getByRole('status')).toBeEmptyDOMElement());
     } finally {
       vi.useRealTimers();
     }
@@ -104,11 +107,11 @@ describe('NewVersionBanner', () => {
     const reload = vi.fn();
     vi.stubGlobal('location', { ...window.location, reload });
     renderBanner();
-    await screen.findByRole('status');
+    await screen.findByText(/new version/i);
     fireEvent.click(screen.getByRole('button', { name: /reload/i }));
     expect(reload).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole('button', { name: /close/i }));
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
   it.each([
@@ -120,8 +123,8 @@ describe('NewVersionBanner', () => {
     fetchMock.mockResolvedValue({ version: server });
     renderBanner();
     await settled();
-    if (shown) expect(await screen.findByRole('status')).toBeInTheDocument();
-    else expect(screen.queryByRole('status')).toBeNull();
+    if (shown) expect(await screen.findByText(/new version/i)).toBeInTheDocument();
+    else expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
   it('re-checks on visibility only after the stale window and re-prompts for a newer version', async () => {
@@ -129,7 +132,7 @@ describe('NewVersionBanner', () => {
     try {
       fetchMock.mockResolvedValue({ version: '1.1.0' });
       renderBanner();
-      await screen.findByRole('status');
+      await screen.findByText(/new version/i);
       fireEvent.click(screen.getByRole('button', { name: /close/i }));
       fetchMock.mockResolvedValue({ version: '1.2.0' });
       const calls = fetchMock.mock.calls.length;
@@ -141,7 +144,7 @@ describe('NewVersionBanner', () => {
       vi.setSystemTime(Date.now() + 61_000);
       act(() => setVisibility('visible'));
       await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(calls));
-      expect(await screen.findByRole('status')).toBeInTheDocument();
+      expect(await screen.findByText(/new version/i)).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
