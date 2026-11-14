@@ -163,6 +163,14 @@ describe("a widget's own filter", () => {
     expect(widgetProblem(filtered(half), layer())).toBeNull();
     expect(widgetProblem(filtered(half), layer({ filter: half as never }))).toEqual({ kind: 'filterTooLarge' });
   });
+
+  it('holds a widget without a filter of its own when the layer filter is past what the aggregate endpoint takes', () => {
+    const values = Array.from({ length: 900 }, (_, i) => `value-${i}`);
+    const members = ['in', ['get', 'kind'], ['literal', values]];
+    expect(widgetProblem(indicator({}), layer({ filter: members as never }))).toEqual({ kind: 'filterTooLarge' });
+    const half = ['in', ['get', 'kind'], ['literal', values.slice(0, 450)]];
+    expect(widgetProblem(indicator({}), layer({ filter: half as never }))).toBeNull();
+  });
 });
 
 describe('dashboard drafts', () => {

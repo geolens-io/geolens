@@ -60,6 +60,28 @@ describe('the widget filter shapes the server takes', () => {
   });
 });
 
+interface LayerCase {
+  name: string;
+  filter: unknown;
+  columns: { name: string; type?: string }[] | null;
+  sent: boolean;
+  values: number;
+}
+
+const layerCases = (
+  JSON.parse(
+    readFileSync(resolve(__dirname, '../../../../backend/tests/fixtures/layer_filter_cases.json'), 'utf-8'),
+  ) as { cases: LayerCase[] }
+).cases;
+
+describe('the layer filter the viewer sends with a widget request', () => {
+  it.each(layerCases.map((shape) => [shape.name, shape] as const))('%s', (_name, shape) => {
+    const sent = layerFilterToServerCql2(normalized(shape.filter) as never, shape.columns);
+    const cql2 = sent && sent !== 'unsupported' ? sent : null;
+    expect([cql2 !== null, cql2 ? values(cql2) : 0]).toEqual([shape.sent, shape.values]);
+  });
+});
+
 describe('a malformed widget filter', () => {
   const tokens: unknown[] = [
     'all', 'any', '!', 'in', '!in', 'has', '!has', 'none', 'get', 'literal', '==', '!=', '<', '>=',

@@ -11,7 +11,9 @@ frontend's ``widgetFilterShape``.
 import datetime
 import math
 import re
+import sys
 from collections.abc import Mapping
+from contextvars import ContextVar
 from typing import Any, NamedTuple
 
 from app.modules.catalog.maps.filter_grammar import FilterValidationError
@@ -54,6 +56,8 @@ _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 _LOW, _HIGH = -1_000_000_000_000, 1_000_000_000_000
 # JSON integers past this reach the browser rounded, so the viewer can't send them.
 _MAX_SAFE_INTEGER = 2**53 - 1
+# The viewer still sends a layer filter's rounded whole number where the column takes it.
+_UNSAFE_INTEGERS: ContextVar[bool] = ContextVar("unsafe_integers", default=False)
 _REFUSED = (
     "A widget filter takes only the conditions the filter editor writes: "
     "comparisons, value lists, contains, has and is-empty tests on named "
@@ -84,10 +88,13 @@ def _is_number(value: Any) -> bool:
     if isinstance(value, bool):
         return False
     if isinstance(value, int):
-        return abs(value) <= _MAX_SAFE_INTEGER
+        # Past the double range the browser reads Infinity, which it doesn't send.
+        bound = sys.float_info.max if _UNSAFE_INTEGERS.get() else _MAX_SAFE_INTEGER
+        return abs(value) <= bound
     if isinstance(value, float):
-        return math.isfinite(value) and not (
-            value.is_integer() and abs(value) > _MAX_SAFE_INTEGER
+        return math.isfinite(value) and (
+            not (value.is_integer() and abs(value) > _MAX_SAFE_INTEGER)
+            or _UNSAFE_INTEGERS.get()
         )
     return False
 
@@ -454,18 +461,27 @@ def measure_cql2(cql2: Any) -> tuple[int, int]:
 
 
 def widget_filter_cql2(
-    value: Any, types: Mapping[str, str] | None = None
+    value: Any,
+    types: Mapping[str, str] | None = None,
+    *,
+    unsafe_integers: bool = False,
 ) -> WidgetFilter:
     """The CQL2 the viewer sends for a normalized widget filter.
 
     ``types`` maps the layer's columns to their types, which decide how a
     date or timestamp literal is written. Raises ``FilterValidationError``
-    for any shape the converter would not send.
+    for any shape the converter would not send. ``unsafe_integers`` accepts a
+    whole number past JavaScript's safe range where its column's type allows
+    one, as the viewer's layer-filter converter does.
     """
     if value is None:
         return WidgetFilter(None, frozenset(), 0, 0)
-    builder = _Builder(types)
-    expression = _legacy(value) if _classify(value) == "legacy" else value
-    cql2 = builder.tree(expression)
+    token = _UNSAFE_INTEGERS.set(unsafe_integers)
+    try:
+        builder = _Builder(types)
+        expression = _legacy(value) if _classify(value) == "legacy" else value
+        cql2 = builder.tree(expression)
+    finally:
+        _UNSAFE_INTEGERS.reset(token)
     values, depth = measure_cql2(cql2) if cql2 is not None else (0, 0)
     return WidgetFilter(cql2, frozenset(builder.columns), values, depth)

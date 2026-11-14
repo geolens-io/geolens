@@ -1220,7 +1220,10 @@ export function useBuilderSave(state: SaveState) {
       return;
     }
     // A layer filter counts toward each widget's request, so an unedited dashboard is checked for size too.
-    const widgetIssue = firstWidgetProblem(dashboard, localLayers, sendDashboard ? undefined : ['filterTooLarge']);
+    const widgetIssue = firstWidgetProblem(dashboard, localLayers, sendDashboard ? undefined : ['filterTooLarge'], {
+      dashboard: savedDashboard,
+      layers: baselineLayersRef.current,
+    });
     if (widgetIssue) {
       toast.error(
         widgetIssue.kind === 'viewWithoutGeometry'

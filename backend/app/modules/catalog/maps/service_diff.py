@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.maps import dashboard_filters
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.schemas import (
     _MAX_LAYERS_PER_MAP,
@@ -142,9 +143,16 @@ async def apply_layer_diff(
     user: Identity,
     user_roles: set[str],
 ) -> tuple[Map, list[LayerRow], str | None, str | None]:
-    """Apply an incremental layer diff. Flushes but does NOT commit."""
+    """Apply an incremental layer diff. Flushes but does NOT commit.
+
+    Refuses (422) a filter that puts a dashboard widget past the aggregate's limits.
+    """
     await lock_map_layers(session, map_id)
-    result = await session.execute(select(Map).where(Map.id == map_id))
+    # Read the stored dashboard and filters, not the copies the caller loaded.
+    fresh = {"populate_existing": True}
+    result = await session.execute(
+        select(Map).where(Map.id == map_id).execution_options(**fresh)
+    )
     map_obj = result.scalar_one_or_none()
     if map_obj is None:
         raise ValueError(f"Map {map_id} not found")
@@ -153,6 +161,7 @@ async def apply_layer_diff(
         select(MapLayer)
         .where(MapLayer.map_id == map_id)
         .order_by(MapLayer.sort_order, MapLayer.id)  # Deterministic tie-break
+        .execution_options(**fresh)
     )
     existing_layers = list(layers_result.scalars().all())
     existing_by_id = {layer.id: layer for layer in existing_layers}
@@ -208,6 +217,7 @@ async def apply_layer_diff(
             for row in dem_result.all()
         }
 
+    filters_before = {layer.id: layer.filter for layer in existing_layers}
     for layer_data in updated:
         layer = existing_by_id[layer_data["id"]]
         patch = {
@@ -228,6 +238,14 @@ async def apply_layer_diff(
             )
         for key, value in patch.items():
             setattr(layer, key, value)
+    surviving = [layer for layer in existing_layers if layer.id not in removed_ids]
+    # Checking a hidden layer's widgets would name ones this caller can't see.
+    refiltered = dashboard_filters.refiltered(surviving, filters_before)
+    if refiltered and await _unreadable_layer_ids(session, refiltered, user):
+        raise PermissionError("Cannot access one or more layer datasets")
+    await dashboard_filters.refuse_layer_filter_past_limits(
+        session, map_obj.dashboard_config, surviving, filters_before
+    )
 
     if added:
         RasterAsset = get_catalog_port().raster_asset_orm_class()
@@ -270,7 +288,6 @@ async def apply_layer_diff(
 
     if order is not None:
         ordered_set = set(order)
-        surviving = [layer for layer in existing_layers if layer.id not in removed_ids]
         hidden_ids = await _unreadable_layer_ids(session, surviving, user)
         listed = [existing_by_id[layer_id] for layer_id in order]
         unlisted = [layer for layer in surviving if layer.id not in ordered_set]
