@@ -1789,3 +1789,89 @@ def test_a_collection_that_lost_its_data_keeps_the_earlier_bundle_and_recovers(
     result, _ = _run_c2(runner, plan_file)
     assert result.exit_code == 0, result.output
     assert _state(plan_file)["items"][C2]["status"] == "done"
+
+
+@pytest.mark.parametrize("kind", ["malformed", "forbidden", "oversized"])
+@pytest.mark.parametrize("refresh", [False, True])
+def test_a_collection_whose_data_was_not_saved_fails_and_keeps_the_earlier_bundle(
+    runner, tmp_path, geolens, install, monkeypatch, kind, refresh
+):
+    portal = install({f"content/items/{C2}/data": _COLLECTION})
+    plan_file = _collection_plan(tmp_path, False)
+    folder = _export(plan_file, "feature-collection", C2)
+    if refresh:
+        result, _ = _run_c2(runner, plan_file)
+        assert result.exit_code == 0, result.output
+        before = _tree(folder)
+        modified = _state(plan_file)["items"][C2]["export"]["modified"]
+        item = portal.routes[f"content/items/{C2}"]
+        portal.routes[f"content/items/{C2}"] = {
+            **item,
+            "modified": item["modified"] + 60_000,
+        }
+    bad = {
+        "malformed": b'{"layers": [',
+        "forbidden": (403, {"error": {"code": 403}}),
+        "oversized": b'{"layers": []}' + b" " * 64,
+    }[kind]
+    portal.routes[f"content/items/{C2}/data"] = bad
+    if kind == "oversized":
+        monkeypatch.setattr(export_module, "JSON_LIMIT", 32)
+
+    result, payload = _run_c2(runner, plan_file)
+
+    assert result.exit_code == 1
+    if refresh:
+        assert payload["not_up_to_date"][C2]
+        assert _tree(folder) == before
+        assert _state(plan_file)["items"][C2]["export"]["modified"] == modified
+    else:
+        assert _state(plan_file)["items"][C2]["status"] == "failed"
+
+
+def test_an_exhausted_export_budget_fails_a_collection(
+    runner, tmp_path, geolens, install
+):
+    install({f"content/items/{C2}/data": b'{"layers": []}' + b" " * 1_200_000})
+    plan_file = _collection_plan(tmp_path, False)
+
+    result, _ = _run_c2(runner, plan_file, "--export-cap-mb", "1")
+
+    assert result.exit_code == 1
+    assert _state(plan_file)["items"][C2]["status"] == "failed"
+
+
+def test_an_older_plans_feature_collection_is_treated_as_export_only(
+    runner, tmp_path, geolens, install
+):
+    outcomes = []
+    for legacy, skipped_before in [(False, False), (True, False), (True, True)]:
+        sub = tmp_path / f"{legacy}-{skipped_before}"
+        sub.mkdir()
+        install(
+            {
+                f"content/items/{C2}/data": _COLLECTION,
+                f"content/items/{C2}/resources": _resources(),
+            }
+        )
+        plan_file = _collection_plan(sub, legacy)
+        if skipped_before:
+            state = {
+                "schema_version": "1",
+                "portal_url": json.loads(plan_file.read_text())["portal"]["url"],
+                "geolens_instance": layers.GEOLENS_INSTANCE,
+                "items": {C2: {"status": "skipped"}},
+            }
+            (sub / "arcgis-migration-state.json").write_text(json.dumps(state))
+        result, _ = _run_c2(runner, plan_file)
+        assert result.exit_code == 0, result.output
+        entry = _state(plan_file)["items"][C2]
+        outcomes.append((entry["status"], entry["export"]["files"].keys()))
+        plan = json.loads(plan_file.read_text())
+        for item in plan["items"]:
+            if item["id"] != C2:
+                item["action"] = "skip"
+        plan_file.write_text(json.dumps(plan))
+        _, payload = _migrate(runner, plan_file, "--token", TOKEN, "--cutover")
+        assert "unfinished-items" not in payload["cutover"]["refused"]
+    assert len({(s, tuple(sorted(f))) for s, f in outcomes}) == 1

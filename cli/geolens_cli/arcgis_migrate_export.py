@@ -609,10 +609,14 @@ def _require_collection(export: _Export, item: Mapping[str, Any], data: Any) -> 
     one."""
     if item["type"] != "Feature Collection" or _usable_collection(data):
         return
-    if any(e.startswith("data") for e in export.errors):
-        return
-    message = "data: not a Feature Collection with a layer, nothing usable saved"
-    export.errors.append(message)
+    existing = [e for e in export.errors if e.startswith("data")]
+    message = (
+        existing[0]
+        if existing
+        else "data: not a Feature Collection with a layer, nothing usable saved"
+    )
+    if not existing:
+        export.errors.append(message)
     export.failures.append(message)
 
 

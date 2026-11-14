@@ -585,6 +585,10 @@ def load_plan(path: Path) -> dict[str, Any]:
         raise PlanError(
             f"{path} lists these item ids more than once: {', '.join(repeated)}"
         )
+    for item in data["items"]:
+        # Plans from before Feature Collections defaulted to export_only.
+        if item["type"] == "Feature Collection" and item["action"] == IMPORT_FILE:
+            item["action"] = EXPORT_ONLY
     return data
 
 

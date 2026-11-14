@@ -399,7 +399,9 @@ def test_a_rerun_after_a_lost_commit_answer_does_not_upload_again(
     assert _state(plan_file)["items"][D3]["status"] == "done"
 
 
-def test_a_feature_collection_is_skipped_with_a_note(runner, tmp_path, geolens, portal):
+def test_a_feature_collection_under_an_older_plan_is_exported_not_uploaded(
+    runner, tmp_path, geolens, portal
+):
     files = FakeFiles(geolens)
     portal.routes[item_data_path(D3)] = {"layers": [{"featureSet": {"features": []}}]}
     plan_file = _plan(tmp_path, type="Feature Collection")
@@ -414,7 +416,7 @@ def test_a_feature_collection_is_skipped_with_a_note(runner, tmp_path, geolens, 
 
     assert result.exit_code == 0, result.output
     entry = _state(plan_file)["items"][D3]
-    assert entry["status"] == "skipped" and "ArcGIS JSON" in entry["notes"][0]
+    assert entry["status"] == "done"
     assert not files.uploads
     assert (tmp_path / "export" / "feature-collection" / D3 / "item.json").exists()
 
@@ -589,7 +591,7 @@ def test_a_private_feature_collection_is_exported_with_a_token(
     result, _ = _migrate(runner, plan_file, "--only", D3, "--token", "token-value-1234")
 
     assert result.exit_code == 0, result.output
-    assert _state(plan_file)["items"][D3]["status"] == "skipped"
+    assert _state(plan_file)["items"][D3]["status"] == "done"
 
 
 def test_a_geojson_that_starts_like_an_error_envelope_is_saved_whole(

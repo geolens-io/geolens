@@ -1841,11 +1841,7 @@ def _portal_client(
         for i in to_run
         if i["action"] in _PORTAL_ACTIONS
         and i["id"] in rows
-        and (
-            i["action"] != _plan.IMPORT_FILE
-            # A Feature Collection under import_file is exported.
-            or i["type"] in FILE_TYPES | {"Feature Collection"}
-        )
+        and (i["action"] != _plan.IMPORT_FILE or i["type"] in FILE_TYPES)
     ]
     # A private file that resumes without a download needs no credential; if
     # its job turns out to be gone, the item says to rerun with one.
