@@ -7,6 +7,7 @@ the preview door and the replacement worker both read the choice here.
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import Iterable, Mapping
 from typing import Any, NamedTuple
@@ -90,6 +91,45 @@ def columns_to_build(
         if laundered_column_name(column) not in names
     ]
     return (None if missing else recorded), missing
+
+
+_WKT_TYPE_RE = re.compile(
+    r"^\s*(?:SRID=\d+;)?\s*([A-Z]+?)\s*(ZM|Z|M)?\s*(?:\(|EMPTY)", re.IGNORECASE
+)
+_MULTI_OF = {
+    "POINT": "MULTIPOINT",
+    "LINESTRING": "MULTILINESTRING",
+    "POLYGON": "MULTIPOLYGON",
+}
+
+
+def declared_build_type(
+    build: GeometrySelection, sample_rows: Iterable[Mapping[str, Any]]
+) -> str:
+    """The geometry type a preview declares for geometry built from ``build``.
+
+    Points for an x/y pair. For a WKT column, the type the build stores for
+    the sample rows' values, or the generic type when they don't settle it.
+    """
+    if "x_column" in build.columns:
+        return "POINT"
+    column = laundered_column_name(build.columns["geom_column"])
+    types: set[str] = set()
+    flags: set[str] = set()
+    for row in sample_rows:
+        for key, value in row.items():
+            if laundered_column_name(key) != column or not isinstance(value, str):
+                continue
+            match = _WKT_TYPE_RE.match(value)
+            if match is None:
+                return "GEOMETRY"
+            types.add(match.group(1).upper())
+            flags.add((match.group(2) or "").upper())
+    families = {_MULTI_OF.get(geometry_type, geometry_type) for geometry_type in types}
+    if len(families) != 1:
+        return "GEOMETRY"
+    base = next(iter(types)) if len(types) == 1 else next(iter(families))
+    return base + (next(iter(flags)) if len(flags) == 1 else "")
 
 
 async def recorded_geometry_selection(

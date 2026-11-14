@@ -10,10 +10,8 @@ from sqlalchemy import exists, select, text, update
 
 from app.core.db.tenant_session import tenant_task
 from app.core.failure_reason import FixedReason, failure_code, redact_failure_reason
-from app.core.upload_errors import (
-    geometry_columns_missing_refusal,
-    geometry_loss_refusal,
-)
+from app.core import geometry_build_errors
+from app.core.upload_errors import geometry_loss_refusal
 from app.core.url_redaction import scrub_secret_from_exception
 from app.platform.catalog_locks import (
     CATALOG_LOCK_CONFLICT_CODE,
@@ -174,14 +172,6 @@ def _assert_geometry_survives(
         raise IngestionError(geometry_loss)
 
 
-class GeometryColumnsMissingError(ValueError):
-    """The replacement lacks columns the dataset's geometry is built from."""
-
-    def __init__(self, columns: list[str]) -> None:
-        super().__init__(geometry_columns_missing_refusal(columns))
-        self.columns = columns
-
-
 async def _detect_reupload_crs(
     file_path: str,
     layer_name: str | None,
@@ -225,7 +215,7 @@ async def _detect_reupload_crs(
         driver=info.get("driver"),
     )
     if missing:
-        raise GeometryColumnsMissingError(missing)
+        raise geometry_build_errors.columns_missing(missing)
     if build is not None:
         effective_srid = srid_override if srid_override is not None else build.srid
         effective_srid = effective_srid if effective_srid is not None else 4326
@@ -588,6 +578,7 @@ class _FileReupload(_LiveComparison):
         self.verification: dict | None = None
         # Kept while a person can still accept this upload's blocked run.
         self.held = False
+        self.live_selection: GeometrySelection | None = None
 
     def prepare(self, job, dataset, staging_table: str) -> None:
         # Read off the row, not the local `file_path` a download rebinds.
@@ -644,7 +635,7 @@ class _FileReupload(_LiveComparison):
             except ValueError:
                 self.refused = True
                 raise
-            recorded = await recorded_geometry_selection(
+            self.live_selection = recorded = await recorded_geometry_selection(
                 session,
                 dataset_id=self.dataset_id,
                 current_version=self.prior_version,
@@ -877,9 +868,10 @@ class _FileReupload(_LiveComparison):
                 contacted_origin=False,
                 reaps_staged_upload=True,
             )
-            self._record_unchanged_selection(dataset)
+            await self._record_live_selection(session, dataset)
             await self._apply_manifest(session, dataset)
             return published
+        await self._record_live_selection(session, dataset)
         version, schema_diff = await _write_reupload_catalog(
             session,
             dataset=dataset,
@@ -917,27 +909,30 @@ class _FileReupload(_LiveComparison):
     def _geometry_fields(self) -> dict:
         return {} if self.geometry_build is None else self.geometry_build.fields()
 
-    def _record_unchanged_selection(self, dataset) -> None:
-        """Record on the binding the selection unchanged data was rebuilt with.
+    async def _record_live_selection(self, session, dataset) -> None:
+        """Record on the binding the selection the live data was built from.
 
-        A dataset imported before bindings recorded one gains it here, so a
-        later replacement need not find its import job.
+        Before the live version is kept, so its row and a later restore have
+        it, and before an unchanged run leaves the binding as it is. A dataset
+        imported before bindings recorded one otherwise has it only on its
+        import job.
         """
         ref = dataset.origin_ref or {}
+        live = self.live_selection
         if (
-            self.geometry_build is None
-            or geometry_selection(ref) == self.geometry_build
+            live is None
+            or ref.get("kind") != "upload"
+            or geometry_selection(ref) == live
         ):
             return
         fields = {key: value for key, value in ref.items() if key != "kind"}
         restamp(
             dataset,
-            SourceBinding.from_ref(
-                dataset.source_format, {**fields, **self._geometry_fields()}
-            ),
+            SourceBinding.from_ref(dataset.source_format, {**fields, **live.fields()}),
             contacted_at=dataset.last_checked_at,
             refreshed_at=KEEP,
         )
+        await session.flush()
 
     async def _apply_manifest(self, session, dataset) -> None:
         # A manifest re-apply lands here carrying the manifest's current
@@ -961,14 +956,8 @@ class _FileReupload(_LiveComparison):
                 "missing_crs_reupload",
                 reason=FixedReason(str(exc), code="missing_crs_reupload"),
             )
-        if isinstance(exc, GeometryColumnsMissingError):
-            # The column names come from the file, so they are redacted too.
-            return Failure(
-                "geometry_columns_missing",
-                reason=FixedReason(
-                    redact_failure_reason(str(exc)), code="geometry_columns_missing"
-                ),
-            )
+        if isinstance(exc, geometry_build_errors.GeometryBuildError):
+            return Failure(exc.reason.code, reason=exc.reason)
         return Failure(_file_refresh_error_code(exc))
 
     async def release(

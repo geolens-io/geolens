@@ -1,9 +1,13 @@
 """Which recorded geometry columns a replacement source has, and how ogrinfo's text reports fields."""
 
+import re
+
 import pytest
 
+from app.core.geometry_build_errors import GEOMETRY_BUILD_SENTENCES, columns_missing
 from app.platform.source_geometry_columns import (
     GeometrySelection,
+    declared_build_type,
     columns_to_build,
     geometry_selection,
 )
@@ -76,11 +80,9 @@ def test_a_commit_override_is_the_recorded_crs_of_an_older_import_job():
     assert geometry_selection({"x_column": "x"}) is None
 
 
-def test_the_frontend_reads_the_columns_out_of_the_stored_sentence():
-    """``failure-reason.ts`` splits the worker's sentence around the column names."""
+def test_the_frontend_has_every_sentence_it_reads_values_from():
+    """``failure-reason.ts`` matches stored reasons against these templates."""
     from pathlib import Path
-
-    from app.core.upload_errors import geometry_columns_missing_refusal
 
     found = [
         root / "frontend/src/lib/failure-reason.ts"
@@ -90,6 +92,51 @@ def test_the_frontend_reads_the_columns_out_of_the_stored_sentence():
     if not found:
         pytest.skip("the frontend sources are not in this checkout")
     source = found[0].read_text(encoding="utf-8")
-    prefix, suffix = geometry_columns_missing_refusal(["\0"]).split("\0")
-    assert f'"{prefix}"' in source
-    assert f"'{suffix}'" in source
+    for code, template in GEOMETRY_BUILD_SENTENCES.items():
+        if "{" in template:
+            frontend = re.sub(r"\{(\w+)\}", r"{{\1}}", template)
+            assert f"{code}:" in source and f'"{frontend}"' in source, code
+
+
+def test_a_header_on_several_lines_is_named_on_one():
+    """The stored sentence keeps the suffix the frontend reads the names before."""
+    reason = columns_missing(["Lat:\nDeg", "lon"]).reason
+    assert reason.code == "geometry_columns_missing"
+    assert str(reason) == GEOMETRY_BUILD_SENTENCES["geometry_columns_missing"].format(
+        columns="Lat: Deg, lon"
+    )
+
+
+@pytest.mark.parametrize(
+    "values,declared",
+    [
+        (["POINT (1 2)", "POINT(3 4)"], "POINT"),
+        (["POINT (1 2)", "MULTIPOINT ((3 4))"], "MULTIPOINT"),
+        (["POINT Z (1 2 3)", "POINTZ(3 4 5)"], "POINTZ"),
+        (["POINT Z (1 2 3)", "POINT (3 4)"], "POINT"),
+        (["POINT (1 2)", "LINESTRING (0 0, 1 1)"], "GEOMETRY"),
+        (["SRID=4326;POLYGON ((0 0, 1 0, 1 1, 0 0))"], "POLYGON"),
+        (["not wkt"], "GEOMETRY"),
+    ],
+)
+def test_a_preview_declares_what_the_build_stores(values, declared):
+    build = GeometrySelection({"geom_column": "Shape_WKT"}, None)
+    rows = [{"name": "a", "shape_wkt": value} for value in values]
+    assert declared_build_type(build, rows) == declared
+
+
+@pytest.mark.parametrize(
+    "found,typmod,stored",
+    [
+        ([("POINT", 0)], "POINT", "g"),
+        ([("POINT", 0), ("MULTIPOINT", 0)], "MULTIPOINT", "ST_Multi(g)"),
+        ([("POLYGON", 0), ("LINESTRING", 0)], "GEOMETRY", "ST_Multi(g)"),
+        ([("POINT", 2), ("POINT", 0)], "POINT", "ST_Force2D(g)"),
+        ([("POINTM", 1)], "POINTM", "g"),
+        ([], "GEOMETRY", "g"),
+    ],
+)
+def test_the_build_stores_one_family_in_multi_form(found, typmod, stored):
+    from app.processing.ingest.metadata_geometry import _wkt_column_type
+
+    assert _wkt_column_type(found, "g") == (typmod, stored)

@@ -22,9 +22,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.permissions import EDIT_METADATA
 from app.core.failure_reason import redact_failure_reason
 from app.core.geo import unknown_srid_refusal
+from app.core.geometry_build_errors import columns_missing
 from app.core.upload_errors import (
     CodedRefusal,
-    geometry_columns_missing_refusal,
     geometry_loss_refusal,
     refusal_detail,
 )
@@ -54,6 +54,7 @@ from app.modules.catalog.datasets.domain.service import (
 from app.core.dependencies import get_db
 from app.platform.source_geometry_columns import (
     columns_to_build,
+    declared_build_type,
     recorded_geometry_selection,
 )
 from app.platform.jobs.defer_guard import (
@@ -901,7 +902,7 @@ async def reupload_preview(
     if build is not None:
         info = {
             **info,
-            "geometry_type": "Point" if "x_column" in build.columns else None,
+            "geometry_type": declared_build_type(build, info.get("sample_rows") or ()),
         }
         if srid_override is None:
             srid_override = build.srid if build.srid is not None else 4326
@@ -913,12 +914,16 @@ async def reupload_preview(
         dataset_geometry_type=prior_geometry_type,
         source_has_geometry=info.get("geometry_type") is not None or build is not None,
     )
+    # A workbook's sheet is chosen from this preview, so the sheet it reads
+    # by default is not the one to hold to the recorded columns.
+    if recorded is not None and all_layers is not None and layer_name is None:
+        missing_columns, geometry_loss = [], None
     if missing_columns:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={
                 "code": "geometry_columns_missing",
-                "message": geometry_columns_missing_refusal(missing_columns),
+                "message": str(columns_missing(missing_columns)),
                 "columns": ", ".join(missing_columns),
             },
         )

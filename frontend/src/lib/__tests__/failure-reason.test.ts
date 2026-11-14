@@ -70,6 +70,36 @@ describe('describeFailureReason', () => {
     );
   });
 
+  it.each([
+    ['geometry_xy_not_numeric', '3 row(s) contain X/Y values that are not numbers', '3 fila(s) tienen valores X o Y'],
+    ['geometry_xy_outside_wgs84', '2 row(s) contain X/Y coordinates outside EPSG:4326 ranges', '2 fila(s) tienen coordenadas X/Y fuera'],
+    ['geometry_xy_not_finite', '4 row(s) contain X/Y coordinates outside finite values', '4 fila(s) tienen coordenadas X/Y que no son números finitos'],
+    [
+      'geometry_wkt_invalid_wgs84',
+      '5 row(s) contain invalid WKT geometry or coordinates outside EPSG:4326 ranges',
+      '5 fila(s) tienen geometría WKT no válida',
+    ],
+    [
+      'geometry_wkt_invalid',
+      '6 row(s) contain invalid WKT geometry or coordinates outside finite values',
+      '6 fila(s) tienen geometría WKT no válida o coordenadas que no son números finitos',
+    ],
+    ['geometry_wkt_malformed', 'WKT column contains malformed geometry text', 'La columna WKT contiene texto'],
+  ])("shows the geometry build failure %s in the reader's language", async (code, stored, text) => {
+    await changeTestLanguage('es');
+
+    expect(describeFailureReason(stored, 'Something went wrong', code)).toContain(text);
+  });
+
+  it('names a header the server joined onto one line', () => {
+    const stored =
+      "The replacement lacks the columns this dataset's geometry is built from (Lat: Deg, lon), so nothing was changed. Add them to the file, or import the file as a new dataset instead.";
+
+    expect(describeFailureReason(stored, 'Something went wrong', 'geometry_columns_missing')).toContain(
+      '(Lat: Deg, lon)',
+    );
+  });
+
   it('keeps a stored geometry-columns reason it cannot read the columns from', () => {
     const stored = 'internal_error';
     expect(describeFailureReason(stored, 'Something went wrong', 'geometry_columns_missing')).toBe(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
 import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -11,7 +12,6 @@ import pytest
 from sqlalchemy import select, text, update
 
 from app.core.config import settings
-from app.core.upload_errors import geometry_columns_missing_refusal
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.platform.extensions.defaults_catalog_port import DefaultCatalogPort
 from app.platform.jobs.models import IngestJob
@@ -19,7 +19,11 @@ from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.storage import provider as storage_provider
 from app.platform.storage.local import LocalStorageProvider
 from app.processing.ingest.tasks import reupload_file
-from app.processing.ingest.tasks_reupload import GeometryColumnsMissingError
+from app.core.geometry_build_errors import (
+    GEOMETRY_BUILD_SENTENCES,
+    GeometryBuildError,
+    columns_missing,
+)
 from app.processing.ingest.tasks_vector import ingest_file
 from tests.factories import get_user_id
 
@@ -53,7 +57,7 @@ class _Harness:
         self.tmp_path = tmp_path
         self.task = task
 
-    async def first_import(self, path: Path, **columns: str) -> Dataset:
+    async def first_import(self, path: Path, **columns) -> Dataset:
         """Import ``path`` as the ingest commit does, building geometry from ``columns``."""
         job = IngestJob(
             source_filename=path.name,
@@ -106,11 +110,13 @@ class _Harness:
         await self.session.commit()
         return job.id
 
-    async def preview(self, dataset: Dataset, job_id: uuid.UUID):
+    async def preview(
+        self, dataset: Dataset, job_id: uuid.UUID, body: dict | None = None
+    ):
         return await self.client.post(
             f"/datasets/{dataset.id}/reupload/{job_id}/preview",
             headers=self.headers,
-            json={},
+            json=body or {},
         )
 
     async def commit_and_run(self, dataset: Dataset, job_id: uuid.UUID, body: dict):
@@ -124,14 +130,21 @@ class _Harness:
         self.task.defer_async.reset_mock()
         await reupload_file(**kwargs)
 
-    async def replace(self, dataset: Dataset, path: Path) -> DatasetRefreshRun:
+    async def replace(
+        self, dataset: Dataset, path: Path, body: dict | None = None
+    ) -> DatasetRefreshRun:
         """Preview, commit with the preview's fingerprint, and run the worker."""
         job_id = await self.upload_job(dataset, path)
-        response = await self.preview(dataset, job_id)
+        response = await self.preview(dataset, job_id, body)
         assert response.status_code == 200, response.text
         fingerprint = response.json()["review_fingerprint"]
         await self.commit_and_run(
-            dataset, job_id, {"review_fingerprint": fingerprint} if fingerprint else {}
+            dataset,
+            job_id,
+            {
+                **(body or {}),
+                **({"review_fingerprint": fingerprint} if fingerprint else {}),
+            },
         )
         run = await self.run_for(job_id)
         assert run.status == "succeeded", (run.error_code, run.verification)
@@ -283,12 +296,12 @@ async def test_a_replacement_missing_a_column_is_refused_by_name(harness: _Harne
     assert detail["columns"] == "lat"
     assert "(lat)" in detail["message"]
 
-    with pytest.raises(GeometryColumnsMissingError):
+    with pytest.raises(GeometryBuildError):
         await harness.commit_and_run(dataset, job_id, {})
     job = await harness.session.get(IngestJob, job_id, populate_existing=True)
     assert job.status == "failed"
     assert job.error_code == "geometry_columns_missing"
-    assert job.error_message == geometry_columns_missing_refusal(["lat"])
+    assert job.error_message == str(columns_missing(["lat"]))
     run = await harness.run_for(job_id)
     assert run.error_code == "geometry_columns_missing"
     dataset = await harness.reload(dataset.id)
@@ -400,3 +413,173 @@ async def test_a_restored_version_keeps_the_columns_it_was_built_from(
     await harness.replace(dataset, _xy_csv(harness.tmp_path / "after.csv", _GROWN))
     dataset = await harness.reload(dataset.id)
     assert await harness.points(dataset) == _EXPECTED_GROWN
+
+
+@pytest.mark.parametrize(
+    "header,rows,code",
+    [
+        ("name,lon,lat", [("a", -73.98, "north")], "geometry_xy_not_numeric"),
+        ("name,lon,lat", [("a", -73.98, 95.0)], "geometry_xy_outside_wgs84"),
+        ("name,wkt_text", None, "geometry_wkt_malformed"),
+    ],
+)
+async def test_a_build_failure_is_stored_with_its_code(
+    harness: _Harness, header: str, rows, code: str
+):
+    """The job and run carry the code the frontend translates."""
+    if rows is None:
+        dataset = await harness.first_import(
+            _wkt_csv(harness.tmp_path / "shapes.csv", "wkt_text"),
+            geom_column="wkt_text",
+        )
+        bad = harness.tmp_path / "bad.csv"
+        bad.write_text('name,wkt_text\na,"POINT (1 2"\n')
+    else:
+        dataset = await harness.first_import(
+            _xy_csv(harness.tmp_path / "places.csv"), x_column="lon", y_column="lat"
+        )
+        bad = _xy_csv(harness.tmp_path / "bad.csv", rows, header=header)
+
+    job_id = await harness.upload_job(dataset, bad)
+    with pytest.raises(GeometryBuildError):
+        await harness.commit_and_run(dataset, job_id, {})
+    job = await harness.session.get(IngestJob, job_id, populate_existing=True)
+    assert (job.status, job.error_code) == ("failed", code)
+    assert job.error_message == GEOMETRY_BUILD_SENTENCES[code].format(rows=1)
+    assert (await harness.run_for(job_id)).error_code == code
+
+
+@pytest.mark.parametrize("replacement", ["changed", "native"])
+async def test_an_older_import_keeps_its_columns_through_a_replacement_and_restore(
+    harness: _Harness, replacement: str
+):
+    """The first version records the columns its import job holds when it is kept."""
+    dataset = await harness.first_import(
+        _xy_csv(harness.tmp_path / "older.csv"), x_column="lon", y_column="lat"
+    )
+    await harness.session.execute(
+        update(Dataset)
+        .where(Dataset.id == dataset.id)
+        .values(origin_ref={"kind": "upload", "filename": "older.csv"})
+    )
+    await harness.session.commit()
+    dataset = await harness.reload(dataset.id)
+
+    if replacement == "changed":
+        source = _xy_csv(harness.tmp_path / "changed.csv", _XY_ROWS[:2])
+    else:
+        source = _native_geojson(harness.tmp_path / "native.geojson")
+    await harness.replace(dataset, source)
+    await harness.restore(await harness.reload(dataset.id), 1)
+
+    dataset = await harness.reload(dataset.id)
+    await harness.replace(dataset, _xy_csv(harness.tmp_path / "after.csv", _GROWN))
+    dataset = await harness.reload(dataset.id)
+    assert await harness.points(dataset) == _EXPECTED_GROWN
+
+
+@pytest.mark.parametrize(
+    "single,multi,stored",
+    [
+        ("POINT ({x} {y})", "MULTIPOINT (({x} {y}))", "MULTIPOINT"),
+        (
+            "LINESTRING ({x} {y}, 0 0)",
+            "MULTILINESTRING (({x} {y}, 0 0))",
+            "MULTILINESTRING",
+        ),
+        (
+            "POLYGON (({x} {y}, 0 0, 0 1, {x} {y}))",
+            "MULTIPOLYGON ((({x} {y}, 0 0, 0 1, {x} {y})))",
+            "MULTIPOLYGON",
+        ),
+    ],
+)
+async def test_single_and_multi_geometries_of_one_family_are_stored_multi(
+    harness: _Harness, single: str, multi: str, stored: str
+):
+    def mixed(path: Path, rows) -> Path:
+        lines = ["name,shape_wkt"] + [
+            f'{n},"{(single if i % 2 == 0 else multi).format(x=x, y=y)}"'
+            for i, (n, x, y) in enumerate(rows)
+        ]
+        path.write_text("\n".join(lines) + "\n")
+        return path
+
+    dataset = await harness.first_import(
+        mixed(harness.tmp_path / "mixed.csv", _XY_ROWS), geom_column="shape_wkt"
+    )
+    assert dataset.geometry_type.upper() == stored
+
+    await harness.replace(dataset, mixed(harness.tmp_path / "more.csv", _GROWN))
+    dataset = await harness.reload(dataset.id)
+    assert (dataset.geometry_type.upper(), dataset.feature_count) == (stored, 4)
+
+
+async def test_a_workbook_offers_its_sheets_before_the_columns_are_checked(
+    harness: _Harness,
+):
+    """The default sheet may lack the columns; the chosen one may not."""
+    book = harness.tmp_path / "book.xlsx"
+    notes = _xy_csv(
+        harness.tmp_path / "notes.csv", [("a", "x", "y")], header="name,c,d"
+    )
+    places = _xy_csv(harness.tmp_path / "places.csv")
+    _ogr2ogr(book, notes, "-f", "XLSX", "-nln", "notes")
+    # Typed cells, so the XLSX driver reads the first row as the header.
+    _ogr2ogr(book, places, "-update", "-nln", "places", "-oo", "AUTODETECT_TYPE=YES")
+    dataset = await harness.first_import(
+        book, x_column="lon", y_column="lat", layer_name="places"
+    )
+    assert await harness.points(dataset) == _EXPECTED
+
+    again = harness.tmp_path / "again.xlsx"
+    _ogr2ogr(again, notes, "-f", "XLSX", "-nln", "notes")
+    _ogr2ogr(again, places, "-update", "-nln", "places", "-oo", "AUTODETECT_TYPE=YES")
+    job_id = await harness.upload_job(dataset, again)
+    response = await harness.preview(dataset, job_id)
+    assert response.status_code == 200, response.text
+    assert {layer["name"] for layer in response.json()["all_layers"]} == {
+        "notes",
+        "places",
+    }
+    refused = await harness.preview(dataset, job_id, {"layer_name": "notes"})
+    assert refused.json()["detail"]["code"] == "geometry_columns_missing"
+    chosen = await harness.preview(dataset, job_id, {"layer_name": "places"})
+    assert chosen.status_code == 200, chosen.text
+    await harness.commit_and_run(dataset, job_id, {"layer_name": "places"})
+    assert (await harness.run_for(job_id)).status == "succeeded"
+
+
+async def test_a_wkt_build_shows_a_crs_change_in_the_preview_the_worker_accepts(
+    harness: _Harness,
+):
+    """Preview and worker name the same CRS change, so the reviewed run publishes."""
+    dataset = await harness.first_import(
+        _wkt_csv(harness.tmp_path / "shapes.csv", "shape_wkt"), geom_column="shape_wkt"
+    )
+    run = await harness.replace(
+        dataset,
+        _wkt_csv(harness.tmp_path / "nad83.csv", "shape_wkt", _GROWN),
+        {"srid_override": 4269},
+    )
+    assert run.verification["review_reasons"] == ["srid_changed"]
+    assert run.verification["review_acknowledged_by"] == "preview"
+
+
+def _native_geojson(path: Path) -> Path:
+    features = ",".join(
+        f'{{"type":"Feature","properties":{{"name":"{n}","lon":{x},"lat":{y}}},'
+        f'"geometry":{{"type":"Point","coordinates":[{x},{y}]}}}}'
+        for n, x, y in _XY_ROWS[:2]
+    )
+    path.write_text(f'{{"type":"FeatureCollection","features":[{features}]}}')
+    return path
+
+
+def _ogr2ogr(destination: Path, source: Path, *args: str) -> None:
+    done = subprocess.run(
+        ["ogr2ogr", *args, str(destination), str(source)],
+        capture_output=True,
+        text=True,
+    )
+    assert done.returncode == 0, done.stderr

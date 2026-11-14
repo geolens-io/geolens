@@ -13,7 +13,7 @@ interpolated, so the frontend can translate it. ``code`` is required, since
 constructions.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 
 #: One wording for the two doors that can see the loss coming.
 _GEOMETRY_LOSS_MESSAGE = (
@@ -44,15 +44,6 @@ def geometry_loss_refusal(
     if source_has_geometry:
         return None
     return _GEOMETRY_LOSS_MESSAGE
-
-
-def geometry_columns_missing_refusal(columns: Sequence[str]) -> str:
-    """The refusal when a replacement lacks the columns the geometry is built from."""
-    return (
-        "The replacement lacks the columns this dataset's geometry is built "
-        f"from ({', '.join(columns)}), so nothing was changed. Add them to the "
-        "file, or import the file as a new dataset instead."
-    )
 
 
 class CodedRefusal(ValueError):

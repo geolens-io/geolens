@@ -16,6 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import geometry_build_errors
 from app.platform.column_names import (
     RESERVED_COLUMN_NAMES,
     free_name,
@@ -97,9 +98,7 @@ async def construct_point_geometry(
     )
     unparseable_count = int(unparseable.scalar_one())
     if unparseable_count:
-        raise ValueError(
-            f"{unparseable_count} row(s) contain X/Y values that are not numbers"
-        )
+        raise geometry_build_errors.xy_not_numeric(unparseable_count)
     if srid == 4326:
         valid_coordinates = (
             f"{x_col}::double precision BETWEEN -180 AND 180 AND "
@@ -119,10 +118,7 @@ async def construct_point_geometry(
     )
     invalid_count = int(invalid.scalar_one())
     if invalid_count:
-        coordinate_system = "EPSG:4326 ranges" if srid == 4326 else "finite values"
-        raise ValueError(
-            f"{invalid_count} row(s) contain X/Y coordinates outside {coordinate_system}"
-        )
+        raise geometry_build_errors.xy_out_of_range(invalid_count, wgs84=srid == 4326)
     await session.execute(
         text(f"ALTER TABLE {tref} ADD COLUMN geom geometry(Point, {srid})")
     )
@@ -140,6 +136,36 @@ async def construct_point_geometry(
     )
     # Async Result's type stub doesn't narrow to CursorResult, which has rowcount.
     return result.rowcount  # type: ignore[attr-defined]
+
+
+_ZM_SUFFIX = {1: "M", 2: "Z", 3: "ZM"}
+_MULTI_OF = {
+    "POINT": "MULTIPOINT",
+    "LINESTRING": "MULTILINESTRING",
+    "POLYGON": "MULTIPOLYGON",
+}
+
+
+def _wkt_column_type(found: list[tuple[str, int]], parsed_geom: str) -> tuple[str, str]:
+    """The ``geom`` typmod for the rows' (type, Z/M flag) pairs, and the SQL that stores one.
+
+    One type is kept as it is. Single and multi of one family, or several
+    families, are stored in multi form, as the GDAL load promotes them. Rows
+    that disagree on Z or M are stored 2D.
+    """
+    # GeometryType spells M but not Z; the flag says which a row carries.
+    types = {geometry_type.removesuffix("M") for geometry_type, _ in found}
+    flags = {flag for _, flag in found}
+    families = {_MULTI_OF.get(geometry_type, geometry_type) for geometry_type in types}
+    stored = parsed_geom
+    if len(types) <= 1:
+        base = next(iter(types), "GEOMETRY")
+    else:
+        stored = f"ST_Multi({stored})"
+        base = next(iter(families)) if len(families) == 1 else "GEOMETRY"
+    if len(flags) > 1:
+        return base, f"ST_Force2D({stored})"
+    return base + _ZM_SUFFIX.get(next(iter(flags), 0), ""), stored
 
 
 async def construct_wkt_geometry(
@@ -187,38 +213,27 @@ async def construct_wkt_geometry(
             )
             invalid_count = int(invalid.scalar_one())
             if invalid_count:
-                coordinate_system = (
-                    "EPSG:4326 ranges" if srid == 4326 else "finite values"
-                )
-                raise ValueError(
-                    f"{invalid_count} row(s) contain invalid WKT geometry or "
-                    f"coordinates outside {coordinate_system}"
+                raise geometry_build_errors.wkt_invalid(
+                    invalid_count, wgs84=srid == 4326
                 )
 
-            # Detect geometry type from sample row while malformed input is
-            # still isolated by the validation savepoint.
-            sample = await session.execute(
+            # Every row's type, read while malformed input is still isolated
+            # by the validation savepoint.
+            found = await session.execute(
                 text(
-                    f"SELECT GeometryType({parsed_geom}), ST_Zmflag({parsed_geom}) "
-                    f"FROM {tref} WHERE {wkt_col} IS NOT NULL LIMIT 1"
+                    f"SELECT DISTINCT GeometryType({parsed_geom}), "
+                    f"ST_Zmflag({parsed_geom}) FROM {tref} WHERE {wkt_col} IS NOT NULL"
                 )
             )
-            row = sample.first()
-            geom_type = "GEOMETRY"
-            if row:
-                # GeometryType spells M but not Z, and a typmod that omits the
-                # dimensions rejects the rows that carry them.
-                geom_type = row[0].removesuffix("M") + {1: "M", 2: "Z", 3: "ZM"}.get(
-                    row[1], ""
-                )
+            geom_type, stored_geom = _wkt_column_type(found.all(), parsed_geom)
     except DBAPIError as exc:
-        raise ValueError("WKT column contains malformed geometry text") from exc
+        raise geometry_build_errors.wkt_malformed() from exc
 
     await session.execute(
         text(f"ALTER TABLE {tref} ADD COLUMN geom geometry({geom_type}, {srid})")
     )
     result = await session.execute(
-        text(f"UPDATE {tref} SET geom = {parsed_geom} WHERE {wkt_col} IS NOT NULL")
+        text(f"UPDATE {tref} SET geom = {stored_geom} WHERE {wkt_col} IS NOT NULL")
     )
     await session.execute(
         text(f"CREATE INDEX idx_{table_name}_geom ON {tref} USING GIST (geom)")
