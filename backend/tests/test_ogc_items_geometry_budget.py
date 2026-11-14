@@ -256,3 +256,31 @@ def test_the_budget_defaults_to_four_megabytes() -> None:
 def test_a_budget_outside_the_bounds_is_refused(value) -> None:
     with pytest.raises(ValidationError):
         Settings(_env_file=None, ogc_items_max_geometry_bytes=value)
+
+
+async def _revalidate(client, url, etag):
+    return await client.get(url, params={"limit": 100}, headers={"If-None-Match": etag})
+
+
+@pytest.mark.parametrize("raise_budget", [True, False], ids=["raised", "lowered"])
+async def test_a_changed_budget_invalidates_a_cached_page(
+    client: AsyncClient, polygons, monkeypatch, raise_budget
+) -> None:
+    dataset, sizes = polygons
+    url = f"/collections/{dataset.id}/items"
+    cut_budget = _two_polygons(sizes)
+    full_budget = sum(n for _, n in sizes) * 10**6
+    before, after = (
+        (cut_budget, full_budget) if raise_budget else (full_budget, cut_budget)
+    )
+    monkeypatch.setattr(settings, "ogc_items_max_geometry_bytes", before)
+    cached = await client.get(url, params={"limit": 100})
+    etag = cached.headers["etag"]
+    assert (await _revalidate(client, url, etag)).status_code == 304
+
+    monkeypatch.setattr(settings, "ogc_items_max_geometry_bytes", after)
+    resp = await _revalidate(client, url, etag)
+
+    assert resp.status_code == 200
+    assert resp.headers["etag"] != etag
+    assert resp.json()["numberReturned"] != cached.json()["numberReturned"]

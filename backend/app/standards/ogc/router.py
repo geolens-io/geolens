@@ -941,6 +941,7 @@ async def get_collection_items(
             limit=limit,
             offset=offset,
             after_gid=after_gid,
+            geometry_budget=settings.ogc_items_max_geometry_bytes,
             carries_credentials=request_carries_credentials(request),
         )
         # A tag that matches came from an earlier 200 for these parameters, so
