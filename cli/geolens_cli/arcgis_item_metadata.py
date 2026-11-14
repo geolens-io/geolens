@@ -23,6 +23,7 @@ from .arcgis_migrate_session import (
     MigrationContext,
     refuse_credentials,
 )
+from .arcgis_migrate_shared import borrowers
 from .arcgis_migrate_state import ItemState
 
 MAX_SUMMARY = 5000
@@ -279,10 +280,18 @@ def apply_item_metadata(
                 for name, written in (base or {}).items()
                 if name not in ("keywords", "title") and written and name not in wanted
             }
+            # A borrower's write from before it was one was this command's own.
+            theirs = [
+                b.metadata_baseline.get(dataset_id) or {}
+                for b in borrowers(ctx.items, dataset_id)
+            ]
             for name, value in {**wanted, **cleared}.items():
+                existing = _current(current, name)
                 action, claim = _decide(
-                    name, _current(current, name), value, base, entry.metadata_hash
+                    name, existing, value, base, entry.metadata_hash
                 )
+                if action == "keep" and any(t.get(name) == existing for t in theirs):
+                    action, claim = "write", True
                 if action == "write":
                     meta[name] = value or None
                 elif action == "keep":

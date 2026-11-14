@@ -1,44 +1,39 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Plan items that import one ArcGIS service between them.
+"""Plan items that import the same ArcGIS service layer.
 
 Hand-maintained. A hosted feature layer item and an item added by URL over
-the same service (or over one of its layers) end up on one GeoLens dataset,
-since GeoLens keeps one copy per source. One item owns that dataset: the
-hosted item for the service when the plan has one, else the first in plan
-order. Only the owner writes it; ownership is decided from the plan and
-inventory before any item runs, so the outcome doesn't depend on order.
+the same service, or over one of its layers, would import one service layer
+twice; GeoLens keeps one dataset per source. Each shared layer has one owner
+item, which alone writes its dataset; the others borrow it and write nothing.
+
+An item that recorded a layer's dataset in an earlier run stays its owner.
+For a layer nobody has recorded, the plan decides: the hosted item whose URL
+is the service itself, else the first item in plan order that covers the
+layer. Ownership records never move between items.
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
 
-from .arcgis_migrate_state import DONE, EXISTS, ItemState, aware_time
+from .arcgis_migrate_state import DONE, EXISTS, ItemState
 from .arcgis_plan import IMPORT_LAYERS
 
-_SERVICE_PATH = re.compile(r"^(.*?/(?:feature|map)server)(?:/(\d+))?/?$", re.IGNORECASE)
+_LAYER = re.compile(r"/(FeatureServer|MapServer)/(\d+)$", re.IGNORECASE)
+_ROOT = re.compile(r"/(FeatureServer|MapServer)$", re.IGNORECASE)
 _REACH = {"private": 0, "restricted": 1, "internal": 2, "public": 3}
-# Records a donor keeps per dataset, which stop applying once it no longer
-# writes the dataset.
-_PER_DATASET = (
-    "metadata_baseline",
-    "last_update",
-    "visibility",
-    "groups",
-    "granted",
-    "kept",
-    "refreshing",
-)
 
 
-def service_of(url: Any) -> tuple[str, str | None] | None:
-    """(the service a FeatureServer or MapServer URL belongs to, the layer id
-    it names or None), or None for any other URL. ArcGIS service paths are
-    case-insensitive, so the service is compared lowercased."""
+def service_layer(url: Any) -> tuple[str, str | None] | None:
+    """(the service, the layer id the URL names or None for every layer) of a
+    FeatureServer or MapServer URL, read the way GeoLens's service import
+    reads it: no query, no trailing slash or ``/query``. The service is
+    lowercased, since ArcGIS service paths are case-insensitive. None for any
+    other URL."""
     if not isinstance(url, str):
         return None
     try:
@@ -46,183 +41,230 @@ def service_of(url: Any) -> tuple[str, str | None] | None:
         port = f":{parts.port}" if parts.port else ""
     except ValueError:
         return None
-    match = _SERVICE_PATH.match(parts.path)
-    if not match or not parts.hostname:
+    if not parts.hostname:
         return None
-    service = f"{parts.scheme}://{parts.hostname}{port}{match.group(1)}".lower()
-    return service, match.group(2)
+    path = parts.path.rstrip("/")
+    if path.lower().endswith("/query"):
+        path = path[: -len("/query")].rstrip("/")
+    layer = None
+    if match := _LAYER.search(path):
+        layer = match.group(2)
+        path = path[: match.start() + 1 + len(match.group(1))]
+    if not _ROOT.search(path):
+        return None
+    return f"{parts.scheme}://{parts.hostname}{port}{path}".lower(), layer
 
 
 @dataclass(frozen=True)
-class Reuse:
-    """A plan item over the service *owner* imports and alone writes."""
-
+class _Covers:
     item: Mapping[str, Any]
-    owner: Mapping[str, Any]
+    service: str
+    # None: every layer of the service.
+    layer: str | None
+    hosted_root: bool
 
 
-def service_owners(
-    items: list[Mapping[str, Any]], rows: Mapping[str, Mapping[str, Any]]
-) -> dict[str, Reuse]:
-    """Plan item id -> its ``Reuse``, for every import_layers item that
-    shares its service with an item that owns it.
-
-    The owner is the item the inventory marks hosted whose URL is the service
-    itself, not one of its layers; without one, the first in plan order.
-    """
-    services: dict[str, list[tuple[Mapping[str, Any], bool]]] = {}
-    for item in items:
-        if (
-            item["action"] != IMPORT_LAYERS
-            or item.get("removed")
-            or item.get("unlisted")
-        ):
-            continue
-        row = rows.get(item["id"]) or {}
-        found = service_of(row.get("url"))
-        if found is not None:
-            hosted = row.get("hosted") is True and found[1] is None
-            services.setdefault(found[0], []).append((item, hosted))
-    owners: dict[str, Reuse] = {}
-    for members in services.values():
-        if len(members) < 2:
-            continue
-        owner = next((i for i, hosted in members if hosted), members[0][0])
-        owners.update({i["id"]: Reuse(i, owner) for i, _ in members if i is not owner})
-    return owners
+def migrated(item: Mapping[str, Any] | None) -> bool:
+    """Whether the plan still imports the service *item* names."""
+    return bool(
+        item
+        and item["action"] == IMPORT_LAYERS
+        and not item.get("removed")
+        and not item.get("unlisted")
+    )
 
 
-def reuse_notes(
-    item: Mapping[str, Any], owner: Mapping[str, Any] | None, datasets: list[str]
-) -> list[str]:
-    """The report lines of an item whose *datasets* belong to *owner*."""
-    if owner is None:
+class SharedLayers:
+    """Who owns each service layer the plan's items import."""
+
+    def __init__(
+        self, items: list[Mapping[str, Any]], rows: Mapping[str, Mapping[str, Any]]
+    ) -> None:
+        self.items = {item["id"]: item for item in items}
+        self.rows = rows
+        self._covers: dict[str, _Covers] = {}
+        for item in items:
+            row = rows.get(item["id"]) or {}
+            found = service_layer(row.get("url"))
+            if migrated(item) and found is not None:
+                hosted = row.get("hosted") is True and found[1] is None
+                self._covers[item["id"]] = _Covers(item, found[0], found[1], hosted)
+
+    def _candidates(self, service: str, layer: str | None) -> list[_Covers]:
         return [
-            f"reuses dataset {d}, which another item over the same service "
-            "imported; this item changed nothing on it"
-            for d in datasets
+            c
+            for c in self._covers.values()
+            if c.service == service and (c.layer is None or c.layer in (layer, None))
         ]
+
+    def plan_owner(self, item_id: str, layer: str | None) -> Mapping[str, Any]:
+        """The item the plan picks to own *layer* of *item_id*'s service, or
+        with None the service layers no layer URL names; *item_id*'s own item
+        when it shares nothing."""
+        mine = self._covers.get(item_id)
+        if mine is None:
+            return self.items[item_id]
+        candidates = self._candidates(mine.service, layer)
+        hosted = [c for c in candidates if c.hosted_root]
+        return (hosted or candidates or [mine])[0].item
+
+    def dependencies(self) -> dict[str, list[str]]:
+        """Item -> the items owning a layer it shares, which run before it.
+        Items whose layers don't overlap get none."""
+        out: dict[str, list[str]] = {}
+        for item_id, mine in self._covers.items():
+            if mine.layer is not None:
+                layers = [mine.layer]
+            else:
+                named = {
+                    c.layer
+                    for c in self._covers.values()
+                    if c.service == mine.service and c.layer is not None
+                }
+                layers = [*sorted(named), None]
+            owners = {self.plan_owner(item_id, layer)["id"] for layer in layers}
+            owners.discard(item_id)
+            if owners:
+                out[item_id] = sorted(owners)
+        return out
+
+    def service_of(self, item_id: str, entry: ItemState | None) -> str | None:
+        """The service *item_id* imports, from the URL its state recorded or
+        else its inventory row."""
+        url = (entry.service_url if entry else None) or (
+            self.rows.get(item_id) or {}
+        ).get("url")
+        found = service_layer(url)
+        return found[0] if found else None
+
+    def holders(
+        self, items: Mapping[str, ItemState], service: str, layer: str
+    ) -> Iterator[tuple[str, str]]:
+        """(item, dataset) for each item whose state records *layer* of
+        *service* as its own import."""
+        for item_id, entry in items.items():
+            dataset = entry.layer_datasets.get(layer)
+            if dataset and self.service_of(item_id, entry) == service:
+                yield item_id, dataset
+
+    def preferred(self, item_ids: list[str]) -> str:
+        """Of *item_ids*, the one the plan prefers as owner: a hosted item at
+        the service root, else the first in plan order."""
+        order = list(self.items)
+        ranked = sorted(
+            item_ids,
+            key=lambda i: (
+                not (self._covers.get(i) and self._covers[i].hosted_root),
+                order.index(i) if i in order else len(order),
+            ),
+        )
+        return ranked[0]
+
+
+def borrowers(items: Mapping[str, ItemState], dataset: str) -> list[ItemState]:
+    """The states that borrow *dataset* from its owner."""
+    return [entry for entry in items.values() if dataset in entry.shared.values()]
+
+
+def reuse_note(owner: Mapping[str, Any] | None, dataset: str) -> str:
+    if owner is None:
+        return f"reuses dataset {dataset}; this item changed nothing on it"
     name = owner["target"]["title"] or owner["title"]
-    notes = [
-        f"reuses dataset {d} of item {owner['id']} ({name}), which sets its "
+    return (
+        f"reuses dataset {dataset} of item {owner['id']} ({name}), which sets its "
         "title, metadata and sharing; this item changed nothing on it"
-        for d in datasets
-    ]
+    )
+
+
+def wider_note(item: Mapping[str, Any], owner: Mapping[str, Any]) -> str | None:
+    """Why a borrower shared more widely in ArcGIS than the owner reaches
+    fewer people in GeoLens, or None."""
     mine, theirs = item["target"]["visibility"], owner["target"]["visibility"]
     if _REACH.get(mine, 0) > _REACH.get(theirs, 0):
-        notes.append(
+        return (
             f"shared {mine} in ArcGIS, more widely than item {owner['id']} "
             f"({theirs}); ArcGIS applied the service's own sharing to the data, "
             "and the dataset keeps that item's"
         )
-    elif mine == theirs == "restricted":
+    if mine == theirs == "restricted":
         extra = sorted(
             set(item["target"]["groups"] or []) - set(owner["target"]["groups"] or [])
         )
         if extra:
-            notes.append(
-                f"shared in ArcGIS with groups item {owner['id']} isn't shared with "
-                f"({', '.join(extra)}); the dataset keeps that item's groups"
+            return (
+                f"shared in ArcGIS with groups item {owner['id']} isn't shared "
+                f"with ({', '.join(extra)}); the dataset keeps that item's groups"
             )
-    return notes
+    return None
 
 
-def _wrote_last(mine: ItemState, other: ItemState, dataset: str) -> bool:
-    """Whether *mine* recorded a later write of *dataset* than *other*."""
-    a, b = (
-        aware_time((entry.last_update.get(dataset) or {}).get("updated_at"))
-        for entry in (mine, other)
+def gone_note(owner_id: str, dataset: str) -> str:
+    return (
+        f"dataset {dataset} belongs to item {owner_id}, which the plan no longer "
+        "migrates; this item doesn't import or refresh it"
     )
-    if a is not None and b is not None and a != b:
-        return a > b
-    if (a is None) != (b is None):
-        return a is not None
-    # The item that found the dataset already there ran second.
-    return dataset in mine.reused and dataset not in other.reused
 
 
-def take_over(
-    owner: ItemState,
-    donor: ItemState,
-    dataset: str,
-    notes: list[str],
-    *,
-    both_recorded: bool,
-) -> None:
-    """Make *owner* the item that writes *dataset*, which this command
-    imported or reused for *donor* before the two were known to share it.
+def settle_recorded(
+    items: Mapping[str, ItemState], layers: SharedLayers, names: Mapping[str, str]
+) -> bool:
+    """Decide ownership of each dataset that two migrated items both record
+    as their own, as a state from an earlier version can hold.
 
-    The donor's metadata baseline joins the owner's, since what the donor
-    wrote is this command's own and not an edit made in GeoLens. With
-    *both_recorded* (both items finished with it), the record of whichever
-    wrote last becomes the owner's, so a rerun compares with that write.
-    The donor keeps the dataset only as shared, with *notes*.
+    The plan's preferred holder owns it. Each other holder keeps its records
+    of the dataset as they are and only lists it as borrowed from then on;
+    nothing moves to the owner. Groups such a holder granted are reported on
+    the owner, since no item manages them any more. Whether anything changed.
     """
-    mine = dict(owner.metadata_baseline.get(dataset) or {})
-    theirs = dict(donor.metadata_baseline.get(dataset) or {})
-    donor_last = not both_recorded or _wrote_last(donor, owner, dataset)
-    if mine or theirs:
-        merged = {**mine, **theirs} if donor_last else {**theirs, **mine}
-        merged["keywords"] = list(
-            dict.fromkeys([*mine.get("keywords", []), *theirs.get("keywords", [])])
-        )
-        owner.metadata_baseline[dataset] = merged
-    if both_recorded and donor_last:
-        for name in ("last_update", "visibility"):
-            record = getattr(donor, name).get(dataset)
-            if record is not None:
-                getattr(owner, name)[dataset] = record
-    if dataset not in donor.reused and dataset in owner.reused:
-        owner.reused.remove(dataset)
-    owner.notes = [
+    holders: dict[str, list[str]] = {}
+    for item_id, entry in items.items():
+        if not migrated(layers.items.get(item_id)):
+            continue
+        for dataset in dict.fromkeys(entry.layer_datasets.values()):
+            holders.setdefault(dataset, []).append(item_id)
+    changed = False
+    for dataset, ids in holders.items():
+        if len(ids) < 2:
+            continue
+        owner_id = layers.preferred(ids)
+        owner = items[owner_id]
+        for other_id in ids:
+            if other_id == owner_id:
+                continue
+            other = items[other_id]
+            for key in [k for k, d in other.layer_datasets.items() if d == dataset]:
+                other.shared[key] = other.layer_datasets.pop(key)
+            other.dataset_ids = [d for d in other.dataset_ids if d != dataset]
+            other.notes = _without_false_edits(other.notes, dataset)
+            note = reuse_note(layers.items[owner_id], dataset)
+            if note not in other.notes:
+                other.notes.append(note)
+            if other.status == DONE and not other.layer_datasets:
+                other.status = EXISTS
+            for group in sorted(
+                set(other.granted.get(dataset) or [])
+                - set(owner.groups.get(dataset) or [])
+            ):
+                note = (
+                    f"group {names.get(group, group)} was granted on dataset "
+                    f"{dataset} by item {other_id} in an earlier run and is no "
+                    "longer managed; remove it in GeoLens if it shouldn't have access"
+                )
+                if note not in owner.notes:
+                    owner.notes.append(note)
+            changed = True
+        owner.notes = _without_false_edits(owner.notes, dataset)
+    return changed
+
+
+def _without_false_edits(notes: list[str], dataset: str) -> list[str]:
+    """*notes* without those that took the other holder's writes, this
+    command's own, for edits made in GeoLens; a rerun notes a real edit again."""
+    return [
         n
-        for n in owner.notes
+        for n in notes
         if not (
             n.startswith("kept the ")
             and n.endswith(f" edited in GeoLens on dataset {dataset}")
         )
     ]
-    if owner.status == EXISTS and not owner.reused:
-        owner.status = DONE
-    _release(donor, dataset, notes)
-
-
-def _release(donor: ItemState, dataset: str, notes: list[str]) -> None:
-    moved = [key for key, d in donor.layer_datasets.items() if d == dataset]
-    for key in moved:
-        donor.shared[key] = donor.layer_datasets.pop(key)
-    if len(donor.record_ids) == len(donor.dataset_ids):
-        donor.record_ids = [
-            r for d, r in zip(donor.dataset_ids, donor.record_ids) if d != dataset
-        ]
-    donor.dataset_ids = [d for d in donor.dataset_ids if d != dataset]
-    for name in _PER_DATASET:
-        getattr(donor, name).pop(dataset, None)
-    if dataset in donor.reused:
-        donor.reused.remove(dataset)
-    for name in ("attachments", "relationships"):
-        layers = getattr(donor, name)
-        if layers:
-            setattr(donor, name, {k: v for k, v in layers.items() if k not in moved})
-    kept = [n for n in donor.notes if f"dataset {dataset}" not in n]
-    donor.notes = [*kept, *(n for n in notes if n not in kept)]
-    if donor.status == DONE and not donor.layer_datasets:
-        donor.status = EXISTS
-
-
-def reconcile(items: Mapping[str, ItemState], reuses: Mapping[str, Reuse]) -> bool:
-    """Hand each dataset that both an item and its service's owner record as
-    their own to the owner, as a state from before ownership was decided can
-    hold; whether anything moved."""
-    moved = False
-    for donor_id, reuse in reuses.items():
-        donor, owner = items.get(donor_id), items.get(reuse.owner["id"])
-        if donor is None or owner is None:
-            continue
-        held = set(owner.layer_datasets.values())
-        for dataset in dict.fromkeys(donor.layer_datasets.values()):
-            if dataset in held:
-                notes = reuse_notes(reuse.item, reuse.owner, [dataset])
-                take_over(owner, donor, dataset, notes, both_recorded=True)
-                moved = True
-    return moved

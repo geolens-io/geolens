@@ -79,7 +79,7 @@ from .arcgis_migrate_groups import (
 from .arcgis_migrate_report import build_run_report, write_run_report
 from .arcgis_migrate_files import FILE_TYPES, import_file
 from .arcgis_migrate_layers import _import_recorded, import_layers
-from .arcgis_migrate_shared import reconcile, service_owners
+from .arcgis_migrate_shared import SharedLayers, settle_recorded
 from .arcgis_migrate_refresh import (
     Refresher,
     changed_in_geolens,
@@ -229,17 +229,17 @@ class MigrateOptions:
     accept: frozenset[str] = frozenset()
 
 
-def _depends(item: Mapping[str, Any], after: Mapping[str, str]) -> list[str]:
-    """The item's ``depends_on``, plus the item owning the service it shares."""
-    owner = after.get(item["id"])
-    return [*item["depends_on"], *([owner] if owner else [])]
+def _depends(item: Mapping[str, Any], after: Mapping[str, list[str]]) -> list[str]:
+    """The item's ``depends_on``, plus the items owning service layers it
+    shares."""
+    return [*item["depends_on"], *after.get(item["id"], [])]
 
 
 def order_items(
-    items: list[Mapping[str, Any]], after: Mapping[str, str] | None = None
+    items: list[Mapping[str, Any]], after: Mapping[str, list[str]] | None = None
 ) -> list[Mapping[str, Any]]:
     """*items* with every item after the plan items it ``depends_on``, and
-    after the item owning a service it shares (*after*).
+    after the items owning service layers it shares (*after*).
 
     Ties keep plan order. A dependency missing from the plan, or marked
     removed and so never run, doesn't hold an item back. An unlisted item is
@@ -284,7 +284,7 @@ def _wanted(
     by_id: Mapping[str, Mapping[str, Any]],
     only: list[str],
     state: MigrationState,
-    after: Mapping[str, str],
+    after: Mapping[str, list[str]],
 ) -> set[str]:
     """The --only items plus every plan item they depend on that still has
     to run: an unfinished one, or a finished one ``_needs_run`` runs again."""
@@ -343,10 +343,10 @@ def select_items(
     state: MigrationState,
     only: list[str],
     no_retry: bool,
-    after: Mapping[str, str] | None = None,
+    after: Mapping[str, list[str]] | None = None,
 ) -> list[Mapping[str, Any]]:
     """The plan items this run executes, in order; *after* maps an item to
-    the item owning the service it shares, which runs first."""
+    the items owning service layers it shares, which run first."""
     ordered = order_items(plan["items"], after)
     by_id = {item["id"]: item for item in ordered}
     wanted = _wanted(by_id, only, state, after or {}) if only else set(by_id)
@@ -1100,7 +1100,7 @@ def _unmet(
     item: Mapping[str, Any],
     by_id: Mapping[str, Any],
     state: MigrationState,
-    after: Mapping[str, str],
+    after: Mapping[str, list[str]],
 ) -> list[str]:
     # A removed dependency never runs, so like a missing one it holds nothing back.
     return [
@@ -1340,7 +1340,7 @@ def run_items(
     """Run the items to import, then bring the finished *refresh* items up to
     date unless the run stopped."""
     by_id = {item["id"]: item for item in plan["items"]}
-    after = {i: reuse.owner["id"] for i, reuse in ctx.shared_services.items()}
+    after = ctx.shared_layers.dependencies() if ctx.shared_layers else {}
     summary = summary or RunSummary()
     for item in to_run:
         if item["action"] == _plan.SKIP:
@@ -2057,9 +2057,8 @@ def _run(
         rows, portal_info, inventory_groups = _inventory_rows(
             plan, opts.plan_path, [*to_run, *refresh]
         )
-        shared = service_owners(plan["items"], rows)
-        if shared:
-            after = {i: reuse.owner["id"] for i, reuse in shared.items()}
+        shared = SharedLayers(plan["items"], rows)
+        if after := shared.dependencies():
             to_run = select_items(plan, state, opts.only, opts.no_retry, after)
         touched = [*to_run, *refresh]
         # A dry run makes only the sign-in the run starts with.
@@ -2226,7 +2225,7 @@ def _run(
         web_origin=_web_origin(instance),
         basemap_map={u: b for u, b in plan.get("basemap_map", {}).items() if b},
         aliases={i["id"]: i["alias_of"] for i in plan["items"] if i.get("alias_of")},
-        shared_services=shared,
+        shared_layers=shared,
         importable=frozenset(
             i["id"]
             for i in plan["items"]
@@ -2244,9 +2243,9 @@ def _run(
     stopped: str | None = "stopped by an unexpected error"
     try:
         summary = RunSummary()
-        # Before any write, so an item that took another's dataset in an
-        # earlier run hands it back before a handover or refresh touches it.
-        if reconcile(state.items, shared):
+        # Before any write, so a dataset two items recorded in an earlier run
+        # has one writer before a handover or refresh touches it.
+        if settle_recorded(state.items, shared, sharing.names):
             state.save()
         hand_over(ctx, state, owners, summary, opts.only)
         run_items(

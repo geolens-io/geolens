@@ -30,7 +30,7 @@ from .arcgis_migrate_session import (
     operator_or_nobody_wrote_last,
     refuse_credentials,
 )
-from .arcgis_migrate_shared import Reuse, reuse_notes, take_over
+from .arcgis_migrate_shared import gone_note, migrated, reuse_note, wider_note
 from .arcgis_migrate_state import DONE, EXISTS, ItemState
 
 GROUP_LAYER = "Group Layer"
@@ -310,8 +310,7 @@ def _import_layer(
     visibility: str,
     entry: ItemState,
 ) -> bool:
-    """Import one layer; True when GeoLens already had it from before the
-    migration or from the item that owns the service.
+    """Import one layer; True when GeoLens already had it.
 
     A job a previous run committed for the layer is waited for instead of
     importing the layer again; only a job that ended without a dataset is
@@ -353,19 +352,11 @@ def _import_layer(
         existing = _existing_dataset(exc)
         if existing is None:
             raise ItemFailed(f"{title}: preview failed, {exc}") from None
-        if existing in _owner_datasets(ctx, row["id"]):
-            entry.shared[key] = existing
-            return True
-        donor = _donor(ctx, row["id"], existing)
-        if donor is not None:
-            reuse, held = donor
-            notes = reuse_notes(reuse.item, reuse.owner, [existing])
-            take_over(entry, held, existing, notes, both_recorded=False)
-        elif existing not in entry.reused:
+        if existing not in entry.reused:
             entry.reused.append(existing)
         _apply_target(ctx, entry, existing, title_visibility)
         entry.layer_datasets[key] = existing
-        return donor is None
+        return True
     # Recorded before the commit is sent: if its answer is lost, a rerun
     # finds this job rather than importing the layer a second time.
     entry.job_ids.append(str(previewed.job_id))
@@ -377,38 +368,67 @@ def _import_layer(
     return False
 
 
-def _owner_datasets(ctx: MigrationContext, item_id: str) -> set[str]:
-    """The datasets held by the item owning the service *item_id* imports."""
-    reuse = ctx.shared_services.get(item_id)
-    entry = ctx.items.get(reuse.owner["id"]) if reuse else None
-    return set(entry.layer_datasets.values()) if entry else set()
-
-
-def _donor(
-    ctx: MigrationContext, item_id: str, dataset: str
-) -> tuple[Reuse, ItemState] | None:
-    """The item over *item_id*'s service, and its state, that holds *dataset*
-    as its own: one that ran before ownership was decided."""
-    for other, reuse in ctx.shared_services.items():
-        entry = ctx.items.get(other)
-        if (
-            reuse.owner["id"] == item_id
-            and entry is not None
-            and dataset in entry.layer_datasets.values()
-        ):
-            return reuse, entry
-    return None
+def _borrow(
+    ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState, key: str
+) -> str | None:
+    """Record *key* as borrowed when another item owns that layer of the
+    service: one whose state records its dataset, else the item the plan
+    picks. None when this item owns it; else why the layer isn't imported
+    yet, or "" once it is borrowed. Nothing is previewed for a borrowed layer,
+    so GeoLens never holds a second copy of it."""
+    layers = ctx.shared_layers
+    service = layers.service_of(item["id"], entry) if layers else None
+    if service is None:
+        return None
+    held = [
+        (other, dataset)
+        for other, dataset in layers.holders(ctx.items, service, key)
+        if other != item["id"]
+    ]
+    if held:
+        owner_id = layers.preferred([other for other, _ in held])
+        dataset = dict(held)[owner_id]
+        if not migrated(layers.items.get(owner_id)):
+            return gone_note(owner_id, dataset)
+        entry.shared[key] = dataset
+        return ""
+    owner = layers.plan_owner(item["id"], key)
+    if owner["id"] == item["id"]:
+        return None
+    return (
+        f"layer {key} belongs to item {owner['id']} over the same service, which "
+        "hasn't imported it; a run after that item imports it reuses its dataset"
+    )
 
 
 def _shared_notes(
     ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
-) -> list[str]:
-    reuse = ctx.shared_services.get(item["id"])
-    return reuse_notes(
-        item,
-        reuse.owner if reuse else None,
-        list(dict.fromkeys(entry.shared.values())),
-    )
+) -> tuple[list[str], list[str]]:
+    """The report notes of the layers *item* borrows, and why any of them is
+    no longer kept up to date by its owner."""
+    notes: list[str] = []
+    problems: list[str] = []
+    layers = ctx.shared_layers
+    owners: dict[str, Mapping[str, Any] | None] = {}
+    for key, dataset in entry.shared.items():
+        service = layers.service_of(item["id"], entry) if layers else None
+        held = (
+            [o for o, d in layers.holders(ctx.items, service, key) if d == dataset]
+            if layers and service
+            else []
+        )
+        owner_id = layers.preferred(held) if held else None
+        owner = layers.items.get(owner_id) if layers and owner_id else None
+        if owner_id is not None and not migrated(owner):
+            problems.append(gone_note(owner_id, dataset))
+            continue
+        owners[dataset] = owner
+    for dataset, owner in owners.items():
+        notes.append(reuse_note(owner, dataset))
+    for owner in {o["id"]: o for o in owners.values() if o}.values():
+        if wider := wider_note(item, owner):
+            notes.append(wider)
+    return notes, problems
 
 
 # GeoLens's refusal to narrow a dataset that its owner's shared maps show.
@@ -570,9 +590,12 @@ def _resume_import(
             _apply_target(
                 ctx, entry, entry.layer_datasets[key], _commit_body(title, visibility)
             )
+    shared_notes, gone = _shared_notes(ctx, item, entry)
+    if gone:
+        raise ItemFailed("; ".join(gone))
     return ItemResult(
         status=DONE if entry.layer_datasets else EXISTS,
-        notes=[*entry.import_pass["notes"], *_shared_notes(ctx, item, entry)],
+        notes=[*entry.import_pass["notes"], *shared_notes],
     )
 
 
@@ -581,12 +604,13 @@ def import_layers(
 ) -> ItemResult:
     """Import the item's feature layers and tables, one dataset each.
 
-    Layers a previous run imported are not imported again. A layer GeoLens
-    already holds for the operator (409 ``duplicate_source``) is reused; one
-    the item owning the service imported is recorded as shared and never
-    written. The item is ``exists`` when GeoLens already held every layer. A
-    rerun of an item whose import stage finished resumes from the recorded
-    datasets without probing the service again.
+    Layers a previous run imported are not imported again. A layer another
+    plan item over the same service owns is borrowed: never previewed or
+    written (arcgis_migrate_shared). A layer GeoLens already holds for the
+    operator (409 ``duplicate_source``) is reused. The item is ``exists`` when
+    GeoLens already held every layer. A rerun of an item whose import stage
+    finished resumes from the recorded datasets without probing the service
+    again.
     """
     from geolens.api.datasets import probe_service_url_services_probe_post as probe_api
     from geolens.models.probe_request import ProbeRequest
@@ -644,21 +668,30 @@ def import_layers(
         return ItemResult(notes=[*notes, _NO_LAYER_NOTE])
 
     found = 0
+    waiting: list[str] = []
     for layer, title in zip(wanted, titles):
-        if _layer_key(layer) in entry.shared:
-            found += 1
-            continue
-        pinned = entry.layer_datasets.get(_layer_key(layer))
+        key = _layer_key(layer)
+        pinned = entry.layer_datasets.get(key)
         if pinned:
             # The plan may have been edited since that layer was imported.
             target = _commit_body(title, item["target"]["visibility"])
             _apply_target(ctx, entry, pinned, target)
+            continue
+        if key not in entry.shared and (why := _borrow(ctx, item, entry, key)):
+            waiting.append(why)
+            continue
+        if key in entry.shared:
+            found += 1
             continue
         found += _import_layer(
             ctx, row, probe, layer, title, item["target"]["visibility"], entry
         )
         entry.dataset_ids = list(dict.fromkeys(entry.layer_datasets.values()))
         ctx.save()
+    shared_notes, gone = _shared_notes(ctx, item, entry)
+    if waiting or gone:
+        ctx.save()
+        raise ItemFailed("; ".join([*waiting, *gone]))
     # Another item's dataset carries that item's follow-ups, not this one's.
     entry.attachments = {
         k: v for k, v in entry.attachments.items() if k not in entry.shared
@@ -678,5 +711,5 @@ def import_layers(
     }
     return ItemResult(
         status=EXISTS if found == len(wanted) else DONE,
-        notes=[*notes, *_shared_notes(ctx, item, entry)],
+        notes=[*notes, *shared_notes],
     )

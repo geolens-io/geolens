@@ -25,12 +25,13 @@ STATE_FILENAME = "arcgis-migration-state.json"
 # ArcGIS groups, and v4 what this command's own writes added, which a rerun may
 # take away again: a made group's members (``joined``) and each object's
 # groups (``granted``), and v5 the ArcGIS owner each item's owner follows and
-# a handover left incomplete, and v6 a web map's unconfirmed save and the layers
-# its translation still owes. An older CLI refuses the file rather than
+# a handover left incomplete, v6 a web map's unconfirmed save and the layers
+# its translation still owes, and v7 the service layers an item borrows from
+# the item owning them (``shared``). An older CLI refuses the file rather than
 # rewriting it without them. A v3 file records neither, so a rerun removes
 # nothing it added before.
-STATE_VERSION = "6"
-_READABLE_VERSIONS = ("1", "2", "3", "4", "5", STATE_VERSION)
+STATE_VERSION = "7"
+_READABLE_VERSIONS = ("1", "2", "3", "4", "5", "6", STATE_VERSION)
 
 PENDING = "pending"
 RUNNING = "running"
