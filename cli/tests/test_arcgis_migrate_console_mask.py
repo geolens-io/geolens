@@ -134,15 +134,19 @@ def test_neither_stream_holds_the_runs_token(
 def test_each_encoded_form_of_a_registered_secret_is_masked(
     runner, tmp_path, team, portal, form, as_json
 ):
-    plan_file, _ = _scenario(tmp_path, team, "title", _forms(PASSWORD)[form])
+    # The text output prints an owner name but never an item title.
+    place = "title" if as_json else "owner"
+    plan_file, args = _scenario(tmp_path, team, place, _forms(PASSWORD)[form])
 
-    result = _invoke(runner, plan_file, "run", as_json, "--token", TOKEN)
+    result = _invoke(runner, plan_file, "run", as_json, "--token", TOKEN, *args)
 
     assert not _holds(result.stdout, PASSWORD)
     assert not _holds(result.stderr, PASSWORD)
     if as_json:
         item = next(i for i in json.loads(result.stdout)["items"] if i["id"] == A2)
         assert item["title"] == "Parcels [REDACTED]"
+    else:
+        assert f"for {A2}: planner [REDACTED] " in result.stderr
 
 
 @pytest.mark.parametrize("as_json", [False, True], ids=["text", "json"])
