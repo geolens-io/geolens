@@ -164,7 +164,7 @@ FAIL_OPEN_ALLOWLIST: dict[str, tuple[str, str]] = {
 def _dependency_uses(dependant, target) -> bool:
     """Whether a FastAPI dependency tree calls ``target``.
 
-    Mirrors ``_dependency_uses`` in app/api/main.py, which decides the same
+    Mirrors ``_dependency_uses`` in app/api/openapi_contract.py, which decides the same
     question for the generated OpenAPI security contract. The two must agree:
     a dependency the schema treats as anonymous-capable and this test treats
     as absent would document one contract and enforce another.
@@ -897,7 +897,8 @@ def _optional_auth_operations() -> dict[str, dict]:
     """Every schema operation whose route reaches an optional-auth dependency."""
     from fastapi.routing import APIRoute, iter_route_contexts
 
-    from app.api.main import _dependency_uses, _route_operation, app
+    from app.api.main import app
+    from app.api.openapi_contract import _dependency_uses, _route_operation
     from app.modules.auth.dependencies import (
         get_optional_user,
         get_optional_user_fail_open,
@@ -960,7 +961,8 @@ def test_no_security_schema_ops_get_401_without_security() -> None:
     """
     from fastapi.routing import APIRoute, iter_route_contexts
 
-    from app.api.main import _dependency_uses, _route_operation, app
+    from app.api.main import app
+    from app.api.openapi_contract import _dependency_uses, _route_operation
     from app.modules.auth.dependencies import (
         get_optional_user_no_security_schema,
     )
@@ -1004,7 +1006,7 @@ def test_no_security_schema_ops_get_401_without_security() -> None:
 def test_401_capability_sentence_matches_the_allowlist() -> None:
     """Each CAPABILITY handler's 401 must name only the capability it accepts.
 
-    ``_document_unresolvable_credential_401`` (app/api/main.py) hardcodes a
+    ``_document_unresolvable_credential_401`` (app/api/openapi_contract.py) hardcodes a
     ``capability_responses`` mapping of handler function to response; nothing
     ties that mapping to ``FAIL_OPEN_ALLOWLIST`` above, so the two could
     silently disagree. ``EXPECTED_CAPABILITY_TEXT`` below is this test's own
@@ -1032,7 +1034,8 @@ def test_401_capability_sentence_matches_the_allowlist() -> None:
     """
     from fastapi.routing import APIRoute, iter_route_contexts
 
-    from app.api.main import _dependency_uses, _route_operation, app
+    from app.api.main import app
+    from app.api.openapi_contract import _dependency_uses, _route_operation
     from app.modules.auth.dependencies import (
         get_optional_user,
         get_optional_user_fail_open,

@@ -40,12 +40,12 @@ class _SeedSessionContext:
 @pytest.mark.asyncio
 async def test_seed_roles_selects_scalars_without_loading_unscoped_users(monkeypatch):
     """Hosted boot must not trigger Role.users select-in loading before tenancy."""
-    from app.api import main
+    from app.modules.auth import seeding as main
     from app.modules.auth.models import Role
 
     session = _RecordingSeedSession()
     # seed_roles late-binds async_session from app.core.db,
-    # so the patch targets the origin module, not app.api.main.
+    # so the patch targets the origin module, not app.modules.auth.seeding.
     import app.core.db as db_module
 
     monkeypatch.setattr(
@@ -66,7 +66,7 @@ async def test_seed_roles_selects_scalars_without_loading_unscoped_users(monkeyp
 
 @pytest.mark.asyncio
 async def test_multi_tenant_seeds_roles_but_never_global_admin(monkeypatch):
-    from app.api import main
+    from app.modules.auth import seeding as main
 
     seed_roles = AsyncMock()
     seed_admin = AsyncMock()
@@ -82,7 +82,7 @@ async def test_multi_tenant_seeds_roles_but_never_global_admin(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_single_tenant_preserves_role_then_admin_seed(monkeypatch):
-    from app.api import main
+    from app.modules.auth import seeding as main
 
     calls: list[str] = []
 

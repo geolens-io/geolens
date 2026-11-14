@@ -401,7 +401,8 @@ def test_export_endpoint_takes_no_sort_parameters():
     included-router routes nested, so scanning app.routes directly finds
     neither endpoint and every assertion below would be vacuous.
     """
-    from app.api.main import _iter_api_routes, app
+    from app.api.main import app
+    from app.api.openapi_contract import _iter_api_routes
 
     params = {
         ctx.path: {p.name for p in ctx.route.dependant.query_params}

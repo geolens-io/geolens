@@ -243,7 +243,7 @@ class TestSeedInitialAdminUnbroken:
 
     async def test_seed_initial_admin_function_exists(self):
         """seed_initial_admin function is importable and is NOT patched out."""
-        from app.api.main import seed_initial_admin
+        from app.modules.auth.seeding import seed_initial_admin
 
         assert callable(seed_initial_admin), "seed_initial_admin must remain callable"
 
@@ -255,7 +255,7 @@ class TestSeedInitialAdminUnbroken:
         has_extension, preserving the first-boot superadmin flow.
         """
         import inspect
-        from app.api.main import seed_initial_admin
+        from app.modules.auth.seeding import seed_initial_admin
 
         source = inspect.getsource(seed_initial_admin)
         assert "has_extension" not in source, (

@@ -1334,9 +1334,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Auth routes (sign-in, sessions, API keys, password) share one router and its
     # rate-limit and cookie helpers.
     "backend/app/modules/auth/router.py": 1541,
-    # Application composition debt; preserve lifespan and middleware ordering when
-    # splitting.
-    "backend/app/api/main.py": 1668,
+    # The app object, its middleware and exception handlers, route registration
+    # and the lifespan with its sweeps stay together to keep their order.
+    "backend/app/api/main.py": 1146,
     # Map request validation and published response contracts share this module,
     # including the visibility a client that hasn't opted in reads.
     "backend/app/modules/catalog/maps/schemas.py": 1606,
