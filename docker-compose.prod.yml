@@ -307,6 +307,7 @@ services:
       UPLOAD_MAX_SIZE_MB: "${UPLOAD_MAX_SIZE_MB:-500}"
       MAX_TILESET_UNPACKED_MB: "${MAX_TILESET_UNPACKED_MB:-20480}"
       MAX_TILESET_ENTRIES: "${MAX_TILESET_ENTRIES:-100000}"
+      OGC_ITEMS_MAX_GEOMETRY_BYTES: "${OGC_ITEMS_MAX_GEOMETRY_BYTES:-4000000}"
       # api, worker and titiler share upload_staging at the fixed /app/staging; the
       # app path must equal it, so it is not operator-tunable.
       UPLOAD_STAGING_DIR: "/app/staging"
@@ -379,6 +380,7 @@ services:
       # The tileset worker rechecks these caps before its first put.
       MAX_TILESET_UNPACKED_MB: "${MAX_TILESET_UNPACKED_MB:-20480}"
       MAX_TILESET_ENTRIES: "${MAX_TILESET_ENTRIES:-100000}"
+      OGC_ITEMS_MAX_GEOMETRY_BYTES: "${OGC_ITEMS_MAX_GEOMETRY_BYTES:-4000000}"
       PROCRASTINATE_SCHEMA: "${PROCRASTINATE_SCHEMA:-catalog}"
       # The worker purges expired queue jobs on the same retention and reads
       # admin-editable settings, which ENV_ONLY_CONFIG locks to the env.

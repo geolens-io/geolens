@@ -3,10 +3,11 @@
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from pydantic import ValidationError
 from httpx import AsyncClient
 from sqlalchemy import text
 
-import app.standards.ogc.router as ogc_router
+from app.core.config import Settings, settings
 from tests.factories import get_user_id
 from tests.test_ogc_features import _cleanup_table, _create_test_table_and_dataset
 
@@ -96,7 +97,7 @@ async def test_a_page_ends_at_the_row_that_reaches_the_budget(
 ) -> None:
     dataset, sizes = polygons
     budget = _two_polygons(sizes)
-    monkeypatch.setattr(ogc_router, "_ITEMS_PAGE_MAX_GEOMETRY_BYTES", budget)
+    monkeypatch.setattr(settings, "ogc_items_max_geometry_bytes", budget)
     expected = _first_page(sizes, budget, 100)
     assert 1 < len(expected) < len(sizes)
 
@@ -120,9 +121,7 @@ async def test_walking_next_returns_every_feature_once(
     client: AsyncClient, polygons, monkeypatch, start
 ) -> None:
     dataset, sizes = polygons
-    monkeypatch.setattr(
-        ogc_router, "_ITEMS_PAGE_MAX_GEOMETRY_BYTES", _two_polygons(sizes)
-    )
+    monkeypatch.setattr(settings, "ogc_items_max_geometry_bytes", _two_polygons(sizes))
     with_geometry = [gid for gid, n in sizes if n]
 
     pages = await _walk(
@@ -137,7 +136,7 @@ async def test_a_feature_larger_than_the_budget_is_served_alone(
     client: AsyncClient, polygons, monkeypatch
 ) -> None:
     dataset, sizes = polygons
-    monkeypatch.setattr(ogc_router, "_ITEMS_PAGE_MAX_GEOMETRY_BYTES", 1)
+    monkeypatch.setattr(settings, "ogc_items_max_geometry_bytes", 1)
 
     pages = await _walk(client, f"/collections/{dataset.id}/items", {"limit": 100})
 
@@ -158,7 +157,7 @@ async def test_null_geometries_count_as_no_bytes(
     dataset, sizes = polygons
     first_null = next(i for i, (_, n) in enumerate(sizes) if n == 0)
     budget = sizes[first_null + 1][1] + 1
-    monkeypatch.setattr(ogc_router, "_ITEMS_PAGE_MAX_GEOMETRY_BYTES", budget)
+    monkeypatch.setattr(settings, "ogc_items_max_geometry_bytes", budget)
 
     resp = await client.get(
         f"/collections/{dataset.id}/items",
@@ -177,7 +176,7 @@ async def test_a_page_under_the_budget_is_unchanged(
     url = f"/collections/{dataset.id}/items"
 
     budgeted = await client.get(url, params={"limit": 4, "bbox": _BBOX})
-    monkeypatch.setattr(ogc_router, "_ITEMS_PAGE_MAX_GEOMETRY_BYTES", None)
+    monkeypatch.setattr(settings, "ogc_items_max_geometry_bytes", None)
     unbudgeted = await client.get(url, params={"limit": 4, "bbox": _BBOX})
 
     with_budget, without_budget = budgeted.json(), unbudgeted.json()
@@ -218,7 +217,7 @@ async def test_a_compressed_geometry_counts_at_its_full_size(
         await test_db_session.commit()
         assert stored < 0.7 * full, "the fixture's geometries are not compressed"
         # All three fit the budget as stored; in memory the third is past it.
-        monkeypatch.setattr(ogc_router, "_ITEMS_PAGE_MAX_GEOMETRY_BYTES", full // 2)
+        monkeypatch.setattr(settings, "ogc_items_max_geometry_bytes", full // 2)
 
         resp = await client.get(
             f"/collections/{dataset.id}/items", params={"limit": 100}
@@ -229,3 +228,31 @@ async def test_a_compressed_geometry_counts_at_its_full_size(
         assert _next(resp.json()) is not None
     finally:
         await _cleanup_table(test_db_session, dataset.table_name)
+
+
+async def test_a_raised_budget_returns_the_page_the_default_cuts(
+    client: AsyncClient, polygons, monkeypatch
+) -> None:
+    dataset, sizes = polygons
+    url = f"/collections/{dataset.id}/items"
+    monkeypatch.setattr(settings, "ogc_items_max_geometry_bytes", _two_polygons(sizes))
+    cut = await client.get(url, params={"limit": 100})
+    assert _next(cut.json()) is not None
+
+    monkeypatch.setattr(
+        settings, "ogc_items_max_geometry_bytes", sum(n for _, n in sizes) * 10**6
+    )
+    full = await client.get(url, params={"limit": 100})
+
+    assert full.json()["numberReturned"] == len(sizes)
+    assert _next(full.json()) is None
+
+
+def test_the_budget_defaults_to_four_megabytes() -> None:
+    assert Settings.model_fields["ogc_items_max_geometry_bytes"].default == 4_000_000
+
+
+@pytest.mark.parametrize("value", [999_999, 32_000_001])
+def test_a_budget_outside_the_bounds_is_refused(value) -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, ogc_items_max_geometry_bytes=value)

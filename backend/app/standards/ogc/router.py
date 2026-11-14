@@ -616,11 +616,6 @@ async def get_collection_queryables(
 # rate limiting bounds repeated work from anonymous callers.
 _FILTERED_ITEMS_RATE_LIMIT = "10/second"
 
-# An items page is built in memory at several times its response size, so a page
-# ends early, with a `next` link, once its geometries take this many bytes
-# (about 250,000 2D vertices).
-_ITEMS_PAGE_MAX_GEOMETRY_BYTES = 4_000_000
-
 
 def _items_request_carries_no_filter(request: Request) -> bool:
     """Exempt an unfiltered items request from the filter-specific limit.
@@ -986,7 +981,7 @@ async def get_collection_items(
             cached_feature_count=dataset.feature_count,
             cql2_where=cql2_where,
             cql2_binds=cql2_binds,
-            max_geometry_bytes=_ITEMS_PAGE_MAX_GEOMETRY_BYTES,
+            max_geometry_bytes=settings.ogc_items_max_geometry_bytes,
         )
     except ValueError as exc:
         # An unparseable property-filter value is rejected before
