@@ -270,3 +270,34 @@ class TestStagedGeometryColumn:
             )
         )
         return row.one()
+
+
+@pytest.mark.anyio
+async def test_retry_swaps_only_the_nlt_value_and_runs_once(monkeypatch):
+    """A layer named like the -nlt value is never rewritten, and the retry happens once."""
+    from app.processing.ingest import ogr
+
+    runs: list[list[str]] = []
+
+    class _Proc:
+        returncode = 1
+
+    async def _spawn(*cmd, **_):
+        runs.append(list(cmd))
+        return _Proc()
+
+    async def _communicate(*_a, **_k):
+        return (
+            b"",
+            b"ERROR:  Geometry type (MultiPoint) does not match column type (Point)",
+        )
+
+    monkeypatch.setattr(ogr.asyncio, "create_subprocess_exec", _spawn)
+    monkeypatch.setattr(ogr, "_communicate_with_timeout", _communicate)
+    cmd = ["ogr2ogr", "-nlt", "CONVERT_TO_LINEAR", "-nlt", "POINT", "src.gpkg", "POINT"]
+    code, _ = await ogr._run_file_ogr2ogr(cmd, None, "POINT")
+    assert code == 1
+    assert len(runs) == 2
+    assert [r[-1] for r in runs] == ["POINT", "POINT"]
+    assert runs[0][4] == "POINT"
+    assert runs[1][4] == "PROMOTE_TO_MULTI"

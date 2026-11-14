@@ -1180,6 +1180,16 @@ async def _run_file_ogr2ogr(
     MultiPoint, which PostGIS refuses in a Point column. That one failure is
     retried with the multi form.
     """
+    # The value after `-nlt`, never a search for the value: a layer can carry
+    # the same name.
+    swap = next(
+        (
+            i + 1
+            for i, arg in enumerate(cmd[:-1])
+            if arg == "-nlt" and cmd[i + 1] == fallback_from
+        ),
+        None,
+    )
     while True:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -1191,16 +1201,16 @@ async def _run_file_ogr2ogr(
             proc, OGR2OGR_FILE_TIMEOUT_SECONDS, tool_name="ogr2ogr"
         )
         if (
-            proc.returncode != 0
-            and fallback_from in cmd
-            and b"does not match column type" in stderr
+            proc.returncode == 0
+            or swap is None
+            or cmd[swap] != fallback_from
+            or b"does not match column type" not in stderr
         ):
-            structlog.get_logger().info(
-                "point layer holds multi-part points; storing as multi"
-            )
-            cmd[cmd.index(fallback_from)] = "PROMOTE_TO_MULTI"
-            continue
-        return proc.returncode, stderr
+            return proc.returncode, stderr
+        structlog.get_logger().info(
+            "point layer holds multi-part points; storing as multi"
+        )
+        cmd[swap] = "PROMOTE_TO_MULTI"
 
 
 async def run_ogr2ogr(
