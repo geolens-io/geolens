@@ -580,8 +580,7 @@ def test_every_cleanup_caller_takes_the_row_lock_1778() -> None:
 
     assert set(callers) == {
         "router.py::delete_map_endpoint",
-        "router.py::upload_thumbnail",
-        "router.py::upload_og_image",
+        "router.py::store_map_image",
     }, sorted(callers)
     unlocked = [
         where
@@ -1046,11 +1045,10 @@ _LEDGER_PACKAGES = {
         "map_asset_publication",
         {"put"},
         {
-            "router.py::upload_thumbnail",
-            "router.py::upload_og_image",
+            "router.py::store_map_image",
             "sprites.py::create_icon_asset",
         },
-        3,
+        2,
     ),
     "stories": (
         "app/modules/catalog/stories",

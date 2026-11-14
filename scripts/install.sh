@@ -167,6 +167,69 @@ drop_bundled_cache_url() {
   warn "The source build does not run the bundled cache; cleared REDIS_URL. Imports from token-protected services need a cache, so set REDIS_URL to your own Valkey/Redis."
 }
 
+# Prints KEY plus an `x` as Compose resolves it, via the checkout's .env reader in
+# a child shell. rc 3: no line sets KEY; rc 4: the checkout predates that
+# reader; any other failure: a line Compose would refuse.
+compose_env_value() {
+  [ -f scripts/lib/common.sh ] || return 4
+  sh -c '. scripts/lib/common.sh || exit 4
+command -v effective_env_value_into >/dev/null 2>&1 || exit 4
+effective_env_value_into cev_value "$1" .env
+case $? in
+  0) printf "%sx" "$cev_value" ;;
+  1) exit 3 ;;
+  *) exit 2 ;;
+esac' sh "$1"
+}
+
+# POSTGRES_PASSWORD is written only into a .env this run created from the
+# template; an existing .env may belong to a live database, so it is never
+# rewritten. A value exported in this shell wins over .env, as in Compose.
+ensure_postgres_password() {
+  if [ -n "${POSTGRES_PASSWORD+x}" ]; then
+    [ -n "$POSTGRES_PASSWORD" ] \
+      || fail "POSTGRES_PASSWORD is set but empty in this shell, and Compose would use that over .env. Unset it or give it a value."
+    return 0
+  fi
+  if [ "$ENV_CREATED" = "true" ]; then
+    existing_pg_pw="$(get_env_value_decoded POSTGRES_PASSWORD)"
+    if [ -z "$existing_pg_pw" ] || [ "$existing_pg_pw" = "geolens" ]; then
+      warn_if_database_volume_exists
+      update_env_value POSTGRES_PASSWORD "$(generate_password)"
+      say "Generated POSTGRES_PASSWORD."
+    fi
+    return 0
+  fi
+  if existing_pg_pw="$(compose_env_value POSTGRES_PASSWORD)"; then
+    existing_pg_pw="${existing_pg_pw%x}"
+  else
+    case $? in
+      3) existing_pg_pw="" ;;
+      4)
+        if [ -z "$(get_env_value_decoded POSTGRES_PASSWORD)" ]; then
+          warn "POSTGRES_PASSWORD looks empty in .env. Set it to the existing database's password, or to a new value such as \`openssl rand -hex 24\` for a first install."
+        fi
+        return 0
+        ;;
+      *) fail "Could not read the POSTGRES_PASSWORD line in .env. Fix that line and run the installer again." ;;
+    esac
+  fi
+  if [ -z "$existing_pg_pw" ]; then
+    fail "POSTGRES_PASSWORD is empty in .env. Set it to the existing database's password, or to a new value such as \`openssl rand -hex 24\` for a first install, and run the installer again."
+  elif [ "$existing_pg_pw" = "geolens" ]; then
+    warn "POSTGRES_PASSWORD is still the public default 'geolens'. A later release refuses to start with it; UPGRADING.md shows how to change it on a running install."
+  fi
+}
+
+# A new .env beside an old database volume (a deleted .env, a rerun) gets a
+# password that database doesn't know. Warn only: Docker may not answer, and
+# the volume may belong to another install on this host.
+warn_if_database_volume_exists() {
+  pg_volumes="$(docker volume ls -q --filter label=com.docker.compose.volume=pgdata 2>/dev/null || true)"
+  [ -z "$pg_volumes" ] \
+    || warn "Docker already has a database volume ($(printf '%s' "$pg_volumes" | tr '\n' ' ')). If it belongs to this install, set POSTGRES_PASSWORD in .env to its password before starting."
+}
+
 check_port() {
   port="$1"
   if command -v lsof >/dev/null 2>&1 && lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
@@ -476,18 +539,7 @@ main() {
     fi
   fi
 
-  # POSTGRES_PASSWORD: .env.example ships the publicly-known default
-  # `geolens`. On a FRESH install replace it with a strong value so the database
-  # is initialized with a real password. On a re-run we must NOT rotate it — the
-  # pgdata volume is already initialized with the existing value and changing it
-  # would lock the app out.
-  existing_pg_pw="$(get_env_value POSTGRES_PASSWORD)"
-  if [ "$ENV_CREATED" = "true" ] && { [ -z "$existing_pg_pw" ] || [ "$existing_pg_pw" = "geolens" ]; }; then
-    update_env_value POSTGRES_PASSWORD "$(generate_password)"
-    say "Generated POSTGRES_PASSWORD."
-  elif [ "$existing_pg_pw" = "geolens" ]; then
-    warn "POSTGRES_PASSWORD is still the public default 'geolens'. If the database has not been initialized yet, set a strong value in .env before first start."
-  fi
+  ensure_postgres_password
 
   # Admin credentials: set only if either is empty. Honors GEOLENS_ADMIN_USERNAME /
   # GEOLENS_ADMIN_PASSWORD env vars for non-interactive installs.

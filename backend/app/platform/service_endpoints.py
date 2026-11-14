@@ -346,10 +346,11 @@ def _ogcapi_link_hrefs(document: object, rels: frozenset[str]) -> list[str]:
     if not isinstance(document, dict):
         return []
     hrefs: list[str] = []
-    for link in document.get("links", []) or []:
-        if not isinstance(link, dict):
+    links = document.get("links")
+    for link in links if isinstance(links, list) else []:
+        if not isinstance(link, dict) or not isinstance(link.get("rel"), str):
             continue
-        if link.get("rel") in rels and link.get("href"):
+        if link["rel"] in rels and link.get("href"):
             hrefs.append(str(link["href"]))
     return hrefs
 
