@@ -302,7 +302,7 @@ async def live_property_columns(
     """
     allowed = None if only is None else set(only)
     columns = []
-    for name, is_timestamptz in await _table_columns(db, table_name):
+    for name, is_timestamptz, _ in await _table_columns(db, table_name):
         if name in ("gid", "geom", "geom_4326") or (
             allowed is not None and name not in allowed
         ):
@@ -314,14 +314,23 @@ async def live_property_columns(
     return ", ".join(columns)
 
 
-async def _table_columns(db: AsyncSession, table_name: str) -> list[tuple[str, bool]]:
-    """The tenant-schema table's live columns in column order, each with whether it is a timestamptz."""
+async def _table_columns(
+    db: AsyncSession, table_name: str
+) -> list[tuple[str, bool, bool]]:
+    """The tenant-schema table's live columns in column order.
+
+    Each comes with whether it is a timestamptz, and whether its type's text
+    form can be far larger than its stored value (numeric and JSON, and arrays
+    of them: `1e-16000` is stored in 10 bytes).
+    """
     from app.core.db.tenant_schema import tenant_data_schema
     from app.core.db.tenant_session import current_tenant_var
 
     result = await db.execute(
         text(
-            "SELECT a.attname, a.atttypid = 'timestamptz'::regtype "
+            "SELECT a.attname, a.atttypid = 'timestamptz'::regtype, "
+            "a.atttypid = ANY(ARRAY['numeric', 'numeric[]', 'json', 'json[]', "
+            "'jsonb', 'jsonb[]']::regtype[]) "
             "FROM pg_attribute a "
             "JOIN pg_class c ON c.oid = a.attrelid "
             "JOIN pg_namespace n ON n.oid = c.relnamespace "
@@ -330,7 +339,10 @@ async def _table_columns(db: AsyncSession, table_name: str) -> list[tuple[str, b
             "AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum"
         ).bindparams(schema=tenant_data_schema(current_tenant_var.get()), tn=table_name)
     )
-    return [(name, bool(is_timestamptz)) for name, is_timestamptz in result.all()]
+    return [
+        (name, bool(is_timestamptz), bool(text_sized))
+        for name, is_timestamptz, text_sized in result.all()
+    ]
 
 
 async def unknown_property_detail(
@@ -345,7 +357,7 @@ async def unknown_property_detail(
     detail = str(error)
     if not registered:
         return detail
-    live = {name for name, _ in await _table_columns(db, table_name)}
+    live = {name for name, *_ in await _table_columns(db, table_name)}
     present = [c for c in error.columns if c in live and is_writable_feature_column(c)]
     if not present:
         return detail
@@ -713,17 +725,21 @@ async def _estimated_row_size(
     """SQL estimating a row's GeoJSON Feature text in bytes, from stored sizes.
 
     Text takes up to about twice a value's stored size, and each property
-    also writes its quoted name.
+    also writes its quoted name. Numeric and JSON values, whose text can dwarf
+    their storage, are measured as text.
     """
     terms = ["64"]
-    for name, _ in await _table_columns(db, table_name):
+    for name, _, text_sized in await _table_columns(db, table_name):
         if name in ("gid", "geom", "geom_4326"):
             continue
         quoted = '"' + name.replace('"', '""').replace(":", "\\:") + '"'
-        terms.append(
-            f"{len(name.encode()) + 4} + 2 * "
-            + _stored_size(quoted, full=f"octet_length({quoted}::text)")
+        as_text = f"octet_length({quoted}::text)"
+        size = (
+            f"COALESCE({as_text}, 0)"
+            if text_sized
+            else _stored_size(quoted, full=as_text)
         )
+        terms.append(f"{len(name.encode()) + 4} + 2 * {size}")
     if with_geometry:
         terms.append("2 * " + _stored_size("geom_4326", full="ST_MemSize(geom_4326)"))
     return " + ".join(terms)

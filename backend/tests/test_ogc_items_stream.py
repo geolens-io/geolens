@@ -185,6 +185,45 @@ async def test_large_attributes_count_toward_a_batch(
     assert max(len(batch) for batch in batches) <= 2
 
 
+@pytest.mark.parametrize(
+    ("column_type", "value"),
+    [
+        ("numeric", "'1e-16000'::numeric"),
+        ("numeric[]", "ARRAY['1e-16000'::numeric]"),
+        ("jsonb", "jsonb_build_object('v', '1e-16000'::numeric)"),
+    ],
+    ids=["numeric", "numeric array", "jsonb"],
+)
+async def test_numbers_are_sized_by_their_text(
+    client: AsyncClient, test_db_session, monkeypatch, column_type, value
+) -> None:
+    dataset = await _polygon_dataset(test_db_session, 40)
+    table_name = dataset.table_name
+    # Stored in a few bytes, written as 16,000 digits.
+    await test_db_session.execute(
+        text(f"ALTER TABLE data.{table_name} ADD COLUMN amount {column_type}")
+    )
+    await test_db_session.execute(
+        text(f"UPDATE data.{table_name} SET amount = {value}")
+    )
+    dataset.geometry_type = None
+    await test_db_session.commit()
+    monkeypatch.setattr(ogc_router, "STREAM_BATCH_BYTES", 100_000)
+    batches = _record_batches(monkeypatch)
+
+    try:
+        resp = await client.get(
+            f"/collections/{dataset.id}/items", params={"limit": 100}
+        )
+        body = resp.content
+    finally:
+        await _cleanup_table(test_db_session, table_name)
+
+    assert body.count(b"0" * 15_000) == 40
+    assert len(batches) >= 10
+    assert max(len(batch) for batch in batches) <= 3
+
+
 async def _open_streams(session) -> int:
     """Backends still inside a transaction on the stream's query."""
     await session.execute(text("SELECT pg_stat_clear_snapshot()"))
