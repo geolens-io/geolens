@@ -114,9 +114,42 @@ if [ -n "$CSP_SCRIPT_SRC_EXTRA" ]; then
   CSP_SCRIPT_SRC_EXTRA=" $CSP_SCRIPT_SRC_EXTRA"
 fi
 
-export API_UPSTREAM NGINX_RESOLVER CLIENT_MAX_BODY_SIZE TRUSTED_PROXY_CONFIG CSP_SCRIPT_SRC_EXTRA
+# Edge tile rate limits. Each value is rendered straight into a limit_req_zone
+# rate or a limit_req burst, so it must be a plain positive integer; nginx
+# stores both as a C int, and the bound keeps a typo from disabling the limit.
+tile_limit() {
+  _name="$1"
+  _default="$2"
+  _value=""
+  eval "_value=\${$_name:-$_default}"
+  case "$_value" in
+    "" | *[!0-9]* | 0*)
+      echo "ERROR: $_name must be a positive integer from 1 to 1000000, got: $_value" >&2
+      exit 1
+      ;;
+  esac
+  if [ "${#_value}" -gt 7 ] || [ "$_value" -gt 1000000 ]; then
+    echo "ERROR: $_name must be a positive integer from 1 to 1000000, got: $_value" >&2
+    exit 1
+  fi
+  eval "$_name=\$_value"
+}
+tile_limit TILE_RASTER_RATE_PER_MINUTE 600
+tile_limit TILE_RASTER_BURST 200
+tile_limit TILE_VECTOR_RATE_PER_MINUTE 5400
+tile_limit TILE_VECTOR_BURST 720
+# The vector delay is the burst below 120 and 120 otherwise; a delay above the
+# burst would never apply.
+TILE_VECTOR_DELAY=120
+if [ "$TILE_VECTOR_BURST" -lt "$TILE_VECTOR_DELAY" ]; then
+  TILE_VECTOR_DELAY="$TILE_VECTOR_BURST"
+fi
+
+export API_UPSTREAM NGINX_RESOLVER CLIENT_MAX_BODY_SIZE TRUSTED_PROXY_CONFIG CSP_SCRIPT_SRC_EXTRA \
+  TILE_RASTER_RATE_PER_MINUTE TILE_RASTER_BURST TILE_VECTOR_RATE_PER_MINUTE TILE_VECTOR_BURST TILE_VECTOR_DELAY
 mkdir -p /tmp/geolens-nginx
-envsubst '$API_UPSTREAM $NGINX_RESOLVER $CLIENT_MAX_BODY_SIZE $TRUSTED_PROXY_CONFIG $CSP_SCRIPT_SRC_EXTRA' \
+envsubst '$API_UPSTREAM $NGINX_RESOLVER $CLIENT_MAX_BODY_SIZE $TRUSTED_PROXY_CONFIG $CSP_SCRIPT_SRC_EXTRA \
+  $TILE_RASTER_RATE_PER_MINUTE $TILE_RASTER_BURST $TILE_VECTOR_RATE_PER_MINUTE $TILE_VECTOR_BURST $TILE_VECTOR_DELAY' \
   < /opt/geolens/default.conf.template \
   > /tmp/geolens-nginx/default.conf
 

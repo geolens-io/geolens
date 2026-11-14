@@ -548,6 +548,12 @@ services:
       TRUSTED_PROXY_CIDRS: "${TRUSTED_PROXY_CIDRS:-}"
       # Extra script-src sources for the SPA CSP; empty keeps 'self' only.
       CSP_SCRIPT_SRC_EXTRA: "${CSP_SCRIPT_SRC_EXTRA:-}"
+      # Edge tile rate limits; empty keeps the defaults (600/min and burst 200 for
+      # raster tiles, 5400/min and burst 720 for vector tiles).
+      TILE_RASTER_RATE_PER_MINUTE: "${TILE_RASTER_RATE_PER_MINUTE:-}"
+      TILE_RASTER_BURST: "${TILE_RASTER_BURST:-}"
+      TILE_VECTOR_RATE_PER_MINUTE: "${TILE_VECTOR_RATE_PER_MINUTE:-}"
+      TILE_VECTOR_BURST: "${TILE_VECTOR_BURST:-}"
     healthcheck:
       test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://127.0.0.1:8080/ || exit 1"]
       interval: 30s
