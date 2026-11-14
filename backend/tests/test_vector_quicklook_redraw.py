@@ -18,7 +18,7 @@ import app.processing.vector.quicklook as quicklook_module
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.platform.storage.local import LocalStorageProvider
-from app.processing.ingest.tasks_common import _generate_quicklook
+from app.processing.ingest.tasks_quicklook import _generate_quicklook
 from app.processing.ingest.tasks_reupload import reupload_file, reupload_service
 from tests.factories import create_dataset, get_user_id
 from tests.test_replacement_post_commit import _seed_job_and_run
@@ -36,7 +36,7 @@ def storage(tmp_path, monkeypatch) -> LocalStorageProvider:
     provider = LocalStorageProvider(str(tmp_path / "objects"))
     for target in (
         "app.platform.storage.get_storage",
-        "app.processing.ingest.tasks_common.get_storage",
+        "app.processing.ingest.tasks_quicklook.get_storage",
         "app.processing.ingest.tasks_staging.get_storage",
         "app.modules.catalog.datasets.api.router.get_storage",
     ):

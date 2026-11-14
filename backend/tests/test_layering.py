@@ -1354,11 +1354,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # schedule, per-channel notices and the hold an earlier release's purge
     # honours, plus settling the archive flags of jobs that owe no follow-up.
     "backend/app/processing/ingest/publish_followups.py": 1477,
-    # Shared ingest finalization carries verification, manifest record fields, bounded
-    # ArcGIS requests, lifecycle context, the quicklook draw that ingest and
-    # replacement share, and the swap that keeps the replaced table as a previous
-    # version and drops the oldest past the instance's limit.
-    "backend/app/processing/ingest/tasks_common.py": 1894,
+    # What every ingest strategy shares: the task app, job lifecycle and phase
+    # sessions, finalization, and the reupload table swap and catalog write.
+    "backend/app/processing/ingest/tasks_common.py": 1421,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, a service re-upload's
