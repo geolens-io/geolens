@@ -57,7 +57,15 @@ from app.processing.ingest.publication import (
     Verdict,
     settle_replacement,
 )
-from app.processing.ingest.tasks_common import _bind_task_log_context, task_app
+from app.platform.storage.remote_quicklook import (
+    discard_remote_quicklooks,
+    draw_remote_quicklooks,
+)
+from app.processing.ingest.tasks_common import (
+    _bind_task_log_context,
+    cleanup_step,
+    task_app,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -415,25 +423,62 @@ async def _repoint_remote_asset(
     )
 
 
-async def _stored_nodata_is_missing(dataset_id: uuid.UUID) -> bool:
-    """Whether this dataset's remote raster row still has no nodata.
+async def _stored_remote_raster(dataset_id: uuid.UUID) -> Any:
+    """This dataset's remote raster row as ``fetch()`` needs it, or None.
 
     Read in its own short session, since the catalog locks the write step
-    takes afterward must not wait behind it. True for a row with none yet, so
-    ``fetch()`` knows the repair read is worth asking for at all; a dataset
-    without any remote raster row reads the same way and repairs nothing.
+    takes afterward must not wait behind it.
     """
     from app.core.db import async_session
     from app.processing.raster.models import RasterAsset
 
     async with async_session() as session:
-        nodata = await session.scalar(
-            select(RasterAsset.nodata).where(
-                RasterAsset.dataset_id == dataset_id,
-                RasterAsset.storage_backend == "remote",
+        return (
+            await session.execute(
+                select(
+                    RasterAsset.nodata,
+                    RasterAsset.band_count,
+                    RasterAsset.dtype,
+                    RasterAsset.band_info,
+                    RasterAsset.quicklook_256_uri,
+                    RasterAsset.quicklook_512_uri,
+                ).where(
+                    RasterAsset.dataset_id == dataset_id,
+                    RasterAsset.storage_backend == "remote",
+                )
+            )
+        ).one_or_none()
+
+
+async def _point_at_quicklooks(
+    session: Any, dataset_uuid: uuid.UUID, keys: tuple[str, str]
+) -> tuple[str, ...] | None:
+    """Point the remote raster row at newly drawn quicklooks.
+
+    Returns the keys they replace, or None when the dataset has no remote
+    row any more and the new ones went unused.
+    """
+    from app.processing.raster.models import RasterAsset
+
+    scope = (
+        RasterAsset.dataset_id == dataset_uuid,
+        RasterAsset.storage_backend == "remote",
+    )
+    previous = (
+        await session.execute(
+            select(RasterAsset.quicklook_256_uri, RasterAsset.quicklook_512_uri).where(
+                *scope
             )
         )
-    return nodata is None
+    ).one_or_none()
+    if previous is None:
+        return None
+    await session.execute(
+        update(RasterAsset)
+        .where(*scope)
+        .values(quicklook_256_uri=keys[0], quicklook_512_uri=keys[1])
+    )
+    return tuple(key for key in previous if key is not None)
 
 
 async def _repair_remote_nodata(
@@ -520,10 +565,15 @@ class _StacRefresh:
         # The binding this attempt resolves against, for the write's fence and
         # the failure's stamp. None until the claim reads it.
         self.bound: BoundPointer | None = None
+        # Quicklooks this attempt stored, and the ones the write replaced
+        # with them; release() deletes whichever set the commit left unused.
+        self.drawn: tuple[str, str] | None = None
+        self.replaced: tuple[str, ...] | None = None
 
     def prepare(self, job, dataset, staging_table: str) -> None:
         self.bound = bound_pointer(dataset)
         self.dataset_id = dataset.id
+        self.job_id = str(job.id)
 
     async def fetch(self) -> None:
         from app.platform.extensions import get_processing_port
@@ -542,7 +592,8 @@ class _StacRefresh:
         )
         # Read in its own short session, closed before the write step takes
         # any catalog lock.
-        repair_nodata = await _stored_nodata_is_missing(self.dataset_id)
+        stored = await _stored_remote_raster(self.dataset_id)
+        repair_nodata = stored is None or stored.nodata is None
         self.resolution = await get_processing_port().resolve_stac_binding(
             item_href=self.item_href,
             item_id=self.item_id,
@@ -557,6 +608,19 @@ class _StacRefresh:
         )
         if not self.resolution.resolved:
             raise _failure_for(self.resolution)
+        # A moved asset is drawn from its new description, an unmoved one
+        # without quicklooks from the stored one; a failed draw changes nothing.
+        moved = self.resolution.asset_href != self.asset_href
+        if stored is not None and (
+            moved
+            or stored.quicklook_256_uri is None
+            or stored.quicklook_512_uri is None
+        ):
+            described = self.resolution.asset_metadata if moved else stored._mapping
+            drawn = await draw_remote_quicklooks(
+                {self.dataset_id: (self.resolution.asset_href, described or {})}
+            )
+            self.drawn = drawn.get(self.dataset_id)
 
     async def stage(self, session, job, dataset) -> Verdict:
         return PUBLISH
@@ -638,6 +702,8 @@ class _StacRefresh:
             # The one column fetch() asked to have repaired, for an asset
             # not re-described above.
             await _repair_remote_nodata(session, dataset.id, resolution.repaired_nodata)
+        if self.drawn is not None:
+            self.replaced = await _point_at_quicklooks(session, dataset.id, self.drawn)
         # Unconditional: an unchanged answer rewrites the same values, and a
         # dataset imported before the row existed gets it.
         await _upsert_origin_data_asset(
@@ -685,7 +751,17 @@ class _StacRefresh:
     async def release(
         self, *, publication: PublicationCommit | None, failed: bool
     ) -> None:
-        return None
+        if self.drawn is None:
+            return
+        # An indeterminate commit may have published either set, so both stay.
+        if publication is None or self.replaced is None:
+            unused: tuple[str, ...] = self.drawn
+        elif publication.confirmed:
+            unused = self.replaced
+        else:
+            return
+        async with cleanup_step("refresh_stac quicklooks", job_id=self.job_id):
+            await discard_remote_quicklooks(unused)
 
 
 @task_app.task(queue="ingest", retry=0)

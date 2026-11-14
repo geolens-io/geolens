@@ -57,6 +57,10 @@ from app.modules.catalog.sources.cog_info import (
     import_refusal,
     reconcile_epsg,
 )
+from app.platform.storage.remote_quicklook import (
+    discard_remote_quicklooks,
+    draw_remote_quicklooks,
+)
 from app.modules.catalog.sources.schemas import (
     DEPRECATED_TOKEN_SUFFIX,
     SERVICE_AUTH_FIELD_DESCRIPTION,
@@ -823,6 +827,18 @@ async def stac_import(
         )
         cog_info_map = dict(cog_results)
 
+    # Ids are chosen before the rows exist so each quicklook is stored under
+    # its dataset's prefix; every draw shares one deadline.
+    dataset_ids = [uuid.uuid4() for _ in importable]
+    quicklooks = await draw_remote_quicklooks(
+        {
+            dataset_id: (item.data_asset_href, ci)
+            for item, dataset_id in zip(importable, dataset_ids, strict=True)
+            if (ci := cog_info_map.get(item.data_asset_href))
+            and import_refusal(ci) is None
+        }
+    )
+
     # STAC import inserts Record rows directly, beside the datasets façade,
     # raster and VRT creators, so it takes part in the atomic count-cap
     # reservation too.
@@ -831,7 +847,7 @@ async def stac_import(
         reserve_dataset_slot,
     )
 
-    for item in importable:
+    for item, dataset_id in zip(importable, dataset_ids, strict=True):
         refusal = import_refusal(cog_info_map.get(item.data_asset_href))
         if refusal is not None:
             results.append(
@@ -870,6 +886,7 @@ async def stac_import(
 
                 table_name = f"stac_{record.id.hex[:16]}"
                 dataset = Dataset(
+                    id=dataset_id,
                     record_id=record.id,
                     table_name=table_name,
                     source_url=item.data_asset_href,
@@ -937,6 +954,9 @@ async def stac_import(
                     # defaults rather than assert is_rotated=False.
                     **pixel_geometry,
                 )
+                if (drawn := quicklooks.get(dataset_id)) is not None:
+                    raster_asset.quicklook_256_uri = drawn[0]
+                    raster_asset.quicklook_512_uri = drawn[1]
                 db.add(raster_asset)
 
                 # dataset_assets row so a generic STAC client (stac-browser,
@@ -964,6 +984,7 @@ async def stac_import(
                         )
                     )
 
+            quicklooks.pop(dataset_id, None)
             results.append(
                 StacImportResult(
                     item_id=item.id,
@@ -987,6 +1008,8 @@ async def stac_import(
             )
             errors += 1
 
+    # Drawn for an item that was then not created.
+    await discard_remote_quicklooks(k for keys in quicklooks.values() for k in keys)
     await audit_emit(
         db,
         AuditEvent(
