@@ -1324,7 +1324,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/sources/router.py": 1708,
     # STAC import door: per-item refusals, failure codes and quicklook draws sit
     # beside the batch loop.
-    "backend/app/modules/catalog/sources/stac_router.py": 1035,
+    "backend/app/modules/catalog/sources/stac_router.py": 1058,
     # Adoption DDL mirrors the current schema without importing historical migrations.
     "backend/app/core/db/tenant_adoption_sql.py": 2088,
     # Adoption coordinates resumable tenant transactions with ownership and ACL repair.

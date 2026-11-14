@@ -451,12 +451,12 @@ async def _stored_remote_raster(dataset_id: uuid.UUID) -> Any:
 
 
 async def _point_at_quicklooks(
-    session: Any, dataset_uuid: uuid.UUID, keys: tuple[str, str]
+    session: Any, dataset_uuid: uuid.UUID, keys: tuple[str, str] | None
 ) -> tuple[str, ...] | None:
-    """Point the remote raster row at newly drawn quicklooks.
+    """Point the remote raster row at newly drawn quicklooks, or at none.
 
-    Returns the keys they replace, or None when the dataset has no remote
-    row any more and the new ones went unused.
+    Returns the keys this replaces, or None when the dataset has no remote
+    row any more.
     """
     from app.processing.raster.models import RasterAsset
 
@@ -476,7 +476,10 @@ async def _point_at_quicklooks(
     await session.execute(
         update(RasterAsset)
         .where(*scope)
-        .values(quicklook_256_uri=keys[0], quicklook_512_uri=keys[1])
+        .values(
+            quicklook_256_uri=keys[0] if keys else None,
+            quicklook_512_uri=keys[1] if keys else None,
+        )
     )
     return tuple(key for key in previous if key is not None)
 
@@ -565,10 +568,9 @@ class _StacRefresh:
         # The binding this attempt resolves against, for the write's fence and
         # the failure's stamp. None until the claim reads it.
         self.bound: BoundPointer | None = None
-        # Quicklooks this attempt stored, and the ones the write replaced
-        # with them; release() deletes whichever set the commit left unused.
+        # Quicklooks this attempt stored. The commit that names them owes the
+        # deletion of what they replaced; release() deletes them if none does.
         self.drawn: tuple[str, str] | None = None
-        self.replaced: tuple[str, ...] | None = None
 
     def prepare(self, job, dataset, staging_table: str) -> None:
         self.bound = bound_pointer(dataset)
@@ -702,8 +704,12 @@ class _StacRefresh:
             # The one column fetch() asked to have repaired, for an asset
             # not re-described above.
             await _repair_remote_nodata(session, dataset.id, resolution.repaired_nodata)
-        if self.drawn is not None:
-            self.replaced = await _point_at_quicklooks(session, dataset.id, self.drawn)
+        # A moved asset that could not be drawn loses the old images, so the
+        # next refresh draws it rather than showing the previous raster.
+        superseded: tuple[str, ...] = ()
+        if self.drawn is not None or moved:
+            replaced = await _point_at_quicklooks(session, dataset.id, self.drawn)
+            superseded = (self.drawn or ()) if replaced is None else replaced
         # Unconditional: an unchanged answer rewrites the same values, and a
         # dataset imported before the row existed gets it.
         await _upsert_origin_data_asset(
@@ -730,6 +736,7 @@ class _StacRefresh:
             contacted_origin=True,
             tiles_changed=moved or resolution.repaired_nodata is not None,
             reembed=moved,
+            superseded_keys=superseded,
         )
 
     def classify(self, exc: BaseException) -> Failure:
@@ -751,17 +758,10 @@ class _StacRefresh:
     async def release(
         self, *, publication: PublicationCommit | None, failed: bool
     ) -> None:
-        if self.drawn is None:
-            return
-        # An indeterminate commit may have published either set, so both stay.
-        if publication is None or self.replaced is None:
-            unused: tuple[str, ...] = self.drawn
-        elif publication.confirmed:
-            unused = self.replaced
-        else:
+        if self.drawn is None or publication is not None:
             return
         async with cleanup_step("refresh_stac quicklooks", job_id=self.job_id):
-            await discard_remote_quicklooks(unused)
+            await discard_remote_quicklooks(self.drawn)
 
 
 @task_app.task(queue="ingest", retry=0)

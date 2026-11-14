@@ -18,6 +18,7 @@ from urllib.parse import urlencode
 import httpx
 import structlog
 
+from app.platform.storage.publication import AssetPublication, asset_publication
 from app.platform.storage.raster_relay import relay_url
 from app.platform.storage.titiler_url import (
     RemoteRasterPathError,
@@ -27,9 +28,9 @@ from app.platform.storage.titiler_url import (
 
 logger = structlog.get_logger(__name__)
 
-# The timeout one Titiler read already has in fetch_cog_info. Every draw a
-# request or refresh makes shares one deadline this far out, however many
-# items it covers.
+# The timeout one Titiler read already has in fetch_cog_info. Every Titiler
+# read a batch makes ends by one deadline this far out; writing what was
+# drawn to the instance's own storage is not cut off by it.
 DRAW_BUDGET_S = 15.0
 _CONCURRENCY = 10
 _SIZES = (256, 512)
@@ -106,7 +107,9 @@ async def _draw(
     return body
 
 
-async def _store(dataset_id: uuid.UUID, pngs: Mapping[int, bytes]) -> tuple[str, str]:
+async def _store(
+    dataset_id: uuid.UUID, pngs: Mapping[int, bytes], written: AssetPublication
+) -> tuple[str, str]:
     """Write both PNGs under a fresh prefix; return their logical keys.
 
     A fresh prefix per draw changes ``quicklook_version``, so a card that
@@ -116,19 +119,15 @@ async def _store(dataset_id: uuid.UUID, pngs: Mapping[int, bytes]) -> tuple[str,
 
     base = f"rasters/{dataset_id}/remote-quicklook-{uuid.uuid4().hex[:12]}"
     keys = tuple(f"{base}/quicklook_{size}.png" for size in _SIZES)
+    physical = [resolve_current_storage_key(key) for key in keys]
     storage = get_storage()
-    written: list[str] = []
     try:
-        for key, size in zip(keys, _SIZES, strict=True):
-            physical = resolve_current_storage_key(key)
-            # Recorded before the put: a cancelled put may still land.
-            written.append(physical)
-            await storage.put(physical, pngs[size])
-    except BaseException as exc:
-        await _delete_physical(written)
-        if isinstance(exc, Exception):
-            raise _NotDrawn("storage_failed") from exc
-        raise
+        for key, size in zip(physical, _SIZES, strict=True):
+            written.record(key)
+            await storage.put(key, pngs[size])
+    except Exception as exc:  # broad: storage backends raise varied SDK/I/O errors
+        await _delete_physical(physical)
+        raise _NotDrawn("storage_failed") from exc
     return keys[0], keys[1]
 
 
@@ -139,7 +138,11 @@ async def _delete_physical(physical_keys: list[str]) -> None:
 
 
 async def _draw_one(
-    dataset_id: uuid.UUID, url: str, described: Mapping[str, Any], deadline: float
+    dataset_id: uuid.UUID,
+    url: str,
+    described: Mapping[str, Any],
+    deadline: float,
+    written: AssetPublication,
 ) -> tuple[str, str] | None:
     reason, status = "draw_failed", None
     try:
@@ -152,7 +155,7 @@ async def _draw_one(
                 pngs = {
                     size: await _draw(client, source, size, render) for size in _SIZES
                 }
-            return await _store(dataset_id, pngs)
+        return await _store(dataset_id, pngs, written)
     except TimeoutError:
         reason = "timeout"
     except _NotDrawn as exc:
@@ -180,9 +183,11 @@ async def draw_remote_quicklooks(
 
     ``targets`` maps a dataset id to its asset URL and the description
     ``fetch_cog_info`` returned for it. Returns the logical ``(256, 512)``
-    keys of every pair stored within ``DRAW_BUDGET_S`` of the call; a draw
-    that failed or ran out of time is logged once with a reason code, leaves
-    nothing stored, and is absent from the result.
+    keys of every pair stored; the caller owns those objects from then on.
+    A draw that failed, or whose Titiler reads ran past ``DRAW_BUDGET_S``
+    from the call, is logged once with a reason code, leaves nothing stored,
+    and is absent from the result. A batch that raises or is cancelled
+    deletes every object it wrote first.
 
     Each URL has already passed the SSRF guard (import validates it, and
     refresh draws only an href its safe-client probe reached); the relay then
@@ -190,17 +195,27 @@ async def draw_remote_quicklooks(
     """
     deadline = asyncio.get_running_loop().time() + DRAW_BUDGET_S
     gate = asyncio.Semaphore(_CONCURRENCY)
+    async with asset_publication() as written:
 
-    async def bounded(dataset_id: uuid.UUID, url: str, described: Mapping[str, Any]):
-        async with gate:
-            return dataset_id, await _draw_one(dataset_id, url, described, deadline)
+        async def bounded(
+            dataset_id: uuid.UUID, url: str, described: Mapping[str, Any]
+        ):
+            async with gate:
+                keys = await _draw_one(dataset_id, url, described, deadline, written)
+                return dataset_id, keys
 
-    drawn = await asyncio.gather(
-        *(bounded(dataset_id, *target) for dataset_id, target in targets.items())
-    )
+        drawn = await asyncio.gather(
+            *(bounded(dataset_id, *target) for dataset_id, target in targets.items())
+        )
+        written.settled()
     return {dataset_id: keys for dataset_id, keys in drawn if keys is not None}
+
+
+def physical_keys(keys: Iterable[str]) -> list[str]:
+    """The storage keys of logical quicklook keys, in this tenant."""
+    return [resolve_current_storage_key(key) for key in keys]
 
 
 async def discard_remote_quicklooks(keys: Iterable[str]) -> None:
     """Delete stored quicklooks by logical key; failures are logged, never raised."""
-    await _delete_physical([resolve_current_storage_key(key) for key in keys])
+    await _delete_physical(physical_keys(keys))
