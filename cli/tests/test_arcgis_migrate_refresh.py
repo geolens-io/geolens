@@ -297,6 +297,7 @@ def test_a_dataset_changed_in_geolens_since_the_last_run_is_left_alone(
         "feature_count": 0,
         "data_revision": 0,
         "current_version": 1,
+        "source_url": None,
     }
 
 
@@ -1202,7 +1203,7 @@ def test_a_refresh_an_earlier_run_left_running_is_adopted_and_merged(
     assert payload["metadata_merged"] == {A2: [MERGED]}
 
 
-def test_a_merge_whose_write_answer_was_lost_is_kept_and_stops_a_later_conflict(
+def test_a_merge_whose_write_answer_was_lost_is_recorded_once_both_sides_agree(
     runner, tmp_path, geolens
 ):
     plan_file, service, refresh = _edited_on_both_sides(runner, tmp_path, geolens, None)
@@ -1222,14 +1223,15 @@ def test_a_merge_whose_write_answer_was_lost_is_kept_and_stops_a_later_conflict(
 
     assert result.exit_code == 0, payload["not_up_to_date"]
     _merged_as_edited(service)
+    baseline = _state(plan_file)["items"][A2]["metadata_baseline"][PARCELS]
+    assert baseline["summary"].startswith("New summary")
     _set_snippet(plan_file, A2, "Newer summary")
 
     result, payload = _migrate(runner, plan_file, "--only", A2)
 
-    # The landed summary isn't recorded as this command's, so it is kept.
-    assert result.exit_code == 1
-    assert "the summary is" in payload["not_up_to_date"][A2][0]
-    _merged_as_edited(service)
+    assert result.exit_code == 0, payload["not_up_to_date"]
+    assert service.summaries[PARCELS] == "Newer summary"
+    assert service.fields[PARCELS]["title"] == "Named in GeoLens"
 
 
 @pytest.mark.parametrize("write", ["visibility", "metadata"])
@@ -1547,6 +1549,113 @@ def test_a_dry_run_replaces_a_recorded_conflict_once_it_is_resolved(
         for i in c["items"]
     ]
     assert not [i for i in unfinished if i["item"] == A2], unfinished
+
+
+def _patch_bodies(geolens) -> str:
+    return json.dumps([s.json() for s in geolens.seen if s.method == "PATCH"])
+
+
+@pytest.mark.parametrize(
+    "summary",
+    [
+        "Authorization: Bearer {secret} [REDACTED]",
+        '{{"token": "[REDACTED] {secret}"}}',
+    ],
+    ids=["header", "json"],
+)
+def test_a_portal_value_already_holding_a_marker_is_still_refused(
+    runner, tmp_path, geolens, summary
+):
+    secret = secrets.token_urlsafe(40)
+    plan_file, service, refresh = _edited_on_both_sides(runner, tmp_path, geolens, None)
+    _set_snippet(plan_file, A2, summary.format(secret=secret))
+
+    result, payload = _migrate(runner, plan_file, "--only", A2, "--token", secret)
+
+    assert result.exit_code == 1
+    reason = payload["not_up_to_date"][A2][0]
+    assert "the portal's summary holds a credential, so it isn't written" in reason
+    assert service.summaries[PARCELS] == "Old summary"
+    assert secret not in _patch_bodies(geolens)
+    state = (plan_file.parent / "arcgis-migration-state.json").read_text()
+    assert secret not in state
+
+
+def test_a_source_url_edited_in_geolens_stops_a_merge_before_a_refresh(
+    runner, tmp_path, geolens
+):
+    plan_file, service, refresh = _edited_on_both_sides(runner, tmp_path, geolens, None)
+    service.fields[PARCELS]["source_url"] = "https://example.test/edited-in-geolens"
+    send = geolens.routes[f"POST /datasets/{PARCELS}/refresh"]
+
+    def publishing_changed_data(seen):
+        # A refresh that publishes writes the source URL it read from.
+        service.fields[PARCELS]["source_url"] = "https://example.test/service/0"
+        return send(seen)
+
+    geolens.routes[f"POST /datasets/{PARCELS}/refresh"] = publishing_changed_data
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    assert len(refresh.bodies) == 1
+    reason = payload["not_up_to_date"][A2][0]
+    assert reason.endswith(refresh_mod.KEEP_GEOLENS)
+    assert service.fields[PARCELS]["source_url"] == (
+        "https://example.test/edited-in-geolens"
+    )
+    assert service.fields[PARCELS]["title"] == "Named in GeoLens"
+
+
+@pytest.mark.parametrize("name", CARRIED)
+def test_a_conflict_ends_once_both_sides_hold_the_same_new_value(
+    runner, tmp_path, geolens, name
+):
+    plan_file, service, refresh = _every_field_recorded(runner, tmp_path, geolens)
+    _set_geolens_value(service, name, "Edited in GeoLens")
+    service.fields[PARCELS].update(updated_at=EDITED, updated_by=ALICE)
+    _set_portal_value(plan_file, name, "From the portal")
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 1
+    _set_geolens_value(service, name, "Agreed value")
+    _set_portal_value(plan_file, name, "Agreed value")
+
+    dry, previewed = _migrate(runner, plan_file, "--only", A2, "--dry-run")
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert dry.exit_code == 0, previewed["not_up_to_date"]
+    assert result.exit_code == 0, payload["not_up_to_date"]
+    label = name.replace("_", " ")
+    [line] = payload["metadata_merged"][A2]
+    assert line.endswith(f"the {label} the same on both sides")
+    baseline = _state(plan_file)["items"][A2]["metadata_baseline"][PARCELS]
+    assert baseline[name] == "Agreed value"
+    _set_portal_value(plan_file, name, "Later from the portal")
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, payload["not_up_to_date"]
+    assert _geolens_value(service, name) == "Later from the portal"
+
+
+@pytest.mark.parametrize(
+    ("flags", "refusal"),
+    [
+        (["--token-stdin"], "--token-stdin read an empty line"),
+        (["--username", "gis_admin", "--password-stdin"], "an empty password"),
+    ],
+    ids=["token", "password"],
+)
+def test_an_empty_stdin_line_is_refused_not_skipped(
+    runner, plan_file, geolens, flags, refusal
+):
+    FakeImport(geolens, [_layer(0, "Parcels")], needs_auth=True)
+    args = ["arcgis", "migrate", str(plan_file), "--only", A1, *flags]
+
+    result = runner.invoke(app, args, input="\nsecond-line-value\n")
+
+    assert result.exit_code == 2, result.output
+    assert refusal in result.output
+    assert "second-line-value" not in result.output
 
 
 def test_a_dry_run_checks_visibility_with_the_sharing_the_run_gives(
@@ -2202,6 +2311,7 @@ def test_the_record_stays_the_published_one_when_the_metadata_write_races_an_edi
         "feature_count": 0,
         "data_revision": 0,
         "current_version": 2,
+        "source_url": None,
     }
 
 
@@ -2234,6 +2344,7 @@ def test_a_metadata_write_geolens_refuses_as_stale_keeps_the_published_record(
         "feature_count": 0,
         "data_revision": 0,
         "current_version": 2,
+        "source_url": None,
     }
 
 

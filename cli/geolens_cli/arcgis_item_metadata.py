@@ -204,13 +204,14 @@ Difference = tuple[str, str, str]
 
 @dataclass
 class Edits:
-    """The fields where GeoLens and the portal now differ, by the side that
-    changed them since this command last wrote them; *unknown* holds those
-    with no recorded value to tell."""
+    """The fields changed since this command last wrote them, by the side
+    that changed them; *agreed* holds those both sides changed to the same
+    value, and *unknown* those with no recorded value to tell."""
 
     portal: list[Difference] = field(default_factory=list)
     geolens: list[Difference] = field(default_factory=list)
     both: list[Difference] = field(default_factory=list)
+    agreed: list[Difference] = field(default_factory=list)
     unknown: list[Difference] = field(default_factory=list)
 
 
@@ -220,9 +221,9 @@ def compare_edits(
     fields: Mapping[str, Any],
     title: str | None,
 ) -> Edits:
-    """Classify each carried field where *dataset* differs from the portal's
-    value in *fields* (absent: empty) against *base*, the values this command
-    last wrote. The title is compared only when *title* is given."""
+    """Classify each carried field by how *dataset* and the portal's value in
+    *fields* (absent: empty) differ from *base*, the values this command last
+    wrote. The title is compared only when *title* is given."""
     edits = Edits()
     for name in CARRIED:
         if name == "title":
@@ -232,9 +233,11 @@ def compare_edits(
         else:
             value = fields.get(name) or ""
         existing = _current(dataset, name)
-        if existing == value:
-            continue
         written = _written(base, name)
+        if existing == value:
+            if written is not None and existing != written:
+                edits.agreed.append((name, existing, value))
+            continue
         if written is None:
             side = edits.unknown
         elif existing != written and value != written:

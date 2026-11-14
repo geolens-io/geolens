@@ -33,6 +33,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import Any
 from urllib.parse import (
@@ -121,9 +122,22 @@ class Redactor:
         self._forms = sorted(dict.fromkeys(forms), key=len, reverse=True)
 
     def __call__(self, text: str) -> str:
+        return self.scrub(text, [])
+
+    def scrub(self, text: str, hits: list[str]) -> str:
+        """*text* masked, with what matched appended to *hits*."""
         for form in self._forms:
-            text = text.replace(form, "[REDACTED]")
-        return _CREDENTIAL_PARAM.sub(r"\1[REDACTED]", text)
+            if form in text:
+                hits.append("secret")
+                text = text.replace(form, "[REDACTED]")
+        return _subn(_CREDENTIAL_PARAM, r"\1[REDACTED]", text, hits)
+
+
+def _subn(pattern: re.Pattern[str], repl: Any, text: str, hits: list[str]) -> str:
+    text, count = pattern.subn(repl, text)
+    if count:
+        hits.append(pattern.pattern)
+    return text
 
 
 def _is_credential_name(name: str) -> bool:
@@ -134,9 +148,10 @@ def _is_credential_name(name: str) -> bool:
     )
 
 
-def _scrub_param(match: re.Match[str]) -> str:
+def _scrub_param(hits: list[str], match: re.Match[str]) -> str:
     lead, name, value = match.groups()
     if _is_credential_name(unquote_plus(name)):
+        hits.append("param")
         value = "[REDACTED]"
     return f"{lead}{name}={value}"
 
@@ -168,13 +183,14 @@ _JSON_PAIR = re.compile(r'"([^"\\]{1,64})"(\s*:\s*)"(?:[^"\\]|\\.)*"')
 _MAX_EMBEDDED_DEPTH = 3
 
 
-def _scrub_scheme(match: re.Match[str]) -> str:
+def _scrub_scheme(hits: list[str], match: re.Match[str]) -> str:
     assigned, scheme, space, value = match.groups()
     # Bearer is rarely prose; the other schemes also open ordinary sentences
     # ("Basic configuration options"), so a lowercase word after them is left
     # alone, except as the value of an assignment, whose name may be encoded.
     if scheme.lower() != "bearer" and not assigned and re.fullmatch(r"[a-z]+", value):
         return match.group(0)
+    hits.append("scheme")
     return f"{assigned}{scheme}{space}[REDACTED]"
 
 
@@ -186,21 +202,26 @@ def _scrub_header(match: re.Match[str]) -> str:
     raise AssertionError("unreachable")
 
 
-def _scrub_pair(match: re.Match[str]) -> str:
+def _scrub_pair(hits: list[str], match: re.Match[str]) -> str:
     name, colon = match.group(1), match.group(2)
-    return (
-        f'"{name}"{colon}"[REDACTED]"' if _is_credential_name(name) else match.group(0)
-    )
+    if not _is_credential_name(name):
+        return match.group(0)
+    hits.append("pair")
+    return f'"{name}"{colon}"[REDACTED]"'
 
 
-def _scrub_text(text: str, redact: Redactor, depth: int = 0) -> str:
-    """*text* with every credential shape this module knows masked.
+def _scrub_text(
+    text: str, redact: Redactor, depth: int = 0, hits: list[str] | None = None
+) -> str:
+    """*text* with every credential shape this module knows masked, and what
+    matched appended to *hits*.
 
     JSON held inside a string is parsed and scrubbed like the document around
     it; any other text goes through the shape patterns, which cover query and
     assignment forms, URL userinfo, auth headers and schemes, JWTs, private
     keys and cloud access key ids.
     """
+    hits = [] if hits is None else hits
     stripped = text.lstrip()
     if depth < _MAX_EMBEDDED_DEPTH and stripped[:1] in ("{", "["):
         try:
@@ -208,25 +229,32 @@ def _scrub_text(text: str, redact: Redactor, depth: int = 0) -> str:
         except (ValueError, RecursionError):
             embedded = None
         if isinstance(embedded, dict | list):
-            return json.dumps(_redact_json(embedded, redact, depth + 1))
-    text = redact(text)
-    text = _PEM.sub("[REDACTED]", text)
-    text = _HEADER.sub(_scrub_header, text)
-    text = _SCHEME_CREDENTIAL.sub(_scrub_scheme, text)
-    text = _JWT.sub("[REDACTED]", text)
-    text = _AWS_KEY_ID.sub("[REDACTED]", text)
+            return json.dumps(_redact_json(embedded, redact, depth + 1, hits))
+    if isinstance(redact, Redactor):
+        text = redact.scrub(text, hits)
+    elif (masked := redact(text)) != text:
+        # A plain callable can't say what it matched, only what it changed.
+        hits.append("redact")
+        text = masked
+    text = _subn(_PEM, "[REDACTED]", text, hits)
+    text = _subn(_HEADER, _scrub_header, text, hits)
+    text = _SCHEME_CREDENTIAL.sub(partial(_scrub_scheme, hits), text)
+    text = _subn(_JWT, "[REDACTED]", text, hits)
+    text = _subn(_AWS_KEY_ID, "[REDACTED]", text, hits)
     if "=" in text or "//" in text:
-        text = _URL_PARAM.sub(_scrub_param, text)
-        text = _URL_USERINFO.sub(r"\1[REDACTED]@", text)
+        text = _URL_PARAM.sub(partial(_scrub_param, hits), text)
+        text = _subn(_URL_USERINFO, r"\1[REDACTED]@", text, hits)
     if '":' in text or '" :' in text:
-        text = _JSON_PAIR.sub(_scrub_pair, text)
+        text = _JSON_PAIR.sub(partial(_scrub_pair, hits), text)
     return text
 
 
-def holds_credential(text: str, redact: Redactor) -> bool:
-    """Whether scrubbing *text* masks anything, told by the masks it adds
-    because scrubbing also rewrites JSON held in a string."""
-    return _scrub_text(text, redact).count("[REDACTED]") > text.count("[REDACTED]")
+def holds_credential(value: Any, redact: Redactor) -> bool:
+    """Whether any credential pattern or registered secret matches in *value*,
+    a string or a JSON document; told by the matching, not the masked text."""
+    hits: list[str] = []
+    _redact_json(value, redact, 0, hits)
+    return bool(hits)
 
 
 def redact_json(value: Any, redact: Redactor) -> Any:
@@ -234,15 +262,20 @@ def redact_json(value: Any, redact: Redactor) -> Any:
     return _redact_json(value, redact, 0)
 
 
-def _redact_json(value: Any, redact: Redactor, depth: int) -> Any:
+def _redact_json(
+    value: Any, redact: Redactor, depth: int, hits: list[str] | None = None
+) -> Any:
     """A copy of *value* that is safe to write to disk.
 
     The value under any key named like a credential becomes ``[REDACTED]`` at
     any depth, and every other string passes through *redact*. The walk is
     iterative so a deeply nested document can't exhaust the stack.
     """
+    hits = [] if hits is None else hits
     if not isinstance(value, dict | list):
-        return _scrub_text(value, redact, depth) if isinstance(value, str) else value
+        return (
+            _scrub_text(value, redact, depth, hits) if isinstance(value, str) else value
+        )
     root: Any = {} if isinstance(value, dict) else []
     stack = [(value, root)]
     while stack:
@@ -255,16 +288,23 @@ def _redact_json(value: Any, redact: Redactor, depth: int) -> Any:
                 and not _COMPOUND_KEY.search(key)
                 and _is_credential_name(key)
             ):
+                hits.append("key")
                 out: Any = "[REDACTED]"
             elif isinstance(item, dict | list):
                 out = {} if isinstance(item, dict) else []
                 stack.append((item, out))
             else:
                 out = (
-                    _scrub_text(item, redact, depth) if isinstance(item, str) else item
+                    _scrub_text(item, redact, depth, hits)
+                    if isinstance(item, str)
+                    else item
                 )
             if isinstance(source, dict):
-                name = _scrub_text(key, redact, depth) if isinstance(key, str) else key
+                name = (
+                    _scrub_text(key, redact, depth, hits)
+                    if isinstance(key, str)
+                    else key
+                )
                 # Two keys can scrub to the same text; keep both values.
                 while name in target:
                     name = f"{name}#"
@@ -1233,18 +1273,20 @@ def read_credentials(
     username: str | None,
     password_stdin: bool,
     client_id: str | None = None,
-    prompt: bool = True,
+    stdin_line: str | None = None,
 ) -> tuple[str | None, str | None]:
-    """(token, password) from the options, stdin, ``ARCGIS_PASSWORD`` or a
-    prompt; both None for an anonymous run or a browser sign-in with
-    *client_id*, and the password None when it would take a prompt and
-    *prompt* is false. ``ValueError`` on a bad mix."""
+    """(token, password) from the options, stdin (*stdin_line* when it was
+    read already), ``ARCGIS_PASSWORD`` or a prompt; both None for an
+    anonymous run or a browser sign-in with *client_id*. ``ValueError`` on a
+    bad mix."""
     token = token or None
     check_credential_options(token, token_stdin, username, password_stdin, client_id)
     if client_id is not None:
         return None, None
+    if stdin_line is None and (token_stdin or password_stdin):
+        stdin_line = sys.stdin.readline()
     if token_stdin:
-        token = sys.stdin.readline().strip()
+        token = (stdin_line or "").strip()
         if not token:
             raise ValueError("--token-stdin read an empty line")
     if token is not None:
@@ -1257,12 +1299,11 @@ def read_credentials(
     if not username:
         return None, None
     if password_stdin:
-        password = sys.stdin.readline().rstrip("\r\n")
+        password = (stdin_line or "").rstrip("\r\n")
     else:
-        password = os.environ.get("ARCGIS_PASSWORD")
-        if not password and not prompt:
-            return None, None
-        password = password or getpass.getpass("ArcGIS password: ")
+        password = os.environ.get("ARCGIS_PASSWORD") or getpass.getpass(
+            "ArcGIS password: "
+        )
     if not password:
         raise ValueError("an empty password was given")
     return None, password

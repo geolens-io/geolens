@@ -214,8 +214,9 @@ class MigrateOptions:
     token_stdin: bool = False
     username: str | None = None
     password_stdin: bool = False
-    # Read from --password-stdin or ARCGIS_PASSWORD when the run starts.
-    password: str | None = None
+    # The stdin line --token-stdin or --password-stdin names, read when the
+    # run starts so its credential is registered before anything prints.
+    stdin_line: str | None = None
     client_id: str | None = None
     redirect_port: int | None = None
     quiet: bool = False
@@ -1926,16 +1927,14 @@ def _portal_client(
             return PortalClient(root, opener=build_opener(), redact=redact), None
         return None
     try:
-        # Stdin was read when the run started; only a prompt is left.
         token, password = read_credentials(
             opts.token,
             opts.token_stdin,
             opts.username,
             opts.password_stdin,
             opts.client_id,
-            prompt=opts.password is None,
+            stdin_line=opts.stdin_line,
         )
-        password = opts.password or password
         redact.add(password)
         if token is None and password is None and not opts.client_id:
             raise UsageError(
@@ -1999,13 +1998,12 @@ def _sign_in(
 
 
 def _take_credentials(opts: MigrateOptions, redact: Redactor) -> MigrateOptions:
-    """*opts* with each credential the run was given read once and added to
-    *redact* before any path can skip the portal sign-in: a token from
-    --token, ARCGIS_TOKEN or --token-stdin, and a password from
-    --password-stdin or ARCGIS_PASSWORD. Both variables are registered even
-    when an option overrides them or nothing uses them. Nothing prompts here;
-    an empty stdin line stays unread, so the sign-in that needs it refuses as
-    before."""
+    """*opts* with the stdin line a credential option names read once, and
+    each credential the run was given added to *redact* before any path can
+    skip the portal sign-in: a token from --token, ARCGIS_TOKEN or
+    --token-stdin, and a password from --password-stdin or ARCGIS_PASSWORD,
+    both variables even when an option overrides them. Nothing prompts here,
+    and an empty line is refused by the sign-in that needs it, as before."""
     try:
         check_credential_options(
             opts.token or None,
@@ -2016,24 +2014,14 @@ def _take_credentials(opts: MigrateOptions, redact: Redactor) -> MigrateOptions:
         )
     except ValueError as exc:
         raise UsageError(str(exc)) from None
-    token, password = opts.token or None, None
-    token_stdin, password_stdin = opts.token_stdin, opts.password_stdin
-    if token_stdin:
-        token = sys.stdin.readline().strip() or None
-        token_stdin = token is None
-    if password_stdin:
-        password = sys.stdin.readline().rstrip("\r\n") or None
-        password_stdin = password is None
-    environment = (os.environ.get(n) for n in ("ARCGIS_TOKEN", "ARCGIS_PASSWORD"))
-    for secret in (token, password, *environment):
+    line = None
+    if opts.token_stdin or opts.password_stdin:
+        line = sys.stdin.readline()
+    secrets = [opts.token, line and line.strip(), line and line.rstrip("\r\n")]
+    secrets += [os.environ.get(n) for n in ("ARCGIS_TOKEN", "ARCGIS_PASSWORD")]
+    for secret in secrets:
         redact.add(secret)
-    return replace(
-        opts,
-        token=token,
-        token_stdin=token_stdin,
-        password=password,
-        password_stdin=password_stdin,
-    )
+    return replace(opts, stdin_line=line)
 
 
 def _run(

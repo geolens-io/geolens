@@ -25,7 +25,7 @@ from contextlib import suppress
 from collections.abc import Callable, Mapping
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 from uuid import UUID
 
 from . import replace as _replace
@@ -97,12 +97,15 @@ def get_dataset(ctx: MigrationContext, dataset_id: str) -> Any:
 def snapshot(dataset: Any) -> dict[str, Any]:
     """What a later run compares to tell whether GeoLens changed *dataset*.
     A feature or column write moves ``data_revision``; a replacement, refresh
-    or restore moves ``current_version`` and may keep the feature count."""
+    or restore moves ``current_version`` and may keep the feature count.
+    ``source_url`` is the one field a GeoLens user edits that a service
+    refresh overwrites."""
     return {
         "updated_at": dataset.updated_at.isoformat(),
         "feature_count": _value(dataset.feature_count),
         "data_revision": _revision(dataset),
         "current_version": _value(getattr(dataset, "current_version", None)),
+        "source_url": _value(getattr(dataset, "source_url", None)),
     }
 
 
@@ -358,6 +361,16 @@ def _what_changed(seen: Mapping[str, Any], now: Mapping[str, Any]) -> str:
     return f"{what}; last changed at {now['updated_at']}"
 
 
+class _Check(NamedTuple):
+    """Why a dataset must be left alone over its item metadata, the line
+    reporting a merge with edits made in GeoLens, and the fields both sides
+    changed to the same value, to record as written once the merge lands."""
+
+    stop: str | None = None
+    line: str | None = None
+    agreed: dict[str, str] = {}
+
+
 def _metadata_check(
     ctx: MigrationContext,
     item: Mapping[str, Any],
@@ -367,20 +380,19 @@ def _metadata_check(
     reason: str | None,
     *,
     dry_run: bool = False,
-) -> tuple[str | None, str | None]:
-    """Why *dataset* must be left alone over its item metadata, and the line
-    reporting a merge with edits made in GeoLens; None for either when there
-    is none. Read without writing anything.
+) -> _Check:
+    """What a run does with *dataset*'s item metadata, read without writing.
 
     A dataset changed in GeoLens since the last run (*reason*) goes ahead only
-    when the change shows in carried fields alone and none of them changed on
-    both sides. An unchanged one is checked too: an earlier merge may have
-    kept a GeoLens edit that the portal has now changed as well.
+    when the change shows in carried fields alone and none of them changed to
+    different values on both sides. An unchanged one is checked too: an
+    earlier merge may have kept a GeoLens edit that the portal has now changed
+    as well.
     """
     changed = bool(reason and reason.startswith(CHANGED))
     edits = _edits(ctx, item, entry, dataset_id, dataset, changed)
     if edits is None:
-        return (_left_alone(ctx, item, reason) if changed else None), None
+        return _Check(_left_alone(ctx, item, reason) if changed else None)
     text = _portal_text(ctx, item)
     both = edits.both + (edits.unknown if changed else [])
     if both:
@@ -390,24 +402,28 @@ def _metadata_check(
             for name, ours, theirs in both
         )
         why = f"both sides changed the same fields: {shown}"
-        return _left_alone(ctx, item, reason, why, MAKE_EQUAL), None
-    if not edits.geolens or not (changed or edits.portal):
-        return None, None
+        return _Check(_left_alone(ctx, item, reason, why, MAKE_EQUAL))
+    kept = edits.geolens or edits.agreed
+    if not kept or not (changed or edits.portal or edits.agreed):
+        return _Check()
     held = [
         name
-        for name, _ours, theirs in edits.portal
+        for name, _ours, theirs in edits.portal + edits.agreed + edits.unknown
         if _holds_credential(ctx, theirs, text.get(name))
     ]
     if held:
         names = ", ".join(_label(name) for name in held)
         why = f"the portal's {names} holds a credential, so it isn't written"
-        return _left_alone(ctx, item, reason, why), None
-    sources = [f"the {_label(n)} from the portal" for n, _g, _p in edits.portal] + [
-        f"the {_label(n)} from GeoLens" for n, _g, _p in edits.geolens
-    ]
+        return _Check(_left_alone(ctx, item, reason, why))
+    sources = (
+        [f"the {_label(n)} from the portal" for n, _g, _p in edits.portal]
+        + [f"the {_label(n)} from GeoLens" for n, _g, _p in edits.geolens]
+        + [f"the {_label(n)} the same on both sides" for n, _g, _p in edits.agreed]
+    )
     verb = "would merge" if dry_run else "merged"
     line = f"dataset {dataset_id} was edited in GeoLens; {verb} its metadata: "
-    return None, line + ", ".join(sources)
+    agreed = {name: value for name, _ours, value in edits.agreed}
+    return _Check(line=line + ", ".join(sources), agreed=agreed)
 
 
 def _edits(
@@ -418,9 +434,10 @@ def _edits(
     dataset: Any,
     changed: bool,
 ) -> Edits | None:
-    """The carried fields that differ, or None when they can't account for a
-    change made in GeoLens: no recorded values, a data or owner change, or no
-    carried field showing an edit there, such as a column or keyword edit."""
+    """The carried fields that changed, or None when they can't account for a
+    change made in GeoLens: no recorded values, a data, owner or source URL
+    change, or no carried field showing an edit there, such as a keyword
+    edit."""
     base = entry.metadata_baseline.get(dataset_id)
     row = ctx.inventory.get(item["id"])
     if base is None or row is None:
@@ -430,12 +447,15 @@ def _edits(
         now = snapshot(dataset)
         if seen is None or now["current_version"] is None or not same_data(seen, now):
             return None
+        # A service refresh overwrites the source URL.
+        if seen.get("source_url", _MISSING) != now["source_url"]:
+            return None
         if entry.owner_id is None or _owner(dataset) != entry.owner_id:
             return None
     fields = item_metadata(row, item["target"], ctx.portal_info)
     title = _dataset_titles(item, entry).get(dataset_id)
     edits = compare_edits(dataset, base, fields, title)
-    if changed and not (edits.geolens or edits.both or edits.unknown):
+    if changed and not (edits.geolens or edits.both or edits.unknown or edits.agreed):
         return None
     return edits
 
@@ -491,13 +511,13 @@ def preview_metadata(
             if _moved(seen, now)
             else None
         )
-        stop, merged = _metadata_check(
+        check = _metadata_check(
             ctx, item, entry, dataset_id, dataset, reason, dry_run=True
         )
-        stop = stop or _visibility_refusal(item, entry, dataset_id, dataset)
+        stop = check.stop or _visibility_refusal(item, entry, dataset_id, dataset)
         checked[dataset_id] = f"dataset {dataset_id}: {stop}" if stop else None
-        if merged and not stop:
-            lines.append(merged)
+        if check.line and not stop:
+            lines.append(check.line)
     return lines, checked
 
 
@@ -841,9 +861,9 @@ def _bring_one(
     changed = bool(reason and reason.startswith(CHANGED))
     if reason and not changed:
         return f"{reason}; it was left as it is"
-    stop, merged = _metadata_check(ctx, item, entry, dataset_id, dataset, reason)
-    if stop:
-        return stop
+    check = _metadata_check(ctx, item, entry, dataset_id, dataset, reason)
+    if check.stop:
+        return check.stop
     problem, dataset = _apply_visibility(ctx, item, entry, dataset_id, dataset)
     if problem:
         return problem
@@ -890,10 +910,11 @@ def _bring_one(
         with suppress(GeoLensError):
             _record_own_write(ctx, entry, dataset_id, marker)
         raise
-    if merged:
-        if merged not in entry.notes:
-            entry.notes.append(merged)
-        ctx.metadata_merged.setdefault(item["id"], []).append(merged)
+    if check.line:
+        entry.metadata_baseline.setdefault(dataset_id, {}).update(check.agreed)
+        if check.line not in entry.notes:
+            entry.notes.append(check.line)
+        ctx.metadata_merged.setdefault(item["id"], []).append(check.line)
     if not _record_own_write(ctx, entry, dataset_id, marker):
         return "changed in GeoLens while its metadata was written; it was left as it is"
     return None
