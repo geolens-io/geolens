@@ -10793,6 +10793,12 @@ export type ProblemDetail = {
     detail: string | {
         [key: string]: unknown;
     } | Array<unknown>;
+    /**
+     * Code
+     *
+     * A machine-readable code for the problem, on the errors that carry one, such as `catalog_lock_conflict` on a 409 for a row another request holds. Absent otherwise.
+     */
+    code?: string;
 };
 
 /**

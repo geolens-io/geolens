@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 
 APP = Path(__file__).resolve().parents[1] / "app"
-_LOCKS_MODULE = "app.platform.catalog_locks"
 
 # Any string the code builds that names the setting: SET, set_config, RESET,
 # current_setting, or a key or argument passed to something that sets it.
@@ -54,19 +53,44 @@ def _names_lock_timeout(source: str) -> bool:
     )
 
 
-def _reaches_private_lock_helper(source: str) -> bool:
+def _private_lock_names() -> frozenset[str]:
+    """Every private top-level name catalog_locks.py defines."""
+    tree = ast.parse((APP / "platform" / "catalog_locks.py").read_text("utf-8"))
+    names: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            names.add(node.name)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            names.update(t.id for t in targets if isinstance(t, ast.Name))
+    return frozenset(name for name in names if name.startswith("_"))
+
+
+def _reaches_private_lock_helper(source: str, private: frozenset[str]) -> bool:
+    """True for a private catalog_locks import, or any mention of one of its
+    private names as an identifier, attribute, import alias or exact string,
+    whatever module spelling reached it."""
     for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.ImportFrom) and node.module == _LOCKS_MODULE:
-            if any(alias.name.startswith("_") for alias in node.names):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            if node.module.rsplit(".", 1)[-1] == "catalog_locks" and any(
+                alias.name.startswith("_") for alias in node.names
+            ):
                 return True
-        if (
-            isinstance(node, ast.Attribute)
-            and node.attr.startswith("_")
-            and isinstance(node.value, ast.Name)
-            and node.value.id == "catalog_locks"
-        ):
+        if _mentioned_names(node) & private:
             return True
     return False
+
+
+def _mentioned_names(node: ast.AST) -> set[object]:
+    if isinstance(node, ast.Name):
+        return {node.id}
+    if isinstance(node, ast.Attribute):
+        return {node.attr}
+    if isinstance(node, ast.alias):
+        return {node.name, node.asname}
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return {node.value}
+    return set()
 
 
 def _modules() -> dict[str, str]:
@@ -120,20 +144,31 @@ def test_lock_timeout_allowlist_has_no_stale_entries() -> None:
     "source",
     [
         "from app.platform.catalog_locks import _set_lock_timeout",
+        "from app.platform.catalog_locks import _set_lock_timeout as bound",
+        "from .catalog_locks import _install_lock_timeout",
         "from app.platform import catalog_locks\ncatalog_locks._set_lock_timeout(s, v)",
+        "import app.platform.catalog_locks as cl\ncl._set_lock_timeout(s, v)",
+        "import app.platform.catalog_locks\napp.platform.catalog_locks._set_lock_timeout(s, v)",
+        "import importlib\ngetattr(importlib.import_module(m), '_set_lock_timeout')",
     ],
 )
-def test_private_helper_scan_catches_both_spellings(source: str) -> None:
-    """Importing or reaching a private catalog_locks helper by attribute trips the scan."""
-    assert _reaches_private_lock_helper(source)
+def test_private_helper_scan_catches_each_spelling(source: str) -> None:
+    """Importing a private catalog_locks name, or naming one through any alias, attribute path or string, trips the scan."""
+    assert _reaches_private_lock_helper(source, _private_lock_names())
+
+
+def test_private_names_include_the_timeout_setters() -> None:
+    """The backstop's name list is read from catalog_locks.py and covers its timeout setters."""
+    assert {"_set_lock_timeout", "_install_lock_timeout"} <= _private_lock_names()
 
 
 @pytest.mark.architecture
 def test_no_module_reaches_a_private_lock_helper() -> None:
-    """No module calls catalog_locks' private timeout setters, which would bypass the scan."""
+    """No module outside catalog_locks.py names its private timeout setters, which would bypass the scan."""
+    private = _private_lock_names()
     found = sorted(
         name
         for name, source in _modules().items()
-        if _reaches_private_lock_helper(source)
+        if _reaches_private_lock_helper(source, private)
     )
-    assert not found, f"import a public catalog_locks helper instead: {found}"
+    assert not found, f"use a public catalog_locks helper instead: {found}"

@@ -25,12 +25,15 @@ class ProblemDetail:
         status (int):
         detail (list[Any] | ProblemDetailDetailType1 | str):
         type_ (str | Unset):  Default: 'about:blank'.
+        code (str | Unset): A machine-readable code for the problem, on the errors that carry one, such as
+            `catalog_lock_conflict` on a 409 for a row another request holds. Absent otherwise.
     """
 
     title: str
     status: int
     detail: list[Any] | ProblemDetailDetailType1 | str
     type_: str | Unset = "about:blank"
+    code: str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -51,6 +54,8 @@ class ProblemDetail:
 
         type_ = self.type_
 
+        code = self.code
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -62,6 +67,8 @@ class ProblemDetail:
         )
         if type_ is not UNSET:
             field_dict["type"] = type_
+        if code is not UNSET:
+            field_dict["code"] = code
 
         return field_dict
 
@@ -97,11 +104,14 @@ class ProblemDetail:
 
         type_ = d.pop("type", UNSET)
 
+        code = d.pop("code", UNSET)
+
         problem_detail = cls(
             title=title,
             status=status,
             detail=detail,
             type_=type_,
+            code=code,
         )
 
         problem_detail.additional_properties = d

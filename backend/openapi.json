@@ -18617,6 +18617,12 @@
               }
             ],
             "title": "Detail"
+          },
+          "code": {
+            "default": null,
+            "description": "A machine-readable code for the problem, on the errors that carry one, such as `catalog_lock_conflict` on a 409 for a row another request holds. Absent otherwise.",
+            "title": "Code",
+            "type": "string"
           }
         },
         "required": [

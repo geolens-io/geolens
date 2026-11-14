@@ -904,19 +904,19 @@ def _catalog_lock_conflict_response(
         path=safe_access_log_path(request.url.path),
     )
     if detail is None:
-        problem = ProblemDetail(
-            title="Catalog entry is busy",
-            status=status.HTTP_409_CONFLICT,
-            detail={"code": CATALOG_LOCK_CONFLICT_CODE, "message": message},
-        )
+        title = "Catalog entry is busy"
+        detail = {"code": CATALOG_LOCK_CONFLICT_CODE, "message": message}
     else:
         # A route's released detail, under the title its HTTPException had.
-        problem = ProblemDetail(
-            title="Conflict", status=status.HTTP_409_CONFLICT, detail=detail
-        )
+        title = "Conflict"
     return JSONResponse(
         status_code=status.HTTP_409_CONFLICT,
-        content={**problem.model_dump(), "code": CATALOG_LOCK_CONFLICT_CODE},
+        content=ProblemDetail(
+            title=title,
+            status=status.HTTP_409_CONFLICT,
+            detail=detail,
+            code=CATALOG_LOCK_CONFLICT_CODE,
+        ).model_dump(),
         media_type="application/problem+json",
     )
 
