@@ -829,3 +829,35 @@ async def test_implicit_3d_wkt_shows_the_same_review_in_preview_and_worker(
     )
     assert run.verification["review_reasons"] == ["srid_changed"]
     assert run.verification["review_acknowledged_by"] == "preview"
+
+
+async def test_raw_header_names_build_points_and_record_the_stored_names(
+    harness: _Harness,
+):
+    """Headers with a hyphen or a space work as the preview lists them."""
+    header = "name,Longitude-Deg,Lat Deg"
+    dataset = await harness.first_import(
+        _xy_csv(harness.tmp_path / "raw.csv", header=header),
+        x_column="Longitude-Deg",
+        y_column="Lat Deg",
+    )
+    assert (dataset.origin_ref["x_column"], dataset.origin_ref["y_column"]) == (
+        "longitude_deg",
+        "lat deg",
+    )
+    assert await harness.points(dataset) == _EXPECTED
+
+    await harness.replace(
+        dataset, _xy_csv(harness.tmp_path / "raw2.csv", _GROWN, header=header)
+    )
+    assert await harness.points(await harness.reload(dataset.id)) == _EXPECTED_GROWN
+
+
+async def test_a_first_import_naming_no_loaded_column_is_refused_by_name(
+    harness: _Harness,
+):
+    job = await harness.failed_import(
+        _xy_csv(harness.tmp_path / "places.csv"), x_column="lon", y_column="Northing"
+    )
+    assert job.error_code == "geometry_columns_missing"
+    assert job.error_message == str(columns_missing(["Northing"]))

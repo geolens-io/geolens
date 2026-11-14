@@ -39,13 +39,14 @@ def geometry_selection(mapping: Any) -> GeometrySelection | None:
     """The x/y pair or WKT column a mapping names, or ``None`` when it names neither.
 
     Reads commit metadata, upload ``origin_ref`` payloads and version rows. The
-    pair wins over a WKT column, as at import. The CRS is the recorded one, or
-    a commit's ``srid_override``.
+    pair wins over a WKT column, as at import. Names are the ones the loader
+    stores the columns under. The CRS is the recorded one, or a commit's
+    ``srid_override``.
     """
     if not isinstance(mapping, Mapping):
         return None
     named = {
-        key: value
+        key: laundered_column_name(value)
         for key in GEOMETRY_COLUMN_KEYS
         if isinstance(value := mapping.get(key), str) and value
     }

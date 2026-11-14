@@ -265,13 +265,12 @@ class TestConstructPointGeometry:
             )
             await test_db_session.commit()
 
-    async def test_rejects_invalid_column_name(self, test_db_session):
+    @pytest.mark.parametrize("name", ["", "x\x00col", "x" * 64])
+    async def test_rejects_a_name_no_column_can_have(self, test_db_session, name):
         from app.processing.ingest.metadata import construct_point_geometry
 
         with pytest.raises(ValueError, match="Invalid column name"):
-            await construct_point_geometry(
-                test_db_session, "test_tbl", "x col", "y_col"
-            )
+            await construct_point_geometry(test_db_session, "test_tbl", name, "y_col")
 
     async def test_rejects_non_numeric_text_coordinates_cleanly(self, test_db_session):
         from app.processing.ingest.metadata import construct_point_geometry
@@ -299,15 +298,6 @@ class TestConstructPointGeometry:
                 text(f"DROP TABLE IF EXISTS data.{table} CASCADE")
             )
             await test_db_session.commit()
-
-    async def test_rejects_uppercase_column_name(self, test_db_session):
-        """Uppercase column names are rejected by validation regex."""
-        from app.processing.ingest.metadata import construct_point_geometry
-
-        with pytest.raises(ValueError, match="Invalid column name"):
-            await construct_point_geometry(
-                test_db_session, "test_tbl", "Longitude", "Latitude"
-            )
 
 
 # ---------------------------------------------------------------------------

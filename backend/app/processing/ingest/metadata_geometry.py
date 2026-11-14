@@ -23,7 +23,6 @@ from app.platform.column_names import (
     reserved_rename_base,
 )
 from app.processing.ingest.metadata_sql import (
-    _TABLE_NAME_RE,
     _qtable,
     _sql_quote_ident,
     _validate_table_name,
@@ -65,6 +64,16 @@ def _float8_predicate(col_expr: str) -> str:
     )
 
 
+def _validate_column_name(name: str) -> None:
+    """Refuse a name no stored column can have.
+
+    The name is quoted wherever it is used, so a laundered header such as
+    ``lat deg`` is accepted as stored.
+    """
+    if not name or len(name) > 63 or "\x00" in name:
+        raise ValueError("Invalid column name")
+
+
 async def construct_point_geometry(
     session: AsyncSession,
     table_name: str,
@@ -79,8 +88,8 @@ async def construct_point_geometry(
     Returns count of rows with valid geometry.
     """
     _validate_table_name(table_name)
-    if not _TABLE_NAME_RE.match(x_column) or not _TABLE_NAME_RE.match(y_column):
-        raise ValueError("Invalid column name")
+    _validate_column_name(x_column)
+    _validate_column_name(y_column)
 
     tref = _qtable(table_name, schema=schema)
     x_col = _sql_quote_ident(x_column)
@@ -184,8 +193,7 @@ async def construct_wkt_geometry(
     Returns count of rows with valid geometry.
     """
     _validate_table_name(table_name)
-    if not _TABLE_NAME_RE.match(wkt_column):
-        raise ValueError("Invalid column name")
+    _validate_column_name(wkt_column)
 
     tref = _qtable(table_name, schema=schema)
     wkt_col = _sql_quote_ident(wkt_column)
