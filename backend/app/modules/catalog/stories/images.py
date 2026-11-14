@@ -356,6 +356,23 @@ def decode_story_image(data: bytes, plan: DecodePlan) -> StoryImage:
         raise _unreadable() from exc
 
 
+def _verify_image(data: bytes) -> None:
+    """Raise when the bytes do not open as a readable image. Blocking."""
+    with Image.open(BytesIO(data)) as image:
+        image.verify()
+
+
+async def verify_image_bytes(data: bytes) -> None:
+    """Check the bytes are a readable image, on the decode threads.
+
+    Blocking Pillow work only; raises the Pillow error when the bytes are
+    not a readable image. A cancelled caller waits for the check to finish,
+    as in prepare_story_image.
+    """
+    loop = asyncio.get_running_loop()
+    await await_draining(loop.run_in_executor(_decoder, _verify_image, data))
+
+
 async def prepare_story_image(data: bytes) -> StoryImage:
     """Plan, reserve memory for and decode an upload on the decode threads.
 

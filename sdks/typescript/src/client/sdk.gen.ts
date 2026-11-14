@@ -1410,7 +1410,8 @@ export const registerAuthRegisterPost = <ThrowOnError extends boolean = false>(o
  * Re-issue and re-send a verification email.
  *
  * Sends nothing unless self-registration is on and requires email
- * verification, since only then can the link activate an account.
+ * verification, since only then can the link activate an account. A
+ * pending account that signed up under admin approval gets no link.
  *
  * Enumeration-safe: ALWAYS returns the same 200 body
  * regardless of whether the email exists, is unknown, or is already verified.
