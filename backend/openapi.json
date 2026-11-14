@@ -1876,19 +1876,6 @@
             "description": "The web map item's title.",
             "title": "Title"
           },
-          "description": {
-            "anyOf": [
-              {
-                "maxLength": 2000,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Description of the new map.",
-            "title": "Description"
-          },
           "visibility": {
             "$ref": "#/components/schemas/MapVisibility",
             "default": "private",
@@ -1917,6 +1904,19 @@
             "description": "Return the translation without creating a map.",
             "title": "Dry Run",
             "type": "boolean"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Description of the new map.",
+            "title": "Description"
           }
         },
         "required": [

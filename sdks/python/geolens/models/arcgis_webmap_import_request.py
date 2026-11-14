@@ -33,7 +33,6 @@ class ArcgisWebmapImportRequest:
         webmap (ArcgisWebmapImportRequestWebmap): The web map item data JSON, at most 1 MB serialized.
         name (None | str | Unset): Map name. Defaults to `title`.
         title (None | str | Unset): The web map item's title.
-        description (None | str | Unset): Description of the new map.
         visibility (MapVisibility | Unset): Who may read a map. A response names `restricted` only to a client
             that sends `X-GeoLens-Map-Visibility: restricted`; any other client
             reads a restricted map as `private`.
@@ -44,16 +43,17 @@ class ArcgisWebmapImportRequest:
             Every dataset must be one the caller can read, or the request is refused with 404. A layer with no entry is not
             imported and is listed as unmatched.
         dry_run (bool | Unset): Return the translation without creating a map. Default: False.
+        description (None | str | Unset): Description of the new map.
     """
 
     webmap: ArcgisWebmapImportRequestWebmap
     name: None | str | Unset = UNSET
     title: None | str | Unset = UNSET
-    description: None | str | Unset = UNSET
     visibility: MapVisibility | Unset = UNSET
     basemap_map: ArcgisWebmapImportRequestBasemapMap | Unset = UNSET
     dataset_matches: ArcgisWebmapImportRequestDatasetMatches | Unset = UNSET
     dry_run: bool | Unset = False
+    description: None | str | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         webmap = self.webmap.to_dict()
@@ -70,12 +70,6 @@ class ArcgisWebmapImportRequest:
         else:
             title = self.title
 
-        description: None | str | Unset
-        if isinstance(self.description, Unset):
-            description = UNSET
-        else:
-            description = self.description
-
         visibility: str | Unset = UNSET
         if not isinstance(self.visibility, Unset):
             visibility = self.visibility
@@ -90,6 +84,12 @@ class ArcgisWebmapImportRequest:
 
         dry_run = self.dry_run
 
+        description: None | str | Unset
+        if isinstance(self.description, Unset):
+            description = UNSET
+        else:
+            description = self.description
+
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
@@ -101,8 +101,6 @@ class ArcgisWebmapImportRequest:
             field_dict["name"] = name
         if title is not UNSET:
             field_dict["title"] = title
-        if description is not UNSET:
-            field_dict["description"] = description
         if visibility is not UNSET:
             field_dict["visibility"] = visibility
         if basemap_map is not UNSET:
@@ -111,6 +109,8 @@ class ArcgisWebmapImportRequest:
             field_dict["dataset_matches"] = dataset_matches
         if dry_run is not UNSET:
             field_dict["dry_run"] = dry_run
+        if description is not UNSET:
+            field_dict["description"] = description
 
         return field_dict
 
@@ -147,15 +147,6 @@ class ArcgisWebmapImportRequest:
 
         title = _parse_title(d.pop("title", UNSET))
 
-        def _parse_description(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        description = _parse_description(d.pop("description", UNSET))
-
         _visibility = d.pop("visibility", UNSET)
         visibility: MapVisibility | Unset
         if isinstance(_visibility, Unset):
@@ -181,15 +172,24 @@ class ArcgisWebmapImportRequest:
 
         dry_run = d.pop("dry_run", UNSET)
 
+        def _parse_description(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        description = _parse_description(d.pop("description", UNSET))
+
         arcgis_webmap_import_request = cls(
             webmap=webmap,
             name=name,
             title=title,
-            description=description,
             visibility=visibility,
             basemap_map=basemap_map,
             dataset_matches=dataset_matches,
             dry_run=dry_run,
+            description=description,
         )
 
         return arcgis_webmap_import_request

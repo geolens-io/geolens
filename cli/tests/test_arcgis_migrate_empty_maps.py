@@ -30,6 +30,8 @@ from .test_arcgis_migrate_webmaps import (
     MAP_ID,
     _only_the_map,
     _response,
+    _saved,
+    _translated,
     _run,
     _sent,
     _services,
@@ -204,6 +206,33 @@ def test_an_empty_map_an_earlier_run_made_is_left_and_reported(
     assert webmaps._EMPTY_MAP_NOTE in entry["notes"]
     assert len(_creates(geolens)) == 1
     assert not [s for s in geolens.seen if s.method == "DELETE"]
+
+
+def test_an_empty_map_that_gains_layers_loses_its_empty_note(
+    runner, plan_file, geolens, portal
+):
+    _services(geolens)
+    response = _response()
+    response["layer_ids"] = {}
+    geolens.routes[IMPORT] = lambda seen: (
+        201,
+        _translated(dataset_id("Parcels")) if seen.json().get("dry_run") else response,
+    )
+    geolens.routes["PUT /maps/" + MAP_ID] = lambda seen: _saved(seen.json())
+    token = secrets.token_urlsafe(16)
+    _only_the_map(plan_file)
+    _migrate(runner, plan_file, "--token", token)
+    listed = portal.routes[f"content/items/{B1}"]
+    portal.routes[f"content/items/{B1}"] = {
+        **listed,
+        "modified": listed["modified"] + 60_000,
+    }
+
+    result, _ = _migrate(runner, plan_file, "--token", token)
+
+    assert result.exit_code == 0, result.output
+    assert [s for s in geolens.seen if s.method == "PUT"]
+    assert webmaps._EMPTY_MAP_NOTE not in _state(plan_file)["items"][B1]["notes"]
 
 
 def test_a_story_links_a_skipped_map_to_its_portal_item():

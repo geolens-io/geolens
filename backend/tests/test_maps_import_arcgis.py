@@ -657,3 +657,22 @@ class TestViewpoint:
         resp = await client.post(URL, json=_body(webmap), headers=headers)
         assert resp.status_code == 201, resp.text
         assert resp.json()["map"]["bearing"] == -90
+
+
+def test_the_import_request_keeps_its_published_field_order() -> None:
+    """A field declared among the published ones moves their positional slots
+    in the generated SDK constructor."""
+    from app.modules.catalog.maps.schemas_import_arcgis import (
+        ArcgisWebmapImportRequest,
+    )
+
+    published = [
+        "webmap",
+        "name",
+        "title",
+        "visibility",
+        "basemap_map",
+        "dataset_matches",
+        "dry_run",
+    ]
+    assert list(ArcgisWebmapImportRequest.model_fields)[:7] == published

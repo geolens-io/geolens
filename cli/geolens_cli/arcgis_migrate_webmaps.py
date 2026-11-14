@@ -712,7 +712,9 @@ def _record_write(entry: ItemState, after: Mapping[str, Any], saved: Any) -> Non
         *(
             n
             for n in entry.notes
-            if n != _NO_VIEW_NOTE and not n.startswith(_UNREADABLE_NOTE)
+            if n != _NO_VIEW_NOTE
+            and not n.startswith(_UNREADABLE_NOTE)
+            and not (n == _EMPTY_MAP_NOTE and getattr(saved, "layer_count", 1) != 0)
         ),
         *([_NO_VIEW_NOTE] if after["kept_view"] else []),
         *(
