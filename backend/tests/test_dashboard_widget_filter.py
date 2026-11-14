@@ -13,7 +13,7 @@ from sqlalchemy import text
 
 from app.modules.catalog.datasets.domain import aggregate
 from app.modules.catalog.maps.dashboard import render_dashboard
-from app.modules.catalog.maps.dashboard_filters import composed_filter
+from app.modules.catalog.maps.dashboard_filters import composed_filter, layer_cql2
 from app.modules.catalog.maps.filter_grammar import (
     FilterValidationError,
     bounded_filter,
@@ -114,7 +114,9 @@ TEXT = {"kind": "text", "pop": "integer"}
 
 
 def _reason(filter_, types=TEXT, layer_filter=None):
-    return composed_filter(bounded_filter(filter_), layer_filter, types)[0]
+    columns = [{"name": name, "type": type_} for name, type_ in types.items()]
+    layer = layer_cql2(layer_filter, columns)
+    return composed_filter(bounded_filter(filter_), layer, types)[0]
 
 
 class TestSave:
@@ -407,6 +409,18 @@ def test_the_shared_shape_cases(case):
         case["values"],
         case["depth"],
     )
+
+
+_LAYER_CASES = json.loads(
+    (Path(__file__).parent / "fixtures" / "layer_filter_cases.json").read_text()
+)["cases"]
+
+
+@pytest.mark.parametrize("case", _LAYER_CASES, ids=[c["name"] for c in _LAYER_CASES])
+def test_the_shared_layer_filter_cases(case):
+    sent = layer_cql2(bounded_filter(case["filter"]), case["columns"])
+    measured = filter_shapes.measure_cql2(sent)[0] if sent is not None else 0
+    assert (sent is not None, measured) == (case["sent"], case["values"])
 
 
 def test_the_depth_limit_is_the_aggregates():

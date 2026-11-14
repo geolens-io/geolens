@@ -57,6 +57,12 @@ from app.modules.catalog.sources.cog_info import (
     import_refusal,
     reconcile_epsg,
 )
+from app.platform.storage.publication import AssetPublication, asset_publication
+from app.platform.storage.remote_quicklook import (
+    discard_remote_quicklooks,
+    draw_remote_quicklooks,
+    physical_keys,
+)
 from app.modules.catalog.sources.schemas import (
     DEPRECATED_TOKEN_SUFFIX,
     SERVICE_AUTH_FIELD_DESCRIPTION,
@@ -702,6 +708,27 @@ def _parse_date(iso_str: str | None) -> date | None:
         return None
 
 
+async def _draw_quicklooks(
+    items: list[StacImportItem],
+    dataset_ids: list[uuid.UUID],
+    cog_info_map: dict[str, dict | None],
+    publication: AssetPublication,
+) -> dict[uuid.UUID, tuple[str, str]]:
+    """Quicklooks for every importable item, recorded in ``publication``."""
+    quicklooks = await draw_remote_quicklooks(
+        {
+            dataset_id: (item.data_asset_href, ci)
+            for item, dataset_id in zip(items, dataset_ids, strict=True)
+            if (ci := cog_info_map.get(item.data_asset_href))
+            and import_refusal(ci) is None
+        }
+    )
+    for keys in quicklooks.values():
+        for key in physical_keys(keys):
+            publication.record(key)
+    return quicklooks
+
+
 @router.post(
     "/import",
     response_model=StacImportResponse,
@@ -823,186 +850,205 @@ async def stac_import(
         )
         cog_info_map = dict(cog_results)
 
-    # STAC import inserts Record rows directly, beside the datasets façade,
-    # raster and VRT creators, so it takes part in the atomic count-cap
-    # reservation too.
-    from app.modules.quota.service import (
-        DatasetQuotaExceededError,
-        reserve_dataset_slot,
-    )
+    # Every quicklook stored here stays this request's to delete until the
+    # commit naming it settles.
+    async with asset_publication() as publication:
+        # Ids are chosen before the rows exist so each quicklook is stored under
+        # its dataset's prefix; every draw shares one deadline.
+        dataset_ids = [uuid.uuid4() for _ in importable]
+        quicklooks = await _draw_quicklooks(
+            importable, dataset_ids, cog_info_map, publication
+        )
 
-    for item in importable:
-        refusal = import_refusal(cog_info_map.get(item.data_asset_href))
-        if refusal is not None:
-            results.append(
-                StacImportResult(item_id=item.id, status="error", error=refusal)
-            )
-            errors += 1
-            continue
-        try:
-            # Savepoint per item so a failure doesn't corrupt the session
-            async with db.begin_nested():
-                await reserve_dataset_slot(db, user.id)
-                spatial_extent = None
-                if item.bbox and len(item.bbox) >= 4:
-                    w, s, e, n = item.bbox[:4]
-                    # RFC 7946 §5.2 mandates west > east for a bbox crossing
-                    # the antimeridian; bbox_to_extent_wkt splits those at
-                    # ±180 rather than building the wrong 340° ring.
-                    spatial_extent = func.ST_GeomFromText(
-                        bbox_to_extent_wkt(w, s, e, n), 4326
+        # STAC import inserts Record rows directly, beside the datasets façade,
+        # raster and VRT creators, so it takes part in the atomic count-cap
+        # reservation too.
+        from app.modules.quota.service import (
+            DatasetQuotaExceededError,
+            reserve_dataset_slot,
+        )
+
+        for item, dataset_id in zip(importable, dataset_ids, strict=True):
+            refusal = import_refusal(cog_info_map.get(item.data_asset_href))
+            if refusal is not None:
+                results.append(
+                    StacImportResult(item_id=item.id, status="error", error=refusal)
+                )
+                errors += 1
+                continue
+            try:
+                # Savepoint per item so a failure doesn't corrupt the session
+                async with db.begin_nested():
+                    await reserve_dataset_slot(db, user.id)
+                    spatial_extent = None
+                    if item.bbox and len(item.bbox) >= 4:
+                        w, s, e, n = item.bbox[:4]
+                        # RFC 7946 §5.2 mandates west > east for a bbox crossing
+                        # the antimeridian; bbox_to_extent_wkt splits those at
+                        # ±180 rather than building the wrong 340° ring.
+                        spatial_extent = func.ST_GeomFromText(
+                            bbox_to_extent_wkt(w, s, e, n), 4326
+                        )
+
+                    record = Record(
+                        title=item.title,
+                        record_type="raster_dataset",
+                        visibility=request.visibility,
+                        record_status="published",
+                        spatial_extent=spatial_extent,
+                        temporal_start=_parse_date(item.datetime_start),
+                        temporal_end=_parse_date(item.datetime_end),
+                        source_organization="STAC Import",
+                        created_by=user.id,
+                        updated_by=user.id,
+                    )
+                    db.add(record)
+                    await db.flush()
+
+                    table_name = f"stac_{record.id.hex[:16]}"
+                    dataset = Dataset(
+                        id=dataset_id,
+                        record_id=record.id,
+                        table_name=table_name,
+                        source_url=item.data_asset_href,
+                        source_filename=item.id,
+                        srid=item.epsg,
+                        # Python value, not func.now(): a SQL expression would
+                        # leave the attribute expired and the next read
+                        # lazy-loading.
+                        last_refreshed_at=datetime.now(timezone.utc),
+                    )
+                    ci = cog_info_map.get(item.data_asset_href)
+                    # item_href is the only stored value that can answer "was
+                    # this item withdrawn?"; a 200 on the asset href says nothing
+                    # about that. Info in hand means Titiler reached the COG, the
+                    # one contact this import dates. Every failure shape stays
+                    # NULL, since a Titiler error is indistinguishable from local
+                    # pre-fetch rejections without parsing its error bodies (see
+                    # fetch_cog_info).
+                    restamp(
+                        dataset,
+                        SourceBinding.stac(
+                            asset_href=item.data_asset_href,
+                            item_href=item.item_href,
+                            item_id=item.id,
+                            collection_id=item.collection,
+                            asset_key=item.data_asset_key,
+                            url=request.url,
+                            auth_required=request.catalog_auth_required,
+                        ),
+                        contacted_at=None if ci is None else datetime.now(timezone.utc),
+                        refreshed_at=KEEP,
+                    )
+                    ci = ci or {}
+                    # Mirrors the raster row's EPSG preference below: both come
+                    # from the same probe and must agree, or OGC Records would
+                    # publish two disagreeing CRS declarations for one dataset.
+                    reconciled_epsg = reconcile_epsg(ci, item.epsg)
+                    dataset.srid = reconciled_epsg
+                    db.add(dataset)
+                    await db.flush()
+
+                    nodata_raw = ci.get("nodata")
+                    pixel_geometry = (
+                        {k: ci[k] for k in ("res_x", "res_y", "is_rotated")}
+                        if "res_x" in ci
+                        else {}
                     )
 
-                record = Record(
-                    title=item.title,
-                    record_type="raster_dataset",
-                    visibility=request.visibility,
-                    record_status="published",
-                    spatial_extent=spatial_extent,
-                    temporal_start=_parse_date(item.datetime_start),
-                    temporal_end=_parse_date(item.datetime_end),
-                    source_organization="STAC Import",
-                    created_by=user.id,
-                    updated_by=user.id,
-                )
-                db.add(record)
-                await db.flush()
-
-                table_name = f"stac_{record.id.hex[:16]}"
-                dataset = Dataset(
-                    record_id=record.id,
-                    table_name=table_name,
-                    source_url=item.data_asset_href,
-                    source_filename=item.id,
-                    srid=item.epsg,
-                    # Python value, not func.now(): a SQL expression would
-                    # leave the attribute expired and the next read
-                    # lazy-loading.
-                    last_refreshed_at=datetime.now(timezone.utc),
-                )
-                ci = cog_info_map.get(item.data_asset_href)
-                # item_href is the only stored value that can answer "was
-                # this item withdrawn?"; a 200 on the asset href says nothing
-                # about that. Info in hand means Titiler reached the COG, the
-                # one contact this import dates. Every failure shape stays
-                # NULL, since a Titiler error is indistinguishable from local
-                # pre-fetch rejections without parsing its error bodies (see
-                # fetch_cog_info).
-                restamp(
-                    dataset,
-                    SourceBinding.stac(
-                        asset_href=item.data_asset_href,
-                        item_href=item.item_href,
-                        item_id=item.id,
-                        collection_id=item.collection,
-                        asset_key=item.data_asset_key,
-                        url=request.url,
-                        auth_required=request.catalog_auth_required,
-                    ),
-                    contacted_at=None if ci is None else datetime.now(timezone.utc),
-                    refreshed_at=KEEP,
-                )
-                ci = ci or {}
-                # Mirrors the raster row's EPSG preference below: both come
-                # from the same probe and must agree, or OGC Records would
-                # publish two disagreeing CRS declarations for one dataset.
-                reconciled_epsg = reconcile_epsg(ci, item.epsg)
-                dataset.srid = reconciled_epsg
-                db.add(dataset)
-                await db.flush()
-
-                nodata_raw = ci.get("nodata")
-                pixel_geometry = (
-                    {k: ci[k] for k in ("res_x", "res_y", "is_rotated")}
-                    if "res_x" in ci
-                    else {}
-                )
-
-                raster_asset = get_catalog_port().raster_asset_orm_class()(
-                    dataset_id=dataset.id,
-                    asset_uri=item.data_asset_href,
-                    storage_backend="remote",
-                    cog_status="verified",
-                    epsg=reconciled_epsg,
-                    band_count=ci.get("band_count"),
-                    dtype=ci.get("dtype"),
-                    width=ci.get("width"),
-                    height=ci.get("height"),
-                    nodata=str(nodata_raw) if nodata_raw is not None else None,
-                    band_info=ci.get("band_info"),
-                    **crs_columns(ci),
-                    # res_x/res_y/is_rotated come off /cog/stac's
-                    # proj:transform as one fact, written together or not at
-                    # all: a probe with no transform must leave them at column
-                    # defaults rather than assert is_rotated=False.
-                    **pixel_geometry,
-                )
-                db.add(raster_asset)
-
-                # dataset_assets row so a generic STAC client (stac-browser,
-                # QGIS, rio-viz) can read pixels from a re-published item; the
-                # internal raster_tiles template renders only in GeoLens's own
-                # frontend. Roled `data` (the tiles asset is `visual`).
-                # Refresh upserts the same row (_upsert_origin_data_asset) to
-                # backfill older imports.
-                db.add(
-                    get_catalog_port().dataset_asset_orm_class()(
+                    raster_asset = get_catalog_port().raster_asset_orm_class()(
                         dataset_id=dataset.id,
-                        key="data",
-                        href=item.data_asset_href,
-                        media_type=item.data_asset_type,
-                        roles=["data"],
+                        asset_uri=item.data_asset_href,
+                        storage_backend="remote",
+                        cog_status="verified",
+                        epsg=reconciled_epsg,
+                        band_count=ci.get("band_count"),
+                        dtype=ci.get("dtype"),
+                        width=ci.get("width"),
+                        height=ci.get("height"),
+                        nodata=str(nodata_raw) if nodata_raw is not None else None,
+                        band_info=ci.get("band_info"),
+                        **crs_columns(ci),
+                        # res_x/res_y/is_rotated come off /cog/stac's
+                        # proj:transform as one fact, written together or not at
+                        # all: a probe with no transform must leave them at column
+                        # defaults rather than assert is_rotated=False.
+                        **pixel_geometry,
                     )
-                )
+                    if (drawn := quicklooks.get(dataset_id)) is not None:
+                        raster_asset.quicklook_256_uri = drawn[0]
+                        raster_asset.quicklook_512_uri = drawn[1]
+                    db.add(raster_asset)
 
-                for kw in item.keywords:
+                    # dataset_assets row so a generic STAC client (stac-browser,
+                    # QGIS, rio-viz) can read pixels from a re-published item; the
+                    # internal raster_tiles template renders only in GeoLens's own
+                    # frontend. Roled `data` (the tiles asset is `visual`).
+                    # Refresh upserts the same row (_upsert_origin_data_asset) to
+                    # backfill older imports.
                     db.add(
-                        RecordKeyword(
-                            record_id=record.id,
-                            keyword=kw,
-                            keyword_type="theme",
+                        get_catalog_port().dataset_asset_orm_class()(
+                            dataset_id=dataset.id,
+                            key="data",
+                            href=item.data_asset_href,
+                            media_type=item.data_asset_type,
+                            roles=["data"],
                         )
                     )
 
-            results.append(
-                StacImportResult(
-                    item_id=item.id,
-                    dataset_id=dataset.id,
-                    status="created",
-                )
-            )
-            created += 1
+                    for kw in item.keywords:
+                        db.add(
+                            RecordKeyword(
+                                record_id=record.id,
+                                keyword=kw,
+                                keyword_type="theme",
+                            )
+                        )
 
-        except DatasetQuotaExceededError as exc:
-            results.append(
-                StacImportResult(item_id=item.id, status="error", error=str(exc))
-            )
-            errors += 1
-        except Exception:  # broad: per-item STAC import is isolated; any failure is recorded per-item without aborting the batch
-            logger.exception("STAC item import failed", item_id=item.id)
-            results.append(
-                StacImportResult(
-                    item_id=item.id, status="error", error=_ITEM_IMPORT_FAILED_CODE
+                quicklooks.pop(dataset_id, None)
+                results.append(
+                    StacImportResult(
+                        item_id=item.id,
+                        dataset_id=dataset.id,
+                        status="created",
+                    )
                 )
-            )
-            errors += 1
+                created += 1
 
-    await audit_emit(
-        db,
-        AuditEvent(
-            user_id=user.id,
-            action="stac_import",
-            resource_type="stac_api",
-            details={
-                "url": safe_url,
-                "requested": len(request.items),
-                "created": created,
-                "skipped": skipped,
-                "errors": errors,
-            },
-        ),
-    )
-    await db.commit()
+            except DatasetQuotaExceededError as exc:
+                results.append(
+                    StacImportResult(item_id=item.id, status="error", error=str(exc))
+                )
+                errors += 1
+            except Exception:  # broad: per-item STAC import is isolated; any failure is recorded per-item without aborting the batch
+                logger.exception("STAC item import failed", item_id=item.id)
+                results.append(
+                    StacImportResult(
+                        item_id=item.id, status="error", error=_ITEM_IMPORT_FAILED_CODE
+                    )
+                )
+                errors += 1
+
+        # Drawn for an item that was then not created.
+        await discard_remote_quicklooks(k for keys in quicklooks.values() for k in keys)
+        await audit_emit(
+            db,
+            AuditEvent(
+                user_id=user.id,
+                action="stac_import",
+                resource_type="stac_api",
+                details={
+                    "url": safe_url,
+                    "requested": len(request.items),
+                    "created": created,
+                    "skipped": skipped,
+                    "errors": errors,
+                },
+            ),
+        )
+        publication.committing()
+        await db.commit()
+        publication.settled()
 
     return StacImportResponse(
         results=results,
