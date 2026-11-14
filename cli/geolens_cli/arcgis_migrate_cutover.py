@@ -14,6 +14,7 @@ from typing import Any
 
 from . import arcgis_plan as _plan
 from .arcgis_migrate_groups import wanted_groups
+from .arcgis_migrate_shared import double_recorded
 from .arcgis_portal import PortalClient, PortalError
 from .arcgis_migrate_state import (
     FINISHED,
@@ -29,6 +30,8 @@ ATTACHMENTS = "attachment-loss"
 USERS = "unresolved-users"
 SHARING = "under-sharing"
 CHECKS = (UNFINISHED, INVENTORY, ATTACHMENTS, USERS, SHARING)
+# Refused whatever is accepted: no item writes such a dataset.
+DOUBLE_RECORDED = "double-recorded-datasets"
 ADMIN_VIEW_ITEMS = "portal:admin:viewItems"
 SEARCH_PAGE = 100
 SEARCH_PAGES = 10
@@ -126,7 +129,7 @@ def groups_in_use(plan: Mapping[str, Any], state: MigrationState) -> set[str]:
             not item.get("removed")
             and item["target"]["visibility"] == "restricted"
             and entry is not None
-            and (entry.dataset_ids or entry.map_id)
+            and (entry.dataset_ids or entry.shared or entry.map_id)
         ):
             needed.update(item["target"]["groups"] or [])
     return needed
@@ -146,7 +149,7 @@ def sharing_losses(
         item.get("removed")
         or item["target"]["visibility"] != "restricted"
         or entry is None
-        or not (entry.dataset_ids or entry.map_id)
+        or not (entry.dataset_ids or entry.shared or entry.map_id)
     ):
         return []
     plan_reason = _plan.possibly_under_shared(plan, item)
@@ -388,10 +391,22 @@ def failing_checks(
 ) -> list[dict[str, Any]]:
     """Every check that fails as of *state*, with the items it names."""
     found = {
+        DOUBLE_RECORDED: [
+            {
+                "item": ", ".join(ids),
+                "reason": f"dataset {dataset} is recorded by each of these items; "
+                "set all but one of them to skip in the plan",
+            }
+            for dataset, ids in double_recorded(plan["items"], state.items).items()
+        ],
         UNFINISHED: _unfinished(plan, state),
         INVENTORY: _inventory(plan, inventory_changed),
         ATTACHMENTS: _attachments(plan, state),
         USERS: _users(plan, state, unresolved, prepared_groups),
         SHARING: _sharing(plan, state, prepared_groups),
     }
-    return [{"check": name, "items": found[name]} for name in CHECKS if found[name]]
+    return [
+        {"check": name, "items": found[name]}
+        for name in (DOUBLE_RECORDED, *CHECKS)
+        if found[name]
+    ]
