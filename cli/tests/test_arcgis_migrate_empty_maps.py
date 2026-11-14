@@ -235,6 +235,48 @@ def test_an_empty_map_that_gains_layers_loses_its_empty_note(
     assert webmaps._EMPTY_MAP_NOTE not in _state(plan_file)["items"][B1]["notes"]
 
 
+def test_an_unreadable_item_is_told_apart_from_one_with_no_summary(
+    runner, plan_file, geolens, portal
+):
+    _services(geolens)
+    _server(geolens)
+    geolens.routes[IMPORT] = (201, _response())
+    portal.routes[f"content/items/{B1}"] = (503, {"error": {"code": 503}})
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    assert len(_creates(geolens)) == 1
+    entry = _state(plan_file)["items"][B1]
+    assert any("metadata could not be read" in n for n in entry["notes"])
+    report = (plan_file.parent / "arcgis-migration-report.json").read_text()
+    assert "metadata could not be read" in report
+
+
+def test_a_note_survives_a_loss_report_write_that_failed(
+    runner, plan_file, geolens, portal, monkeypatch
+):
+    _services(geolens)
+    _server(geolens, "1.31.0")
+    _summary(portal, "Tax parcels")
+    geolens.routes[IMPORT] = (201, _response(lost=1))
+    real = webmaps._report.write_private
+
+    def broken(path, data):
+        if webmaps.LOSS_DIRNAME in str(path):
+            raise OSError(28, "No space left on device")
+        real(path, data)
+
+    monkeypatch.setattr(webmaps._report, "write_private", broken)
+    first, _ = _run(runner, plan_file)
+    monkeypatch.setattr(webmaps._report, "write_private", real)
+    second, _ = _run(runner, plan_file)
+
+    assert first.exit_code == 1 and second.exit_code == 0, second.output
+    notes = _state(plan_file)["items"][B1]["notes"]
+    assert len([n for n in notes if "needs GeoLens 1.32" in n]) == 1
+
+
 def test_a_story_links_a_skipped_map_to_its_portal_item():
     ctx = SimpleNamespace(
         items={B1: ItemState(status="skipped")}, portal_root="https://example.com"

@@ -316,16 +316,17 @@ def _fetch(ctx: MigrationContext, item_id: str) -> dict[str, Any]:
     return redact_json(data, ctx.redact)
 
 
-def _read_item(ctx: MigrationContext, item_id: str) -> Mapping[str, Any]:
-    """The portal item, or an empty one when it can't be read."""
+def _read_item(ctx: MigrationContext, item_id: str) -> Mapping[str, Any] | None:
+    """The portal item, an empty one when the run has no portal session, or
+    None when the portal's answer can't be read."""
     if ctx.portal is None:
         return {}
     try:
         info = ctx.portal.client.get_json(f"content/items/{item_id}")
     except PortalError as exc:
         _stop_if_token_refused(exc)
-        return {}
-    return info if isinstance(info, dict) else {}
+        return None
+    return info if isinstance(info, dict) else None
 
 
 class _NoThumbnail(Exception):
@@ -1294,6 +1295,8 @@ def _uncarried(webmap: Mapping[str, Any]) -> str:
     )
 
 
+# Notes the import leaves in the pending loss report until it is written.
+_CARRY_NOTES = "carry_notes"
 _DESCRIPTION_NOTE = "the web map's summary was not carried over as the map description"
 
 
@@ -1342,7 +1345,8 @@ def import_map(
         import_arcgis_webmap_endpoint_maps_import_arcgis_webmap_post as import_webmap,
     )
 
-    info = _read_item(ctx, item["id"])
+    read = _read_item(ctx, item["id"])
+    info = read or {}
     webmap = _fetch(ctx, item["id"])
     matches = match_datasets(ctx, webmap)
     try:
@@ -1362,6 +1366,10 @@ def import_map(
         finished = _finish_loss(ctx, item["id"], entry)
         return ItemResult(status=SKIPPED, notes=[_uncarried(webmap), *finished.notes])
     description, description_notes = _description(ctx, info)
+    if read is None:
+        description_notes = [
+            f"{_DESCRIPTION_NOTE}: the web map's metadata could not be read"
+        ]
     body = _import_body(ctx, item, webmap, matches=matches, description=description)
     try:
         with long_request_timeout(ctx.geolens.client):
@@ -1391,11 +1399,14 @@ def import_map(
     entry.pending_layers = _unimported(ctx, webmap, matches)
     # Kept in the state until the loss report file is written, so a failed
     # write is finished on the rerun instead of dropping the losses.
-    entry.pending_loss = _pending_loss(result)
+    entry.pending_loss = {
+        **_pending_loss(result),
+        _CARRY_NOTES: description_notes,
+    }
     ctx.save()
     thumbnail_notes = carry_thumbnail(ctx, item["id"], info, entry.map_id)
     finished = _finish_loss(ctx, item["id"], entry)
-    finished.notes.extend([*thumbnail_notes, *description_notes])
+    finished.notes.extend(thumbnail_notes)
     return finished
 
 
@@ -1428,6 +1439,7 @@ def _finish_loss(
     that is done, so a rerun finishes what a failure or interruption left."""
     payload = entry.pending_loss or {}
     notes: list[str] = []
+    carried = [n for n in payload.get(_CARRY_NOTES, []) if isinstance(n, str)]
     unmatched = [
         layer.get("title") or layer.get("layer_id")
         for layer in payload.get("unmatched_layers", [])
@@ -1449,6 +1461,7 @@ def _finish_loss(
         entry.loss_report_path = None
     if replace_notes:
         entry.notes = [*(n for n in entry.notes if not _LOSS_NOTE.match(n)), *notes]
+    notes.extend(n for n in carried if n not in notes)
     entry.pending_loss = None
     ctx.save()
     return ItemResult(status=DONE, notes=notes)
