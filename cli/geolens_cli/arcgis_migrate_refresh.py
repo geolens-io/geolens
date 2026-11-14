@@ -51,12 +51,12 @@ from .arcgis_migrate_layers import (
     relationship_records,
 )
 from .arcgis_migrate_session import (
+    double_recorded_reason,
     GeoLensError,
     ItemFailed,
     MigrationContext,
     refuse_credentials,
 )
-from .arcgis_migrate_shared import borrowers
 from .arcgis_migrate_state import ItemState, aware_time, whole_number
 from .arcgis_plan import IMPORT_FILE
 from .refresh import (
@@ -275,12 +275,6 @@ def changed_in_geolens(
     counts as unchanged only when the operator wrote it last, before the item
     finished.
     """
-    others = borrowers(ctx.items, dataset_id)
-    if any(other.refreshing.get(dataset_id) for other in others):
-        return (
-            "a refresh another item over the same service started on it in an "
-            "earlier run hasn't settled"
-        )
     marker = entry.refreshing.get(dataset_id)
     if marker and "pending" in marker:
         unsettled = _adopt_pending(ctx, entry, dataset_id, marker)
@@ -320,8 +314,7 @@ def changed_in_geolens(
             return None
         return f"{CHANGED} it was migrated"
     now = snapshot(dataset)
-    # A borrower's write from before it was one was this command's own.
-    if now != seen and all(o.last_update.get(dataset_id) != now for o in others):
+    if now != seen:
         return f"{CHANGED} the last run ({_what_changed(seen, now)})"
     return None
 
@@ -789,12 +782,6 @@ def _apply_visibility(
     if current == wanted:
         entry.visibility[dataset_id] = wanted
         return None, dataset
-    # A borrower's write from before it was one was this command's own.
-    if any(
-        o.visibility.get(dataset_id) == current
-        for o in borrowers(ctx.items, dataset_id)
-    ):
-        applied = current
     if applied is None:
         return (
             f"its visibility is {current} in GeoLens and {wanted} in the plan, and "
@@ -832,6 +819,9 @@ def _bring_each(
 ) -> list[str]:
     problems = []
     for dataset_id in dict.fromkeys(entry.layer_datasets.values()):
+        if dataset_id in ctx.double_recorded:
+            problems.append(double_recorded_reason(ctx, dataset_id))
+            continue
         try:
             problem = _bring_one(ctx, item, entry, dataset_id, start)
         except (ItemFailed, GeoLensError) as exc:

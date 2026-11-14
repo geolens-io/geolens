@@ -60,6 +60,7 @@ from .arcgis_migrate_export import (
     write_index,
 )
 from .arcgis_migrate_cutover import (
+    CHECKS,
     current,
     failing_checks,
     inventory_changes,
@@ -79,7 +80,7 @@ from .arcgis_migrate_groups import (
 from .arcgis_migrate_report import build_run_report, write_run_report
 from .arcgis_migrate_files import FILE_TYPES, import_file
 from .arcgis_migrate_layers import _import_recorded, import_layers
-from .arcgis_migrate_shared import SharedLayers, settle_recorded
+from .arcgis_migrate_shared import SharedLayers, double_recorded
 from .arcgis_migrate_refresh import (
     Refresher,
     changed_in_geolens,
@@ -107,7 +108,9 @@ from .arcgis_migrate_session import (
     PortalAuth,
     StopRun,
     changed_before_handover,
+    double_recorded_reason,
     operator_or_nobody_wrote_last,
+    writable,
 )
 from .arcgis_migrate_state import (
     FAILED,
@@ -1064,7 +1067,7 @@ def transfer(
     *revisions*. One an earlier attempt handed over is left with an owner it
     already has, and otherwise moves only while it is as that transfer left it.
     """
-    for dataset_id in entry.dataset_ids:
+    for dataset_id in writable(ctx, entry.dataset_ids):
         read = get_dataset(ctx, dataset_id)
         if dataset_id in entry.last_update:
             if str(read.created_by) == owner.id:
@@ -1133,7 +1136,7 @@ def _keep_own(
     import wrote, gets its baseline only while the operator or nobody wrote it
     last and its data revision is the one captured before the writes, so a
     concurrent edit is never taken as the import's."""
-    for dataset_id in entry.dataset_ids:
+    for dataset_id in writable(ctx, entry.dataset_ids):
         read = get_dataset(ctx, dataset_id)
         if str(read.created_by) != owner.id:
             raise ItemFailed(_not_yours(f"dataset {dataset_id}"))
@@ -1177,11 +1180,18 @@ def _migrate_one(
         state.save()
         if owner is not None:
             # Datasets an earlier attempt handed over are no longer written.
-            fresh = [d for d in entry.dataset_ids if d not in entry.last_update]
+            ours = writable(ctx, entry.dataset_ids)
+            fresh = [d for d in ours if d not in entry.last_update]
             revisions = _import_revisions(ctx, fresh)
-            entry.visibility = dict.fromkeys(
-                entry.dataset_ids, item["target"]["visibility"]
-            )
+            # A double-recorded dataset keeps the visibility last given it.
+            entry.visibility = {
+                **{
+                    d: v
+                    for d, v in entry.visibility.items()
+                    if d in entry.dataset_ids and d not in ours
+                },
+                **dict.fromkeys(ours, item["target"]["visibility"]),
+            }
             apply_item_metadata(ctx, item, entry, fresh)
             entry.notes.extend(
                 state.clean(n) for n in file_into_collections(ctx, item, entry)
@@ -1197,6 +1207,7 @@ def _migrate_one(
             entry.owner_pending = pending
             entry.portal_owner = item["owner"]
             ctx.save()
+        _refuse_double_recorded(ctx, entry)
     except (ItemFailed, GeoLensError) as exc:
         state.finish(item["id"], FAILED, str(exc))
         return
@@ -1228,7 +1239,7 @@ def _hand_over_one(ctx: MigrationContext, entry: ItemState, owner: Owner) -> Non
     as this command's own write, so a rerun resumes with the rest.
     """
     entry.handover_incomplete = True
-    for dataset_id in entry.dataset_ids:
+    for dataset_id in writable(ctx, entry.dataset_ids):
         dataset = get_dataset(ctx, dataset_id)
         if str(dataset.created_by) == owner.id:
             continue
@@ -1239,10 +1250,23 @@ def _hand_over_one(ctx: MigrationContext, entry: ItemState, owner: Owner) -> Non
             entry, dataset_id, transfer_dataset(ctx.geolens, dataset_id, owner, dataset)
         )
         ctx.save()
+    _refuse_double_recorded(ctx, entry)
     if entry.map_id:
         _transfer_map(ctx.geolens, entry, owner)
     entry.owner_id = owner.id
     entry.handover_incomplete = False
+
+
+def _refuse_double_recorded(ctx: MigrationContext, entry: ItemState) -> None:
+    """``ItemFailed`` naming each of the item's datasets that other plan items
+    also record, which nothing wrote this run."""
+    reasons = [
+        double_recorded_reason(ctx, d)
+        for d in entry.dataset_ids
+        if d in ctx.double_recorded
+    ]
+    if reasons:
+        raise ItemFailed("; ".join(reasons))
 
 
 def hand_over(
@@ -1340,7 +1364,7 @@ def run_items(
     """Run the items to import, then bring the finished *refresh* items up to
     date unless the run stopped."""
     by_id = {item["id"]: item for item in plan["items"]}
-    after = ctx.shared_layers.dependencies() if ctx.shared_layers else {}
+    after = ctx.shared_layers.dependencies(state.items) if ctx.shared_layers else {}
     summary = summary or RunSummary()
     for item in to_run:
         if item["action"] == _plan.SKIP:
@@ -1738,11 +1762,17 @@ def _print_cutover(
         if more > 0:
             say(f"{check['check']}: {more} more; see the report")
     if cutover["refused"]:
-        flags = " ".join(f"--accept-{name}" for name in cutover["refused"])
-        fmt.error(
-            "cutover refused: fix what is listed and run again, or accept the "
-            f"loss with {flags}"
-        )
+        acceptable = [name for name in cutover["refused"] if name in CHECKS]
+        flags = " ".join(f"--accept-{name}" for name in acceptable)
+        if len(acceptable) == len(cutover["refused"]):
+            fmt.error(
+                "cutover refused: fix what is listed and run again, or accept the "
+                f"loss with {flags}"
+            )
+        else:
+            # A double-recorded dataset has no --accept flag.
+            accept = f"; the other losses can be accepted with {flags}" if flags else ""
+            fmt.error(f"cutover refused: fix what is listed and run again{accept}")
     elif cutover["marked"]:
         fmt.success("cutover marked: this run is the migration's final one")
     elif dry_run:
@@ -2058,7 +2088,7 @@ def _run(
             plan, opts.plan_path, [*to_run, *refresh]
         )
         shared = SharedLayers(plan["items"], rows)
-        if after := shared.dependencies():
+        if after := shared.dependencies(state.items):
             to_run = select_items(plan, state, opts.only, opts.no_retry, after)
         touched = [*to_run, *refresh]
         # A dry run makes only the sign-in the run starts with.
@@ -2226,6 +2256,7 @@ def _run(
         basemap_map={u: b for u, b in plan.get("basemap_map", {}).items() if b},
         aliases={i["id"]: i["alias_of"] for i in plan["items"] if i.get("alias_of")},
         shared_layers=shared,
+        double_recorded=double_recorded(plan["items"], state.items),
         importable=frozenset(
             i["id"]
             for i in plan["items"]
@@ -2243,10 +2274,6 @@ def _run(
     stopped: str | None = "stopped by an unexpected error"
     try:
         summary = RunSummary()
-        # Before any write, so a dataset two items recorded in an earlier run
-        # has one writer before a handover or refresh touches it.
-        if settle_recorded(state.items, shared, sharing.names):
-            state.save()
         hand_over(ctx, state, owners, summary, opts.only)
         run_items(
             ctx, plan, state, to_run, owners.by_item, refresh, owners.pending, summary

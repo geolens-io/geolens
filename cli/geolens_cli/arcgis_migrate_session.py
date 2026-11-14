@@ -253,6 +253,9 @@ class MigrationContext:
     # Which plan item owns each service layer several items import
     # (arcgis_migrate_shared.SharedLayers); None when nothing is shared.
     shared_layers: Any = None
+    # Dataset -> the items that each record it, which none of them writes
+    # (arcgis_migrate_shared.double_recorded).
+    double_recorded: dict[str, list[str]] = field(default_factory=dict)
     portal_root: str = ""
     redact: Callable[[str], str] = str
     # The GeoLens operator's user id, whose writes a rerun recognises as its own.
@@ -271,6 +274,21 @@ class MigrationContext:
     server_version: str | None = None
     sleep: Callable[[float], None] = time.sleep
     clock: Callable[[], float] = time.monotonic
+
+
+def writable(ctx: MigrationContext, datasets: Any) -> list[str]:
+    """*datasets* without those several plan items record, which no item
+    writes until the plan skips all but one."""
+    return [d for d in datasets if d not in ctx.double_recorded]
+
+
+def double_recorded_reason(ctx: MigrationContext, dataset: str) -> str:
+    items = ", ".join(ctx.double_recorded[dataset])
+    return (
+        f"dataset {dataset} is recorded by items {items}, as an earlier version "
+        "of this command left it; none of them writes it until all but one are "
+        "set to skip in the plan"
+    )
 
 
 def outgoing_secret(

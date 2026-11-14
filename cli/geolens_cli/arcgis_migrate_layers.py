@@ -328,9 +328,12 @@ def _import_layer(
         dataset = _finish_job(ctx, row, probe, UUID(recorded), title_visibility)
         del entry.layer_jobs[key]
         if dataset is not None:
+            # Recorded first, so a write refused below is refused again on a
+            # rerun instead of the layer being previewed as a stranger's.
+            entry.layer_datasets[key] = dataset
+            ctx.save()
             # The commit that made it may predate an edit of the plan.
             _apply_target(ctx, entry, dataset, title_visibility)
-            entry.layer_datasets[key] = dataset
             return False
         ctx.save()
 
@@ -380,25 +383,25 @@ def _borrow(
     service = layers.service_of(item["id"], entry) if layers else None
     if service is None:
         return None
-    held = [
+    held = dict(
         (other, dataset)
         for other, dataset in layers.holders(ctx.items, service, key)
         if other != item["id"]
-    ]
-    if held:
-        owner_id = layers.preferred([other for other, _ in held])
-        dataset = dict(held)[owner_id]
-        if not migrated(layers.items.get(owner_id)):
-            return gone_note(owner_id, dataset)
-        entry.shared[key] = dataset
-        return ""
-    owner = layers.plan_owner(item["id"], key)
-    if owner["id"] == item["id"]:
-        return None
-    return (
-        f"layer {key} belongs to item {owner['id']} over the same service, which "
-        "hasn't imported it; a run after that item imports it reuses its dataset"
     )
+    owner_id = layers.owner(ctx.items, item["id"], key)
+    if owner_id == item["id"]:
+        return None
+    dataset = held.get(owner_id)
+    if owner_id in held and not migrated(layers.items.get(owner_id)):
+        return gone_note(owner_id, f"dataset {dataset}" if dataset else f"layer {key}")
+    if dataset is None:
+        return (
+            f"layer {key} belongs to item {owner_id} over the same service, which "
+            "hasn't imported it yet; a run after that item imports it reuses its "
+            "dataset"
+        )
+    entry.shared[key] = dataset
+    return ""
 
 
 def _shared_notes(
@@ -420,7 +423,7 @@ def _shared_notes(
         owner_id = layers.preferred(held) if held else None
         owner = layers.items.get(owner_id) if layers and owner_id else None
         if owner_id is not None and not migrated(owner):
-            problems.append(gone_note(owner_id, dataset))
+            problems.append(gone_note(owner_id, f"dataset {dataset}"))
             continue
         owners[dataset] = owner
     for dataset, owner in owners.items():
@@ -457,7 +460,7 @@ def _apply_target(
     this write doesn't make their edit the operator's. A reused dataset
     predates the migration, and its owner's edits are taken as they are.
     """
-    if dataset in entry.last_update:
+    if dataset in entry.last_update or dataset in ctx.double_recorded:
         return
     from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get as get
     from geolens.api.datasets import (
@@ -677,7 +680,9 @@ def import_layers(
             target = _commit_body(title, item["target"]["visibility"])
             _apply_target(ctx, entry, pinned, target)
             continue
-        if key not in entry.shared and (why := _borrow(ctx, item, entry, key)):
+        # Already borrowed, or this item's own import job is pending.
+        decided = key in entry.shared or key in entry.layer_jobs
+        if not decided and (why := _borrow(ctx, item, entry, key)):
             waiting.append(why)
             continue
         if key in entry.shared:

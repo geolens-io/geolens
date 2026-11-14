@@ -22,8 +22,8 @@ from .arcgis_migrate_session import (
     ItemFailed,
     MigrationContext,
     refuse_credentials,
+    writable,
 )
-from .arcgis_migrate_shared import borrowers
 from .arcgis_migrate_state import ItemState
 
 MAX_SUMMARY = 5000
@@ -257,7 +257,9 @@ def apply_item_metadata(
     from geolens.models.dataset_meta import DatasetMeta
 
     row = ctx.inventory.get(item["id"])
-    ids = [d for d in entry.dataset_ids if datasets is None or d in datasets]
+    ids = [
+        d for d in writable(ctx, entry.dataset_ids) if datasets is None or d in datasets
+    ]
     if row is None or not ids:
         return
     fields = item_metadata(row, item["target"], ctx.portal_info)
@@ -280,18 +282,10 @@ def apply_item_metadata(
                 for name, written in (base or {}).items()
                 if name not in ("keywords", "title") and written and name not in wanted
             }
-            # A borrower's write from before it was one was this command's own.
-            theirs = [
-                b.metadata_baseline.get(dataset_id) or {}
-                for b in borrowers(ctx.items, dataset_id)
-            ]
             for name, value in {**wanted, **cleared}.items():
-                existing = _current(current, name)
                 action, claim = _decide(
-                    name, existing, value, base, entry.metadata_hash
+                    name, _current(current, name), value, base, entry.metadata_hash
                 )
-                if action == "keep" and any(t.get(name) == existing for t in theirs):
-                    action, claim = "write", True
                 if action == "write":
                     meta[name] = value or None
                 elif action == "keep":
