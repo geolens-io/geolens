@@ -81,6 +81,7 @@ from .arcgis_migrate_refresh import (
     Refresher,
     changed_in_geolens,
     get_dataset,
+    preview_both_changed,
     record,
     refresh_file,
     refresh_layers,
@@ -1069,6 +1070,9 @@ class RunSummary:
     refreshed: list[str] = field(default_factory=list)
     handed_over: list[dict[str, str]] = field(default_factory=list)
     handover_failed: list[str] = field(default_factory=list)
+    # Item id -> its writes over datasets edited in GeoLens, or what a dry
+    # run would write.
+    both_changed: dict[str, list[str]] = field(default_factory=dict)
 
 
 def _unmet(
@@ -1342,9 +1346,33 @@ def run_items(
             break
     if summary.stopped is None:
         refresh_finished(ctx, state, refresh, summary)
+    summary.both_changed = ctx.both_changed
     state.save()
     write_index(ctx, plan, state)
     return summary
+
+
+def _preview_both_changed(
+    geolens: GeoLens,
+    rows: Mapping[str, Mapping[str, Any]],
+    portal_info: Mapping[str, Any] | None,
+    refresh: Sequence[Mapping[str, Any]],
+    state: MigrationState,
+) -> dict[str, list[str]]:
+    """Item id -> what a run would write over its datasets edited in GeoLens."""
+    ctx = MigrationContext(
+        geolens=geolens,
+        inventory=rows,
+        portal=None,
+        save=lambda: None,
+        portal_info=portal_info,
+    )
+    found = {}
+    for item in refresh:
+        lines = preview_both_changed(ctx, item, state.items[item["id"]])
+        if lines:
+            found[item["id"]] = lines
+    return found
 
 
 def _report_files(
@@ -1463,6 +1491,7 @@ def _report(
         "waiting": summary.waiting,
         "refreshed": summary.refreshed,
         "not_up_to_date": stale,
+        "both_changed": summary.both_changed,
         "stopped": summary.stopped,
         "cutover": cutover,
         "groups": groups.groups,
@@ -1502,6 +1531,9 @@ def _report(
             if not opts.dry_run:
                 brought -= len([i for i in stale if i in summary.refreshed])
             fmt.info(f"{verb} {brought} migrated item(s) up to date.")
+            for item_id, lines in summary.both_changed.items():
+                for line in lines:
+                    fmt.warn(f"{item_id}: {line}")
             for item_id, reasons in stale.items():
                 for reason in reasons:
                     fmt.error(f"{item_id} is not up to date: {reason}")
@@ -2102,6 +2134,9 @@ def _run(
                 if item["action"] != _plan.SKIP and item.get("unlisted")
             ],
             refreshed=[item["id"] for item in refresh],
+            both_changed=_preview_both_changed(
+                geolens, rows, portal_info, refresh, state
+            ),
         )
         return _report(
             fmt,

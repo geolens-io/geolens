@@ -8,6 +8,7 @@ from geolens_cli.arcgis_item_metadata import (
     _BLOCK_TAGS,
     _decide,
     _plan_keywords,
+    compare_edits,
     html_to_text,
     item_metadata,
     summary_hash,
@@ -261,3 +262,40 @@ def test_a_keyword_is_created_unless_it_is_present_or_was_removed(
     wanted, written, present, add, kept
 ):
     assert _plan_keywords(wanted, written, present) == (add, kept)
+
+
+class _Dataset:
+    title = "Named in GeoLens"
+    summary = "Old summary"
+    attribution = "Edited credit"
+    license_ = "CC-BY"
+    source_organization = None
+
+
+def test_each_differing_field_is_classified_by_the_side_that_changed_it():
+    base = {
+        "title": "Parcels",
+        "summary": "Old summary",
+        "attribution": "Old credit",
+        "license": "CC-BY",
+    }
+    wanted = {
+        "title": "Parcels",
+        "summary": "New summary",
+        "attribution": "New credit",
+        "license": "CC-BY",
+        "source_organization": "Example County",
+    }
+
+    edits = compare_edits(_Dataset(), base, wanted)
+
+    assert edits.portal == ["summary", "source_organization"]
+    assert edits.geolens == ["title"]
+    assert edits.both == [("attribution", "Edited credit", "New credit")]
+
+
+@pytest.mark.parametrize("base", [None, {"summary": "Old summary"}, {"title": ""}])
+def test_a_field_with_no_recorded_value_counts_as_changed_on_both_sides(base):
+    edits = compare_edits(_Dataset(), base, {"title": "Parcels"})
+
+    assert edits.both == [("title", "Named in GeoLens", "Parcels")]

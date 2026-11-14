@@ -12,7 +12,8 @@ from __future__ import annotations
 import hashlib
 import re
 import unicodedata
-from collections.abc import Container, Mapping
+from collections.abc import Collection, Container, Mapping
+from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from typing import Any
 from uuid import UUID
@@ -193,12 +194,73 @@ def _decide(
     return "keep", False
 
 
+def wanted_fields(
+    fields: Mapping[str, Any], base: Mapping[str, Any] | None, title: str | None
+) -> dict[str, str]:
+    """The values a dataset's fields should hold now: *fields* without the
+    keywords, *title* when given, and "" for a field this command wrote that
+    the portal has since emptied. A title is never emptied."""
+    wanted = {name: value for name, value in fields.items() if name != "keywords"}
+    if title is not None:
+        wanted["title"] = unicodedata.normalize("NFC", title)
+    cleared = {
+        name: ""
+        for name, written in (base or {}).items()
+        if name not in ("keywords", "title") and written and name not in wanted
+    }
+    return {**wanted, **cleared}
+
+
+@dataclass
+class Edits:
+    """The fields where GeoLens and the portal now differ, by the side that
+    changed them since this command last wrote them."""
+
+    portal: list[str] = field(default_factory=list)
+    geolens: list[str] = field(default_factory=list)
+    # (field, GeoLens value, portal value): changed on both sides, or with no
+    # recorded value to tell which side changed it.
+    both: list[tuple[str, str, str]] = field(default_factory=list)
+
+
+def compare_edits(
+    dataset: Any, base: Mapping[str, Any] | None, wanted: Mapping[str, str]
+) -> Edits:
+    """Classify each of *wanted* that *dataset* doesn't hold against *base*,
+    the values this command last wrote."""
+    edits = Edits()
+    for name, value in wanted.items():
+        existing = _current(dataset, name)
+        if existing == value:
+            continue
+        written = _written(base, name)
+        if written is None or (existing != written and value != written):
+            edits.both.append((name, existing, value))
+        elif existing != written:
+            edits.geolens.append(name)
+        else:
+            edits.portal.append(name)
+    return edits
+
+
+def _written(base: Mapping[str, Any] | None, name: str) -> str | None:
+    """What this command last wrote to *name*, or None when nothing tells.
+    A missing title is recorded only by a later run, and an older CLI
+    recorded "" while GeoLens kept the title."""
+    if base is None:
+        return None
+    if name == "title":
+        return base.get("title") or None
+    return base.get(name, "")
+
+
 def apply_item_metadata(
     ctx: MigrationContext,
     item: Mapping[str, Any],
     entry: ItemState,
     datasets: Container[str] | None = None,
     titles: Mapping[str, str] | None = None,
+    overwrite: Mapping[str, Collection[str]] | None = None,
 ) -> None:
     """Write the item's metadata onto each of its datasets, or only those in
     *datasets*, as the operator, and the title *titles* gives a dataset.
@@ -206,7 +268,8 @@ def apply_item_metadata(
     A field someone edited in GeoLens since the last run is kept and listed in
     the item's notes: a field is written only while it still holds what this
     command wrote (``entry.metadata_baseline``), or is empty. A title is never
-    emptied.
+    emptied. The fields *overwrite* names for a dataset take the portal's
+    value over an edit made in GeoLens.
     """
     from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get as get
     from geolens.api.datasets import (
@@ -227,20 +290,16 @@ def apply_item_metadata(
             base = entry.metadata_baseline.get(dataset_id)
             meta: dict[str, Any] = {}
             baseline = dict(base or {})
-            # A field this command wrote that the portal has since emptied is
-            # emptied too, by the same rule as any other change.
-            wanted = dict(fields)
-            if titles and dataset_id in titles:
-                wanted["title"] = unicodedata.normalize("NFC", titles[dataset_id])
-            cleared = {
-                name: ""
-                for name, written in (base or {}).items()
-                if name not in ("keywords", "title") and written and name not in wanted
-            }
-            for name, value in {**wanted, **cleared}.items():
-                action, claim = _decide(
-                    name, _current(current, name), value, base, entry.metadata_hash
-                )
+            taken = (overwrite or {}).get(dataset_id, ())
+            wanted = wanted_fields(fields, base, (titles or {}).get(dataset_id))
+            for name, value in wanted.items():
+                existing = _current(current, name)
+                if name in taken and existing != value:
+                    action, claim = "write", True
+                else:
+                    action, claim = _decide(
+                        name, existing, value, base, entry.metadata_hash
+                    )
                 if action == "write":
                     meta[name] = value or None
                 elif action == "keep":

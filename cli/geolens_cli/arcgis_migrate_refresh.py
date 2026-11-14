@@ -11,6 +11,11 @@ left alone. The state file records each dataset's ``updated_at``, feature
 count and data revision after every write this command makes; a rerun
 compares them right before each dataset's request, and sends the revision so
 GeoLens stops the publication for review if the data changes after that.
+
+When only item metadata fields changed in GeoLens, they are compared field by
+field with the values this command last wrote: edits to different fields on
+each side are merged, the same field changed on both sides stops the dataset,
+and a plan item with ``"both_changed": "portal"`` takes the portal's values.
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ from __future__ import annotations
 import tempfile
 from contextlib import suppress
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -25,7 +31,13 @@ from uuid import UUID
 
 from . import replace as _replace
 from ._sdk_helpers import PollDeadlineExceeded, long_request_timeout, poll_until
-from .arcgis_item_metadata import apply_item_metadata
+from .arcgis_item_metadata import (
+    Edits,
+    apply_item_metadata,
+    compare_edits,
+    item_metadata,
+    wanted_fields,
+)
 from .arcgis_migrate_files import (
     EXTENSIONS,
     JOB_KEY,
@@ -66,6 +78,8 @@ KEEP_GEOLENS = (
     "To keep the GeoLens version, set the item's action to skip in the plan, "
     "or accept it at cutover with --accept-unfinished-items"
 )
+BOTH_CHANGED = "both_changed"
+TAKE_PORTAL = "portal"
 
 # Starts one dataset's refresh or replacement and records its marker: the
 # dataset id, its GeoLens record and the data revision to send. Returns why it
@@ -321,6 +335,118 @@ def _what_changed(seen: Mapping[str, Any], now: Mapping[str, Any]) -> str:
     else:
         what = "its title, description, sharing or other details were edited"
     return f"{what}; last changed at {now['updated_at']}"
+
+
+@dataclass
+class BothChanged:
+    """What a rerun does with a dataset whose item metadata changed on both
+    sides: the report line, or why it stops, and the GeoLens edits it
+    overwrites."""
+
+    line: str
+    stop: bool = False
+    overwrite: tuple[str, ...] = ()
+
+
+def both_changed(
+    ctx: MigrationContext,
+    item: Mapping[str, Any],
+    entry: ItemState,
+    dataset_id: str,
+    dataset: Any,
+    dry_run: bool = False,
+) -> BothChanged | None:
+    """How to bring *dataset*, changed in GeoLens since the last run, up to
+    date; None when its data or owner changed there, or no recorded value
+    explains the change."""
+    edits = _edits(ctx, item, entry, dataset_id, dataset)
+    if edits is None:
+        return None
+    label = f"dataset {dataset_id} was edited in GeoLens since the last run"
+    if item.get(BOTH_CHANGED) == TAKE_PORTAL:
+        overwrite = tuple(edits.geolens + [name for name, _g, _p in edits.both])
+        verb = "would take" if dry_run else "took"
+        return BothChanged(
+            f"{label}; {verb} the portal's version as the plan asks, overwriting "
+            f"the GeoLens edits to {_names(overwrite)}",
+            overwrite=overwrite,
+        )
+    if edits.both:
+        shown = "; ".join(
+            f"the {_label(name)} is {_shown(ours)} in GeoLens and {_shown(theirs)} "
+            "in the portal"
+            for name, ours, theirs in edits.both
+        )
+        return BothChanged(f"both sides changed the same fields: {shown}", stop=True)
+    verb = "would merge its metadata:" if dry_run else "merged its metadata:"
+    sources = [f"the {_label(n)} from the portal" for n in edits.portal] + [
+        f"the {_label(n)} from GeoLens" for n in edits.geolens
+    ]
+    return BothChanged(f"{label}; {verb} {', '.join(sources)}")
+
+
+def _edits(
+    ctx: MigrationContext,
+    item: Mapping[str, Any],
+    entry: ItemState,
+    dataset_id: str,
+    dataset: Any,
+) -> Edits | None:
+    seen = entry.last_update.get(dataset_id)
+    base = entry.metadata_baseline.get(dataset_id)
+    row = ctx.inventory.get(item["id"])
+    if seen is None or base is None or row is None:
+        return None
+    now = snapshot(dataset)
+    if any(now[k] != seen.get(k) for k in ("feature_count", "data_revision")):
+        return None
+    if entry.owner_id is None or _owner(dataset) != entry.owner_id:
+        return None
+    fields = item_metadata(row, item["target"], ctx.portal_info)
+    title = _dataset_titles(item, entry).get(dataset_id)
+    edits = compare_edits(dataset, base, wanted_fields(fields, base, title))
+    # A change no carried field shows, such as a column or keyword edit, can't
+    # be classified, so the dataset stops as it did before.
+    if not (edits.geolens or edits.both):
+        return None
+    return edits
+
+
+def _label(name: str) -> str:
+    return name.replace("_", " ")
+
+
+def _names(names: tuple[str, ...]) -> str:
+    return ", ".join(f"the {_label(name)}" for name in names)
+
+
+def _shown(value: str, limit: int = 80) -> str:
+    if not value:
+        return "empty"
+    one_line = " ".join(value.split())
+    return repr(one_line if len(one_line) <= limit else one_line[: limit - 3] + "...")
+
+
+def preview_both_changed(
+    ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
+) -> list[str]:
+    """The lines a run would add for the item's datasets changed on both
+    sides, read without writing anything."""
+    lines = []
+    for dataset_id in dict.fromkeys(entry.layer_datasets.values()):
+        seen = entry.last_update.get(dataset_id)
+        if seen is None or dataset_id in entry.refreshing:
+            continue
+        try:
+            dataset = get_dataset(ctx, dataset_id)
+        except GeoLensError:
+            continue
+        if snapshot(dataset) == seen:
+            continue
+        found = both_changed(ctx, item, entry, dataset_id, dataset, dry_run=True)
+        if found is not None and not found.stop:
+            lines.append(found.line)
+    return lines
 
 
 def _wait_for_run(
@@ -650,13 +776,12 @@ def _bring_one(
             "up to date safely"
         )
     reason = changed_in_geolens(ctx, entry, dataset_id, dataset)
+    merge = None
     if reason and reason.startswith(CHANGED):
-        modified = (ctx.inventory.get(item["id"]) or {}).get("modified")
-        portal = (
-            f" Its portal item was last modified at {modified}." if modified else ""
-        )
-        return f"{reason}; it was left as it is.{portal} {KEEP_GEOLENS}"
-    if reason:
+        merge = both_changed(ctx, item, entry, dataset_id, dataset)
+        if merge is None or merge.stop:
+            return _left_alone(ctx, item, reason, merge)
+    elif reason:
         return f"{reason}; it was left as it is"
     problem, dataset = _apply_visibility(ctx, item, entry, dataset_id, dataset)
     if problem:
@@ -682,16 +807,28 @@ def _bring_one(
         )
     record(entry, dataset_id, published)
     base = entry.metadata_baseline.get(dataset_id)
-    if base is not None and not base.get("title") and isinstance(dataset.title, str):
+    if (
+        merge is None
+        and base is not None
+        and not base.get("title")
+        and isinstance(dataset.title, str)
+    ):
         # Unchanged in GeoLens since this command last left it, so the title is
         # this command's. A state from before titles were recorded has none,
         # and an older CLI's metadata pass records "" while GeoLens keeps the
         # title.
         base["title"] = dataset.title
+    if merge is not None:
+        _note(ctx, item, entry, merge.line)
     ctx.save()
     try:
         apply_item_metadata(
-            ctx, item, entry, [dataset_id], _dataset_titles(item, entry)
+            ctx,
+            item,
+            entry,
+            [dataset_id],
+            _dataset_titles(item, entry),
+            overwrite={dataset_id: merge.overwrite} if merge else None,
         )
     except ItemFailed:
         # A metadata write can land before a later step fails; it is this
@@ -702,6 +839,33 @@ def _bring_one(
     if not _record_own_write(ctx, entry, dataset_id, marker):
         return "changed in GeoLens while its metadata was written; it was left as it is"
     return None
+
+
+def _left_alone(
+    ctx: MigrationContext,
+    item: Mapping[str, Any],
+    reason: str,
+    merge: BothChanged | None,
+) -> str:
+    modified = (ctx.inventory.get(item["id"]) or {}).get("modified")
+    portal = f" Its portal item was last modified at {modified}." if modified else ""
+    if merge is None:
+        return f"{reason}; it was left as it is.{portal} {KEEP_GEOLENS}"
+    return (
+        f"{reason}; it was left as it is, because {merge.line}.{portal} "
+        f"{KEEP_GEOLENS}; to take the portal's version, set the item's "
+        f'"{BOTH_CHANGED}" to "{TAKE_PORTAL}" in the plan'
+    )
+
+
+def _note(
+    ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState, line: str
+) -> None:
+    """Report a write made over an edit in GeoLens, in the item's notes and
+    this run's output."""
+    if line not in entry.notes:
+        entry.notes.append(line)
+    ctx.both_changed.setdefault(item["id"], []).append(line)
 
 
 def _record_own_write(

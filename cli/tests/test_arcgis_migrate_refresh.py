@@ -850,6 +850,210 @@ def test_a_metadata_write_whose_keywords_fail_is_still_recorded_as_this_commands
     assert len(refresh.bodies) == 3
 
 
+def _edited_on_both_sides(runner, tmp_path, geolens, portal_title: str | None):
+    """A migrated item retitled in GeoLens, then given a new portal snippet and,
+    with *portal_title*, a new portal title."""
+    plan_file = _write_plan(tmp_path, rows={A2: {"snippet": "Old summary"}})
+    service = _migrated(runner, plan_file, geolens)
+    refresh = FakeRefresh(geolens, service).allow(PARCELS)
+    # The rerun that records the title this command left.
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    service.fields[PARCELS].update(
+        title="Named in GeoLens", updated_at=EDITED, updated_by=ALICE
+    )
+    _set_snippet(plan_file, A2, "New summary")
+    if portal_title:
+        _set_title(plan_file, A2, portal_title)
+    return plan_file, service, refresh
+
+
+def _set_both_changed(plan_file: Path, item_id: str, value: str) -> None:
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == item_id:
+            item["both_changed"] = value
+    plan_file.write_text(json.dumps(plan))
+
+
+def test_edits_to_different_fields_on_each_side_are_merged(runner, tmp_path, geolens):
+    plan_file, service, refresh = _edited_on_both_sides(runner, tmp_path, geolens, None)
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, payload["not_up_to_date"]
+    assert len(refresh.bodies) == 2
+    assert service.fields[PARCELS]["title"] == "Named in GeoLens"
+    assert service.summaries[PARCELS].startswith("New summary")
+    line = (
+        f"dataset {PARCELS} was edited in GeoLens since the last run; merged its "
+        "metadata: the summary from the portal, the title from GeoLens"
+    )
+    assert payload["both_changed"] == {A2: [line]}
+    assert line in _state(plan_file)["items"][A2]["notes"]
+
+
+def test_a_field_changed_on_both_sides_stops_with_both_values(
+    runner, tmp_path, geolens
+):
+    plan_file, service, refresh = _edited_on_both_sides(
+        runner, tmp_path, geolens, "Parcels renamed"
+    )
+    before = len(geolens.seen)
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    assert len(refresh.bodies) == 1
+    assert [s for s in geolens.seen[before:] if s.method not in ("GET", "POST")] == []
+    assert service.fields[PARCELS]["title"] == "Named in GeoLens"
+    [reason] = payload["not_up_to_date"][A2]
+    assert (
+        "both sides changed the same fields: the title is 'Named in GeoLens' in "
+        "GeoLens and 'Parcels renamed' in the portal"
+    ) in reason
+    assert reason.endswith(
+        "to take the portal's version, set the item's \"both_changed\" to "
+        '"portal" in the plan'
+    )
+    assert payload["both_changed"] == {}
+
+
+def test_the_portals_version_replaces_the_geolens_edit_when_the_plan_asks(
+    runner, tmp_path, geolens
+):
+    plan_file, service, refresh = _edited_on_both_sides(
+        runner, tmp_path, geolens, "Parcels renamed"
+    )
+    _set_both_changed(plan_file, A2, "portal")
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, payload["not_up_to_date"]
+    assert len(refresh.bodies) == 2
+    assert service.fields[PARCELS]["title"] == "Parcels renamed"
+    assert service.summaries[PARCELS].startswith("New summary")
+    line = (
+        f"dataset {PARCELS} was edited in GeoLens since the last run; took the "
+        "portal's version as the plan asks, overwriting the GeoLens edits to the "
+        "title"
+    )
+    assert payload["both_changed"] == {A2: [line]}
+    entry = _state(plan_file)["items"][A2]
+    assert line in entry["notes"]
+    assert entry["metadata_baseline"][PARCELS]["title"] == "Parcels renamed"
+
+
+@pytest.mark.parametrize("portal_title", [None, "Parcels renamed"])
+def test_a_dataset_without_a_metadata_baseline_stops_as_before(
+    runner, tmp_path, geolens, portal_title
+):
+    plan_file, service, refresh = _edited_on_both_sides(
+        runner, tmp_path, geolens, portal_title
+    )
+    _edit_state(plan_file, A2, metadata_baseline={})
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    assert len(refresh.bodies) == 1
+    [reason] = payload["not_up_to_date"][A2]
+    assert reason.startswith(
+        f"dataset {PARCELS}: changed in GeoLens since the last run"
+    )
+    assert reason.endswith(refresh_mod.KEEP_GEOLENS)
+    assert service.fields[PARCELS]["title"] == "Named in GeoLens"
+
+
+def test_a_title_with_no_recorded_value_counts_as_changed_on_both_sides(
+    runner, tmp_path, geolens
+):
+    plan_file, service, refresh = _edited_on_both_sides(runner, tmp_path, geolens, None)
+    baseline = _state(plan_file)["items"][A2]["metadata_baseline"]
+    del baseline[PARCELS]["title"]
+    _edit_state(plan_file, A2, metadata_baseline=baseline)
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    assert len(refresh.bodies) == 1
+    assert (
+        "the title is 'Named in GeoLens' in GeoLens"
+        in (payload["not_up_to_date"][A2][0])
+    )
+
+
+def test_a_data_edit_in_geolens_still_stops_when_the_plan_takes_the_portal(
+    runner, tmp_path, geolens
+):
+    plan_file, service, refresh = _edited_on_both_sides(
+        runner, tmp_path, geolens, "Parcels renamed"
+    )
+    service.fields[PARCELS]["data_revision"] = 1
+    _set_both_changed(plan_file, A2, "portal")
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    assert len(refresh.bodies) == 1
+    assert service.fields[PARCELS]["title"] == "Named in GeoLens"
+    assert payload["not_up_to_date"][A2][0].endswith(refresh_mod.KEEP_GEOLENS)
+
+
+@pytest.mark.parametrize("both_changed", [None, "portal"])
+def test_a_dry_run_shows_the_merge_and_writes_nothing(
+    runner, tmp_path, geolens, both_changed
+):
+    plan_file, service, refresh = _edited_on_both_sides(
+        runner, tmp_path, geolens, "Parcels renamed" if both_changed else None
+    )
+    if both_changed:
+        _set_both_changed(plan_file, A2, both_changed)
+    state_before = (plan_file.parent / "arcgis-migration-state.json").read_text()
+    before = len(geolens.seen)
+
+    result, payload = _migrate(runner, plan_file, "--only", A2, "--dry-run")
+
+    assert result.exit_code == 0, result.output
+    assert [s for s in geolens.seen[before:] if s.method != "GET"] == []
+    assert (plan_file.parent / "arcgis-migration-state.json").read_text() == (
+        state_before
+    )
+    assert service.fields[PARCELS]["title"] == "Named in GeoLens"
+    [line] = payload["both_changed"][A2]
+    if both_changed:
+        assert "; would take the portal's version as the plan asks" in line
+    else:
+        assert line.endswith(
+            "would merge its metadata: the summary from the portal, the title "
+            "from GeoLens"
+        )
+
+
+def test_an_unknown_both_changed_value_is_refused(runner, plan_file, geolens):
+    _set_both_changed(plan_file, A2, "geolens")
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 2
+    assert "both_changed: 'geolens' is not one of ['portal']" in result.output
+
+
+def test_both_changed_on_an_item_that_imports_no_dataset_is_refused(
+    runner, plan_file, geolens
+):
+    plan = json.loads(plan_file.read_text())
+    web_map = next(i for i in plan["items"] if i["action"] == "import_map")
+    web_map["both_changed"] = "portal"
+    plan_file.write_text(json.dumps(plan))
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 2
+    assert f"sets both_changed on items that import no datasets: {web_map['id']}" in (
+        result.output
+    )
+
+
 def _set_visibility(plan_file: Path, item_id: str, visibility: str) -> None:
     plan = json.loads(plan_file.read_text())
     for item in plan["items"]:
