@@ -300,3 +300,22 @@ async def test_a_large_whole_number_the_viewer_sends_is_counted(
         )
 
         _refused(resp, widget)
+
+
+@pytest.mark.parametrize("pg_type", ["smallint", "integer", "bigint"])
+@pytest.mark.parametrize("route", ["patch_layers", "put_layers"])
+async def test_a_whole_number_past_the_double_range_is_saved_and_not_counted(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, route, pg_type
+):
+    async with _dropped(test_db_session) as dataset:
+        await _set_columns(test_db_session, dataset, [{"name": "pop", "type": pg_type}])
+        map_id, (layer_id,) = await _map_with_layers(client, admin_auth_header, dataset)
+        widget = _widget("indicator", layer_id)
+        await _with_widget(client, admin_auth_header, map_id, widget)
+        filter_ = ["==", ["get", "pop"], 10**400]
+
+        resp = await _save(
+            route, client, admin_auth_header, map_id, dataset, layer_id, filter_, widget
+        )
+
+        assert resp.status_code == 200, resp.text

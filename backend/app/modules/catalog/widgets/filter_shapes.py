@@ -11,6 +11,7 @@ frontend's ``widgetFilterShape``.
 import datetime
 import math
 import re
+import sys
 from collections.abc import Mapping
 from contextvars import ContextVar
 from typing import Any, NamedTuple
@@ -87,7 +88,9 @@ def _is_number(value: Any) -> bool:
     if isinstance(value, bool):
         return False
     if isinstance(value, int):
-        return abs(value) <= _MAX_SAFE_INTEGER or _UNSAFE_INTEGERS.get()
+        # Past the double range the browser reads Infinity, which it doesn't send.
+        bound = sys.float_info.max if _UNSAFE_INTEGERS.get() else _MAX_SAFE_INTEGER
+        return abs(value) <= bound
     if isinstance(value, float):
         return math.isfinite(value) and (
             not (value.is_integer() and abs(value) > _MAX_SAFE_INTEGER)
