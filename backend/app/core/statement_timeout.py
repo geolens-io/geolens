@@ -58,6 +58,13 @@ def anonymous_read_timeout_ms() -> int:
     return min(anonymous_ms, api_ms) if anonymous_ms and api_ms else anonymous_ms
 
 
+def current_deadline_ms() -> int:
+    """The deadline a transaction begun now would get, in milliseconds; 0 means none."""
+    if _anonymous_read.get() and (anonymous_ms := anonymous_read_timeout_ms()) > 0:
+        return anonymous_ms
+    return statement_timeout_ms()
+
+
 def _anonymous_statement():
     timeout_ms = int(anonymous_read_timeout_ms())
     if timeout_ms <= 0:
