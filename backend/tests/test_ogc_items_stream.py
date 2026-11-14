@@ -14,6 +14,7 @@ from sqlalchemy.exc import OperationalError
 
 import app.core.db as db_module
 import app.standards.ogc.router as ogc_router
+from app.modules.catalog.features.service import read_features_json as features_read
 from tests.factories import get_user_id
 from tests.test_ogc_features import _cleanup_table, _create_test_table_and_dataset
 
@@ -151,6 +152,39 @@ async def test_large_geometries_are_read_a_bounded_batch_at_a_time(
     assert peak < received / 2
 
 
+@pytest.mark.parametrize(
+    "variant", ["spatial", "without geometry", "nonspatial"], ids=lambda v: v
+)
+async def test_large_attributes_count_toward_a_batch(
+    client: AsyncClient, test_db_session, monkeypatch, variant
+) -> None:
+    dataset = await _polygon_dataset(test_db_session, 40)
+    table_name = dataset.table_name
+    # 200 KB a row, which compresses in storage.
+    await test_db_session.execute(
+        text(f"UPDATE data.{table_name} SET status = repeat(md5(gid::text), 6250)")
+    )
+    if variant == "nonspatial":
+        dataset.geometry_type = None
+    await test_db_session.commit()
+    monkeypatch.setattr(ogc_router, "STREAM_BATCH_BYTES", 1_000_000)
+    batches = _record_batches(monkeypatch)
+    params = {"limit": 100}
+    if variant == "without geometry":
+        params["include_geometry"] = "false"
+
+    try:
+        resp = await client.get(f"/collections/{dataset.id}/items", params=params)
+        data = resp.json()
+    finally:
+        await _cleanup_table(test_db_session, table_name)
+
+    assert data["numberReturned"] == 40
+    assert len(data["features"][0]["properties"]["status"]) == 200_000
+    assert len(batches) >= 20
+    assert max(len(batch) for batch in batches) <= 2
+
+
 async def _open_streams(session) -> int:
     """Backends still inside a transaction on the stream's query."""
     await session.execute(text("SELECT pg_stat_clear_snapshot()"))
@@ -227,6 +261,20 @@ def _body(sent: list[dict]) -> bytes:
     return b"".join(m.get("body", b"") for m in sent[1:])
 
 
+def _assert_uncacheable(sent: list[dict]) -> None:
+    headers = dict(sent[0]["headers"])
+    assert b"etag" not in headers
+    assert headers[b"cache-control"] == b"no-store"
+
+
+_GZIP = [(b"accept-encoding", b"gzip")]
+
+
+def _unterminated_gzip(body: bytes) -> bool:
+    inflate = zlib.decompressobj(wbits=31)
+    return len(inflate.decompress(body)) > 0 and not inflate.eof
+
+
 async def test_a_client_disconnect_releases_the_connection(
     client: AsyncClient, test_db_session, some_polygons, monkeypatch
 ) -> None:
@@ -262,8 +310,9 @@ async def test_a_client_disconnect_releases_the_connection(
     assert again.json()["numberReturned"] == 2
 
 
+@pytest.mark.parametrize("gzip", [False, True], ids=["identity", "gzip"])
 async def test_the_stream_ends_at_the_request_deadline(
-    client: AsyncClient, test_db_session, some_polygons, monkeypatch
+    client: AsyncClient, test_db_session, some_polygons, monkeypatch, gzip
 ) -> None:
     monkeypatch.setattr(ogc_router, "current_deadline_ms", lambda: 300)
 
@@ -276,13 +325,18 @@ async def test_the_stream_ends_at_the_request_deadline(
             "limit=1000",
             on_body=on_body,
             send_delay=0.05,
+            headers=_GZIP if gzip else None,
         )
 
     body = _body(sent)
     assert sent[0]["status"] == 200
+    _assert_uncacheable(sent)
     assert 0 < len(body) < 1_000_000
-    with pytest.raises(json.JSONDecodeError):
-        json.loads(body)
+    if gzip:
+        assert _unterminated_gzip(body)
+    else:
+        with pytest.raises(json.JSONDecodeError):
+            json.loads(body)
     assert [e["event"] for e in logs if e["log_level"] == "warning"] == [
         "ogc_items_stream_deadline"
     ]
@@ -340,6 +394,7 @@ async def test_a_failure_mid_stream_leaves_the_body_unparseable(
 
     body = _body(sent)
     assert sent[0]["status"] == 200
+    _assert_uncacheable(sent)
     assert len(body) > 64 * 1024
     with pytest.raises(json.JSONDecodeError):
         json.loads(body)
@@ -350,16 +405,34 @@ async def test_a_failure_mid_stream_leaves_the_body_unparseable(
 async def test_a_failure_mid_stream_leaves_gzip_unterminated(
     client: AsyncClient, some_polygons, monkeypatch
 ) -> None:
-    sent, errors = await _fail_mid_stream(
-        some_polygons, monkeypatch, headers=[(b"accept-encoding", b"gzip")]
-    )
+    sent, errors = await _fail_mid_stream(some_polygons, monkeypatch, headers=_GZIP)
 
     assert dict(sent[0]["headers"])[b"content-encoding"] == b"gzip"
-    inflate = zlib.decompressobj(wbits=31)
-    inflated = inflate.decompress(_body(sent))
-    assert len(inflated) > 64 * 1024
-    assert not inflate.eof
+    _assert_uncacheable(sent)
+    assert _unterminated_gzip(_body(sent))
     assert errors == ["ogc_items_stream_failed"]
+
+
+async def test_a_truncated_page_leaves_nothing_to_revalidate(
+    client: AsyncClient, some_polygons, monkeypatch
+) -> None:
+    url = f"/collections/{some_polygons.id}/items"
+    sent, _ = await _fail_mid_stream(some_polygons, monkeypatch)
+    _assert_uncacheable(sent)
+    monkeypatch.setattr(ogc_router, "read_features_json", features_read)
+
+    retry = await client.get(url, params={"limit": 1000})
+    small = await client.get(url, params={"limit": 2})
+    again = await client.get(
+        url, params={"limit": 2}, headers={"If-None-Match": small.headers["etag"]}
+    )
+
+    assert "etag" not in retry.headers
+    assert retry.headers["cache-control"] == "no-store"
+    assert retry.json()["numberReturned"] == 1000
+    # A page read in one batch is sent whole and keeps its validator.
+    assert "content-length" in small.headers
+    assert again.status_code == 304
 
 
 async def _write_between_reads(monkeypatch, statement: str) -> None:

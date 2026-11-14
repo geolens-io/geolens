@@ -1144,16 +1144,22 @@ async def get_collection_items(
     }
     if link_value := link_header_value(links):
         headers["Link"] = link_value
+    body = feature_collection_body(
+        members, first_batch, batches[1:], read_batch, dataset_id=str(dataset_id)
+    )
+    if len(batches) <= 1:
+        # Already read whole, so it is sent with a length and keeps its validator.
+        return Response(
+            b"".join([chunk async for chunk in body]),
+            media_type="application/geo+json",
+            headers=headers,
+        )
+    # A failure past the first chunk still ends as a complete 200 behind the
+    # CORS middleware, so no cache may keep or revalidate a streamed page.
+    headers.pop("ETag", None)
+    headers["Cache-Control"] = "no-store"
     return FeatureCollectionStream(
-        feature_collection_body(
-            members,
-            first_batch,
-            batches[1:],
-            read_batch,
-            dataset_id=str(dataset_id),
-        ),
-        headers=headers,
-        deadline_seconds=current_deadline_ms() / 1000,
+        body, headers=headers, deadline_seconds=current_deadline_ms() / 1000
     )
 
 

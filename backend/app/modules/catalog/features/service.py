@@ -637,11 +637,11 @@ async def get_features(
     if where_clauses:
         where_sql = "WHERE " + " AND ".join(where_clauses)
     if ids_only:
-        select_cols = f"gid, {_ESTIMATED_SIZE if with_geometry else _ROW_BYTES} AS size"
-        geom_sel = ", geom_4326" if with_geometry else ""
+        select_cols = "gid, size"
+        size = await _estimated_row_size(db, table_name, with_geometry=with_geometry)
         row_source = (
-            f"(SELECT gid{geom_sel} FROM {get_catalog_port().quote_table(table_name)} "
-            f"t {where_sql})"
+            f"(SELECT gid, {size} AS size FROM "
+            f"{get_catalog_port().quote_table(table_name)} t {where_sql})"
         )
     else:
         row_source = await _projected_row_source(
@@ -699,14 +699,36 @@ async def get_features(
     return FeaturePage(rows, total, total_is_estimate, has_more)
 
 
-# Properties are not measured; each row is allowed this much for them.
-_ROW_BYTES = 1024
-# GeoJSON text takes up to about twice a geometry's binary size. Only a
-# compressed geometry is read to size it: any other is stored at its full size.
-_ESTIMATED_SIZE = (
-    f"{_ROW_BYTES} + 2 * CASE WHEN pg_column_compression(geom_4326) IS NULL "
-    "THEN COALESCE(pg_column_size(geom_4326), 0) ELSE ST_MemSize(geom_4326) END"
-)
+def _stored_size(column: str, *, full: str) -> str:
+    """SQL for a value's size; only a compressed value is read, to size it as *full*."""
+    return (
+        f"COALESCE(CASE WHEN pg_column_compression({column}) IS NULL "
+        f"THEN pg_column_size({column}) ELSE {full} END, 0)"
+    )
+
+
+async def _estimated_row_size(
+    db: AsyncSession, table_name: str, *, with_geometry: bool
+) -> str:
+    """SQL estimating a row's GeoJSON Feature text in bytes, from stored sizes.
+
+    Text takes up to about twice a value's stored size, and each property
+    also writes its quoted name.
+    """
+    terms = ["64"]
+    for name, _ in await _table_columns(db, table_name):
+        if name in ("gid", "geom", "geom_4326"):
+            continue
+        quoted = '"' + name.replace('"', '""').replace(":", "\\:") + '"'
+        terms.append(
+            f"{len(name.encode()) + 4} + 2 * "
+            + _stored_size(quoted, full=f"octet_length({quoted}::text)")
+        )
+    if with_geometry:
+        terms.append("2 * " + _stored_size("geom_4326", full="ST_MemSize(geom_4326)"))
+    return " + ".join(terms)
+
+
 # Estimated serialized bytes one streamed batch reads into memory at once.
 STREAM_BATCH_BYTES = 8_000_000
 
