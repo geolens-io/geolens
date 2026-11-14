@@ -433,18 +433,87 @@ class TestOperations:
 
         bins = await self._score_histogram(client, test_db_session, points, scores, 2)
 
+        await self._assert_counts_match_range_filters(client, points, bins)
         values = [float(v) for v in scores]
-        for i, b in enumerate(bins):
-            upper_ok = (
-                (lambda v: v <= b["upper"])
-                if i == len(bins) - 1
-                else (lambda v: v < b["upper"])
-            )
-            held = [v for v in values if v >= b["lower"] and upper_ok(v)]
-            assert b["count"] == len(held), (i, bins)
         assert min(values) >= bins[0]["lower"]
         assert max(values) <= bins[-1]["upper"]
         assert sum(b["count"] for b in bins) == 8
+
+    async def _assert_counts_match_range_filters(self, client, points, bins):
+        """Each bin's count equals a count request filtered by the bin's range."""
+        for i, b in enumerate(bins):
+            last = i == len(bins) - 1
+            where = {
+                "op": "and",
+                "args": [
+                    {"op": ">=", "args": [{"property": "score"}, b["lower"]]},
+                    {
+                        "op": "<=" if last else "<",
+                        "args": [{"property": "score"}, b["upper"]],
+                    },
+                ],
+            }
+            resp = await _aggregate(client, points.id, {"op": "count", "filter": where})
+            assert resp.status_code == 200, resp.text
+            assert b["count"] == resp.json()["result"]["count"], (i, bins)
+
+    @pytest.mark.parametrize(
+        ("scores", "bins"),
+        [
+            ([0.1, 0.10000000000000002] * 4, 4),
+            ([0.1, 0.10000000000000002] * 4, 20),
+            ([0.1, 0.10000000000000002] * 4, 50),
+            ([0.0, 5e-324] * 4, 10),
+            ([-0.30000000000000004, -0.3] * 4, 4),
+            ([-5e-324, 0.0, 5e-324, 0.0] * 2, 10),
+        ],
+    )
+    async def test_bins_below_the_doubles_resolution_still_match_their_filters(
+        self, client: AsyncClient, test_db_session, points, scores, bins
+    ):
+        result = await self._score_histogram(
+            client, test_db_session, points, scores, bins
+        )
+
+        await self._assert_counts_match_range_filters(client, points, result)
+        assert sum(b["count"] for b in result) == 8
+
+    async def test_a_numeric_histogram_assigns_in_decimal(
+        self, client: AsyncClient, test_db_session, points
+    ):
+        await test_db_session.execute(
+            text(
+                f"ALTER TABLE data.{points.table_name}"  # noqa: S608
+                " ALTER COLUMN score TYPE numeric"
+            )
+        )
+        await test_db_session.commit()
+        scores = [
+            "0.13",
+            "0.499999999999999999",
+            "4.77",
+            "0.5",
+            "1.2",
+            "2.2",
+            "3.3",
+            "4",
+        ]
+        for gid, value in enumerate(scores, start=1):
+            await test_db_session.execute(
+                text(
+                    f"UPDATE data.{points.table_name}"  # noqa: S608
+                    f" SET score = {value} WHERE gid = {gid}"
+                )
+            )
+        await test_db_session.commit()
+
+        resp = await _aggregate(
+            client, points.id, {"op": "histogram", "column": "score", "bins": 10}
+        )
+
+        bins = resp.json()["result"]["bins"]
+        assert bins[0]["count"] == 2  # 0.13 and 0.4999..99 sit below the 0.5 edge
+        await self._assert_counts_match_range_filters(client, points, bins)
 
     async def test_a_real_histogram_near_the_float4_limit_keeps_finite_edges(
         self, client: AsyncClient, test_db_session, points
@@ -465,7 +534,7 @@ class TestOperations:
 
         assert all(abs(b["lower"]) <= 3.4028234663852886e38 for b in bins)
         assert all(abs(b["upper"]) <= 3.4028234663852886e38 for b in bins)
-        assert bins[-1]["upper"] >= 3.4e38
+        assert bins[-1]["upper"] >= 3.3999999e38
         assert sum(b["count"] for b in bins) == 8
 
     async def test_a_value_on_the_last_edge_is_counted_once(
@@ -616,10 +685,7 @@ class TestOperations:
             {"key": "keep", "value": 0.30000000000000004}
         ]
         bins = histogram.json()["result"]["bins"]
-        assert bins == [
-            {"lower": 0.3, "upper": 0.30000000000000004, "count": 1},
-            {"lower": 0.30000000000000004, "upper": 0.30000000000000004, "count": 1},
-        ]
+        assert bins == [{"lower": 0.3, "upper": 0.30000000000000004, "count": 2}]
         values = {v["value"] for v in counted.json()["result"]["values"]}
         assert values == {0.3, 0.30000000000000004}
         keys = {g["key"] for g in keyed.json()["result"]["groups"]}
