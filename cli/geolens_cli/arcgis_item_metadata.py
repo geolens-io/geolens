@@ -19,6 +19,7 @@ from typing import Any
 from uuid import UUID
 
 from .arcgis_migrate_session import GeoLensError, ItemFailed, MigrationContext
+from .arcgis_portal import holds_credential
 from .arcgis_migrate_state import ItemState
 
 MAX_SUMMARY = 5000
@@ -235,7 +236,9 @@ def compare_edits(
         existing = _current(dataset, name)
         written = _written(base, name)
         if existing == value:
-            if written is not None and existing != written:
+            # Agreement on a value this command didn't write, or on a first
+            # value for a field it holds none for, resolves the field.
+            if existing != (written if written is not None else ""):
                 edits.agreed.append((name, existing, value))
             continue
         if written is None:
@@ -263,6 +266,37 @@ def portal_text(
     }
 
 
+def credential_fields(
+    ctx: MigrationContext,
+    item: Mapping[str, Any],
+    titles: Mapping[str, str] | None = None,
+) -> list[str]:
+    """The item metadata fields, keywords included, whose portal value holds a
+    credential, checked as the portal holds it and as it would be sent:
+    converted, normalised, lowercased and shortened."""
+    row = ctx.inventory.get(item["id"]) or {}
+    fields = item_metadata(row, item["target"], ctx.portal_info)
+    raw = portal_text(row, ctx.portal_info)
+    texts: dict[str, list[Any]] = {
+        name: [raw.get(name, ""), fields.get(name, "")]
+        for name in CARRIED
+        if name != "title"
+    }
+    title = item["target"]["title"] or item.get("title") or ""
+    texts["title"] = [title, *(titles or {}).values()]
+    texts["keywords"] = [*(item["target"].get("tags") or []), *fields["keywords"]]
+    return [
+        name
+        for name, values in texts.items()
+        if any(holds_credential(value, ctx.redact) for value in values)
+    ]
+
+
+def credential_refusal(names: list[str]) -> str:
+    shown = ", ".join(name.replace("_", " ") for name in names)
+    return f"the portal's {shown} holds a credential, so it isn't written"
+
+
 def _written(base: Mapping[str, Any] | None, name: str) -> str | None:
     """What this command last wrote to *name*, or None when nothing tells: a
     field it never recorded, and a title that is missing or empty, which a
@@ -288,7 +322,8 @@ def apply_item_metadata(
     A field someone edited in GeoLens since the last run is kept and listed in
     the item's notes: a field is written only while it still holds what this
     command wrote (``entry.metadata_baseline``), or is empty. A title is never
-    emptied.
+    emptied. ``ItemFailed`` before any write when a value it would send,
+    keywords included, holds a credential.
     """
     from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get as get
     from geolens.api.datasets import (
@@ -300,6 +335,9 @@ def apply_item_metadata(
     ids = [d for d in entry.dataset_ids if datasets is None or d in datasets]
     if row is None or not ids:
         return
+    held = credential_fields(ctx, item, titles)
+    if held:
+        raise ItemFailed(credential_refusal(held))
     fields = item_metadata(row, item["target"], ctx.portal_info)
     keywords = fields.pop("keywords")
     record_ids: list[str] = []

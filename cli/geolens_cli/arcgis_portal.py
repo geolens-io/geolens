@@ -130,7 +130,22 @@ class Redactor:
             if form in text:
                 hits.append("secret")
                 text = text.replace(form, "[REDACTED]")
-        return _subn(_CREDENTIAL_PARAM, r"\1[REDACTED]", text, hits)
+        return _CREDENTIAL_PARAM.sub(
+            lambda m: _mask(hits, m.group(1), m.group(0)[len(m.group(1)) :]), text
+        )
+
+
+_MASK = "[REDACTED]"
+
+
+def _mask(hits: list[str], lead: str, value: Any) -> str:
+    """*lead* followed by the mask, recording a hit unless *value* is empty or
+    already the mask, so text scrubbed before doesn't count again."""
+    if value not in (None, "", _MASK) and (
+        not isinstance(value, str) or value.strip().strip("\"'") != _MASK
+    ):
+        hits.append(lead or "value")
+    return f"{lead}{_MASK}"
 
 
 def _subn(pattern: re.Pattern[str], repl: Any, text: str, hits: list[str]) -> str:
@@ -151,8 +166,7 @@ def _is_credential_name(name: str) -> bool:
 def _scrub_param(hits: list[str], match: re.Match[str]) -> str:
     lead, name, value = match.groups()
     if _is_credential_name(unquote_plus(name)):
-        hits.append("param")
-        value = "[REDACTED]"
+        return _mask(hits, f"{lead}{name}=", value)
     return f"{lead}{name}={value}"
 
 
@@ -194,11 +208,12 @@ def _scrub_scheme(hits: list[str], match: re.Match[str]) -> str:
     return f"{assigned}{scheme}{space}[REDACTED]"
 
 
-def _scrub_header(match: re.Match[str]) -> str:
+def _scrub_header(hits: list[str], match: re.Match[str]) -> str:
     groups = match.groupdict()
     for key in ("a", "c", "u", ""):
         if groups[f"{key}name"] is not None:
-            return f"{groups[f'{key}name']}{groups[f'{key}sep']}[REDACTED]"
+            lead = f"{groups[f'{key}name']}{groups[f'{key}sep']}"
+            return _mask(hits, lead, match.group(0)[len(lead) :])
     raise AssertionError("unreachable")
 
 
@@ -206,8 +221,8 @@ def _scrub_pair(hits: list[str], match: re.Match[str]) -> str:
     name, colon = match.group(1), match.group(2)
     if not _is_credential_name(name):
         return match.group(0)
-    hits.append("pair")
-    return f'"{name}"{colon}"[REDACTED]"'
+    value = match.group(0)[match.end(2) - match.start() :]
+    return _mask(hits, f'"{name}"{colon}"', value) + '"'
 
 
 def _scrub_text(
@@ -237,13 +252,15 @@ def _scrub_text(
         hits.append("redact")
         text = masked
     text = _subn(_PEM, "[REDACTED]", text, hits)
-    text = _subn(_HEADER, _scrub_header, text, hits)
+    text = _HEADER.sub(partial(_scrub_header, hits), text)
     text = _SCHEME_CREDENTIAL.sub(partial(_scrub_scheme, hits), text)
     text = _subn(_JWT, "[REDACTED]", text, hits)
     text = _subn(_AWS_KEY_ID, "[REDACTED]", text, hits)
     if "=" in text or "//" in text:
         text = _URL_PARAM.sub(partial(_scrub_param, hits), text)
-        text = _subn(_URL_USERINFO, r"\1[REDACTED]@", text, hits)
+        text = _URL_USERINFO.sub(
+            lambda m: _mask(hits, m.group(1), m.group(0)[2:-1]) + "@", text
+        )
     if '":' in text or '" :' in text:
         text = _JSON_PAIR.sub(partial(_scrub_pair, hits), text)
     return text
@@ -251,7 +268,8 @@ def _scrub_text(
 
 def holds_credential(value: Any, redact: Redactor) -> bool:
     """Whether any credential pattern or registered secret matches in *value*,
-    a string or a JSON document; told by the matching, not the masked text."""
+    a string or a JSON document; told by the matching, not the masked text,
+    and a value that is only a mask already doesn't count."""
     hits: list[str] = []
     _redact_json(value, redact, 0, hits)
     return bool(hits)
@@ -288,8 +306,7 @@ def _redact_json(
                 and not _COMPOUND_KEY.search(key)
                 and _is_credential_name(key)
             ):
-                hits.append("key")
-                out: Any = "[REDACTED]"
+                out: Any = _mask(hits, "", item)
             elif isinstance(item, dict | list):
                 out = {} if isinstance(item, dict) else []
                 stack.append((item, out))

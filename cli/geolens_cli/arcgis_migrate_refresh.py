@@ -20,6 +20,7 @@ dataset. Nothing about a merge is saved; each run works it out again.
 
 from __future__ import annotations
 
+import hashlib
 import tempfile
 from contextlib import suppress
 from collections.abc import Callable, Mapping
@@ -34,6 +35,8 @@ from .arcgis_item_metadata import (
     Edits,
     apply_item_metadata,
     compare_edits,
+    credential_fields,
+    credential_refusal,
     item_metadata,
     portal_text,
 )
@@ -78,6 +81,10 @@ KEEP_GEOLENS = (
     "To keep the GeoLens version, set the item's action to skip in the plan, "
     "or accept it at cutover with --accept-unfinished-items"
 )
+NO_REVISIONS = (
+    "this GeoLens doesn't report data revisions, so edits made in it can't all "
+    "be told apart; upgrade GeoLens to bring migrated datasets up to date safely"
+)
 # What else ends a stop over a field changed on both sides.
 MAKE_EQUAL = "To merge them, make each value the same in GeoLens and in the portal. "
 
@@ -98,15 +105,19 @@ def snapshot(dataset: Any) -> dict[str, Any]:
     """What a later run compares to tell whether GeoLens changed *dataset*.
     A feature or column write moves ``data_revision``; a replacement, refresh
     or restore moves ``current_version`` and may keep the feature count.
-    ``source_url`` is the one field a GeoLens user edits that a service
-    refresh overwrites."""
+    ``source_url``, the one field a GeoLens user edits that a service refresh
+    overwrites, is kept as a SHA-256 fingerprint: it can hold a credential."""
     return {
         "updated_at": dataset.updated_at.isoformat(),
         "feature_count": _value(dataset.feature_count),
         "data_revision": _revision(dataset),
         "current_version": _value(getattr(dataset, "current_version", None)),
-        "source_url": _value(getattr(dataset, "source_url", None)),
+        "source_url": _fingerprint(_value(getattr(dataset, "source_url", None))),
     }
+
+
+def _fingerprint(value: Any) -> str | None:
+    return None if value is None else hashlib.sha256(str(value).encode()).hexdigest()
 
 
 _DATA = ("feature_count", "data_revision", "current_version")
@@ -371,6 +382,27 @@ class _Check(NamedTuple):
     agreed: dict[str, str] = {}
 
 
+def _before_writing(
+    ctx: MigrationContext,
+    item: Mapping[str, Any],
+    entry: ItemState,
+    dataset_id: str,
+    dataset: Any,
+    reason: str | None,
+    *,
+    dry_run: bool = False,
+) -> _Check:
+    """Every refusal a run can tell before its first write to *dataset*, and
+    the merge it would make, for the run and its dry run alike."""
+    if _revision(dataset) is None:
+        return _Check(NO_REVISIONS)
+    check = _metadata_check(
+        ctx, item, entry, dataset_id, dataset, reason, dry_run=dry_run
+    )
+    refusal = check.stop or _visibility_refusal(item, entry, dataset_id, dataset)
+    return _Check(refusal) if refusal else check
+
+
 def _metadata_check(
     ctx: MigrationContext,
     item: Mapping[str, Any],
@@ -391,8 +423,13 @@ def _metadata_check(
     """
     changed = bool(reason and reason.startswith(CHANGED))
     edits = _edits(ctx, item, entry, dataset_id, dataset, changed)
+    if edits is None and changed:
+        return _Check(_left_alone(ctx, item, reason))
+    held = credential_fields(ctx, item, _dataset_titles(item, entry))
+    if held:
+        return _Check(_left_alone(ctx, item, reason, credential_refusal(held)))
     if edits is None:
-        return _Check(_left_alone(ctx, item, reason) if changed else None)
+        return _Check()
     text = _portal_text(ctx, item)
     both = edits.both + (edits.unknown if changed else [])
     if both:
@@ -406,15 +443,6 @@ def _metadata_check(
     kept = edits.geolens or edits.agreed
     if not kept or not (changed or edits.portal or edits.agreed):
         return _Check()
-    held = [
-        name
-        for name, _ours, theirs in edits.portal + edits.agreed + edits.unknown
-        if _holds_credential(ctx, theirs, text.get(name))
-    ]
-    if held:
-        names = ", ".join(_label(name) for name in held)
-        why = f"the portal's {names} holds a credential, so it isn't written"
-        return _Check(_left_alone(ctx, item, reason, why))
     sources = (
         [f"the {_label(n)} from the portal" for n, _g, _p in edits.portal]
         + [f"the {_label(n)} from GeoLens" for n, _g, _p in edits.geolens]
@@ -511,12 +539,13 @@ def preview_metadata(
             if _moved(seen, now)
             else None
         )
-        check = _metadata_check(
+        check = _before_writing(
             ctx, item, entry, dataset_id, dataset, reason, dry_run=True
         )
-        stop = check.stop or _visibility_refusal(item, entry, dataset_id, dataset)
-        checked[dataset_id] = f"dataset {dataset_id}: {stop}" if stop else None
-        if check.line and not stop:
+        checked[dataset_id] = (
+            f"dataset {dataset_id}: {check.stop}" if check.stop else None
+        )
+        if check.line:
             lines.append(check.line)
     return lines, checked
 
@@ -528,6 +557,7 @@ def is_metadata_reason(reason: str, dataset_id: str) -> bool:
         CHANGED in reason
         or "it was left as it is, because" in reason
         or ": its visibility " in reason
+        or NO_REVISIONS in reason
     )
 
 
@@ -851,17 +881,15 @@ def _bring_one(
             raise
         return "deleted in GeoLens; it was left as it is"
     revision = _revision(dataset)
-    if revision is None:
-        return (
-            "this GeoLens doesn't report data revisions, so edits made in it "
-            "can't all be told apart; upgrade GeoLens to bring migrated datasets "
-            "up to date safely"
-        )
-    reason = changed_in_geolens(ctx, entry, dataset_id, dataset)
+    reason = (
+        None
+        if revision is None
+        else changed_in_geolens(ctx, entry, dataset_id, dataset)
+    )
     changed = bool(reason and reason.startswith(CHANGED))
     if reason and not changed:
         return f"{reason}; it was left as it is"
-    check = _metadata_check(ctx, item, entry, dataset_id, dataset, reason)
+    check = _before_writing(ctx, item, entry, dataset_id, dataset, reason)
     if check.stop:
         return check.stop
     problem, dataset = _apply_visibility(ctx, item, entry, dataset_id, dataset)

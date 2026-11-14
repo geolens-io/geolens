@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import secrets
 import unicodedata
@@ -276,6 +277,10 @@ def test_a_dataset_changed_in_geolens_since_the_last_run_is_left_alone(
 ):
     service = _migrated(runner, plan_file, geolens)
     refresh = FakeRefresh(geolens, service).allow(PARCELS)
+    # The title as a clean rerun records it, so no carried field shows the edit.
+    baseline = _state(plan_file)["items"][A2]["metadata_baseline"]
+    baseline[PARCELS]["title"] = service.fields[PARCELS]["title"]
+    _edit_state(plan_file, A2, metadata_baseline=baseline)
     service.fields.setdefault(PARCELS, {}).update(edit)
     before = len(geolens.seen)
 
@@ -387,7 +392,10 @@ def test_a_refresh_still_running_at_the_deadline_is_picked_up_by_the_next_run(
     assert entry["last_update"][PARCELS]["updated_at"].startswith("2026-10-01")
 
     run.update(status="succeeded", finished_at=LATER)
-    service.fields.setdefault(PARCELS, {}).update({"updated_at": LATER, **after})
+    # Publishing made a new version.
+    service.fields.setdefault(PARCELS, {}).update(
+        {"updated_at": LATER, "current_version": 2, **after}
+    )
     refresh.outcome = "succeeded"
     result, payload = _migrate(runner, plan_file, "--only", A2)
 
@@ -490,7 +498,7 @@ def test_a_refresh_another_admin_started_is_taken_as_this_commands_own(
     marker = {"run": run_id, "revision": 0, **({"by": by} if by else {})}
     _edit_state(plan_file, A2, refreshing={PARCELS: marker})
     service.fields.setdefault(PARCELS, {}).update(
-        {"updated_at": LATER, "updated_by": ALICE}
+        {"updated_at": LATER, "updated_by": ALICE, "current_version": 2}
     )
 
     result, payload = _migrate(runner, plan_file, "--only", A2)
@@ -1357,13 +1365,11 @@ def test_a_portal_value_whose_credential_is_cut_at_a_length_limit_is_not_written
     _assert_kept_out([r.output for r in runs], files, secret[:12])
 
 
-def test_a_decomposed_password_is_kept_out_of_a_conflict_and_never_written(
-    runner, tmp_path, geolens
-):
+def test_a_decomposed_password_is_kept_out_of_a_conflict(runner, tmp_path, geolens):
     password = unicodedata.normalize("NFD", "Pässwörd-" + secrets.token_urlsafe(16))
     composed = unicodedata.normalize("NFC", password)
     plan_file, service, refresh = _edited_on_both_sides(
-        runner, tmp_path, geolens, f"Renamed {password}", f"Named {composed}"
+        runner, tmp_path, geolens, "Parcels renamed", f"Named {composed}"
     )
     env = {"ARCGIS_PASSWORD": password}
 
@@ -1373,10 +1379,7 @@ def test_a_decomposed_password_is_kept_out_of_a_conflict_and_never_written(
 
     assert [r.exit_code for r in runs] == [1, 1, 1, 1], runs[0].output
     reason = json.loads(runs[2].stdout)["not_up_to_date"][A2][0]
-    assert (
-        'the title is "Named [REDACTED]" in GeoLens and a value that holds a '
-        "credential in the portal"
-    ) in reason
+    assert 'the title is "Named [REDACTED]" in GeoLens' in reason
     assert service.fields[PARCELS]["title"] == f"Named {composed}"
     _assert_kept_out([r.output for r in runs], files, password, composed)
 
@@ -1656,6 +1659,136 @@ def test_an_empty_stdin_line_is_refused_not_skipped(
     assert result.exit_code == 2, result.output
     assert refusal in result.output
     assert "second-line-value" not in result.output
+
+
+def _sent_bodies(geolens, before: int) -> str:
+    return json.dumps([s.body.decode(errors="replace") for s in geolens.seen[before:]])
+
+
+def _set_tags(plan_file: Path, item_id: str, tags: list[str]) -> None:
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == item_id:
+            item["target"]["tags"] = tags
+    plan_file.write_text(json.dumps(plan))
+
+
+@pytest.mark.parametrize("dry_run", [False, True], ids=["run", "dry-run"])
+@pytest.mark.parametrize("name", [*CARRIED, "keywords"])
+def test_no_metadata_value_holding_a_credential_is_sent_on_an_unchanged_dataset(
+    runner, tmp_path, geolens, name, dry_run
+):
+    # Mixed case: a keyword is lowercased before it is sent.
+    secret = "Aa" + secrets.token_urlsafe(30)
+    plan_file, service, refresh = _every_field_recorded(runner, tmp_path, geolens)
+    if name == "keywords":
+        _set_tags(plan_file, A2, ["parcels", f"tag {secret}"])
+    else:
+        _set_portal_value(plan_file, name, f"Value {secret}")
+    before = len(geolens.seen)
+    args = ["--only", A2, "--token", secret, *(["--dry-run"] if dry_run else [])]
+
+    result, payload = _migrate(runner, plan_file, *args)
+
+    assert result.exit_code == 1, result.output
+    reason = payload["not_up_to_date"][A2][0]
+    label = name.replace("_", " ")
+    assert f"the portal's {label} holds a credential, so it isn't written" in reason
+    assert secret not in _sent_bodies(geolens, before)
+    assert secret.lower() not in _sent_bodies(geolens, before)
+    state = (plan_file.parent / "arcgis-migration-state.json").read_text()
+    assert secret not in state and secret.lower() not in state
+    assert len(refresh.bodies) == 1
+
+
+def test_an_import_whose_portal_value_holds_a_credential_sends_none_of_it(
+    runner, tmp_path, geolens
+):
+    secret = secrets.token_urlsafe(30)
+    plan_file = _write_plan(tmp_path, rows={A2: {"snippet": f"Use {secret}"}})
+    FakeImport(geolens, [_layer(0, "Parcels")])
+
+    result, payload = _migrate(runner, plan_file, "--only", A2, "--token", secret)
+
+    assert result.exit_code != 0
+    assert secret not in _sent_bodies(geolens, 0)
+    state = (plan_file.parent / "arcgis-migration-state.json").read_text()
+    assert secret not in state
+    assert "the portal's summary holds a credential" in state
+
+
+def test_a_source_url_holding_a_credential_is_recorded_only_as_a_fingerprint(
+    runner, tmp_path, geolens
+):
+    secret = secrets.token_urlsafe(24)
+    plan_file = _write_plan(tmp_path, rows={A2: {"snippet": "Old summary"}})
+    service = _migrated(runner, plan_file, geolens)
+    FakeRefresh(geolens, service).allow(PARCELS)
+    url = f"https://example.org/data#access_token={secret}"
+    send = geolens.routes[f"POST /datasets/{PARCELS}/refresh"]
+
+    def publishing_from(seen):
+        # A refresh that publishes writes the source URL it read from.
+        service.fields[PARCELS]["source_url"] = url
+        return send(seen)
+
+    geolens.routes[f"POST /datasets/{PARCELS}/refresh"] = publishing_from
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, payload["not_up_to_date"]
+    state = (plan_file.parent / "arcgis-migration-state.json").read_text()
+    assert secret not in state
+    recorded = json.loads(state)["items"][A2]["last_update"][PARCELS]
+    assert recorded["source_url"] == hashlib.sha256(url.encode()).hexdigest()
+
+
+@pytest.mark.parametrize("name", CARRIED)
+@pytest.mark.parametrize("started", ["unrecorded", "empty"])
+def test_equal_values_with_no_recorded_value_are_taken_as_agreed(
+    runner, tmp_path, geolens, name, started
+):
+    plan_file, service, refresh = _every_field_recorded(runner, tmp_path, geolens)
+    baseline = _state(plan_file)["items"][A2]["metadata_baseline"]
+    if started == "unrecorded":
+        baseline[PARCELS].pop(name, None)
+    else:
+        if name == "title":
+            pytest.skip("a title is never empty")
+        baseline[PARCELS].pop(name, None)
+        _set_geolens_value(service, name, "")
+        _set_portal_value(plan_file, name, None)
+    _edit_state(plan_file, A2, metadata_baseline=baseline)
+    _set_geolens_value(service, name, "Agreed value")
+    service.fields[PARCELS].update(updated_at=EDITED, updated_by=ALICE)
+    _set_portal_value(plan_file, name, "Agreed value")
+
+    dry, previewed = _migrate(runner, plan_file, "--only", A2, "--dry-run")
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert dry.exit_code == 0, previewed["not_up_to_date"]
+    assert result.exit_code == 0, payload["not_up_to_date"]
+    label = name.replace("_", " ")
+    assert payload["metadata_merged"][A2][0].endswith(
+        f"the {label} the same on both sides"
+    )
+    baseline = _state(plan_file)["items"][A2]["metadata_baseline"][PARCELS]
+    assert baseline[name] == "Agreed value"
+
+
+def test_a_dry_run_against_a_geolens_without_revisions_refuses_like_the_run(
+    runner, tmp_path, geolens
+):
+    plan_file, service, refresh = _edited_on_both_sides(runner, tmp_path, geolens, None)
+    service.fields[PARCELS]["data_revision"] = None
+
+    dry, previewed = _migrate(runner, plan_file, "--only", A2, "--dry-run")
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert previewed["metadata_merged"] == {}
+    [reason] = previewed["not_up_to_date"][A2]
+    assert reason == f"dataset {PARCELS}: {refresh_mod.NO_REVISIONS}"
+    assert payload["not_up_to_date"][A2] == [reason]
 
 
 def test_a_dry_run_checks_visibility_with_the_sharing_the_run_gives(
@@ -3132,7 +3265,9 @@ def test_a_recovered_run_is_adopted_only_on_a_matching_record(
         A2,
         refreshing={PARCELS: {"run": run_id, "by": layers.OPERATOR, **marker}},
     )
-    service.fields.setdefault(PARCELS, {}).update({"updated_at": LATER, **fields})
+    service.fields.setdefault(PARCELS, {}).update(
+        {"updated_at": LATER, "current_version": 2, **fields}
+    )
 
     result, payload = _migrate(runner, plan_file, "--only", A2)
 

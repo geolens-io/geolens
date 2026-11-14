@@ -18,7 +18,7 @@ from typing import Any
 from uuid import UUID
 
 from . import arcgis_report as _report
-from .arcgis_portal import Redactor, redact_json
+from .arcgis_portal import Redactor, holds_credential, redact_json
 
 STATE_FILENAME = "arcgis-migration-state.json"
 # v2 adds what a rerun compares and waits on, v3 the GeoLens groups made for
@@ -287,6 +287,52 @@ class ItemState:
         return cls(**{k: v for k, v in data.items() if k in known})
 
 
+def _masked(value: Any, redact: Redactor) -> Any:
+    """*value* with every string, key or value, that holds a credential
+    replaced by its scrubbed text."""
+    if isinstance(value, str):
+        return redact_json(value, redact) if holds_credential(value, redact) else value
+    if isinstance(value, dict):
+        return {_masked(k, redact): _masked(v, redact) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_masked(v, redact) for v in value]
+    return value
+
+
+def _credential_at(payload: Any, redact: Redactor, clean: set[str]) -> str | None:
+    """Where in the state *payload* a string, key or value, holds a
+    credential, named by item and field and never by the string; None when
+    nothing does. Strings found clean are added to *clean* and not read
+    again, since the file is written after every item."""
+    stack: list[tuple[tuple[str, ...], Any]] = [((), payload)]
+    while stack:
+        path, node = stack.pop()
+        if isinstance(node, dict):
+            strings = [k for k in node if isinstance(k, str)]
+            stack.extend(((*path, str(k)), v) for k, v in node.items())
+        elif isinstance(node, list):
+            strings = []
+            stack.extend((path, v) for v in node)
+        else:
+            strings = [node] if isinstance(node, str) else []
+        for text in strings:
+            if text in clean:
+                continue
+            if holds_credential(text, redact):
+                return _place(path, clean)
+            clean.add(text)
+    return None
+
+
+def _place(path: tuple[str, ...], clean: set[str]) -> str:
+    """The item and field *path* falls in, or the top-level field, naming an
+    item id only once it was found clean."""
+    if len(path) >= 3 and path[0] == "items":
+        item = path[1] if path[1] in clean else "an item"
+        return f"item {item}, field {path[2]},"
+    return f"the state's {path[0]} field" if path else "the state"
+
+
 class MigrationState:
     """Per-item progress for one plan, saved after every change."""
 
@@ -300,6 +346,8 @@ class MigrationState:
         persist: bool = True,
     ) -> None:
         self.path = path
+        # Strings save() found to hold no credential.
+        self._clean: set[str] = set()
         self.portal_url = portal_url
         self.instance = instance
         self.items: dict[str, ItemState] = {}
@@ -351,7 +399,9 @@ class MigrationState:
                 "file (not UTF-8 text)"
             ) from None
         try:
-            data = json.loads(raw)
+            # An earlier version could write a credential into the file; it is
+            # masked here, so saving refuses only what this run adds.
+            data = _masked(json.loads(raw), redact)
             version = data.get("schema_version")
             if version not in _READABLE_VERSIONS:
                 if (
@@ -456,6 +506,11 @@ class MigrationState:
             "groups": self.groups,
             "items": {k: vars(v) for k, v in self.items.items()},
         }
+        refused = _credential_at(payload, self._redact, self._clean)
+        if refused is not None:
+            raise StateError(
+                f"{refused} holds a credential, so {self.path} was not saved"
+            )
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # Rewritten after every item, so compact: a plan can hold 10,000 items.
         _report.write_private(self.path, json.dumps(payload, separators=(",", ":")))
