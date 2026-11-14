@@ -2,8 +2,7 @@
 
 import json
 import math
-from collections.abc import AsyncGenerator
-from contextlib import aclosing
+from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 
 import anyio
 import structlog
@@ -17,36 +16,57 @@ logger = structlog.stdlib.get_logger(__name__)
 _CHUNK_CHARS = 64 * 1024
 
 
-async def feature_collection_body(
-    members: dict, features: AsyncGenerator[str], *, dataset_id: str
-) -> AsyncGenerator[bytes]:
-    """Write *members*, then ``features``, then ``numberReturned``.
+class _StreamFailed(Exception):
+    """A body failure already logged, which must not complete the response."""
 
-    ``numberReturned`` follows the features so that it counts the features
-    actually written. A failure after the status line has gone out is logged
-    once and leaves the document unclosed, so no client can read a partial
-    page as a complete one.
+
+async def feature_collection_body(
+    members: dict,
+    first_batch: list[str],
+    batches: Sequence[Sequence[int]],
+    read_batch: Callable[[Sequence[int]], Awaitable[list[str]]],
+    *,
+    dataset_id: str,
+) -> AsyncGenerator[bytes]:
+    """Write *members*, the features, then ``numberReturned``.
+
+    *first_batch* was read before the status line, so the first chunk always
+    carries features; each of *batches* is read once the one before it has
+    been written. ``numberReturned`` follows the features so that it counts
+    the features actually written.
     """
     head = json.dumps(members, ensure_ascii=False, separators=(",", ":"))
     parts = [head[:-1], ',"features":[']
     size = returned = 0
-    async with aclosing(features):
+    features = first_batch
+    remaining = iter(batches)
+    while True:
+        for feature in features:
+            if returned:
+                parts.append(",")
+            parts.append(feature)
+            size += len(feature)
+            returned += 1
+            if size >= _CHUNK_CHARS:
+                yield "".join(parts).encode()
+                parts.clear()
+                size = 0
+        gids = next(remaining, None)
+        if gids is None:
+            break
+        # Written before the next read, so a failed read never follows an
+        # empty body and no batch waits in memory behind another.
+        yield "".join(parts).encode()
+        parts.clear()
+        size = 0
+        features = []
         try:
-            async for feature in features:
-                if returned:
-                    parts.append(",")
-                parts.append(feature)
-                size += len(feature)
-                returned += 1
-                if size >= _CHUNK_CHARS:
-                    yield "".join(parts).encode()
-                    parts.clear()
-                    size = 0
-        except Exception:  # broad: the 200 is sent; leave the body unparseable
+            features = await read_batch(gids)
+        except Exception as exc:  # broad: the 200 is sent; log once, cut the body
             logger.exception(
                 "ogc_items_stream_failed", dataset_id=dataset_id, returned=returned
             )
-            return
+            raise _StreamFailed from exc
     parts.append(f'],"numberReturned":{returned}}}')
     yield "".join(parts).encode()
 
@@ -54,10 +74,11 @@ async def feature_collection_body(
 class FeatureCollectionStream(StreamingResponse):
     """Streams a FeatureCollection body and always closes its iterator.
 
-    Starlette leaves an abandoned body iterator to the garbage collector, which
-    would close the database cursor after the request's session is gone. The
-    stream holds a pooled connection while the client reads, so it ends after
-    *deadline_seconds* (0 means none), the deadline one statement would get.
+    The body holds a pooled connection while the client reads, so it ends
+    after *deadline_seconds* (0 means none), the deadline one statement would
+    get. A failed or cut-off body never sends its final message, so a gzip
+    response stays unterminated; the iterator is closed here rather than left
+    to the garbage collector after the request's session is gone.
     """
 
     media_type = "application/geo+json"
@@ -82,5 +103,7 @@ class FeatureCollectionStream(StreamingResponse):
                     "ogc_items_stream_deadline",
                     deadline_seconds=self._deadline_seconds,
                 )
+        except _StreamFailed:
+            pass
         finally:
             await self._body.aclose()

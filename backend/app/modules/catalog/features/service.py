@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from collections.abc import AsyncGenerator, Callable, Sequence
+from collections.abc import Callable, Sequence
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
@@ -18,7 +18,7 @@ from shapely.validation import explain_validity
 from sqlalchemy import bindparam, func, select, text
 from sqlalchemy import types as sa_types
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.ext.asyncio import AsyncResult, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.pg_ranges import check_int8_range, check_pg_value_range
 from app.core.geo import seam_extent_wkt_for_table
@@ -567,8 +567,9 @@ async def get_features(
 
     ``total_is_estimate`` is True past ``_FILTERED_COUNT_CAP``,
     and ``has_more`` (not ``total``) must drive pagination links.
-    With ``ids_only`` each row holds only ``gid``, for a caller that streams
-    the page with ``stream_features_json``.
+    With ``ids_only`` each row holds only ``gid`` and ``size``, an estimate of
+    its serialized bytes, for a caller that streams the page in
+    ``feature_batches`` read with ``read_features_json``.
     ``cql2_where``/``cql2_binds`` must come from
     ``app.standards.ogc.filtering``, the only sanctioned
     producer of typed CQL2 binds. Raises ValueError (400) on a bad property
@@ -636,10 +637,11 @@ async def get_features(
     if where_clauses:
         where_sql = "WHERE " + " AND ".join(where_clauses)
     if ids_only:
-        select_cols = "gid"
+        select_cols = f"gid, {_ESTIMATED_SIZE if with_geometry else _ROW_BYTES} AS size"
+        geom_sel = ", geom_4326" if with_geometry else ""
         row_source = (
-            f"(SELECT gid FROM {get_catalog_port().quote_table(table_name)} t "
-            f"{where_sql})"
+            f"(SELECT gid{geom_sel} FROM {get_catalog_port().quote_table(table_name)} "
+            f"t {where_sql})"
         )
     else:
         row_source = await _projected_row_source(
@@ -697,58 +699,71 @@ async def get_features(
     return FeaturePage(rows, total, total_is_estimate, has_more)
 
 
-# Rows a streamed page holds in memory at once; one row's geometry is unbounded.
-STREAM_FETCH_ROWS = 100
+# Properties are not measured; each row is allowed this much for them.
+_ROW_BYTES = 1024
+# GeoJSON text takes up to about twice a geometry's binary size. Only a
+# compressed geometry is read to size it: any other is stored at its full size.
+_ESTIMATED_SIZE = (
+    f"{_ROW_BYTES} + 2 * CASE WHEN pg_column_compression(geom_4326) IS NULL "
+    "THEN COALESCE(pg_column_size(geom_4326), 0) ELSE ST_MemSize(geom_4326) END"
+)
+# Estimated serialized bytes one streamed batch reads into memory at once.
+STREAM_BATCH_BYTES = 8_000_000
 
 
-async def open_feature_stream(
+def feature_batches(rows: Sequence[dict], budget: int) -> list[list[int]]:
+    """Split ``ids_only`` rows, in order, into gid batches within *budget* bytes.
+
+    A row larger than the budget is a batch of its own.
+    """
+    batches: list[list[int]] = []
+    batch: list[int] = []
+    used = 0
+    for row in rows:
+        size = int(row["size"])
+        if batch and used + size > budget:
+            batches.append(batch)
+            batch, used = [], 0
+        batch.append(row["gid"])
+        used += size
+    if batch:
+        batches.append(batch)
+    return batches
+
+
+async def read_features_json(
     db: AsyncSession,
     table_name: str,
     gids: Sequence[int],
     *,
     has_geometry: bool = True,
     include_geometry: bool = True,
-) -> AsyncGenerator[str]:
-    """Open a cursor over the features *gids* name and return their GeoJSON text.
+) -> list[str]:
+    """The features *gids* name, in gid order, each as GeoJSON Feature text.
 
-    The query runs here, so a failure is raised before the caller commits to
-    a response. The returned iterator yields one Feature per row, in gid
-    order, fetching ``STREAM_FETCH_ROWS`` rows at a time; *db* must stay open
-    in its transaction until it is exhausted or closed. Postgres serializes
-    the geometry and properties, which are never parsed here.
+    Postgres serializes the geometry and properties, which are never parsed
+    here. Read under the snapshot that chose *gids*, every row is still there.
     """
     if not gids:
-        return _no_features()
+        return []
     with_geometry = has_geometry and include_geometry
     geometry = "ST_AsGeoJSON(geom_4326, 6)" if with_geometry else "NULL::text"
     drop_geom = " - 'geom_4326'" if with_geometry else ""
     row_source = await _projected_row_source(
         db, table_name, with_geometry=with_geometry, where_sql="WHERE gid = ANY(:gids)"
     )
-    stmt = text(
-        f"SELECT gid, {geometry} AS geometry, "
-        f"(to_jsonb(t.*) - 'gid'{drop_geom})::text AS properties "
-        f"FROM {row_source} t ORDER BY gid"
-    ).bindparams(gids=list(gids))
-    result = await db.stream(stmt.execution_options(yield_per=STREAM_FETCH_ROWS))
-    return _feature_json(result)
-
-
-async def _no_features() -> AsyncGenerator[str]:
-    return
-    yield
-
-
-async def _feature_json(result: AsyncResult) -> AsyncGenerator[str]:
-    try:
-        async for gid, geometry_json, properties_json in result:
-            yield (
-                f'{{"type":"Feature","id":{int(gid)},'
-                f'"geometry":{geometry_json or "null"},'
-                f'"properties":{properties_json}}}'
-            )
-    finally:
-        await result.close()
+    result = await db.execute(
+        text(
+            f"SELECT gid, {geometry} AS geometry, "
+            f"(to_jsonb(t.*) - 'gid'{drop_geom})::text AS properties "
+            f"FROM {row_source} t ORDER BY gid"
+        ).bindparams(gids=list(gids))
+    )
+    return [
+        f'{{"type":"Feature","id":{int(gid)},'
+        f'"geometry":{geometry_json or "null"},"properties":{properties_json}}}'
+        for gid, geometry_json, properties_json in result.all()
+    ]
 
 
 async def get_features_geojson_z(

@@ -1,6 +1,8 @@
-"""An OGC items page is streamed from a database cursor and always holds `limit` features."""
+"""An OGC items page is streamed in byte-bounded batches from one snapshot and holds `limit` features."""
 
 import json
+import tracemalloc
+import zlib
 from urllib.parse import parse_qs, urlparse
 
 import anyio
@@ -8,9 +10,10 @@ import pytest
 import structlog
 from httpx import AsyncClient
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 
+import app.core.db as db_module
 import app.standards.ogc.router as ogc_router
-from app.modules.catalog.features import service as features_service
 from tests.factories import get_user_id
 from tests.test_ogc_features import _cleanup_table, _create_test_table_and_dataset
 
@@ -22,6 +25,12 @@ _POLYGONS = (
     "SELECT ST_Buffer(ST_SetSRID(ST_MakePoint(-74 + (i % 100) * 0.01, "
     "41 + (i / 100) * 0.01), 4326), 0.004, 100), 'polygon ' || i "
     "FROM generate_series(1, :count) i"
+)
+# About 1.2 MB of GeoJSON each: a 110,000-vertex ring.
+_LARGE_POLYGONS = (
+    "INSERT INTO {table} (geom_4326, name) "
+    "SELECT ST_Buffer(ST_SetSRID(ST_MakePoint(-74 + i * 0.1, 41), 4326), "
+    "0.04, 27500), 'large ' || i FROM generate_series(1, 24) i"
 )
 # The stream's own query, and no other statement the request runs.
 _STREAM_QUERY = "%gid = ANY(%"
@@ -92,39 +101,54 @@ async def test_a_page_of_large_geometries_holds_limit_features(
     assert _next(remaining) is None
 
 
-async def test_the_page_is_read_through_a_bounded_cursor(
-    test_db_session, some_polygons, monkeypatch
+def _record_batches(monkeypatch) -> list[list[int]]:
+    batches: list[list[int]] = []
+    real_read = ogc_router.read_features_json
+
+    async def recording_read(db, table_name, gids, **kwargs):
+        batches.append(list(gids))
+        return await real_read(db, table_name, gids, **kwargs)
+
+    monkeypatch.setattr(ogc_router, "read_features_json", recording_read)
+    return batches
+
+
+async def test_large_geometries_are_read_a_bounded_batch_at_a_time(
+    client: AsyncClient, test_db_session, monkeypatch
 ) -> None:
-    opened = []
-    real_stream = test_db_session.stream
-
-    async def spy(stmt, *args, **kwargs):
-        opened.append(stmt.get_execution_options())
-        return await real_stream(stmt, *args, **kwargs)
-
-    monkeypatch.setattr(test_db_session, "stream", spy)
-    gids = list(range(1, 1001))
-
-    features = await features_service.open_feature_stream(
-        test_db_session, some_polygons.table_name, gids
+    dataset = await _polygon_dataset(test_db_session, 0)
+    table_name = dataset.table_name
+    await test_db_session.execute(
+        text(_LARGE_POLYGONS.format(table=f"data.{table_name}"))
     )
-    first = json.loads(await anext(features))
-    await test_db_session.execute(text("SELECT pg_stat_clear_snapshot()"))
-    portals = await test_db_session.execute(
-        text("SELECT count(*) FROM pg_cursors WHERE statement LIKE :q"),
-        {"q": _STREAM_QUERY},
-    )
-    rest = [json.loads(feature) async for feature in features]
-    await test_db_session.rollback()
+    dataset.feature_count = 24
+    await test_db_session.commit()
+    monkeypatch.setattr(ogc_router, "STREAM_BATCH_BYTES", 3_000_000)
+    batches = _record_batches(monkeypatch)
+    received = features = 0
 
-    assert [options["yield_per"] for options in opened] == [
-        features_service.STREAM_FETCH_ROWS
-    ]
-    # The rows after the first are still on the server, behind an open portal.
-    assert portals.scalar_one() == 1
-    assert [first["id"], *(f["id"] for f in rest)] == gids
-    assert first["geometry"]["type"] == "Polygon"
-    assert first["properties"]["name"] == "polygon 1"
+    async def on_body(chunks: int, body: bytes) -> bool:
+        nonlocal received, features
+        received += len(body)
+        features += body.count(b'"type":"Feature"')
+        return False
+
+    try:
+        tracemalloc.start()
+        await _run_asgi(
+            f"/collections/{dataset.id}/items", "limit=100", on_body=on_body, keep=False
+        )
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+        await _cleanup_table(test_db_session, table_name)
+
+    assert features == 24
+    assert received > 24_000_000
+    assert batches == [[gid] for gid in range(1, 25)]
+    # Memory follows the largest batch, not the page; one batch would hold the
+    # page several times over.
+    assert peak < received / 2
 
 
 async def _open_streams(session) -> int:
@@ -140,7 +164,7 @@ async def _open_streams(session) -> int:
     return result.scalar_one()
 
 
-def _scope(path: str, query: str) -> dict:
+def _scope(path: str, query: str, headers: list | None = None) -> dict:
     return {
         "type": "http",
         "asgi": {"version": "3.0"},
@@ -151,13 +175,21 @@ def _scope(path: str, query: str) -> dict:
         "raw_path": path.encode(),
         "root_path": "",
         "query_string": query.encode(),
-        "headers": [(b"host", b"test")],
+        "headers": [(b"host", b"test"), *(headers or [])],
         "client": ("127.0.0.1", 50000),
         "server": ("test", 80),
     }
 
 
-async def _run_asgi(path: str, query: str, *, on_body, send_delay: float = 0):
+async def _run_asgi(
+    path: str,
+    query: str,
+    *,
+    on_body,
+    send_delay: float = 0,
+    headers: list | None = None,
+    keep: bool = True,
+):
     """Call the app directly, as a server would; returns the messages it sent."""
     from app.api.main import app
 
@@ -173,14 +205,20 @@ async def _run_asgi(path: str, query: str, *, on_body, send_delay: float = 0):
         await disconnect.wait()
         return {"type": "http.disconnect"}
 
+    chunks = 0
+
     async def send(message):
-        sent.append(message)
-        if message["type"] == "http.response.body" and message.get("body"):
-            if await on_body(len([m for m in sent if m.get("body")])):
+        nonlocal chunks
+        body = message.get("body", b"")
+        if keep or message["type"] != "http.response.body":
+            sent.append(message)
+        if message["type"] == "http.response.body" and body:
+            chunks += 1
+            if await on_body(chunks, body):
                 disconnect.set()
             await anyio.sleep(send_delay)
 
-    await app(_scope(path, query), receive, send)
+    await app(_scope(path, query, headers), receive, send)
     disconnect.set()
     return sent
 
@@ -194,15 +232,15 @@ async def test_a_client_disconnect_releases_the_connection(
 ) -> None:
     during = []
     streams = []
-    real_open = ogc_router.open_feature_stream
+    real_body = ogc_router.feature_collection_body
 
-    async def recording_open(*args, **kwargs):
-        streams.append(await real_open(*args, **kwargs))
+    def recording_body(*args, **kwargs):
+        streams.append(real_body(*args, **kwargs))
         return streams[-1]
 
-    monkeypatch.setattr(ogc_router, "open_feature_stream", recording_open)
+    monkeypatch.setattr(ogc_router, "feature_collection_body", recording_body)
 
-    async def on_body(chunks: int) -> bool:
+    async def on_body(chunks: int, body: bytes) -> bool:
         if chunks == 2:
             during.append(await _open_streams(test_db_session))
             return True
@@ -229,7 +267,7 @@ async def test_the_stream_ends_at_the_request_deadline(
 ) -> None:
     monkeypatch.setattr(ogc_router, "current_deadline_ms", lambda: 300)
 
-    async def on_body(chunks: int) -> bool:
+    async def on_body(chunks: int, body: bytes) -> bool:
         return False
 
     with structlog.testing.capture_logs() as logs:
@@ -251,38 +289,124 @@ async def test_the_stream_ends_at_the_request_deadline(
     assert await _open_streams(test_db_session) == 0
 
 
+def _fail_on_read(monkeypatch, failing_call: int) -> None:
+    real_read = ogc_router.read_features_json
+    calls = 0
+
+    async def failing_read(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == failing_call:
+            raise OperationalError("SELECT", {}, Exception("connection lost"))
+        return await real_read(*args, **kwargs)
+
+    monkeypatch.setattr(ogc_router, "read_features_json", failing_read)
+
+
+async def test_a_failure_before_the_status_line_is_a_503(
+    client: AsyncClient, some_polygons, monkeypatch
+) -> None:
+    _fail_on_read(monkeypatch, 1)
+
+    resp = await client.get(
+        f"/collections/{some_polygons.id}/items", params={"limit": 1000}
+    )
+
+    assert resp.status_code == 503
+
+
+async def _fail_mid_stream(some_polygons, monkeypatch, headers=None):
+    monkeypatch.setattr(ogc_router, "STREAM_BATCH_BYTES", 500_000)
+    _fail_on_read(monkeypatch, 3)
+
+    async def on_body(chunks: int, body: bytes) -> bool:
+        return False
+
+    with structlog.testing.capture_logs() as logs:
+        sent = await _run_asgi(
+            f"/collections/{some_polygons.id}/items",
+            "limit=1000",
+            on_body=on_body,
+            headers=headers,
+        )
+    errors = [e["event"] for e in logs if e["log_level"] in ("error", "critical")]
+    return sent, errors
+
+
 async def test_a_failure_mid_stream_leaves_the_body_unparseable(
     client: AsyncClient, test_db_session, some_polygons, monkeypatch
 ) -> None:
-    real_open = ogc_router.open_feature_stream
+    sent, errors = await _fail_mid_stream(some_polygons, monkeypatch)
 
-    async def failing_open(*args, **kwargs):
-        features = await real_open(*args, **kwargs)
-
-        async def fail_after_some():
-            served = 0
-            async for feature in features:
-                if served == 300:
-                    raise RuntimeError("connection lost")
-                served += 1
-                yield feature
-
-        return fail_after_some()
-
-    monkeypatch.setattr(ogc_router, "open_feature_stream", failing_open)
-
-    with structlog.testing.capture_logs() as logs:
-        resp = await client.get(
-            f"/collections/{some_polygons.id}/items", params={"limit": 1000}
-        )
-
-    assert resp.status_code == 200
-    assert len(resp.content) > 64 * 1024
+    body = _body(sent)
+    assert sent[0]["status"] == 200
+    assert len(body) > 64 * 1024
     with pytest.raises(json.JSONDecodeError):
-        json.loads(resp.content)
-    errors = [e for e in logs if e["log_level"] in ("error", "critical")]
-    assert [e["event"] for e in errors] == ["ogc_items_stream_failed"]
+        json.loads(body)
+    assert errors == ["ogc_items_stream_failed"]
     assert await _open_streams(test_db_session) == 0
+
+
+async def test_a_failure_mid_stream_leaves_gzip_unterminated(
+    client: AsyncClient, some_polygons, monkeypatch
+) -> None:
+    sent, errors = await _fail_mid_stream(
+        some_polygons, monkeypatch, headers=[(b"accept-encoding", b"gzip")]
+    )
+
+    assert dict(sent[0]["headers"])[b"content-encoding"] == b"gzip"
+    inflate = zlib.decompressobj(wbits=31)
+    inflated = inflate.decompress(_body(sent))
+    assert len(inflated) > 64 * 1024
+    assert not inflate.eof
+    assert errors == ["ogc_items_stream_failed"]
+
+
+async def _write_between_reads(monkeypatch, statement: str) -> None:
+    """Commit *statement* on another connection just before the first batch read."""
+    real_read = ogc_router.read_features_json
+    done = False
+
+    async def read_after_write(*args, **kwargs):
+        nonlocal done
+        if not done:
+            done = True
+            async with db_module.engine.begin() as conn:
+                await conn.execute(text(statement))
+        return await real_read(*args, **kwargs)
+
+    monkeypatch.setattr(ogc_router, "read_features_json", read_after_write)
+
+
+async def test_a_row_deleted_after_the_page_is_chosen_is_still_served(
+    client: AsyncClient, some_polygons, monkeypatch
+) -> None:
+    table = f"data.{some_polygons.table_name}"
+    await _write_between_reads(monkeypatch, f"DELETE FROM {table} WHERE gid = 3")
+
+    resp = await client.get(
+        f"/collections/{some_polygons.id}/items", params={"limit": 5}
+    )
+
+    data = resp.json()
+    assert [f["id"] for f in data["features"]] == [1, 2, 3, 4, 5]
+    assert data["numberReturned"] == 5
+
+
+async def test_a_row_updated_after_the_page_is_chosen_still_matches_the_filter(
+    client: AsyncClient, some_polygons, monkeypatch
+) -> None:
+    table = f"data.{some_polygons.table_name}"
+    await _write_between_reads(
+        monkeypatch, f"UPDATE {table} SET name = 'renamed' WHERE gid = 3"
+    )
+
+    resp = await client.get(
+        f"/collections/{some_polygons.id}/items", params={"name": "polygon 3"}
+    )
+
+    features = resp.json()["features"]
+    assert [f["properties"]["name"] for f in features] == ["polygon 3"]
 
 
 async def test_a_page_keeps_its_members(client: AsyncClient, some_polygons) -> None:

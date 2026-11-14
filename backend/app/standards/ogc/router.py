@@ -1,4 +1,5 @@
 import uuid
+from functools import partial
 from urllib.parse import urlencode
 
 import structlog
@@ -40,9 +41,11 @@ from app.modules.catalog.features.service import (
     get_feature_by_id,
     get_feature_queryable_columns,
     get_features,
+    STREAM_BATCH_BYTES,
+    feature_batches,
     number_matched_headers,
-    open_feature_stream,
     parse_bbox,
+    read_features_json,
 )
 from app.platform.ratelimit import limiter
 from app.platform.extensions import (
@@ -975,6 +978,11 @@ async def get_collection_items(
                 status_code=status.HTTP_304_NOT_MODIFIED, headers=validators
             )
 
+    # One snapshot for the page's ids, its count and every batch streamed from
+    # it, so a concurrent write can neither shorten the page nor slip a row past
+    # its filters. The deadline, tenant and role settings reapply at begin.
+    await db.commit()
+    await db.connection(execution_options={"isolation_level": "REPEATABLE READ"})
     try:
         # The page's ids come first, so the links are known before the body is
         # streamed; has_more comes from over-fetching, so a full final page does
@@ -1000,13 +1008,15 @@ async def get_collection_items(
             return Response(
                 status_code=status.HTTP_304_NOT_MODIFIED, headers=validators
             )
-        features = await open_feature_stream(
+        batches = feature_batches(page.rows, STREAM_BATCH_BYTES)
+        read_batch = partial(
+            read_features_json,
             db,
             dataset.table_name,
-            gids,
             has_geometry=has_geometry,
             include_geometry=include_geometry,
         )
+        first_batch = await read_batch(batches[0] if batches else [])
     except ValueError as exc:
         # An unparseable property-filter value is rejected before
         # the query runs, naming the property.
@@ -1135,7 +1145,13 @@ async def get_collection_items(
     if link_value := link_header_value(links):
         headers["Link"] = link_value
     return FeatureCollectionStream(
-        feature_collection_body(members, features, dataset_id=str(dataset_id)),
+        feature_collection_body(
+            members,
+            first_batch,
+            batches[1:],
+            read_batch,
+            dataset_id=str(dataset_id),
+        ),
         headers=headers,
         deadline_seconds=current_deadline_ms() / 1000,
     )
