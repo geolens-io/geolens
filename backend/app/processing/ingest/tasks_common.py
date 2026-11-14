@@ -683,7 +683,7 @@ async def _detect_and_override_geometry(
     the user picked may have moved to ``src_<name>`` since the preview, and the
     override must read it under its new name. A picked name is read as the
     loader stored it; one the table lacks raises the coded
-    ``geometry_columns_missing`` refusal.
+    ``geometry_columns_not_found`` refusal.
 
     Callers are responsible for importing the file as non-spatial (see the
     ``ogr_geometry_type = None if user_wants_geom else ...`` branch in
@@ -721,7 +721,7 @@ async def _detect_and_override_geometry(
     )
     missing = [user_metadata[key] for key in used if _chosen(key) not in stored]
     if missing:
-        raise geometry_build_errors.columns_missing(missing)
+        raise geometry_build_errors.columns_not_found(missing)
 
     if x_column and y_column:
         from app.processing.ingest.metadata import construct_point_geometry

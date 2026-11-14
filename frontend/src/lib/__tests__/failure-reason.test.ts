@@ -86,6 +86,11 @@ describe('describeFailureReason', () => {
     ],
     ['geometry_wkt_malformed', 'WKT column contains malformed geometry text', 'La columna WKT contiene texto'],
     [
+      'geometry_columns_not_found',
+      'The file has no column named Northing, so no geometry was built. Choose columns the file has.',
+      'El archivo no tiene ninguna columna llamada Northing',
+    ],
+    [
       'geometry_wkt_mixed_dimensions',
       'The WKT column mixes coordinate dimensions (XYZ, XYZM), so no geometry was built. Give every row the same dimensions.',
       'La columna WKT mezcla dimensiones de coordenadas (XYZ, XYZM)',

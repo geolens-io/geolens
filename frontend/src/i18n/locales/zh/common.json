@@ -395,6 +395,7 @@
     "jobFailureGeometryWktInvalid": "{{rows}} 行的 WKT 几何无效，或坐标不是有限数值。",
     "jobFailureGeometryWktMalformed": "WKT 列包含不是有效几何的文本。",
     "jobFailureGeometryWktMixedDimensions": "WKT 列混合了不同的坐标维度（{{dimensions}}），因此未构建任何几何。请让所有行使用相同的维度。",
+    "jobFailureGeometryColumnsNotFound": "文件中没有名为 {{columns}} 的列，因此未构建任何几何。请选择文件中存在的列。",
     "serviceLayerNoFeatures": "此图层不包含要素（组图层、栅格、注记、拓扑或公用事业网络图层）。请改为导入其要素图层或表。",
     "serviceGeometryUnsupported": "此图层包含 multipatch 几何，无法导入。请将其发布为使用其他几何类型的要素图层。",
     "serviceAuthRefused": "GeoLens 读取此集合时，服务拒绝了该凭据。请检查令牌是否有效且未过期，然后重试。",

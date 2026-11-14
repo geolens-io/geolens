@@ -21,6 +21,10 @@ GEOMETRY_BUILD_SENTENCES: dict[str, str] = {
         "from ({columns}), so nothing was changed. Add them to the file, or "
         "import the file as a new dataset instead."
     ),
+    "geometry_columns_not_found": (
+        "The file has no column named {columns}, so no geometry was built. "
+        "Choose columns the file has."
+    ),
     "geometry_xy_not_numeric": "{rows} row(s) contain X/Y values that are not numbers",
     "geometry_xy_outside_wgs84": (
         "{rows} row(s) contain X/Y coordinates outside EPSG:4326 ranges"
@@ -74,6 +78,15 @@ def columns_missing(columns: Sequence[str]) -> GeometryBuildError:
         columns=", ".join(_column_label(column) for column in columns),
     )
     return GeometryBuildError(FixedReason(text, code="geometry_columns_missing"))
+
+
+def columns_not_found(columns: Sequence[str]) -> GeometryBuildError:
+    """An import names columns the file it loaded does not have."""
+    text = _sentence(
+        "geometry_columns_not_found",
+        columns=", ".join(_column_label(column) for column in columns),
+    )
+    return GeometryBuildError(FixedReason(text, code="geometry_columns_not_found"))
 
 
 def xy_not_numeric(rows: int) -> GeometryBuildError:

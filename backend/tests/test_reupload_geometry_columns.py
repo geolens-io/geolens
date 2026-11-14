@@ -23,7 +23,6 @@ from app.processing.ingest.tasks import reupload_file
 from app.core.geometry_build_errors import (
     GEOMETRY_BUILD_SENTENCES,
     GeometryBuildError,
-    columns_missing,
 )
 from app.processing.ingest.tasks_vector import ingest_file
 from tests.factories import get_user_id
@@ -337,7 +336,11 @@ async def test_a_replacement_missing_a_column_is_refused_by_name(harness: _Harne
     job = await harness.session.get(IngestJob, job_id, populate_existing=True)
     assert job.status == "failed"
     assert job.error_code == "geometry_columns_missing"
-    assert job.error_message == str(columns_missing(["lat"]))
+    assert job.error_message == (
+        "The replacement lacks the columns this dataset's geometry is built from "
+        "(lat), so nothing was changed. Add them to the file, or import the file "
+        "as a new dataset instead."
+    )
     run = await harness.run_for(job_id)
     assert run.error_code == "geometry_columns_missing"
     dataset = await harness.reload(dataset.id)
@@ -859,5 +862,8 @@ async def test_a_first_import_naming_no_loaded_column_is_refused_by_name(
     job = await harness.failed_import(
         _xy_csv(harness.tmp_path / "places.csv"), x_column="lon", y_column="Northing"
     )
-    assert job.error_code == "geometry_columns_missing"
-    assert job.error_message == str(columns_missing(["Northing"]))
+    assert job.error_code == "geometry_columns_not_found"
+    assert job.error_message == (
+        "The file has no column named Northing, so no geometry was built. "
+        "Choose columns the file has."
+    )

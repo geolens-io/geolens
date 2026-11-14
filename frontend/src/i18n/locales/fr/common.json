@@ -238,6 +238,7 @@
     "jobFailureGeometryWktInvalid": "{{rows}} ligne(s) ont une géométrie WKT non valide ou des coordonnées qui ne sont pas des nombres finis.",
     "jobFailureGeometryWktMalformed": "La colonne WKT contient du texte qui n'est pas une géométrie valide.",
     "jobFailureGeometryWktMixedDimensions": "La colonne WKT mélange des dimensions de coordonnées ({{dimensions}}), aucune géométrie n'a donc été construite. Donnez les mêmes dimensions à toutes les lignes.",
+    "jobFailureGeometryColumnsNotFound": "Le fichier n'a aucune colonne nommée {{columns}}, aucune géométrie n'a donc été construite. Choisissez des colonnes présentes dans le fichier.",
     "serviceLayerNoFeatures": "Cette couche ne contient aucune entité (couche de groupe, raster, annotation, topologie ou réseau de services). Importez plutôt l'une de ses couches d'entités ou tables.",
     "serviceGeometryUnsupported": "Cette couche contient une géométrie multipatch, qui ne peut pas être importée. Publiez-la comme couche d'entités avec un autre type de géométrie.",
     "serviceAuthRefused": "Le service a refusé l'identifiant pendant que GeoLens lisait cette collection. Vérifiez que le jeton est valide et n'a pas expiré, puis réessayez.",

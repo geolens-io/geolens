@@ -28,6 +28,7 @@ const FIXED_FAILURE_CODE_KEYS: Record<string, `errors.${string}`> = {
   dispatch_interrupted: 'errors.jobFailureDispatchInterrupted',
   duplicate_source: 'errors.jobFailureDuplicateSource',
   geometry_columns_missing: 'errors.reuploadGeometryColumnsMissing',
+  geometry_columns_not_found: 'errors.jobFailureGeometryColumnsNotFound',
   geometry_wkt_invalid: 'errors.jobFailureGeometryWktInvalid',
   geometry_wkt_invalid_wgs84: 'errors.jobFailureGeometryWktInvalidWgs84',
   geometry_wkt_malformed: 'errors.jobFailureGeometryWktMalformed',
@@ -67,6 +68,8 @@ const FIXED_FAILURE_CODE_KEYS: Record<string, `errors.${string}`> = {
 const FIXED_FAILURE_SENTENCES: Record<string, string> = {
   geometry_columns_missing:
     "The replacement lacks the columns this dataset's geometry is built from ({{columns}}), so nothing was changed. Add them to the file, or import the file as a new dataset instead.",
+  geometry_columns_not_found:
+    "The file has no column named {{columns}}, so no geometry was built. Choose columns the file has.",
   geometry_xy_not_numeric: "{{rows}} row(s) contain X/Y values that are not numbers",
   geometry_xy_outside_wgs84: "{{rows}} row(s) contain X/Y coordinates outside EPSG:4326 ranges",
   geometry_xy_not_finite: "{{rows}} row(s) contain X/Y coordinates outside finite values",

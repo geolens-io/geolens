@@ -238,6 +238,7 @@
     "jobFailureGeometryWktInvalid": "{{rows}} fila(s) tienen geometría WKT no válida o coordenadas que no son números finitos.",
     "jobFailureGeometryWktMalformed": "La columna WKT contiene texto que no es una geometría válida.",
     "jobFailureGeometryWktMixedDimensions": "La columna WKT mezcla dimensiones de coordenadas ({{dimensions}}), así que no se construyó ninguna geometría. Da a todas las filas las mismas dimensiones.",
+    "jobFailureGeometryColumnsNotFound": "El archivo no tiene ninguna columna llamada {{columns}}, así que no se construyó ninguna geometría. Elige columnas que tenga el archivo.",
     "serviceLayerNoFeatures": "Esta capa no contiene entidades (es una capa de grupo, ráster, anotación, topología o red de servicios). Importa en su lugar una de sus capas de entidades o tablas.",
     "serviceGeometryUnsupported": "Esta capa contiene geometría multipatch, que no se puede importar. Publícala como una capa de entidades con otro tipo de geometría.",
     "serviceAuthRefused": "El servicio rechazó la credencial mientras GeoLens leía esta colección. Comprueba que el token sea válido y no haya caducado, y vuelve a intentarlo.",
