@@ -87,3 +87,11 @@ def property_notes(layers: Any) -> list[str]:
                 f"offset ({_listed(offset)})"
             )
     return notes
+
+
+def recorded_notes(entry: Any) -> list[str]:
+    """The loss notes of an item: those in its notes and those kept for each
+    layer it imported, which an item that failed on another layer still has."""
+    held = [n for key in entry.layer_datasets for n in entry.layer_notes.get(key, [])]
+    own = [n for n in entry.notes if n.startswith("layer ") and NOT_CARRIED in n]
+    return list(dict.fromkeys([*own, *held]))

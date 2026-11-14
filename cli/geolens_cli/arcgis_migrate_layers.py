@@ -31,7 +31,7 @@ from .arcgis_migrate_session import (
     operator_or_nobody_wrote_last,
     refuse_credentials,
 )
-from .arcgis_migrate_state import DONE, EXISTS, ItemState
+from .arcgis_migrate_state import DONE, EXISTS, MAX_ERROR_CHARS, ItemState
 
 GROUP_LAYER = "Group Layer"
 MAX_TITLE = 500
@@ -534,7 +534,7 @@ def _held_notes(ctx: MigrationContext, entry: ItemState, layer: Any) -> list[str
     what this probe states."""
     fresh = _redacted(ctx, property_notes([layer]))
     kept = entry.layer_notes.get(_layer_key(layer), [])
-    return list(dict.fromkeys([*kept, *fresh]))
+    return [n[:MAX_ERROR_CHARS] for n in dict.fromkeys([*kept, *fresh])]
 
 
 def import_layers(
@@ -606,18 +606,19 @@ def import_layers(
 
     found = 0
     for layer, title in zip(wanted, titles):
+        # Saved with the pending job and the pin, so a retry that can't read the
+        # layer's properties again still reports them.
+        entry.layer_notes[_layer_key(layer)] = _held_notes(ctx, entry, layer)
         pinned = entry.layer_datasets.get(_layer_key(layer))
         if pinned:
             # The plan may have been edited since that layer was imported.
             target = _commit_body(title, item["target"]["visibility"])
             _apply_target(ctx, entry, pinned, target)
-            entry.layer_notes[_layer_key(layer)] = _held_notes(ctx, entry, layer)
             continue
         found += _import_layer(
             ctx, row, probe, layer, title, item["target"]["visibility"], entry
         )
         entry.dataset_ids = list(dict.fromkeys(entry.layer_datasets.values()))
-        entry.layer_notes[_layer_key(layer)] = _held_notes(ctx, entry, layer)
         ctx.save()
     entry.import_pass = {
         "notes": _redacted(ctx, notes),

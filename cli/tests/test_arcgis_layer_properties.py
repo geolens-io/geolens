@@ -10,6 +10,7 @@ import pytest
 from . import test_arcgis_migrate_layers as layers
 from .arcgis_fake import A2
 from .test_arcgis_migrate_layers import FakeImport, _layer, _migrate
+from .test_arcgis_migrate_refresh import _edit_plan
 
 geolens = layers.geolens
 quick = layers.quick
@@ -162,4 +163,55 @@ def test_a_retry_without_the_layer_metadata_keeps_the_notes_of_a_finished_layer(
     assert any(
         f["kind"] == "layer_properties" and "M values" in f["text"]
         for f in report["follow_ups"]
+    )
+
+
+def _report(plan_file):
+    return json.loads((plan_file.parent / "arcgis-migration-report.json").read_text())
+
+
+def test_a_committed_job_keeps_its_note_for_a_retry_without_the_metadata(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels", has_m=True)])
+    service.job_errors["Parcels"] = "the worker restarted"
+    _migrate(runner, plan_file, "--only", A2)
+    state = json.loads((plan_file.parent / "arcgis-migration-state.json").read_text())
+    entry = state["items"][A2]
+    assert entry["layer_jobs"] and "M values" in entry["layer_notes"]["0"][0]
+    del service.job_errors["Parcels"]
+    service.layers[0].pop("has_m")
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert any(
+        f["kind"] == "layer_properties" and "M values" in f["text"]
+        for f in _report(plan_file)["follow_ups"]
+    )
+
+
+def test_a_failed_second_layer_does_not_hide_the_first_layers_losses(
+    runner, plan_file, geolens
+):
+    _edit_plan(plan_file, (A2,))
+    service = FakeImport(
+        geolens,
+        [
+            _layer(0, "Parcels", has_m=True, has_attachments=False),
+            _layer(1, "Owners", has_attachments=False),
+        ],
+    )
+    service.job_errors["Owners"] = "boom"
+    _migrate(runner, plan_file, "--only", A2)
+
+    result, payload = _migrate(
+        runner, plan_file, "--cutover", "--accept-unfinished-items"
+    )
+
+    assert result.exit_code == 1
+    assert payload["cutover"]["refused"] == ["layer-property-loss"]
+    assert any(
+        f["kind"] == "layer_properties" and "M values" in f["text"]
+        for f in _report(plan_file)["follow_ups"]
     )

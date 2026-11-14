@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from . import arcgis_plan as _plan
-from .arcgis_layer_properties import NOT_CARRIED
+from .arcgis_layer_properties import recorded_notes
 from .arcgis_migrate_groups import wanted_groups
 from .arcgis_portal import PortalClient, PortalError
 from .arcgis_migrate_state import (
@@ -108,8 +108,9 @@ def _layer_properties(
         {"item": item["id"], "reason": note}
         for item in plan["items"]
         if not item.get("removed") and item["action"] == _plan.IMPORT_LAYERS
-        for note in (state.items[item["id"]].notes if item["id"] in state.items else [])
-        if note.startswith("layer ") and NOT_CARRIED in note
+        for note in (
+            recorded_notes(state.items[item["id"]]) if item["id"] in state.items else []
+        )
     ]
 
 
