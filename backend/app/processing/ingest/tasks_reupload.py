@@ -994,7 +994,7 @@ async def _fetch_service_layer_with_paging_guard(
     from app.platform.security import make_safe_client
     from app.processing.ingest import tasks_vector as _tv
     from app.processing.ingest.ogr import run_ogr2ogr_service
-    from app.processing.ingest.tasks_common import run_paged_arcgis_service_fetch
+    from app.processing.ingest.tasks_arcgis import run_paged_arcgis_service_fetch
 
     port = get_processing_port()
     page_size = _tv._ARCGIS_SERVICE_IMPORT_CHUNK_SIZE
@@ -1122,7 +1122,7 @@ async def _arcgis_id_coverage_evidence(
 
     from app.platform.extensions import get_processing_port
     from app.platform.security import make_safe_client
-    from app.processing.ingest.tasks_common import verify_arcgis_staged_oid_coverage
+    from app.processing.ingest.tasks_arcgis import verify_arcgis_staged_oid_coverage
 
     coverage = await verify_arcgis_staged_oid_coverage(
         session,

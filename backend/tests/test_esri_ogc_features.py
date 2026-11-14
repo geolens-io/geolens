@@ -1009,7 +1009,7 @@ class TestTheStagedCountIsReadAfterTheGrant:
 
     async def test_the_featureserver_page_guard(self, monkeypatch) -> None:
         from app.processing.ingest import ogr
-        from app.processing.ingest.tasks_common import (
+        from app.processing.ingest.tasks_arcgis import (
             run_paged_arcgis_service_fetch,
         )
 

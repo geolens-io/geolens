@@ -140,9 +140,11 @@ def raster_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "app.processing.ingest.tasks_staging.get_storage", lambda: storage, raising=True
     )
-    # `tasks_common` keeps the same import-time binding for `_generate_quicklook`.
+    # `tasks_quicklook` keeps the same import-time binding for `_generate_quicklook`.
     monkeypatch.setattr(
-        "app.processing.ingest.tasks_common.get_storage", lambda: storage, raising=True
+        "app.processing.ingest.tasks_quicklook.get_storage",
+        lambda: storage,
+        raising=True,
     )
     # `tasks_vrt` ALSO binds get_storage at module import (its own
     # `from app.platform.storage import get_storage`, used by `regenerate_vrt`).
@@ -152,7 +154,7 @@ def raster_storage(tmp_path, monkeypatch):
     # fixture's — silently, since `LocalStorageProvider.delete` no-ops on a
     # missing key and the mismatched writes still succeed. Harmless for these
     # tests' own assertions (they only read `last_regenerated_at`), but it is
-    # the same class of import-time-binding gap `tasks_common` already needed
+    # the same class of import-time-binding gap `tasks_quicklook` already needed
     # patched above, and leaves the seed VRT this fixture wrote never actually
     # reaped. `test_regenerate_vrt_integration.py`'s own `local_storage`
     # fixture documents the identical rule for the identical reason.

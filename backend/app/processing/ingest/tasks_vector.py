@@ -1021,7 +1021,7 @@ async def ingest_service(
                         feature_count=total,
                     )
 
-                from app.processing.ingest.tasks_common import (
+                from app.processing.ingest.tasks_arcgis import (
                     run_paged_arcgis_service_fetch,
                 )
 
