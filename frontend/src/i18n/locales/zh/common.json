@@ -409,6 +409,7 @@
     "uploadFileSizeExceeded": "文件（{{size_mb}} MB）超出了允许的最大值（{{limit_mb}} MB）。",
     "uploadFileSizeLimitExceeded": "文件超过了允许的最大大小（{{limit_mb}} MB）。",
     "uploadServicePreviewFailed": "无法预览远程图层。该服务可能不可用，或图层格式不受支持。",
+    "uploadServicePreviewTimeout": "图层预览耗时过长。服务已响应，但未能及时返回该图层的前几个要素。",
     "uploadPreviewFailed": "无法预览该文件。该文件可能已损坏或不受支持。",
     "uploadRasterPreviewFailed": "无法预览栅格文件。该文件可能已损坏或不受支持。",
     "uploadFilenameControlCharacters": "文件名包含不允许的控制字符。",

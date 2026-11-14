@@ -1,12 +1,9 @@
 /**
- * previewFile and previewServiceLayer used apiFetch's 30s
- * default timeout while the server-side work they trigger can run far
- * longer — run_ogrinfo_preview is bounded at 300s (worse on its JSON-decode
- * fallback), and a WFS namespace retry makes run_service_preview run twice
- * at 30s each. The client aborted long before either server-side deadline,
- * wasting the work with nothing observing the abort.
+ * Preview calls wait past apiFetch's 30s default, long enough for the
+ * server's own preview deadline to answer first.
  */
 import { apiFetch } from '@/api/client';
+import { reuploadServicePreview } from '@/api/datasets';
 import { previewFile, previewServiceLayer } from '@/api/ingest';
 
 vi.mock('@/api/client', () => ({
@@ -40,5 +37,18 @@ describe('preview timeouts', () => {
     expect(mockApiFetch).toHaveBeenCalledTimes(1);
     const [, options] = mockApiFetch.mock.calls[0];
     expect(options?.timeoutMs).toBeGreaterThan(60_000);
+  });
+
+  it('reuploadServicePreview waits as long as the import service preview', async () => {
+    mockApiFetch.mockResolvedValue({} as never);
+
+    await previewServiceLayer({ url: 'https://services.example.test/wfs', layer_name: 'roads' } as never);
+    await reuploadServicePreview('dataset-1', {
+      url: 'https://services.example.test/wfs',
+      layer_name: 'roads',
+    } as never);
+
+    const [[, importOptions], [, reuploadOptions]] = mockApiFetch.mock.calls;
+    expect(reuploadOptions?.timeoutMs).toBe(importOptions?.timeoutMs);
   });
 });

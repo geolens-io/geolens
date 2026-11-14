@@ -7552,6 +7552,11 @@ export interface components {
              * @default false
              */
             dry_run: boolean;
+            /**
+             * Description
+             * @description Description of the new map.
+             */
+            description?: string | null;
         };
         /** ArcgisWebmapImportResponse */
         ArcgisWebmapImportResponse: {
@@ -46113,6 +46118,15 @@ export interface operations {
             };
             /** @description Internal server error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Bad gateway — an upstream provider failed */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };

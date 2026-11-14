@@ -1180,6 +1180,12 @@ export type ArcgisWebmapImportRequest = {
      * Return the translation without creating a map.
      */
     dry_run?: boolean;
+    /**
+     * Description
+     *
+     * Description of the new map.
+     */
+    description?: string | null;
 };
 
 /**
@@ -33115,6 +33121,10 @@ export type PreviewServiceLayerServicesPreviewPostErrors = {
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
     /**
      * Service unavailable — the database could not serve the request
      */
