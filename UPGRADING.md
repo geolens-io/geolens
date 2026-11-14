@@ -124,7 +124,10 @@ docker compose exec db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 # 2. Set POSTGRES_PASSWORD in .env to the same value. Then change the password
 #    inside every URL override in .env that signs in as this role, such as
 #    DATABASE_URL_OVERRIDE, TILE_DATABASE_URL_OVERRIDE or
-#    MIGRATION_DATABASE_URL_OVERRIDE. Leave URLs of other roles alone.
+#    MIGRATION_DATABASE_URL_OVERRIDE. Leave the URL of another role alone
+#    unless its password is also `geolens`: the startup warning reads
+#    DATABASE_URL_OVERRIDE and TILE_DATABASE_URL_OVERRIDE as well, so give
+#    that role a new password the same way.
 
 # 3. Recreate the services that read it: db, migrate, api, worker and backup.
 docker compose up -d
