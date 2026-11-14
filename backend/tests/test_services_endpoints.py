@@ -1347,14 +1347,14 @@ class TestPreviewEndpoint:
         layer_args = [call.args[2] for call in mock_build_gdal_source.call_args_list]
         assert layer_args == ["ns:buildings", "buildings"]
 
-    async def test_preview_timeout_answers_504_without_a_namespace_retry(
+    async def test_preview_timeout_answers_its_code_without_a_namespace_retry(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
         mock_validate_ssrf,
         mock_build_gdal_source,
     ):
-        """A timed-out preview runs once and answers a coded 504."""
+        """A timed-out preview runs once and answers a 502 carrying the timeout code."""
         from app.modules.catalog.sources.preview import ServicePreviewTimeoutError
 
         with patch(
@@ -1372,7 +1372,7 @@ class TestPreviewEndpoint:
                 headers=admin_auth_header,
             )
 
-        assert resp.status_code == 504, resp.text
+        assert resp.status_code == 502, resp.text
         assert run.await_count == 1
         assert resp.json()["detail"] == {
             "code": "service_preview_timeout",
@@ -1380,14 +1380,14 @@ class TestPreviewEndpoint:
             "but did not return the layer's first features in time.",
         }
 
-    async def test_preview_timeout_on_the_namespace_retry_answers_504(
+    async def test_preview_timeout_on_the_namespace_retry_answers_its_code(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
         mock_validate_ssrf,
         mock_build_gdal_source,
     ):
-        """The unprefixed retry timing out answers the same coded 504."""
+        """The unprefixed retry timing out answers the same coded 502."""
         from app.modules.catalog.sources.preview import ServicePreviewTimeoutError
         from app.processing.ingest.ogr import IngestionError
 
@@ -1409,7 +1409,7 @@ class TestPreviewEndpoint:
                 headers=admin_auth_header,
             )
 
-        assert resp.status_code == 504, resp.text
+        assert resp.status_code == 502, resp.text
         assert resp.json()["detail"]["code"] == "service_preview_timeout"
 
 

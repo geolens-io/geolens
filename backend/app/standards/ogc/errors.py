@@ -189,11 +189,6 @@ GATEWAY_TIMEOUT_RESPONSE = {
     "description": "Gateway timeout — an upstream address check ran out of time",
 }
 
-SERVICE_PREVIEW_TIMEOUT_RESPONSE = {
-    **PROBLEM_RESPONSE,
-    "description": "Gateway timeout — the remote layer took too long to preview",
-}
-
 SERVICE_UNAVAILABLE_RESPONSE = {
     **PROBLEM_RESPONSE,
     "description": "Service unavailable — required publication metadata is missing",

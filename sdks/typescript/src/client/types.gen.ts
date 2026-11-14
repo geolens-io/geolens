@@ -26103,10 +26103,6 @@ export type ReuploadServicePreviewDatasetsDatasetIdReuploadServicePreviewPostErr
      * Service unavailable — the database could not serve the request
      */
     503: ProblemDetail;
-    /**
-     * Gateway timeout — the remote layer took too long to preview
-     */
-    504: ProblemDetail;
 };
 
 export type ReuploadServicePreviewDatasetsDatasetIdReuploadServicePreviewPostError = ReuploadServicePreviewDatasetsDatasetIdReuploadServicePreviewPostErrors[keyof ReuploadServicePreviewDatasetsDatasetIdReuploadServicePreviewPostErrors];
@@ -33097,10 +33093,6 @@ export type PreviewServiceLayerServicesPreviewPostErrors = {
      * Service unavailable — the database could not serve the request
      */
     503: ProblemDetail;
-    /**
-     * Gateway timeout — the remote layer took too long to preview
-     */
-    504: ProblemDetail;
 };
 
 export type PreviewServiceLayerServicesPreviewPostError = PreviewServiceLayerServicesPreviewPostErrors[keyof PreviewServiceLayerServicesPreviewPostErrors];

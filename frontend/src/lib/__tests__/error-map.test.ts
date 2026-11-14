@@ -36,8 +36,8 @@ describe('API error localization boundary', () => {
 
   it('maps a timed-out service preview to its own message, not the unavailable one', () => {
     const detail = { code: 'service_preview_timeout', message: 'English diagnostic' };
-    expect(classifyApiError(detail, 504).key).toBe('errors.uploadServicePreviewTimeout');
-    expect(translateApiErrorDetail(detail, 504)).toContain('took too long to preview');
+    expect(classifyApiError(detail, 502).key).toBe('errors.uploadServicePreviewTimeout');
+    expect(translateApiErrorDetail(detail, 502)).toContain('took too long to preview');
   });
 
   it('maps known backend details to stable keys', () => {

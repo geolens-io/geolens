@@ -220,9 +220,9 @@ class ServicePreviewTimeoutError(IngestionError):
     """ogrinfo did not answer within the preview's time budget."""
 
     def http_error(self) -> HTTPException:
-        """The coded 504 every preview door answers with."""
+        """The coded 502 every preview door answers with."""
         return HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            status_code=status.HTTP_502_BAD_GATEWAY,
             detail={
                 "code": "service_preview_timeout",
                 "message": "The layer took too long to preview. The service "
@@ -512,8 +512,8 @@ async def run_service_preview(
                     timeout=timeout,
                 )
                 # A timeout is a real failure, not an empty layer: the router
-                # answers 504 rather than a zero-column preview. empty_fallback
-                # is for zero-feature layers only.
+                # answers a coded 502 rather than a zero-column preview.
+                # empty_fallback is for zero-feature layers only.
                 raise ServicePreviewTimeoutError(
                     f"ogrinfo timed out after {timeout:.0f}s for service preview"
                 ) from exc

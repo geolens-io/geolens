@@ -34639,15 +34639,6 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description Gateway timeout — the remote layer took too long to preview */
-            504: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ProblemDetail"];
-                };
-            };
         };
     };
     reupload_commit_datasets__dataset_id__reupload__job_id__commit_post: {
@@ -46115,15 +46106,6 @@ export interface operations {
             };
             /** @description Service unavailable — the database could not serve the request */
             503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ProblemDetail"];
-                };
-            };
-            /** @description Gateway timeout — the remote layer took too long to preview */
-            504: {
                 headers: {
                     [name: string]: unknown;
                 };

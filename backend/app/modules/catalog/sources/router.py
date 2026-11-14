@@ -117,7 +117,6 @@ from app.standards.ogc.errors import (
     ERROR_RESPONSES_WRITE,
     PROBLEM_RESPONSE,
     RATE_LIMIT_RESPONSE,
-    SERVICE_PREVIEW_TIMEOUT_RESPONSE,
 )
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -650,7 +649,7 @@ async def _fail_preview(
     layer: str,
     timeout: ServicePreviewTimeoutError | None = None,
 ) -> NoReturn:
-    """Log audit and raise 502 for a failed service preview, 504 for a slow one."""
+    """Log audit and raise 502 for a failed service preview, coded for a slow one."""
     safe_url = redact_url_credentials(url)
     result = "ogrinfo_failed" if timeout is None else "ogrinfo_timeout"
     await audit_emit(
@@ -782,7 +781,7 @@ async def _run_service_preview_or_refuse(
 ) -> dict:
     """`run_service_preview`, with every typed refusal mapped before it escapes.
 
-    A timeout answers the coded 504 with no namespace retry, which can't
+    A timeout answers its coded 502 with no namespace retry, which can't
     help a layer that was found. Any other `IngestionError` and
     `HTTPException` pass through unchanged: `IngestionError` triggers the
     WFS namespace retry, and `HTTPException`
@@ -1152,7 +1151,7 @@ async def probe_service_url(
 @router.post(
     "/preview/",
     response_model=ServicePreviewResponse,
-    responses={502: BAD_GATEWAY_RESPONSE, 504: SERVICE_PREVIEW_TIMEOUT_RESPONSE},
+    responses={502: BAD_GATEWAY_RESPONSE},
     summary="Preview a remote service layer",
 )
 async def preview_service_layer(

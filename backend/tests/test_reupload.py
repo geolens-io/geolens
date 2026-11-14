@@ -1256,7 +1256,7 @@ class TestServiceReuploadPreview:
             "or the layer format is unsupported."
         )
 
-    async def test_service_reupload_preview_timeout_returns_a_coded_504(
+    async def test_service_reupload_preview_timeout_returns_its_code(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
@@ -1292,7 +1292,7 @@ class TestServiceReuploadPreview:
                 headers=admin_auth_header,
             )
 
-        assert resp.status_code == 504, resp.text
+        assert resp.status_code == 502, resp.text
         assert resp.json()["detail"]["code"] == "service_preview_timeout"
 
     async def test_service_reupload_preview_ssrf_blocked_returns_400_without_remote_calls(

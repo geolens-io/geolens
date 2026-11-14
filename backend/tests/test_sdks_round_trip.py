@@ -520,8 +520,8 @@ class TestServicePreviewTimeout:
 
     _BODY = {
         "type": "about:blank",
-        "title": "Gateway Timeout",
-        "status": 504,
+        "title": "Bad Gateway",
+        "status": 502,
         "detail": {
             "code": "service_preview_timeout",
             "message": "The layer took too long to preview.",
@@ -531,7 +531,7 @@ class TestServicePreviewTimeout:
     def _client(self) -> AuthenticatedClient:
         def respond(request: httpx.Request) -> httpx.Response:
             return httpx.Response(
-                504,
+                502,
                 json=self._BODY,
                 headers={"Content-Type": "application/problem+json"},
             )

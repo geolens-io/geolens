@@ -51868,16 +51868,6 @@
               }
             },
             "description": "Service unavailable \u2014 the database could not serve the request"
-          },
-          "504": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              }
-            },
-            "description": "Gateway timeout \u2014 the remote layer took too long to preview"
           }
         },
         "security": [
@@ -68667,16 +68657,6 @@
               }
             },
             "description": "Service unavailable \u2014 the database could not serve the request"
-          },
-          "504": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              }
-            },
-            "description": "Gateway timeout \u2014 the remote layer took too long to preview"
           }
         },
         "security": [
