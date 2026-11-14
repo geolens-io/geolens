@@ -6494,8 +6494,11 @@ class TestAPreviewReportsTheCollectionNotTheScratchFile:
     async def test_an_unprotected_preview_still_reports_ogrinfos_answer(
         self, monkeypatch
     ) -> None:
-        """Nothing is localised without a credential, so nothing changes."""
+        """Nothing is localised without a credential; a WFS count comes from hits."""
         self._ogrinfo(monkeypatch)
+        monkeypatch.setattr(
+            preview_mod, "fetch_arcgis_wfs_hits", AsyncMock(return_value=5)
+        )
 
         result = await preview_mod.run_service_preview(
             f"WFS:{_SVC_WFS}", "topp:parcels", sample_limit=5

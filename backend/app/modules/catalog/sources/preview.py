@@ -19,6 +19,7 @@ from app.core.service_tokens import (
     credential_header_line,
 )
 from app.core.url_redaction import redact_url_credentials, scrub_secret_value
+from app.platform.arcgis_wfs import fetch_arcgis_wfs_hits
 from app.platform.extensions import get_catalog_port
 from app.platform.egress_proxy import (
     gdal_source_url,
@@ -149,6 +150,24 @@ async def _localise_protected_oapif(
     # dropped (GeoJSON driver has exactly one layer); the collection the
     # caller asked for is still what gets reported.
     return _Localised(extract.path, "", None, extract.path, layer_name, extract.total)
+
+
+async def _wfs_hits(
+    url: str, layer: str, credential_line: str | None, deadline: float
+) -> int | None:
+    """The layer's total from a ``resultType=hits`` read within the preview's
+    deadline, in WFS 2.0.0 then 1.1.0, or None. Never reads features."""
+    try:
+        async with asyncio.timeout(max(deadline - time.monotonic(), 0)):
+            for version in ("2.0.0", "1.1.0"):
+                total = await fetch_arcgis_wfs_hits(
+                    url, layer, credential_line=credential_line, version=version
+                )
+                if total is not None:
+                    return total
+    except TimeoutError:
+        pass
+    return None
 
 
 def _remove_quietly(path: str | None) -> None:
@@ -342,9 +361,10 @@ async def run_service_preview(
         "-features",
         "-limit",
         str(sample_limit),
-        # The preview shows no extent, and a WFS layer whose extent GDAL
-        # can't take from capabilities is paged in full to compute one.
-        *(["-noextent"] if gdal_source.startswith("WFS:") else []),
+        # GDAL pages a WFS layer in full for an extent it can't take from
+        # capabilities, or a count without a usable hits answer; the preview
+        # shows no extent and reads the count itself (_wfs_hits).
+        *(["-noextent", "-nocount"] if gdal_source.startswith("WFS:") else []),
         "--config",
         "GDAL_HTTP_TIMEOUT",
         str(_HTTP_TIMEOUT_SECONDS),
@@ -595,17 +615,21 @@ async def run_service_preview(
 
     srid = get_catalog_port().extract_srid_from_json(coord_system or {})
 
+    feature_count = (
+        await _wfs_hits(_service_url(gdal_source), layer_name, header_line, deadline)
+        if gdal_source.startswith("WFS:")
+        else localised.total
+        if localised.reported_name is not None
+        else layer.get("featureCount")
+    )
+
     result = {
         "srid": srid,
         "geometry_type": geometry_type,
         # For a localised collection these come from the request/service,
         # not ogrinfo, which is describing a scratch file.
         "layer_name": localised.reported_name or layer.get("name", layer_name),
-        "feature_count": (
-            localised.total
-            if localised.reported_name is not None
-            else layer.get("featureCount")
-        ),
+        "feature_count": feature_count,
         "columns": columns,
         "sample_rows": sample_rows,
     }

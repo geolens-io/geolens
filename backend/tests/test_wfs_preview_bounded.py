@@ -18,7 +18,7 @@ from app.modules.catalog.sources.preview import (
     ServicePreviewTimeoutError,
     run_service_preview,
 )
-from app.platform import egress_proxy
+from app.platform import arcgis_wfs, egress_proxy, security
 
 pytestmark = pytest.mark.anyio
 
@@ -68,7 +68,7 @@ async def test_non_wfs_preview_argv_is_unchanged(monkeypatch, gdal_source):
 
 
 async def test_wfs_preview_argv_asks_for_no_extent(monkeypatch):
-    """A WFS preview passes -noextent, so ogrinfo never pages the layer for one."""
+    """A WFS preview passes -noextent and -nocount, so ogrinfo never pages the layer."""
     assert await _preview_argv(monkeypatch, "WFS:https://example.test/wfs") == [
         "ogrinfo",
         "-json",
@@ -76,6 +76,7 @@ async def test_wfs_preview_argv_asks_for_no_extent(monkeypatch):
         "-limit",
         "5",
         "-noextent",
+        "-nocount",
         "--config",
         "GDAL_HTTP_TIMEOUT",
         "60",
@@ -173,8 +174,15 @@ _HITS = f"""<?xml version="1.0" encoding="UTF-8"?>
 <wfs:FeatureCollection xmlns:wfs="http://www.opengis.net/wfs/2.0"
  numberMatched="{_TOTAL}" numberReturned="0"/>"""
 
+_EXCEPTION_REPORT = """<?xml version="1.0" encoding="UTF-8"?>
+<ows:ExceptionReport xmlns:ows="http://www.opengis.net/ows/1.1" version="2.0.0">
+ <ows:Exception exceptionCode="InvalidParameterValue">
+  <ows:ExceptionText>resultType=hits is not supported</ows:ExceptionText>
+ </ows:Exception>
+</ows:ExceptionReport>"""
 
-def _page(start: int, count: int) -> str:
+
+def _page(start: int, count: int, matched: str) -> str:
     numbers = range(start, min(start + count, _TOTAL))
     members = "\n".join(_MEMBER.format(n=n, x=100000 + n) for n in numbers)
     return (
@@ -182,14 +190,20 @@ def _page(start: int, count: int) -> str:
         '<wfs:FeatureCollection xmlns:wfs="http://www.opengis.net/wfs/2.0" '
         'xmlns:gml="http://www.opengis.net/gml/3.2" '
         'xmlns:app="http://example.test/app" '
-        f'numberMatched="{_TOTAL}" numberReturned="{len(numbers)}">\n'
+        f'numberMatched="{matched}" numberReturned="{len(numbers)}">\n'
         f"{members}\n</wfs:FeatureCollection>"
     )
 
 
 @contextmanager
-def _paged_wfs() -> Iterator[tuple[int, list[dict[str, str]]]]:
-    """A paging WFS 2.0 service on loopback; yields its port and its GetFeature params."""
+def _paged_wfs(hits: str) -> Iterator[tuple[int, list[dict[str, str]]]]:
+    """A paging WFS 2.0 service on loopback; yields its port and its GetFeature params.
+
+    ``hits`` is how it answers ``resultType=hits``: "count", "unsupported"
+    (an exception report) or "error" (HTTP 500). Without a count its pages
+    say ``numberMatched="unknown"``, so GDAL can't count from the first one.
+    """
+    matched = str(_TOTAL) if hits == "count" else "unknown"
     get_features: list[dict[str, str]] = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -204,11 +218,15 @@ def _paged_wfs() -> Iterator[tuple[int, list[dict[str, str]]]]:
             elif operation == "getfeature":
                 get_features.append(params)
                 if params.get("resulttype", "").lower() == "hits":
-                    body = _HITS
+                    if hits == "error":
+                        self.send_error(500)
+                        return
+                    body = _HITS if hits == "count" else _EXCEPTION_REPORT
                 else:
                     body = _page(
                         int(params.get("startindex", 0)),
                         int(params.get("count", _TOTAL)),
+                        matched,
                     )
             else:
                 self.send_error(400)
@@ -235,18 +253,36 @@ def _paged_wfs() -> Iterator[tuple[int, list[dict[str, str]]]]:
 
 
 @needs_ogrinfo
-async def test_a_wfs_preview_reads_one_page_and_counts_by_hits(monkeypatch):
-    """A layer of many pages previews from its first page; the count comes from hits."""
+@pytest.mark.parametrize(
+    ("hits", "expected_count"),
+    [("count", _TOTAL), ("unsupported", None), ("error", None)],
+)
+async def test_a_wfs_preview_reads_one_page_whatever_hits_answers(
+    monkeypatch, hits, expected_count
+):
+    """A layer of many pages previews from its first page; the count comes
+    from hits, and is None rather than a scan when hits gives none."""
     real = egress_proxy._resolve_all_and_validate
 
-    async def resolve(host: str, port: int | None) -> list[str]:
+    async def resolve_all(host: str, port: int | None) -> list[str]:
         if host == _HOST:
             return ["127.0.0.1"]
         return await real(host, port)
 
-    monkeypatch.setattr(egress_proxy, "_resolve_all_and_validate", resolve)
+    real_one = security._resolve_and_validate
 
-    with _paged_wfs() as (port, get_features):
+    async def resolve_one(host: str, port: int | None) -> str:
+        if host == _HOST:
+            return "127.0.0.1"
+        return await real_one(host, port)
+
+    # GDAL reaches the stub through the egress proxy, the hits read through
+    # the SSRF-guarded client; both resolve the test host to loopback.
+    monkeypatch.setattr(egress_proxy, "_resolve_all_and_validate", resolve_all)
+    monkeypatch.setattr(security, "_resolve_and_validate", resolve_one)
+    monkeypatch.setattr(arcgis_wfs, "validate_url_for_ssrf", AsyncMock())
+
+    with _paged_wfs(hits) as (port, get_features):
         result = await run_service_preview(
             f"WFS:http://{_HOST}:{port}/wfs", _LAYER, timeout=60.0
         )
@@ -258,7 +294,7 @@ async def test_a_wfs_preview_reads_one_page_and_counts_by_hits(monkeypatch):
         "p3",
         "p4",
     ]
-    assert result["feature_count"] == _TOTAL
+    assert result["feature_count"] == expected_count
     pages = {
         params.get("startindex")
         for params in get_features
