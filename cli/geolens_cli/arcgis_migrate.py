@@ -97,6 +97,7 @@ from .arcgis_migrate_webmaps import (
     thumbnail_dry_run_notes,
 )
 from .arcgis_migrate_session import (
+    CredentialRefused,
     GeoLens,
     GeoLensError,
     ItemFailed,
@@ -1475,6 +1476,7 @@ def _report(
         "group_warnings": groups.warnings,
         "item_sharing": groups.sharing_rows(),
         "group_failures": groups.failures,
+        "state_left_out": state.left_out,
         "report": [str(p) for p in report_files] if report_files else None,
         "failed": failed,
     }
@@ -1527,6 +1529,8 @@ def _report(
             if summary.stopped:
                 fmt.error(f"stopped: {summary.stopped}")
         _print_cutover(fmt, cutover, opts.dry_run)
+        for note in state.left_out:
+            fmt.warn(note)
         if state.cutover and not opts.cutover:
             fmt.warn(f"this migration was cut over at {state.cutover['at']}")
         if not opts.dry_run:
@@ -1736,6 +1740,10 @@ def run_cli(
         return _run(fmt, opts, redact, sdk_factory, instance)
     except (typer.Exit, click.ClickException):
         raise
+    except CredentialRefused as exc:
+        # A request outside any item; it names the path and key, not the value.
+        fmt.error(str(exc))
+        return EXIT_USAGE
     except (
         Exception
     ) as exc:  # broad: last guard so a traceback can't print a credential
@@ -1973,6 +1981,17 @@ def _take_credentials(opts: MigrateOptions, redact: Redactor) -> MigrateOptions:
     return replace(opts, stdin_line=line)
 
 
+def _register_stored_sign_in(
+    opts: MigrateOptions, plan: Mapping[str, Any], redact: Redactor
+) -> None:
+    try:
+        root = portal_root(plan["portal"]["url"], opts.allow_insecure_http)
+    except ValueError:
+        # The sign-in refuses the same URL before it reads anything.
+        return
+    arcgis_oauth.register_stored(root, opts.client_id or "", redact)
+
+
 def _run(
     fmt: _output.Formatter,
     opts: MigrateOptions,
@@ -1989,6 +2008,10 @@ def _run(
         _check_cutover(opts)
         opts = _take_credentials(opts, redact)
         plan = _plan.load_plan(opts.plan_path)
+        if opts.client_id:
+            # The browser sign-in comes after the groups are written, so the
+            # refresh tokens it may use are registered now.
+            _register_stored_sign_in(opts, plan, redact)
         state_path = opts.state_path or opts.plan_path.parent / STATE_FILENAME
         state = MigrationState.load(
             state_path,
@@ -2091,7 +2114,6 @@ def _run(
                 owners.directory,
                 touched,
                 dry_run=opts.dry_run,
-                redact=redact,
                 emails=emails,
             )
         sharing = Sharing(

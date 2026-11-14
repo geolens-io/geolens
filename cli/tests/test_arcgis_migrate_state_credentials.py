@@ -1,4 +1,4 @@
-"""The migration state file never holds the run's credential: load masks it, save refuses it."""
+"""The migration state file never holds the run's credential: every load and save masks it."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from geolens_cli.arcgis_migrate_state import (
     STATE_VERSION,
     ItemState,
     MigrationState,
-    StateError,
 )
 from geolens_cli.arcgis_portal import Redactor
 
@@ -58,16 +57,17 @@ def _state(tmp_path, redact: Redactor) -> MigrationState:
 
 
 @pytest.mark.parametrize("name", _ITEM_FIELDS)
-def test_save_refuses_any_item_member_holding_the_runs_secret(tmp_path, name):
+def test_save_masks_any_item_member_holding_the_runs_secret(tmp_path, name):
     state = _state(tmp_path, _redactor())
     setattr(state.items[ITEM], name, _holding(getattr(state.items[ITEM], name), SECRET))
 
-    with pytest.raises(StateError) as refused:
-        state.save()
+    state.save()
 
-    assert f"item {ITEM}, field {name}," in str(refused.value)
-    assert SECRET not in str(refused.value)
-    assert not state.path.exists()
+    raw = state.path.read_text()
+    assert SECRET not in raw
+    assert "x [REDACTED]" in str(json.loads(raw)["items"][ITEM][name])
+    # Later comparisons see what the file holds.
+    assert "x [REDACTED]" in str(getattr(state.items[ITEM], name))
 
 
 @pytest.mark.parametrize("name", _ITEM_FIELDS)
@@ -94,38 +94,56 @@ def test_save_writes_a_credential_named_key_with_a_value_that_is_not_the_runs(
     assert saved["layer_styles"] == {"0": {"paint": {"apiKey": "x"}}}
 
 
-@pytest.mark.parametrize("where", ["key", "nested"])
-def test_save_refuses_the_runs_secret_in_a_key_or_nested_value(tmp_path, where):
+def test_save_masks_the_runs_secret_in_keys_and_top_level_members(tmp_path):
     state = _state(tmp_path, _redactor())
-    entry = state.items[ITEM]
-    if where == "key":
-        entry.metadata_baseline = {f"dataset {SECRET}": {"title": "t"}}
-    else:
-        entry.metadata_baseline = {"d": {"keywords": ["ok", f"tag {SECRET}"]}}
-
-    with pytest.raises(StateError, match="field metadata_baseline,"):
-        state.save()
-
-
-@pytest.mark.parametrize("member", ["collections", "groups", "cutover"])
-def test_save_refuses_a_top_level_member_holding_the_runs_secret(tmp_path, member):
-    state = _state(tmp_path, _redactor())
-    setattr(state, member, {"k": {"name": f"x {SECRET}"}})
-
-    with pytest.raises(StateError, match=f"the state's {member} field"):
-        state.save()
-
-    assert not state.path.exists()
-
-
-def test_a_note_cleaned_of_the_secret_saves(tmp_path):
-    state = _state(tmp_path, _redactor())
-    state.items[ITEM].notes = [state.clean(f"a note holding {SECRET} once")]
+    shared = {f"Roads {SECRET}": "c1"}
+    state.collections = shared
+    state.groups = {"g1": {"name": f"Planners {SECRET}", "id": "g"}}
+    state.cutover = {"accepted": [f"x {SECRET}"]}
+    state.items[ITEM].metadata_baseline = {f"dataset {SECRET}": {"title": "t"}}
 
     state.save()
 
-    raw = state.path.read_text()
-    assert "[REDACTED]" in raw and SECRET not in raw
+    saved = json.loads(state.path.read_text())
+    assert SECRET not in state.path.read_text()
+    assert saved["collections"] == {"Roads [REDACTED]": "c1"}
+    assert saved["groups"]["g1"]["name"] == "Planners [REDACTED]"
+    assert saved["items"][ITEM]["metadata_baseline"] == {
+        "dataset [REDACTED]": {"title": "t"}
+    }
+    # Masked in place: whoever holds the same dict sees the masked key.
+    assert shared == {"Roads [REDACTED]": "c1"}
+
+
+def test_a_fan_out_checkpoint_keeps_its_jobs_when_its_error_echoes_the_secret(
+    tmp_path,
+):
+    state = _state(tmp_path, _redactor())
+    entry = state.items[ITEM]
+    entry.fan_out = {"job": "j0", "layers": ["Roads"], "titles": ["Roads"]}
+    entry.layer_jobs = {"layer:Roads": "j1"}
+    entry.job_ids = ["j0"]
+    entry.error = f"commit failed, HTTP 400: bad token {SECRET}"
+
+    state.save()
+
+    saved = json.loads(state.path.read_text())["items"][ITEM]
+    assert saved["fan_out"]["job"] == "j0"
+    assert saved["layer_jobs"] == {"layer:Roads": "j1"}
+    assert saved["job_ids"] == ["j0"]
+    assert saved["error"] == "commit failed, HTTP 400: bad token [REDACTED]"
+
+
+def test_relationship_records_holding_the_secret_are_saved_masked(tmp_path):
+    state = _state(tmp_path, _redactor())
+    state.items[ITEM].relationships = {
+        "0": [{"id": 1, "name": f"Parcels_{SECRET}", "related": "1"}]
+    }
+
+    state.save()
+
+    saved = json.loads(state.path.read_text())["items"][ITEM]["relationships"]
+    assert saved == {"0": [{"id": 1, "name": "Parcels_[REDACTED]", "related": "1"}]}
 
 
 def _write(path, entry: dict, **top) -> None:
@@ -151,50 +169,53 @@ def test_the_runs_secret_an_earlier_version_wrote_is_masked_on_load(tmp_path):
     _write(path, entry)
 
     state = MigrationState.load(path, PORTAL, INSTANCE, _redactor())
+
+    assert state.items[ITEM].metadata_baseline["d"]["summary"] == "see [REDACTED]"
+    state.save()
+    saved = json.loads(path.read_text())
+    assert SECRET not in path.read_text()
+    assert saved["schema_version"] == STATE_VERSION
+    assert saved["items"][ITEM]["notes"] == SHAPED
+
+
+def test_a_password_registered_after_load_is_masked_by_the_next_save(tmp_path):
+    path = tmp_path / "state.json"
+    password = secrets.token_urlsafe(16)
+    entry = dataclasses.asdict(ItemState(status=DONE))
+    entry["notes"] = [f"echoed {password}"]
+    _write(path, entry)
+    redact = _redactor()
+    state = MigrationState.load(path, PORTAL, INSTANCE, redact)
+    state.save()
+    assert password in path.read_text()
+
+    redact.add(password)
+    state.save()
+
+    assert password not in path.read_text()
+    assert state.items[ITEM].notes == ["echoed [REDACTED]"]
+    assert redact.version == 2
+
+
+def test_names_masking_would_merge_leave_one_out_and_keep_the_rest(tmp_path):
+    path = tmp_path / "state.json"
+    entry = dataclasses.asdict(ItemState(status=DONE))
+    entry["layer_datasets"] = {f"layer {SECRET}": "a", "layer [REDACTED]": "b"}
+    entry["dataset_ids"] = ["a", "b"]
+    _write(path, entry, collections={f"Roads {SECRET}": "c", "Roads [REDACTED]": "d"})
+
+    state = MigrationState.load(path, PORTAL, INSTANCE, _redactor())
     state.save()
 
     saved = json.loads(path.read_text())
     assert SECRET not in path.read_text()
-    assert saved["schema_version"] == STATE_VERSION
-    assert saved["items"][ITEM]["metadata_baseline"]["d"]["summary"] == (
-        "see [REDACTED]"
-    )
-    assert saved["items"][ITEM]["notes"] == SHAPED
-
-
-def test_a_string_found_clean_is_checked_again_after_a_new_secret(tmp_path):
-    redact = _redactor()
-    state = _state(tmp_path, redact)
-    later = secrets.token_urlsafe(16)
-    state.items[ITEM].notes = [f"a note naming {later}"]
-    state.save()
-
-    redact.add(later)
-
-    with pytest.raises(StateError, match="field notes,"):
-        state.save()
-    assert later in state.path.read_text()
-    assert redact.version == 2
-
-
-def test_names_that_differ_only_by_the_secret_refuse_to_load(tmp_path):
-    path = tmp_path / "state.json"
-    entry = dataclasses.asdict(ItemState(status=DONE))
-    entry["layer_datasets"] = {f"layer {SECRET}": "a", "layer [REDACTED]": "b"}
-    _write(path, entry)
-
-    with pytest.raises(StateError) as refused:
-        MigrationState.load(path, PORTAL, INSTANCE, _redactor())
-
-    message = str(refused.value)
-    assert f"item {ITEM}, field layer_datasets," in message
-    assert SECRET not in message
-
-
-def test_collection_names_that_differ_only_by_the_secret_refuse_to_load(tmp_path):
-    path = tmp_path / "state.json"
-    entry = dataclasses.asdict(ItemState(status=DONE))
-    _write(path, entry, collections={f"Roads {SECRET}": "a", "Roads [REDACTED]": "b"})
-
-    with pytest.raises(StateError, match="the state's collections field holds two"):
-        MigrationState.load(path, PORTAL, INSTANCE, _redactor())
+    assert saved["items"][ITEM]["layer_datasets"] == {"layer [REDACTED]": "b"}
+    assert saved["items"][ITEM]["dataset_ids"] == ["a", "b"]
+    assert saved["collections"] == {"Roads [REDACTED]": "d"}
+    assert sorted(state.left_out) == [
+        f"item {ITEM}, member layer_datasets has two entries whose names differ "
+        "only by this run's ArcGIS credential; one was left out of the state file",
+        "the state's collections has two entries whose names differ only by "
+        "this run's ArcGIS credential; one was left out of the state file",
+    ]
+    assert all(SECRET not in note for note in state.left_out)

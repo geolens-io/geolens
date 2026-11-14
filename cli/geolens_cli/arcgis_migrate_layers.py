@@ -53,7 +53,6 @@ def _row(ctx: MigrationContext, item: Mapping[str, Any]) -> Mapping[str, Any]:
         raise ItemFailed("the item is not in the inventory the plan was built from")
     if not row.get("url"):
         raise ItemFailed("the inventory has no service URL for the item")
-    refuse_credentials(ctx, {"service_url": row["url"]})
     return row
 
 
@@ -322,7 +321,7 @@ def _import_layer(
     from geolens.models.service_preview_request import ServicePreviewRequest
 
     key = _layer_key(layer)
-    title_visibility = _commit_body(ctx, title, visibility)
+    title_visibility = _commit_body(title, visibility)
     recorded = entry.layer_jobs.get(key)
     if recorded:
         dataset = _finish_job(ctx, row, probe, UUID(recorded), title_visibility)
@@ -372,13 +371,9 @@ def _import_layer(
 _SHARED_MAPS = "dataset is used in shared maps: "
 
 
-def _commit_body(ctx: MigrationContext, title: str, visibility: str) -> Any:
-    """The commit or patch body giving a dataset *title* and *visibility*;
-    ``ItemFailed`` when the title contains a token or password the run was
-    given."""
+def _commit_body(title: str, visibility: str) -> Any:
     from geolens.models.commit_request import CommitRequest
 
-    refuse_credentials(ctx, {"title": title})
     return CommitRequest(title=title, visibility=visibility)
 
 
@@ -528,7 +523,7 @@ def _resume_import(
     )
     for (key, _rec), title in zip(recorded.items(), titles):
         _apply_target(
-            ctx, entry, entry.layer_datasets[key], _commit_body(ctx, title, visibility)
+            ctx, entry, entry.layer_datasets[key], _commit_body(title, visibility)
         )
     return ItemResult(notes=entry.import_pass["notes"])
 
@@ -603,7 +598,7 @@ def import_layers(
         pinned = entry.layer_datasets.get(_layer_key(layer))
         if pinned:
             # The plan may have been edited since that layer was imported.
-            target = _commit_body(ctx, title, item["target"]["visibility"])
+            target = _commit_body(title, item["target"]["visibility"])
             _apply_target(ctx, entry, pinned, target)
             continue
         found += _import_layer(

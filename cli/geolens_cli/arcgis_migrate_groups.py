@@ -43,7 +43,6 @@ from .arcgis_migrate_session import (
     WriteRaced,
 )
 from .arcgis_migrate_state import ItemState, MigrationState
-from .arcgis_portal import Redactor, holds_secret
 
 RESTRICTED = "restricted"
 NOT_A_USER = " is not a GeoLens user yet"
@@ -497,7 +496,6 @@ def prepare_groups(
     items: Iterable[Mapping[str, Any]],
     *,
     dry_run: bool,
-    redact: Redactor,
     emails: Mapping[str, str] | None = None,
 ) -> GroupPlan:
     """Resolve every ArcGIS group *items* need to a GeoLens group, creating
@@ -547,14 +545,7 @@ def prepare_groups(
             out.groups[arcgis_id] = record
             continue
         title = _title(arcgis_id, entry, inventory_groups)
-        made = recorded and recorded.get("created") and recorded.get("id")
-        if not made and holds_secret(title, redact):
-            raise GroupUsageError(
-                f"ArcGIS group {arcgis_id}'s title holds this run's ArcGIS "
-                "credential, so no GeoLens group is made for it; set group_map "
-                f"{arcgis_id} geolens_group to the one to share with"
-            )
-        if made:
+        if recorded and recorded.get("created") and recorded.get("id"):
             record = dict(recorded)
             record.pop("unmapped", None)
             record.pop("effective", None)

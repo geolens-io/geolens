@@ -468,7 +468,6 @@ def refresh_layers(
             "datasets were not refreshed from the old one"
         ]
     try:
-        refuse_credentials(ctx, {"service_url": row["url"]})
         with long_request_timeout(ctx.geolens.client):
             probe = _send(
                 ctx,

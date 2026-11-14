@@ -8,8 +8,9 @@ import this one, so the orchestration in ``arcgis_migrate`` can import them.
 
 from __future__ import annotations
 
+import sys
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,11 @@ class GeoLensError(Exception):
 
 class ItemFailed(Exception):
     """An item could not be migrated; the message goes to the state file."""
+
+
+class CredentialRefused(ItemFailed):
+    """A GeoLens request would have carried a token or password the run was
+    given; it wasn't sent. Fails the item in scope, or stops the run."""
 
 
 class WriteRaced(ItemFailed):
@@ -110,10 +116,25 @@ class GeoLens:
             raise
 
     def call(
-        self, fn: Callable[..., Any], *, expected: int = 200, **kwargs: Any
+        self,
+        fn: Callable[..., Any],
+        *,
+        expected: int = 200,
+        sends: tuple[str, ...] = (),
+        **kwargs: Any,
     ) -> Any:
+        """Send one request. ``CredentialRefused`` before sending when a
+        parameter or body field holds a secret the redactor knows, except the
+        fields *sends* names, which carry one by design (a new user's
+        password); see ``outgoing_secret`` for what else is exempt."""
         from geolens.models.problem_detail import ProblemDetail  # lazy
 
+        refused = outgoing_secret(fn, kwargs, self._redact, sends)
+        if refused is not None:
+            raise CredentialRefused(
+                f"the request to {refused[0]} holds this run's ArcGIS credential "
+                f"in {refused[1]}, so it wasn't sent"
+            )
         restore: list[tuple[Any, Any]] = []
 
         def replace_client(replacement: Any) -> None:
@@ -247,6 +268,64 @@ class MigrationContext:
     server_version: str | None = None
     sleep: Callable[[float], None] = time.sleep
     clock: Callable[[], float] = time.monotonic
+
+
+def outgoing_secret(
+    fn: Callable[..., Any],
+    kwargs: Mapping[str, Any],
+    redact: Any,
+    sends: tuple[str, ...] = (),
+) -> tuple[str, str] | None:
+    """(request path, parameter or body key) of the first value in an SDK
+    call's arguments that holds a registered secret; None when none does.
+
+    Every argument but the client is read: path and query parameters, body
+    fields at any depth (keys included), and an upload's file name, never its
+    bytes. Exempt are the client's own authentication, which travels in a
+    header, and a body's ``auth`` member when it is the service credential
+    an import, preview, commit or refresh of a non-public service carries.
+    """
+    for name, value in kwargs.items():
+        if name == "client":
+            continue
+        for key, text in _texts(name, value):
+            if key not in sends and holds_secret(text, redact):
+                return _request_path(fn, kwargs), key
+    return None
+
+
+def _texts(name: str, value: Any) -> Iterator[tuple[str, str]]:
+    if isinstance(value, Path):
+        yield name, value.name
+        return
+    if hasattr(value, "to_dict"):
+        from geolens.models.service_auth_request import ServiceAuthRequest
+
+        data = value.to_dict()
+        if isinstance(getattr(value, "auth", None), ServiceAuthRequest):
+            data.pop("auth", None)
+        value = data
+    stack: list[tuple[str, Any]] = [(name, value)]
+    while stack:
+        key, node = stack.pop()
+        if isinstance(node, str):
+            yield key, node
+        elif isinstance(node, Mapping):
+            for k, v in node.items():
+                yield key, str(k)
+                stack.append((f"{key}.{k}", v))
+        elif isinstance(node, list | tuple):
+            stack.extend((f"{key}[{i}]", v) for i, v in enumerate(node))
+
+
+def _request_path(fn: Callable[..., Any], kwargs: Mapping[str, Any]) -> str:
+    """The request's path as the SDK builds it, or the function's name."""
+    build = getattr(sys.modules.get(fn.__module__), "_get_kwargs", None)
+    try:
+        args = {k: v for k, v in kwargs.items() if k != "client"}
+        return str(build(**args)["url"])  # type: ignore[misc]
+    except Exception:  # broad: only names the refused request, never sends it
+        return f"{fn.__module__.rsplit('.', 1)[-1]}.{fn.__name__}"
 
 
 def refuse_credentials(ctx: MigrationContext, fields: Mapping[str, Any]) -> None:

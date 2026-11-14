@@ -5,17 +5,24 @@
 
 from __future__ import annotations
 
+import ast
+import importlib
+import inspect
 import json
+import re
 import secrets
 import unicodedata
+import uuid
 from pathlib import Path
 from urllib.parse import quote, quote_plus
-from types import SimpleNamespace
 
 import pytest
 
-from geolens_cli import arcgis_migrate_layers as layers_mod
-from geolens_cli.arcgis_migrate_session import ItemFailed
+from geolens_cli import arcgis_migrate as migrate_mod
+from geolens_cli import arcgis_oauth as oauth_mod
+from geolens_cli import publish as publish_mod
+from geolens_cli import replace as replace_mod
+from geolens_cli.arcgis_migrate_session import CredentialRefused, GeoLens, GeoLensError
 from geolens_cli.arcgis_portal import Redactor, holds_secret
 
 from . import test_arcgis_migrate_collections as collections
@@ -23,8 +30,9 @@ from . import test_arcgis_migrate_files as files
 from . import test_arcgis_migrate_groups as groups
 from . import test_arcgis_migrate_layers as layers
 from . import test_arcgis_migrate_refresh as refresh
+from . import test_arcgis_migrate_report as report_tests
 from . import test_arcgis_migrate_webmaps as webmaps
-from .arcgis_fake import A2, B1, D3, load
+from .arcgis_fake import A2, B1, D3, FakePortal, load, portal_routes
 from .test_arcgis_migrate_layers import (  # noqa: F401  (fixtures)
     FakeImport,
     _layer,
@@ -45,6 +53,13 @@ PATTERNS = (
     "see https://example.test/f?token=abc123&sig=ZmFrZQ Bearer abcdefghijklmnop "
     'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl {"apiKey": "x"}'
 )
+
+
+def _refused(path: str, key: str) -> str:
+    return (
+        f"the request to {path} holds this run's ArcGIS credential in {key}, "
+        "so it wasn't sent"
+    )
 
 
 def _reason(*fields: str) -> str:
@@ -168,15 +183,15 @@ def _refused_service(runner, tmp_path, geolens, case: str):
 
 
 @pytest.mark.parametrize(
-    "case,field",
+    "case,error",
     [
-        ("title", "title"),
-        ("layer_name", "title, layer name"),
-        ("service_url", "service url"),
+        ("title", _reason("title")),
+        ("layer_name", _reason("title", "layer name")),
+        ("service_url", _refused("/services/probe/", "body.url")),
     ],
 )
 def test_a_service_item_holding_the_token_stops_before_any_write(
-    runner, tmp_path, geolens, case, field
+    runner, tmp_path, geolens, case, error
 ):
     plan_file, service = _refused_service(runner, tmp_path, geolens, case)
 
@@ -184,7 +199,7 @@ def test_a_service_item_holding_the_token_stops_before_any_write(
 
     assert result.exit_code == 1
     [item] = payload["items"]
-    assert item["status"] == "failed" and item["error"] == _reason(field)
+    assert item["status"] == "failed" and item["error"] == error
     assert service.previews == 0
     assert not [s for s in geolens.seen if s.method in WRITES and "probe" not in s.url]
     _assert_kept_out(geolens, plan_file)
@@ -195,7 +210,8 @@ def test_a_resumed_service_import_checks_the_title_before_its_patch(
 ):
     FakeImport(geolens, [_layer(0, "Parcels")])
     assert _with_token(runner, plan_file, "--only", A2)[0].exit_code == 0
-    refresh._edit_state(plan_file, A2, status="failed")
+    # A dataset not yet handed over gets the plan's title again on resume.
+    refresh._edit_state(plan_file, A2, status="failed", last_update={})
     _edit_plan_item(
         plan_file, A2, lambda item: item["target"].update(title=f"Parcels {TOKEN}")
     )
@@ -204,7 +220,9 @@ def test_a_resumed_service_import_checks_the_title_before_its_patch(
     result, payload = _with_token(runner, plan_file, "--only", A2)
 
     assert result.exit_code == 1
-    assert payload["items"][0]["error"] == _reason("title")
+    assert payload["items"][0]["error"] == _refused(
+        f"/datasets/{PARCELS}", "body.title"
+    )
     assert not [s for s in _sent(geolens, before) if s.method in WRITES]
     _assert_kept_out(geolens, plan_file)
 
@@ -221,22 +239,9 @@ def test_a_refresh_probes_no_service_url_holding_the_token(runner, plan_file, ge
     result, payload = _with_token(runner, plan_file, "--only", A2)
 
     assert result.exit_code == 1
-    assert payload["not_up_to_date"][A2] == [_reason("service url")]
+    assert payload["not_up_to_date"][A2] == [_refused("/services/probe/", "body.url")]
     assert not [s for s in _sent(geolens, before) if "probe" in s.url]
     _assert_kept_out(geolens, plan_file)
-
-
-def test_a_commit_or_patch_body_is_never_built_with_the_token():
-    redact = Redactor()
-    redact.add(TOKEN)
-    ctx = SimpleNamespace(redact=redact)
-
-    with pytest.raises(
-        ItemFailed, match="the item's title holds this run's ArcGIS credential"
-    ):
-        layers_mod._commit_body(ctx, f"Parcels {TOKEN}", "private")
-
-    assert layers_mod._commit_body(ctx, "Parcels", "private").title == "Parcels"
 
 
 # File import
@@ -302,9 +307,9 @@ def _item(payload: dict, item_id: str) -> dict:
     return next(item for item in payload["items"] if item["id"] == item_id)
 
 
-@pytest.mark.parametrize("case,field", [("title", "name, title"), ("target", "name")])
+@pytest.mark.parametrize("case", ["title", "target"])
 def test_a_web_map_titled_with_the_token_is_not_imported(
-    runner, tmp_path, geolens, portal, case, field
+    runner, tmp_path, geolens, portal, case
 ):
     plan_file = _write_plan(
         tmp_path, rows={B1: {"title": f"Map {TOKEN}"}} if case == "title" else None
@@ -319,7 +324,10 @@ def test_a_web_map_titled_with_the_token_is_not_imported(
     result, payload = _with_token(runner, plan_file, "--only", B1)
 
     assert result.exit_code == 1
-    assert _item(payload, B1)["error"] == _reason(field)
+    assert _item(payload, B1)["error"] in (
+        _refused("/maps/import/arcgis-webmap/", "body.name"),
+        _refused("/maps/import/arcgis-webmap/", "body.title"),
+    )
     assert webmaps._sent(geolens) == []
     _assert_kept_out(geolens, plan_file)
 
@@ -423,7 +431,9 @@ def test_a_collection_named_with_the_token_is_not_created(runner, tmp_path, geol
     result, payload = _with_token(runner, plan_file, "--only", A2)
 
     assert result.exit_code == 1
-    assert payload["items"][0]["error"] == _reason("collection")
+    assert payload["items"][0]["error"] == _refused(
+        "/catalog/collections/", "body.name"
+    )
     assert made.names == {}
     _assert_kept_out(geolens, plan_file)
 
@@ -441,9 +451,7 @@ def test_a_group_titled_with_the_token_is_not_created(runner, tmp_path, team):
     result, _ = _with_token(runner, plan_file, "--only", A2)
 
     assert result.exit_code == 2
-    assert "ArcGIS group g1's title holds this run's ArcGIS credential" in (
-        result.output
-    )
+    assert _refused("/admin/groups/", "body.name") in result.output
     assert TOKEN not in result.output
     assert api.groups == []
     _assert_kept_out(team, plan_file)
@@ -594,4 +602,289 @@ def test_a_state_file_holding_the_token_loads_masked_and_the_run_goes_on(
 
     assert result.exit_code == 0, result.output
     assert "written by an earlier version: [REDACTED]" in _state_text(plan_file)
+    _assert_kept_out(geolens, plan_file)
+
+
+# Every request the migrate flow sends
+
+
+INSTANCE = "https://geolens.example.org/api"
+PACKAGE = Path(migrate_mod.__file__).parent
+
+
+def _migrate_requests() -> list[str]:
+    """Every SDK request module the migrate flow imports."""
+    found = set()
+    sources = [*PACKAGE.glob("arcgis_migrate*.py"), PACKAGE / "arcgis_item_metadata.py"]
+    for path in sources:
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith(
+                "geolens.api."
+            ):
+                found.update(f"{node.module}.{alias.name}" for alias in node.names)
+    return sorted(found)
+
+
+class _Planted:
+    """A request body with the token in a field no call site knows of."""
+
+    def to_dict(self) -> dict:
+        return {"unchecked": {"nested": [f"x {TOKEN}"]}}
+
+
+def _session(fake_geolens) -> GeoLens:
+    from geolens_cli._sdk_helpers import make_client
+
+    redact = Redactor()
+    redact.add(TOKEN)
+    sdk = make_client(INSTANCE, bearer_token=fake_geolens.token, provenance="env")
+    return GeoLens(sdk, INSTANCE, redact)
+
+
+def _planted_kwargs(fn) -> dict | None:
+    """Arguments for *fn* with the token in its body or each text parameter,
+    None when it takes no text at all."""
+    kwargs, planted = {}, False
+    for name, param in inspect.signature(fn).parameters.items():
+        kind = str(param.annotation)
+        if name == "client":
+            continue
+        if name == "body":
+            kwargs[name], planted = _Planted(), True
+        elif "str" in kind:
+            kwargs[name], planted = f"x {TOKEN}", True
+        elif "UUID" in kind:
+            kwargs[name] = uuid.uuid4()
+        elif "int" in kind or "float" in kind:
+            kwargs[name] = 1
+        elif "bool" in kind:
+            kwargs[name] = False
+    return kwargs if planted else None
+
+
+@pytest.mark.parametrize("module", _migrate_requests())
+def test_no_request_the_migrate_flow_sends_carries_the_token(fake_geolens, module):
+    fn = importlib.import_module(module).sync_detailed
+    kwargs = _planted_kwargs(fn)
+    session = _session(fake_geolens)
+
+    if kwargs is None:
+        # Ids and numbers only: no portal text can ride on this request.
+        params = inspect.signature(fn).parameters.values()
+        assert not [p for p in params if "str" in str(p.annotation)]
+        return
+    with pytest.raises(CredentialRefused, match="holds this run's ArcGIS credential"):
+        session.call(fn, **kwargs)
+
+    assert fake_geolens.seen == []
+
+
+@pytest.mark.parametrize("upload", [publish_mod.upload_file, replace_mod.upload_file])
+def test_an_upload_named_with_the_token_is_not_sent(fake_geolens, tmp_path, upload):
+    path = tmp_path / f"{TOKEN}.csv"
+    path.write_bytes(b"a,b\n1,2\n")
+    kwargs = {"path": path}
+    if upload is replace_mod.upload_file:
+        kwargs["dataset_id"] = uuid.uuid4()
+
+    with pytest.raises(CredentialRefused, match=" in path, "):
+        _session(fake_geolens).call(upload, **kwargs)
+
+    assert fake_geolens.seen == []
+
+
+def test_the_requests_own_credentials_are_still_sent(fake_geolens):
+    from geolens.api.admin import create_user_admin_users_post as create
+    from geolens.api.datasets import probe_service_url_services_probe_post as probe
+    from geolens.models.admin_user_create import AdminUserCreate
+    from geolens.models.probe_request import ProbeRequest
+    from geolens.models.service_auth_request import ServiceAuthRequest
+
+    session = _session(fake_geolens)
+    auth = ServiceAuthRequest(method="bearer", token=TOKEN)
+    user = AdminUserCreate(username="new", password=TOKEN, role="viewer")
+
+    for call in (
+        lambda: session.call(
+            probe.sync_detailed,
+            body=ProbeRequest(url="https://x.example.test/", auth=auth),
+        ),
+        lambda: session.call(create.sync_detailed, body=user, sends=("body.password",)),
+    ):
+        with pytest.raises(GeoLensError):
+            call()
+
+    probed, created = fake_geolens.seen
+    assert probed.json()["auth"]["token"] == TOKEN
+    assert created.json()["password"] == TOKEN
+    assert created.headers["authorization"] == f"Bearer {fake_geolens.token}"
+
+
+def test_a_field_no_call_site_checks_fails_the_item_before_it_is_sent(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels", object_id_field=f"OID{TOKEN}")])
+
+    result, payload = _with_token(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    assert payload["items"][0]["error"] == _refused(
+        "/services/preview/", "body.object_id_field"
+    )
+    assert service.previews == 0
+    _assert_kept_out(geolens, plan_file)
+
+
+# Percent-escapes in either case
+
+ESCAPED = "pa/ss wörd-" + secrets.token_hex(6)
+
+
+def _escapes() -> list[str]:
+    canonical = quote(ESCAPED, safe="")
+    lower = re.sub(r"%[0-9A-F]{2}", lambda m: m.group(0).lower(), canonical)
+    mixed = re.sub(
+        r"%([0-9A-F])([0-9A-F])", lambda m: f"%{m[1].lower()}{m[2]}", canonical
+    )
+    return [canonical, lower, mixed]
+
+
+def _escaped_redactor() -> Redactor:
+    redact = Redactor()
+    redact.add(ESCAPED)
+    return redact
+
+
+@pytest.mark.parametrize("text", _escapes(), ids=["canonical", "lower", "mixed"])
+def test_an_escaped_secret_is_found_and_masked_in_either_case(
+    fake_geolens, tmp_path, text
+):
+    from geolens.api.admin import create_group_admin_groups_post as create
+    from geolens.models.group_write import GroupWrite
+
+    from geolens_cli.arcgis_migrate_report import build_run_report, write_run_report
+    from geolens_cli.arcgis_migrate_state import ItemState, MigrationState
+
+    redact = _escaped_redactor()
+    session = _session(fake_geolens)
+    session._redact = redact
+    with pytest.raises(CredentialRefused):
+        session.call(create.sync_detailed, body=GroupWrite(name=f"see {text}"))
+    assert fake_geolens.seen == []
+
+    state = MigrationState(tmp_path / "state.json", "p", "i", redact)
+    state.items["a"] = ItemState(notes=[f"see {text}"])
+    state.save()
+    assert state.items["a"].notes == ["see [REDACTED]"]
+    assert text not in state.path.read_text()
+
+    plan = report_tests._plan(tmp_path)
+    reported = report_tests._state(tmp_path, redact)
+    # Past the state's own masking, as a regression would.
+    report_tests._set(reported, A2, "failed", error=f"see {text}")
+    report = build_run_report(plan, reported)
+    for path in write_run_report(tmp_path / "report", report, redact):
+        assert text not in path.read_text()
+
+
+# Every credential is registered before the first write
+
+
+def _group_titled(tmp_path: Path, secret: str) -> Path:
+    plan_file = groups._write(tmp_path, members=["agol_bob"])
+
+    def retitle(inventory):
+        inventory["groups"][0]["title"] = f"Planners {secret}"
+
+    _edit_inventory(plan_file, retitle)
+    return plan_file
+
+
+@pytest.mark.parametrize(
+    "source", ["option", "environment", "stdin", "prompt", "stored-oauth"]
+)
+def test_each_credential_is_registered_before_the_first_geolens_write(
+    runner, tmp_path, team, monkeypatch, source
+):
+    secret = "S" + secrets.token_hex(12)
+    api = groups.GroupsApi(team, groups._service(team), existing=[])
+    plan_file = _group_titled(tmp_path, secret)
+    args = ["--json", "arcgis", "migrate", str(plan_file), "--only", A2]
+    stdin = None
+    if source == "option":
+        args.append(f"--token={secret}")
+    elif source == "environment":
+        monkeypatch.setenv("ARCGIS_TOKEN", secret)
+    elif source == "stdin":
+        args.append("--token-stdin")
+        stdin = f"{secret}\n"
+    elif source == "prompt":
+        args += ["--username", "gis_admin"]
+        monkeypatch.setattr(
+            "geolens_cli.arcgis_portal.getpass.getpass", lambda prompt: secret
+        )
+    else:
+        args += ["--client-id", "ExampleClient1"]
+        monkeypatch.setattr(
+            oauth_mod, "_load", lambda account: [("keyring", oauth_mod._Saved(secret))]
+        )
+
+    result = runner.invoke(layers.app, args, input=stdin)
+
+    assert result.exit_code == 2, result.output
+    assert _refused("/admin/groups/", "body.name") in result.output
+    assert api.groups == []
+    _assert_kept_out(team, plan_file, secret)
+
+
+def test_a_renewed_token_is_registered_before_it_is_used(fake_geolens, monkeypatch):
+    from geolens.api.admin import create_group_admin_groups_post as create
+    from geolens.models.group_write import GroupWrite
+
+    from geolens_cli.arcgis_portal import PortalClient
+
+    renewed = "R" + secrets.token_hex(12)
+    session = _session(fake_geolens)
+    client = PortalClient(
+        "https://example.test/portal",
+        opener=FakePortal(
+            portal_routes(
+                {"generateToken": {"token": renewed, "expires": 1, "ssl": True}}
+            )
+        ),
+        redact=session._redact,
+        sleep=lambda seconds: None,
+    )
+
+    client.generate_token("gis_admin", "pw-" + secrets.token_hex(4))
+
+    with pytest.raises(CredentialRefused):
+        session.call(create.sync_detailed, body=GroupWrite(name=f"G {renewed}"))
+    assert fake_geolens.seen == []
+
+
+def test_a_relationship_named_with_the_token_is_saved_masked_and_reported(
+    runner, plan_file, geolens
+):
+    relationship = {
+        "name": f"Parcels_{TOKEN}",
+        "related_layer_id": 1,
+        "cardinality": "OneToMany",
+        "role": "Origin",
+    }
+    FakeImport(
+        geolens,
+        [
+            _layer(0, "Parcels", relationships=[relationship]),
+            _layer(1, "Owners", "Table"),
+        ],
+    )
+
+    result, payload = _with_token(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    saved = _state(plan_file)["items"][A2]["relationships"]
+    assert saved["0"][0]["name"] == "Parcels_[REDACTED]"
+    for path in payload["report"]:
+        assert TOKEN not in Path(path).read_text()
     _assert_kept_out(geolens, plan_file)

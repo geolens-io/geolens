@@ -40,7 +40,6 @@ from .arcgis_migrate_session import (
     MigrationContext,
     StopRun,
     WriteRaced,
-    refuse_credentials,
 )
 from .arcgis_plan import IMPORT_MAP
 from .arcgis_migrate_state import DONE, EXISTS, FINISHED, ItemState, whole_number
@@ -1228,11 +1227,6 @@ def _import_body(
         matches = match_datasets(ctx, webmap)
     fill_source_styling(ctx, webmap, matches)
     title = item["target"]["title"] or item["title"]
-    # The web map itself was masked when it was read.
-    refuse_credentials(
-        ctx,
-        {"name": [title, title[:255]], "title": [item["title"], item["title"][:255]]},
-    )
     visibility = item["target"]["visibility"]
     return ArcgisWebmapImportRequest(
         webmap=ArcgisWebmapImportRequestWebmap.from_dict(webmap),

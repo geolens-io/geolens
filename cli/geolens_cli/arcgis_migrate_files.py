@@ -188,7 +188,7 @@ def _commit(
 ) -> None:
     from geolens.api.datasets import commit_import_ingest_commit_job_id_post as commit
 
-    body = _commit_body(ctx, title, visibility)
+    body = _commit_body(title, visibility)
     for name, value in extra.items():
         setattr(body, name, value)
     try:
@@ -265,7 +265,7 @@ def _fan_out(
             ctx,
             entry,
             dataset,
-            _commit_body(ctx, titles[_layer_name(name)], visibility),
+            _commit_body(titles[_layer_name(name)], visibility),
         )
     return list(entry.notes)
 
@@ -445,7 +445,7 @@ def import_file(
         many = JOB_KEY not in entry.layer_datasets
         for name, dataset in entry.layer_datasets.items():
             title = _title(base, _layer_name(name) if many else None)
-            _apply_target(ctx, entry, dataset, _commit_body(ctx, title, visibility))
+            _apply_target(ctx, entry, dataset, _commit_body(title, visibility))
         # Notes from the run that imported the layers, such as a layer that
         # failed to queue, must survive this resume.
         return ItemResult(notes=list(entry.notes))
@@ -466,7 +466,7 @@ def import_file(
             # must leave the dataset recorded, or a rerun would upload again.
             result = _pinned(entry, dataset)
             ctx.save()
-            _apply_target(ctx, entry, dataset, _commit_body(ctx, base, visibility))
+            _apply_target(ctx, entry, dataset, _commit_body(base, visibility))
             return result
         ctx.save()
 

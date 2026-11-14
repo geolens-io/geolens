@@ -286,61 +286,68 @@ class ItemState:
         return cls(**{k: v for k, v in data.items() if k in known})
 
 
-def _masked(value: Any, redact: Redactor, path: tuple[str, ...] = ()) -> Any:
-    """*value* with every string, key or value, that contains a registered
-    secret replaced by its masked text. ``StateError`` when masking makes two
-    keys one."""
-    if isinstance(value, str):
-        return redact(value) if holds_secret(value, redact) else value
-    if isinstance(value, list):
-        return [_masked(v, redact, path) for v in value]
-    if not isinstance(value, dict):
+class _Masker:
+    """Masks, in place, every string, key or value, that holds a secret
+    registered with *redact*. A key that would mask to a name its container
+    already has is left as it is and recorded in *collided* by item and
+    member; strings found clean go in *clean* and aren't read again."""
+
+    def __init__(self, redact: Any, clean: set[str]) -> None:
+        self.redact = redact
+        self.clean = clean
+        self.collided: list[str] = []
+
+    def text(self, value: str) -> str:
+        if value in self.clean:
+            return value
+        if holds_secret(value, self.redact):
+            return self.redact(value)
+        self.clean.add(value)
         return value
-    out: dict[Any, Any] = {}
-    for key, item in value.items():
-        name = _masked(key, redact) if isinstance(key, str) else key
-        if name in out:
-            raise StateError(
-                f"{_place(path, None)} holds two entries whose names differ only "
-                "by a credential; remove one of them from the state file"
-            )
-        out[name] = _masked(item, redact, (*path, str(name)))
-    return out
+
+    def __call__(self, value: Any, path: tuple[str, ...]) -> Any:
+        if isinstance(value, str):
+            return self.text(value)
+        if isinstance(value, ItemState):
+            for f in fields(ItemState):
+                inner = (*path, f.name)
+                setattr(value, f.name, self(getattr(value, f.name), inner))
+        elif isinstance(value, list):
+            for i, item in enumerate(value):
+                value[i] = self(item, path)
+        elif isinstance(value, dict):
+            for key in list(value):
+                name = self.text(key) if isinstance(key, str) else key
+                value[key] = self(value[key], (*path, str(name)))
+                if name == key:
+                    continue
+                if name in value:
+                    self.collided.append(_place(path))
+                else:
+                    value[name] = value.pop(key)
+        return value
 
 
-def _credential_at(payload: Any, redact: Redactor, clean: set[str]) -> str | None:
-    """Where in the state *payload* a string, key or value, contains a
-    registered secret, named by item and field and never by the string; None
-    when nothing does. Strings found clean are added to *clean* and not read
-    again, since the file is written after every item."""
-    stack: list[tuple[tuple[str, ...], Any]] = [((), payload)]
-    while stack:
-        path, node = stack.pop()
-        strings: list[str] = []
-        if isinstance(node, dict):
-            stack.extend(((*path, str(k)), v) for k, v in node.items())
-            strings = [k for k in node if isinstance(k, str)]
-        elif isinstance(node, list):
-            stack.extend((path, v) for v in node)
-        elif isinstance(node, str):
-            strings = [node]
-        for text in strings:
-            if text in clean:
-                continue
-            if holds_secret(text, redact):
-                return _place(path, clean)
-            clean.add(text)
-    return None
-
-
-def _place(path: tuple[str, ...], clean: set[str] | None) -> str:
-    """The item and field *path* falls in, or the top-level field. On save an
-    item id is named only once it was found clean; on load the path holds
-    masked names already (*clean* None)."""
+def _place(path: tuple[str, ...]) -> str:
+    """The item and member *path* falls in, or the top-level member; the path
+    holds masked names only."""
     if len(path) >= 3 and path[0] == "items":
-        item = path[1] if clean is None or path[1] in clean else "an item"
-        return f"item {item}, field {path[2]},"
-    return f"the state's {path[0]} field" if path else "the state"
+        return f"item {path[1]}, member {path[2]}"
+    return f"the state's {path[0]}" if path else "the state"
+
+
+def _written(value: Any, redact: Any) -> Any:
+    """*value* without the entries whose key still holds a secret, those
+    ``_Masker`` left because masking would merge them with another."""
+    if isinstance(value, dict):
+        return {
+            k: _written(v, redact)
+            for k, v in value.items()
+            if not (isinstance(k, str) and holds_secret(k, redact))
+        }
+    if isinstance(value, list):
+        return [_written(v, redact) for v in value]
+    return value
 
 
 class MigrationState:
@@ -356,10 +363,11 @@ class MigrationState:
         persist: bool = True,
     ) -> None:
         self.path = path
-        # Strings save() found to hold no credential, as of the redactor
-        # version that checked them.
+        # Strings found to hold no secret, as of the redactor version that
+        # checked them, and why entries were left out of the file.
         self._clean: set[str] = set()
         self._clean_version = getattr(redact, "version", None)
+        self.left_out: list[str] = []
         self.portal_url = portal_url
         self.instance = instance
         self.items: dict[str, ItemState] = {}
@@ -411,9 +419,7 @@ class MigrationState:
                 "file (not UTF-8 text)"
             ) from None
         try:
-            # An earlier version could write the run's credential into the
-            # file; it is masked here, so saving refuses only what this run adds.
-            data = _masked(json.loads(raw), redact)
+            data = json.loads(raw)
             version = data.get("schema_version")
             if version not in _READABLE_VERSIONS:
                 if (
@@ -462,6 +468,8 @@ class MigrationState:
         state.collections = collections
         state.cutover = cutover
         state.groups = groups
+        # An earlier version could write the run's credential into the file.
+        state.mask()
         return state
 
     def _lock(self) -> None:
@@ -506,9 +514,30 @@ class MigrationState:
         """*text* redacted and shortened, safe to store in the file."""
         return redact_json(text, self._redact)[:MAX_ERROR_CHARS]
 
+    def mask(self) -> None:
+        """Mask, in memory, every string that holds a secret registered by
+        now, so the file and later comparisons see the same value. Entries
+        masking would merge stay as they are, are left out of the file and
+        listed in ``left_out``."""
+        version = getattr(self._redact, "version", None)
+        if self._clean_version != version:
+            self._clean = set()
+            self._clean_version = version
+        masker = _Masker(self._redact, self._clean)
+        for name in ("collections", "cutover", "groups", "items"):
+            setattr(self, name, masker(getattr(self, name), (name,)))
+        for place in masker.collided:
+            note = (
+                f"{place} has two entries whose names differ only by this run's "
+                "ArcGIS credential; one was left out of the state file"
+            )
+            if note not in self.left_out:
+                self.left_out.append(note)
+
     def save(self) -> None:
         if not self._persist:
             return
+        self.mask()
         payload = {
             "schema_version": STATE_VERSION,
             "portal_url": self.portal_url,
@@ -518,16 +547,8 @@ class MigrationState:
             "groups": self.groups,
             "items": {k: vars(v) for k, v in self.items.items()},
         }
-        version = getattr(self._redact, "version", None)
-        if self._clean_version != version:
-            self._clean = set()
-            self._clean_version = version
-        refused = _credential_at(payload, self._redact, self._clean)
-        if refused is not None:
-            raise StateError(
-                f"{refused} holds this run's ArcGIS credential, so {self.path} was "
-                "not saved"
-            )
+        if self.left_out:
+            payload = _written(payload, self._redact)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # Rewritten after every item, so compact: a plan can hold 10,000 items.
         _report.write_private(self.path, json.dumps(payload, separators=(",", ":")))

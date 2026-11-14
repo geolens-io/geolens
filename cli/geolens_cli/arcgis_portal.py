@@ -106,6 +106,7 @@ class Redactor:
 
     def __init__(self) -> None:
         self._forms: list[str] = []
+        self._pattern: re.Pattern[str] | None = None
         # Moves on every registration, so a result cached as clean expires.
         self.version = 0
 
@@ -118,19 +119,33 @@ class Redactor:
         normal = (unicodedata.normalize(form, secret) for form in ("NFC", "NFD"))
         for text in dict.fromkeys((secret, *normal)):
             forms += [text, quote(text, safe=""), quote_plus(text)]
-        # Replaced whole, not sorted in place: a token renewed mid-run is added
-        # while other threads redact, and an in-place sort hides every form.
-        self._forms = sorted(dict.fromkeys(forms), key=len, reverse=True)
+        forms = sorted(dict.fromkeys(forms), key=len, reverse=True)
+        # Replaced whole, not changed in place: a token renewed mid-run is
+        # added while other threads redact. Longest form first, as one pass.
+        self._pattern = re.compile("|".join(_any_escape_case(f) for f in forms))
+        self._forms = forms
         self.version += 1
 
     def holds(self, text: str) -> bool:
         """Whether *text* contains a registered secret in any form it masks."""
-        return any(form in text for form in self._forms)
+        pattern = self._pattern
+        return pattern is not None and pattern.search(text) is not None
 
     def __call__(self, text: str) -> str:
-        for form in self._forms:
-            text = text.replace(form, "[REDACTED]")
+        pattern = self._pattern
+        if pattern is not None:
+            text = pattern.sub("[REDACTED]", text)
         return _CREDENTIAL_PARAM.sub(r"\1[REDACTED]", text)
+
+
+def _any_escape_case(form: str) -> str:
+    """A pattern for *form* whose percent-escapes match in either case
+    (``%2f`` and ``%2F``); every other character matches only as it is."""
+    return re.sub(
+        r"%([0-9A-Fa-f])([0-9A-Fa-f])",
+        lambda m: "%" + "".join(f"[{c.upper()}{c.lower()}]" for c in m.groups()),
+        re.escape(form),
+    )
 
 
 def _is_credential_name(name: str) -> bool:
