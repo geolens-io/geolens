@@ -18,21 +18,20 @@ VARS = (
     "TILE_VECTOR_BURST",
     "TILE_VECTOR_DELAY",
 )
+needs_envsubst = pytest.mark.skipif(
+    shutil.which("envsubst") is None, reason="envsubst not installed"
+)
 SHELLS = [s for s in ("sh", "dash", "bash") if shutil.which(s)]
 _SECTION = "tile_limit() {"
 _SECTION_END = "\nexport API_UPSTREAM"
 _ENVSUBST_ALLOWLIST = " ".join(f"${v}" for v in VARS)
 
 
-def _render(shell, env):
+def _render(shell, env, subst=True):
     section = ENTRYPOINT.split(_SECTION, 1)[1].split(_SECTION_END, 1)[0]
-    script = (
-        "set -e\n"
-        + _SECTION
-        + section
-        + f"\nexport {' '.join(VARS)}\n"
-        + f"envsubst '{_ENVSUBST_ALLOWLIST}' < {NGINX_CONF}"
-    )
+    script = "set -e\n" + _SECTION + section + f"\nexport {' '.join(VARS)}\n"
+    if subst:
+        script += f"envsubst '{_ENVSUBST_ALLOWLIST}' < {NGINX_CONF}"
     return subprocess.run(
         [shell, "-c", script],
         env={"PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", **env},
@@ -61,6 +60,7 @@ DEFAULT_LINES = [
 
 
 @pytest.mark.parametrize("shell", SHELLS)
+@needs_envsubst
 def test_defaults_render_the_historical_limits(shell):
     result = _render(shell, {})
     assert result.returncode == 0, result.stderr
@@ -69,6 +69,7 @@ def test_defaults_render_the_historical_limits(shell):
 
 
 @pytest.mark.parametrize("shell", SHELLS)
+@needs_envsubst
 def test_empty_values_take_the_defaults(shell):
     env = {name: "" for name in VARS if name != "TILE_VECTOR_DELAY"}
     result = _render(shell, env)
@@ -77,6 +78,7 @@ def test_empty_values_take_the_defaults(shell):
 
 
 @pytest.mark.parametrize("shell", SHELLS)
+@needs_envsubst
 def test_overrides_land_in_every_directive(shell):
     result = _render(
         shell,
@@ -98,6 +100,7 @@ def test_overrides_land_in_every_directive(shell):
 
 
 @pytest.mark.parametrize("shell", SHELLS)
+@needs_envsubst
 def test_vector_delay_never_exceeds_the_burst(shell):
     low = _render(shell, {"TILE_VECTOR_BURST": "50"})
     assert "zone=vector_anon burst=50 delay=50;" in low.stdout
@@ -112,7 +115,7 @@ def test_vector_delay_never_exceeds_the_burst(shell):
     ["0", "-5", "abc", "600;", "600 nodelay", "1.5", "007", "1000001", "99999999999"],
 )
 def test_invalid_values_are_refused_and_named(shell, name, value):
-    result = _render(shell, {name: value})
+    result = _render(shell, {name: value}, subst=False)
     assert result.returncode != 0
     assert name in result.stderr
     assert "1 to 1000000" in result.stderr
@@ -120,6 +123,7 @@ def test_invalid_values_are_refused_and_named(shell, name, value):
 
 
 @pytest.mark.parametrize("shell", SHELLS)
+@needs_envsubst
 def test_upper_bound_is_accepted(shell):
     result = _render(shell, {"TILE_RASTER_BURST": "1000000"})
     assert result.returncode == 0, result.stderr
