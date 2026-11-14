@@ -11,36 +11,36 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.processing.ingest.ogr import (
     build_pg_conn_str,
-    declares_single_point,
+    point_nlt,
     run_ogr2ogr,
     run_ogrinfo,
 )
 
 
 @pytest.mark.parametrize(
-    ("declared", "single"),
+    ("declared", "nlt"),
     [
-        ("Point", True),
-        ("PointZ", True),
-        ("PointM", True),
-        ("PointZM", True),
-        ("3D Point", True),
-        ("Measured Point", True),
-        ("3D Measured Point", True),
-        ("MultiPoint", False),
-        ("Multi Point", False),
-        ("MultiPointZ", False),
-        ("3D Multi Point", False),
-        ("Unknown (any)", False),
-        ("Geometry", False),
-        ("LineString", False),
-        ("Polygon", False),
-        ("", False),
-        (None, False),
+        ("Point", "POINT"),
+        ("PointZ", "POINTZ"),
+        ("PointM", "POINTM"),
+        ("PointZM", "POINTZM"),
+        ("3D Point", "POINTZ"),
+        ("Measured Point", "POINTM"),
+        ("3D Measured Point", "POINTZM"),
+        ("MultiPoint", None),
+        ("Multi Point", None),
+        ("MultiPointZ", None),
+        ("3D Multi Point", None),
+        ("Unknown (any)", None),
+        ("Geometry", None),
+        ("LineString", None),
+        ("Polygon", None),
+        ("", None),
+        (None, None),
     ],
 )
-def test_declares_single_point(declared, single):
-    assert declares_single_point(declared) is single
+def test_point_nlt(declared, nlt):
+    assert point_nlt(declared) == nlt
 
 
 def _feature(geometry: dict) -> dict:
@@ -118,7 +118,7 @@ class TestStagedGeometryColumn:
 
     async def test_point_z_stays_point(self, test_db_session, tmp_path):
         path = _geojson(tmp_path, POINT_Z)
-        assert await self._stage(test_db_session, path) == "POINT"
+        assert await self._stage(test_db_session, path) == "POINTZ"
 
     async def test_shapefile_points_stay_point(self, test_db_session, tmp_path):
         shp = tmp_path / "pts.shp"
@@ -168,5 +168,105 @@ class TestStagedGeometryColumn:
             "(GeomFromText('MULTIPOINT((1 2),(3 4))', 4326), 2)",
         )
         info = await run_ogrinfo(str(gpkg))
-        assert declares_single_point(info["geometry_type"])
+        assert point_nlt(info["geometry_type"]) == "POINT"
         assert await self._stage(test_db_session, gpkg) == "MULTIPOINT"
+
+    @pytest.mark.parametrize(
+        ("wkt", "layer_type", "z", "m", "ndims"),
+        [
+            ("POINT Z (1 2 3)", "POINTZ", 3.0, None, 3),
+            ("POINT M (1 2 7)", "POINTM", None, 7.0, 3),
+            ("POINT ZM (1 2 3 7)", "POINTZM", 3.0, 7.0, 4),
+        ],
+    )
+    async def test_point_keeps_z_and_m(
+        self, test_db_session, tmp_path, wkt, layer_type, z, m, ndims
+    ):
+        gpkg = self._gpkg_from_wkt(tmp_path, wkt, layer_type)
+        await self._stage(test_db_session, gpkg)
+        assert await self._dims(test_db_session) == (1, z, m, ndims)
+
+    @pytest.mark.parametrize(
+        ("wkt", "multi_wkt", "layer_type", "z", "m", "ndims"),
+        [
+            (
+                "POINT Z (1 2 3)",
+                "MULTIPOINT Z ((1 2 3),(4 5 3))",
+                "POINTZ",
+                3.0,
+                None,
+                3,
+            ),
+            (
+                "POINT M (1 2 7)",
+                "MULTIPOINT M ((1 2 7),(4 5 7))",
+                "POINTM",
+                None,
+                7.0,
+                3,
+            ),
+            (
+                "POINT ZM (1 2 3 7)",
+                "MULTIPOINT ZM ((1 2 3 7),(4 5 3 7))",
+                "POINTZM",
+                3.0,
+                7.0,
+                4,
+            ),
+        ],
+    )
+    async def test_multipoint_retry_keeps_z_and_m(
+        self, test_db_session, tmp_path, wkt, multi_wkt, layer_type, z, m, ndims
+    ):
+        gpkg = self._gpkg_from_wkt(tmp_path, wkt, layer_type)
+        _ogr(
+            "ogrinfo",
+            str(gpkg),
+            "-dialect",
+            "SQLite",
+            "-sql",
+            f"INSERT INTO t(geom, a) VALUES (GeomFromText('{multi_wkt}', 4326), 2)",
+        )
+        info = await run_ogrinfo(str(gpkg))
+        assert point_nlt(info["geometry_type"]) == layer_type
+        assert await self._stage(test_db_session, gpkg) == "MULTIPOINT" + layer_type[5:]
+        assert await self._dims(test_db_session, "ST_GeometryN(_geolens_geom, 1)") == (
+            2,
+            z,
+            m,
+            ndims,
+        )
+
+    @staticmethod
+    def _gpkg_from_wkt(tmp_path, wkt: str, layer_type: str):
+        csv = tmp_path / "src.csv"
+        csv.write_text(f'wkt,a\n"{wkt}",1\n')
+        gpkg = tmp_path / "dims.gpkg"
+        _ogr(
+            "ogr2ogr",
+            "-f",
+            "GPKG",
+            str(gpkg),
+            str(csv),
+            "-oo",
+            "GEOM_POSSIBLE_NAMES=wkt",
+            "-oo",
+            "KEEP_GEOM_COLUMNS=NO",
+            "-a_srs",
+            "EPSG:4326",
+            "-nlt",
+            layer_type,
+            "-nln",
+            "t",
+        )
+        return gpkg
+
+    async def _dims(self, session, geom: str = "_geolens_geom"):
+        table = self._tables[-1]
+        row = await session.execute(
+            text(
+                f"SELECT count(*), max(ST_Z({geom})), max(ST_M({geom})), "
+                f"max(ST_NDims({geom})) FROM data.{table}"  # noqa: S608
+            )
+        )
+        return row.one()
