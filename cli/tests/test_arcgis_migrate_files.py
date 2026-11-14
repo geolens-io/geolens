@@ -16,7 +16,14 @@ from geolens_cli import arcgis_migrate as migrate
 
 from . import arcgis_fake
 from . import test_arcgis_migrate_layers as layers
-from .arcgis_fake import D3, PORTAL, FakePortal, item_data_path, portal_routes
+from .arcgis_fake import (
+    D3,
+    NO_FILE_PAGE,
+    PORTAL,
+    FakePortal,
+    item_data_path,
+    portal_routes,
+)
 from .test_arcgis_migrate_layers import (
     _migrate,
     _problem,
@@ -1632,3 +1639,80 @@ def test_a_preview_error_that_is_not_about_the_job_state_still_fails_the_item(
     assert result.exit_code == 1
     assert not files.uploads
     assert _state(plan_file)["items"][D3]["pending_upload"] == broken
+
+
+CSV_URL = "https://data.example.com/inspections.csv"
+BY_URL = {"url": CSV_URL, "size_bytes": 0}
+
+
+def _by_url(portal: FakePortal) -> None:
+    portal.routes[item_data_path(D3)] = NO_FILE_PAGE
+    portal.routes[f"content/items/{D3}/resources"] = {"resources": [], "nextStart": -1}
+
+
+def test_a_csv_added_by_url_is_planned_and_exported_as_a_reference(
+    runner, tmp_path, geolens, portal
+):
+    files = FakeFiles(geolens)
+    _by_url(portal)
+    plan_file = _plan(tmp_path, **BY_URL, reason="added_by_url_no_file")
+    [item] = [i for i in json.loads(plan_file.read_text())["items"] if i["id"] == D3]
+    assert item["action"] == "export_only" and item["reason"] == "added_by_url_no_file"
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    assert not files.uploads
+    entry = _state(plan_file)["items"][D3]
+    assert entry["status"] == "done" and entry["export"]["errors"] == []
+    folder = plan_file.parent / "export" / "csv" / D3
+    assert sorted(p.name for p in folder.iterdir()) == ["item.json"]
+    index = (plan_file.parent / "export" / "INDEX.md").read_text()
+    assert f"Points to {CSV_URL}" in index
+
+
+@pytest.mark.parametrize(
+    ("row", "data_reads"),
+    [(BY_URL, 1), ({"size_bytes": None}, 2)],
+    ids=["inventory", "portal_answer"],
+)
+def test_an_older_plan_importing_an_item_without_a_file_skips_it_with_its_record(
+    runner, tmp_path, geolens, portal, row, data_reads
+):
+    files = FakeFiles(geolens)
+    _by_url(portal)
+    plan_file = _plan(tmp_path, **row)
+    [item] = [i for i in json.loads(plan_file.read_text())["items"] if i["id"] == D3]
+    assert item["action"] == "import_file"
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    assert not files.uploads and "rerun" not in result.output
+    # An item the inventory shows has no file is exported without a download try.
+    assert len(portal.requests_to(item_data_path(D3))) == data_reads
+    entry = _state(plan_file)["items"][D3]
+    assert entry["status"] == "skipped" and entry["error"] is None
+    assert "added by URL and has no file" in entry["notes"][0]
+    assert "export_only" in entry["notes"][0]
+    folder = plan_file.parent / "export" / "csv" / D3
+    assert (folder / "item.json").exists()
+    assert entry["export"]["path"] == f"export/csv/{D3}"
+
+
+def test_any_other_500_on_the_file_fails_the_import_for_a_rerun(
+    runner, tmp_path, geolens, portal
+):
+    FakeFiles(geolens)
+    portal.routes[item_data_path(D3)] = (
+        500,
+        b"<html><title>Server Error</title></html>",
+    )
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 1
+    entry = _state(plan_file)["items"][D3]
+    assert entry["status"] == "failed"
+    assert "downloading the data file failed" in entry["error"]

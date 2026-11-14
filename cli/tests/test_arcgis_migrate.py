@@ -566,6 +566,52 @@ def test_a_map_waits_while_its_layer_failed(runner, tmp_path, geolens, monkeypat
     assert _state(tmp_path)["items"][L1]["error"] == "the service answered 500"
 
 
+@pytest.mark.parametrize("action", ["export_only", "skip"])
+def test_a_map_does_not_wait_on_a_dependency_that_makes_no_dataset(
+    runner, tmp_path, geolens, monkeypatch, action
+):
+    ran: list[str] = []
+
+    def handler(ctx, item, entry):
+        ran.append(item["id"])
+        if item["id"] == L1:
+            raise migrate.ItemFailed(
+                "export incomplete, rerun to retry: data: HTTP 503"
+            )
+        return migrate.ItemResult()
+
+    _install(monkeypatch, handler)
+    monkeypatch.setitem(migrate.HANDLERS, "export_only", handler)
+    plan = _plan([_item(L1, action), _item(M1, "import_map", depends_on=[L1])])
+
+    _, payload = _run(runner, tmp_path, plan)
+
+    assert ran[-1] == M1
+    assert payload["waiting"] == []
+    assert not _follow_ups(tmp_path, "unresolved_dependency")
+
+
+def test_a_map_left_waiting_says_what_its_dependency_is_waiting_on(
+    runner, tmp_path, geolens, monkeypatch
+):
+    def handler(ctx, item, entry):
+        if item["id"] == L1:
+            raise migrate.ItemFailed("the service answered 500")
+        raise AssertionError("the map must not run")
+
+    _install(monkeypatch, handler)
+    plan = _plan([_item(L1), _item(M1, "import_map", depends_on=[L1])])
+
+    result, _ = _run(runner, tmp_path, plan)
+
+    assert result.exit_code == 1
+    text = f"waits on {L1} (failed: the service answered 500)"
+    assert _follow_ups(tmp_path, "unresolved_dependency") == {M1: text}
+    path = str(tmp_path / "arcgis-migration-plan.json")
+    shown = runner.invoke(app, ["arcgis", "migrate", path])
+    assert f"{M1} {text}" in shown.output
+
+
 def test_skip_items_are_recorded_as_skipped(runner, tmp_path, geolens, handled):
     result, _ = _run(runner, tmp_path, _plan([_item(L1, "skip")]))
     assert result.exit_code == 0

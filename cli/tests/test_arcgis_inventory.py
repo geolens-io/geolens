@@ -203,6 +203,26 @@ def test_classify_table(item_type, keywords, klass, reason, retirement, hosted):
     }
 
 
+@pytest.mark.parametrize(
+    ("item_type", "url", "size", "reason"),
+    [
+        ("CSV", "https://data.example.com/a.csv", 0, "added_by_url_no_file"),
+        ("GeoJson", "https://data.example.com/a.geojson", -1, "added_by_url_no_file"),
+        ("CSV", "https://data.example.com/a.csv", None, "added_by_url_no_file"),
+        ("CSV", None, 12345, "data_file_import_candidate"),
+        ("CSV", "https://data.example.com/a.csv", 12345, "data_file_import_candidate"),
+        ("KML", "https://data.example.com/a.kml", 0, "ogc_service_reference"),
+    ],
+)
+def test_a_file_item_with_a_url_and_no_size_is_a_reference(
+    item_type, url, size, reason
+):
+    """A file type with a URL and no file is classed as a reference."""
+    verdict = inventory.classify({"type": item_type, "url": url, "size": size})
+    assert verdict["reason"] == reason
+    assert verdict["class"] == "partial"
+
+
 def test_retirement_dates_cite_a_source():
     """A dated retirement always carries the Esri page it came from."""
     for entry in inventory.RETIREMENTS.values():

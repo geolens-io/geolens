@@ -63,6 +63,11 @@ TOKEN_EXPIRATION_MINUTES = 60
 
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 _RETRYABLE_STATUSES = frozenset({429, 502, 503, 504})
+# The kind of the 500 ArcGIS answers for the data of an item added by URL,
+# which has no file; a rerun can't change it.
+NO_FILE = "no_file"
+_NO_FILE_TEXT = b"item does not have a file"
+_NO_FILE_PROBE_BYTES = 4096
 _TOKEN_REQUIRED = 499
 _TOKEN_INVALID = 498
 _OAUTH_REFUSALS = frozenset({400, 401, _TOKEN_INVALID, _TOKEN_REQUIRED})
@@ -1099,7 +1104,10 @@ class PortalClient:
 
     def _http_error(self, exc: urllib.error.HTTPError, path: str) -> PortalError:
         status = exc.code
+        no_file = status == 500 and _says_no_file(_body_head(exc))
         exc.close()
+        if no_file:
+            return self._no_file_error(path)
         if 300 <= status < 400:
             return self._error(
                 f"{path} answered with a redirect (HTTP {status}). Redirects "
@@ -1157,7 +1165,16 @@ class PortalClient:
             return data
         raise self._error(f"{path} did not return a JSON object", kind="invalid")
 
+    def _no_file_error(self, path: str) -> PortalError:
+        return self._error(
+            f"{path}: the item has no file (HTTP 500)", kind=NO_FILE, http_status=500
+        )
+
     def _envelope_error(self, path: str, data: dict, code: int) -> PortalError:
+        error = data.get("error")
+        if code == 500 and isinstance(error, dict):
+            if _says_no_file(str(error.get("message") or "").encode()):
+                return self._no_file_error(path)
         message = _envelope_message(data, self._redact) or "no message"
         if code in (_TOKEN_INVALID, _TOKEN_REQUIRED):
             kind = "auth"
@@ -1171,6 +1188,17 @@ class PortalClient:
             http_status=code,
             retryable=code in _RETRYABLE_STATUSES,
         )
+
+
+def _body_head(exc: urllib.error.HTTPError) -> bytes:
+    try:
+        return exc.read(_NO_FILE_PROBE_BYTES) or b""
+    except (OSError, http.client.HTTPException, ValueError):
+        return b""
+
+
+def _says_no_file(text: bytes) -> bool:
+    return _NO_FILE_TEXT in text.lower()
 
 
 def _envelope_code(data: Mapping[str, Any]) -> int | None:

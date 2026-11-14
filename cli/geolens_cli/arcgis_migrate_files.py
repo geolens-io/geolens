@@ -38,8 +38,10 @@ from .arcgis_migrate_session import (
     StopRun,
     refuse_credentials,
 )
+from .arcgis_inventory import added_by_url
+from .arcgis_migrate_export import export_item
 from .arcgis_migrate_state import SKIPPED, ItemState
-from .arcgis_portal import PortalError
+from .arcgis_portal import NO_FILE, PortalError
 
 # ArcGIS item type -> the extension GeoLens recognises the file by.
 EXTENSIONS = {
@@ -109,6 +111,10 @@ class _Skipped(Exception):
     """The item is left for the operator; the message is the reason."""
 
 
+class _NoFile(Exception):
+    """The portal says the item has no file to download."""
+
+
 def _download(ctx: MigrationContext, item_id: str, dest: Path, limit: int) -> None:
     """Fetch the item's data into *dest*. ``_Skipped`` when it is over *limit*;
     ``ItemFailed`` / ``StopRun`` when the portal refuses."""
@@ -126,6 +132,8 @@ def _download(ctx: MigrationContext, item_id: str, dest: Path, limit: int) -> No
             raise _Skipped(
                 f"the file is over the instance's upload limit of {_megabytes(limit)}"
             ) from None
+        if exc.kind == NO_FILE:
+            raise _NoFile from None
         if exc.http_status in _TOKEN_STATUSES:
             raise StopRun(
                 f"the portal refused the ArcGIS token ({exc}); it may have "
@@ -432,6 +440,8 @@ def import_file(
     row = ctx.inventory.get(item["id"])
     if row is None:
         raise ItemFailed("the item is not in the inventory the plan was built from")
+    if added_by_url(row["type"], row.get("url"), row.get("size_bytes")):
+        return _as_reference(ctx, item, entry)
     base = item["target"]["title"] or item["title"]
     # The upload's file name is made from the portal's title.
     refuse_credentials(
@@ -493,6 +503,8 @@ def import_file(
             job_id = _upload_fresh(ctx, item, extension, limit)
         except _Skipped as skipped:
             return ItemResult(status=SKIPPED, notes=[f"skipped: {skipped}"])
+        except _NoFile:
+            return _as_reference(ctx, item, entry)
         entry.job_ids.append(str(job_id))
         entry.pending_upload = str(job_id)
         ctx.save()
@@ -528,6 +540,23 @@ def import_file(
     dataset = _wait_for_dataset(ctx, job_id, base)
     del entry.layer_jobs[JOB_KEY]
     return _pinned(entry, dataset, notes)
+
+
+def _as_reference(
+    ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
+) -> ItemResult:
+    """Skip an item that has no file, added by URL, and save its record in
+    the export bundle as ``export_only`` would."""
+    exported = export_item(ctx, item, entry)
+    return ItemResult(
+        status=SKIPPED,
+        notes=[
+            "skipped: the item was added by URL and has no file to import; its "
+            "record is saved in the export bundle. Set its action to export_only "
+            "so later runs stop trying to import it",
+            *exported.notes,
+        ],
+    )
 
 
 def _pinned(

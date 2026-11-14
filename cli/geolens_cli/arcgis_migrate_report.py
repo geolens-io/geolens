@@ -46,6 +46,47 @@ REPORT_JSON = "arcgis-migration-report.json"
 REPORT_MD = "arcgis-migration-report.md"
 _SETTLED = frozenset({DONE, EXISTS, SKIPPED})
 _SKIPPED_LAYER = ("layer, not imported", "layer not imported")
+_WAIT_REASON_CHARS = 200
+
+
+def unmet_dependencies(
+    item: Mapping[str, Any],
+    items: Mapping[str, Mapping[str, Any]],
+    state: MigrationState,
+) -> list[str]:
+    """The plan items *item* still waits on: dependencies whose action makes
+    datasets or a map and that haven't settled. An export_only or skip
+    dependency makes nothing to wait for, and a removed one never runs."""
+    return [
+        dep
+        for dep in item["depends_on"]
+        if dep in items
+        and dep != item["id"]
+        and not items[dep].get("removed")
+        and items[dep]["action"] in _plan.IMPORTING
+        and state.status(dep) not in _SETTLED
+    ]
+
+
+def waits_on(
+    unmet: Sequence[str],
+    items: Mapping[str, Mapping[str, Any]],
+    state: MigrationState,
+) -> str:
+    """``waits on`` each of *unmet* with its status and, when it failed, why."""
+    shown = []
+    for dep in unmet:
+        status = state.status(dep)
+        error = state.items[dep].error if dep in state.items else None
+        if items.get(dep, {}).get("unlisted"):
+            why = f"{status}, missing from the inventory"
+        elif status == FAILED and error:
+            cut = error[:_WAIT_REASON_CHARS]
+            why = f"{status}: {cut}{'...' if len(error) > len(cut) else ''}"
+        else:
+            why = status
+        shown.append(f"{dep} ({why})")
+    return "waits on " + ", ".join(shown)
 
 
 def _follow_ups(
@@ -218,15 +259,9 @@ def _follow_ups(
                 "not_available",
                 f"the {item['action']} action can't run yet",
             )
-        unmet = [
-            dep
-            for dep in item["depends_on"]
-            if dep in items
-            and not items[dep].get("removed")
-            and state.status(dep) not in _SETTLED
-        ]
+        unmet = unmet_dependencies(item, items, state)
         if unmet:
-            add(item["id"], "unresolved_dependency", "waits on " + ", ".join(unmet))
+            add(item["id"], "unresolved_dependency", waits_on(unmet, items, state))
     for item in plan["items"]:
         if (
             item["action"] == _plan.SKIP

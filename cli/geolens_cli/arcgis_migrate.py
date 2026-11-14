@@ -76,7 +76,12 @@ from .arcgis_migrate_groups import (
     prepare_groups,
     share,
 )
-from .arcgis_migrate_report import build_run_report, write_run_report
+from .arcgis_migrate_report import (
+    build_run_report,
+    unmet_dependencies,
+    waits_on,
+    write_run_report,
+)
 from .arcgis_migrate_files import FILE_TYPES, import_file
 from .arcgis_migrate_layers import _import_recorded, import_layers
 from .arcgis_migrate_refresh import (
@@ -181,8 +186,7 @@ HANDLERS: dict[str, Handler] = {
     _plan.EXPORT_ONLY: export_item,
     _plan.IMPORT_MAP: import_map,
 }
-# Actions that make datasets or a map in GeoLens.
-IMPORTING = frozenset({_plan.IMPORT_LAYERS, _plan.IMPORT_FILE, _plan.IMPORT_MAP})
+IMPORTING = _plan.IMPORTING
 # Action -> how a rerun brings a finished item of it up to date.
 REFRESHERS: dict[str, Refresher] = {
     _plan.IMPORT_LAYERS: refresh_layers,
@@ -1078,20 +1082,6 @@ class RunSummary:
     handover_failed: list[str] = field(default_factory=list)
 
 
-def _unmet(
-    item: Mapping[str, Any], by_id: Mapping[str, Any], state: MigrationState
-) -> list[str]:
-    # A removed dependency never runs, so like a missing one it holds nothing back.
-    return [
-        dep
-        for dep in item["depends_on"]
-        if dep in by_id
-        and dep != item["id"]
-        and not by_id[dep].get("removed")
-        and state.status(dep) not in (*FINISHED, SKIPPED)
-    ]
-
-
 def _sharing_target(
     ctx: MigrationContext, item: Mapping[str, Any], owner_id: str | None
 ) -> tuple[Mapping[str, Any], list[str]]:
@@ -1331,7 +1321,7 @@ def run_items(
         if handler is None:
             summary.unavailable.append(item["id"])
             continue
-        unmet = _unmet(item, by_id, state)
+        unmet = unmet_dependencies(item, by_id, state)
         if unmet:
             summary.waiting.append({"item": item["id"], "waiting_on": unmet})
             continue
@@ -1524,8 +1514,9 @@ def _report(
                     "plan was last merged from and were left pending; merge a complete "
                     "inventory to run them: " + ", ".join(summary.unlisted[:5])
                 )
+            by_id = {item["id"]: item for item in plan["items"]}
             for wait in summary.waiting:
-                fmt.warn(f"{wait['item']} waits on {', '.join(wait['waiting_on'])}")
+                fmt.warn(f"{wait['item']} {waits_on(wait['waiting_on'], by_id, state)}")
             if summary.stopped:
                 fmt.error(f"stopped: {summary.stopped}")
         _print_cutover(fmt, cutover, opts.dry_run)
