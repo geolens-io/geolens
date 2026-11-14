@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.identity import Identity
 from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
+from app.modules.catalog.maps.author_key import NOT_ITS_MAP, map_author_may_change
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.schemas import (
     _MAX_LAYERS_PER_MAP,
@@ -25,6 +26,7 @@ from app.modules.catalog.maps.service_shared import (
 )
 from app.modules.catalog.write_recheck import admit_writer, recheck_admitted_writer
 from app.platform.catalog_locks import bounded_row_lock
+from app.platform.request_credential import api_key_scope_refusal
 
 MAP_WRITE_DENIED = "Not authorized to modify this map"
 
@@ -150,9 +152,17 @@ async def recheck_map_ownership(session: AsyncSession, map_id: uuid.UUID) -> Non
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail=MAP_WRITE_DENIED
             )
+        if not map_author_may_change(
+            session, user.id, row.created_by, row.created_by_api_key_id
+        ):
+            raise api_key_scope_refusal(NOT_ITS_MAP)
 
     await recheck_admitted_writer(
-        session, ("map", map_id), (Map.created_by,), Map.id == map_id, enforce
+        session,
+        ("map", map_id),
+        (Map.created_by, Map.created_by_api_key_id),
+        Map.id == map_id,
+        enforce,
     )
 
 

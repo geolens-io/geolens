@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import re
 import uuid
+from unittest.mock import patch
 
 import pytest
+import sqlalchemy
 from fastapi import Depends
 from httpx import AsyncClient
 from sqlalchemy import select, text
 
+from app.core.config import settings
 from app.core.identity import Identity
 from app.modules.audit.models import AuditLog
 from app.modules.auth.dependencies import (
@@ -19,7 +22,10 @@ from app.modules.auth.dependencies import (
     _read_only_key_may_call,
     get_current_active_user,
 )
-from app.modules.catalog.maps.author_key import MAP_AUTHOR_SETTABLE_FIELDS
+from app.modules.catalog.maps.author_key import (
+    MAP_AUTHOR_DEFAULTS_ACCEPTED,
+    MAP_AUTHOR_SETTABLE_FIELDS,
+)
 from app.modules.catalog.maps.models import Map
 from app.modules.catalog.maps.schemas import (
     MapCreate,
@@ -50,9 +56,9 @@ NOT_ITS_MAP = {
     "message": "A map_author key can change only the maps it created",
 }
 
-# Every field of each request body the scope reaches that it may NOT set. With
-# MAP_AUTHOR_SETTABLE_FIELDS this covers each model exactly, so a new field
-# has to be classified here.
+# Every field of each request body the scope reaches that it may NOT set,
+# except at its default in MAP_AUTHOR_DEFAULTS_ACCEPTED bodies. With
+# MAP_AUTHOR_SETTABLE_FIELDS this covers each model exactly.
 _REFUSED_FIELDS: dict[type, set[str]] = {
     MapCreate: {"notes", "terrain_config"},
     MapUpdate: {
@@ -194,6 +200,8 @@ def test_the_allowlist_holds_only_map_and_layer_authoring():
 
 def test_every_field_of_each_request_body_is_classified():
     assert set(MAP_AUTHOR_SETTABLE_FIELDS) == set(_REFUSED_FIELDS)
+    # Only bodies that add something may carry a refused field at its default.
+    assert set(MAP_AUTHOR_DEFAULTS_ACCEPTED) == {MapLayerInput, MapLayerDiffRequest}
     for model, settable in MAP_AUTHOR_SETTABLE_FIELDS.items():
         refused = _REFUSED_FIELDS[model]
         assert not settable & refused, model
@@ -491,11 +499,21 @@ def _beyond_v1(map_id, layer_id, dataset_id) -> list[tuple[str, str, dict, str]]
             {"show_attribute_table": False},
             "show_attribute_table",
         ),
-        ("POST", f"/maps/{map_id}/layers", {**layer, "filter": None}, "filter"),
+        (
+            "POST",
+            f"/maps/{map_id}/layers",
+            {**layer, "filter": ["==", ["get", "name"], "oak"]},
+            "filter",
+        ),
         ("POST", f"/maps/{map_id}/layers", {**layer, "visible": False}, "visible"),
         ("POST", f"/maps/{map_id}/layers", {**layer, "id": layer_id}, "id"),
         ("PATCH", f"/maps/{map_id}/layers", {"removed": [layer_id]}, "removed"),
-        ("PATCH", f"/maps/{map_id}/layers", {"removed": []}, "removed"),
+        (
+            "PATCH",
+            f"/maps/{map_id}/layers",
+            {"fallback_full_replace": True},
+            "fallback_full_replace",
+        ),
         ("PATCH", f"/maps/{map_id}/layers", {"order": [layer_id]}, "order"),
         (
             "PATCH",
@@ -506,8 +524,8 @@ def _beyond_v1(map_id, layer_id, dataset_id) -> list[tuple[str, str, dict, str]]
         (
             "PATCH",
             f"/maps/{map_id}/layers",
-            {"added": [{**layer, "label_config": None}]},
-            "label_config",
+            {"added": [{**layer, "display_name": "Oaks"}]},
+            "display_name",
         ),
     ]
 
@@ -583,3 +601,50 @@ async def test_the_query_string_key_cannot_write(client: AsyncClient, owner, dat
         assert resp.status_code == 401, (method, url, resp.text)
     read = await client.get(f"/maps/{map_id}", params=query)
     assert read.status_code == 200, read.text
+
+
+@pytest.fixture
+def transfer_after_precheck(owner):
+    """Moves the map to ``owner`` once the key pre-check passes, before the write locks it."""
+    from app.modules.catalog.maps import router as maps_router
+
+    _, new_owner = owner
+    original = maps_router.refuse_map_author_key
+
+    def precheck_then_transfer(db, user_id, body, map_obj=None):
+        original(db, user_id, body, map_obj)
+        if map_obj is None:
+            return
+        engine = sqlalchemy.create_engine(settings.test_database_url_sync)
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("SET LOCAL lock_timeout = '3s'"))
+                conn.execute(
+                    text("UPDATE catalog.maps SET created_by = :owner WHERE id = :id"),
+                    {"owner": new_owner, "id": map_obj.id},
+                )
+        finally:
+            engine.dispose()
+
+    with patch.object(maps_router, "refuse_map_author_key", precheck_then_transfer):
+        yield
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("write", range(3), ids=["put", "post_layer", "patch_layers"])
+async def test_a_transfer_after_the_precheck_is_caught_under_the_lock(
+    client: AsyncClient, admin_auth_header, owner, datasets, write, request
+):
+    """An admin's key loses a map transferred between its pre-check and the write."""
+    key = await _mint(client, admin_auth_header, "map_author")
+    map_id, layer_id = await _authored_map(client, key, datasets[0])
+    before = (await client.get(f"/maps/{map_id}", headers=admin_auth_header)).json()
+
+    request.getfixturevalue("transfer_after_precheck")
+    method, url, body = _writes(map_id, layer_id, datasets[1].id)[write]
+    resp = await client.request(method, url, json=body, headers=_key_header(key))
+
+    assert (resp.status_code, resp.json()["detail"]) == (403, NOT_ITS_MAP)
+    after = (await client.get(f"/maps/{map_id}", headers=admin_auth_header)).json()
+    assert after["zoom"] == before["zoom"]
+    assert after["layers"] == before["layers"]
