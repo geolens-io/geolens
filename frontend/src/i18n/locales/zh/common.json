@@ -387,6 +387,7 @@
     "refreshServiceTokenRequired": "此数据集的数据源需要服务凭据才能刷新。请在下方提供一个以继续。",
     "refreshSourceUrlBlocked": "此数据集存储的数据源 URL 未通过安全检查，无法自动刷新。请联系管理员。",
     "reuploadGeometryLoss": "此替换文件不含几何图形，而该数据集存储几何图形，因此未做任何更改。请将该文件作为新数据集导入。",
+    "reuploadGeometryColumnsMissing": "此替换文件缺少构建该数据集几何图形所用的列（{{columns}}），因此未做任何更改。请将这些列添加到文件中，或将该文件作为新数据集导入。",
     "serviceLayerNoFeatures": "此图层不包含要素（组图层、栅格、注记、拓扑或公用事业网络图层）。请改为导入其要素图层或表。",
     "serviceGeometryUnsupported": "此图层包含 multipatch 几何，无法导入。请将其发布为使用其他几何类型的要素图层。",
     "serviceAuthRefused": "GeoLens 读取此集合时，服务拒绝了该凭据。请检查令牌是否有效且未过期，然后重试。",

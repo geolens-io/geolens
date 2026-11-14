@@ -230,6 +230,7 @@
     "refreshServiceTokenRequired": "La source de ce jeu de données nécessite un identifiant de service pour être actualisée. Fournissez-en un ci-dessous pour continuer.",
     "refreshSourceUrlBlocked": "L'URL source enregistrée de ce jeu de données a échoué à un contrôle de sécurité et ne peut pas être actualisée automatiquement. Contactez un administrateur.",
     "reuploadGeometryLoss": "Ce remplacement n'a pas de géométrie alors que ce jeu de données en stocke, rien n'a donc été modifié. Importez le fichier comme un nouveau jeu de données.",
+    "reuploadGeometryColumnsMissing": "Ce remplacement ne contient pas les colonnes à partir desquelles la géométrie de ce jeu de données est construite ({{columns}}), rien n'a donc été modifié. Ajoutez-les au fichier ou importez-le comme un nouveau jeu de données.",
     "serviceLayerNoFeatures": "Cette couche ne contient aucune entité (couche de groupe, raster, annotation, topologie ou réseau de services). Importez plutôt l'une de ses couches d'entités ou tables.",
     "serviceGeometryUnsupported": "Cette couche contient une géométrie multipatch, qui ne peut pas être importée. Publiez-la comme couche d'entités avec un autre type de géométrie.",
     "serviceAuthRefused": "Le service a refusé l'identifiant pendant que GeoLens lisait cette collection. Vérifiez que le jeton est valide et n'a pas expiré, puis réessayez.",

@@ -24,6 +24,7 @@ from app.core.failure_reason import redact_failure_reason
 from app.core.geo import unknown_srid_refusal
 from app.core.upload_errors import (
     CodedRefusal,
+    geometry_columns_missing_refusal,
     geometry_loss_refusal,
     refusal_detail,
 )
@@ -51,6 +52,10 @@ from app.modules.catalog.datasets.domain.service import (
     get_dataset,
 )
 from app.core.dependencies import get_db
+from app.platform.source_geometry_columns import (
+    columns_to_build,
+    recorded_geometry_columns,
+)
 from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
@@ -832,6 +837,9 @@ async def reupload_preview(
     prior_geometry_type = dataset.geometry_type
     prior_table_name = dataset.table_name
     prior_geometry = (dataset.srid, dataset.is_3d, dataset.n_dims)
+    recorded_columns = await recorded_geometry_columns(
+        db, dataset_id=dataset_id, ref=dataset.origin_ref
+    )
     await db.rollback()
 
     # Resolve S3 key to local file for ogrinfo
@@ -878,13 +886,32 @@ async def reupload_preview(
                 ),
             )
 
+    # A file with no geometry of its own builds it from the columns the
+    # dataset's geometry was built from, as the worker does.
+    build_from, missing_columns = columns_to_build(
+        recorded_columns,
+        source_geometry_type=info.get("geometry_type"),
+        source_columns=info["columns"],
+    )
+    if "x_column" in build_from:
+        info = {**info, "geometry_type": "Point"}
+
     # The diff below reads attribute columns only, so a geometry
     # loss would otherwise look like an unremarkable schema diff.
     geometry_loss = geometry_loss_refusal(
         record_type=prior_record_type,
         dataset_geometry_type=prior_geometry_type,
-        source_has_geometry=info.get("geometry_type") is not None,
+        source_has_geometry=info.get("geometry_type") is not None or bool(build_from),
     )
+    if geometry_loss and missing_columns:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "geometry_columns_missing",
+                "message": geometry_columns_missing_refusal(missing_columns),
+                "columns": ", ".join(missing_columns),
+            },
+        )
     if geometry_loss:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,

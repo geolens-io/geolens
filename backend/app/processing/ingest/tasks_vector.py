@@ -15,6 +15,7 @@ from app.core.url_redaction import scrub_secret_from_exception
 from app.platform.dataset_origin import portal_link_fields, service_layer_identity
 from app.platform.jobs import ledger
 from app.platform.source_copies import refuse_second_copy
+from app.platform.source_geometry_columns import geometry_columns
 from app.platform.jobs.heartbeat import (
     JOB_ERROR_WRITE_TIMEOUT_MS,
     attempt_scoped_staging_table,
@@ -594,10 +595,7 @@ async def ingest_file(
 
         # User-specified geometry columns. ``_detect_and_override_geometry``
         # re-derives the column values from ``um``; only the flag is needed.
-        user_wants_geom = bool(
-            ((um.get("x_column") or "") and (um.get("y_column") or ""))
-            or (um.get("geom_column") or "")
-        )
+        user_wants_geom = bool(geometry_columns(um))
 
         # With an override, import as non-spatial and construct geometry
         # afterwards, so it holds even where GDAL would auto-detect geometry.
@@ -739,6 +737,7 @@ async def ingest_file(
                     origin_ref={
                         "filename": source_filename,
                         **portal_link_fields(um),
+                        **geometry_columns(um),
                     },
                     archive_from=file_path,
                     source_columns=source_columns_for(info, layer_name),

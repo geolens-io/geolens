@@ -10,7 +10,10 @@ from sqlalchemy import exists, select, text, update
 
 from app.core.db.tenant_session import tenant_task
 from app.core.failure_reason import FixedReason, failure_code, redact_failure_reason
-from app.core.upload_errors import geometry_loss_refusal
+from app.core.upload_errors import (
+    geometry_columns_missing_refusal,
+    geometry_loss_refusal,
+)
 from app.core.url_redaction import scrub_secret_from_exception
 from app.platform.catalog_locks import (
     CATALOG_LOCK_CONFLICT_CODE,
@@ -23,6 +26,10 @@ from app.platform.dataset_origin import (
     clear_source_probe_state,
     service_layer_identity,
     still_bound,
+)
+from app.platform.source_geometry_columns import (
+    columns_to_build,
+    recorded_geometry_columns,
 )
 from app.processing.raster.cog import sha256_file
 
@@ -61,6 +68,7 @@ from app.processing.ingest.tasks_common import (
     _append_mercator_clip_warning,
     _bind_task_log_context,
     _current_tenant_schema,
+    _detect_and_override_geometry,
     _install_reupload_table,
     _run_service_import_with_wfs_fallback,
     _write_reupload_catalog,
@@ -143,12 +151,17 @@ def _quicklook_table(dataset, measurement) -> str | None:
 
 
 def _assert_geometry_survives(
-    *, record_type: str | None, geometry_type: str | None, has_geometry: bool
+    *,
+    record_type: str | None,
+    geometry_type: str | None,
+    has_geometry: bool,
+    missing_columns: list[str] | None = None,
 ) -> None:
     """Raise the preview door's refusal when a replacement would strip geometry.
 
     Both worker paths reach the same ``record_type`` re-derivation: the file
-    path knows from ogrinfo, the service path from the staging table.
+    path knows from ogrinfo, the service path from the staging table. The
+    refusal names ``missing_columns`` when the geometry was built from them.
     """
     geometry_loss = geometry_loss_refusal(
         record_type=record_type,
@@ -158,6 +171,8 @@ def _assert_geometry_survives(
     if geometry_loss:
         from app.processing.ingest.ogr import IngestionError
 
+        if missing_columns:
+            raise IngestionError(geometry_columns_missing_refusal(missing_columns))
         raise IngestionError(geometry_loss)
 
 
@@ -169,7 +184,8 @@ async def _detect_reupload_crs(
     original_filename: str | None = None,
     record_type: str | None,
     dataset_geometry_type: str | None,
-) -> tuple[dict, int]:
+    recorded_columns: dict[str, str] | None = None,
+) -> tuple[dict, int, dict[str, str]]:
     """Detect CRS/geometry for a reupload file and resolve the effective SRID.
 
     ``layer_name`` targets the user-chosen layer in a multi-layer GPKG rather
@@ -180,7 +196,11 @@ async def _detect_reupload_crs(
     the preview door's geometry-loss refusal, for a client that skipped the
     preview. ``record_type`` is the dataset's current one.
 
-    Returns (ogrinfo result dict, effective_srid).
+    ``recorded_columns`` are the x/y or WKT columns the dataset's geometry
+    was built from. A file with no geometry of its own builds it from them
+    when it has them all.
+
+    Returns (ogrinfo result dict, effective_srid, the columns to build from).
     """
     from app.processing.ingest.ogr import MissingCrsError, run_ogrinfo
     from app.processing.ingest.tasks_common import check_missing_crs
@@ -201,10 +221,16 @@ async def _detect_reupload_crs(
     if missing_crs:
         raise MissingCrsError(missing_crs)
 
+    build_from, missing = columns_to_build(
+        recorded_columns or {},
+        source_geometry_type=geometry_type,
+        source_columns=info.get("columns") or (),
+    )
     _assert_geometry_survives(
         record_type=record_type,
         geometry_type=dataset_geometry_type,
-        has_geometry=geometry_type is not None,
+        has_geometry=geometry_type is not None or bool(build_from),
+        missing_columns=missing,
     )
 
     effective_srid = (
@@ -212,7 +238,7 @@ async def _detect_reupload_crs(
         if srid_override is not None
         else (srid if srid is not None else 4326)
     )
-    return info, effective_srid
+    return info, effective_srid, build_from
 
 
 async def _hold_live_table(session, dataset, *, schema: str) -> None:
@@ -583,6 +609,8 @@ class _FileReupload(_LiveComparison):
         self.accepted_version = self.user_metadata.get("accepted_dataset_version")
         self.prior_record_type = dataset.record.record_type
         self.prior_geometry_type = dataset.geometry_type
+        self.dataset_id = dataset.id
+        self.prior_origin_ref = dict(dataset.origin_ref or {})
         # The user-chosen layer of a multi-layer file.
         self.layer_name = job.source_layer
 
@@ -602,15 +630,23 @@ class _FileReupload(_LiveComparison):
             except ValueError:
                 self.refused = True
                 raise
+            recorded_columns = await recorded_geometry_columns(
+                session, dataset_id=self.dataset_id, ref=self.prior_origin_ref
+            )
 
         # Effective SRID: override > detected > 4326.
-        self.info, self.effective_srid = await _detect_reupload_crs(
+        (
+            self.info,
+            self.effective_srid,
+            self.geometry_columns,
+        ) = await _detect_reupload_crs(
             self.file_path,
             self.layer_name,
             self.user_metadata,
             original_filename=self.source_filename,
             record_type=self.prior_record_type,
             dataset_geometry_type=self.prior_geometry_type,
+            recorded_columns=recorded_columns,
         )
         self.layer_name = layer_to_load(self.info, self.layer_name)
         self.srid = self.info.get("srid")
@@ -690,10 +726,23 @@ class _FileReupload(_LiveComparison):
                     collisions=dbf_collisions,
                 )
 
+        has_geometry = self.info.get("geometry_type") is not None
+        if self.geometry_columns:
+            await _detect_and_override_geometry(
+                session,
+                table_name=self.staging_table,
+                user_metadata=self.geometry_columns,
+                effective_srid=self.effective_srid,
+                renamed_columns=reserved_renames,
+            )
+            has_geometry = True
+            # An unchanged run leaves the binding as it was; the job keeps the columns.
+            job.user_metadata = {**(job.user_metadata or {}), **self.geometry_columns}
+
         staging_result = await _run_staging_pipeline(
             session,
             table_name=self.staging_table,
-            has_geometry=self.info.get("geometry_type") is not None,
+            has_geometry=has_geometry,
             effective_srid=self.effective_srid,
             source_columns=source_columns_for(self.info, self.layer_name),
         )
@@ -822,7 +871,11 @@ class _FileReupload(_LiveComparison):
             file_hash=self.file_hash,
             # The new bytes came from a file, so the binding says upload, even
             # when the dataset was a registered table or service.
-            origin_ref={"filename": self.source_filename, "file_hash": self.file_hash},
+            origin_ref={
+                "filename": self.source_filename,
+                "file_hash": self.file_hash,
+                **self.geometry_columns,
+            },
             field_labels={},
         )
         await self._apply_manifest(session, dataset)

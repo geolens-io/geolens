@@ -153,7 +153,19 @@ ORIGIN_REF_KEYS: dict[str, frozenset[str]] = {
             "auth_required",
         }
     ),
-    "upload": frozenset({"filename", "file_hash", "item_id", "portal_url"}),
+    # `x_column`/`y_column` or `geom_column`: the source columns the geometry
+    # was built from, so a replacement file builds it the same way.
+    "upload": frozenset(
+        {
+            "filename",
+            "file_hash",
+            "item_id",
+            "portal_url",
+            "x_column",
+            "y_column",
+            "geom_column",
+        }
+    ),
     # Gate 2: GeoLens-internal table only. No host/port/DSN/credential key.
     #
     # `managed` is the one bit separating the two callers of

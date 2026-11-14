@@ -230,6 +230,7 @@
     "refreshServiceTokenRequired": "Die Quelle dieses Datensatzes benötigt eine Dienst-Anmeldeinformation zur Aktualisierung. Geben Sie unten eine an, um fortzufahren.",
     "refreshSourceUrlBlocked": "Die gespeicherte Quell-URL dieses Datensatzes hat eine Sicherheitsprüfung nicht bestanden und kann nicht automatisch aktualisiert werden. Wenden Sie sich an einen Administrator.",
     "reuploadGeometryLoss": "Diese Ersetzung enthält keine Geometrie, dieser Datensatz speichert jedoch Geometrie, daher wurde nichts geändert. Importieren Sie die Datei als neuen Datensatz.",
+    "reuploadGeometryColumnsMissing": "Dieser Ersetzung fehlen die Spalten, aus denen die Geometrie dieses Datensatzes erstellt wird ({{columns}}), daher wurde nichts geändert. Fügen Sie sie der Datei hinzu oder importieren Sie die Datei als neuen Datensatz.",
     "serviceLayerNoFeatures": "Diese Ebene enthält keine Features (Gruppen-, Raster-, Annotations-, Topologie- oder Versorgungsnetz-Ebene). Importieren Sie stattdessen eine ihrer Feature-Ebenen oder Tabellen.",
     "serviceGeometryUnsupported": "Diese Ebene enthält Multipatch-Geometrie, die nicht importiert werden kann. Veröffentlichen Sie sie als Feature-Ebene mit einem anderen Geometrietyp.",
     "serviceAuthRefused": "Der Dienst hat die Anmeldeinformation abgelehnt, während GeoLens diese Sammlung gelesen hat. Prüfen Sie, ob das Token gültig und nicht abgelaufen ist, und versuchen Sie es erneut.",
