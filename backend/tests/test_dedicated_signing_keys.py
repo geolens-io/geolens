@@ -51,44 +51,53 @@ def test_distinct_long_keys_are_accepted():
     assert s.tile_signing_secret and s.session_secret_key
 
 
-@pytest.mark.parametrize(
-    ("field", "name"),
-    [
-        ("tile_signing_secret", "TILE_SIGNING_SECRET"),
-        ("session_secret_key", "SESSION_SECRET_KEY"),
-    ],
-)
-def test_short_key_is_refused_by_name_without_the_value(field, name):
+def test_short_session_key_is_refused_by_name_without_the_value():
     short = "short-" + secrets.token_hex(4)
     with pytest.raises(ValidationError) as exc:
-        _settings(**{field: short})
+        _settings(session_secret_key=short)
     msg = exc.value.errors()[0]["msg"]
-    assert name in msg
+    assert "SESSION_SECRET_KEY" in msg
     assert short not in msg
 
 
-@pytest.mark.parametrize(
-    ("field", "name"),
-    [
-        ("tile_signing_secret", "TILE_SIGNING_SECRET"),
-        ("session_secret_key", "SESSION_SECRET_KEY"),
-    ],
-)
-def test_key_equal_to_jwt_secret_is_refused(field, name):
+def test_session_key_equal_to_jwt_secret_is_refused():
     with pytest.raises(ValidationError) as exc:
-        _settings(**{field: JWT})
+        _settings(session_secret_key=JWT)
     msg = exc.value.errors()[0]["msg"]
-    assert f"{name} must not be the same value as JWT_SECRET_KEY" in msg
+    assert "SESSION_SECRET_KEY must not be the same value as JWT_SECRET_KEY" in msg
     assert JWT not in msg
 
 
-def test_keys_equal_to_each_other_are_refused():
+def test_session_key_equal_to_tile_key_is_refused():
     shared = _key()
     with pytest.raises(ValidationError) as exc:
         _settings(tile_signing_secret=shared, session_secret_key=shared)
     msg = exc.value.errors()[0]["msg"]
-    assert "SESSION_SECRET_KEY must not be the same value as" in msg
+    assert "SESSION_SECRET_KEY must not be the same value as TILE_SIGNING_SECRET" in msg
     assert shared not in msg
+
+
+@pytest.mark.parametrize("tile", ["tiny-key", JWT])
+def test_existing_tile_key_still_boots(tile):
+    """A short tile key or one equal to the JWT secret is not refused."""
+    assert _settings(tile_signing_secret=tile).tile_signing_secret
+
+
+def test_loader_error_text_names_the_variable_and_hides_values(monkeypatch, capsys):
+    """The settings loader's fatal output names SESSION_SECRET_KEY, no values."""
+    from app.core import config as cfg
+
+    bad = "bad-" + secrets.token_hex(4)
+    for k, v in BASE_ENV.items():
+        if v is not None:
+            monkeypatch.setenv(k.upper(), v)
+    monkeypatch.setenv("SESSION_SECRET_KEY", bad)
+    with pytest.raises(SystemExit):
+        cfg._create_settings()
+    err = capsys.readouterr().err
+    assert "SESSION_SECRET_KEY" in err
+    assert bad not in err
+    assert JWT not in err
 
 
 def _app(secret: str) -> Starlette:
@@ -124,27 +133,32 @@ def test_dedicated_key_rejects_a_cookie_signed_under_the_jwt_secret():
     assert reader.get("/read").json() == {}
 
 
-def test_warning_names_each_unset_key_in_production_only():
-    log = MagicMock()
-    both_unset = SimpleNamespace(
-        is_production=True, tile_signing_secret=None, session_secret_key=None
-    )
-    main_module._warn_if_dedicated_keys_unset(both_unset, log)
-    assert log.warning.call_count == 2
+def _ns(**kw):
+    base = {
+        "is_production": True,
+        "tile_signing_secret": None,
+        "session_secret_key": None,
+        "jwt_secret_key": SecretStr(JWT),
+    }
+    return SimpleNamespace(**{**base, **kw})
 
-    log = MagicMock()
-    one_set = SimpleNamespace(
-        is_production=True,
-        tile_signing_secret=SecretStr(_key()),
-        session_secret_key=None,
-    )
-    main_module._warn_if_dedicated_keys_unset(one_set, log)
-    assert log.warning.call_count == 1
-    assert "SESSION_SECRET_KEY" in log.warning.call_args.kwargs["message"]
 
+def _events(settings_obj):
     log = MagicMock()
-    dev = SimpleNamespace(
-        is_production=False, tile_signing_secret=None, session_secret_key=None
+    main_module._warn_on_weak_signing_keys(settings_obj, log)
+    return [c.args[0] for c in log.warning.call_args_list], log
+
+
+def test_unset_session_key_warns_in_production_only():
+    assert _events(_ns())[0] == ["session_secret_key_unset"]
+    assert _events(_ns(session_secret_key=SecretStr(_key())))[0] == []
+    assert _events(_ns(is_production=False))[0] == []
+
+
+@pytest.mark.parametrize("tile", ["tiny-key", JWT])
+def test_weak_existing_tile_key_warns_without_the_value(tile):
+    events, log = _events(
+        _ns(tile_signing_secret=SecretStr(tile), session_secret_key=SecretStr(_key()))
     )
-    main_module._warn_if_dedicated_keys_unset(dev, log)
-    log.warning.assert_not_called()
+    assert "tile_signing_secret_weak" in events
+    assert tile not in log.warning.call_args.kwargs["message"]

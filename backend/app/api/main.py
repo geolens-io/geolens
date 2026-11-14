@@ -142,25 +142,42 @@ def _session_secret(settings_obj) -> str:
     ).get_secret_value()
 
 
-def _warn_if_dedicated_keys_unset(settings_obj, log) -> None:
-    """Warn once at startup when a production install shares the JWT secret.
+def _warn_on_weak_signing_keys(settings_obj, log) -> None:
+    """Production startup warnings for the session and tile signing keys.
 
-    Tile signing and the session cookie fall back to JWT_SECRET_KEY when their
-    own key is unset, so rotating one secret silently rotates all three.
+    An unset SESSION_SECRET_KEY shares the JWT secret. A configured
+    TILE_SIGNING_SECRET that is short or equal to the JWT secret still boots,
+    since the setting predates the check. Unset TILE_SIGNING_SECRET warns in
+    signing.py.
     """
     if not settings_obj.is_production:
         return
-    for name, value in (
-        ("TILE_SIGNING_SECRET", settings_obj.tile_signing_secret),
-        ("SESSION_SECRET_KEY", settings_obj.session_secret_key),
-    ):
-        if value is None:
+    if settings_obj.session_secret_key is None:
+        log.warning(
+            "session_secret_key_unset",
+            message=(
+                "SESSION_SECRET_KEY is unset in production; the session cookie "
+                "is signed with JWT_SECRET_KEY. Set it to a separate secret "
+                "(openssl rand -hex 32), the same on every API replica."
+            ),
+        )
+    tile = settings_obj.tile_signing_secret
+    if tile is not None:
+        raw = tile.get_secret_value()
+        if len(raw) < 32:
             log.warning(
-                "dedicated_key_unset",
+                "tile_signing_secret_weak",
                 message=(
-                    f"{name} is unset in production; falling back to "
-                    "JWT_SECRET_KEY. Set it to a separate secret "
-                    "(openssl rand -hex 32), the same on every API replica."
+                    "TILE_SIGNING_SECRET is shorter than 32 characters. "
+                    "Replace it with `openssl rand -hex 32`."
+                ),
+            )
+        if raw == settings_obj.jwt_secret_key.get_secret_value():
+            log.warning(
+                "tile_signing_secret_weak",
+                message=(
+                    "TILE_SIGNING_SECRET equals JWT_SECRET_KEY, so it does not "
+                    "separate the two. Replace it with `openssl rand -hex 32`."
                 ),
             )
 
@@ -407,7 +424,7 @@ async def lifespan(app: FastAPI):
 
     # Surface unset CORS_ALLOWED_ORIGINS in production once.
     _warn_if_cors_unset(settings, logger)
-    _warn_if_dedicated_keys_unset(settings, logger)
+    _warn_on_weak_signing_keys(settings, logger)
 
     # The rate-limit storage decision is made at import, before
     # setup_logging() above, so its notices are queued rather than logged

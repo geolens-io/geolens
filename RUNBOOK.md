@@ -2855,7 +2855,7 @@ Auth & Security, which rewrites them under the current key.
 Both are optional and fall back to `JWT_SECRET_KEY`. Setting either on a
 running install changes the key it signs with: signed tile URLs minted before
 the change stop verifying until the page reloads them, and OAuth sign-ins in
-progress restart. Use at least 32 characters (`openssl rand -hex 32`), a
+progress restart. `SESSION_SECRET_KEY` under 32 characters or equal to another key refuses to boot; a short `TILE_SIGNING_SECRET`, or one equal to `JWT_SECRET_KEY`, still boots and warns in production. Use at least 32 characters (`openssl rand -hex 32`), a
 different value for each, and the same value on every API replica. The
 installer generates both only for a `.env` it creates.
 

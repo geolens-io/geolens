@@ -1336,7 +1336,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/auth/router.py": 1541,
     # Application composition debt; preserve lifespan and middleware ordering when
     # splitting.
-    "backend/app/api/main.py": 1699,
+    "backend/app/api/main.py": 1716,
     # Map request validation and published response contracts share this module,
     # including the visibility a client that hasn't opted in reads.
     "backend/app/modules/catalog/maps/schemas.py": 1606,
@@ -1380,7 +1380,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/refresh/service.py": 1201,
     # Central settings and boot-validation debt, including the service-credential
     # http allowlist; split by configuration domain before raising further.
-    "backend/app/core/config.py": 1552,
+    "backend/app/core/config.py": 1550,
     # Config resolution coordinates validation, overrides, caching, audit and side
     # effects, model defaults that follow the selected LLM provider, and SQL
     # reads of a committed flag.

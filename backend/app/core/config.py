@@ -1138,33 +1138,31 @@ class Settings(
         return self
 
     @model_validator(mode="after")
-    def validate_dedicated_signing_keys(self) -> "Settings":
-        """Reject a dedicated key that is short, the JWT secret, or shared."""
-        jwt_value = self.jwt_secret_key.get_secret_value()
-        seen: dict[str, str] = {}
-        for name, configured in (
-            ("TILE_SIGNING_SECRET", self.tile_signing_secret),
-            ("SESSION_SECRET_KEY", self.session_secret_key),
+    def validate_session_secret_key(self) -> "Settings":
+        """Reject a SESSION_SECRET_KEY that is short or shared with another key.
+
+        TILE_SIGNING_SECRET predates this check, so a weak value there only
+        warns at startup instead of refusing to boot.
+        """
+        if self.session_secret_key is None:
+            return self
+        raw = self.session_secret_key.get_secret_value()
+        if len(raw) < 32:
+            raise ValueError(
+                "SESSION_SECRET_KEY must be at least 32 characters. "
+                "Generate one with: openssl rand -hex 32"
+            )
+        if raw == self.jwt_secret_key.get_secret_value():
+            raise ValueError(
+                "SESSION_SECRET_KEY must not be the same value as JWT_SECRET_KEY. "
+                "A dedicated key exists to separate it from the JWT secret."
+            )
+        if self.tile_signing_secret is not None and (
+            raw == self.tile_signing_secret.get_secret_value()
         ):
-            if configured is None:
-                continue
-            raw = configured.get_secret_value()
-            if len(raw) < 32:
-                raise ValueError(
-                    f"{name} must be at least 32 characters. "
-                    "Generate one with: openssl rand -hex 32"
-                )
-            if raw == jwt_value:
-                raise ValueError(
-                    f"{name} must not be the same value as JWT_SECRET_KEY. "
-                    "A dedicated key exists to separate it from the JWT secret."
-                )
-            for other_name, other_raw in seen.items():
-                if raw == other_raw:
-                    raise ValueError(
-                        f"{name} must not be the same value as {other_name}."
-                    )
-            seen[name] = raw
+            raise ValueError(
+                "SESSION_SECRET_KEY must not be the same value as TILE_SIGNING_SECRET."
+            )
         return self
 
     @model_validator(mode="after")
