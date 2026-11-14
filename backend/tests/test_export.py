@@ -112,7 +112,7 @@ def mock_export_service(monkeypatch):
 
         return file_path, filename, media
 
-    monkeypatch.setattr("app.processing.export.router.export_dataset", _fake_export)
+    monkeypatch.setattr("app.processing.export.selection.export_dataset", _fake_export)
 
     yield _fake_export
 
@@ -750,9 +750,9 @@ class TestExportFeatureCap:
         """Real 3-row point table + Dataset row, with the cap lowered to 2."""
         from sqlalchemy import text
 
-        from app.processing.export import router as export_router
+        from app.processing.export import selection as export_selection
 
-        monkeypatch.setattr(export_router, "_MAX_EXPORT_FEATURES", 2)
+        monkeypatch.setattr(export_selection, "_MAX_EXPORT_FEATURES", 2)
 
         table_name = f"exp_cap_{uuid.uuid4().hex[:12]}"
         await test_db_session.execute(
@@ -868,9 +868,9 @@ class TestExportFeatureCap:
         """
         from sqlalchemy import text
 
-        from app.processing.export import router as export_router
+        from app.processing.export import selection as export_selection
 
-        monkeypatch.setattr(export_router, "_MAX_EXPORT_FEATURES", 2)
+        monkeypatch.setattr(export_selection, "_MAX_EXPORT_FEATURES", 2)
 
         table_name = f"exp_cap_am_{uuid.uuid4().hex[:12]}"
         await test_db_session.execute(
@@ -950,9 +950,9 @@ class TestExportFeatureCap:
         them actually intersects: the envelope count is 3 > cap 2 → 413."""
         from sqlalchemy import text
 
-        from app.processing.export import router as export_router
+        from app.processing.export import selection as export_selection
 
-        monkeypatch.setattr(export_router, "_MAX_EXPORT_FEATURES", 2)
+        monkeypatch.setattr(export_selection, "_MAX_EXPORT_FEATURES", 2)
 
         table_name = f"exp_cap_env_{uuid.uuid4().hex[:12]}"
         await test_db_session.execute(
@@ -1036,9 +1036,9 @@ class TestExportWhereColonLiteral:
         bounded filtered COUNT (the code path that 500'd) runs for real."""
         from sqlalchemy import text
 
-        from app.processing.export import router as export_router
+        from app.processing.export import selection as export_selection
 
-        monkeypatch.setattr(export_router, "_MAX_EXPORT_FEATURES", 2)
+        monkeypatch.setattr(export_selection, "_MAX_EXPORT_FEATURES", 2)
 
         table_name = f"exp_colon_{uuid.uuid4().hex[:12]}"
         await test_db_session.execute(
@@ -1130,9 +1130,9 @@ class TestExportWhereWordLiteral:
         """Real 3-row table whose varchar values are ordinary words."""
         from sqlalchemy import text
 
-        from app.processing.export import router as export_router
+        from app.processing.export import selection as export_selection
 
-        monkeypatch.setattr(export_router, "_MAX_EXPORT_FEATURES", 2)
+        monkeypatch.setattr(export_selection, "_MAX_EXPORT_FEATURES", 2)
 
         table_name = f"exp_word_{uuid.uuid4().hex[:12]}"
         await test_db_session.execute(
