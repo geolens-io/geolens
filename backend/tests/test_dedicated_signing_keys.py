@@ -3,7 +3,11 @@
 Every key is generated inside the test; none is printed.
 """
 
+import os
+import pathlib
 import secrets
+import subprocess
+import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -16,7 +20,7 @@ from starlette.routing import Route
 from starlette.testclient import TestClient
 
 from app.api import main as main_module
-from app.core.config import Settings
+from app.core.config import KNOWN_PUBLIC_CREDENTIALS, Settings
 
 JWT = "j" * 40
 BASE_ENV = {
@@ -113,24 +117,49 @@ def _app(secret: str) -> Starlette:
     return app
 
 
-def test_unset_key_keeps_the_jwt_secret_so_old_cookies_still_load():
-    """A cookie minted under the JWT secret loads when no dedicated key is set."""
-    s = _settings()
-    assert main_module._session_secret(s) == JWT
-    writer = TestClient(_app(JWT))
-    writer.get("/write")
-    reader = TestClient(_app(main_module._session_secret(s)))
-    reader.cookies.update(writer.cookies)
-    assert reader.get("/read").json() == {"user": "alice"}
+def _registered_session_secret(env: dict[str, str]) -> str:
+    """Secret the real API app registers SessionMiddleware with, in a fresh process."""
+    code = (
+        "from app.api.main import app\n"
+        "from starlette.middleware.sessions import SessionMiddleware as S\n"
+        "print(next(m for m in app.user_middleware if m.cls is S)"
+        ".kwargs['secret_key'])"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code],
+        env={**os.environ, **env},
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=pathlib.Path(__file__).resolve().parents[1],
+    )
+    return out.stdout.strip().splitlines()[-1]
 
 
-def test_dedicated_key_rejects_a_cookie_signed_under_the_jwt_secret():
-    s = _settings(session_secret_key=_key())
-    writer = TestClient(_app(JWT))
+def _jwt_secret_in_env() -> str:
+    return os.environ["JWT_SECRET_KEY"]
+
+
+def _cookie_loads(signer_secret: str, reader_secret: str) -> bool:
+    writer = TestClient(_app(signer_secret))
     writer.get("/write")
-    reader = TestClient(_app(main_module._session_secret(s)))
+    reader = TestClient(_app(reader_secret))
     reader.cookies.update(writer.cookies)
-    assert reader.get("/read").json() == {}
+    return reader.get("/read").json() == {"user": "alice"}
+
+
+def test_registered_middleware_unset_key_accepts_jwt_signed_cookie():
+    jwt = _jwt_secret_in_env()
+    registered = _registered_session_secret({"SESSION_SECRET_KEY": ""})
+    assert _cookie_loads(jwt, registered)
+
+
+def test_registered_middleware_dedicated_key_signs_and_rejects_jwt_cookie():
+    jwt = _jwt_secret_in_env()
+    dedicated = _key()
+    registered = _registered_session_secret({"SESSION_SECRET_KEY": dedicated})
+    assert _cookie_loads(dedicated, registered)
+    assert not _cookie_loads(jwt, registered)
 
 
 def _ns(**kw):
@@ -153,6 +182,22 @@ def test_unset_session_key_warns_in_production_only():
     assert _events(_ns())[0] == ["session_secret_key_unset"]
     assert _events(_ns(session_secret_key=SecretStr(_key())))[0] == []
     assert _events(_ns(is_production=False))[0] == []
+
+
+def test_known_public_values_are_refused_for_session_key_and_warned_for_tile_key():
+    for known in sorted(KNOWN_PUBLIC_CREDENTIALS):
+        if len(known) < 32:
+            continue
+        with pytest.raises(ValidationError):
+            _settings(session_secret_key=known)
+    for known in sorted(KNOWN_PUBLIC_CREDENTIALS):
+        events, _ = _events(
+            _ns(
+                tile_signing_secret=SecretStr(known),
+                session_secret_key=SecretStr(_key()),
+            )
+        )
+        assert "tile_signing_secret_weak" in events
 
 
 @pytest.mark.parametrize("tile", ["tiny-key", JWT])

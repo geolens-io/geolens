@@ -8,7 +8,7 @@ import structlog
 
 # Must run before FastAPI/Starlette imports (gh #101); shared with worker for
 # the /tmp tmpfs issue during COG conversion.
-from app.core.config import settings
+from app.core.config import KNOWN_PUBLIC_CREDENTIALS, settings
 from app.core.pointcloud import POINTCLOUD_MEDIA_TYPE
 from app.core.runtime.gdal_env import configure_gdal_s3_env
 from app.core.runtime.staging import redirect_tempfile_to_staging
@@ -170,6 +170,14 @@ def _warn_on_weak_signing_keys(settings_obj, log) -> None:
                 message=(
                     "TILE_SIGNING_SECRET is shorter than 32 characters. "
                     "Replace it with `openssl rand -hex 32`."
+                ),
+            )
+        if raw in KNOWN_PUBLIC_CREDENTIALS:
+            log.warning(
+                "tile_signing_secret_weak",
+                message=(
+                    "TILE_SIGNING_SECRET is a known-public value. Replace it "
+                    "with `openssl rand -hex 32`."
                 ),
             )
         if raw == settings_obj.jwt_secret_key.get_secret_value():

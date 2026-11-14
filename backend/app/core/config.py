@@ -1157,6 +1157,11 @@ class Settings(
                 "SESSION_SECRET_KEY must not be the same value as JWT_SECRET_KEY. "
                 "A dedicated key exists to separate it from the JWT secret."
             )
+        if raw in KNOWN_PUBLIC_CREDENTIALS:
+            raise ValueError(
+                "SESSION_SECRET_KEY is set to a known-public literal from the "
+                "project's git history. Generate one with: openssl rand -hex 32"
+            )
         if self.tile_signing_secret is not None and (
             raw == self.tile_signing_secret.get_secret_value()
         ):
