@@ -161,9 +161,9 @@ export type AdminApiKeyCreateRequest = {
     /**
      * Scope
      *
-     * Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-account key minted for an application is the usual case for 'read_only'. 'publish' also allows uploads, manifest apply, dataset metadata edits and new maps, but no map update, delete, feature write, public visibility, admin or key route.
+     * Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-account key minted for an application is the usual case for 'read_only'. 'publish' also allows uploads, manifest apply, dataset metadata edits and new maps, but no map update, delete, feature write, public visibility, admin or key route. 'map_author' reads, creates private maps and sets the camera, basemap, layers' style and popups on the maps it created.
      */
-    scope?: 'full' | 'read_only' | 'publish';
+    scope?: 'full' | 'read_only' | 'publish' | 'map_author';
 };
 
 /**
@@ -209,7 +209,7 @@ export type AdminApiKeyListItem = {
     /**
      * Scope
      *
-     * Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset).
+     * Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'map_author' (reads, creates maps and styles the maps it created), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset).
      */
     scope: string;
     /**
@@ -821,9 +821,9 @@ export type ApiKeyCreateRequest = {
     /**
      * Scope
      *
-     * Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. 'publish' also allows uploads, manifest apply, dataset metadata edits and new maps, but no map update, delete, feature write, public visibility, admin or key route.
+     * Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. 'publish' also allows uploads, manifest apply, dataset metadata edits and new maps, but no map update, delete, feature write, public visibility, admin or key route. 'map_author' reads, creates private maps and sets the camera, basemap, layers' style and popups on the maps it created.
      */
-    scope?: 'full' | 'read_only' | 'publish';
+    scope?: 'full' | 'read_only' | 'publish' | 'map_author';
 };
 
 /**
@@ -859,7 +859,7 @@ export type ApiKeyCreateResponse = {
     /**
      * Scope
      *
-     * Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
+     * Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'map_author' (reads, creates maps and styles the maps it created), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
      */
     scope: string;
     /**
@@ -905,7 +905,7 @@ export type ApiKeyListItem = {
     /**
      * Scope
      *
-     * Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
+     * Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'map_author' (reads, creates maps and styles the maps it created), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
      */
     scope: string;
     /**
@@ -4164,7 +4164,7 @@ export type DatasetApiKeyListItem = {
     /**
      * Scope
      *
-     * Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
+     * Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'map_author' (reads, creates maps and styles the maps it created), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
      */
     scope: string;
     /**

@@ -28,7 +28,8 @@ class ApiKeyCreateRequest:
         scope (ApiKeyCreateRequestScope | Unset): Privilege scope. 'full' impersonates the owner completely. 'read_only'
             authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. 'publish' also allows
             uploads, manifest apply, dataset metadata edits and new maps, but no map update, delete, feature write, public
-            visibility, admin or key route. Default: 'full'.
+            visibility, admin or key route. 'map_author' reads, creates private maps and sets the camera, basemap, layers'
+            style and popups on the maps it created. Default: 'full'.
     """
 
     name: str
