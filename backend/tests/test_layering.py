@@ -1216,8 +1216,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/search/service_records.py": 660,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
         "backend/app/modules/catalog/search/service_semantic.py": 521,
-        # A layer diff checks a changed filter against the caller's access and its widgets.
-        "backend/app/modules/catalog/maps/service_diff.py": 431,
+        # A layer diff checks a changed filter against the caller's access and its widgets,
+        # and stacks a map_author key's added layers on top.
+        "backend/app/modules/catalog/maps/service_diff.py": 437,
         # Layer rows are shaped for the reader: visible datasets and VRT extents.
         "backend/app/modules/catalog/maps/service_shared.py": 416,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 668,
@@ -1404,7 +1405,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_vector.py": 1222,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
-    "backend/app/processing/ingest/ogr.py": 1833,
+    "backend/app/processing/ingest/ogr.py": 1863,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
     "backend/app/processing/ingest/validation.py": 1206,
@@ -1428,8 +1429,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1427,
-    # Map endpoints share response assembly, visibility and ownership checks.
-    "backend/app/modules/catalog/maps/router.py": 1499,
+    # Every credential lane resolves here, with each key scope's route rule at
+    # the one chokepoint that refuses it.
+    "backend/app/modules/auth/dependencies.py": 1008,
+    # Map endpoints share response assembly, visibility and ownership checks,
+    # and the map_author key's limits on the routes it may write.
+    "backend/app/modules/catalog/maps/router.py": 1509,
     # Feature writes, single and batch, share the dataset guards, the database
     # error mapping and the catalog refresh; create also carries idempotent
     # repeats and the dry run.

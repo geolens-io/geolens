@@ -12,6 +12,7 @@ type LimitedScope = Exclude<
 const SCOPE_LABEL_KEYS: Record<LimitedScope, string> = {
   read_only: 'admin:apiKeys.scopeReadOnly',
   publish: 'admin:apiKeys.scopePublish',
+  map_author: 'admin:apiKeys.scopeMapAuthor',
   dataset_write: 'admin:apiKeys.scopeDatasetWrite',
   dataset_append: 'admin:apiKeys.scopeDatasetAppend',
 };

@@ -1102,14 +1102,19 @@ def _coordinates_z(coordinates: object) -> bool | None:
 
 
 async def _csv_geometry_is_3d(
-    file_path: str, source: str, layer_name: str | None
+    file_path: str,
+    source: str,
+    layer_name: str | None,
+    types: set[str] | None = None,
 ) -> bool:
     """Whether every geometry in a CSV's geometry column has Z.
 
     The CSV driver reports a WKT column as an untyped 2D layer, so the loaded
     column would drop Z that the text carries. A mix of 2D and 3D rows counts
     as 2D, since forcing three dimensions would invent an elevation of 0. The
-    read stops at the first 2D geometry.
+    read stops at the first 2D geometry, or, when ``types`` is given, at the
+    first 2D geometry once a non-Point type has been seen; ``types`` collects
+    the GeoJSON type of every geometry read.
     """
     await run_in_thread_draining(validate_content_directives, file_path)
     # ogr2ogr rather than ogrinfo: the GeoJSON writer exists on every GDAL
@@ -1135,7 +1140,7 @@ async def _csv_geometry_is_3d(
         limit=_CSV_PROBE_LINE_LIMIT,
     )
     assert proc.stdout is not None
-    seen = False
+    seen = flat = False
     try:
         async with asyncio.timeout(OGR2OGR_FILE_TIMEOUT_SECONDS):
             async for line in proc.stdout:
@@ -1149,8 +1154,12 @@ async def _csv_geometry_is_3d(
                     continue
                 geometry = feature.get("geometry")
                 z = _geometry_z(geometry) if geometry else None
+                if types is not None and geometry:
+                    types.add(str(geometry.get("type")))
                 if z is False:
-                    return False
+                    if types is None or types - {"Point"}:
+                        return False
+                    flat = True
                 seen = seen or z is True
     except ValueError:
         raise IngestionError(
@@ -1165,7 +1174,22 @@ async def _csv_geometry_is_3d(
         if proc.returncode is None:
             proc.kill()
         await proc.wait()
-    return seen
+    return seen and not flat
+
+
+async def _csv_dimension_and_point_type(
+    file_path: str, source: str, layer_name: str | None, geometry_type: str | None
+) -> tuple[bool, str | None]:
+    """A CSV's Z flag, and the ``-nlt`` for a WKT column holding only points.
+
+    The CSV driver reports a WKT column as an untyped layer, so a column of
+    plain points would otherwise be promoted to MultiPoint.
+    """
+    types: set[str] = set()
+    has_z = await _csv_geometry_is_3d(file_path, source, layer_name, types)
+    if point_nlt(geometry_type) or types != {"Point"}:
+        return has_z, None
+    return has_z, "POINTZ" if has_z else "POINT"
 
 
 def declares_linear_geometry(geometry_type: str) -> bool:
@@ -1334,6 +1358,13 @@ async def run_ogr2ogr(
         # declared encoding would store the original bytes unconverted.
         cmd.extend(["--config", "SHAPE_ENCODING", "UTF-8"])
 
+    csv_has_z, csv_point_nlt = False, None
+    if is_csv and not is_non_spatial:
+        csv_has_z, csv_point_nlt = await _csv_dimension_and_point_type(
+            file_path, source, layer_name, geometry_type
+        )
+    point_type = point_nlt(geometry_type) or csv_point_nlt
+
     if not is_non_spatial:
         if declares_linear_geometry(geometry_type):
             # A geodatabase polygon or polyline layer reports a linear type yet
@@ -1345,7 +1376,7 @@ async def run_ogr2ogr(
                 "-nlt",
                 # A layer declared Point stays Point so downstream clients can
                 # cluster it; every other type is stored in its multi form.
-                point_nlt(geometry_type) or "PROMOTE_TO_MULTI",
+                point_type or "PROMOTE_TO_MULTI",
                 # Use a non-colliding target name so that source attributes
                 # named `geom` or `geometry` (valid GeoJSON/Shapefile/GeoPackage
                 # property names) do not clash with the pipeline geometry
@@ -1360,15 +1391,18 @@ async def run_ogr2ogr(
         )
 
     if is_csv:
-        # The CSV driver otherwise stores every column as text. The default
-        # scan stops after 1 MB and empties later values that don't fit the
-        # inferred type, so scan the whole file.
-        cmd.extend(["-oo", "AUTODETECT_TYPE=YES", "-oo", "AUTODETECT_SIZE_LIMIT=0"])
-
-    if is_csv and is_non_spatial:
-        # The driver reads a column named WKT as geometry on its own; geometry
-        # built from chosen columns must not compete with it.
-        cmd.extend(["-nlt", "NONE"])
+        # The type scan otherwise stops after 1 MB and empties later values that
+        # don't fit. A non-spatial load drops the geometry the driver reads from
+        # a column named WKT, so it can't compete with chosen columns.
+        cmd.extend(
+            [
+                "-oo",
+                "AUTODETECT_TYPE=YES",
+                "-oo",
+                "AUTODETECT_SIZE_LIMIT=0",
+                *(("-nlt", "NONE") if is_non_spatial else ()),
+            ]
+        )
 
     if is_csv and not is_non_spatial:
         cmd.extend(
@@ -1382,11 +1416,7 @@ async def run_ogr2ogr(
             ]
         )
 
-    if (
-        is_csv
-        and not is_non_spatial
-        and await _csv_geometry_is_3d(file_path, source, layer_name)
-    ):
+    if csv_has_z:
         cmd.extend(["-dim", "XYZ"])
 
     if not is_non_spatial:
@@ -1408,7 +1438,7 @@ async def run_ogr2ogr(
     # The clamp is the base the tenant role is layered onto, so both
     # single- and multi-tenant carry it.
     env = _tenant_writer_subprocess_env(schema, base_env=gdal_vector_safe_env())
-    returncode, stderr = await _run_file_ogr2ogr(cmd, env, point_nlt(geometry_type))
+    returncode, stderr = await _run_file_ogr2ogr(cmd, env, point_type)
 
     if returncode != 0:
         _raise_gdal_failure(
